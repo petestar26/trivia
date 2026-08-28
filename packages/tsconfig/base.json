@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "baseUrl": "../..",
+    "paths": {
+      "@socialplay/shared": ["packages/shared/src/index.ts"],
+      "@socialplay/shared/*": ["packages/shared/src/*"],
+      "@socialplay/config": ["packages/config/src/index.ts"],
+      "@socialplay/config/*": ["packages/config/src/*"],
+      "@socialplay/database": ["packages/database/src/index.ts"],
+      "@socialplay/database/*": ["packages/database/src/*"],
+      "@socialplay/storage": ["packages/storage/src/index.ts"],
+      "@socialplay/storage/*": ["packages/storage/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "build"]
+}
