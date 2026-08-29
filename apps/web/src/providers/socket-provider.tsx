@@ -30,13 +30,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       transports: ['websocket', 'polling'],
     });
 
-    newSocket.on('connect', () => {
-      setIsConnected(true);
-    });
-
-    newSocket.on('disconnect', () => {
-      setIsConnected(false);
-    });
+    newSocket.on('connect', () => setIsConnected(true));
+    newSocket.on('disconnect', () => setIsConnected(false));
 
     setSocket(newSocket);
 
@@ -45,7 +40,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       setSocket(null);
       setIsConnected(false);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated]);    // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: `socket` is intentionally omitted from the dep array here; it is
+  // derived state from this same effect. Including it would cause a loop.
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

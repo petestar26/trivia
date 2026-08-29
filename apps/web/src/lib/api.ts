@@ -109,10 +109,139 @@ class ApiClient {
 
     return data;
   }
+
+  // Challenge API
+  async createChallenge(body: CreateChallengeBody): Promise<ApiResponse<Challenge>> {
+    return this.post('/challenges', body);
+  }
+
+  async getUserChallenges(): Promise<ApiResponse<Challenge[]>> {
+    return this.get('/challenges');
+  }
+
+  async getChallengeById(challengeId: string): Promise<ApiResponse<Challenge>> {
+    return this.get(`/challenges/${challengeId}`);
+  }
+
+  async acceptChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string; acceptedAt: string }>> {
+    return this.post(`/challenges/${challengeId}/accept`);
+  }
+
+  async declineChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/challenges/${challengeId}/decline`);
+  }
+
+  async cancelChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/challenges/${challengeId}/cancel`);
+  }
+
+  async playChallengeTurn(challengeId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
+    return this.post(`/challenges/${challengeId}/play`, { clientData });
+  }
+
+  // Competition API
+  async listCompetitionsForGroup(groupId: string): Promise<ApiResponse<Competition[]>> {
+    return this.get(`/competitions/${groupId}`);
+  }
+
+  async createCompetition(body: CreateCompetitionBody): Promise<ApiResponse<Competition>> {
+    return this.post(`/competitions/${body.groupId}`, body);
+  }
+
+  async getCompetitionForGroup(groupId: string, competitionId: string): Promise<ApiResponse<Competition>> {
+    return this.get(`/competitions/${groupId}/${competitionId}`);
+  }
+
+  async joinCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/join`);
+  }
+
+  async playCompetition(groupId: string, competitionId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/play`, { clientData });
+  }
+
+  async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<any>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
+  }
 }
 
 export const api = new ApiClient();
 
 export function voiceMessageUrl(groupId: string, messageId: string): string {
   return `${API_BASE}/groups/${groupId}/voice-messages/${messageId}`;
+}
+
+// Challenge as returned by GET /challenges (list) — mapped shape.
+// Also used as base for GET /challenges/:id (detail) which returns the raw Prisma
+// record and additionally includes challengerId/challengedId as FK columns and
+// game: { key, name } instead of top-level gameKey/gameName.
+export interface Challenge {
+  id: string;
+  // Present in list response (mapped):
+  gameKey?: string;
+  gameName?: string;
+  // Present in detail response (raw Prisma + include):
+  game?: { key: string; name: string };
+  challengerId?: string;
+  challengedId?: string;
+  // Present in both:
+  challenger: { id: string; username?: string; displayName?: string };
+  challenged: { id: string; username?: string; displayName?: string };
+  entryAmount: number;
+  status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  winnerId?: string | null;
+  resultMeta?: {
+    challengerScore?: number;
+    challengedScore?: number;
+    winnerId?: string | null;
+    mySessionId?: string;
+  } | null;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface CreateChallengeBody {
+  challengedId: string;
+  gameKey: string;
+  entryAmount?: number;
+}
+
+// Competition as returned by the backend (Prisma include shape).
+// The backend uses { include: { game: { select: { key, name } } } }
+// so the game name is in competition.game.name, not competition.gameName.
+export interface Competition {
+  id: string;
+  groupId: string;
+  game: { key: string; name: string };
+  title: string;
+  description?: string | null;
+  status: 'SCHEDULED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  scoring?: string;
+  entryAmount: number;
+  maxParticipants?: number | null;
+  rewardGamePoints: number;
+  rewardCoins: number;
+  startsAt: string;
+  endsAt: string;
+  createdAt: string;
+  createdBy?: string;
+  finalizedAt?: string | null;
+  finalizerId?: string | null;
+  result?: unknown;
+  participants?: { userId: string; score: number; gamesPlayed: number }[];
+}
+
+export interface CreateCompetitionBody {
+  groupId: string;
+  gameKey: string;
+  title: string;
+  description?: string;
+  startsAt: string;
+  endsAt: string;
+  entryAmount?: number;
+  maxParticipants?: number;
+  rewardGamePoints?: number;
+  rewardCoins?: number;
 }

@@ -11,6 +11,11 @@ import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
 import { TriviaGamePage } from '@/pages/games/trivia';
 import { GameHistoryPage } from '@/pages/games/history';
+import { ChallengesPage } from '@/pages/challenges';
+import { ChallengeDetailPage } from '@/pages/challenges/detail';
+import { CompetitionsPage } from '@/pages/competitions';
+import { GroupCompetitionsPage } from '@/pages/competitions/index';
+import { CompetitionDetailPage } from '@/pages/competitions/detail';
 
 export function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -42,6 +47,11 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/number-challenge" element={<NumberChallengePage />} />
         <Route path="games/trivia" element={<TriviaGamePage />} />
+        <Route path="challenges" element={<ChallengesPage />} />
+        <Route path="challenges/:id" element={<ChallengeDetailPage />} />
+        <Route path="competitions" element={<CompetitionsPage />} />
+        <Route path="competitions/:groupId" element={<GroupCompetitionsPage />} />
+        <Route path="competitions/:groupId/:competitionId" element={<CompetitionDetailPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
