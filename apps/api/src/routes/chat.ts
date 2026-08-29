@@ -1,109 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { ApiError, authenticate } from '../middleware';
+import {
+  assertActiveMember,
+  createMessage,
+  getGroupOrThrow,
+  getMessageInGroup,
+  MESSAGE_SENDER_SELECT,
+  serializeMessage,
+} from '../realtime/chat-service';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
-type GroupMemberStatus = 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
 
 const MANAGER_ROLES: GroupMemberRole[] = ['OWNER', 'ADMIN'];
-
-const MESSAGE_SENDER_SELECT = {
-  id: true,
-  username: true,
-  displayName: true,
-  avatarUrl: true,
-} as const;
-
-async function getGroupOrThrow(groupId: string) {
-  const group = await prisma.group.findUnique({ where: { id: groupId } });
-
-  if (!group) {
-    throw ApiError.notFound('Group not found');
-  }
-
-  return group;
-}
-
-async function getGroupMembership(groupId: string, userId: string) {
-  return prisma.groupMember.findUnique({
-    where: {
-      groupId_userId: {
-        groupId,
-        userId,
-      },
-    },
-  });
-}
-
-// Verifies the user is an ACTIVE member of the group. Returns the membership.
-async function assertActiveMember(groupId: string, userId: string) {
-  const membership = await getGroupMembership(groupId, userId);
-
-  if (!membership || membership.status !== 'ACTIVE') {
-    throw ApiError.forbidden('You are not a member of this group');
-  }
-
-  return membership;
-}
-
-// Loads a message and verifies it belongs to the given group.
-// Returns the message or throws not-found, so that cross-group access is opaque.
-async function getMessageInGroup(groupId: string, messageId: string) {
-  const message = await prisma.message.findUnique({
-    where: { id: messageId },
-    include: {
-      user: { select: MESSAGE_SENDER_SELECT },
-      replyTo: {
-        include: {
-          user: { select: MESSAGE_SENDER_SELECT },
-        },
-      },
-      reactions: {
-        select: {
-          userId: true,
-          type: true,
-        },
-      },
-    },
-  });
-
-  if (!message || message.groupId !== groupId || message.isDeleted) {
-    throw ApiError.notFound('Message not found');
-  }
-
-  return message;
-}
-
-function serializeMessage(message: {
-  id: string;
-  groupId: string;
-  userId: string;
-  content: string;
-  type: string;
-  isEdited: boolean;
-  isDeleted: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  replyToId?: string | null;
-  user?: { id: string; username: string; displayName: string; avatarUrl?: string };
-  replyTo?: any;
-  reactions?: Array<{ userId: string; type: string }>;
-}) {
-  return {
-    id: message.id,
-    groupId: message.groupId,
-    userId: message.userId,
-    content: message.content,
-    type: message.type.toLowerCase(),
-    sender: message.user,
-    replyTo: message.replyTo ? serializeMessage(message.replyTo) : null,
-    isEdited: message.isEdited,
-    isDeleted: message.isDeleted,
-    reactions: message.reactions ?? [],
-    createdAt: message.createdAt,
-    updatedAt: message.updatedAt,
-  };
-}
 
 export async function chatRoutes(server: FastifyInstance): Promise<void> {
   // Create message
@@ -134,61 +43,16 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const groupId = request.params.id;
-      const userId = request.user!.sub;
-
-      const content = request.body.content;
-      if (!content.trim()) {
-        throw ApiError.badRequest('Message cannot be whitespace only');
-      }
-
-      await getGroupOrThrow(groupId);
-      await assertActiveMember(groupId, userId);
-
-      const data: { content: string; type: 'TEXT'; replyToId?: string } = {
-        content,
-        type: 'TEXT',
-      };
-
-      if (request.body.replyToId) {
-        const parent = await prisma.message.findUnique({
-          where: { id: request.body.replyToId },
-        });
-
-        if (!parent || parent.groupId !== groupId || parent.isDeleted) {
-          throw ApiError.badRequest('Parent message not found in this group');
-        }
-
-        data.replyToId = request.body.replyToId;
-      }
-
-      const message = await prisma.message.create({
-        data: {
-          groupId,
-          userId,
-          content: data.content,
-          type: data.type,
-          replyToId: data.replyToId,
-        },
-        include: {
-          user: { select: MESSAGE_SENDER_SELECT },
-          replyTo: {
-            include: {
-              user: { select: MESSAGE_SENDER_SELECT },
-            },
-          },
-          reactions: {
-            select: {
-              userId: true,
-              type: true,
-            },
-          },
-        },
+      const message = await createMessage({
+        groupId: request.params.id,
+        userId: request.user!.sub,
+        content: request.body.content,
+        replyToId: request.body.replyToId,
       });
 
       reply.status(201).send({
         success: true,
-        data: serializeMessage(message),
+        data: message,
       });
     }
   );
