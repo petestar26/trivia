@@ -32,6 +32,13 @@ model User {
   messageReactions MessageReaction[]
   notifications    Notification[]
   wallet           Wallet?
+  vipMembership    VipMembership?
+  progress         UserProgress?
+  xpEvents         UserXpEvent[]
+  tasks            UserTask[]
+  streak           DailyStreak?
+  rewardClaims     RewardClaim[]
+  achievements     UserAchievement[]
 
   @@index([email])
   @@index([username])
@@ -430,4 +437,209 @@ model IdempotencyRecord {
   @@unique([userId, key])
   @@index([userId])
   @@map("idempotency_records")
+}
+
+// ─── VIP ────────────────────────────────────────────────────────
+
+enum VipTier {
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum VipStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model VipMembership {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  tier      VipTier
+  status    VipStatus @default(ACTIVE)
+  startedAt DateTime
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([status])
+  @@map("vip_memberships")
+}
+
+// ─── XP / Levels ────────────────────────────────────────────────
+
+model UserProgress {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  xpEvents UserXpEvent[]
+
+  @@map("user_progress")
+}
+
+model UserXpEvent {
+  id            String  @id @default(uuid())
+  userId        String
+  xp            Int
+  reason        String
+  referenceType String
+  referenceId   String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Prevents duplicate XP award for the same action/reference
+  @@unique([referenceType, referenceId, userId])
+  @@index([userId, createdAt])
+  @@map("user_xp_events")
+}
+
+// ─── Daily Tasks ────────────────────────────────────────────────
+
+enum TaskType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  ONE_TIME
+  ACHIEVEMENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CLAIMED
+  EXPIRED
+}
+
+model TaskDefinition {
+  id            String   @id @default(uuid())
+  key           String   @unique
+  type          TaskType
+  title         String
+  description   String?  @db.Text
+  target        Int      @default(1)
+  xpReward      Int      @default(0)
+  coinReward    Int      @default(0)
+  gamePointReward Int    @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userTasks UserTask[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("task_definitions")
+}
+
+model UserTask {
+  id          String     @id @default(uuid())
+  userId      String
+  taskId      String
+  progress    Int        @default(0)
+  status      TaskStatus @default(IN_PROGRESS)
+  periodKey   String?    // canonical date (YYYY-MM-DD) for DAILY tasks
+  completedAt DateTime?
+  claimedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task TaskDefinition @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskId, periodKey])
+  @@index([userId, status])
+  @@index([taskId])
+  @@map("user_tasks")
+}
+
+// ─── Streaks ────────────────────────────────────────────────────
+
+model DailyStreak {
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  currentStreak  Int     @default(0)
+  longestStreak  Int     @default(0)
+  lastActivityDay String? // canonical UTC date (YYYY-MM-DD)
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("daily_streaks")
+}
+
+// ─── Rewards ────────────────────────────────────────────────────
+
+model RewardClaim {
+  id             String  @id @default(uuid())
+  userId         String
+  sourceType     String
+  sourceId       String
+  xpReward       Int     @default(0)
+  coinReward     Int     @default(0)
+  gamePointReward Int    @default(0)
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // A given reward source can only be claimed once per user
+  @@unique([userId, sourceType, sourceId])
+  @@index([userId])
+  @@map("reward_claims")
+}
+
+// ─── Achievements ───────────────────────────────────────────────
+
+enum AchievementCategory {
+  SOCIAL
+  CHAT
+  ECONOMY
+  GAME
+  ENGAGEMENT
+  MILESTONE
+}
+
+model Achievement {
+  id          String              @id @default(uuid())
+  key         String              @unique
+  category    AchievementCategory
+  title       String
+  description String?             @db.Text
+  xpReward    Int                 @default(0)
+  coinReward  Int                 @default(0)
+  gamePointReward Int             @default(0)
+  iconUrl     String?
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  userAchievements UserAchievement[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
 }

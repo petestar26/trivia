@@ -6,6 +6,10 @@ import { chatRoutes } from './chat';
 import { storageRoutes } from './storage';
 import { walletRoutes } from './wallet';
 import { giftRoutes } from './gifts';
+import { vipRoutes } from './vip';
+import { progressRoutes } from './progress';
+import { taskRoutes } from './tasks';
+import { achievementRoutes } from './achievements';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(healthRoutes, { prefix: '/health' });
@@ -15,6 +19,10 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(storageRoutes, { prefix: '/storage' });
   await server.register(walletRoutes, { prefix: '/wallet' });
   await server.register(giftRoutes, { prefix: '/gifts' });
+  await server.register(vipRoutes, { prefix: '/vip' });
+  await server.register(progressRoutes, { prefix: '/progress' });
+  await server.register(taskRoutes, { prefix: '/tasks' });
+  await server.register(achievementRoutes, { prefix: '/achievements' });
 
   server.get('/', async () => ({
     success: true,

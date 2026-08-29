@@ -6,6 +6,7 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '@socialplay/sha
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth';
+import { safeRecordActivity } from '../rewards/activity-service';
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof registerSchema> }>(
@@ -153,6 +154,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           ...tokens,
         },
       });
+
+      // Server-verified activity: daily login + streak (post-commit, best-effort).
+      safeRecordActivity(user.id, { type: 'LOGIN' });
     }
   );
 

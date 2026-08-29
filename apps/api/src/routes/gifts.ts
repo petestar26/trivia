@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ApiError, authenticate } from '../middleware';
 import { listActiveGifts, sendGift, getGiftTransactions } from '../economy/gift-service';
 import { emitToUser } from '../realtime/broadcast';
+import { safeRecordActivity } from '../rewards/activity-service';
 
 export async function giftRoutes(server: FastifyInstance): Promise<void> {
   // GET /gifts — list active gifts (catalog)
@@ -62,6 +63,10 @@ export async function giftRoutes(server: FastifyInstance): Promise<void> {
         totalGamePoints: result.totalGamePoints,
         createdAt: result.createdAt,
       });
+
+      // Server-verified activity (post-commit, best-effort) for both parties.
+      safeRecordActivity(request.user!.sub, { type: 'GIFT_SENT' });
+      safeRecordActivity(recipientId, { type: 'GIFT_RECEIVED' });
 
       return reply.status(201).send({
         success: true,

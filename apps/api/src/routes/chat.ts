@@ -13,6 +13,7 @@ import {
 } from '../realtime/chat-service';
 import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
+import { safeRecordActivity } from '../rewards/activity-service';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
@@ -58,6 +59,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: message,
       });
+
+      // Server-verified activity (post-commit, best-effort).
+      safeRecordActivity(request.user!.sub, { type: 'MESSAGE' });
     }
   );
 
@@ -469,6 +473,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: message,
       });
+
+      // Server-verified activity (post-commit, best-effort).
+      safeRecordActivity(request.user!.sub, { type: 'VOICE_MESSAGE' });
     }
   );
 
