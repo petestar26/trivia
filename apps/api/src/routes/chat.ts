@@ -4,11 +4,15 @@ import { ApiError, authenticate } from '../middleware';
 import {
   assertActiveMember,
   createMessage,
+  createVoiceMessage,
+  deleteVoiceMessageStorage,
   getGroupOrThrow,
   getMessageInGroup,
   MESSAGE_SENDER_SELECT,
   serializeMessage,
 } from '../realtime/chat-service';
+import { storage } from '@socialplay/storage';
+import { STORAGE_BUCKETS } from '@socialplay/shared';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
@@ -269,6 +273,11 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You can only delete your own messages');
       }
 
+      // Clean up voice message storage before deleting the message
+      if (message.voiceMessage) {
+        await deleteVoiceMessageStorage(message.id);
+      }
+
       await prisma.message.update({
         where: { id: message.id },
         data: { isDeleted: true },
@@ -388,6 +397,127 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: { message: 'Reaction removed' },
       };
+    }
+  );
+
+  // ─── Voice Messages ─────────────────────────────────────────
+
+  // Upload voice message
+  server.post<{
+    Params: { id: string };
+  }>(
+    '/:id/voice-messages',
+    {
+      preHandler: [authenticate],
+      rateLimit: { max: 10, timeWindow: '1 minute' },
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const groupId = request.params.id;
+      const userId = request.user!.sub;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, userId);
+
+      // Parse multipart upload
+      const parts = request.parts();
+      let fileData: Buffer | null = null;
+      let fileName = 'voice-message.ogg';
+      let mimeType = 'audio/ogg';
+      let duration = 0;
+
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          // Collect file data into buffer
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) {
+            chunks.push(chunk);
+          }
+          fileData = Buffer.concat(chunks);
+          fileName = part.filename || fileName;
+          mimeType = part.mimetype || mimeType;
+        } else if (part.type === 'field' && part.fieldname === 'duration') {
+          const val = typeof part.value === 'string' ? parseInt(part.value, 10) : 0;
+          if (!isNaN(val) && val > 0) {
+            duration = val;
+          }
+        }
+      }
+
+      if (!fileData) {
+        throw ApiError.badRequest('Audio file is required');
+      }
+
+      const message = await createVoiceMessage({
+        groupId,
+        userId,
+        file: fileData,
+        fileName,
+        mimeType,
+        duration,
+      });
+
+      reply.status(201).send({
+        success: true,
+        data: message,
+      });
+    }
+  );
+
+  // Stream/download voice message audio
+  server.get<{
+    Params: { id: string; messageId: string };
+  }>(
+    '/:id/voice-messages/:messageId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, request.user!.sub);
+
+      const message = await getMessageInGroup(groupId, messageId);
+
+      if (!message.voiceMessage) {
+        throw ApiError.notFound('Voice message not found');
+      }
+
+      // Get the audio file from storage
+      const audioBuffer = await storage.download({
+        bucket: STORAGE_BUCKETS.VOICE_MESSAGES,
+        key: message.voiceMessage.storageKey,
+      });
+
+      const buffer = Buffer.isBuffer(audioBuffer) ? audioBuffer : Buffer.from(audioBuffer as any);
+
+      // Set appropriate headers for audio streaming
+      reply.header('Content-Type', message.voiceMessage.mimeType);
+      reply.header('Content-Length', buffer.length);
+      reply.header('Accept-Ranges', 'bytes');
+      reply.header('Cache-Control', 'private, max-age=3600');
+
+      reply.send(buffer);
     }
   );
 }

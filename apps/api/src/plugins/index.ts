@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
@@ -64,6 +65,13 @@ export async function registerPlugins(server: FastifyInstance): Promise<void> {
       signed: false,
       secure: config.COOKIE_SECURE,
       sameSite: config.COOKIE_SAME_SITE,
+    },
+  });
+
+  await server.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB max upload
+      files: 1,
     },
   });
 

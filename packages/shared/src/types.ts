@@ -133,6 +133,13 @@ export interface MessageDetailInfo extends MessageBasicInfo {
     type: string;
     userId: string;
   }>;
+  voiceMessage?: {
+    id: string;
+    storageKey: string;
+    mimeType: string;
+    duration: number;
+    size: number;
+  } | null;
   updatedAt: string;
 }
 

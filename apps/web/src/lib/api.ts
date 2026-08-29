@@ -89,6 +89,30 @@ class ApiClient {
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
+
+  async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
+    const response = await fetch(this.buildUrl(endpoint), {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const error = data.error || {
+        code: 'UNKNOWN_ERROR',
+        message: data.message || 'An unexpected error occurred',
+      };
+      throw new Error(JSON.stringify({ status: response.status, ...error }));
+    }
+
+    return data;
+  }
 }
 
 export const api = new ApiClient();
+
+export function voiceMessageUrl(groupId: string, messageId: string): string {
+  return `${API_BASE}/groups/${groupId}/voice-messages/${messageId}`;
+}
