@@ -12,6 +12,7 @@ interface SpinPlayResult {
   rewardAmount: number;
   isWin: boolean;
   result: SpinResult;
+  newBalance: number;
 }
 
 const SEGMENTS = ['LOSE', 'SMALL_WIN', 'MEDIUM_WIN', 'LARGE_WIN', 'JACKPOT'];
@@ -20,6 +21,7 @@ export function LuckySpinPage() {
   const [bet, setBet] = useState(50);
   const [spinning, setSpinning] = useState(false);
   const [lastResult, setLastResult] = useState<SpinResult | null>(null);
+  const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
@@ -35,6 +37,7 @@ export function LuckySpinPage() {
     },
     onSuccess: (data) => {
       setLastResult(data.result);
+      setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
     onError: () => setSpinning(false),
@@ -140,6 +143,11 @@ export function LuckySpinPage() {
               +{playMutation.data.rewardAmount} GP
             </div>
           ) : null}
+          {serverBalance !== null && (
+            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
+            </div>
+          )}
         </div>
       )}
     </div>

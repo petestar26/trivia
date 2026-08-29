@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
-import { useCallback, useEffect } from 'react';
+import { useEffect } from 'react';
 
 interface GameCatalogItem {
   id: string;
@@ -27,17 +27,25 @@ const GAME_ICONS: Record<string, string> = {
   trivia: '🧠',
 };
 
+const GAME_ROUTES: Record<string, string> = {
+  lucky_spin: 'lucky-spin',
+  dice: 'dice',
+  number_challenge: 'number-challenge',
+  trivia: 'trivia',
+};
+
 export function GamesPage() {
   const { user } = useAuth();
   const { id: userId } = user;
 
-  const { data: games, isLoading } = useQuery<GameCatalogItem[]>({
+  const { data: gamesData, isLoading } = useQuery<{ data: GameCatalogItem[] }>({
     queryKey: ['games'],
     queryFn: async () => {
       const res = await api.get<{ data: GameCatalogItem[] }>('/games');
       return res.data;
     },
   });
+  const games = gamesData?.data;
 
   const { data: wallet, refetch: refetchWallet } = useQuery<WalletData>({
     queryKey: ['wallet', userId],
@@ -46,10 +54,6 @@ export function GamesPage() {
       return res.data;
     },
   });
-
-  const handlePlayed = useCallback(() => {
-    refetchWallet();
-  }, [refetchWallet]);
 
   useEffect(() => {
     // Any time games load, refresh wallet balance
@@ -73,10 +77,18 @@ export function GamesPage() {
             Play fun mini-games with your Game Points.
           </p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Game Points</span>
-          <div className="text-lg font-bold text-primary-600 dark:text-primary-400">
-            {wallet?.gamePointsBalance ?? '—'}
+        <div className="flex items-center gap-3">
+          <Link
+            to="/games/history"
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            History
+          </Link>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Game Points</span>
+            <div className="text-lg font-bold text-primary-600 dark:text-primary-400">
+              {wallet?.gamePointsBalance ?? '—'}
+            </div>
           </div>
         </div>
       </div>
@@ -85,7 +97,7 @@ export function GamesPage() {
         {(games ?? []).map((game) => (
           <Link
             key={game.id}
-            to={`/games/${game.key}`}
+            to={`/games/${GAME_ROUTES[game.key] ?? game.key}`}
             className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:shadow-md transition-shadow"
           >
             <div className="text-4xl mb-3">{GAME_ICONS[game.key] ?? '🎮'}</div>

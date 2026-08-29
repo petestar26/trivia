@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
 import {
   listActiveGames,
   getGameByKey,
@@ -242,6 +241,18 @@ describeIf('Dice', () => {
         expect(result.rewardAmount).toBe(0);
       }
     }
+  });
+
+  it('returns authoritative server-side newBalance', async () => {
+    const before = await getWalletBalance(a.id);
+    const result = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 });
+
+    const expected = before.gamePointsBalance - 10 + result.rewardAmount;
+    expect(result.newBalance).toBe(expected);
+    // newBalance must equal the authoritative wallet balance
+    const after = await getWalletBalance(a.id);
+    expect(result.newBalance).toBe(after.gamePointsBalance);
+    expect(after.gamePointsBalance).toBeGreaterThanOrEqual(0);
   });
 });
 

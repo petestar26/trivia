@@ -52,7 +52,7 @@ function pickLuckySpinOutcome(overrides?: Partial<LuckySpinConfig>): {
   rewardAmount: number;
 } {
   const config = { ...DEFAULT_LUCKY_SPIN_CONFIG, ...overrides };
-  const index = secureRandomInt(0, config.outcomes.length - 1);
+  const index = weightedRandomIndex(config);
   const outcome = config.outcomes[index];
   return {
     outcome: {

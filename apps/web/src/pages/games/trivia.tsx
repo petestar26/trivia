@@ -22,12 +22,14 @@ interface TriviaPlayResult {
   rewardAmount: number;
   isWin: boolean;
   result: TriviaResult;
+  newBalance: number;
 }
 
 export function TriviaGamePage() {
   const [bet, setBet] = useState(20);
   const [selected, setSelected] = useState<number | null>(null);
   const [lastResult, setLastResult] = useState<TriviaResult | null>(null);
+  const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
@@ -64,6 +66,7 @@ export function TriviaGamePage() {
     },
     onSuccess: (data) => {
       setLastResult(data.result);
+      setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
@@ -154,33 +157,32 @@ export function TriviaGamePage() {
         </div>
       )}
 
-      {playMutation.data?.rewardAmount ? (
-        <div className="bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg p-4 text-center">
-          <div className="text-green-600 dark:text-green-400 font-semibold">
-            +{playMutation.data.rewardAmount} GP
-          </div>
+      {lastResult && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+          {lastResult.correct ? (
+            <div className="text-green-600 dark:text-green-400 font-semibold">
+              Correct! +{playMutation.data?.rewardAmount ?? 0} GP
+            </div>
+          ) : (
+            <div className="text-red-600 dark:text-red-400 font-semibold">
+              Incorrect — better luck on the next one
+            </div>
+          )}
+          {serverBalance !== null && (
+            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
+            </div>
+          )}
         </div>
-      ) : null}
-
-      {lastResult && !playMutation.data?.rewardAmount && (
-        <button
-          onClick={() => {
-            setCurrent(questions[Math.floor(Math.random() * questions.length)] ?? null);
-            setLastResult(null);
-            setSelected(null);
-          }}
-          className="w-full px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700"
-        >
-          Next Question
-        </button>
       )}
 
-      {lastResult && lastResult.correct && (
+      {lastResult && (
         <button
           onClick={() => {
             setCurrent(questions[Math.floor(Math.random() * questions.length)] ?? null);
             setLastResult(null);
             setSelected(null);
+            playMutation.reset();
           }}
           className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700"
         >

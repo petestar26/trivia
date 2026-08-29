@@ -10,6 +10,7 @@ import { DiceGamePage } from '@/pages/games/dice';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
 import { TriviaGamePage } from '@/pages/games/trivia';
+import { GameHistoryPage } from '@/pages/games/history';
 
 export function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -36,6 +37,7 @@ export function App() {
       >
         <Route index element={<HomePage />} />
         <Route path="games" element={<GamesPage />} />
+        <Route path="games/history" element={<GameHistoryPage />} />
         <Route path="games/dice" element={<DiceGamePage />} />
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/number-challenge" element={<NumberChallengePage />} />

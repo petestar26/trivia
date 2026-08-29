@@ -17,6 +17,7 @@ interface DicePlayResult {
   isWin: boolean;
   result: DiceResult;
   completedAt: string;
+  newBalance: number;
 }
 
 function DiceFace({ value }: { value: number }) {
@@ -44,6 +45,7 @@ function DiceFace({ value }: { value: number }) {
 export function DiceGamePage() {
   const [bet, setBet] = useState(50);
   const [lastResult, setLastResult] = useState<DiceResult | null>(null);
+  const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
@@ -59,6 +61,7 @@ export function DiceGamePage() {
     },
     onSuccess: (data) => {
       setLastResult(data.result);
+      setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
@@ -130,6 +133,11 @@ export function DiceGamePage() {
               {playMutation.data && playMutation.data.rewardAmount > 0 && (
                 <div className="mt-1 text-green-600 dark:text-green-400">
                   +{playMutation.data.rewardAmount} GP
+                </div>
+              )}
+              {serverBalance !== null && (
+                <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
                 </div>
               )}
             </>

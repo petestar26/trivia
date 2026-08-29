@@ -27,6 +27,7 @@ export interface GameResult {
   isWin: boolean;
   result: Record<string, unknown>;
   completedAt: Date;
+  newBalance: number; // authoritative server-side Game Points balance after play
 }
 
 // ─── Bet Validation ────────────────────────────────────────────
@@ -126,7 +127,6 @@ async function generateTriviaResult(
     result: {
       questionId: question.id,
       submittedAnswer: answerIndex,
-      correctIndex: question.correctIndex,
       correct,
     },
     rewardAmount,
@@ -164,6 +164,11 @@ export async function playGame(args: PlayGameArgs): Promise<GameResult> {
 
       if (existing) {
         if (existing.status === 'COMPLETED') {
+          // Get the wallet balance for authoritative response
+          const wallet = await tx.wallet.findUnique({
+            where: { userId },
+            select: { gamePointsBalance: true },
+          });
           return {
             sessionId: existing.id,
             gameKey,
@@ -172,6 +177,7 @@ export async function playGame(args: PlayGameArgs): Promise<GameResult> {
             isWin: existing.isWin,
             result: existing.result as Record<string, unknown>,
             completedAt: existing.completedAt ?? existing.createdAt,
+            newBalance: wallet?.gamePointsBalance ?? 0,
           };
         }
         throw ApiError.conflict('Game session in progress');
@@ -252,6 +258,13 @@ export async function playGame(args: PlayGameArgs): Promise<GameResult> {
       operationName: 'game_play',
     });
 
+    // 5e2. Read authoritative post-play balance
+    const walletAfter = await tx.wallet.findUnique({
+      where: { userId },
+      select: { gamePointsBalance: true },
+    });
+    const walletAfterBalance = walletAfter?.gamePointsBalance ?? 0;
+
     // 5f. Create game session
     const session = await tx.gameSession.create({
       data: {
@@ -279,6 +292,7 @@ export async function playGame(args: PlayGameArgs): Promise<GameResult> {
       isWin,
       result: resultData,
       completedAt: session.completedAt ?? session.createdAt,
+      newBalance: walletAfterBalance,
     };
   });
 }

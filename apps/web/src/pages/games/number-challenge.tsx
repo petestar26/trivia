@@ -13,12 +13,14 @@ interface NumPlayResult {
   rewardAmount: number;
   isWin: boolean;
   result: NumResult;
+  newBalance: number;
 }
 
 export function NumberChallengePage() {
   const [bet, setBet] = useState(50);
   const [guess, setGuess] = useState(50);
   const [lastResult, setLastResult] = useState<NumResult | null>(null);
+  const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
@@ -34,6 +36,7 @@ export function NumberChallengePage() {
     },
     onSuccess: (data) => {
       setLastResult(data.result);
+      setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
@@ -114,6 +117,11 @@ export function NumberChallengePage() {
               +{playMutation.data.rewardAmount} GP
             </div>
           ) : null}
+          {serverBalance !== null && (
+            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
+            </div>
+          )}
         </div>
       )}
     </div>
