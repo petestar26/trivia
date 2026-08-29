@@ -31,6 +31,7 @@ model User {
   messages         Message[]
   messageReactions MessageReaction[]
   notifications    Notification[]
+  wallet           Wallet?
 
   @@index([email])
   @@index([username])
@@ -288,4 +289,145 @@ model Notification {
   @@index([userId])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// ─── Economy ────────────────────────────────────────────────────
+
+enum CurrencyType {
+  COINS
+  GAME_POINTS
+}
+
+enum LedgerType {
+  CREDIT
+  DEBIT
+}
+
+enum EconomyTransactionType {
+  COIN_CREDIT
+  COIN_DEBIT
+  GAME_POINT_CREDIT
+  GAME_POINT_DEBIT
+  GIFT_SEND
+  GIFT_RECEIVE
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REVERSED
+}
+
+enum TransactionReferenceType {
+  GIFT
+  REWARD
+  PURCHASE
+  GAME
+  ADMIN
+  TRANSFER
+  DAILY_REWARD
+  TASK
+  ACHIEVEMENT
+  REFUND
+}
+
+model Wallet {
+  id               String @id @default(uuid())
+  userId           String @unique
+  coinsBalance     Int    @default(0)
+  gamePointsBalance Int   @default(0)
+  version          Int    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletTransactions WalletTransaction[]
+  sentGifts         GiftTransaction[]    @relation("GiftSender")
+  receivedGifts     GiftTransaction[]    @relation("GiftRecipient")
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String                   @id @default(uuid())
+  walletId      String
+  userId        String
+  type          EconomyTransactionType
+  ledgerType    LedgerType
+  currency      CurrencyType
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  referenceType TransactionReferenceType
+  referenceId   String?
+  description   String
+  status        WalletTransactionStatus  @default(SUCCEEDED)
+  createdAt     DateTime                 @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt])
+  @@index([userId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("wallet_transactions")
+}
+
+model Gift {
+  id                String       @id @default(uuid())
+  name              String
+  description       String       @default("")
+  imageUrl          String?
+  coinPrice         Int
+  recipientPointValue Int
+  isAnimated        Boolean      @default(false)
+  isLimited         Boolean      @default(false)
+  limitedQuantity   Int?
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  transactions      GiftTransaction[]
+
+  @@index([isActive])
+  @@map("gifts")
+}
+
+model GiftTransaction {
+  id                      String @id @default(uuid())
+  senderId                String
+  recipientId             String
+  giftId                  String
+  quantity                Int
+  totalCoins              Int
+  totalGamePoints         Int
+  coinPriceAtTransaction  Int
+  pointValueAtTransaction Int
+  senderWalletId          String
+  recipientWalletId       String
+  createdAt               DateTime @default(now())
+
+  sender    Wallet @relation("GiftSender", fields: [senderWalletId], references: [id], onDelete: Restrict)
+  recipient Wallet @relation("GiftRecipient", fields: [recipientWalletId], references: [id], onDelete: Restrict)
+  gift      Gift   @relation(fields: [giftId], references: [id], onDelete: Restrict)
+
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([giftId])
+  @@index([createdAt])
+  @@map("gift_transactions")
+}
+
+model IdempotencyRecord {
+  id          String   @id @default(uuid())
+  userId      String
+  key         String
+  operation   String
+  status      String   @default("SUCCEEDED")
+  responseKey String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("idempotency_records")
 }

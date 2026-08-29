@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import { config } from '@socialplay/config';
 import { JwtPayload } from '@socialplay/shared';
 import { createMessage, getGroupMembership } from '../realtime/chat-service';
+import { setSocketServer } from '../realtime/broadcast';
 
 const GROUP_ROOM_PREFIX = 'group:';
 
@@ -34,6 +35,8 @@ export function registerWebSocket(server: FastifyInstance): void {
     },
   });
 
+  setSocketServer(io);
+
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
@@ -64,6 +67,9 @@ export function registerWebSocket(server: FastifyInstance): void {
 
   io.on('connection', (socket) => {
     const user = socket.data.user as SocketUser;
+
+    // Join user-specific room for private events (e.g. gift:received)
+    socket.join(`user:${user.id}`);
 
     socket.on('group:join', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
       try {
