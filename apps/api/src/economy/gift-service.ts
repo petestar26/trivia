@@ -184,9 +184,9 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       throw ApiError.internal('Recipient wallet not found');
     }
 
-    // Debit sender coins
+    // Debit sender coins (version-locked)
     const newSenderCoins = senderWallet.coinsBalance - totalCoins;
-    await tx.wallet.update({
+    const senderDebit = await tx.wallet.updateMany({
       where: {
         id: senderWallet.id,
         version: senderWallet.version,
@@ -197,9 +197,13 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       },
     });
 
-    // Credit recipient game points
+    if (senderDebit.count === 0) {
+      throw ApiError.conflict('Concurrent wallet modification — please retry');
+    }
+
+    // Credit recipient game points (version-locked)
     const newRecipientGamePoints = recipientWallet.gamePointsBalance + totalGamePoints;
-    await tx.wallet.update({
+    const recipientCredit = await tx.wallet.updateMany({
       where: {
         id: recipientWallet.id,
         version: recipientWallet.version,
@@ -209,6 +213,10 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
         version: { increment: 1 },
       },
     });
+
+    if (recipientCredit.count === 0) {
+      throw ApiError.conflict('Concurrent wallet modification — please retry');
+    }
 
     // Create sender wallet transaction
     await tx.walletTransaction.create({
@@ -288,15 +296,39 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       });
     }
 
-    // Update limited gift quantity
+    // Update limited gift quantity atomically and conditionally.
+    // Because the gift row was read outside the transaction, we re-check the
+    // current quantity inside the transaction and use a conditional update so
+    // concurrent sends cannot drive the remaining quantity below zero.
     if (gift.isLimited && gift.limitedQuantity !== null) {
-      await tx.gift.update({
+      const remaining = await tx.gift.findUnique({
         where: { id: gift.id },
+        select: { limitedQuantity: true, isActive: true },
+      });
+
+      const currentRemaining = remaining?.limitedQuantity ?? 0;
+
+      if (currentRemaining < quantity) {
+        throw ApiError.badRequest(`Only ${currentRemaining} of this gift remaining`);
+      }
+
+      const newRemaining = currentRemaining - quantity;
+
+      const result = await tx.gift.updateMany({
+        where: {
+          id: gift.id,
+          limitedQuantity: { gte: quantity },
+        },
         data: {
-          limitedQuantity: gift.limitedQuantity - quantity,
-          isActive: gift.limitedQuantity - quantity > 0,
+          limitedQuantity: newRemaining,
+          isActive: newRemaining > 0,
         },
       });
+
+      // If no row matched, another concurrent transaction consumed the stock.
+      if (result.count === 0) {
+        throw ApiError.conflict('This limited gift just sold out, please retry');
+      }
     }
 
     return {

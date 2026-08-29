@@ -205,8 +205,10 @@ export async function executeBalanceChange(args: ExecuteBalanceChangeArgs) {
     if (newCoins < 0) throw ApiError.internal('Negative coin balance detected');
     if (newGamePoints < 0) throw ApiError.internal('Negative game points balance detected');
 
-    // Update wallet with version lock
-    const updated = await tx.wallet.update({
+    // Update wallet with version lock. updateMany returns { count } without
+    // throwing when no row matches, so we explicitly check the matched count
+    // to detect a concurrent modification.
+    const walletUpdate = await tx.wallet.updateMany({
       where: {
         id: wallet.id,
         version: wallet.version,
@@ -218,7 +220,7 @@ export async function executeBalanceChange(args: ExecuteBalanceChangeArgs) {
       },
     });
 
-    if (!updated) {
+    if (walletUpdate.count === 0) {
       throw ApiError.conflict('Concurrent wallet modification — please retry');
     }
 
