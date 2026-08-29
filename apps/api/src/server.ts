@@ -18,7 +18,10 @@ async function buildServer(): Promise<FastifyInstance> {
     ajv: {
       customOptions: {
         removeAdditional: 'all',
-        coerceTypes: 'array',
+        // `coerceTypes: true` allows string→integer coercion for query
+        // params (e.g. ?page=2 → 2). The previous 'array' value disabled
+        // scalar coercion, causing paginated endpoints to 400.
+        coerceTypes: true,
       },
     },
   });
@@ -27,7 +30,16 @@ async function buildServer(): Promise<FastifyInstance> {
   server.addHook('onRequest', requestLogger);
 
   await registerPlugins(server);
-  await registerRoutes(server);
+
+  // Mount all REST routes under the configured API prefix (e.g. /api/v1)
+  // so that the frontend's /api/v1/* requests resolve correctly.
+  await server.register(
+    async (instance) => {
+      await registerRoutes(instance);
+    },
+    { prefix: config.API_PREFIX }
+  );
+
   registerWebSocket(server);
 
   return server;

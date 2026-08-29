@@ -111,14 +111,17 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.unauthorized('Invalid credentials');
       }
 
-      if (user.status !== 'ACTIVE') {
-        throw ApiError.forbidden('Account is not active');
-      }
-
+      // Verify the password BEFORE revealing account-state differences,
+      // so that a non-existent email and an existing-but-banned email both
+      // return the same generic "Invalid credentials" error (no enumeration).
       const isValid = await verifyPassword(password, user.passwordHash);
 
       if (!isValid) {
         throw ApiError.unauthorized('Invalid credentials');
+      }
+
+      if (user.status !== 'ACTIVE') {
+        throw ApiError.forbidden('Account is not active');
       }
 
       await prisma.user.update({
@@ -221,14 +224,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     '/logout',
     { preHandler: [authenticate] },
     async (request, reply) => {
-      const authHeader = request.headers.authorization;
-      const token = authHeader?.substring(7);
-
-      if (token) {
-        await prisma.session.deleteMany({
-          where: { userId: request.user!.sub },
-        });
-      }
+      // Delete all sessions for this user and clear auth cookies.
+      // (Single-session logout would require the refresh-token cookie/body;
+      //  see audit note D12. This preserves existing all-device behavior.)
+      await prisma.session.deleteMany({
+        where: { userId: request.user!.sub },
+      });
 
       clearAuthCookies(reply);
 

@@ -107,7 +107,11 @@ export function errorHandler(
     });
   }
 
-  if (error.name === 'UnauthorizedError' || error.message.includes('jwt')) {
+  if (
+    error.name === 'UnauthorizedError' ||
+    error.name === 'JsonWebTokenError' ||
+    error.name === 'TokenExpiredError'
+  ) {
     return reply.status(401).send({
       success: false,
       error: {
@@ -135,6 +139,18 @@ export function errorHandler(
       error: {
         code: ErrorCode.ALREADY_EXISTS,
         message: 'Resource already exists',
+      },
+      meta: { requestId },
+    });
+  }
+
+  if (error.code === 'P2025') {
+    // Record not found — common in concurrent delete/refresh/leave races.
+    return reply.status(404).send({
+      success: false,
+      error: {
+        code: ErrorCode.NOT_FOUND,
+        message: 'Resource not found or already removed',
       },
       meta: { requestId },
     });

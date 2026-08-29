@@ -13,15 +13,12 @@ export async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw ApiError.unauthorized('Missing or invalid authorization header');
-  }
-
-  const token = authHeader.substring(7);
-
   try {
+    // request.jwtVerify() resolves the token from the Authorization header
+    // (Bearer) OR from the configured cookie (sp_access_token) — see the
+    // @fastify/jwt `cookie` option in plugins/index.ts. Do NOT pre-empt it
+    // with a manual Bearer-header gate, or cookie-auth clients can never
+    // authenticate.
     const decoded = await request.jwtVerify<JwtPayload>({
       secret: config.JWT_ACCESS_SECRET,
       issuer: config.JWT_ISSUER,
@@ -80,9 +77,8 @@ export function requirePermission(permission: string) {
       throw ApiError.unauthorized('Authentication required');
     }
 
-    // TODO: Implement permission check based on roles/permissions
-    // For now, just check if user is admin
-    if (!request.user.roles.includes('admin') && !request.user.roles.includes('super_admin')) {
+    // Prisma UserRole enum values are UPPERCASE ('ADMIN', 'SUPER_ADMIN').
+    if (!request.user.roles.includes('ADMIN') && !request.user.roles.includes('SUPER_ADMIN')) {
       throw ApiError.forbidden(`Permission required: ${permission}`);
     }
   };

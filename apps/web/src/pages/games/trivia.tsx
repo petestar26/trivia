@@ -68,6 +68,7 @@ export function TriviaGamePage() {
       setLastResult(data.result);
       setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
   });
 

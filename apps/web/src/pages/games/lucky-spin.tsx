@@ -39,6 +39,7 @@ export function LuckySpinPage() {
       setLastResult(data.result);
       setServerBalance(data.newBalance);
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
     onError: () => setSpinning(false),
   });

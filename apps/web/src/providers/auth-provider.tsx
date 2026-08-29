@@ -50,8 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await api.post<null>('/auth/logout');
-    setUser(null);
+    try {
+      await api.post<null>('/auth/logout');
+    } catch {
+      // Even if the server call fails (token expired, network error),
+      // clear the local user so the UI returns to the login screen.
+    } finally {
+      setUser(null);
+    }
   };
 
   const refreshUser = async () => {

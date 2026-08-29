@@ -1,6 +1,7 @@
 import { config } from '@socialplay/config';
 import { JwtPayload, RefreshTokenPayload, TokenPair } from '@socialplay/shared';
 import { FastifyInstance } from 'fastify';
+import { createHmac } from 'crypto';
 
 export async function hashPassword(password: string): Promise<string> {
   const bcrypt = await import('bcryptjs');
@@ -53,7 +54,6 @@ function signJwt(
   secret: string,
   expiresIn: string
 ): string {
-  const crypto = require('crypto');
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
   const exp = now + parseExpiry(expiresIn);
@@ -74,8 +74,7 @@ function signJwt(
 
   const encodedHeader = base64UrlEncode(header);
   const encodedPayload = base64UrlEncode(fullPayload);
-  const signature = crypto
-    .createHmac('sha256', secret)
+  const signature = createHmac('sha256', secret)
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64')
     .replace(/\+/g, '-')

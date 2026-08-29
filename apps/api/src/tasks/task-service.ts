@@ -84,33 +84,41 @@ export async function recordTaskEvent(
   const xpRefId = periodKey ? `${def.id}:${periodKey}` : def.id;
 
   await prisma.$transaction(async (tx) => {
+    // Use atomic increment to avoid lost-update races under concurrent
+    // activity (previously read-then-write absolute value clobbered
+    // concurrent increments).
     const task = await tx.userTask.upsert({
       where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
-      update: {},
-      create: { userId, taskId: def.id, periodKey },
+      update: { progress: { increment: increment } },
+      create: { userId, taskId: def.id, periodKey, progress: increment },
     });
 
     if (task.status === 'COMPLETED' || task.status === 'CLAIMED') return;
 
-    const newProgress = Math.min(task.progress + increment, def.target);
-    const completed = newProgress >= def.target;
+    const cappedProgress = Math.min(task.progress, def.target);
+    const completed = cappedProgress >= def.target;
 
-    await tx.userTask.update({
-      where: { id: task.id },
-      data: {
-        progress: newProgress,
-        status: completed ? 'COMPLETED' : 'IN_PROGRESS',
-        completedAt: completed ? new Date() : task.completedAt,
-      },
-    });
-
-    if (completed && def.xpReward > 0) {
-      await applyXp(tx, userId, {
-        amount: def.xpReward,
-        reason: `Task completed: ${def.title}`,
-        referenceType: 'TASK',
-        referenceId: xpRefId,
+    if (task.progress !== cappedProgress) {
+      await tx.userTask.update({
+        where: { id: task.id },
+        data: { progress: cappedProgress },
       });
+    }
+
+    if (completed) {
+      await tx.userTask.update({
+        where: { id: task.id },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      });
+
+      if (def.xpReward > 0) {
+        await applyXp(tx, userId, {
+          amount: def.xpReward,
+          reason: `Task completed: ${def.title}`,
+          referenceType: 'TASK',
+          referenceId: xpRefId,
+        });
+      }
     }
   });
 }
@@ -120,16 +128,23 @@ export async function recordTaskEvent(
  * `RewardClaim` unique constraint so the monetary reward is granted exactly
  * once.
  */
-export async function claimTaskReward(userId: string, taskId: string) {
+export async function claimTaskReward(userId: string, taskDefId: string) {
+  // The client receives `id = TaskDefinition.id` from listTasks (not the
+  // UserTask primary key). Resolve the UserTask via the composite unique key.
+  const def = await prisma.taskDefinition.findUnique({ where: { id: taskDefId } });
+  if (!def) throw ApiError.notFound('Task not found');
+
+  const periodKey = def.type === 'DAILY' ? utcDayKey() : null;
+
   const task = await prisma.userTask.findUnique({
-    where: { id: taskId },
+    where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
     include: { task: true },
   });
 
   if (!task || task.userId !== userId) {
     throw ApiError.notFound('Task not found');
   }
-  if (task.status === 'IN_PROGRESS' || task.status === 'PENDING') {
+  if (task.status === 'IN_PROGRESS') {
     throw ApiError.badRequest('Task is not completed yet');
   }
 

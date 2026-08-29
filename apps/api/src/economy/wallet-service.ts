@@ -86,7 +86,15 @@ export async function getWalletTransactions(
 
   const where: Record<string, unknown> = { walletId: wallet.id };
   if (currency) {
-    where.currency = currency.toUpperCase() as Currency;
+    // Map the frontend's lowercase camelCase names to the actual Prisma
+    // enum values. `.toUpperCase()` alone would turn 'gamePoints' into
+    // 'GAMEPOINTS' which never matches 'GAME_POINTS'.
+    const currencyMap: Record<string, string> = {
+      coins: 'COINS',
+      gamepoints: 'GAME_POINTS',
+      game_points: 'GAME_POINTS',
+    };
+    where.currency = (currencyMap[currency.toLowerCase()] ?? currency.toUpperCase()) as Currency;
   }
 
   const [transactions, total] = await Promise.all([

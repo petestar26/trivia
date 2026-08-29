@@ -37,13 +37,29 @@ export function registerWebSocket(server: FastifyInstance): void {
 
   setSocketServer(io);
 
-  // Authentication middleware
+  // Authentication middleware — accept the access token from either
+  // socket.handshake.auth.token (explicit) or the sp_access_token cookie
+  // (sent automatically because the client uses withCredentials:true).
   io.use(async (socket, next) => {
     try {
-      const token =
+      let token: string | undefined =
         typeof socket.handshake.auth?.token === 'string'
           ? socket.handshake.auth.token
           : undefined;
+
+      if (!token) {
+        // Fall back to the httpOnly auth cookie carried in the handshake.
+        const cookieHeader = socket.handshake.headers.cookie;
+        if (typeof cookieHeader === 'string') {
+          const match = cookieHeader
+            .split(';')
+            .map((c) => c.trim())
+            .find((c) => c.startsWith('sp_access_token='));
+          if (match) {
+            token = match.split('=').slice(1).join('=');
+          }
+        }
+      }
 
       if (!token) {
         return next(new Error('UNAUTHORIZED'));
