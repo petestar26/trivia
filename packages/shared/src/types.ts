@@ -82,6 +82,34 @@ export interface GroupBasicInfo {
   createdAt: string;
 }
 
+export interface GroupDetailInfo extends GroupBasicInfo {
+  owner: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  } | null;
+  coverUrl?: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'BANNED';
+  isMember: boolean;
+  memberRole?: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+  updatedAt: string;
+}
+
+export interface GroupMemberInfo {
+  id: string;
+  groupId: string;
+  user: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+  status: 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
+  joinedAt: string;
+}
+
 export interface MessageBasicInfo {
   id: string;
   groupId: string;

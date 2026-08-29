@@ -56,6 +56,7 @@ export const createGroupSchema = z.object({
   description: z.string().max(500).optional(),
   isPrivate: z.boolean().default(false),
   imageUrl: z.string().url().optional(),
+  coverUrl: z.string().url().optional(),
 });
 
 export const updateGroupSchema = z.object({
@@ -63,6 +64,26 @@ export const updateGroupSchema = z.object({
   description: z.string().max(500).optional(),
   isPrivate: z.boolean().optional(),
   imageUrl: z.string().url().optional(),
+  coverUrl: z.string().url().optional(),
+});
+
+export const groupParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const groupListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  query: z.string().max(100).optional(),
+});
+
+export const groupMemberParamsSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
+export const changeMemberRoleSchema = z.object({
+  role: z.enum(['ADMIN', 'MODERATOR', 'MEMBER']),
 });
 
 export const createMessageSchema = z.object({
@@ -190,6 +211,10 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type CreateGroupInput = z.infer<typeof createGroupSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
+export type GroupParams = z.infer<typeof groupParamsSchema>;
+export type GroupListQuery = z.infer<typeof groupListQuerySchema>;
+export type GroupMemberParams = z.infer<typeof groupMemberParamsSchema>;
+export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 export type UpdateMessageInput = z.infer<typeof updateMessageSchema>;
 export type ReactionInput = z.infer<typeof reactionSchema>;
