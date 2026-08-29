@@ -115,8 +115,25 @@ export interface MessageBasicInfo {
   groupId: string;
   userId: string;
   content: string;
-  type: 'text' | 'voice' | 'system';
+  type: 'text' | 'voice' | 'system' | 'gift';
   createdAt: string;
+}
+
+export interface MessageDetailInfo extends MessageBasicInfo {
+  sender: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  replyTo?: MessageDetailInfo | null;
+  isEdited: boolean;
+  isDeleted: boolean;
+  reactions: Array<{
+    type: string;
+    userId: string;
+  }>;
+  updatedAt: string;
 }
 
 export interface VoiceMessageInfo {

@@ -97,9 +97,36 @@ export const updateMessageSchema = z.object({
   content: z.string().min(1).max(5000),
 });
 
+export const messageParamsSchema = z.object({
+  id: z.string().uuid(),
+  messageId: z.string().uuid(),
+});
+
+export const messageContentSchema = z.object({
+  content: z
+    .string()
+    .min(1, 'Message cannot be empty')
+    .max(5000, 'Message is too long')
+    .refine((val) => val.trim().length > 0, 'Message cannot be whitespace only'),
+});
+
+export const createChatMessageSchema = z.object({
+  content: z
+    .string()
+    .min(1, 'Message cannot be empty')
+    .max(5000, 'Message is too long')
+    .refine((val) => val.trim().length > 0, 'Message cannot be whitespace only'),
+  replyToId: z.string().uuid().optional(),
+});
+
 export const reactionSchema = z.object({
   messageId: z.string().uuid(),
   type: z.enum(['like', 'love', 'laugh', 'wow', 'sad', 'angry']),
+});
+
+export const reactionParamSchema = z.object({
+  messageId: z.string().uuid(),
+  type: z.enum(['LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY']),
 });
 
 export const sendGiftSchema = z.object({
@@ -217,7 +244,11 @@ export type GroupMemberParams = z.infer<typeof groupMemberParamsSchema>;
 export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 export type UpdateMessageInput = z.infer<typeof updateMessageSchema>;
+export type MessageParams = z.infer<typeof messageParamsSchema>;
+export type MessageContent = z.infer<typeof messageContentSchema>;
+export type CreateChatMessageInput = z.infer<typeof createChatMessageSchema>;
 export type ReactionInput = z.infer<typeof reactionSchema>;
+export type ReactionParam = z.infer<typeof reactionParamSchema>;
 export type SendGiftInput = z.infer<typeof sendGiftSchema>;
 export type CreateGiftInput = z.infer<typeof createGiftSchema>;
 export type WalletTransactionInput = z.infer<typeof walletTransactionSchema>;

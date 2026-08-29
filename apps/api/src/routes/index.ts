@@ -2,11 +2,13 @@ import { FastifyInstance } from 'fastify';
 import { healthRoutes } from './health';
 import { authRoutes } from './auth';
 import { groupRoutes } from './groups';
+import { chatRoutes } from './chat';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(healthRoutes, { prefix: '/health' });
   await server.register(authRoutes, { prefix: '/auth' });
   await server.register(groupRoutes, { prefix: '/groups' });
+  await server.register(chatRoutes, { prefix: '/groups' });
 
   server.get('/', async () => ({
     success: true,
