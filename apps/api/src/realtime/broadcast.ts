@@ -15,3 +15,9 @@ export function emitToUser(userId: string, event: string, data: unknown): void {
   if (!io) return;
   io.to(`user:${userId}`).emit(event, data);
 }
+
+// Emit an event to all members of a group room
+export function emitToGroup(groupId: string, event: string, data: unknown): void {
+  if (!io) return;
+  io.to(`group:${groupId}`).emit(event, data);
+}

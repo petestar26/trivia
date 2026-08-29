@@ -42,6 +42,22 @@ export async function assertActiveMember(groupId: string, userId: string) {
   return membership;
 }
 
+// Verifies the user holds one of the allowed roles and is an ACTIVE member.
+// Returns the membership. Used to scope management actions (OWNER/ADMIN/etc).
+export async function assertGroupRole(
+  groupId: string,
+  userId: string,
+  allowedRoles: string[]
+) {
+  const membership = await assertActiveMember(groupId, userId);
+
+  if (!allowedRoles.includes(membership.role)) {
+    throw ApiError.forbidden('You do not have permission to perform this action');
+  }
+
+  return membership;
+}
+
 // Loads a message and verifies it belongs to the given group.
 // Returns the message or throws not-found, so that cross-group access is opaque.
 export async function getMessageInGroup(groupId: string, messageId: string) {
