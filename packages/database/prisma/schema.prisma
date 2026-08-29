@@ -39,6 +39,7 @@ model User {
   streak           DailyStreak?
   rewardClaims     RewardClaim[]
   achievements     UserAchievement[]
+  gameSessions     GameSession[]
 
   @@index([email])
   @@index([username])
@@ -642,4 +643,78 @@ model UserAchievement {
   @@unique([userId, achievementId])
   @@index([userId])
   @@map("user_achievements")
+}
+
+// ─── Games ─────────────────────────────────────────────────────
+
+enum GameType {
+  LUCKY_SPIN
+  DICE
+  TRIVIA
+  NUMBER_CHALLENGE
+}
+
+enum GameSessionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model GameDefinition {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  name         String
+  description  String?  @db.Text
+  type         GameType
+  isActive     Boolean  @default(true)
+  minBet       Int      @default(1)
+  maxBet       Int      @default(1000)
+  configuration Json    // server-only: probabilities, outcomes, etc.
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions GameSession[]
+
+  @@index([isActive])
+  @@index([key])
+  @@map("game_definitions")
+}
+
+model GameSession {
+  id           String            @id @default(uuid())
+  userId       String
+  gameId       String
+  status       GameSessionStatus @default(PENDING)
+  betAmount    Int
+  result       Json              // server-generated canonical result
+  rewardAmount Int               @default(0)
+  isWin        Boolean           @default(false)
+  idempotencyKey String?
+  createdAt    DateTime          @default(now())
+  completedAt  DateTime?
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([gameId])
+  @@index([idempotencyKey])
+  @@map("game_sessions")
+}
+
+model TriviaQuestion {
+  id          String   @id @default(uuid())
+  question    String   @db.Text
+  choices     Json     // string array of answer choices
+  correctIndex Int
+  category    String?
+  difficulty  Int      @default(1)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([isActive])
+  @@map("trivia_questions")
 }

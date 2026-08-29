@@ -5,6 +5,11 @@ import { HomePage } from '@/pages/home';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
 import { ProtectedRoute } from '@/components/auth/protected-route';
+import { GamesPage } from '@/pages/games';
+import { DiceGamePage } from '@/pages/games/dice';
+import { LuckySpinPage } from '@/pages/games/lucky-spin';
+import { NumberChallengePage } from '@/pages/games/number-challenge';
+import { TriviaGamePage } from '@/pages/games/trivia';
 
 export function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -30,6 +35,11 @@ export function App() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="games" element={<GamesPage />} />
+        <Route path="games/dice" element={<DiceGamePage />} />
+        <Route path="games/lucky-spin" element={<LuckySpinPage />} />
+        <Route path="games/number-challenge" element={<NumberChallengePage />} />
+        <Route path="games/trivia" element={<TriviaGamePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
