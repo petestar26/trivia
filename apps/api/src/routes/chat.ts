@@ -14,6 +14,7 @@ import {
 import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
+import { emitToGroup } from '../realtime/broadcast';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
@@ -59,6 +60,11 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: message,
       });
+
+      // Broadcast to WS group room AFTER the commit (createMessage has
+      // already persisted). Clients should refetch authoritative state
+      // rather than trusting the realtime payload.
+      emitToGroup(request.params.id, 'message:created', message);
 
       // Server-verified activity (post-commit, best-effort).
       safeRecordActivity(request.user!.sub, { type: 'MESSAGE' });
@@ -238,9 +244,14 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         },
       });
 
+      const serialized = serializeMessage(updated);
+
+      // Broadcast the edit to the group room after commit.
+      emitToGroup(groupId, 'message:updated', serialized);
+
       return {
         success: true,
-        data: serializeMessage(updated),
+        data: serialized,
       };
     }
   );
@@ -286,6 +297,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         where: { id: message.id },
         data: { isDeleted: true },
       });
+
+      // Broadcast the deletion to the group room after commit.
+      emitToGroup(groupId, 'message:deleted', { messageId: message.id });
 
       return {
         success: true,
@@ -342,6 +356,12 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
           },
         });
 
+        // Broadcast the reaction after commit.
+        emitToGroup(groupId, 'reaction:added', {
+          messageId: message.id,
+          reaction: { id: reaction.id, type: reaction.type, userId: reaction.userId },
+        });
+
         reply.status(201).send({
           success: true,
           data: { id: reaction.id, type: reaction.type, userId: reaction.userId },
@@ -396,6 +416,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       if (result.count === 0) {
         throw ApiError.notFound('Reaction not found');
       }
+
+      // Broadcast the reaction removal after commit.
+      emitToGroup(groupId, 'reaction:removed', { messageId: message.id, userId, type });
 
       return {
         success: true,

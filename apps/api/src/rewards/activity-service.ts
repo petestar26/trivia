@@ -46,7 +46,7 @@ export async function recordActivity(
   event: ActivityEvent
 ): Promise<void> {
   // Streak (duplicate same-day activity is naturally ignored).
-  await recordStreak(userId);
+  const streakResult = await recordStreak(userId);
 
   // Task progress keyed by the event type.
   const taskKeys = EVENT_TASK_MAP[event.type] ?? [];
@@ -63,6 +63,17 @@ export async function recordActivity(
   if (achievementKey) {
     try {
       await unlockAchievement(userId, achievementKey);
+    } catch {
+      // Non-critical.
+    }
+  }
+
+  // Streak milestone — check after the streak update so a newly-reached
+  // 3-day streak unlocks immediately. The unique guard on UserAchievement
+  // makes this safe to call on every activity.
+  if (streakResult.currentStreak >= 3) {
+    try {
+      await unlockAchievement(userId, 'streak_3');
     } catch {
       // Non-critical.
     }

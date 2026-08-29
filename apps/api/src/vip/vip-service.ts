@@ -1,5 +1,6 @@
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
+import { unlockAchievement } from '../rewards/achievement-service';
 
 export type VipTier = 'SILVER' | 'GOLD' | 'PLATINUM';
 export type VipStatus = 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'PENDING';
@@ -87,6 +88,13 @@ export async function activateVip(
       expiresAt,
     },
   });
+
+  // Server-verified: unlock the VIP achievement (post-commit, best-effort).
+  try {
+    await unlockAchievement(userId, 'vip_member');
+  } catch {
+    // Non-critical — the membership is already active.
+  }
 
   return getVip(userId);
 }

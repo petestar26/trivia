@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
+import { safeRecordActivity } from '../rewards/activity-service';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 type GroupMemberStatus = 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
@@ -416,6 +417,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             where: { id: existing.id },
             data: { status: 'ACTIVE' },
           });
+
+          // Server-verified activity: first-group achievement (post-commit).
+          safeRecordActivity(userId, { type: 'GROUP_JOIN' });
+
           return {
             success: true,
             data: { message: 'You have rejoined the group' },
@@ -431,6 +436,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           status: 'ACTIVE',
         },
       });
+
+      // Server-verified activity: first-group achievement (post-commit).
+      safeRecordActivity(userId, { type: 'GROUP_JOIN' });
 
       return {
         success: true,

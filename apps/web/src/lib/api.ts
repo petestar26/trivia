@@ -163,6 +163,73 @@ class ApiClient {
   async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<any>> {
     return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
   }
+
+  // Wallet / Economy
+  async getWallet(): Promise<ApiResponse<any>> {
+    return this.get('/wallet');
+  }
+
+  async getWalletTransactions(params?: { page?: number; limit?: number; currency?: string }): Promise<ApiResponse<any>> {
+    return this.get('/wallet/transactions', params);
+  }
+
+  // Groups
+  async listGroups(params?: { page?: number; limit?: number; query?: string }): Promise<ApiResponse<any>> {
+    return this.get('/groups', params);
+  }
+
+  async getGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}`);
+  }
+
+  async joinGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/join`);
+  }
+
+  async leaveGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/leave`);
+  }
+
+  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/messages`, params);
+  }
+
+  // VIP
+  async getVip(): Promise<ApiResponse<any>> {
+    return this.get('/vip');
+  }
+
+  // Progress (XP / Level)
+  async getProgress(): Promise<ApiResponse<any>> {
+    return this.get('/progress');
+  }
+
+  // Tasks
+  async listTasks(): Promise<ApiResponse<any>> {
+    return this.get('/tasks');
+  }
+
+  async claimTaskReward(taskId: string): Promise<ApiResponse<any>> {
+    return this.post(`/tasks/${taskId}/claim`);
+  }
+
+  // Achievements
+  async listAchievements(): Promise<ApiResponse<any>> {
+    return this.get('/achievements');
+  }
+
+  // Gifts
+  async listGifts(): Promise<ApiResponse<any>> {
+    return this.get('/gifts');
+  }
+
+  async sendGift(body: { recipientId: string; giftId: string; quantity: number }): Promise<ApiResponse<any>> {
+    return this.post('/gifts/send', body);
+  }
+
+  async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {
+    return this.get('/gifts/transactions', params);
+  }
 }
 
 export const api = new ApiClient();

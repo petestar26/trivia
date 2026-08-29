@@ -40,6 +40,7 @@ model User {
   rewardClaims     RewardClaim[]
   achievements     UserAchievement[]
   gameSessions     GameSession[]
+  triviaAttempts   UserTriviaAttempt[]
   challengesSent   GameChallenge[]    @relation("ChallengeSender")
   challengesReceived GameChallenge[]  @relation("ChallengeReceiver")
   challengeWins    GameChallenge[]    @relation("ChallengeWinner")
@@ -364,7 +365,7 @@ model Wallet {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   walletTransactions WalletTransaction[]
   sentGifts         GiftTransaction[]    @relation("GiftSender")
   receivedGifts     GiftTransaction[]    @relation("GiftRecipient")
@@ -388,7 +389,7 @@ model WalletTransaction {
   status        WalletTransactionStatus  @default(SUCCEEDED)
   createdAt     DateTime                 @default(now())
 
-  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
 
   @@index([walletId, createdAt])
   @@index([userId, createdAt])
@@ -605,7 +606,7 @@ model RewardClaim {
   gamePointReward Int    @default(0)
   createdAt      DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   // A given reward source can only be claimed once per user
   @@unique([userId, sourceType, sourceId])
@@ -711,7 +712,7 @@ model GameSession {
   createdAt    DateTime          @default(now())
   completedAt  DateTime?
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   game GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
 
   @@unique([userId, idempotencyKey])
@@ -731,8 +732,27 @@ model TriviaQuestion {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
+  attempts    UserTriviaAttempt[]
+
   @@index([isActive])
   @@map("trivia_questions")
+}
+
+// Tracks each user's attempt on a trivia question so that a known-correct
+// answer cannot be replayed indefinitely to farm Game Points. The unique
+// constraint ensures one attempt per (user, question).
+model UserTriviaAttempt {
+  id          String   @id @default(uuid())
+  userId      String
+  questionId  String
+  answeredAt  DateTime @default(now())
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question TriviaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@index([userId, answeredAt])
+  @@map("user_trivia_attempts")
 }
 
 // ─── Friend Challenges ──────────────────────────────────────────

@@ -16,6 +16,11 @@ import { ChallengeDetailPage } from '@/pages/challenges/detail';
 import { CompetitionsPage } from '@/pages/competitions';
 import { GroupCompetitionsPage } from '@/pages/competitions/index';
 import { CompetitionDetailPage } from '@/pages/competitions/detail';
+import { GroupsPage } from '@/pages/groups';
+import { MessagesPage } from '@/pages/messages';
+import { WalletPage } from '@/pages/wallet';
+import { RewardsPage } from '@/pages/rewards';
+import { ProfilePage } from '@/pages/profile';
 
 export function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -41,6 +46,11 @@ export function App() {
         }
       >
         <Route index element={<HomePage />} />
+        <Route path="groups" element={<GroupsPage />} />
+        <Route path="messages/:groupId" element={<MessagesPage />} />
+        <Route path="wallet" element={<WalletPage />} />
+        <Route path="rewards" element={<RewardsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<GamesPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
         <Route path="games/dice" element={<DiceGamePage />} />

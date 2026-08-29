@@ -107,34 +107,6 @@ function generateNumberChallengeResult(
   };
 }
 
-async function generateTriviaResult(
-  betAmount: number,
-  config: Record<string, unknown>,
-  questionId: string | undefined,
-  answerIndex: number | undefined
-): Promise<{ result: Record<string, unknown>; rewardAmount: number; isWin: boolean; questionId: string }> {
-  if (!questionId) throw ApiError.badRequest('Question ID is required');
-  if (answerIndex === undefined || answerIndex === null) throw ApiError.badRequest('Answer index is required');
-
-  const question = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
-  if (!question || !question.isActive) throw ApiError.badRequest('Invalid question');
-
-  const { correct } = checkTriviaAnswer(answerIndex, question.correctIndex);
-  const correctMultiplier = (config.correctMultiplier as number) ?? 3;
-  const { rewardAmount, isWin } = calculateGameReward(betAmount, correct ? correctMultiplier : 0);
-
-  return {
-    result: {
-      questionId: question.id,
-      submittedAnswer: answerIndex,
-      correct,
-    },
-    rewardAmount,
-    isWin,
-    questionId: question.id,
-  };
-}
-
 // ─── Main Play Handler ─────────────────────────────────────────
 
 export async function playGame(args: PlayGameArgs): Promise<GameResult> {
@@ -215,14 +187,54 @@ export async function playGame(args: PlayGameArgs): Promise<GameResult> {
         ));
         break;
       case 'TRIVIA': {
-        const triviaResult = await generateTriviaResult(
-          betAmount, config,
-          clientData?.questionId as string | undefined,
-          clientData?.answerIndex as number | undefined
-        );
-        resultData = triviaResult.result;
-        rewardAmount = triviaResult.rewardAmount;
-        isWin = triviaResult.isWin;
+        const triviaQuestionId = clientData?.questionId as string | undefined;
+        const triviaAnswerIndex = clientData?.answerIndex as number | undefined;
+
+        if (!triviaQuestionId) throw ApiError.badRequest('Question ID is required');
+        if (triviaAnswerIndex === undefined || triviaAnswerIndex === null) {
+          throw ApiError.badRequest('Answer index is required');
+        }
+
+        // Prevent replay farming: reject if the user has already attempted
+        // this question. The unique constraint (userId, questionId) is the
+        // authoritative guard; this pre-check gives a friendly error.
+        const priorAttempt = await tx.userTriviaAttempt.findUnique({
+          where: {
+            userId_questionId: { userId, questionId: triviaQuestionId },
+          },
+        });
+        if (priorAttempt) {
+          throw ApiError.badRequest('You have already answered this question');
+        }
+
+        const question = await prisma.triviaQuestion.findUnique({ where: { id: triviaQuestionId } });
+        if (!question || !question.isActive) throw ApiError.badRequest('Invalid question');
+
+        const { correct } = checkTriviaAnswer(triviaAnswerIndex, question.correctIndex);
+        const correctMultiplier = (config.correctMultiplier as number) ?? 3;
+        const triviaCalc = calculateGameReward(betAmount, correct ? correctMultiplier : 0);
+
+        // Record the attempt atomically with the play so a concurrent
+        // retry cannot double-claim. The unique constraint backstops races.
+        try {
+          await tx.userTriviaAttempt.create({
+            data: { userId, questionId: question.id },
+          });
+        } catch (err) {
+          // P2002 = a concurrent request already claimed this question.
+          if ((err as { code?: string }).code === 'P2002') {
+            throw ApiError.badRequest('You have already answered this question');
+          }
+          throw err;
+        }
+
+        resultData = {
+          questionId: question.id,
+          submittedAnswer: triviaAnswerIndex,
+          correct,
+        };
+        rewardAmount = triviaCalc.rewardAmount;
+        isWin = triviaCalc.isWin;
         break;
       }
       default:

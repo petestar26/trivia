@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
-import { executeBalanceChange, getOrCreateWallet } from './wallet-service';
+import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from './wallet-service';
 
 export interface GiftCatalogItem {
   id: string;
@@ -157,149 +157,9 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       }
     }
 
-    // Load sender wallet with version lock
-    const senderWallet = await tx.wallet.findUnique({
-      where: { userId: senderId },
-      select: { id: true, coinsBalance: true, version: true },
-    });
-
-    if (!senderWallet) {
-      throw ApiError.internal('Sender wallet not found');
-    }
-
-    // Verify sufficient coins
-    if (senderWallet.coinsBalance < totalCoins) {
-      throw ApiError.badRequest(
-        `Insufficient Coins: have ${senderWallet.coinsBalance}, need ${totalCoins}`
-      );
-    }
-
-    // Load recipient wallet
-    const recipientWallet = await tx.wallet.findUnique({
-      where: { userId: recipientId },
-      select: { id: true, gamePointsBalance: true, version: true },
-    });
-
-    if (!recipientWallet) {
-      throw ApiError.internal('Recipient wallet not found');
-    }
-
-    // Debit sender coins (version-locked)
-    const newSenderCoins = senderWallet.coinsBalance - totalCoins;
-    const senderDebit = await tx.wallet.updateMany({
-      where: {
-        id: senderWallet.id,
-        version: senderWallet.version,
-      },
-      data: {
-        coinsBalance: newSenderCoins,
-        version: { increment: 1 },
-      },
-    });
-
-    if (senderDebit.count === 0) {
-      throw ApiError.conflict('Concurrent wallet modification — please retry');
-    }
-
-    // Credit recipient game points (version-locked)
-    const newRecipientGamePoints = recipientWallet.gamePointsBalance + totalGamePoints;
-    const recipientCredit = await tx.wallet.updateMany({
-      where: {
-        id: recipientWallet.id,
-        version: recipientWallet.version,
-      },
-      data: {
-        gamePointsBalance: newRecipientGamePoints,
-        version: { increment: 1 },
-      },
-    });
-
-    if (recipientCredit.count === 0) {
-      throw ApiError.conflict('Concurrent wallet modification — please retry');
-    }
-
-    // Create sender wallet transaction
-    await tx.walletTransaction.create({
-      data: {
-        walletId: senderWallet.id,
-        userId: senderId,
-        type: 'COIN_DEBIT',
-        ledgerType: 'DEBIT',
-        currency: 'COINS',
-        amount: totalCoins,
-        balanceBefore: senderWallet.coinsBalance,
-        balanceAfter: newSenderCoins,
-        referenceType: 'GIFT',
-        description: `Sent ${quantity}x ${gift.name} to ${recipientUser.username}`,
-      },
-    });
-
-    // Create recipient wallet transaction
-    await tx.walletTransaction.create({
-      data: {
-        walletId: recipientWallet.id,
-        userId: recipientId,
-        type: 'GAME_POINT_CREDIT',
-        ledgerType: 'CREDIT',
-        currency: 'GAME_POINTS',
-        amount: totalGamePoints,
-        balanceBefore: recipientWallet.gamePointsBalance,
-        balanceAfter: newRecipientGamePoints,
-        referenceType: 'GIFT',
-        description: `Received ${quantity}x ${gift.name} from ${senderId}`,
-      },
-    });
-
-    // Create gift transaction record
-    const giftTransaction = await tx.giftTransaction.create({
-      data: {
-        senderId,
-        recipientId,
-        giftId: gift.id,
-        quantity,
-        totalCoins,
-        totalGamePoints,
-        coinPriceAtTransaction: gift.coinPrice,
-        pointValueAtTransaction: gift.recipientPointValue,
-        senderWalletId: senderWallet.id,
-        recipientWalletId: recipientWallet.id,
-      },
-    });
-
-    // Create notification for recipient
-    await tx.notification.create({
-      data: {
-        userId: recipientId,
-        type: 'GIFT_RECEIVED',
-        title: 'Gift received',
-        body: `You received ${quantity}x ${gift.name}`,
-        data: {
-          giftId: gift.id,
-          giftName: gift.name,
-          senderId,
-          quantity,
-          totalGamePoints,
-        },
-      },
-    });
-
-    // Record idempotency
-    if (idempotencyKey) {
-      await tx.idempotencyRecord.create({
-        data: {
-          userId: senderId,
-          key: idempotencyKey,
-          operation: 'gift_send',
-          status: 'SUCCEEDED',
-          responseKey: giftTransaction.id,
-        },
-      });
-    }
-
     // Update limited gift quantity atomically and conditionally.
-    // Because the gift row was read outside the transaction, we re-check the
-    // current quantity inside the transaction and use a conditional update so
-    // concurrent sends cannot drive the remaining quantity below zero.
+    // Re-check inside the transaction so concurrent sends cannot drive
+    // the remaining quantity below zero.
     if (gift.isLimited && gift.limitedQuantity !== null) {
       const remaining = await tx.gift.findUnique({
         where: { id: gift.id },
@@ -325,10 +185,90 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
         },
       });
 
-      // If no row matched, another concurrent transaction consumed the stock.
       if (result.count === 0) {
         throw ApiError.conflict('This limited gift just sold out, please retry');
       }
+    }
+
+    // Resolve wallet ids for the GiftTransaction record.
+    const senderWalletRow = await tx.wallet.findUnique({ where: { userId: senderId } });
+    const recipientWalletRow = await tx.wallet.findUnique({ where: { userId: recipientId } });
+    if (!senderWalletRow) throw ApiError.internal('Sender wallet not found');
+    if (!recipientWalletRow) throw ApiError.internal('Recipient wallet not found');
+
+    // Create the GiftTransaction FIRST so its id can be used as the
+    // ledger referenceId, making ledger entries traceable to the gift.
+    const giftTransaction = await tx.giftTransaction.create({
+      data: {
+        senderId,
+        recipientId,
+        giftId: gift.id,
+        quantity,
+        totalCoins,
+        totalGamePoints,
+        coinPriceAtTransaction: gift.coinPrice,
+        pointValueAtTransaction: gift.recipientPointValue,
+        senderWalletId: senderWalletRow.id,
+        recipientWalletId: recipientWalletRow.id,
+      },
+    });
+
+    // Create notification for recipient.
+    await tx.notification.create({
+      data: {
+        userId: recipientId,
+        type: 'GIFT_RECEIVED',
+        title: 'Gift received',
+        body: `You received ${quantity}x ${gift.name}`,
+        data: {
+          giftId: gift.id,
+          giftName: gift.name,
+          senderId,
+          quantity,
+          totalGamePoints,
+        },
+      },
+    });
+
+    // Debit sender Coins via the SINGLE authoritative balance path.
+    // Non-negativity check, version-lock, and ledger entry are all handled
+    // by applyBalanceChanges — no second balance implementation here.
+    await applyBalanceChanges(tx, senderId, [
+      {
+        currency: 'COINS',
+        amount: totalCoins,
+        ledgerType: 'DEBIT',
+        transactionType: 'COIN_DEBIT',
+        referenceType: 'GIFT',
+        referenceId: giftTransaction.id,
+        description: `Sent ${quantity}x ${gift.name} to ${recipientUser.username}`,
+      },
+    ]);
+
+    // Credit recipient Game Points via the same authoritative path.
+    await applyBalanceChanges(tx, recipientId, [
+      {
+        currency: 'GAME_POINTS',
+        amount: totalGamePoints,
+        ledgerType: 'CREDIT',
+        transactionType: 'GAME_POINT_CREDIT',
+        referenceType: 'GIFT',
+        referenceId: giftTransaction.id,
+        description: `Received ${quantity}x ${gift.name} from ${senderId}`,
+      },
+    ]);
+
+    // Record idempotency
+    if (idempotencyKey) {
+      await tx.idempotencyRecord.create({
+        data: {
+          userId: senderId,
+          key: idempotencyKey,
+          operation: 'gift_send',
+          status: 'SUCCEEDED',
+          responseKey: giftTransaction.id,
+        },
+      });
     }
 
     return {

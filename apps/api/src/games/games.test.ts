@@ -346,6 +346,72 @@ describeIf('Trivia', () => {
       playGame({ userId: a.id, gameKey: 'trivia', betAmount: 10, clientData: { answerIndex: 1 } })
     ).rejects.toThrow();
   });
+
+  it('rejects duplicate attempt on same question', async () => {
+    const q2 = await prisma.triviaQuestion.create({
+      data: {
+        question: 'What is 3 + 3?',
+        choices: ['5', '6', '7', '8'],
+        correctIndex: 1,
+        category: 'math',
+      },
+    });
+    await playGame({
+      userId: a.id,
+      gameKey: 'trivia',
+      betAmount: 10,
+      clientData: { questionId: q2.id, answerIndex: 1 },
+    });
+    await expect(
+      playGame({
+        userId: a.id,
+        gameKey: 'trivia',
+        betAmount: 10,
+        clientData: { questionId: q2.id, answerIndex: 2 },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('allows different questions for the same user', async () => {
+    const q3 = await prisma.triviaQuestion.create({
+      data: {
+        question: 'What is 5 + 5?',
+        choices: ['8', '9', '10', '11'],
+        correctIndex: 2,
+        category: 'math',
+      },
+    });
+    const result = await playGame({
+      userId: a.id,
+      gameKey: 'trivia',
+      betAmount: 10,
+      clientData: { questionId: q3.id, answerIndex: 2 },
+    });
+    expect(result.isWin).toBe(true);
+  });
+
+  it('concurrent duplicate attempts are rejected safely', async () => {
+    const q4 = await prisma.triviaQuestion.create({
+      data: {
+        question: 'What is 7 + 7?',
+        choices: ['12', '13', '14', '15'],
+        correctIndex: 2,
+        category: 'math',
+      },
+    });
+    const results = await Promise.allSettled(
+      Array.from({ length: 3 }, () =>
+        playGame({
+          userId: a.id,
+          gameKey: 'trivia',
+          betAmount: 10,
+          clientData: { questionId: q4.id, answerIndex: 2 },
+        })
+      )
+    );
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    expect(fulfilled.length).toBe(1);
+  });
 });
 
 // ─── IDEMPOTENCY ───────────────────────────────────────────────

@@ -103,7 +103,10 @@ export async function unlockAchievement(
       };
     }
 
-    await prisma.$transaction(async (tx) => {
+    // Single atomic transaction: achievement unlock + notification + reward
+    // (XP + Coins + Game Points). This ensures the reward can never be
+    // permanently separated from the unlock on transient failure.
+    const result = await prisma.$transaction(async (tx) => {
       await tx.userAchievement.create({
         data: { userId, achievementId: achievement.id },
       });
@@ -116,15 +119,19 @@ export async function unlockAchievement(
           data: { achievementKey: key, achievementTitle: def.title },
         },
       });
-    });
 
-    // Grant the definition's reward exactly once.
-    await grantReward(userId, {
-      sourceType: 'ACHIEVEMENT',
-      sourceId: achievement.id,
-      xpReward: def.xpReward,
-      coinReward: def.coinReward,
-      gamePointReward: def.gamePointReward,
+      // Grant the reward inside the SAME transaction. grantReward's
+      // RewardClaim unique guard prevents duplicates under concurrent
+      // retries; a P2002 here means a concurrent unlock already succeeded.
+      const rewardResult = await grantReward(userId, {
+        sourceType: 'ACHIEVEMENT',
+        sourceId: achievement.id,
+        xpReward: def.xpReward,
+        coinReward: def.coinReward,
+        gamePointReward: def.gamePointReward,
+      }, tx);
+
+      return rewardResult;
     });
 
     return {

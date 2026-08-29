@@ -13,12 +13,16 @@ const navigation = [
   { name: 'Profile',      href: '/profile',       icon: UserIcon },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ onNavigate }: SidebarProps = {}) {
   const location = useLocation();
   const { user, logout } = useAuth();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 hidden lg:block">
+    <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center h-16 px-6 border-b border-gray-200 dark:border-gray-700">
           <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">SocialPlay</h1>
@@ -32,6 +36,7 @@ export function Sidebar() {
               <NavLink
                 key={item.name}
                 to={item.href}
+                onClick={onNavigate}
                 className={({ isActive }) =>
                   `flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors ${
                     isActive

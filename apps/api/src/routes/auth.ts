@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { registerSchema, loginSchema, refreshTokenSchema } from '@socialplay/shared';
+import { registerSchema, loginSchema, refreshTokenSchema, RefreshTokenPayload } from '@socialplay/shared';
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth';
@@ -12,6 +12,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof registerSchema> }>(
     '/register',
     {
+      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       schema: {
         body: {
           type: 'object',
@@ -61,7 +62,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         },
       });
 
-      const tokens = generateTokens(user.id, user.email, user.username, [user.role]);
+      const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
 
       await prisma.session.create({
         data: {
@@ -88,6 +89,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof loginSchema> }>(
     '/login',
     {
+      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       schema: {
         body: {
           type: 'object',
@@ -129,7 +131,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         data: { lastLoginAt: new Date() },
       });
 
-      const tokens = generateTokens(user.id, user.email, user.username, [user.role]);
+      const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
 
       await prisma.session.create({
         data: {
@@ -166,6 +168,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof refreshTokenSchema> }>(
     '/refresh',
     {
+      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       schema: {
         body: {
           type: 'object',
@@ -192,24 +195,58 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('Account is not active');
       }
 
-      await prisma.session.delete({ where: { id: session.id } });
+      // Verify the refresh token's tokenVersion matches the user's current
+      // value. If the user's tokenVersion was bumped (revocation), the
+      // outstanding refresh token is invalid.
+      try {
+        const decoded = await request.server.jwt.verify<RefreshTokenPayload>(refreshToken, {
+          secret: config.JWT_REFRESH_SECRET,
+          issuer: config.JWT_ISSUER,
+          audience: config.JWT_AUDIENCE,
+        });
+        if (decoded.tokenVersion !== session.user.tokenVersion) {
+          throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
+        }
+      } catch (err) {
+        if (err instanceof ApiError) throw err;
+        throw ApiError.unauthorized('Invalid refresh token', { code: ErrorCode.TOKEN_INVALID });
+      }
 
+      // Atomic rotation: delete the old session and create the new one
+      // in a single transaction so a crash between the two cannot leave
+      // the user with no valid refresh token, and concurrent refreshes
+      // resolve cleanly (the delete fails on the loser → P2025 → 404).
       const tokens = generateTokens(
         session.user.id,
         session.user.email,
         session.user.username,
-        [session.user.role]
+        [session.user.role],
+        session.user.tokenVersion
       );
 
-      await prisma.session.create({
-        data: {
-          userId: session.user.id,
-          refreshToken: tokens.refreshToken,
-          userAgent: request.headers['user-agent'],
-          ip: request.ip,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
-      });
+      try {
+        await prisma.$transaction(async (tx) => {
+          // Conditional delete: only succeeds if the session still matches
+          // (a concurrent refresh may have already rotated it).
+          await tx.session.delete({ where: { id: session.id } });
+
+          await tx.session.create({
+            data: {
+              userId: session.user.id,
+              refreshToken: tokens.refreshToken,
+              userAgent: request.headers['user-agent'],
+              ip: request.ip,
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          });
+        });
+      } catch (err) {
+        // P2025 = session already deleted by a concurrent refresh.
+        if ((err as { code?: string }).code === 'P2025') {
+          throw ApiError.unauthorized('Refresh token already used', { code: ErrorCode.TOKEN_EXPIRED });
+        }
+        throw err;
+      }
 
       setAuthCookies(reply, tokens);
 

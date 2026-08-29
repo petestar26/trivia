@@ -129,6 +129,13 @@ export async function getWalletTransactions(
 
 // ─── Atomically credit/debit wallet (internal use) ─────────────
 
+// Central safety bound: Postgres `Int` is 32-bit (max 2,147,483,647).
+// We enforce a conservative application-level ceiling of 1 billion so
+// that cumulative credits cannot overflow the column. This is enforced
+// in the single authoritative path (applyBalanceChanges) so no caller
+// can bypass it.
+const MAX_BALANCE = 1_000_000_000;
+
 export interface BalanceChange {
   currency: Currency;
   amount: number; // positive integer
@@ -202,6 +209,11 @@ export async function applyBalanceChanges(
   // Ensure non-negative
   if (newCoins < 0) throw ApiError.internal('Negative coin balance detected');
   if (newGamePoints < 0) throw ApiError.internal('Negative game points balance detected');
+
+  // Enforce central overflow guard so cumulative credits cannot exceed
+  // the 32-bit Int column capacity.
+  if (newCoins > MAX_BALANCE) throw ApiError.badRequest('Coin balance exceeds maximum allowed');
+  if (newGamePoints > MAX_BALANCE) throw ApiError.badRequest('Game Points balance exceeds maximum allowed');
 
   // Update wallet with version lock. updateMany returns { count } without
   // throwing when no row matches, so we explicitly check the matched count

@@ -17,7 +17,8 @@ export function generateTokens(
   userId: string,
   email: string,
   username: string,
-  roles: string[]
+  roles: string[],
+  tokenVersion: number = 0
 ): TokenPair {
   const fastify = { jwt: { sign: signJwt } } as unknown as FastifyInstance;
 
@@ -32,7 +33,7 @@ export function generateTokens(
 
   const refreshPayload: Omit<RefreshTokenPayload, 'iat' | 'exp'> = {
     sub: userId,
-    tokenVersion: 0,
+    tokenVersion,
     iss: config.JWT_ISSUER,
     aud: config.JWT_AUDIENCE,
   };
