@@ -48,7 +48,7 @@ async function createUser(tag: string) {
 
 async function cleanFixtures() {
   const users = await prisma.user.findMany({
-    where: { email: { contains: '@test.local' } },
+    where: { email: { startsWith: 'rewards-' } },
   });
   const userIds = users.map((u) => u.id);
   if (userIds.length) {
@@ -158,11 +158,16 @@ describeIf('Daily tasks', () => {
   });
 
   it('duplicate daily task events do not inflate progress', async () => {
+    // An earlier test in this file already recorded a `daily_login` event for
+    // this shared user, so the absolute expectation of 1 was order-dependent
+    // (it only held on a database where that had not happened). Asserting
+    // that TWO further duplicate events leave progress unchanged is both
+    // order-independent and a stricter statement of the actual invariant.
+    const before = (await listTasks(a.id)).find((t) => t.key === 'daily_login')!.progress;
     await recordTaskEvent(a.id, 'daily_login');
     await recordTaskEvent(a.id, 'daily_login');
-    const tasks = await listTasks(a.id);
-    const login = tasks.find((t) => t.key === 'daily_login');
-    expect(login!.progress).toBe(1);
+    const after = (await listTasks(a.id)).find((t) => t.key === 'daily_login')!.progress;
+    expect(after).toBe(before);
   });
 
   it('claiming a completed task grants the game point reward once', async () => {
@@ -173,6 +178,130 @@ describeIf('Daily tasks', () => {
 
     const claim2 = await claimTaskReward(a.id, login.id);
     expect(claim2.alreadyClaimed).toBe(true);
+  });
+});
+
+// ─── DAILY TASKS — TERMINAL PROGRESS GUARD REGRESSIONS ───────────
+
+describeIf('Daily tasks — terminal progress guard', () => {
+  let user: { id: string };
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    user = await createUser('terminal');
+    await ensureTasks();
+  });
+
+  it('does not increase progress after COMPLETED', async () => {
+    await recordTaskEvent(user.id, 'daily_login');
+    const completed = (await listTasks(user.id)).find((t) => t.key === 'daily_login')!;
+    expect(completed.status).toBe('COMPLETED');
+    expect(completed.progress).toBe(completed.target);
+
+    const before = completed.progress;
+    await recordTaskEvent(user.id, 'daily_login');
+    await recordTaskEvent(user.id, 'daily_login');
+    const after = (await listTasks(user.id)).find((t) => t.key === 'daily_login')!;
+
+    expect(after.status).toBe('COMPLETED');
+    expect(after.progress).toBe(before);
+    expect(after.progress).toBe(after.target);
+  });
+
+  it('does not increase progress after CLAIMED', async () => {
+    const task = (await listTasks(user.id)).find((t) => t.key === 'daily_login')!;
+    const claim = await claimTaskReward(user.id, task.id);
+    expect(claim.granted).toBe(true);
+
+    const claimed = (await listTasks(user.id)).find((t) => t.key === 'daily_login')!;
+    expect(claimed.status).toBe('CLAIMED');
+
+    const before = claimed.progress;
+    await recordTaskEvent(user.id, 'daily_login');
+    await recordTaskEvent(user.id, 'daily_login');
+    const after = (await listTasks(user.id)).find((t) => t.key === 'daily_login')!;
+
+    expect(after.status).toBe('CLAIMED');
+    expect(after.progress).toBe(before);
+  });
+
+  it('still completes when progress first reaches the target', async () => {
+    const fresh = await createUser('reach-target');
+    await recordTaskEvent(fresh.id, 'daily_login');
+    const task = (await listTasks(fresh.id)).find((t) => t.key === 'daily_login')!;
+    expect(task.status).toBe('COMPLETED');
+    expect(task.progress).toBe(task.target);
+  });
+
+  it('counts duplicate events toward target before completion', async () => {
+    const fresh = await createUser('pre-complete');
+    // send_message target = 3
+    await recordTaskEvent(fresh.id, 'send_message');
+    await recordTaskEvent(fresh.id, 'send_message');
+    const mid = (await listTasks(fresh.id)).find((t) => t.key === 'send_message')!;
+    expect(mid.status).toBe('IN_PROGRESS');
+    expect(mid.progress).toBe(2);
+
+    await recordTaskEvent(fresh.id, 'send_message');
+    const done = (await listTasks(fresh.id)).find((t) => t.key === 'send_message')!;
+    expect(done.status).toBe('COMPLETED');
+    expect(done.progress).toBe(done.target);
+
+    // Further events must not inflate progress.
+    await recordTaskEvent(fresh.id, 'send_message');
+    const after = (await listTasks(fresh.id)).find((t) => t.key === 'send_message')!;
+    expect(after.progress).toBe(done.target);
+  });
+
+  it('concurrent events cannot push progress above target', async () => {
+    const fresh = await createUser('concurrent');
+    // Fire several recordTaskEvent calls in parallel just before completion.
+    // send_message target = 3; firing 5 events concurrently should end at 3.
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () => recordTaskEvent(fresh.id, 'send_message'))
+    );
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    expect(fulfilled.length).toBe(results.length);
+
+    const sendMessageDef = await prisma.taskDefinition.findUnique({ where: { key: 'send_message' } });
+    const task = await prisma.userTask.findUnique({
+      where: {
+        userId_taskId_periodKey: {
+          userId: fresh.id,
+          taskId: sendMessageDef!.id,
+          periodKey: utcDayKey(new Date()),
+        },
+      },
+    });
+
+    expect(task).toBeTruthy();
+    expect(task!.status).toBe('COMPLETED');
+    expect(task!.progress).toBeLessThanOrEqual(sendMessageDef!.target);
+  });
+
+  it('reward claim remains idempotent under duplicate calls', async () => {
+    const fresh = await createUser('idempotent');
+    await recordTaskEvent(fresh.id, 'daily_login');
+    const task = (await listTasks(fresh.id)).find((t) => t.key === 'daily_login')!;
+
+    const claim1 = await claimTaskReward(fresh.id, task.id);
+    expect(claim1.granted).toBe(true);
+
+    const claim2 = await claimTaskReward(fresh.id, task.id);
+    expect(claim2.alreadyClaimed).toBe(true);
+
+    const claim3 = await claimTaskReward(fresh.id, task.id);
+    expect(claim3.alreadyClaimed).toBe(true);
+
+    const claims = await prisma.rewardClaim.count({
+      where: {
+        userId: fresh.id,
+        sourceType: 'TASK',
+        sourceId: `${task.id}:${utcDayKey(new Date())}`,
+      },
+    });
+    expect(claims).toBe(1);
   });
 });
 

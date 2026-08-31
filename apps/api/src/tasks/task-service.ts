@@ -84,6 +84,19 @@ export async function recordTaskEvent(
   const xpRefId = periodKey ? `${def.id}:${periodKey}` : def.id;
 
   await prisma.$transaction(async (tx) => {
+    // Read the current row first so we do not increment progress on a task
+    // that has already reached a terminal state. The upsert below is still
+    // used for the atomic create-or-update, but the status check must happen
+    // before any write to prevent completed/claimed tasks from accumulating
+    // progress across duplicate events.
+    const existing = await tx.userTask.findUnique({
+      where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
+    });
+
+    if (existing && (existing.status === 'COMPLETED' || existing.status === 'CLAIMED')) {
+      return;
+    }
+
     // Use atomic increment to avoid lost-update races under concurrent
     // activity (previously read-then-write absolute value clobbered
     // concurrent increments).
@@ -93,7 +106,18 @@ export async function recordTaskEvent(
       create: { userId, taskId: def.id, periodKey, progress: increment },
     });
 
-    if (task.status === 'COMPLETED' || task.status === 'CLAIMED') return;
+    // If a concurrent transaction completed/claimed the task between our
+    // findUnique and the upsert, ensure progress never exceeds the target and
+    // do not re-run completion side effects.
+    if (task.status === 'COMPLETED' || task.status === 'CLAIMED') {
+      if (task.progress > def.target) {
+        await tx.userTask.update({
+          where: { id: task.id },
+          data: { progress: def.target },
+        });
+      }
+      return;
+    }
 
     const cappedProgress = Math.min(task.progress, def.target);
     const completed = cappedProgress >= def.target;

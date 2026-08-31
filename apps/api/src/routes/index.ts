@@ -13,6 +13,11 @@ import { achievementRoutes } from './achievements';
 import { gameRoutes } from './games';
 import { challengeRoutes } from '../challenges/routes';
 import { competitionRoutes } from '../competitions/routes';
+import { agentRoutes } from '../agents/routes';
+import { agentOrderRoutes } from '../agents/order-routes';
+import { agentDisputeRoutes } from '../agents/dispute-routes';
+import { agentConversationRoutes } from '../agents/conversation-routes';
+import { agentConfigRoutes } from '../agents/config-routes';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(healthRoutes, { prefix: '/health' });
@@ -29,6 +34,11 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(gameRoutes, { prefix: '/games' });
   await server.register(challengeRoutes, { prefix: '/challenges' });
   await server.register(competitionRoutes, { prefix: '/competitions' });
+  await server.register(agentRoutes, { prefix: '/agents' });
+  await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
+  await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
+  await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
+  await server.register(agentConfigRoutes, { prefix: '/agent-config' });
 
   server.get('/', async () => ({
     success: true,

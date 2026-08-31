@@ -160,10 +160,6 @@ class ApiClient {
     return this.post(`/competitions/${groupId}/${competitionId}/play`, { clientData });
   }
 
-  async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<any>> {
-    return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
-  }
-
   // Wallet / Economy
   async getWallet(): Promise<ApiResponse<any>> {
     return this.get('/wallet');

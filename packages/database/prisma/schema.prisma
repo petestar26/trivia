@@ -25,28 +25,38 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  profile          Profile?
-  ownedGroups      Group[]           @relation("GroupOwner")
-  groupMemberships GroupMember[]
-  messages         Message[]
-  messageReactions MessageReaction[]
-  notifications    Notification[]
-  wallet           Wallet?
-  vipMembership    VipMembership?
-  progress         UserProgress?
-  xpEvents         UserXpEvent[]
-  tasks            UserTask[]
-  streak           DailyStreak?
-  rewardClaims     RewardClaim[]
-  achievements     UserAchievement[]
-  gameSessions     GameSession[]
-  triviaAttempts   UserTriviaAttempt[]
-  challengesSent   GameChallenge[]    @relation("ChallengeSender")
-  challengesReceived GameChallenge[]  @relation("ChallengeReceiver")
-  challengeWins    GameChallenge[]    @relation("ChallengeWinner")
+  // Set at most once, before the user's first agent order, and never
+  // overwritten thereafter (Phase B decision 4 / original spec §24: the
+  // relationship must be historically stable). Nullable relation — see
+  // Agent.referredUsers for the inverse side.
+  referredByAgentId String?
+  referredByAgent   Agent?  @relation("AgentReferrals", fields: [referredByAgentId], references: [id], onDelete: SetNull)
+
+  profile                   Profile?
+  ownedGroups               Group[]                    @relation("GroupOwner")
+  groupMemberships          GroupMember[]
+  messages                  Message[]
+  messageReactions          MessageReaction[]
+  notifications             Notification[]
+  wallet                    Wallet?
+  vipMembership             VipMembership?
+  progress                  UserProgress?
+  xpEvents                  UserXpEvent[]
+  tasks                     UserTask[]
+  streak                    DailyStreak?
+  rewardClaims              RewardClaim[]
+  achievements              UserAchievement[]
+  gameSessions              GameSession[]
+  triviaAttempts            UserTriviaAttempt[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
+  challengesSent            GameChallenge[]            @relation("ChallengeSender")
+  challengesReceived        GameChallenge[]            @relation("ChallengeReceiver")
+  challengeWins             GameChallenge[]            @relation("ChallengeWinner")
   competitionParticipations CompetitionParticipant[]
-  createdCompetitions GroupCompetition[]   @relation("CompetitionCreator")
-  finalizedCompetitions GroupCompetition[] @relation("CompetitionFinalizer")
+  createdCompetitions       GroupCompetition[]         @relation("CompetitionCreator")
+  finalizedCompetitions     GroupCompetition[]         @relation("CompetitionFinalizer")
+  agentProfile              Agent?                     @relation("AgentIdentity")
+  agentOrders               AgentOrder[]
 
   @@index([email])
   @@index([username])
@@ -142,9 +152,9 @@ model Group {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  owner    User          @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  members  GroupMember[]
-  messages Message[]
+  owner        User               @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members      GroupMember[]
+  messages     Message[]
   competitions GroupCompetition[]
 
   @@index([ownerId])
@@ -294,6 +304,19 @@ enum NotificationType {
   COMPETITION_STARTING
   COMPETITION_ENDED
   COMPETITION_RESULT
+  AGENT_ORDER_CREATED
+  AGENT_PAYMENT_SUBMITTED
+  AGENT_COINS_RELEASED
+  AGENT_ORDER_TIMEOUT
+  AGENT_DISPUTE_OPENED
+  AGENT_DISPUTE_RESOLVED
+  AGENT_APPLICATION_RECEIVED
+  AGENT_APPLICATION_APPROVED
+  AGENT_APPLICATION_REJECTED
+  AGENT_SUSPENDED
+  AGENT_PAYMENT_ACCOUNT_APPROVED
+  AGENT_PAYMENT_ACCOUNT_REJECTED
+  AGENT_ADMIN_MESSAGE
 }
 
 model Notification {
@@ -354,21 +377,22 @@ enum TransactionReferenceType {
   TASK
   ACHIEVEMENT
   REFUND
+  AGENT_ORDER
 }
 
 model Wallet {
-  id               String @id @default(uuid())
-  userId           String @unique
-  coinsBalance     Int    @default(0)
-  gamePointsBalance Int   @default(0)
-  version          Int    @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  coinsBalance      Int      @default(0)
+  gamePointsBalance Int      @default(0)
+  version           Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
   walletTransactions WalletTransaction[]
-  sentGifts         GiftTransaction[]    @relation("GiftSender")
-  receivedGifts     GiftTransaction[]    @relation("GiftRecipient")
+  sentGifts          GiftTransaction[]   @relation("GiftSender")
+  receivedGifts      GiftTransaction[]   @relation("GiftRecipient")
 
   @@map("wallets")
 }
@@ -398,27 +422,27 @@ model WalletTransaction {
 }
 
 model Gift {
-  id                String       @id @default(uuid())
-  name              String
-  description       String       @default("")
-  imageUrl          String?
-  coinPrice         Int
+  id                  String   @id @default(uuid())
+  name                String
+  description         String   @default("")
+  imageUrl            String?
+  coinPrice           Int
   recipientPointValue Int
-  isAnimated        Boolean      @default(false)
-  isLimited         Boolean      @default(false)
-  limitedQuantity   Int?
-  isActive          Boolean      @default(true)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  isAnimated          Boolean  @default(false)
+  isLimited           Boolean  @default(false)
+  limitedQuantity     Int?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  transactions      GiftTransaction[]
+  transactions GiftTransaction[]
 
   @@index([isActive])
   @@map("gifts")
 }
 
 model GiftTransaction {
-  id                      String @id @default(uuid())
+  id                      String   @id @default(uuid())
   senderId                String
   recipientId             String
   giftId                  String
@@ -503,7 +527,7 @@ model UserProgress {
 }
 
 model UserXpEvent {
-  id            String  @id @default(uuid())
+  id            String   @id @default(uuid())
   userId        String
   xp            Int
   reason        String
@@ -538,18 +562,18 @@ enum TaskStatus {
 }
 
 model TaskDefinition {
-  id            String   @id @default(uuid())
-  key           String   @unique
-  type          TaskType
-  title         String
-  description   String?  @db.Text
-  target        Int      @default(1)
-  xpReward      Int      @default(0)
-  coinReward    Int      @default(0)
-  gamePointReward Int    @default(0)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  key             String   @unique
+  type            TaskType
+  title           String
+  description     String?  @db.Text
+  target          Int      @default(1)
+  xpReward        Int      @default(0)
+  coinReward      Int      @default(0)
+  gamePointReward Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   userTasks UserTask[]
 
@@ -564,13 +588,13 @@ model UserTask {
   taskId      String
   progress    Int        @default(0)
   status      TaskStatus @default(IN_PROGRESS)
-  periodKey   String?    // canonical date (YYYY-MM-DD) for DAILY tasks
+  periodKey   String? // canonical date (YYYY-MM-DD) for DAILY tasks
   completedAt DateTime?
   claimedAt   DateTime?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   task TaskDefinition @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([userId, taskId, periodKey])
@@ -582,12 +606,12 @@ model UserTask {
 // ─── Streaks ────────────────────────────────────────────────────
 
 model DailyStreak {
-  id             String  @id @default(uuid())
-  userId         String  @unique
-  currentStreak  Int     @default(0)
-  longestStreak  Int     @default(0)
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
   lastActivityDay String? // canonical UTC date (YYYY-MM-DD)
-  updatedAt      DateTime @updatedAt
+  updatedAt       DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -597,14 +621,14 @@ model DailyStreak {
 // ─── Rewards ────────────────────────────────────────────────────
 
 model RewardClaim {
-  id             String  @id @default(uuid())
-  userId         String
-  sourceType     String
-  sourceId       String
-  xpReward       Int     @default(0)
-  coinReward     Int     @default(0)
-  gamePointReward Int    @default(0)
-  createdAt      DateTime @default(now())
+  id              String   @id @default(uuid())
+  userId          String
+  sourceType      String
+  sourceId        String
+  xpReward        Int      @default(0)
+  coinReward      Int      @default(0)
+  gamePointReward Int      @default(0)
+  createdAt       DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
@@ -626,18 +650,18 @@ enum AchievementCategory {
 }
 
 model Achievement {
-  id          String              @id @default(uuid())
-  key         String              @unique
-  category    AchievementCategory
-  title       String
-  description String?             @db.Text
-  xpReward    Int                 @default(0)
-  coinReward  Int                 @default(0)
-  gamePointReward Int             @default(0)
-  iconUrl     String?
-  isActive    Boolean             @default(true)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  id              String              @id @default(uuid())
+  key             String              @unique
+  category        AchievementCategory
+  title           String
+  description     String?             @db.Text
+  xpReward        Int                 @default(0)
+  coinReward      Int                 @default(0)
+  gamePointReward Int                 @default(0)
+  iconUrl         String?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   userAchievements UserAchievement[]
 
@@ -678,20 +702,20 @@ enum GameSessionStatus {
 }
 
 model GameDefinition {
-  id           String   @id @default(uuid())
-  key          String   @unique
-  name         String
-  description  String?  @db.Text
-  type         GameType
-  isActive     Boolean  @default(true)
-  minBet       Int      @default(1)
-  maxBet       Int      @default(1000)
-  configuration Json    // server-only: probabilities, outcomes, etc.
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(uuid())
+  key           String   @unique
+  name          String
+  description   String?  @db.Text
+  type          GameType
+  isActive      Boolean  @default(true)
+  minBet        Int      @default(1)
+  maxBet        Int      @default(1000)
+  configuration Json // server-only: probabilities, outcomes, etc.
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  sessions    GameSession[]
-  challenges  GameChallenge[]
+  sessions     GameSession[]
+  challenges   GameChallenge[]
   competitions GroupCompetition[]
 
   @@index([isActive])
@@ -700,39 +724,44 @@ model GameDefinition {
 }
 
 model GameSession {
-  id           String            @id @default(uuid())
-  userId       String
-  gameId       String
-  status       GameSessionStatus @default(PENDING)
-  betAmount    Int
-  result       Json              // server-generated canonical result
-  rewardAmount Int               @default(0)
-  isWin        Boolean           @default(false)
+  id             String            @id @default(uuid())
+  userId         String
+  gameId         String
+  challengeId    String?
+  status         GameSessionStatus @default(PENDING)
+  betAmount      Int
+  result         Json // server-generated canonical result
+  rewardAmount   Int               @default(0)
+  isWin          Boolean           @default(false)
   idempotencyKey String?
-  createdAt    DateTime          @default(now())
-  completedAt  DateTime?
+  createdAt      DateTime          @default(now())
+  completedAt    DateTime?
 
-  user User         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  game GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  game      GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenge GameChallenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
 
   @@unique([userId, idempotencyKey])
+  @@unique([challengeId, userId])
   @@index([userId, createdAt])
   @@index([gameId])
   @@index([idempotencyKey])
+  @@index([challengeId])
   @@map("game_sessions")
 }
 
 model TriviaQuestion {
-  id          String   @id @default(uuid())
-  question    String   @db.Text
-  choices     Json     // string array of answer choices
+  id           String   @id @default(uuid())
+  question     String   @db.Text
+  choices      Json // string array of answer choices
   correctIndex Int
-  category    String?
-  difficulty  Int      @default(1)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  category     String?
+  difficulty   Int      @default(1)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
-  attempts    UserTriviaAttempt[]
+  attempts                  UserTriviaAttempt[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
 
   @@index([isActive])
   @@map("trivia_questions")
@@ -742,17 +771,37 @@ model TriviaQuestion {
 // answer cannot be replayed indefinitely to farm Game Points. The unique
 // constraint ensures one attempt per (user, question).
 model UserTriviaAttempt {
-  id          String   @id @default(uuid())
-  userId      String
-  questionId  String
-  answeredAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  questionId String
+  answeredAt DateTime @default(now())
 
-  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   question TriviaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([userId, questionId])
   @@index([userId, answeredAt])
   @@map("user_trivia_attempts")
+}
+
+// Tracks each user's attempt on a trivia question within a competition.
+// This is separate from UserTriviaAttempt because competition trivia
+// has different replay boundaries (per competition, not global).
+model CompetitionTriviaAttempt {
+  id            String   @id @default(uuid())
+  userId        String
+  competitionId String
+  questionId    String
+  answeredAt    DateTime @default(now())
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competition GroupCompetition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  question    TriviaQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, competitionId, questionId])
+  @@index([userId, competitionId])
+  @@index([competitionId, questionId])
+  @@map("competition_trivia_attempts")
 }
 
 // ─── Friend Challenges ──────────────────────────────────────────
@@ -767,24 +816,25 @@ enum ChallengeStatus {
 }
 
 model GameChallenge {
-  id             String          @id @default(uuid())
-  challengerId   String
-  challengedId   String
-  gameId         String
-  entryAmount    Int
-  status         ChallengeStatus @default(PENDING)
-  winnerId       String?
-  resultMeta     Json?
-  expiresAt      DateTime
-  createdAt      DateTime        @default(now())
-  acceptedAt     DateTime?
-  startedAt      DateTime?
-  completedAt    DateTime?
+  id           String          @id @default(uuid())
+  challengerId String
+  challengedId String
+  gameId       String
+  entryAmount  Int
+  status       ChallengeStatus @default(PENDING)
+  winnerId     String?
+  resultMeta   Json?
+  expiresAt    DateTime
+  createdAt    DateTime        @default(now())
+  acceptedAt   DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
 
-  challenger  User        @relation("ChallengeSender", fields: [challengerId], references: [id], onDelete: Cascade)
-  challenged  User        @relation("ChallengeReceiver", fields: [challengedId], references: [id], onDelete: Cascade)
-  winner      User?       @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
-  game        GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenger   User           @relation("ChallengeSender", fields: [challengerId], references: [id], onDelete: Cascade)
+  challenged   User           @relation("ChallengeReceiver", fields: [challengedId], references: [id], onDelete: Cascade)
+  winner       User?          @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  game         GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  gameSessions GameSession[]
 
   @@index([challengerId, createdAt])
   @@index([challengedId, createdAt])
@@ -810,31 +860,33 @@ enum CompetitionScoring {
 }
 
 model GroupCompetition {
-  id          String             @id @default(uuid())
-  groupId     String
-  gameId      String
-  title       String
-  description String?            @db.Text
-  status      CompetitionStatus  @default(SCHEDULED)
-  scoring     CompetitionScoring
-  entryAmount Int                @default(0)
-  maxParticipants Int?
-  rewardGamePoints Int           @default(0)
-  rewardCoins      Int           @default(0)
-  startsAt    DateTime
-  endsAt      DateTime
-  createdBy   String
-  finalizerId String?
-  finalizedAt DateTime?
-  result      Json?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id               String             @id @default(uuid())
+  groupId          String
+  gameId           String
+  title            String
+  description      String?            @db.Text
+  status           CompetitionStatus  @default(SCHEDULED)
+  scoring          CompetitionScoring
+  entryAmount      Int                @default(0)
+  maxParticipants  Int?
+  participantCount Int                @default(0)
+  rewardGamePoints Int                @default(0)
+  rewardCoins      Int                @default(0)
+  startsAt         DateTime
+  endsAt           DateTime
+  createdBy        String
+  finalizerId      String?
+  finalizedAt      DateTime?
+  result           Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  group     Group                                @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  game      GameDefinition                       @relation(fields: [gameId], references: [id], onDelete: Restrict)
-  creator   User                                 @relation("CompetitionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
-  finalizer User?                                @relation("CompetitionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
-  participants CompetitionParticipant[]
+  group                     Group                      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  game                      GameDefinition             @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  creator                   User                       @relation("CompetitionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  finalizer                 User?                      @relation("CompetitionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
+  participants              CompetitionParticipant[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
 
   @@index([groupId, status])
   @@index([gameId])
@@ -846,6 +898,13 @@ model CompetitionParticipant {
   id            String   @id @default(uuid())
   competitionId String
   userId        String
+  // The entry fee ACTUALLY DEBITED from this participant at join time.
+  // Refunds (on cancel) MUST read this field, never the competition's live
+  // entryAmount — that field is mutable after join, so refunding from it
+  // instead of from what was actually collected can mint or destroy currency.
+  // Defaults to 0 so a `db push` against an existing database backfills
+  // pre-existing rows safely (see deployment note in competition-service.ts).
+  entryPaid     Int      @default(0)
   score         Int      @default(0)
   gamesPlayed   Int      @default(0)
   joinedAt      DateTime @default(now())
@@ -857,4 +916,462 @@ model CompetitionParticipant {
   @@unique([competitionId, userId])
   @@index([userId])
   @@map("competition_participants")
+}
+
+// ─── Country Agent Payment System (Phase C) ──────────────────────
+//
+// Order + reservation + settlement + dispute system. User-side money
+// movement still goes exclusively through applyBalanceChanges /
+// WalletTransaction, unmodified below. Agent inventory is a distinct
+// asset class (sellable coin stock, not a user wallet) with its own
+// append-only ledger — never a second wallet, never a second ledger
+// that can disagree with the existing one.
+//
+// Design reference: Phase B "The Agent Ledger". Locked decisions:
+// no platform fee at launch: exchange-rate economics only (decision 1);
+// admin-only inventory allocation at launch (decision 2); one
+// platform-controlled rate per country/currency, not per-agent
+// (decision 3); referral link set once, before first order, never
+// overwritten (decision 4); single-admin dispute resolution at launch
+// (decision 5); SUPER_ADMIN is the intended authority for direct
+// inventory adjustment — enforced by the service layer in a later
+// phase, Prisma has no role-aware constraint mechanism (decision 6).
+
+enum PaymentMethodType {
+  BANK_TRANSFER
+  MOBILE_PAYMENT
+}
+
+enum AgentStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  TEMPORARILY_SUSPENDED
+  DISABLED
+  UNDER_REVIEW
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PaymentAccountStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  DISABLED
+}
+
+// Exact balance-equation semantics per type (Phase C correction E) —
+// the service layer implementing these belongs to a later phase; this
+// schema only needs to represent the resulting rows correctly.
+//   INITIAL_ALLOCATION:    totalBalance += amount, reservedBalance unchanged
+//   RESERVE:                totalBalance unchanged, reservedBalance += amount
+//   RELEASE_UNUSED:         totalBalance unchanged, reservedBalance -= amount
+//   CONSUME_ON_SETTLEMENT:  totalBalance -= amount, reservedBalance -= amount
+//   ADMIN_ADJUSTMENT:       explicit signed operation; a deduction must never
+//                           take totalBalance below the current reservedBalance
+//                           (cannot remove coins already promised to orders)
+enum InventoryLedgerType {
+  INITIAL_ALLOCATION
+  RESERVE
+  RELEASE_UNUSED
+  CONSUME_ON_SETTLEMENT
+  ADMIN_ADJUSTMENT
+}
+
+// CREATED subsumes "payment instructions shown" (a timestamp, not a status —
+// nothing about legal transitions changes between the two). COMPLETED
+// subsumes "coins released" the same way. ADMIN_REVIEW is a sub-state of
+// Dispute.status, not a top-level order status. See Phase B §7 for the full
+// reasoning behind this seven-state (not ten-state) machine.
+enum AgentOrderStatus {
+  CREATED
+  PAYMENT_SUBMITTED
+  AGENT_TIMEOUT
+  DISPUTE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum SettlementOrigin {
+  AGENT_RELEASE
+  ADMIN_DISPUTE_RESOLUTION
+}
+
+enum DisputeReason {
+  PAYMENT_NOT_RECEIVED
+  WRONG_AMOUNT
+  AGENT_UNRESPONSIVE
+  OTHER
+}
+
+// A partial UNIQUE index (order_id WHERE status IN ('OPEN','ASSIGNED')) is
+// added directly in the migration SQL to enforce "at most one active dispute
+// per order" — Prisma's @@unique cannot express a conditional constraint.
+// See Phase C correction B and the migration file for the exact DDL.
+enum DisputeStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+}
+
+enum DisputeResolution {
+  RELEASE
+  CANCEL
+}
+
+enum MessageSenderRole {
+  ADMIN
+  AGENT
+}
+
+// ─── Configuration ────────────────────────────────────────────────
+
+model Country {
+  id                  String   @id @default(uuid())
+  code                String   @unique // ISO 3166-1 alpha-2
+  name                String
+  currencyCode        String // ISO 4217, e.g. "NGN"
+  isActive            Boolean  @default(false)
+  agentPaymentEnabled Boolean  @default(false)
+  displayOrder        Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  paymentMethods       PaymentMethodDefinition[]
+  exchangeRates        ExchangeRateConfig[]
+  agents               Agent[]
+  agentPaymentAccounts AgentPaymentAccount[]
+
+  @@index([isActive])
+  @@map("countries")
+}
+
+model PaymentMethodDefinition {
+  id          String            @id @default(uuid())
+  countryId   String
+  type        PaymentMethodType
+  name        String // e.g. "M-Pesa", "GTBank Transfer"
+  fieldSchema Json // which AgentPaymentAccount fields this type requires
+  isActive    Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  country       Country               @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  agentAccounts AgentPaymentAccount[]
+
+  @@unique([countryId, type, name])
+  @@index([countryId, isActive])
+  @@map("payment_method_definitions")
+}
+
+model ExchangeRateConfig {
+  id           String   @id @default(uuid())
+  countryId    String
+  fiatCurrency String
+  coinsPerUnit Decimal  @db.Decimal(18, 6) // coins per 1 unit of fiat currency
+  isActive     Boolean  @default(true)
+  setBy        String // admin userId
+  effectiveAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+
+  // Selection query the later service layer must use (Phase C correction D):
+  //   country + fiatCurrency + isActive=true + effectiveAt <= now(),
+  //   ordered by effectiveAt DESC, take 1. The resulting value is then
+  //   copied into AgentOrder.exchangeRateValue and never re-read.
+  @@index([countryId, fiatCurrency, isActive, effectiveAt])
+  @@map("exchange_rate_configs")
+}
+
+// ─── Agent identity ───────────────────────────────────────────────
+
+model Agent {
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  countryId       String
+  status          AgentStatus @default(PENDING_VERIFICATION)
+  displayName     String
+  contactEmail    String
+  contactPhone    String?
+  minOrderAmount  Int? // overrides Agent-level default if set
+  maxOrderAmount  Int?
+  suspendedAt     DateTime?
+  suspendedReason String?
+  disabledAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User                   @relation("AgentIdentity", fields: [userId], references: [id], onDelete: Restrict)
+  country         Country                @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  referredUsers   User[]                 @relation("AgentReferrals")
+  applications    AgentApplication[]
+  paymentAccounts AgentPaymentAccount[]
+  inventory       AgentInventory?
+  inventoryLedger AgentInventoryLedger[]
+  orders          AgentOrder[]
+  reservations    AgentReservation[]
+  conversation    AgentConversation?
+
+  @@index([countryId, status])
+  @@map("agents")
+}
+
+model AgentApplication {
+  id            String            @id @default(uuid())
+  agentId       String
+  submittedData Json // only what the platform actually needs — Phase B §7
+  status        ApplicationStatus @default(SUBMITTED)
+  reviewedBy    String? // admin userId
+  reviewNote    String?
+  submittedAt   DateTime          @default(now())
+  reviewedAt    DateTime?
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, submittedAt])
+  @@map("agent_applications")
+}
+
+model AgentPaymentAccount {
+  id             String               @id @default(uuid())
+  agentId        String
+  countryId      String
+  methodDefId    String
+  status         PaymentAccountStatus @default(PENDING_APPROVAL)
+  accountDetails Json // shape validated against methodDef.fieldSchema
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  agent     Agent                   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  country   Country                 @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  methodDef PaymentMethodDefinition @relation(fields: [methodDefId], references: [id], onDelete: Restrict)
+
+  // Phase C correction C: an AgentPaymentAccount's countryId must equal its
+  // methodDef's countryId, and an order's selected account must belong to
+  // the order's own country. Prisma cannot express a cross-field equality
+  // constraint between two foreign keys — the later service layer MUST
+  // verify countryId == methodDef.countryId before approval, and
+  // orderCountryId == account.countryId at order creation. Documented here
+  // rather than forced into unrelated schema complexity, per instruction.
+  @@index([agentId, status])
+  @@map("agent_payment_accounts")
+}
+
+// ─── Agent finance ────────────────────────────────────────────────
+
+model AgentInventory {
+  id              String   @id @default(uuid())
+  agentId         String   @unique
+  totalBalance    Int      @default(0)
+  reservedBalance Int      @default(0)
+  // availableBalance is deliberately NOT a stored column — it is always
+  // totalBalance - reservedBalance, computed at read time. Storing it would
+  // create a second value that could drift from the two that actually matter.
+  version         Int      @default(0) // defense-in-depth, mirrors Wallet.version
+  updatedAt       DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@map("agent_inventories")
+}
+
+model AgentInventoryLedger {
+  id                 String              @id @default(uuid())
+  agentId            String
+  type               InventoryLedgerType
+  amount             Int // always positive; direction implied by type
+  totalBefore        Int
+  totalAfter         Int
+  reservedBefore     Int
+  reservedAfter      Int
+  reservationId      String? // set for RESERVE / RELEASE_UNUSED / CONSUME_ON_SETTLEMENT
+  orderId            String? // denormalized for fast lookup
+  reason             String? // populated only for ADMIN_ADJUSTMENT
+  performedByAdminId String? // populated only for ADMIN_ADJUSTMENT — SUPER_ADMIN only, enforced by the service layer (decision 6)
+  idempotencyKey     String? // admin-supplied, adjustments only
+  createdAt          DateTime            @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@index([orderId])
+  @@index([reservationId])
+  @@map("agent_inventory_ledger")
+}
+
+// ─── Order / settlement ───────────────────────────────────────────
+
+model AgentOrder {
+  id                         String           @id @default(uuid())
+  orderNumber                String           @unique // "AG-000123", human-facing
+  userId                     String
+  agentId                    String
+  // The four fields below are IMMUTABLE SNAPSHOTS, not live foreign keys —
+  // deliberately plain scalars with no Prisma relation, matching the
+  // existing precedent of WalletTransaction.referenceId. An order must
+  // never depend on a country/method/account/rate row that could change or
+  // be disabled after the fact (Phase D exploit lesson, generalized).
+  countryId                  String
+  paymentMethodDefId         String
+  paymentAccountId           String // reference only, non-authoritative — see paymentSnapshot
+  paymentSnapshot            Json // AUTHORITATIVE: exact payment details shown to the user
+  fiatAmount                 Int // smallest fiat unit (e.g. cents), integer
+  fiatCurrency               String
+  exchangeRateConfigId       String
+  exchangeRateValue          Decimal          @db.Decimal(18, 6) // snapshot of the rate itself
+  coinAmount                 Int // floor(fiatAmount * exchangeRateValue), fixed forever
+  status                     AgentOrderStatus @default(CREATED)
+  idempotencyKey             String
+  paymentInstructionsShownAt DateTime         @default(now())
+  paymentSubmittedAt         DateTime?
+  releaseDeadlineAt          DateTime?
+  agentTimeoutAt             DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  expiredAt                  DateTime?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agent       Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  reservation AgentReservation?
+  settlement  AgentOrderSettlement?
+  evidence    PaymentEvidence[]
+  disputes    Dispute[]
+
+  // Phase C correction A: the idempotency key identifies the user's
+  // order-creation REQUEST, not the selected agent — a retry of the same
+  // request must resolve to the same order even if agent selection would
+  // otherwise produce a different candidate. Deliberately [userId, key],
+  // not [userId, agentId, key].
+  @@unique([userId, idempotencyKey])
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([status, releaseDeadlineAt]) // the timeout-sweep query
+  @@map("agent_orders")
+}
+
+model AgentReservation {
+  id         String            @id @default(uuid())
+  orderId    String            @unique // 1:1 — enforces "an order has at most one reservation, a reservation belongs to exactly one order" together
+  agentId    String
+  amount     Int // = order.coinAmount at creation, never independently set — invariant 6
+  status     ReservationStatus @default(ACTIVE)
+  createdAt  DateTime          @default(now())
+  releasedAt DateTime?
+  consumedAt DateTime?
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  agent Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, status])
+  @@map("agent_reservations")
+}
+
+model AgentOrderSettlement {
+  id                  String           @id @default(uuid())
+  orderId             String           @unique // hard backstop against double settlement — mirrors MultiplayerSettlement.roomId
+  reservationId       String // reference only, not a live relation
+  coinAmount          Int
+  walletTransactionId String // the WalletTransaction row applyBalanceChanges produced — soft reference, WalletTransaction is not modified
+  resolvedVia         SettlementOrigin
+  releasedBy          String // agent userId or admin userId
+  settledAt           DateTime         @default(now())
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@map("agent_order_settlements")
+}
+
+// ─── Evidence / dispute ───────────────────────────────────────────
+
+model PaymentEvidence {
+  id               String    @id @default(uuid())
+  orderId          String
+  submittedBy      String // always the order's userId
+  referenceNumber  String?
+  paymentTimestamp DateTime?
+  note             String?
+  fileBucket       String // e.g. "payment-evidence" — served via a NEW authenticated
+  fileKey          String // route in a later phase, never the existing public /storage/:bucket/* path
+  mimeType         String
+  fileSize         Int
+  createdAt        DateTime  @default(now())
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("payment_evidence")
+}
+
+model Dispute {
+  id              String             @id @default(uuid())
+  orderId         String
+  openedBy        String // userId (user, agent, or "SYSTEM" for auto-open on timeout)
+  reason          DisputeReason
+  description     String             @db.Text
+  status          DisputeStatus      @default(OPEN)
+  assignedAdminId String?
+  resolution      DisputeResolution?
+  resolutionNote  String?
+  resolvedBy      String?
+  idempotencyKey  String?
+  openedAt        DateTime           @default(now())
+  assignedAt      DateTime?
+  resolvedAt      DateTime?
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // At-most-one-active-dispute-per-order is enforced by a partial unique
+  // index added directly in the migration SQL (Phase C correction B) —
+  // Prisma's @@unique cannot express the required WHERE status IN (...)
+  // condition.
+  @@unique([orderId, idempotencyKey])
+  @@index([orderId, status])
+  @@index([status, openedAt]) // admin queue query
+  @@map("disputes")
+}
+
+// ─── Admin ↔ agent communication ──────────────────────────────────
+
+model AgentConversation {
+  id        String   @id @default(uuid())
+  agentId   String   @unique
+  createdAt DateTime @default(now())
+
+  agent    Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages AgentMessage[]
+
+  @@map("agent_conversations")
+}
+
+model AgentMessage {
+  id               String            @id @default(uuid())
+  conversationId   String
+  senderId         String // admin userId or agent userId
+  senderRole       MessageSenderRole
+  body             String            @db.Text
+  relatedOrderId   String?
+  relatedDisputeId String?
+  readAt           DateTime?
+  createdAt        DateTime          @default(now())
+
+  conversation AgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("agent_messages")
 }

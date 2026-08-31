@@ -62,7 +62,7 @@ async function primeGamePoints(userId: string, amount: number) {
 
 async function cleanFixtures() {
   const users = await prisma.user.findMany({
-    where: { email: { contains: '@games-' } },
+    where: { email: { startsWith: 'games-' } },
   });
   const userIds = users.map((u) => u.id);
   if (userIds.length) {
@@ -191,7 +191,11 @@ describeIf('Lucky Spin', () => {
     expect(result.gameKey).toBe('lucky_spin');
     expect(result.betAmount).toBe(100);
     expect(result.rewardAmount).toBeGreaterThanOrEqual(0);
-    expect(result.isWin).toBe(typeof result.isWin === 'boolean');
+    // NOTE: this previously read `expect(result.isWin).toBe(typeof result.isWin === 'boolean')`,
+    // whose right-hand side evaluates to `true` — so it asserted the spin ALWAYS wins and
+    // failed ~45% of runs (LOSE has probability 0.45). Restored to the evidently intended
+    // type check; the win/lose value itself is random and must not be asserted here.
+    expect(typeof result.isWin).toBe('boolean');
     expect(result.result).toHaveProperty('name');
     expect(result.result).toHaveProperty('multiplier');
     expect(result.result).toHaveProperty('index');
@@ -300,6 +304,7 @@ describeIf('Number Challenge', () => {
 describeIf('Trivia', () => {
   let a: { id: string };
   let questionId: string;
+  let wrongAnswerQuestionId: string;
 
   beforeAll(async () => {
     await cleanFixtures();
@@ -317,6 +322,21 @@ describeIf('Trivia', () => {
       },
     });
     questionId = q.id;
+
+    // A SECOND question, used only by the wrong-answer test. UserTriviaAttempt
+    // is unique per (userId, questionId), so reusing `questionId` there — after
+    // 'validates answer correctly' has already consumed it for this same user —
+    // fails with "You have already answered this question" rather than
+    // exercising the wrong-answer path it means to test.
+    const q2 = await prisma.triviaQuestion.create({
+      data: {
+        question: 'What is 3 + 3?',
+        choices: ['5', '6', '7', '8'],
+        correctIndex: 1,
+        category: 'math',
+      },
+    });
+    wrongAnswerQuestionId = q2.id;
   });
 
   it('validates answer correctly', async () => {
@@ -335,7 +355,7 @@ describeIf('Trivia', () => {
       userId: a.id,
       gameKey: 'trivia',
       betAmount: 10,
-      clientData: { questionId, answerIndex: 0 },
+      clientData: { questionId: wrongAnswerQuestionId, answerIndex: 0 },
     });
     expect(result.isWin).toBe(false);
     expect(result.rewardAmount).toBe(0);

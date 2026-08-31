@@ -141,7 +141,7 @@ export interface BalanceChange {
   amount: number; // positive integer
   ledgerType: 'CREDIT' | 'DEBIT';
   transactionType: 'COIN_CREDIT' | 'COIN_DEBIT' | 'GAME_POINT_CREDIT' | 'GAME_POINT_DEBIT';
-  referenceType: 'GIFT' | 'REWARD' | 'PURCHASE' | 'GAME' | 'ADMIN' | 'TRANSFER' | 'DAILY_REWARD' | 'TASK' | 'ACHIEVEMENT' | 'REFUND';
+  referenceType: 'GIFT' | 'REWARD' | 'PURCHASE' | 'GAME' | 'ADMIN' | 'TRANSFER' | 'DAILY_REWARD' | 'TASK' | 'ACHIEVEMENT' | 'REFUND' | 'AGENT_ORDER';
   referenceId?: string;
   description: string;
 }
@@ -177,6 +177,13 @@ export async function applyBalanceChanges(
 
   if (!wallet) {
     throw ApiError.internal('Wallet not found');
+  }
+
+  // Validate all change amounts are positive integers
+  for (const change of changes) {
+    if (!Number.isInteger(change.amount) || change.amount <= 0) {
+      throw ApiError.badRequest('Balance change amount must be a positive integer');
+    }
   }
 
   // Verify sufficient balance for debits

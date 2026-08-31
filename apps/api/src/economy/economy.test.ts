@@ -81,7 +81,7 @@ async function primeCoins(userId: string, amount: number) {
 
 async function cleanFixtures() {
   const users = await prisma.user.findMany({
-    where: { email: { contains: '@test.local' } },
+    where: { email: { startsWith: 'economy-' } },
   });
   const userIds = users.map((u) => u.id);
 
@@ -350,6 +350,10 @@ describeIf('Idempotency', () => {
   it('same key does not double-charge or double-credit', async () => {
     const senderBefore = (await getWalletBalance(a.id)).coinsBalance;
     const recipientBefore = (await getWalletBalance(b.id)).gamePointsBalance;
+    const giftCountBefore = await prisma.giftTransaction.count({ where: { senderId: a.id } });
+    const notificationsBefore = await prisma.notification.count({
+      where: { userId: b.id, type: 'GIFT_RECEIVED' },
+    });
 
     await sendGift({
       senderId: a.id,
@@ -376,13 +380,19 @@ describeIf('Idempotency', () => {
     expect(senderAfter).toBe(senderBefore - 100);
     expect(recipientAfter).toBe(recipientBefore + 50);
 
-    const giftCount = await prisma.giftTransaction.count({ where: { senderId: a.id } });
-    expect(giftCount).toBe(2);
+    // Measured as DELTAS, not absolutes. The previous absolute expectations
+    // (2 and 2) only held when the database still contained gifts from an
+    // earlier run — they passed on stale data and fail on a clean database.
+    // The delta is also the stronger assertion: it proves that the SECOND
+    // (idempotent) sendGift created no additional transaction or
+    // notification, which is precisely what this test exists to verify.
+    const giftCountAfter = await prisma.giftTransaction.count({ where: { senderId: a.id } });
+    expect(giftCountAfter).toBe(giftCountBefore + 1);
 
-    const notifications = await prisma.notification.count({
+    const notificationsAfter = await prisma.notification.count({
       where: { userId: b.id, type: 'GIFT_RECEIVED' },
     });
-    expect(notifications).toBe(2);
+    expect(notificationsAfter).toBe(notificationsBefore + 1);
   });
 });
 

@@ -1,8 +1,8 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useSocket } from '@/providers/socket-provider';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ export function MessagesPage() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasJoinedRoomRef = useRef(false);
 
   const { data: msgData, isLoading, isError } = useQuery({
     queryKey: ['messages', groupId],
@@ -21,6 +22,46 @@ export function MessagesPage() {
     enabled: !!groupId,
     refetchOnWindowFocus: true,
   });
+
+  // Join the Socket.IO group room when groupId changes
+  const joinRoom = useCallback(() => {
+    if (!socket || !groupId || hasJoinedRoomRef.current) return;
+    socket.emit('group:join', { groupId }, (response: { success: boolean; error?: string }) => {
+      if (response.success) {
+        hasJoinedRoomRef.current = true;
+      } else {
+        console.warn('Failed to join group room:', response.error);
+      }
+    });
+  }, [socket, groupId]);
+
+  const leaveRoom = useCallback(() => {
+    if (!socket || !groupId || !hasJoinedRoomRef.current) return;
+    socket.emit('group:leave', { groupId });
+    hasJoinedRoomRef.current = false;
+  }, [socket, groupId]);
+
+  // Handle socket reconnect - rejoin room
+  useEffect(() => {
+    if (!socket) return;
+    const onConnect = () => {
+      hasJoinedRoomRef.current = false;
+      joinRoom();
+    };
+    socket.on('connect', onConnect);
+    return () => {
+      socket.off('connect', onConnect);
+    };
+  }, [socket, joinRoom]);
+
+  // Join/leave room when groupId changes
+  useEffect(() => {
+    if (!groupId) return;
+    joinRoom();
+    return () => {
+      leaveRoom();
+    };
+  }, [groupId, joinRoom, leaveRoom]);
 
   // Listen for realtime message events and refetch authoritative state
   useEffect(() => {
@@ -69,14 +110,23 @@ export function MessagesPage() {
 
   const messages = msgData?.data ?? [];
 
-  const handleSend = async () => {
+  // Use mutation for sending messages with proper query invalidation
+  const sendMutation = useMutation({
+    mutationFn: (content: string) => api.post(`/groups/${groupId}/messages`, { content }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
+    },
+    onError: (err) => {
+      // Error handling could be improved with toast
+      console.error('Failed to send message:', err);
+    },
+  });
+
+  const handleSend = () => {
     if (!message.trim()) return;
-    try {
-      await api.post(`/groups/${groupId}/messages`, { content: message.trim() });
-      setMessage('');
-    } catch {
-      // Error toast would go here
-    }
+    sendMutation.mutate(message.trim(), {
+      onSuccess: () => setMessage(''),
+    });
   };
 
   return (
@@ -96,7 +146,7 @@ export function MessagesPage() {
                 <div key={msg.id} className={`flex flex-col ${msg.isDeleted ? 'opacity-40' : ''}`}>
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">
-                      {msg.user?.displayName || msg.user?.username || 'Unknown'}
+                      {msg.sender?.displayName || msg.sender?.username || 'Unknown'}
                     </span>
                     <span className="text-xs text-gray-400">{new Date(msg.createdAt).toLocaleTimeString()}</span>
                     {msg.isEdited && <span className="text-xs text-gray-400">(edited)</span>}
@@ -121,7 +171,9 @@ export function MessagesPage() {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           maxLength={5000}
         />
-        <Button onClick={handleSend} disabled={!message.trim()}>Send</Button>
+        <Button onClick={handleSend} disabled={!message.trim() || sendMutation.isPending}>
+          {sendMutation.isPending ? 'Sending…' : 'Send'}
+        </Button>
       </div>
     </div>
   );

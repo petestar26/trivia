@@ -79,36 +79,40 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { name, description, isPrivate, imageUrl, coverUrl } = request.body;
 
-      const group = await prisma.group.create({
-        data: {
-          ownerId: request.user!.sub,
-          name,
-          description,
-          isPrivate: isPrivate ?? false,
-          imageUrl,
-          coverUrl,
-        },
-        select: {
-          id: true,
-          ownerId: true,
-          name: true,
-          description: true,
-          imageUrl: true,
-          coverUrl: true,
-          isPrivate: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+      const group = await prisma.$transaction(async (tx) => {
+        const createdGroup = await tx.group.create({
+          data: {
+            ownerId: request.user!.sub,
+            name,
+            description,
+            isPrivate: isPrivate ?? false,
+            imageUrl,
+            coverUrl,
+          },
+          select: {
+            id: true,
+            ownerId: true,
+            name: true,
+            description: true,
+            imageUrl: true,
+            coverUrl: true,
+            isPrivate: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
 
-      await prisma.groupMember.create({
-        data: {
-          groupId: group.id,
-          userId: request.user!.sub,
-          role: 'OWNER',
-          status: 'ACTIVE',
-        },
+        await tx.groupMember.create({
+          data: {
+            groupId: createdGroup.id,
+            userId: request.user!.sub,
+            role: 'OWNER',
+            status: 'ACTIVE',
+          },
+        });
+
+        return createdGroup;
       });
 
       reply.status(201).send({

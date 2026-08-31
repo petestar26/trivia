@@ -5,13 +5,34 @@ import { useAuth } from '@/providers/auth-provider';
 import { useSocket } from '@/providers/socket-provider';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 interface LeaderboardEntry {
   userId: string;
   score: number;
   gamesPlayed: number;
+}
+
+interface TriviaQuestion {
+  id: string;
+  question: string;
+  choices: string[];
+  category: string | null;
+  difficulty: number;
+}
+
+interface PlayCompetitionResult {
+  phase?: 'question' | 'answer';
+  score?: number;
+  result?: {
+    questionId: string;
+    answerIndex: number;
+    correct: boolean;
+  };
+  accumulatedScore?: number;
+  gamesPlayed?: number;
+  question?: TriviaQuestion;
 }
 
 export function CompetitionDetailPage() {
@@ -89,11 +110,34 @@ export function CompetitionDetailPage() {
   });
 
   const playMutation = useMutation({
-    mutationFn: () => api.playCompetition(groupId!, competitionId!),
-    onSuccess: (res) => {
+    mutationFn: (clientData?: Record<string, unknown>) => api.playCompetition(groupId!, competitionId!, clientData),
+    onSuccess: (data) => {
+      // Handle two-phase trivia flow
+      if (isTriviaCompetition && data.phase === 'question' && data.question) {
+        // Phase 1: question served - show it to the user
+        setTriviaQuestion(data.question);
+        setShowTriviaQuestion(true);
+        setSelectedAnswer(null);
+        return;
+      }
+      
+      // Phase 2 or normal game: show result
+      const score = data.score ?? 0;
+      if (data.result?.correct === false) {
+        toast({ title: 'Incorrect', description: `Better luck next round!` });
+      } else if (data.result?.correct === true) {
+        toast({ title: 'Correct!', description: `+${score} points` });
+      } else if (score !== 0) {
+        toast({ title: 'Turn complete', description: `Score this round: ${score}` });
+      }
+      
+      // Reset trivia state
+      setTriviaQuestion(null);
+      setShowTriviaQuestion(false);
+      setSelectedAnswer(null);
+      
       queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
-      const score = res.data?.score ?? 0;
-      toast({ title: 'Turn complete', description: `Score this round: ${score}` });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
     onError: (err) => {
       let msg = 'Failed to play';
@@ -115,6 +159,21 @@ export function CompetitionDetailPage() {
       toast({ title: 'Error', description: msg, variant: 'destructive' });
     },
   });
+
+  // ── Trivia competition state ───────────────────────────────────────
+  const [triviaQuestion, setTriviaQuestion] = useState<TriviaQuestion | null>(null);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [showTriviaQuestion, setShowTriviaQuestion] = useState(false);
+  const [isTriviaCompetition, setIsTriviaCompetition] = useState(false);
+
+  // Track if this is a trivia competition
+  useEffect(() => {
+    if (competition?.game?.key === 'trivia') {
+      setIsTriviaCompetition(true);
+    } else {
+      setIsTriviaCompetition(false);
+    }
+  }, [competition?.game?.key]);
 
   // ── Loading / error guards — AFTER all hooks ───────────────────────
   const isLoading = compLoading || groupLoading;
@@ -266,13 +325,86 @@ export function CompetitionDetailPage() {
 
           {/* Play — ACTIVE competitions */}
           {isActive && iAmParticipant && (
-            <Button
-              onClick={() => playMutation.mutate()}
-              disabled={mutBusy}
-              className="w-full"
-            >
-              {playMutation.isPending ? 'Playing…' : 'Play a round'}
-            </Button>
+            <div className="space-y-3">
+              {/* Trivia Competition - Two Phase */}
+              {isTriviaCompetition && (
+                <div className="space-y-4">
+                  {showTriviaQuestion && triviaQuestion && (
+                    <Card className="border-primary-500">
+                      <CardHeader>
+                        <CardTitle className="text-primary-600 dark:text-primary-400">
+                          {triviaQuestion.category && (
+                            <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mr-2">
+                              {triviaQuestion.category}
+                            </span>
+                          )}
+                          Trivia Question
+                        </CardTitle>
+                        <CardDescription>
+                          {triviaQuestion.difficulty && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Difficulty: {triviaQuestion.difficulty}/5
+                            </span>
+                          )}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                          {triviaQuestion.question}
+                        </h3>
+                        <div className="space-y-2">
+                          {triviaQuestion.choices.map((choice, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setSelectedAnswer(i)}
+                              disabled={playMutation.isPending}
+                              className={`w-full text-left px-4 py-3 rounded-lg border text-sm font-medium transition-colors ${
+                                selectedAnswer === i
+                                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300'
+                                  : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                              }`}
+                            >
+                              {choice}
+                            </button>
+                          ))}
+                        </div>
+                        <Button
+                          onClick={() => {
+                            if (selectedAnswer === null) return;
+                            playMutation.mutate({
+                              questionId: triviaQuestion!.id,
+                              answerIndex: selectedAnswer,
+                            });
+                          }}
+                          disabled={playMutation.isPending || selectedAnswer === null}
+                          className="w-full"
+                        >
+                          {playMutation.isPending ? 'Checking…' : 'Submit Answer'}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {!showTriviaQuestion && (
+                    <Button
+                      onClick={() => playMutation.mutate({})}
+                      disabled={mutBusy}
+                      className="w-full"
+                    >
+                      {playMutation.isPending ? 'Playing…' : 'Play a round'}
+                    </Button>
+                  )}
+                </div>
+              )}
+              {!isTriviaCompetition && (
+                <Button
+                  onClick={() => playMutation.mutate({})}
+                  disabled={mutBusy}
+                  className="w-full"
+                >
+                  {playMutation.isPending ? 'Playing…' : 'Play a round'}
+                </Button>
+              )}
+            </div>
           )}
 
           {isActive && !iAmParticipant && (

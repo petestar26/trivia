@@ -161,6 +161,7 @@ export async function listUnlocked(userId: string) {
     key: r.achievement.key,
     title: r.achievement.title,
     category: r.achievement.category,
+    description: r.achievement.description,
     unlockedAt: r.unlockedAt,
   }));
 }

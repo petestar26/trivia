@@ -228,6 +228,30 @@ export async function cancelChallenge(userId: string, challengeId: string) {
   }
 
   await prisma.$transaction(async (tx) => {
+    // ── LOCK the challenge row FIRST, before any wallet mutation ──
+    // Two reasons, both required:
+    //   1. LOCK ORDERING. playChallengeTurn now takes this same row lock
+    //      before it touches wallets. If cancel kept locking wallets first
+    //      and this row last, the two could deadlock (cancel holding a
+    //      wallet lock while waiting for the challenge row; play holding the
+    //      challenge row while waiting for that same wallet). Using the
+    //      identical challenge-then-wallet order everywhere removes the cycle.
+    //   2. CORRECTNESS. The status check before this transaction is a plain,
+    //      unlocked read. `existing.status` can already be stale by the time
+    //      the refunds run — most importantly, the opponent may have ACCEPTED
+    //      (PENDING -> ACTIVE, debiting their own entry) in between, in which
+    //      case refunding only the challenger would strand the opponent's
+    //      entry fee. Re-reading the status under the lock and branching on
+    //      THAT value refunds exactly the parties who actually paid.
+    const lockedRows = await tx.$queryRaw<{ status: string }[]>`
+      SELECT "status" FROM "game_challenges" WHERE "id" = ${challengeId} FOR UPDATE
+    `;
+    const locked = lockedRows[0];
+    if (!locked) throw ApiError.notFound('Challenge not found');
+    if (!['PENDING', 'ACTIVE'].includes(locked.status)) {
+      throw ApiError.badRequest('Challenge cannot be cancelled');
+    }
+
     if (existing.entryAmount > 0) {
       await applyBalanceChanges(tx, existing.challengerId, [
         {
@@ -239,7 +263,7 @@ export async function cancelChallenge(userId: string, challengeId: string) {
           description: 'Challenge cancelled — entry refund',
         },
       ]);
-      if (existing.status === 'ACTIVE') {
+      if (locked.status === 'ACTIVE') {
         await applyBalanceChanges(tx, existing.challengedId, [
           {
             currency: 'GAME_POINTS',
@@ -313,127 +337,201 @@ export async function playChallengeTurn(
   }
   if (challenge.status !== 'ACTIVE') throw ApiError.badRequest('Challenge is not active');
 
+  // Idempotent fast path: if this user already submitted their turn for this
+  // challenge, return the recorded result instead of erroring. This makes the
+  // endpoint safe for double-clicks, network retries, and client re-sends.
+  // The unique constraint on GameSession (challengeId, userId) is the
+  // authoritative guarantee — see the P2002 handling below for the
+  // concurrent-race case this pre-check cannot see.
+  const alreadyPlayed = await prisma.gameSession.findUnique({
+    where: { challengeId_userId: { challengeId, userId } },
+  });
+  if (alreadyPlayed) {
+    return buildChallengeTurnResponse(alreadyPlayed, challenge, userId);
+  }
+
   const config = (challenge.game.configuration as Record<string, unknown>) ?? {};
   const { result, score } = await resolveChallengeOutcome(challenge.game.type, config, clientData);
 
-  const output = await prisma.$transaction(async (tx) => {
-    // Re-verify status inside the transaction to prevent TOCTOU race.
-    const fresh = await tx.gameChallenge.findUnique({ where: { id: challengeId } });
-    if (!fresh) throw ApiError.notFound('Challenge not found');
-    if (fresh.status !== 'ACTIVE') throw ApiError.badRequest('Challenge is not active');
-    if (fresh.challengerId !== userId && fresh.challengedId !== userId) {
-      throw ApiError.forbidden('Not your challenge');
-    }
-    const session = await tx.gameSession.create({
-      data: {
-        userId,
-        gameId: challenge.gameId,
-        betAmount: challenge.entryAmount,
-        result: result as any,
-        rewardAmount: 0,
-        isWin: false,
-        status: 'COMPLETED',
-        completedAt: new Date(),
-      },
+  let output;
+
+  try {
+    output = await prisma.$transaction(async (tx) => {
+      // ── LOCK the challenge row FIRST ──────────────────────────────
+      // A plain findUnique here was NOT sufficient. Under READ COMMITTED it
+      // takes no row lock, so two players submitting their FINAL turns
+      // concurrently could both:
+      //   1. read the challenge as ACTIVE,
+      //   2. insert their own GameSession (different userId, so the
+      //      (challengeId, userId) unique constraint creates no contention
+      //      between them, and the FK's FOR KEY SHARE locks are mutually
+      //      compatible), and
+      //   3. fail to see the opponent's still-uncommitted session in the
+      //      lookup below,
+      // each returning "waiting for opponent" and committing. The challenge
+      // would then stay ACTIVE forever with BOTH entry fees already debited
+      // and no winner, payout, or refund — permanently stranded funds.
+      //
+      // SELECT ... FOR UPDATE serializes the two turns: the second player
+      // blocks until the first commits, then reads the first player's
+      // COMMITTED session and completes the challenge normally. This is the
+      // same discipline the group-competition play path already uses.
+      //
+      // Lock ordering: cancelChallenge also takes this lock before touching
+      // any wallet, so challenge-then-wallet is the single ordering used by
+      // every operation that can run concurrently on an ACTIVE challenge —
+      // no deadlock cycle exists.
+      const lockedRows = await tx.$queryRaw<
+        { status: string; challengerId: string; challengedId: string }[]
+      >`SELECT "status", "challengerId", "challengedId" FROM "game_challenges" WHERE "id" = ${challengeId} FOR UPDATE`;
+      const fresh = lockedRows[0];
+      if (!fresh) throw ApiError.notFound('Challenge not found');
+      if (fresh.status !== 'ACTIVE') throw ApiError.badRequest('Challenge is not active');
+      if (fresh.challengerId !== userId && fresh.challengedId !== userId) {
+        throw ApiError.forbidden('Not your challenge');
+      }
+
+      // The session is explicitly associated with this challenge. The unique
+      // constraint (challengeId, userId) guarantees at most one turn per user
+      // per challenge at the database level: a concurrent duplicate insert
+      // fails with P2002 and is handled as an idempotent retry below. A
+      // normal solo game session has challengeId = NULL and is never matched
+      // by the opponent lookup below.
+      const session = await tx.gameSession.create({
+        data: {
+          userId,
+          gameId: challenge.gameId,
+          challengeId,
+          betAmount: challenge.entryAmount,
+          // `score` MUST be persisted inside `result`. resolveChallengeOutcome
+          // returns { result, score } as two separate values, but the opponent
+          // lookup below (and buildChallengeTurnResponse) read the score back
+          // as `session.result.score`. Persisting bare `result` left that key
+          // undefined, so the first player's score always read back as 0 and
+          // the SECOND submitter won every wagered challenge regardless of the
+          // actual outcome. GameSession has no dedicated score column, and the
+          // readers already expect it here, so this is where it belongs.
+          result: { ...result, score } as any,
+          rewardAmount: 0,
+          isWin: false,
+          status: 'COMPLETED',
+          completedAt: new Date(),
+        },
+      });
+
+      const opponentId =
+        challenge.challengerId === userId ? challenge.challengedId : challenge.challengerId;
+
+      const opponentSession = await tx.gameSession.findFirst({
+        where: {
+          challengeId,
+          userId: opponentId,
+          status: 'COMPLETED',
+        },
+        select: { id: true, result: true },
+      });
+
+      if (!opponentSession) {
+        return { sessionId: session.id, result, score, challengeComplete: false, message: 'Waiting for opponent' };
+      }
+
+      const opponentScore = (opponentSession.result as any)?.score ?? 0;
+      const challengerScore =
+        challenge.challengerId === userId ? score : opponentScore;
+      const challengedScore =
+        challenge.challengerId === userId ? opponentScore : score;
+
+      const winnerId =
+        challengerScore > challengedScore
+          ? challenge.challengerId
+          : challengedScore > challengerScore
+            ? challenge.challengedId
+            : null;
+
+      // Resolve pot. Both entries were already debited at create/accept.
+      if (challenge.entryAmount > 0) {
+        if (winnerId) {
+          await applyBalanceChanges(tx, winnerId, [
+            {
+              currency: 'GAME_POINTS',
+              amount: challenge.entryAmount * 2,
+              ledgerType: 'CREDIT',
+              transactionType: 'GAME_POINT_CREDIT',
+              referenceType: 'GAME',
+              description: `Challenge win (${challenge.game.key})`,
+            },
+          ]);
+        } else {
+          await applyBalanceChanges(tx, challenge.challengerId, [
+            {
+              currency: 'GAME_POINTS',
+              amount: challenge.entryAmount,
+              ledgerType: 'CREDIT',
+              transactionType: 'GAME_POINT_CREDIT',
+              referenceType: 'GAME',
+              description: 'Challenge tie — entry refund',
+            },
+          ]);
+          await applyBalanceChanges(tx, challenge.challengedId, [
+            {
+              currency: 'GAME_POINTS',
+              amount: challenge.entryAmount,
+              ledgerType: 'CREDIT',
+              transactionType: 'GAME_POINT_CREDIT',
+              referenceType: 'GAME',
+              description: 'Challenge tie — entry refund',
+            },
+          ]);
+        }
+      }
+
+      await tx.gameChallenge.update({
+        where: { id: challengeId },
+        data: {
+          status: 'COMPLETED',
+          winnerId,
+          completedAt: new Date(),
+          resultMeta: { challengerScore, challengedScore, winnerId, mySessionId: session.id },
+        },
+      });
+
+      const message =
+        winnerId === userId
+          ? 'You won the challenge!'
+          : winnerId === null
+            ? 'The challenge was a tie!'
+            : 'You lost the challenge';
+
+      return {
+        sessionId: session.id,
+        result,
+        score,
+        challengeComplete: true,
+        winnerId,
+        message,
+        opponentScore,
+        challengerScore,
+        challengedScore,
+      };
     });
-
-    const opponentId =
-      challenge.challengerId === userId ? challenge.challengedId : challenge.challengerId;
-
-    const opponentSession = await tx.gameSession.findFirst({
-      where: {
-        userId: opponentId,
-        gameId: challenge.gameId,
-        betAmount: challenge.entryAmount,
-        status: 'COMPLETED',
-        createdAt: { gte: challenge.createdAt },
-      },
-      select: { id: true, result: true },
-    });
-
-    if (!opponentSession) {
-      return { sessionId: session.id, result, score, challengeComplete: false, message: 'Waiting for opponent' };
-    }
-
-    const opponentScore = (opponentSession.result as any)?.score ?? 0;
-    const challengerScore =
-      challenge.challengerId === userId ? score : opponentScore;
-    const challengedScore =
-      challenge.challengerId === userId ? opponentScore : score;
-
-    const winnerId =
-      challengerScore > challengedScore
-        ? challenge.challengerId
-        : challengedScore > challengerScore
-          ? challenge.challengedId
-          : null;
-
-    // Resolve pot. Both entries were already debited at create/accept.
-    if (challenge.entryAmount > 0) {
-      if (winnerId) {
-        await applyBalanceChanges(tx, winnerId, [
-          {
-            currency: 'GAME_POINTS',
-            amount: challenge.entryAmount * 2,
-            ledgerType: 'CREDIT',
-            transactionType: 'GAME_POINT_CREDIT',
-            referenceType: 'GAME',
-            description: `Challenge win (${challenge.game.key})`,
-          },
-        ]);
-      } else {
-        await applyBalanceChanges(tx, challenge.challengerId, [
-          {
-            currency: 'GAME_POINTS',
-            amount: challenge.entryAmount,
-            ledgerType: 'CREDIT',
-            transactionType: 'GAME_POINT_CREDIT',
-            referenceType: 'GAME',
-            description: 'Challenge tie — entry refund',
-          },
-        ]);
-        await applyBalanceChanges(tx, challenge.challengedId, [
-          {
-            currency: 'GAME_POINTS',
-            amount: challenge.entryAmount,
-            ledgerType: 'CREDIT',
-            transactionType: 'GAME_POINT_CREDIT',
-            referenceType: 'GAME',
-            description: 'Challenge tie — entry refund',
-          },
-        ]);
+  } catch (err) {
+    // A concurrent duplicate turn for the same (challenge, user) won the race:
+    // the unique constraint rejected this insert. Respond idempotently with
+    // the committed turn's result — never with an unhandled error, and never
+    // with a second payout.
+    if ((err as { code?: string }).code === 'P2002') {
+      const committedSession = await prisma.gameSession.findUnique({
+        where: { challengeId_userId: { challengeId, userId } },
+      });
+      const freshChallenge = await prisma.gameChallenge.findUnique({
+        where: { id: challengeId },
+      });
+      if (committedSession && freshChallenge) {
+        return buildChallengeTurnResponse(committedSession, freshChallenge, userId);
       }
     }
-
-    await tx.gameChallenge.update({
-      where: { id: challengeId },
-      data: {
-        status: 'COMPLETED',
-        winnerId,
-        completedAt: new Date(),
-        resultMeta: { challengerScore, challengedScore, winnerId, mySessionId: session.id },
-      },
-    });
-
-    const message =
-      winnerId === userId
-        ? 'You won the challenge!'
-        : winnerId === null
-          ? 'The challenge was a tie!'
-          : 'You lost the challenge';
-
-    return {
-      sessionId: session.id,
-      result,
-      score,
-      challengeComplete: true,
-      winnerId,
-      message,
-      opponentScore,
-      challengerScore,
-      challengedScore,
-    };
-  });
+    throw err;
+  }
 
   // Emit realtime events after commit.
   if (output.challengeComplete) {
@@ -463,6 +561,39 @@ export async function playChallengeTurn(
     challengeComplete: output.challengeComplete,
     winnerId: output.winnerId,
     message: output.message,
+  };
+}
+
+/**
+ * Builds the response for an already-recorded challenge turn (idempotent
+ * retry). Derives completeness/winner from the authoritative challenge state
+ * rather than any client-supplied data, and never re-triggers payouts or
+ * realtime events.
+ */
+function buildChallengeTurnResponse(
+  session: { id: string; result: unknown },
+  challenge: { status: string; winnerId: string | null },
+  userId: string
+) {
+  const result = (session.result ?? {}) as Record<string, unknown>;
+  const score = (result as { score?: number }).score ?? 0;
+  const complete = challenge.status === 'COMPLETED';
+
+  const message = !complete
+    ? 'Waiting for opponent'
+    : challenge.winnerId === userId
+      ? 'You won the challenge!'
+      : challenge.winnerId === null
+        ? 'The challenge was a tie!'
+        : 'You lost the challenge';
+
+  return {
+    sessionId: session.id,
+    result,
+    score,
+    challengeComplete: complete,
+    winnerId: complete ? challenge.winnerId : undefined,
+    message,
   };
 }
 
