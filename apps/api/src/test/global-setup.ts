@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PACKAGE = path.resolve(__dirname, '../../../../packages/database');
+const REPO_ROOT = path.resolve(__dirname, '../../../..');
 
 /**
  * Vitest globalSetup — runs ONCE before any test file.
@@ -17,6 +17,12 @@ const DB_PACKAGE = path.resolve(__dirname, '../../../../packages/database');
  *
  * If DATABASE_URL is absent the suites already self-skip via their
  * `dbAvailable` probe, so seeding is skipped too rather than failing the run.
+ *
+ * Invoked via `pnpm --filter @socialplay/database db:seed` rather than a
+ * hardcoded `packages/database/node_modules/.bin/tsx` path. pnpm resolves the
+ * package's own script and binary itself, so this works regardless of
+ * hoisting layout, pnpm version, or OS — a direct `.bin` path is not
+ * guaranteed to exist there (observed ENOENT on a Windows pnpm layout).
  */
 export default function setup(): void {
   if (!process.env.DATABASE_URL) {
@@ -26,9 +32,9 @@ export default function setup(): void {
 
   try {
     execFileSync(
-      path.join(DB_PACKAGE, 'node_modules/.bin/tsx'),
-      [path.join(DB_PACKAGE, 'prisma/seed.ts')],
-      { cwd: DB_PACKAGE, stdio: 'inherit', env: process.env }
+      process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+      ['--filter', '@socialplay/database', 'db:seed'],
+      { cwd: REPO_ROOT, stdio: 'inherit', env: process.env }
     );
   } catch (err) {
     // Surface loudly: a failed seed means trivia-dependent suites would fail
