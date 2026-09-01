@@ -137,8 +137,17 @@ function validateCompetitionInput(args: CreateCompetitionArgs) {
   if (args.maxParticipants !== undefined && (!Number.isInteger(args.maxParticipants) || args.maxParticipants < 2)) {
     throw ApiError.badRequest('Max participants must be an integer >= 2');
   }
-  const rGP = validateRewardAmount(args.rewardGamePoints ?? 0, 'rewardGamePoints');
-  const rCoins = validateRewardAmount(args.rewardCoins ?? 0, 'rewardCoins');
+  // Reject explicit null the same way updateCompetition already does, rather
+  // than the previous `?? 0`, which silently coerced null AND undefined to
+  // the same value. Only "omitted" should default to 0; an explicit null is
+  // malformed input, matching validateRewardAmount's typeof check and this
+  // codebase's own maxParticipants check just above.
+  const rGP =
+    args.rewardGamePoints !== undefined
+      ? validateRewardAmount(args.rewardGamePoints, 'rewardGamePoints')
+      : 0;
+  const rCoins =
+    args.rewardCoins !== undefined ? validateRewardAmount(args.rewardCoins, 'rewardCoins') : 0;
   return { startsAt, endsAt, entry, maxParticipants: args.maxParticipants, rGP, rCoins };
 }
 

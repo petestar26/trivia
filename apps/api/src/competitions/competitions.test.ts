@@ -1454,18 +1454,24 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
       ['unsafe integer', Number.MAX_SAFE_INTEGER + 2],
     ];
 
-    for (const [label, value] of bad) {
-      await expect(
-        createCompetition(owner.id, {
-          groupId: group.id,
-          gameKey: 'dice',
-          title: `Bad Reward ${label}`,
-          startsAt: w.startsAt,
-          endsAt: w.endsAt,
-          rewardGamePoints: value as number,
-        }),
-        `rewardGamePoints=${label} must be rejected`
-      ).rejects.toThrow();
+    // Both fields go through the identical validateRewardAmount() call inside
+    // createCompetition, so both are exercised here rather than only
+    // rewardGamePoints — in particular this is what proves rewardCoins: null
+    // is rejected too, not just rewardGamePoints: null.
+    for (const field of ['rewardGamePoints', 'rewardCoins'] as const) {
+      for (const [label, value] of bad) {
+        await expect(
+          createCompetition(owner.id, {
+            groupId: group.id,
+            gameKey: 'dice',
+            title: `Bad Reward ${field} ${label}`,
+            startsAt: w.startsAt,
+            endsAt: w.endsAt,
+            [field]: value as number,
+          }),
+          `${field}=${label} must be rejected`
+        ).rejects.toThrow();
+      }
     }
   });
 
