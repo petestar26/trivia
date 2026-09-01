@@ -489,14 +489,41 @@ describeIf('Finalize competition', () => {
     await primeGamePoints(player2.id, 500);
   });
 
-  it('finalizes competition and computes leaderboard', async () => {
+  // These tests need the competition OPEN (joinable/playable) at creation
+  // time, and only ENDED once join/play are done and finalize is about to
+  // run. A single static `endsAt: now` cannot satisfy both — by the time
+  // join() executes, real time has already advanced past that timestamp
+  // (joinCompetition requires now <= endsAt), which is exactly why these
+  // four tests failed with "Competition has ended" INSIDE joinCompetition,
+  // not inside finalizeCompetition. joinCompetition's and finalizeCompetition's
+  // own guards are both correct; this was a test-timing defect.
+  //
+  // Fix: create with a safely-future endsAt (mirrors futureWindow()/forceEnd()
+  // used elsewhere in this file), join/play while the window is genuinely
+  // open, then explicitly push endsAt into the past right before finalizing.
+  const futureWindow = () => {
     const now = new Date();
+    return {
+      startsAt: new Date(now.getTime() - 1000).toISOString(),
+      endsAt: new Date(now.getTime() + 3_600_000).toISOString(),
+    };
+  };
+
+  async function forceEnd(competitionId: string) {
+    await prisma.groupCompetition.update({
+      where: { id: competitionId },
+      data: { endsAt: new Date(Date.now() - 1000) },
+    });
+  }
+
+  it('finalizes competition and computes leaderboard', async () => {
+    const w = futureWindow();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'dice',
       title: 'Finalize Test',
-      startsAt: new Date(now.getTime() - 7200000).toISOString(),
-      endsAt: now.toISOString(),
+      startsAt: w.startsAt,
+      endsAt: w.endsAt,
       entryAmount: 10,
       rewardGamePoints: 100,
     });
@@ -508,6 +535,7 @@ describeIf('Finalize competition', () => {
     await playCompetition(player1.id, comp.id);
     await playCompetition(player2.id, comp.id);
 
+    await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
     expect(result.status).toBe('COMPLETED');
     expect(result.alreadyFinalized).toBe(false);
@@ -515,19 +543,20 @@ describeIf('Finalize competition', () => {
   });
 
   it('idempotent: second finalize returns alreadyFinalized', async () => {
-    const now = new Date();
+    const w = futureWindow();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'dice',
       title: 'Idempotent Finalize',
-      startsAt: new Date(now.getTime() - 7200000).toISOString(),
-      endsAt: now.toISOString(),
+      startsAt: w.startsAt,
+      endsAt: w.endsAt,
       entryAmount: 0,
       rewardGamePoints: 50,
     });
 
     await joinCompetition(player1.id, comp.id);
     await playCompetition(player1.id, comp.id);
+    await forceEnd(comp.id);
     await finalizeCompetition(owner.id, comp.id);
 
     const second = await finalizeCompetition(owner.id, comp.id);
@@ -535,27 +564,28 @@ describeIf('Finalize competition', () => {
   });
 
   it('non-manager cannot finalize', async () => {
-    const now = new Date();
+    const w = futureWindow();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'dice',
       title: 'Owner Only Finalize',
-      startsAt: new Date(now.getTime() - 7200000).toISOString(),
-      endsAt: now.toISOString(),
+      startsAt: w.startsAt,
+      endsAt: w.endsAt,
     });
 
     await joinCompetition(player1.id, comp.id);
+    await forceEnd(comp.id);
     await expect(finalizeCompetition(player1.id, comp.id)).rejects.toThrow();
   });
 
   it('awards rewards to winners and creates notifications', async () => {
-    const now = new Date();
+    const w = futureWindow();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'dice',
       title: 'Reward Finalize',
-      startsAt: new Date(now.getTime() - 7200000).toISOString(),
-      endsAt: now.toISOString(),
+      startsAt: w.startsAt,
+      endsAt: w.endsAt,
       entryAmount: 0,
       rewardGamePoints: 200,
       rewardCoins: 100,
@@ -570,6 +600,7 @@ describeIf('Finalize competition', () => {
     const before1 = (await getWalletBalance(player1.id)).gamePointsBalance;
     const before2 = (await getWalletBalance(player2.id)).gamePointsBalance;
 
+    await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
     expect(result.status).toBe('COMPLETED');
 
@@ -746,8 +777,40 @@ describeIf('Trivia competition', () => {
     ).rejects.toThrow('already answered this question in this competition');
   });
 
+  // Every test above this point deliberately shares the describe-level
+  // `competitionId`/`player`, so their `accumulatedScore` assertions form a
+  // running total that depends on exactly how many earlier tests in this
+  // block scored correctly (Phase 2 correct: +1000, wrong-answer test: +0,
+  // duplicate-attempt test's first successful attempt: +1000 — 2000 total
+  // by this point). The two tests below previously reused that SAME shared
+  // participant but asserted fixed absolute totals (1000, then 2000) as if
+  // they were the first and second scored questions — they were actually the
+  // 3rd and 5th, so the real totals were 3000 and 5000. That mismatch is a
+  // test-isolation defect, not a scoring defect: playTriviaCompetitionRound
+  // was accumulating correctly the whole time.
+  //
+  // Fix: give each of these two tests its OWN fresh competition + participant
+  // so the expected score transition is self-contained and cannot be
+  // polluted by however many prior tests in this file happened to score.
+  async function freshTriviaParticipant(tag: string) {
+    const p = await createUser(tag);
+    const now = new Date();
+    const comp = await createCompetition(owner.id, {
+      groupId: group.id,
+      gameKey: 'trivia',
+      title: `Trivia Isolated ${tag}`,
+      startsAt: now.toISOString(),
+      endsAt: new Date(now.getTime() + 3_600_000).toISOString(),
+      entryAmount: 0,
+    });
+    await joinCompetition(p.id, comp.id);
+    return { userId: p.id, competitionId: comp.id };
+  }
+
   it('concurrent duplicate submissions cannot double-score', async () => {
-    const phase1 = await playCompetition(player.id, competitionId);
+    const { userId, competitionId: compId } = await freshTriviaParticipant('tdupe');
+
+    const phase1 = await playCompetition(userId, compId);
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
     const correctAnswer = q!.correctIndex;
@@ -755,37 +818,40 @@ describeIf('Trivia competition', () => {
     // Fire concurrent requests
     const results = await Promise.allSettled(
       Array.from({ length: 3 }, () =>
-        playCompetition(player.id, competitionId, { questionId, answerIndex: correctAnswer })
+        playCompetition(userId, compId, { questionId, answerIndex: correctAnswer })
       )
     );
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     expect(fulfilled.length).toBe(1);
 
-    // Verify score only incremented once
+    // Verify score only incremented once, from a known-fresh baseline of 0.
     const participant = await prisma.competitionParticipant.findUnique({
-      where: { competitionId_userId: { competitionId, userId: player.id } },
+      where: { competitionId_userId: { competitionId: compId, userId } },
     });
     expect(participant!.score).toBe(1000);
   });
 
   it('allows different questions to be attempted', async () => {
+    const { userId, competitionId: compId } = await freshTriviaParticipant('tmulti');
+
     // Answer first question
-    let phase1 = await playCompetition(player.id, competitionId);
+    let phase1 = await playCompetition(userId, compId);
     let questionId = phase1.question!.id;
     const q1 = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
-    await playCompetition(player.id, competitionId, { questionId, answerIndex: q1!.correctIndex });
+    await playCompetition(userId, compId, { questionId, answerIndex: q1!.correctIndex });
 
     // Get a different question (Phase 1 should skip already-answered)
-    phase1 = await playCompetition(player.id, competitionId);
+    phase1 = await playCompetition(userId, compId);
     expect(phase1.question!.id).not.toBe(q1!.id);
 
     const q2 = await prisma.triviaQuestion.findUnique({ where: { id: phase1.question!.id } });
-    const result = await playCompetition(player.id, competitionId, {
+    const result = await playCompetition(userId, compId, {
       questionId: phase1.question!.id,
       answerIndex: q2!.correctIndex,
     });
 
+    // Known-fresh baseline: first question +1000, second question +1000.
     expect(result.score).toBe(1000);
     expect(result.accumulatedScore).toBe(2000);
   });
@@ -1762,6 +1828,14 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     await addMember(group.id, player2.id, 'MEMBER');
     await ensureGameDefinitions();
     await primeCreator(owner.id);
+    // Every OTHER test in this block uses newCompetition(), which hardcodes
+    // entryAmount: 0, so player's Game Points balance was never exercised —
+    // this block's beforeAll never funded it. The one test below that calls
+    // createCompetition() directly with entryAmount: 30 then legitimately
+    // failed joinCompetition's entry-fee debit with "have 0, need 30": a
+    // missing fixture, not a production defect (the debit rejecting an
+    // underfunded join is exactly correct behavior).
+    await primeGamePoints(player.id, 10_000);
   });
 
   // ── Tests 1-3 ──────────────────────────────────────────────────
