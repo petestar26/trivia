@@ -794,6 +794,13 @@ describeIf('Trivia competition', () => {
   // polluted by however many prior tests in this file happened to score.
   async function freshTriviaParticipant(tag: string) {
     const p = await createUser(tag);
+    // joinCompetition -> assertActiveMember requires an ACTIVE GroupMember
+    // row. createUser() only creates the user; it establishes no group
+    // relationship, so a fresh user here was never a member of `group` and
+    // joinCompetition legitimately rejected with "You are not a member of
+    // this group." addMember() is the same helper beforeAll already uses to
+    // seat owner/player in this group.
+    await addMember(group.id, p.id, 'MEMBER');
     const now = new Date();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
@@ -856,18 +863,45 @@ describeIf('Trivia competition', () => {
     expect(result.accumulatedScore).toBe(2000);
   });
 
+  // Both tests below need to exercise PLAY rejection, not JOIN rejection.
+  // The previous versions built the competition already in the invalid
+  // state and then called joinCompetition() — but joinCompetition applies
+  // the identical startsAt/endsAt guard, so it threw the very same error
+  // first, before playCompetition (the function actually under test) ever
+  // ran. Fixed by joining while the window is genuinely open, THEN
+  // transitioning the row into the invalid state (mirroring forceEnd(),
+  // the established pattern used elsewhere in this file for the same
+  // purpose), THEN calling play.
+  async function forceEnd(competitionId: string) {
+    await prisma.groupCompetition.update({
+      where: { id: competitionId },
+      data: { endsAt: new Date(Date.now() - 1000) },
+    });
+  }
+
+  async function forceNotYetStarted(competitionId: string) {
+    await prisma.groupCompetition.update({
+      where: { id: competitionId },
+      data: {
+        startsAt: new Date(Date.now() + 3_600_000),
+        endsAt: new Date(Date.now() + 7_200_000),
+      },
+    });
+  }
+
   it('rejects play after competition has ended', async () => {
     const now = new Date();
     const comp = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'trivia',
       title: 'Ended Trivia',
-      startsAt: new Date(now.getTime() - 7200000).toISOString(),
-      endsAt: new Date(now.getTime() - 1000).toISOString(), // ended 1 second ago
+      startsAt: new Date(now.getTime() - 1000).toISOString(),
+      endsAt: new Date(now.getTime() + 3_600_000).toISOString(),
       entryAmount: 0,
     });
 
     await joinCompetition(player.id, comp.id);
+    await forceEnd(comp.id);
     await expect(playCompetition(player.id, comp.id)).rejects.toThrow('Competition has ended');
   });
 
@@ -877,12 +911,13 @@ describeIf('Trivia competition', () => {
       groupId: group.id,
       gameKey: 'trivia',
       title: 'Scheduled Trivia',
-      startsAt: new Date(now.getTime() + 3600000).toISOString(), // starts in 1 hour
-      endsAt: new Date(now.getTime() + 7200000).toISOString(),
+      startsAt: new Date(now.getTime() - 1000).toISOString(),
+      endsAt: new Date(now.getTime() + 3_600_000).toISOString(),
       entryAmount: 0,
     });
 
     await joinCompetition(player.id, comp.id);
+    await forceNotYetStarted(comp.id);
     await expect(playCompetition(player.id, comp.id)).rejects.toThrow('Competition has not started yet');
   });
 
