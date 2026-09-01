@@ -154,18 +154,28 @@ async function cleanCompFixtures() {
     // still owns a group raises a foreign-key violation and aborts this whole
     // cleanup — leaving stale fixtures behind and failing beforeAll.
     //
-    // This was latent on a genuinely fresh database (no `comp-` users exist,
-    // so this branch is skipped entirely), but broke every re-run against a
-    // reused database. Deleting groups here, inside the branch and ahead of
-    // the user delete, keeps the required order:
-    //     dependent rows -> groups -> users/wallets
-    await prisma.group.deleteMany({ where: { name: { startsWith: 'Comp Test' } } });
+    // Scoped by ownerId (drawn from the SAME userIds this whole function
+    // already scopes every other deletion by), NOT by a literal name prefix.
+    // A name filter silently misses any group whose fixture used a different
+    // title string — which is exactly what broke this on a reused database:
+    // the "Trivia post-finalization scoring" describe block below creates its
+    // group as 'Comp Trivia Finalize Race', which does not start with
+    // 'Comp Test'. That group survived every previous cleanup, so on the next
+    // run its owner (a `comp-` user, correctly matched into userIds) failed
+    // to delete with `groups_ownerId_fkey`. Filtering by ownerId instead
+    // makes cleanup correct for every group any fixture in this file creates,
+    // present or future, without maintaining a list of name literals.
+    await prisma.group.deleteMany({ where: { ownerId: { in: userIds } } });
 
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 
-  // Also sweep groups when no matching users remain (e.g. a previous run was
-  // interrupted after deleting users but before their groups).
+  // Defensive fallback only: sweep any leftover 'Comp Test'-prefixed group
+  // whose owner is no longer a `comp-` user (e.g. cleanup was interrupted
+  // mid-run before reaching the ownerId-scoped delete above). Group.ownerId
+  // is onDelete: Restrict, so this can only ever match a group whose owner
+  // still exists — it cannot reach into another suite's data by name
+  // collision alone without also owning that name, which no other suite does.
   await prisma.group.deleteMany({ where: { name: { startsWith: 'Comp Test' } } });
 }
 
