@@ -924,12 +924,20 @@ describeIf('Trivia competition', () => {
   it('rejects fake score from client', async () => {
     const phase1 = await playCompetition(player.id, competitionId);
     const questionId = phase1.question!.id;
+    // Derive a guaranteed-wrong answer from the actual question, matching the
+    // pattern used by 'Phase 2: wrong answer awards zero score' above. The
+    // previous hardcoded `answerIndex: 0` was only wrong for questions whose
+    // correctIndex happened to be non-zero; part of the seeded pool has
+    // correctIndex 0, and Phase 1 serves a random question, so this test
+    // intermittently submitted a CORRECT answer and legitimately scored 1000.
+    const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
+    const wrongAnswer = (q!.correctIndex + 1) % q!.choices.length;
 
     // Client tries to manipulate by sending fake score in clientData
     // (The backend ignores client-provided score and computes server-side)
     const result = await playCompetition(player.id, competitionId, {
       questionId,
-      answerIndex: 0, // wrong answer
+      answerIndex: wrongAnswer,
       // Attempt to inject fake score (should be ignored)
       score: 999999,
       reward: 999999,
