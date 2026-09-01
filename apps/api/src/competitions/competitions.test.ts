@@ -2042,6 +2042,8 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
 
   it('CONCURRENCY: play racing cancel never survives the cancellation, and the refund is exact', async () => {
     const w = futureWindow();
+    const ownerBefore = (await getWalletBalance(owner.id)).gamePointsBalance;
+    const playerBeforeJoin = (await getWalletBalance(player.id)).gamePointsBalance;
     const compRaw = await createCompetition(owner.id, {
       groupId: group.id,
       gameKey: 'dice',
@@ -2051,8 +2053,6 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
       entryAmount: 30,
       rewardGamePoints: 200,
     });
-    const ownerBefore = (await getWalletBalance(owner.id)).gamePointsBalance;
-    const playerBeforeJoin = (await getWalletBalance(player.id)).gamePointsBalance;
     await joinCompetition(player.id, compRaw.id);
     const playerAfterJoin = (await getWalletBalance(player.id)).gamePointsBalance;
     expect(playerAfterJoin).toBe(playerBeforeJoin - 30);
