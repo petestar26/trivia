@@ -3,6 +3,7 @@ import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
 import { registerPlugins } from './plugins';
 import { registerRoutes } from './routes';
+import { healthRoutes } from './routes/health';
 import { registerWebSocket } from './ws';
 import { errorHandler } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
@@ -30,6 +31,14 @@ async function buildServer(): Promise<FastifyInstance> {
   server.addHook('onRequest', requestLogger);
 
   await registerPlugins(server);
+
+  // README.md documents `GET /health` (and `/health?detailed`) as a bare,
+  // unprefixed infrastructure endpoint, distinct from the versioned /api/v1
+  // business routes listed right below it in the same doc. Registered here,
+  // directly on the top-level server and before the API_PREFIX wrapper, so
+  // the actual path matches that documented contract instead of resolving
+  // to /api/v1/health.
+  await server.register(healthRoutes, { prefix: '/health' });
 
   // Mount all REST routes under the configured API prefix (e.g. /api/v1)
   // so that the frontend's /api/v1/* requests resolve correctly.

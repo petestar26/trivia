@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import { healthRoutes } from './health';
 import { authRoutes } from './auth';
 import { groupRoutes } from './groups';
 import { chatRoutes } from './chat';
@@ -20,7 +19,8 @@ import { agentConversationRoutes } from '../agents/conversation-routes';
 import { agentConfigRoutes } from '../agents/config-routes';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
-  await server.register(healthRoutes, { prefix: '/health' });
+  // healthRoutes is registered directly in server.ts, outside this
+  // API_PREFIX-wrapped block — see the comment there. Not registered here.
   await server.register(authRoutes, { prefix: '/auth' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(chatRoutes, { prefix: '/groups' });
