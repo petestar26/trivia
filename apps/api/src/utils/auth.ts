@@ -4,12 +4,14 @@ import { FastifyInstance } from 'fastify';
 import { createHmac } from 'crypto';
 
 export async function hashPassword(password: string): Promise<string> {
-  const bcrypt = await import('bcryptjs');
+  // bcryptjs is CommonJS; under ESM its exports land on `.default`, so
+  // `bcrypt.hash` is undefined on the namespace object itself.
+  const { default: bcrypt } = await import('bcryptjs');
   return bcrypt.hash(password, 12);
 }
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  const bcrypt = await import('bcryptjs');
+  const { default: bcrypt } = await import('bcryptjs');
   return bcrypt.compare(password, hash);
 }
 
