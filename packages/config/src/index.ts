@@ -27,6 +27,17 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRY: z.string().default('30d'),
   JWT_ISSUER: z.string().default('socialplay'),
   JWT_AUDIENCE: z.string().default('socialplay'),
+  // W-0 security step-up: AES-256-GCM key for encrypting TOTP shared
+  // secrets at rest (64 hex chars = 32 bytes). Deliberately OPTIONAL so
+  // that existing environments and the existing test suite keep booting
+  // unchanged; the TOTP subsystem itself fails closed with a clear error
+  // when it is unset, rather than silently storing secrets in plaintext.
+  SECURITY_TOTP_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters (32 bytes)')
+    .optional(),
+
+
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: booleanFromEnv(false),
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),

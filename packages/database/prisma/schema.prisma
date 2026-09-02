@@ -58,6 +58,13 @@ model User {
   agentProfile              Agent?                     @relation("AgentIdentity")
   agentOrders               AgentOrder[]
 
+  // W-0 security step-up foundation (inverse relation sides only — no
+  // existing User field is altered).
+  totpFactor          UserTotpFactor?
+  securityChallenges  SecurityChallenge[]
+  stepUpVerifications StepUpVerification[]
+  securityPolicy      UserSecurityPolicy?
+
   @@index([email])
   @@index([username])
   @@index([status])
@@ -1374,4 +1381,122 @@ model AgentMessage {
 
   @@index([conversationId, createdAt])
   @@map("agent_messages")
+}
+
+// ─── W-0: Security Step-Up Foundation ───────────────────────────
+//
+// Isolated security subsystem for optional step-up authentication on
+// sensitive account operations. Additive only — no existing financial,
+// agent, wallet, or auth model is modified by W-0.
+//
+// SCOPE NOTE: W-0 implements TOTP only. Passkey/WebAuthn credential
+// storage is deliberately NOT modelled here — it requires a WebAuthn
+// verification dependency that this repository does not currently have,
+// and modelling unused tables now would be speculative. The challenge and
+// step-up records below are factor-agnostic so a UserPasskey model can be
+// added later without reshaping them.
+
+enum SecurityFactorStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+  DISABLED
+}
+
+enum SecurityChallengePurpose {
+  TOTP_ENROLLMENT
+  STEP_UP
+}
+
+/// A user's TOTP (RFC 6238) authenticator factor. At most one per user.
+///
+/// `encryptedSecret` is AES-256-GCM ciphertext produced by
+/// apps/api/src/security/crypto.ts — the shared secret is NEVER stored,
+/// logged, audited, or returned in plaintext after enrollment starts.
+model UserTotpFactor {
+  id              String               @id @default(uuid())
+  userId          String               @unique
+  encryptedSecret String               @db.Text
+  status          SecurityFactorStatus @default(PENDING_ACTIVATION)
+  /// Highest RFC 6238 time-step counter already accepted for this factor.
+  /// A code whose time step is <= this value is rejected as a replay.
+  lastUsedTimeStep Int?
+  activatedAt     DateTime?
+  disabledAt      DateTime?
+  lastVerifiedAt  DateTime?
+  failedAttempts  Int                  @default(0)
+  lockedUntil     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("user_totp_factors")
+}
+
+/// Single-use, short-lived, user- and purpose-bound challenge.
+///
+/// `challenge` is high-entropy random and globally unique. Consumption is
+/// an atomic conditional claim (see challenge-service.ts) so a challenge
+/// can never be redeemed twice, even under concurrent requests.
+model SecurityChallenge {
+  id         String                   @id @default(uuid())
+  userId     String
+  purpose    SecurityChallengePurpose
+  challenge  String                   @unique
+  consumedAt DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime                 @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("security_challenges")
+}
+
+/// A bounded, non-reusable proof that a user recently completed step-up
+/// authentication for a specific purpose.
+///
+/// Deliberately NOT a "verified forever" flag: every record carries a
+/// purpose, an expiry, and the `iat` of the access token that was
+/// presented at verification time, so a step-up cannot be replayed for an
+/// unrelated action or carried across a token refresh.
+model StepUpVerification {
+  id         String   @id @default(uuid())
+  userId     String
+  /// Bounded action identifier, e.g. "SENSITIVE_ACCOUNT_OPERATION".
+  purpose    String
+  /// Which factor satisfied the step-up, e.g. "TOTP".
+  factorType String
+  /// `iat` claim of the access token presented at verification.
+  tokenIat   Int
+  verifiedAt DateTime @default(now())
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+  @@index([expiresAt])
+  @@map("step_up_verifications")
+}
+
+/// Per-user security policy.
+///
+/// `requiresStepUpForSensitiveOps` is future-facing: it is read by the
+/// step-up primitive but W-0 implements no sensitive operation that
+/// consumes it. It is deliberately NOT named for withdrawal — withdrawal
+/// is W-1 and is not implemented here.
+model UserSecurityPolicy {
+  id                            String   @id @default(uuid())
+  userId                        String   @unique
+  requiresStepUpForSensitiveOps Boolean  @default(false)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_security_policies")
 }

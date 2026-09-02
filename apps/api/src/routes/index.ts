@@ -17,6 +17,7 @@ import { agentOrderRoutes } from '../agents/order-routes';
 import { agentDisputeRoutes } from '../agents/dispute-routes';
 import { agentConversationRoutes } from '../agents/conversation-routes';
 import { agentConfigRoutes } from '../agents/config-routes';
+import { securityRoutes } from '../security/routes';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
@@ -39,6 +40,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
   await server.register(agentConfigRoutes, { prefix: '/agent-config' });
+  await server.register(securityRoutes, { prefix: '/security' });
 
   // Root service-info handler is registered directly in server.ts, outside
   // this API_PREFIX-wrapped block — see the comment there. Not registered
