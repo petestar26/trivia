@@ -3,8 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
-
-    // ── DETERMINISM: run test FILES sequentially ──────────────────
+    // ── DETERMINISM: run test FILES sequentially ────────────────────
     // Every suite in this package talks to the SAME PostgreSQL database and
     // performs destructive fixture cleanup (`deleteMany`) in its own
     // beforeAll. Under Vitest's default file parallelism those cleanups
@@ -20,7 +19,6 @@ export default defineConfig({
     // rather than passed as a CLI flag so that the repository's normal
     // `pnpm test` is safe by default and cannot silently run unsafely.
     fileParallelism: false,
-
     // These are database-backed integration tests, not unit tests. Some first-
     // run paths do a genuine amount of work against PostgreSQL (e.g. VIP
     // activation cascades into achievement definition upserts, an achievement
@@ -29,7 +27,15 @@ export default defineConfig({
     // but correct operation is not reported as a failure.
     testTimeout: 30_000,
     hookTimeout: 30_000,
-
+    // pino's `pino-pretty` transport spawns its own worker thread to load
+    // the pretty-printer module, and that resolution fails inside Vitest's
+    // transformed module context (see server.test.ts: "unable to determine
+    // transport target for pino-pretty"). Force it off for test runs only —
+    // packages/config's LOG_PRETTY default of `true` is untouched, so local
+    // dev and prod logging are unaffected.
+    env: {
+      LOG_PRETTY: 'false',
+    },
     // Seeds reference data (trivia questions) exactly once before the run,
     // so the suite never depends on a manually pre-seeded database.
     globalSetup: ['./src/test/global-setup.ts'],
