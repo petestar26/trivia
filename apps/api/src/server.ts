@@ -40,6 +40,20 @@ async function buildServer(): Promise<FastifyInstance> {
   // to /api/v1/health.
   await server.register(healthRoutes, { prefix: '/health' });
 
+  // Product decision: the root service-info endpoint is a bare top-level
+  // route, not a versioned /api/v1 resource — same reasoning as /health
+  // above. Registered directly on the top-level server, before the
+  // API_PREFIX wrapper, so it resolves to / rather than /api/v1. Payload
+  // unchanged from the handler this replaces in routes/index.ts.
+  server.get('/', async () => ({
+    success: true,
+    data: {
+      name: 'SocialPlay API',
+      version: '0.0.1',
+      status: 'running',
+    },
+  }));
+
   // Mount all REST routes under the configured API prefix (e.g. /api/v1)
   // so that the frontend's /api/v1/* requests resolve correctly.
   await server.register(

@@ -40,14 +40,9 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
   await server.register(agentConfigRoutes, { prefix: '/agent-config' });
 
-  server.get('/', async () => ({
-    success: true,
-    data: {
-      name: 'SocialPlay API',
-      version: '0.0.1',
-      status: 'running',
-    },
-  }));
+  // Root service-info handler is registered directly in server.ts, outside
+  // this API_PREFIX-wrapped block — see the comment there. Not registered
+  // here.
 
   server.setNotFoundHandler(async (request, reply) => {
     reply.status(404).send({
