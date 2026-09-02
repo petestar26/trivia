@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance } from 'fastify';
+import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
 import { registerPlugins } from './plugins';
@@ -71,9 +72,7 @@ async function buildServer(): Promise<FastifyInstance> {
 async function start(): Promise<void> {
   try {
     const server = await buildServer();
-
     await server.listen({ port: config.PORT, host: config.HOST });
-
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     server.log.info(`📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`);
   } catch (err) {
@@ -82,7 +81,13 @@ async function start(): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `file://${process.argv[1]}` builds a malformed URL on Windows: argv[1] is a
+// native backslash path (C:\...), while import.meta.url is a proper file URL
+// (file:///C:/...). The two never match, so start() silently never ran and the
+// server never listened — with no error, since a false guard isn't an error.
+// fileURLToPath converts import.meta.url back to a native path, so this
+// compares native-to-native and works on every platform.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   start();
 }
 
