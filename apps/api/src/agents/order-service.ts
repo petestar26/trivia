@@ -35,16 +35,33 @@ function validateCreateArgs(args: CreateAgentOrderArgs) {
 }
 
 /**
- * Generates the human-facing order number (schema: "AG-000123"). No
- * dedicated sequence exists in the schema, so this follows the same
- * "let the DB unique constraint be the source of truth, catch P2002 and
- * retry" discipline already established for Agent.userId in agent-service.ts
- * — orderNumber collisions are not a security concern, only a display
- * convenience, so a bounded retry is sufficient.
+ * Generates the human-facing order number (schema: "AG-000123") from the
+ * dedicated `agent_order_number_seq` Postgres sequence (migration
+ * 20260902000000_agent_order_number_sequence).
+ *
+ * The previous implementation used `tx.agentOrder.count()` as a proxy for
+ * "next number". That is unsound independent of concurrency: test cleanup
+ * (and any real-world hard-delete of an order) performs a SCOPED delete, not
+ * a table reset, so the row count can legitimately drop below a value it
+ * held when an earlier, still-surviving order was numbered — the next
+ * count()+1 then collides with that surviving order's orderNumber and the
+ * unique constraint throws, with zero concurrent callers involved.
+ *
+ * `nextval()` is immune to this: it is monotonic for the sequence's
+ * lifetime regardless of later deletes, and it is NOT transactional (a
+ * rolled-back transaction does not return its consumed value), so two
+ * concurrent callers can never observe the same value either. This
+ * intentionally allows gaps in the numbering, never duplicates — the
+ * correct tradeoff for a value already documented as "not a security
+ * concern, only a display convenience". The P2002 retry in
+ * createAgentOrder is kept as defense-in-depth, not removed.
  */
 async function nextOrderNumber(tx: any): Promise<string> {
-  const count = await tx.agentOrder.count();
-  return `AG-${String(count + 1).padStart(6, '0')}`;
+  const rows = await tx.$queryRaw<{ nextval: bigint | number | string }[]>`
+    SELECT nextval('agent_order_number_seq') AS nextval
+  `;
+  const n = Number(rows[0].nextval);
+  return `AG-${String(n).padStart(6, '0')}`;
 }
 
 /**
