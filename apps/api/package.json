@@ -20,7 +20,7 @@
     "@fastify/cors": "^9.0.0",
     "@fastify/helmet": "^11.1.1",
     "@fastify/jwt": "^8.0.0",
-    "@fastify/multipart": "^10.0.0",
+    "@fastify/multipart": "^8.3.1",
     "@fastify/rate-limit": "^9.0.0",
     "@fastify/sensible": "^5.5.0",
     "@socialplay/config": "workspace:*",
