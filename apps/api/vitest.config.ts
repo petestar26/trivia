@@ -19,6 +19,14 @@ export default defineConfig({
     // rather than passed as a CLI flag so that the repository's normal
     // `pnpm test` is safe by default and cannot silently run unsafely.
     fileParallelism: false,
+    // Vitest's default 'threads' pool runs test files as worker_threads
+    // sharing one process's memory space. Prisma's query engine is a
+    // native binary loaded via N-API, and native modules inside
+    // worker_threads is a known source of Windows access violations
+    // (observed here as exit code 3221225477 / 0xC0000005 on the full
+    // suite). 'forks' runs each file in a separate OS process instead —
+    // slightly slower to spin up, but immune to this class of crash.
+    pool: 'forks',
     // These are database-backed integration tests, not unit tests. Some first-
     // run paths do a genuine amount of work against PostgreSQL (e.g. VIP
     // activation cascades into achievement definition upserts, an achievement
