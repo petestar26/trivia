@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
+import { randomUUID } from 'node:crypto';
 import {
   createUserPayoutAccount,
   listOwnPayoutAccounts,
@@ -41,7 +42,7 @@ async function createUser(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `P${tag}`.slice(0, 8).toUpperCase();
+  const code = `P${randomUUID().replaceAll('-', '').slice(0, 7)}`.toUpperCase();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
+import { randomUUID } from 'node:crypto';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
 import { fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from './liquidity-service';
 import { createWithdrawalQuote } from './quote-service';
@@ -7,9 +8,7 @@ import { createUserPayoutAccount } from './payout-account-service';
 import { createWithdrawal, getOwnWithdrawalById, listOwnWithdrawals } from './withdrawal-service';
 import { getWalletBalance } from '../economy/wallet-service';
 import { executeBalanceChange } from '../economy/wallet-service';
-import { startTotpEnrollment, activateTotpFactor } from '../security/totp-service';
-import { performStepUp, setOwnStepUpPolicy } from '../security/step-up-service';
-import { generateTotpCode, timeStepFor } from '../security/totp';
+import { setOwnStepUpPolicy } from '../security/step-up-service';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -54,7 +53,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `W${tag}`.slice(0, 8).toUpperCase();
+  const code = `W${randomUUID().replaceAll('-', '').slice(0, 7)}`.toUpperCase();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -82,7 +81,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
   return prisma.exchangeRateConfig.create({
-    data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId },
+    data: {
+      countryId,
+      fiatCurrency,
+      coinsPerUnit,
+      isActive: true,
+      setBy: adminId,
+      effectiveAt: new Date(Date.now() - 1_000),
+    },
   });
 }
 
@@ -138,12 +144,36 @@ async function createActivePayoutAccount(userId: string, countryId: string, meth
   });
 }
 
-/** Completes a full TOTP enrollment and returns the live secret. */
-async function enrollActiveTotp(userId: string) {
-  const started = await startTotpEnrollment(userId);
-  const code = generateTotpCode(started.secret, timeStepFor());
-  await activateTotpFactor(userId, started.challenge, code);
-  return started.secret;
+/**
+ * Withdrawal integration tests exercise step-up consumption, not the
+ * encryption-backed TOTP enrollment flow covered by security.test.ts.
+ * Seed the minimum active factor/policy state so these tests also run on
+ * hosts where SECURITY_TOTP_ENCRYPTION_KEY is intentionally unset.
+ */
+async function enableStepUpPolicy(userId: string) {
+  await prisma.userTotpFactor.create({
+    data: {
+      userId,
+      encryptedSecret: 'fixture-only-never-decrypted',
+      status: 'ACTIVE',
+      activatedAt: new Date(),
+    },
+  });
+  await setOwnStepUpPolicy(userId, true);
+}
+
+async function mintWithdrawalStepUp(userId: string, tokenIat: number) {
+  const now = new Date();
+  return prisma.stepUpVerification.create({
+    data: {
+      userId,
+      purpose: 'WITHDRAWAL_CREATE',
+      factorType: 'TOTP',
+      tokenIat,
+      verifiedAt: now,
+      expiresAt: new Date(now.getTime() + 300_000),
+    },
+  });
 }
 
 async function cleanWithdrawalFixtures() {
@@ -646,11 +676,9 @@ describeIf('withdrawals/withdrawal-service', () => {
     const tag = `stepup-concurrent-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
 
-    const secret = await enrollActiveTotp(user.id);
-    await setOwnStepUpPolicy(user.id, true);
+    await enableStepUpPolicy(user.id);
     const tokenIat = 1000;
-    const code = generateTotpCode(secret, timeStepFor());
-    await performStepUp({ userId: user.id, tokenIat }, 'WITHDRAWAL_CREATE', 'TOTP', code);
+    await mintWithdrawalStepUp(user.id, tokenIat);
 
     const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
@@ -673,8 +701,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     await cleanWithdrawalFixtures();
     const tag = `stepup-missing-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag);
-    await enrollActiveTotp(user.id);
-    await setOwnStepUpPolicy(user.id, true);
+    await enableStepUpPolicy(user.id);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     await expect(
@@ -690,11 +717,9 @@ describeIf('withdrawals/withdrawal-service', () => {
     // Liquidity insufficient on the FIRST attempt; fund it before retrying.
     const { user, country, agent, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 10n });
 
-    const secret = await enrollActiveTotp(user.id);
-    await setOwnStepUpPolicy(user.id, true);
+    await enableStepUpPolicy(user.id);
     const tokenIat = 1000;
-    const code = generateTotpCode(secret, timeStepFor());
-    await performStepUp({ userId: user.id, tokenIat }, 'WITHDRAWAL_CREATE', 'TOTP', code);
+    await mintWithdrawalStepUp(user.id, tokenIat);
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 }); // needs 500, only 10 available
 

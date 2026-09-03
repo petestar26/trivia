@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
+import { randomUUID } from 'node:crypto';
 import { createWithdrawalQuote, getOwnWithdrawalQuote, listOwnWithdrawalQuotes } from './quote-service';
 
 // ─── DB availability probe ─────────────────────────────────────
@@ -40,7 +41,7 @@ async function createAdmin(tag: string) {
 }
 
 async function createCountry(tag: string, overrides: Partial<{ isActive: boolean; agentPaymentEnabled: boolean }> = {}) {
-  const code = `Q${tag}`.slice(0, 8).toUpperCase();
+  const code = `Q${randomUUID().replaceAll('-', '').slice(0, 7)}`.toUpperCase();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -56,7 +57,16 @@ async function createCountry(tag: string, overrides: Partial<{ isActive: boolean
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
   return prisma.exchangeRateConfig.create({
-    data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId },
+    data: {
+      countryId,
+      fiatCurrency,
+      coinsPerUnit,
+      isActive: true,
+      setBy: adminId,
+      // Avoid a same-millisecond boundary race with the service's
+      // effectiveAt <= now lookup.
+      effectiveAt: new Date(Date.now() - 1_000),
+    },
   });
 }
 
