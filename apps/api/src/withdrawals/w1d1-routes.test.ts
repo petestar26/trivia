@@ -99,7 +99,18 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
   const superAdmin = await createSuperAdmin(`${tag}-s`);
   const country = await createCountry(tag);
   const pm = await prisma.paymentMethodDefinition.create({
-    data: { countryId: country.id, type: 'BANK_TRANSFER', name: `PM-${tag}`, fieldSchema: {}, isActive: true },
+    data: {
+      countryId: country.id,
+      type: 'BANK_TRANSFER',
+      name: `PM-${tag}`,
+      // Must list the fields createUserPayoutAccount's accountDetails
+      // below actually supplies — validateAccountDetails reads
+      // fieldSchema.requiredFields and throws "misconfigured" when it's
+      // absent (payout-account-service.ts), matching the W-1C fixture
+      // pattern in withdrawal-service.test.ts's createPaymentMethod.
+      fieldSchema: { requiredFields: ['bankName', 'accountNumber'] },
+      isActive: true,
+    },
   });
   await prisma.exchangeRateConfig.create({
     data: { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) },

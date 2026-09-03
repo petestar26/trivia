@@ -430,12 +430,17 @@ describeIf('W-1D1: submitPayment (PAYOUT_IN_PROGRESS → PAYMENT_SUBMITTED)', ()
       idempotencyKey: `sub-conflict-${tag}`,
     });
 
+    // The domain subcode lives in ApiError.details.code, not the message
+    // text (the thrown message is "Idempotency key reused with different
+    // request data") — assert the structured code directly, matching
+    // routes.test.ts's body.error.details.code convention for the
+    // HTTP-level equivalent of this same check.
     await expect(
       submitPayment(agentUser.id, withdrawal.id, {
         referenceNumber: 'REF-CONFLICT-2',
         idempotencyKey: `sub-conflict-${tag}`,
       })
-    ).rejects.toThrow(/IDEMPOTENCY_CONFLICT/i);
+    ).rejects.toMatchObject({ details: { code: 'IDEMPOTENCY_CONFLICT' } });
   });
 
   it('authorization before idempotent replay', async () => {
