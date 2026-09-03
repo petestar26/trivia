@@ -58,6 +58,8 @@ model User {
   agentProfile              Agent?                     @relation("AgentIdentity")
   agentOrders               AgentOrder[]
   withdrawals               Withdrawal[]
+  withdrawalQuotes          WithdrawalQuote[]
+  payoutAccounts            UserPayoutAccount[]
 
   // W-0 security step-up foundation (inverse relation sides only — no
   // existing User field is altered).
@@ -1112,6 +1114,8 @@ model Country {
   exchangeRates        ExchangeRateConfig[]
   agents               Agent[]
   agentPaymentAccounts AgentPaymentAccount[]
+  withdrawalQuotes     WithdrawalQuote[]
+  userPayoutAccounts   UserPayoutAccount[]
 
   @@index([isActive])
   @@map("countries")
@@ -1129,6 +1133,7 @@ model PaymentMethodDefinition {
 
   country       Country               @relation(fields: [countryId], references: [id], onDelete: Restrict)
   agentAccounts AgentPaymentAccount[]
+  userPayoutAccounts UserPayoutAccount[]
 
   @@unique([countryId, type, name])
   @@index([countryId, isActive])
@@ -1463,17 +1468,110 @@ model AgentMessage {
 // whose minor units exceed Int32 range. API serialization will later
 // expose BigInt values as strings — no service code exists in W-1A.
 
+// ─── W-1A2: Withdrawal quote / user payout destination ───────────
+//
+// W-1A2 correction: W-1A's Withdrawal.paymentAccountId had no backing
+// table and a misleading "agent's payout account" comment — a withdrawal
+// pays the USER, so the destination must be the user's own account, never
+// one of the agent's. UserPayoutAccount is deliberately NOT
+// AgentPaymentAccount reused: that table is agent-owned receiving
+// accounts for coin purchases, a different entity with a different
+// approval lifecycle.
+//
+// WithdrawalQuote is a distinct, persisted entity that exists BEFORE a
+// Withdrawal row and before a payout account is chosen — it is not a
+// wallet hold and does not reserve AgentFiatLiquidity; it only locks in
+// the coin/fiat/rate numbers a Withdrawal will later be created from.
+// Consumption is exactly-once, enforced the same way as every other
+// atomic claim in this schema: an application-level conditional
+// `updateMany(where: {id, status: 'ACTIVE'})` transition to CONSUMED,
+// backed here by Withdrawal.quoteId's own @unique as the structural
+// backstop (same pattern as WithdrawalHold.withdrawalId,
+// AgentOrderSettlement.orderId).
+
+enum WithdrawalQuoteStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+}
+
+model WithdrawalQuote {
+  id                     String                @id @default(uuid())
+  userId                 String
+  countryId              String
+  fiatCurrency           String                // ISO 4217
+  coinAmount             Int                    // coins the withdrawal will debit — locked in at quote time
+  fiatAmount             BigInt                 // smallest fiat unit — locked in at quote time
+  exchangeRateConfigId   String                 // reference to rate config used — never re-read
+  exchangeRateValue      Decimal                @db.Decimal(18, 6) // snapshot of the rate — never re-read
+  requestHash            String                 // SHA-256 of canonical request fields — NOT unique, see below
+  status                 WithdrawalQuoteStatus  @default(ACTIVE)
+  expiresAt              DateTime
+  consumedAt             DateTime?
+  // Denormalized for a fast, join-free "is this quote consumed, by what"
+  // lookup — set atomically in the same claim that flips status to
+  // CONSUMED. Not a live relation (Withdrawal.quoteId is the real FK
+  // driving referential integrity in the other direction).
+  consumedByWithdrawalId String?                @unique
+  createdAt              DateTime               @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  country    Country     @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  withdrawal Withdrawal?
+
+  // requestHash is deliberately NOT unique — same reasoning as
+  // Withdrawal.requestHash: a unique constraint here would permanently
+  // block a user from ever requesting the same-shaped quote again (e.g.
+  // the same amount, priced fresh after the first one expired unused).
+  @@index([userId, createdAt])
+  @@index([status, expiresAt]) // sweep: unclaimed/expired quote cleanup
+  @@map("withdrawal_quotes")
+}
+
+enum UserPayoutAccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+model UserPayoutAccount {
+  id             String                  @id @default(uuid())
+  userId         String
+  countryId      String
+  methodDefId    String
+  accountDetails Json                    // shape validated against methodDef.fieldSchema — same pattern as AgentPaymentAccount
+  displayLabel   String?                 // user-facing label, e.g. "My M-Pesa"
+  status         UserPayoutAccountStatus @default(ACTIVE)
+  disabledAt     DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  country     Country                 @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  methodDef   PaymentMethodDefinition @relation(fields: [methodDefId], references: [id], onDelete: Restrict)
+  withdrawals Withdrawal[]
+
+  // No KYC fields here by design (W-1A2 scope) — see task instructions.
+  @@index([userId, status])
+  @@map("user_payout_accounts")
+}
+
 model Withdrawal {
   id                     String           @id @default(uuid())
   withdrawalNumber       String           @unique // "WD-000123", human-facing — via sequence
   userId                 String
   agentId                String?          // nullable until assigned at HELD transition
+  quoteId                String           @unique // WithdrawalQuote consumed to create this row — exactly-once backstop
   requestHash            String           // SHA-256 of canonical request fields — creation idempotency
   idempotencyKey         String           // client-side dedup — same pattern as AgentOrder
   countryId              String           // immutable snapshot — never re-read
   paymentMethodDefId     String           // immutable snapshot — never re-read
-  paymentAccountId       String           // agent's payout account — immutable snapshot
-  paymentSnapshot        Json             // AUTHORITATIVE: agent's payout details — never live FK
+  // W-1A2 correction: this is the USER's fiat payout destination (where the
+  // agent sends money TO), never an agent's own account — the original
+  // W-1A comment on this field was wrong. The Prisma field name reflects
+  // that; @map keeps the already-deployed physical column name unchanged,
+  // so this migration needs no ALTER/RENAME on it at all.
+  userPayoutAccountId    String           @map("paymentAccountId") // immutable snapshot
+  paymentSnapshot        Json             // AUTHORITATIVE: user's payout details — never live FK
   fiatAmount             BigInt           // smallest fiat unit — immutable
   fiatCurrency           String           // ISO 4217 — immutable
   exchangeRateConfigId   String           // reference to rate config used — never re-read
@@ -1490,8 +1588,10 @@ model Withdrawal {
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
 
-  user        User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  agent       Agent?                       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agent         Agent?                       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  quote         WithdrawalQuote              @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  payoutAccount UserPayoutAccount            @relation(fields: [userPayoutAccountId], references: [id], onDelete: Restrict)
   hold        WithdrawalHold?
   settlement  WithdrawalSettlement?
   evidence    WithdrawalEvidence[]
