@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { WithdrawalStatus } from '@socialplay/database';
 import type { Withdrawal } from '@socialplay/database';
 import { authenticate, ApiError } from '../middleware';
 import { createWithdrawalQuote, getOwnWithdrawalQuote } from './quote-service';
@@ -157,8 +158,16 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
 
   // ── W-1D1: Agent assigned withdrawals (MUST be before /:id) ──
 
+  // Validated against the real enum rather than passed through as an
+  // arbitrary string — an unrecognized value used to reach Prisma
+  // directly and surface as an uncaught validation error (500) instead
+  // of a clean 400.
+  const listAssignedQuerySchema = z.object({
+    status: z.nativeEnum(WithdrawalStatus).optional(),
+  });
+
   server.get('/agent/assigned', { preHandler: auth }, async (request, reply) => {
-    const query = request.query as Record<string, string>;
+    const query = parse(listAssignedQuerySchema, request.query);
     const filters = query.status ? { status: query.status } : undefined;
     const withdrawals = await listAssignedWithdrawals(request.user!.sub, filters);
     return reply.send({ success: true, data: withdrawals.map(serializeWithdrawal) });
@@ -204,7 +213,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
       const body = parse(claimPayoutSchema, request.body);
       const result = await claimPayout(request.user!.sub, request.params.id, body);
       return reply
-        .status(result.idempotent ? 200 : 200)
+        .status(200)
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
     }
   );
@@ -216,7 +225,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
       const body = parse(submitPaymentSchema, request.body);
       const result = await submitPayment(request.user!.sub, request.params.id, body);
       return reply
-        .status(result.idempotent ? 200 : 200)
+        .status(200)
         .send({
           success: true,
           data: {
@@ -235,7 +244,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
       const body = parse(cancelWithdrawalSchema, request.body);
       const result = await cancelHeldWithdrawal(request.user!.sub, request.params.id, body);
       return reply
-        .status(result.idempotent ? 200 : 200)
+        .status(200)
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
     }
   );

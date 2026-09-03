@@ -430,8 +430,18 @@ function computeClaimPayoutHash(): string {
   return hashLifecycleRequest(['claim-payout']);
 }
 
-function computeSubmitPaymentHash(referenceNumber: string, note: string | null | undefined): string {
-  return hashLifecycleRequest(['submit-payment', referenceNumber, note ?? '']);
+function computeSubmitPaymentHash(referenceNumber: string, normalizedNote: string | null): string {
+  return hashLifecycleRequest(['submit-payment', referenceNumber, normalizedNote ?? '']);
+}
+
+/** Trims and collapses a blank note to null — the SAME normalized value
+ * must feed both the request hash and the stored column, or a client
+ * sending "x" vs " x " (or "" vs omitted) would hash differently while
+ * persisting identically, or vice versa. */
+function normalizeNote(note: string | undefined): string | null {
+  if (!note) return null;
+  const trimmed = note.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function computeCancelHash(): string {
@@ -514,8 +524,10 @@ export async function claimPayout(
 
   return prisma.$transaction(async (tx) => {
     // ── 1. Lock the withdrawal row ──────────────────────────────
-    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
-      SELECT id, status, "agentId"
+    const rows = await tx.$queryRaw<
+      Pick<Withdrawal, 'id' | 'status' | 'agentId' | 'paymentSubmissionDeadlineAt'>[]
+    >`
+      SELECT id, status, "agentId", "paymentSubmissionDeadlineAt"
       FROM withdrawals
       WHERE id = ${withdrawalId}
       FOR UPDATE
@@ -556,6 +568,26 @@ export async function claimPayout(
       throw ApiError.badRequest(`Cannot claim payout from status: ${locked.status}`);
     }
 
+    // W-1D1 fix (Opus adversarial review B1): a HELD withdrawal always
+    // has paymentSubmissionDeadlineAt set atomically at creation (W-1D0)
+    // — null here is an invariant violation, not a legitimate business
+    // state. Enforcing the deadline at claim time is what closes the
+    // PAYOUT_IN_PROGRESS fund-trap: an agent can no longer claim a
+    // withdrawal whose payment-submission window has already lapsed,
+    // which is the other half of the fix alongside cancelHeldWithdrawal's
+    // new expired-claim escape hatch below.
+    if (locked.paymentSubmissionDeadlineAt === null) {
+      throw ApiError.internal(
+        'paymentSubmissionDeadlineAt is null on a HELD withdrawal — invariant violation'
+      );
+    }
+    if (new Date() >= new Date(locked.paymentSubmissionDeadlineAt)) {
+      throw ApiError.conflict(
+        'The payment-submission window for this withdrawal has expired — it can no longer be claimed',
+        { code: 'PAYOUT_CLAIM_EXPIRED' }
+      );
+    }
+
     // ── 5. Transition: HELD → PAYOUT_IN_PROGRESS ───────────────
     await tx.withdrawal.update({
       where: { id: withdrawalId },
@@ -573,6 +605,19 @@ export async function claimPayout(
         requestHash,
         resultType: 'Withdrawal',
         resultId: withdrawalId,
+      },
+    });
+
+    // Audit — unwrapped: a failed write must abort this transaction like
+    // any other step (see cancelHeldWithdrawal's header note on why a
+    // try/catch here would be both useless and dangerous).
+    await tx.auditLog.create({
+      data: {
+        userId: actorUserId,
+        action: 'WITHDRAWAL_PAYOUT_CLAIMED',
+        entity: 'Withdrawal',
+        entityId: withdrawalId,
+        newData: { status: 'PAYOUT_IN_PROGRESS', agentId: agent.id },
       },
     });
 
@@ -601,7 +646,8 @@ export async function submitPayment(
   if (!referenceNumber || referenceNumber.trim().length === 0) {
     throw ApiError.badRequest('referenceNumber is required');
   }
-  const requestHash = computeSubmitPaymentHash(referenceNumber.trim(), note);
+  const normalizedNote = normalizeNote(note);
+  const requestHash = computeSubmitPaymentHash(referenceNumber.trim(), normalizedNote);
 
   // Pre-flight: load withdrawal + agent outside the transaction.
   const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
@@ -663,7 +709,7 @@ export async function submitPayment(
         submittedByUserId: actorUserId,
         submittedAt: now,
         referenceNumber: referenceNumber.trim(),
-        note: note ?? null,
+        note: normalizedNote,
         idempotencyKey,
         requestHash,
       },
@@ -693,6 +739,24 @@ export async function submitPayment(
       },
     });
 
+    // Audit — unwrapped, same reasoning as claimPayout/cancelHeldWithdrawal.
+    // referenceNumber is the agent's own external payout reference, not a
+    // payout-account secret — safe to log. No paymentSnapshot included.
+    await tx.auditLog.create({
+      data: {
+        userId: actorUserId,
+        action: 'WITHDRAWAL_PAYMENT_SUBMITTED',
+        entity: 'Withdrawal',
+        entityId: withdrawalId,
+        newData: {
+          status: 'PAYMENT_SUBMITTED',
+          agentId: agent.id,
+          submissionId: submission.id,
+          referenceNumber: submission.referenceNumber,
+        },
+      },
+    });
+
     const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     return { result: submission, withdrawal: fresh, idempotent: false };
   });
@@ -700,16 +764,33 @@ export async function submitPayment(
 
 // ─── W-1D1 Function 5: cancelHeldWithdrawal ───────────────────
 //
-// HELD → CANCELLED
+// HELD → CANCELLED, or (W-1D1 fix, Opus adversarial review B1)
+// an expired-claim PAYOUT_IN_PROGRESS → CANCELLED.
 //
-// The USER (not the agent) cancels a withdrawal that is still held.
-// This is the most financially complex operation — it must atomically:
+// The USER (not the agent) cancels a withdrawal. This is the most
+// financially complex operation — it must atomically:
 //   1. Refund coins from the hold (using hold.coinAmount, NOT withdrawal.coinAmount)
 //   2. Mark the hold as REFUNDED with the refund transaction id
 //   3. Release the fiat reservation (AgentFiatLiquidity.reservedBalance decreases)
 //   4. NEVER touch AgentInventory or AgentInventoryLedger
 //
-// Rejects from PAYOUT_IN_PROGRESS and PAYMENT_SUBMITTED (terminal states for cancel).
+// Cancellable states, for a NEW operation:
+//   - HELD: always.
+//   - PAYOUT_IN_PROGRESS: ONLY if no payment was submitted AND
+//     paymentSubmissionDeadlineAt has passed. Without this, an agent
+//     claiming a withdrawal and never submitting permanently traps the
+//     user's coins — claimPayout alone (rejecting a claim on an already-
+//     expired deadline) is not sufficient, because a withdrawal can
+//     still be claimed just before its deadline and then abandoned. This
+//     is a USER-TRIGGERED escape hatch, not the W-1D3 expiry worker —
+//     there is no scheduler in W-1D1, nothing here runs on a timer, and
+//     no EXPIRED transition exists yet; a withdrawal only leaves
+//     PAYOUT_IN_PROGRESS this way when the user explicitly calls cancel.
+//   - Anything else (PAYMENT_SUBMITTED, DISPUTED, COMPLETED, CANCELLED,
+//     EXPIRED): never. PAYMENT_SUBMITTED in particular must never
+//     auto-refund — once an agent has recorded proof of payment, undoing
+//     it is a dispute/admin decision (out of scope for W-1D1), not a
+//     unilateral user cancel.
 
 export async function cancelHeldWithdrawal(
   actorUserId: string,
@@ -728,8 +809,10 @@ export async function cancelHeldWithdrawal(
 
   return prisma.$transaction(async (tx) => {
     // ── 1. Lock the withdrawal row ──────────────────────────────
-    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'userId'>[]>`
-      SELECT id, status, "userId"
+    const rows = await tx.$queryRaw<
+      Pick<Withdrawal, 'id' | 'status' | 'userId' | 'paymentSubmittedAt' | 'paymentSubmissionDeadlineAt'>[]
+    >`
+      SELECT id, status, "userId", "paymentSubmittedAt", "paymentSubmissionDeadlineAt"
       FROM withdrawals
       WHERE id = ${withdrawalId}
       FOR UPDATE
@@ -763,8 +846,21 @@ export async function cancelHeldWithdrawal(
       return { result: fresh, idempotent: true };
     }
 
-    // ── 4. Only for a NEW operation, enforce starting status ───
-    if (locked.status !== 'HELD') {
+    // ── 4. Only for a NEW operation, enforce the cancellable states ──
+    if (locked.status === 'PAYOUT_IN_PROGRESS' && locked.paymentSubmissionDeadlineAt === null) {
+      // Same invariant as claimPayout — a PAYOUT_IN_PROGRESS withdrawal
+      // can only have gotten there via claimPayout, which never clears
+      // this field.
+      throw ApiError.internal(
+        'paymentSubmissionDeadlineAt is null on a PAYOUT_IN_PROGRESS withdrawal — invariant violation'
+      );
+    }
+    const expiredUnclaimedPayout =
+      locked.status === 'PAYOUT_IN_PROGRESS' &&
+      locked.paymentSubmittedAt === null &&
+      locked.paymentSubmissionDeadlineAt !== null &&
+      new Date() >= new Date(locked.paymentSubmissionDeadlineAt);
+    if (locked.status !== 'HELD' && !expiredUnclaimedPayout) {
       throw ApiError.badRequest(`Cannot cancel withdrawal from status: ${locked.status}`);
     }
 
@@ -848,24 +944,30 @@ export async function cancelHeldWithdrawal(
     });
 
     // ── 12. Audit ──────────────────────────────────────────────
-    try {
-      await tx.auditLog.create({
-        data: {
-          userId: actorUserId,
-          action: 'WITHDRAWAL_CANCEL',
-          entity: 'Withdrawal',
-          entityId: withdrawalId,
-          newData: {
-            status: 'CANCELLED',
-            refundCoins: hold.coinAmount,
-            walletTransactionId: creditResult.transactions[0].id,
-            reservationReleased: reservation.id,
-          },
+    // W-1D1 fix (Opus adversarial review R1): unwrapped, matching
+    // createWithdrawal's pattern. The removed try/catch could not achieve
+    // its stated goal — PostgreSQL aborts the whole transaction on a
+    // failed statement, so catching it in JS does not un-abort it; the
+    // very next statement would fail with 25P02 and the cancel would
+    // roll back regardless. The only case where the catch "worked" was a
+    // client-side Prisma validation error, which would silently commit a
+    // coin refund with NO audit record at all. If this write fails, the
+    // whole cancel must fail with it.
+    await tx.auditLog.create({
+      data: {
+        userId: actorUserId,
+        action: 'WITHDRAWAL_CANCELLED',
+        entity: 'Withdrawal',
+        entityId: withdrawalId,
+        newData: {
+          status: 'CANCELLED',
+          previousStatus: locked.status,
+          refundCoins: hold.coinAmount,
+          walletTransactionId: creditResult.transactions[0].id,
+          reservationReleased: reservation.id,
         },
-      });
-    } catch {
-      // Audit logging must never fail the money-path transaction.
-    }
+      },
+    });
 
     const final = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     return { result: final, idempotent: false };

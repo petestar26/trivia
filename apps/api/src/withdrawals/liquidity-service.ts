@@ -447,9 +447,24 @@ export async function releaseReservedLiquidity(
     withdrawalId: string;
   }
 ): Promise<void> {
-  const liquidity = await tx.agentFiatLiquidity.findUnique({
-    where: { agentId_fiatCurrency: { agentId: reservation.agentId, fiatCurrency: reservation.fiatCurrency } },
-  });
+  // W-1D1 fix (Opus adversarial review R3): lock the row BEFORE reading
+  // it, mirroring selectEligibleAgentLiquidity's own FOR UPDATE. The
+  // prior unlocked findUnique() let two ordinary concurrent cancels
+  // against the SAME agent — two different users cancelling two
+  // different withdrawals assigned to that agent — both read the same
+  // starting version, so the loser's version-pinned updateMany below
+  // spuriously returned count === 0 and threw straight at the user under
+  // routine concurrency, not a real conflict. Locking here makes
+  // Postgres serialize the two releases instead.
+  const rows = await tx.$queryRaw<
+    { id: string; totalBalance: bigint; reservedBalance: bigint; version: number }[]
+  >`
+    SELECT id, "totalBalance", "reservedBalance", version
+    FROM "agent_fiat_liquidities"
+    WHERE "agentId" = ${reservation.agentId} AND "fiatCurrency" = ${reservation.fiatCurrency}
+    FOR UPDATE
+  `;
+  const liquidity = rows[0];
   if (!liquidity) {
     throw ApiError.internal('Agent fiat liquidity row not found during reservation release');
   }
@@ -464,6 +479,9 @@ export async function releaseReservedLiquidity(
     data: { reservedBalance: newReserved, version: { increment: 1 } },
   });
   if (claim.count === 0) {
+    // Should be unreachable — FOR UPDATE above already holds this row's
+    // lock for the transaction's lifetime — kept as defense-in-depth,
+    // matching incrementReservedLiquidity's identical pattern.
     throw ApiError.conflict('Concurrent liquidity modification during reservation release — please retry');
   }
 

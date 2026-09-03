@@ -198,6 +198,29 @@ describe(`W-1D1: withdrawal lifecycle routes ${PREFIX}`, () => {
       });
       expect(res.statusCode).toBe(403);
     });
+
+    it('?status=BOGUS returns 400, not an uncaught Prisma validation error', async () => {
+      const tag = `list-bogus-${Date.now()}`;
+      const { agentUser } = await createHeldWithdrawal(tag);
+      const res = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/agent/assigned?status=BOGUS`,
+        headers: { authorization: mintToken(agentUser) },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('?status=HELD (a real enum value) still works', async () => {
+      const tag = `list-status-held-${Date.now()}`;
+      const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+      const res = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/agent/assigned?status=HELD`,
+        headers: { authorization: mintToken(agentUser) },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.some((w: any) => w.id === withdrawal.id)).toBe(true);
+    });
   });
 
   describe('GET /withdrawals/agent/assigned/:id', () => {
@@ -333,6 +356,28 @@ describe(`W-1D1: withdrawal lifecycle routes ${PREFIX}`, () => {
         payload: { idempotencyKey: `cx-${tag}` },
       });
       expect(res.statusCode).toBe(400);
+    });
+
+    // W-1D1 fix (Opus adversarial review B1): the escape hatch — a
+    // withdrawal claimed by an agent who never submits payment must not
+    // be permanently unrefundable. Once paymentSubmissionDeadlineAt has
+    // passed with no payment submitted, the owning user can cancel it
+    // from PAYOUT_IN_PROGRESS via this same route.
+    it('200 when PAYOUT_IN_PROGRESS and paymentSubmissionDeadlineAt has passed with no payment submitted', async () => {
+      const tag = `cancel-pip-expired-${Date.now()}`;
+      const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
+      await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `ck-${tag}` });
+      await prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: { paymentSubmissionDeadlineAt: new Date(Date.now() - 1000) },
+      });
+      const res = await server.inject({
+        method: 'POST', url: `${PREFIX}/${withdrawal.id}/cancel`,
+        headers: { authorization: mintToken(user) },
+        payload: { idempotencyKey: `cx-${tag}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.status).toBe('CANCELLED');
     });
   });
 });

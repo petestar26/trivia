@@ -333,6 +333,44 @@ describeIf('W-1D1: claimPayout (HELD → PAYOUT_IN_PROGRESS)', () => {
     expect((r2.result as any).status).toBe('PAYMENT_SUBMITTED');
   });
 
+  // W-1D1 fix (Opus adversarial review B1): closes the fund-trap from
+  // the other side — an agent cannot claim a withdrawal whose payment-
+  // submission window has already lapsed.
+  it('claimPayout rejects if paymentSubmissionDeadlineAt has already expired', async () => {
+    const tag = `claim-expired-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { paymentSubmissionDeadlineAt: new Date(Date.now() - 1000) },
+    });
+
+    await expect(
+      claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` })
+    ).rejects.toMatchObject({ details: { code: 'PAYOUT_CLAIM_EXPIRED' } });
+
+    // Must not have partially applied — still HELD, no operation recorded.
+    const fresh = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+    expect(fresh!.status).toBe('HELD');
+    const op = await prisma.withdrawalOperation.findFirst({
+      where: { withdrawalId: withdrawal.id, action: 'CLAIM_PAYOUT' },
+    });
+    expect(op).toBeNull();
+  });
+
+  it('claimPayout writes a WITHDRAWAL_PAYOUT_CLAIMED audit row', async () => {
+    const tag = `claim-audit-${Date.now()}`;
+    const { agentUser, agent, withdrawal } = await createHeldWithdrawal(tag);
+
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYOUT_CLAIMED' },
+    });
+    expect(audit).not.toBeNull();
+    expect((audit!.newData as any).agentId).toBe(agent.id);
+  });
+
   it('user cancel vs payout claim race: exactly one wins', async () => {
     const tag = `race-${Date.now()}`;
     const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
@@ -400,6 +438,45 @@ describeIf('W-1D1: submitPayment (PAYOUT_IN_PROGRESS → PAYMENT_SUBMITTED)', ()
     expect(submission!.referenceNumber).toBe('REF-PERSIST');
     expect(submission!.agentId).toBe(agent.id);
     expect(submission!.submittedByUserId).toBe(agentUser.id);
+  });
+
+  it('normalizes a blank/whitespace note to null, consistently for hash and storage', async () => {
+    const tag = `submit-note-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+
+    // Same idempotencyKey, "note: '   '" then a replay with note omitted —
+    // both normalize to null, so this must replay, not conflict.
+    const r1 = await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'REF-NOTE',
+      note: '   ',
+      idempotencyKey: `sub-note-${tag}`,
+    });
+    expect(r1.idempotent).toBe(false);
+    expect((r1.result as any).note).toBeNull();
+
+    const r2 = await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'REF-NOTE',
+      idempotencyKey: `sub-note-${tag}`,
+    });
+    expect(r2.idempotent).toBe(true);
+  });
+
+  it('submitPayment writes a WITHDRAWAL_PAYMENT_SUBMITTED audit row', async () => {
+    const tag = `submit-audit-${Date.now()}`;
+    const { agentUser, agent, withdrawal } = await createHeldWithdrawal(tag);
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+    await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'REF-AUDIT',
+      idempotencyKey: `sub-${tag}`,
+    });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYMENT_SUBMITTED' },
+    });
+    expect(audit).not.toBeNull();
+    expect((audit!.newData as any).agentId).toBe(agent.id);
+    expect((audit!.newData as any).referenceNumber).toBe('REF-AUDIT');
   });
 
   it('same submit idempotency key replays', async () => {
@@ -590,6 +667,210 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     await expect(
       cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` })
     ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+  });
+
+  // ── W-1D1 fix (Opus adversarial review B1): PAYOUT_IN_PROGRESS ─────
+  // fund-trap escape hatch. A withdrawal claimed by an agent who never
+  // submits payment must eventually be cancellable by the user — this is
+  // a user-triggered escape hatch (no worker/scheduler exists in W-1D1),
+  // gated strictly on paymentSubmissionDeadlineAt having passed with no
+  // payment submitted. PAYMENT_SUBMITTED must never be reachable this way.
+
+  it('cancel from PAYOUT_IN_PROGRESS still rejects BEFORE paymentSubmissionDeadlineAt passes', async () => {
+    const tag = `cancel-pip-notyet-${Date.now()}`;
+    const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+    // Deadline is ~15 minutes out by default — untouched, still in the future.
+    await expect(
+      cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` })
+    ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+
+    const fresh = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+    expect(fresh!.status).toBe('PAYOUT_IN_PROGRESS');
+  });
+
+  it('cancel from PAYOUT_IN_PROGRESS succeeds once paymentSubmissionDeadlineAt has passed with no payment submitted', async () => {
+    const tag = `cancel-pip-expired-${Date.now()}`;
+    const { agentUser, agent, user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+
+    const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+    });
+    const walletBefore = await getWalletBalance(user.id);
+    const inventoryBefore = await prisma.agentInventory.findUnique({ where: { agentId: agent.id } });
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { paymentSubmissionDeadlineAt: new Date(Date.now() - 1000) },
+    });
+
+    const result = await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` });
+    expect(result.idempotent).toBe(false);
+    expect((result.result as any).status).toBe('CANCELLED');
+
+    // Hold: exactly one ACTIVE -> REFUNDED, exactly one WITHDRAWAL/CREDIT.
+    const hold = await prisma.withdrawalHold.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(hold!.status).toBe('REFUNDED');
+    const credits = await prisma.walletTransaction.findMany({
+      where: { userId: user.id, referenceType: 'WITHDRAWAL', referenceId: withdrawal.id, ledgerType: 'CREDIT' },
+    });
+    expect(credits).toHaveLength(1);
+    expect(credits[0].amount).toBe(hold!.coinAmount);
+
+    // Reservation: exactly one ACTIVE -> RELEASED.
+    const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(reservation!.status).toBe('RELEASED');
+
+    // AgentFiatLiquidity: reserved decreases by the reservation amount, total unchanged.
+    const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+    });
+    expect(liquidityAfter!.reservedBalance).toBe(liquidityBefore!.reservedBalance - reservation!.amount);
+    expect(liquidityAfter!.totalBalance).toBe(liquidityBefore!.totalBalance);
+
+    // Wallet actually credited by exactly the hold amount.
+    const walletAfter = await getWalletBalance(user.id);
+    expect(walletAfter.coinsBalance).toBe(walletBefore.coinsBalance + hold!.coinAmount);
+
+    // AgentInventory is a completely separate asset class — untouched.
+    const inventoryAfter = await prisma.agentInventory.findUnique({ where: { agentId: agent.id } });
+    expect(inventoryAfter).toEqual(inventoryBefore);
+  });
+
+  it('cancel from PAYOUT_IN_PROGRESS with paymentSubmittedAt already set still rejects, even past the deadline', async () => {
+    // Defense-in-depth: paymentSubmittedAt and the PAYMENT_SUBMITTED
+    // transition are set atomically together by submitPayment, so this
+    // combination (PAYOUT_IN_PROGRESS status + non-null paymentSubmittedAt)
+    // should never occur via normal code paths — verified anyway per the
+    // required implementation detail ("allowed only if paymentSubmittedAt
+    // is null").
+    const tag = `cancel-pip-submitted-anomaly-${Date.now()}`;
+    const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        paymentSubmittedAt: new Date(),
+        paymentSubmissionDeadlineAt: new Date(Date.now() - 1000),
+      },
+    });
+
+    await expect(
+      cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` })
+    ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+  });
+
+  it('cancel from PAYMENT_SUBMITTED still rejects even after paymentSubmissionDeadlineAt has passed', async () => {
+    const tag = `cancel-ps-expired-${Date.now()}`;
+    const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
+    await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'REF-PS-EXPIRED',
+      idempotencyKey: `sub-${tag}`,
+    });
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: { paymentSubmissionDeadlineAt: new Date(Date.now() - 1000) },
+    });
+
+    await expect(
+      cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` })
+    ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+
+    const fresh = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+    expect(fresh!.status).toBe('PAYMENT_SUBMITTED'); // never auto-refunded
+  });
+
+  it('cancelHeldWithdrawal writes a WITHDRAWAL_CANCELLED audit row (no try/catch swallowing failures)', async () => {
+    const tag = `cancel-audit-${Date.now()}`;
+    const { user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_CANCELLED' },
+    });
+    expect(audit).not.toBeNull();
+    expect((audit!.newData as any).previousStatus).toBe('HELD');
+  });
+
+  it('two withdrawals assigned to the same agent, cancelled concurrently, both succeed with correct final liquidity', async () => {
+    // W-1D1 fix (Opus adversarial review R3): releaseReservedLiquidity
+    // used to read AgentFiatLiquidity unlocked, so two ORDINARY
+    // concurrent cancels against withdrawals assigned to the SAME agent
+    // could race on the same starting version and spuriously 409 for one
+    // caller — not a real conflict, just an unlocked read. This proves
+    // both now succeed (serialized by the row lock) with exact final
+    // ledger/liquidity counts.
+    const tag = `concurrent-cancel-${Date.now()}`;
+    const admin = await createAdmin(tag);
+    const superAdmin = await createSuperAdmin(`${tag}-super`);
+    const country = await createCountry(tag);
+    const method = await createPaymentMethod(country.id, tag);
+    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    const { agent } = await createFundedAgent(tag, country.id, admin, superAdmin, 1_000_000n);
+
+    const userA = await createFundedUser(`${tag}-a`, 50_000);
+    const userB = await createFundedUser(`${tag}-b`, 50_000);
+    const payoutA = await createUserPayoutAccount(userA.id, {
+      countryId: country.id, methodDefId: method.id, accountDetails: { bankName: 'TB', accountNumber: '111' },
+    });
+    const payoutB = await createUserPayoutAccount(userB.id, {
+      countryId: country.id, methodDefId: method.id, accountDetails: { bankName: 'TB', accountNumber: '222' },
+    });
+
+    const quoteA = await createWithdrawalQuote(userA.id, { countryId: country.id, coinAmount: 5_000 });
+    const quoteB = await createWithdrawalQuote(userB.id, { countryId: country.id, coinAmount: 7_000 });
+    const { withdrawal: wA } = await createWithdrawal(
+      userA.id, { quoteId: quoteA.id, payoutAccountId: payoutA.id, idempotencyKey: `wA-${tag}` }, 1000
+    );
+    const { withdrawal: wB } = await createWithdrawal(
+      userB.id, { quoteId: quoteB.id, payoutAccountId: payoutB.id, idempotencyKey: `wB-${tag}` }, 1000
+    );
+
+    const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+    });
+
+    const [resultA, resultB] = await Promise.all([
+      cancelHeldWithdrawal(userA.id, (wA as any).id, { idempotencyKey: `cancelA-${tag}` }),
+      cancelHeldWithdrawal(userB.id, (wB as any).id, { idempotencyKey: `cancelB-${tag}` }),
+    ]);
+
+    expect((resultA.result as any).status).toBe('CANCELLED');
+    expect((resultB.result as any).status).toBe('CANCELLED');
+
+    const reservationA = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: (wA as any).id } });
+    const reservationB = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: (wB as any).id } });
+    expect(reservationA!.status).toBe('RELEASED');
+    expect(reservationB!.status).toBe('RELEASED');
+
+    const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+    });
+    expect(liquidityAfter!.reservedBalance).toBe(
+      liquidityBefore!.reservedBalance - reservationA!.amount - reservationB!.amount
+    );
+    expect(liquidityAfter!.totalBalance).toBe(liquidityBefore!.totalBalance);
+
+    const releaseLedgerCount = await prisma.agentFiatLiquidityLedger.count({
+      where: { agentId: agent.id, type: 'RELEASE', reservationId: { in: [reservationA!.id, reservationB!.id] } },
+    });
+    expect(releaseLedgerCount).toBe(2);
+
+    const creditsA = await prisma.walletTransaction.count({
+      where: { userId: userA.id, referenceType: 'WITHDRAWAL', ledgerType: 'CREDIT' },
+    });
+    const creditsB = await prisma.walletTransaction.count({
+      where: { userId: userB.id, referenceType: 'WITHDRAWAL', ledgerType: 'CREDIT' },
+    });
+    expect(creditsA).toBe(1);
+    expect(creditsB).toBe(1);
   });
 
   it('AgentInventory and AgentInventoryLedger unchanged after cancel', async () => {
