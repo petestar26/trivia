@@ -669,12 +669,13 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
   });
 
-  // ── W-1D1 fix (Opus adversarial review B1): PAYOUT_IN_PROGRESS ─────
-  // fund-trap escape hatch. A withdrawal claimed by an agent who never
-  // submits payment must eventually be cancellable by the user — this is
-  // a user-triggered escape hatch (no worker/scheduler exists in W-1D1),
-  // gated strictly on paymentSubmissionDeadlineAt having passed with no
-  // payment submitted. PAYMENT_SUBMITTED must never be reachable this way.
+  // ── PAYOUT_IN_PROGRESS is never user-cancellable, deadline or not ──
+  // (OpenAI review blocker on an earlier version of this branch, which
+  // allowed an expired-and-unclaimed PAYOUT_IN_PROGRESS to be
+  // user-cancelled: once claimPayout has fired, an external fiat
+  // transfer may already be in progress even without a recorded
+  // submitPayment, so a user-triggered refund at that point could
+  // double-pay the user. See cancelHeldWithdrawal's file header.
 
   it('cancel from PAYOUT_IN_PROGRESS still rejects BEFORE paymentSubmissionDeadlineAt passes', async () => {
     const tag = `cancel-pip-notyet-${Date.now()}`;
@@ -690,8 +691,14 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     expect(fresh!.status).toBe('PAYOUT_IN_PROGRESS');
   });
 
-  it('cancel from PAYOUT_IN_PROGRESS succeeds once paymentSubmissionDeadlineAt has passed with no payment submitted', async () => {
-    const tag = `cancel-pip-expired-${Date.now()}`;
+  // W-1D1 fix (OpenAI review blocker): reverts the earlier "expired
+  // PAYOUT_IN_PROGRESS becomes user-cancellable" behavior. Once
+  // claimPayout has fired, an external fiat transfer may already be in
+  // progress even without a recorded submitPayment — a user-triggered
+  // refund at that point could double-pay the user. PAYOUT_IN_PROGRESS
+  // must reject cancel unconditionally, deadline or not.
+  it('cancel from PAYOUT_IN_PROGRESS rejects even after paymentSubmissionDeadlineAt has passed, with no payment submitted', async () => {
+    const tag = `cancel-pip-expired-still-rejects-${Date.now()}`;
     const { agentUser, agent, user, withdrawal } = await createHeldWithdrawal(tag);
 
     await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
@@ -700,68 +707,30 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
       where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
     });
     const walletBefore = await getWalletBalance(user.id);
-    const inventoryBefore = await prisma.agentInventory.findUnique({ where: { agentId: agent.id } });
 
     await prisma.withdrawal.update({
       where: { id: withdrawal.id },
       data: { paymentSubmissionDeadlineAt: new Date(Date.now() - 1000) },
     });
 
-    const result = await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` });
-    expect(result.idempotent).toBe(false);
-    expect((result.result as any).status).toBe('CANCELLED');
-
-    // Hold: exactly one ACTIVE -> REFUNDED, exactly one WITHDRAWAL/CREDIT.
-    const hold = await prisma.withdrawalHold.findUnique({ where: { withdrawalId: withdrawal.id } });
-    expect(hold!.status).toBe('REFUNDED');
-    const credits = await prisma.walletTransaction.findMany({
-      where: { userId: user.id, referenceType: 'WITHDRAWAL', referenceId: withdrawal.id, ledgerType: 'CREDIT' },
-    });
-    expect(credits).toHaveLength(1);
-    expect(credits[0].amount).toBe(hold!.coinAmount);
-
-    // Reservation: exactly one ACTIVE -> RELEASED.
-    const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
-    expect(reservation!.status).toBe('RELEASED');
-
-    // AgentFiatLiquidity: reserved decreases by the reservation amount, total unchanged.
-    const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
-    });
-    expect(liquidityAfter!.reservedBalance).toBe(liquidityBefore!.reservedBalance - reservation!.amount);
-    expect(liquidityAfter!.totalBalance).toBe(liquidityBefore!.totalBalance);
-
-    // Wallet actually credited by exactly the hold amount.
-    const walletAfter = await getWalletBalance(user.id);
-    expect(walletAfter.coinsBalance).toBe(walletBefore.coinsBalance + hold!.coinAmount);
-
-    // AgentInventory is a completely separate asset class — untouched.
-    const inventoryAfter = await prisma.agentInventory.findUnique({ where: { agentId: agent.id } });
-    expect(inventoryAfter).toEqual(inventoryBefore);
-  });
-
-  it('cancel from PAYOUT_IN_PROGRESS with paymentSubmittedAt already set still rejects, even past the deadline', async () => {
-    // Defense-in-depth: paymentSubmittedAt and the PAYMENT_SUBMITTED
-    // transition are set atomically together by submitPayment, so this
-    // combination (PAYOUT_IN_PROGRESS status + non-null paymentSubmittedAt)
-    // should never occur via normal code paths — verified anyway per the
-    // required implementation detail ("allowed only if paymentSubmittedAt
-    // is null").
-    const tag = `cancel-pip-submitted-anomaly-${Date.now()}`;
-    const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
-    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
-
-    await prisma.withdrawal.update({
-      where: { id: withdrawal.id },
-      data: {
-        paymentSubmittedAt: new Date(),
-        paymentSubmissionDeadlineAt: new Date(Date.now() - 1000),
-      },
-    });
-
     await expect(
       cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-${tag}` })
     ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+
+    // No money moved at all: status, hold, reservation, wallet, and
+    // liquidity are all exactly as they were before this rejected call.
+    const fresh = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+    expect(fresh!.status).toBe('PAYOUT_IN_PROGRESS');
+    const hold = await prisma.withdrawalHold.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(hold!.status).toBe('ACTIVE');
+    const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(reservation!.status).toBe('ACTIVE');
+    const walletAfter = await getWalletBalance(user.id);
+    expect(walletAfter.coinsBalance).toBe(walletBefore.coinsBalance);
+    const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+    });
+    expect(liquidityAfter!.reservedBalance).toBe(liquidityBefore!.reservedBalance);
   });
 
   it('cancel from PAYMENT_SUBMITTED still rejects even after paymentSubmissionDeadlineAt has passed', async () => {

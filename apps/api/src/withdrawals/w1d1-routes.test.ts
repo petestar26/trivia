@@ -358,13 +358,16 @@ describe(`W-1D1: withdrawal lifecycle routes ${PREFIX}`, () => {
       expect(res.statusCode).toBe(400);
     });
 
-    // W-1D1 fix (Opus adversarial review B1): the escape hatch — a
-    // withdrawal claimed by an agent who never submits payment must not
-    // be permanently unrefundable. Once paymentSubmissionDeadlineAt has
-    // passed with no payment submitted, the owning user can cancel it
-    // from PAYOUT_IN_PROGRESS via this same route.
-    it('200 when PAYOUT_IN_PROGRESS and paymentSubmissionDeadlineAt has passed with no payment submitted', async () => {
-      const tag = `cancel-pip-expired-${Date.now()}`;
+    // W-1D1 fix (OpenAI review blocker): reverts the earlier escape
+    // hatch. An agent claiming a withdrawal may already have an external
+    // fiat transfer in progress even before recording submitPayment — a
+    // user-triggered cancel/refund at that point could double-pay the
+    // user. PAYOUT_IN_PROGRESS must reject cancel unconditionally, even
+    // once paymentSubmissionDeadlineAt has passed with no payment
+    // submitted. (The claim-time deadline check in claimPayout is
+    // unaffected — it only blocks a future claim, never moves money.)
+    it('400 when PAYOUT_IN_PROGRESS even after paymentSubmissionDeadlineAt has passed with no payment submitted', async () => {
+      const tag = `cancel-pip-expired-still-rejects-${Date.now()}`;
       const { agentUser, user, withdrawal } = await createHeldWithdrawal(tag);
       await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `ck-${tag}` });
       await prisma.withdrawal.update({
@@ -376,8 +379,7 @@ describe(`W-1D1: withdrawal lifecycle routes ${PREFIX}`, () => {
         headers: { authorization: mintToken(user) },
         payload: { idempotencyKey: `cx-${tag}` },
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().data.status).toBe('CANCELLED');
+      expect(res.statusCode).toBe(400);
     });
   });
 });

@@ -571,11 +571,14 @@ export async function claimPayout(
     // W-1D1 fix (Opus adversarial review B1): a HELD withdrawal always
     // has paymentSubmissionDeadlineAt set atomically at creation (W-1D0)
     // — null here is an invariant violation, not a legitimate business
-    // state. Enforcing the deadline at claim time is what closes the
-    // PAYOUT_IN_PROGRESS fund-trap: an agent can no longer claim a
-    // withdrawal whose payment-submission window has already lapsed,
-    // which is the other half of the fix alongside cancelHeldWithdrawal's
-    // new expired-claim escape hatch below.
+    // state. Rejecting a claim once the deadline has passed only blocks
+    // a FUTURE claim attempt — it never moves money, unlike a refund —
+    // so this stays even though cancelHeldWithdrawal's own use of this
+    // deadline was reverted (see that file's header comment): once an
+    // existing PAYOUT_IN_PROGRESS withdrawal is claimed, there is no
+    // user-facing escape hatch in W-1D1; the remedy for an abandoned
+    // claim is a manual admin decision in a later phase, not automatic
+    // or user-triggered.
     if (locked.paymentSubmissionDeadlineAt === null) {
       throw ApiError.internal(
         'paymentSubmissionDeadlineAt is null on a HELD withdrawal — invariant violation'
@@ -764,33 +767,33 @@ export async function submitPayment(
 
 // ─── W-1D1 Function 5: cancelHeldWithdrawal ───────────────────
 //
-// HELD → CANCELLED, or (W-1D1 fix, Opus adversarial review B1)
-// an expired-claim PAYOUT_IN_PROGRESS → CANCELLED.
+// HELD → CANCELLED. This is the ONLY legal starting state for a
+// user-initiated cancel in W-1D1.
 //
-// The USER (not the agent) cancels a withdrawal. This is the most
-// financially complex operation — it must atomically:
+// The USER (not the agent) cancels a withdrawal that is still held.
+// This is the most financially complex operation — it must atomically:
 //   1. Refund coins from the hold (using hold.coinAmount, NOT withdrawal.coinAmount)
 //   2. Mark the hold as REFUNDED with the refund transaction id
 //   3. Release the fiat reservation (AgentFiatLiquidity.reservedBalance decreases)
 //   4. NEVER touch AgentInventory or AgentInventoryLedger
 //
-// Cancellable states, for a NEW operation:
-//   - HELD: always.
-//   - PAYOUT_IN_PROGRESS: ONLY if no payment was submitted AND
-//     paymentSubmissionDeadlineAt has passed. Without this, an agent
-//     claiming a withdrawal and never submitting permanently traps the
-//     user's coins — claimPayout alone (rejecting a claim on an already-
-//     expired deadline) is not sufficient, because a withdrawal can
-//     still be claimed just before its deadline and then abandoned. This
-//     is a USER-TRIGGERED escape hatch, not the W-1D3 expiry worker —
-//     there is no scheduler in W-1D1, nothing here runs on a timer, and
-//     no EXPIRED transition exists yet; a withdrawal only leaves
-//     PAYOUT_IN_PROGRESS this way when the user explicitly calls cancel.
-//   - Anything else (PAYMENT_SUBMITTED, DISPUTED, COMPLETED, CANCELLED,
-//     EXPIRED): never. PAYMENT_SUBMITTED in particular must never
-//     auto-refund — once an agent has recorded proof of payment, undoing
-//     it is a dispute/admin decision (out of scope for W-1D1), not a
-//     unilateral user cancel.
+// PAYOUT_IN_PROGRESS and PAYMENT_SUBMITTED are NEVER cancellable by the
+// user — including once paymentSubmissionDeadlineAt has passed. An
+// earlier version of this function allowed a user to cancel an expired,
+// unclaimed-payment PAYOUT_IN_PROGRESS withdrawal; that was reverted
+// (OpenAI review finding, a real money-safety bug, not a false
+// positive): once claimPayout has fired, an external fiat transfer may
+// already be in progress even though submitPayment has not recorded it
+// yet, so a user-triggered refund at that point can double-pay the user
+// — coins refunded here AND fiat already sent by the agent, with no way
+// for this function to know which has happened. claimPayout may still
+// reject a brand-new claim attempt once the deadline has passed (see
+// claimPayout — that only blocks a FUTURE claim and never moves money),
+// but an EXISTING PAYOUT_IN_PROGRESS withdrawal has no user-facing
+// escape hatch in W-1D1. The remedy for an abandoned claim is deferred
+// to a later phase as a MANUAL ADMIN decision (PAYOUT_IN_PROGRESS →
+// DISPUTED, W-1D2/D3) — never an automatic or user-triggered refund. No
+// EXPIRED transition and no DISPUTED transition exist in W-1D1.
 
 export async function cancelHeldWithdrawal(
   actorUserId: string,
@@ -809,10 +812,8 @@ export async function cancelHeldWithdrawal(
 
   return prisma.$transaction(async (tx) => {
     // ── 1. Lock the withdrawal row ──────────────────────────────
-    const rows = await tx.$queryRaw<
-      Pick<Withdrawal, 'id' | 'status' | 'userId' | 'paymentSubmittedAt' | 'paymentSubmissionDeadlineAt'>[]
-    >`
-      SELECT id, status, "userId", "paymentSubmittedAt", "paymentSubmissionDeadlineAt"
+    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'userId'>[]>`
+      SELECT id, status, "userId"
       FROM withdrawals
       WHERE id = ${withdrawalId}
       FOR UPDATE
@@ -846,21 +847,10 @@ export async function cancelHeldWithdrawal(
       return { result: fresh, idempotent: true };
     }
 
-    // ── 4. Only for a NEW operation, enforce the cancellable states ──
-    if (locked.status === 'PAYOUT_IN_PROGRESS' && locked.paymentSubmissionDeadlineAt === null) {
-      // Same invariant as claimPayout — a PAYOUT_IN_PROGRESS withdrawal
-      // can only have gotten there via claimPayout, which never clears
-      // this field.
-      throw ApiError.internal(
-        'paymentSubmissionDeadlineAt is null on a PAYOUT_IN_PROGRESS withdrawal — invariant violation'
-      );
-    }
-    const expiredUnclaimedPayout =
-      locked.status === 'PAYOUT_IN_PROGRESS' &&
-      locked.paymentSubmittedAt === null &&
-      locked.paymentSubmissionDeadlineAt !== null &&
-      new Date() >= new Date(locked.paymentSubmissionDeadlineAt);
-    if (locked.status !== 'HELD' && !expiredUnclaimedPayout) {
+    // ── 4. Only for a NEW operation, enforce starting status ───
+    // HELD only — see the file header. PAYOUT_IN_PROGRESS and
+    // PAYMENT_SUBMITTED always reject here, deadline or not.
+    if (locked.status !== 'HELD') {
       throw ApiError.badRequest(`Cannot cancel withdrawal from status: ${locked.status}`);
     }
 
