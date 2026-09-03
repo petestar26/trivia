@@ -765,7 +765,10 @@ describeIf('withdrawals/withdrawal-service', () => {
     await createExchangeRate(country.id, 'USD', 2, admin.id);
 
     // The withdrawing user is ALSO this country's only funded agent.
-    const selfUser = await createFundedUser(tag, 10_000);
+    // Distinct tag from `admin`'s — createUser() dedupes by email, so
+    // reusing `tag` here would resolve to the SAME row as `admin` and
+    // make approveAgentApplication legitimately reject it as self-review.
+    const selfUser = await createFundedUser(`${tag}-self`, 10_000);
     const { application } = await submitAgentApplication(selfUser.id, {
       countryId: country.id,
       displayName: `Self Assign Agent ${tag}`,
@@ -805,7 +808,10 @@ describeIf('withdrawals/withdrawal-service', () => {
     const method = await createPaymentMethod(country.id, tag);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
 
-    const selfUser = await createFundedUser(tag, 10_000);
+    // Distinct tag from `admin`'s — createUser() dedupes by email, so
+    // reusing `tag` here would resolve to the SAME row as `admin` and
+    // make approveAgentApplication legitimately reject it as self-review.
+    const selfUser = await createFundedUser(`${tag}-self`, 10_000);
     const { application } = await submitAgentApplication(selfUser.id, {
       countryId: country.id,
       displayName: `Self Assign Agent ${tag}`,
