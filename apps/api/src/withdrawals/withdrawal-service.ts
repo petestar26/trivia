@@ -513,7 +513,7 @@ export async function claimPayout(
   const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
 
   return prisma.$transaction(async (tx) => {
-    // ── Lock the withdrawal row ────────────────────────────────
+    // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
       SELECT id, status, "agentId"
       FROM withdrawals
@@ -522,14 +522,15 @@ export async function claimPayout(
     `;
     const locked = rows[0];
     if (!locked) throw ApiError.notFound('Withdrawal not found');
-    if (locked.status !== 'HELD') {
-      throw ApiError.badRequest(`Cannot claim payout from status: ${locked.status}`);
-    }
+
+    // ── 2. Verify authorization from the LOCKED row ────────────
     if (locked.agentId !== agent.id) {
       throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
     }
 
-    // ── Idempotency check ─────────────────────────────────────
+    // ── 3. Idempotency check BEFORE status ─────────────────────
+    // Same-key replay must work even after the withdrawal progressed, so
+    // operation lookup precedes the starting-status gate.
     const existingOp = await tx.withdrawalOperation.findUnique({
       where: {
         withdrawalId_action_idempotencyKey: {
@@ -545,12 +546,17 @@ export async function claimPayout(
           code: 'IDEMPOTENCY_CONFLICT',
         });
       }
-      // Replay: re-read canonical entity.
+      // Replay: re-read canonical entity (never stale cached snapshot).
       const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
       return { result: fresh, idempotent: true };
     }
 
-    // ── Transition: HELD → PAYOUT_IN_PROGRESS ──────────────────
+    // ── 4. Only for a NEW operation, enforce starting status ───
+    if (locked.status !== 'HELD') {
+      throw ApiError.badRequest(`Cannot claim payout from status: ${locked.status}`);
+    }
+
+    // ── 5. Transition: HELD → PAYOUT_IN_PROGRESS ───────────────
     await tx.withdrawal.update({
       where: { id: withdrawalId },
       data: { status: 'PAYOUT_IN_PROGRESS' },
@@ -604,7 +610,7 @@ export async function submitPayment(
   const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
 
   return prisma.$transaction(async (tx) => {
-    // ── Lock the withdrawal row ────────────────────────────────
+    // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
       SELECT id, status, "agentId"
       FROM withdrawals
@@ -613,14 +619,13 @@ export async function submitPayment(
     `;
     const locked = rows[0];
     if (!locked) throw ApiError.notFound('Withdrawal not found');
-    if (locked.status !== 'PAYOUT_IN_PROGRESS') {
-      throw ApiError.badRequest(`Cannot submit payment from status: ${locked.status}`);
-    }
+
+    // ── 2. Verify authorization from the LOCKED row ────────────
     if (locked.agentId !== agent.id) {
       throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
     }
 
-    // ── Idempotency check via WithdrawalOperation ──────────────
+    // ── 3. Idempotency check BEFORE status ─────────────────────
     const existingOp = await tx.withdrawalOperation.findUnique({
       where: {
         withdrawalId_action_idempotencyKey: {
@@ -636,7 +641,7 @@ export async function submitPayment(
           code: 'IDEMPOTENCY_CONFLICT',
         });
       }
-      // Replay: re-read the canonical payment submission.
+      // Replay: re-read the canonical payment submission (never stale).
       const existingSubmission = await tx.withdrawalPaymentSubmission.findUnique({
         where: { withdrawalId },
       });
@@ -644,7 +649,12 @@ export async function submitPayment(
       return { result: existingSubmission, withdrawal: fresh, idempotent: true };
     }
 
-    // ── Create the payment submission ──────────────────────────
+    // ── 4. Only for a NEW operation, enforce starting status ───
+    if (locked.status !== 'PAYOUT_IN_PROGRESS') {
+      throw ApiError.badRequest(`Cannot submit payment from status: ${locked.status}`);
+    }
+
+    // ── 5. Create the payment submission ───────────────────────
     const now = new Date();
     const submission = await tx.withdrawalPaymentSubmission.create({
       data: {
@@ -717,7 +727,7 @@ export async function cancelHeldWithdrawal(
   }
 
   return prisma.$transaction(async (tx) => {
-    // ── Lock the withdrawal row ────────────────────────────────
+    // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'userId'>[]>`
       SELECT id, status, "userId"
       FROM withdrawals
@@ -726,14 +736,13 @@ export async function cancelHeldWithdrawal(
     `;
     const locked = rows[0];
     if (!locked) throw ApiError.notFound('Withdrawal not found');
-    if (locked.status !== 'HELD') {
-      throw ApiError.badRequest(`Cannot cancel withdrawal from status: ${locked.status}`);
-    }
+
+    // ── 2. Verify ownership from the LOCKED row ────────────────
     if (locked.userId !== actorUserId) {
       throw ApiError.forbidden('This withdrawal does not belong to you');
     }
 
-    // ── Idempotency check ─────────────────────────────────────
+    // ── 3. Idempotency check BEFORE status ─────────────────────
     const existingOp = await tx.withdrawalOperation.findUnique({
       where: {
         withdrawalId_action_idempotencyKey: {
@@ -749,19 +758,47 @@ export async function cancelHeldWithdrawal(
           code: 'IDEMPOTENCY_CONFLICT',
         });
       }
-      // Replay: re-read canonical entities.
+      // Replay: re-read canonical entity (never stale cached snapshot).
       const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
       return { result: fresh, idempotent: true };
     }
 
-    // ── Read the hold (refund amount from hold.coinAmount) ──────
+    // ── 4. Only for a NEW operation, enforce starting status ───
+    if (locked.status !== 'HELD') {
+      throw ApiError.badRequest(`Cannot cancel withdrawal from status: ${locked.status}`);
+    }
+
+    // ── 5. Require exactly one ACTIVE liquidity reservation ────
+    const reservation = await tx.withdrawalLiquidityReservation.findUnique({
+      where: { withdrawalId },
+    });
+    if (!reservation) {
+      throw ApiError.internal('Withdrawal liquidity reservation not found');
+    }
+    if (reservation.status !== 'ACTIVE') {
+      throw ApiError.internal(`Liquidity reservation is not ACTIVE: ${reservation.status}`);
+    }
+
+    // ── 6. Release the fiat reservation BEFORE refunding the wallet ──
+    // Money-path lock order: fiat (AgentFiatLiquidity) is released before the
+    // coin wallet is refunded, matching the creation order (reserve was taken
+    // before the coin hold was spent). Never touches AgentInventory.
+    await releaseReservedLiquidity(tx, {
+      id: reservation.id,
+      agentId: reservation.agentId,
+      fiatCurrency: reservation.fiatCurrency,
+      amount: reservation.amount,
+      withdrawalId,
+    });
+
+    // ── 7. Require ACTIVE hold ─────────────────────────────────
     const hold = await tx.withdrawalHold.findUnique({ where: { withdrawalId } });
     if (!hold) throw ApiError.internal('Withdrawal hold not found');
     if (hold.status !== 'ACTIVE') {
       throw ApiError.internal(`Hold is not ACTIVE: ${hold.status}`);
     }
 
-    // ── Refund coins to the user ───────────────────────────────
+    // ── 8. Refund coins to the user from hold.coinAmount ───────
     const freshWithdrawal = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     if (!freshWithdrawal) throw ApiError.notFound('Withdrawal not found');
 
@@ -778,37 +815,26 @@ export async function cancelHeldWithdrawal(
       },
     ]);
 
-    // ── Mark the hold as REFUNDED ──────────────────────────────
-    await tx.withdrawalHold.update({
-      where: { id: hold.id },
+    // ── 9. Mark the hold as REFUNDED (exactly one ACTIVE hold) ─
+    const holdUpdate = await tx.withdrawalHold.updateMany({
+      where: { id: hold.id, status: 'ACTIVE' },
       data: {
         status: 'REFUNDED',
         refundWalletTransactionId: creditResult.transactions[0].id,
         releasedAt: new Date(),
       },
     });
-
-    // ── Release the fiat reservation ───────────────────────────
-    const reservation = await tx.withdrawalLiquidityReservation.findUnique({
-      where: { withdrawalId },
-    });
-    if (reservation && reservation.status === 'ACTIVE') {
-      await releaseReservedLiquidity(tx, {
-        id: reservation.id,
-        agentId: reservation.agentId,
-        fiatCurrency: reservation.fiatCurrency,
-        amount: reservation.amount,
-        withdrawalId,
-      });
+    if (holdUpdate.count !== 1) {
+      throw ApiError.internal('Hold could not be transitioned to REFUNDED');
     }
 
-    // ── Transition: HELD → CANCELLED ───────────────────────────
+    // ── 10. Transition: HELD → CANCELLED ───────────────────────
     await tx.withdrawal.update({
       where: { id: withdrawalId },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
 
-    // ── Record the operation ───────────────────────────────────
+    // ── 11. Record the operation ───────────────────────────────
     await tx.withdrawalOperation.create({
       data: {
         withdrawalId,
@@ -820,6 +846,26 @@ export async function cancelHeldWithdrawal(
         resultId: withdrawalId,
       },
     });
+
+    // ── 12. Audit ──────────────────────────────────────────────
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId: actorUserId,
+          action: 'WITHDRAWAL_CANCEL',
+          entity: 'Withdrawal',
+          entityId: withdrawalId,
+          newData: {
+            status: 'CANCELLED',
+            refundCoins: hold.coinAmount,
+            walletTransactionId: creditResult.transactions[0].id,
+            reservationReleased: reservation.id,
+          },
+        },
+      });
+    } catch {
+      // Audit logging must never fail the money-path transaction.
+    }
 
     const final = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     return { result: final, idempotent: false };

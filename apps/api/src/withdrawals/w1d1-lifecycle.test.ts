@@ -16,20 +16,26 @@ import {
 import { executeBalanceChange, getWalletBalance } from '../economy/wallet-service';
 
 // ─── DB availability probe ─────────────────────────────────────
+//
+// These are financial inverse tests operating on the live database. If the
+// database is unavailable, they MUST fail hard rather than silently report
+// green zero-coverage via describe.skip — a skipped financial suite hides
+// regressions. We probe at module load and, when unreachable, throw to fail
+// the run.
 
-let dbAvailable = true;
 try {
   await prisma.$queryRaw`SELECT 1`;
-  dbAvailable = true;
-} catch {
-  dbAvailable = false;
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.error('W-1D1 lifecycle tests require a reachable Postgres database. Failing run.');
+  throw new Error('W-1D1 lifecycle tests failed to connect to Postgres: ' + (err as Error)?.message);
 }
 
 afterAll(async () => {
   await prisma.$disconnect();
 });
 
-const describeIf = dbAvailable ? describe : describe.skip;
+const describeIf = describe;
 
 // ─── Fixture helpers ───────────────────────────────────────────
 
@@ -301,6 +307,30 @@ describeIf('W-1D1: claimPayout (HELD → PAYOUT_IN_PROGRESS)', () => {
     await expect(
       claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim2-${tag}` })
     ).rejects.toThrow(/Cannot claim payout from status/i);
+  });
+
+  it('claimPayout same key after status progressed to PAYMENT_SUBMITTED returns idempotent replay', async () => {
+    const tag = `claim-replay-progressed-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+
+    // Claim payout (HELD → PAYOUT_IN_PROGRESS)
+    const r1 = await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-replay-${tag}` });
+    expect(r1.idempotent).toBe(false);
+    expect((r1.result as any).status).toBe('PAYOUT_IN_PROGRESS');
+
+    // Submit payment (PAYOUT_IN_PROGRESS → PAYMENT_SUBMITTED)
+    await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'REF-REPLAY-PROGRESSED',
+      idempotencyKey: `sub-replay-${tag}`,
+    });
+
+    const fresh = await prisma.withdrawal.findUnique({ where: { id: withdrawal.id } });
+    expect(fresh!.status).toBe('PAYMENT_SUBMITTED');
+
+    // Same claimPayout key should still replay successfully, returning PAYMENT_SUBMITTED
+    const r2 = await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-replay-${tag}` });
+    expect(r2.idempotent).toBe(true);
+    expect((r2.result as any).status).toBe('PAYMENT_SUBMITTED');
   });
 
   it('user cancel vs payout claim race: exactly one wins', async () => {
@@ -594,5 +624,33 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     await expect(
       cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-2-${tag}` })
     ).rejects.toThrow(/Cannot cancel withdrawal from status/i);
+  });
+
+  it('cancel same key after CANCELLED returns idempotent replay', async () => {
+    const tag = `cancel-replay-after-${Date.now()}`;
+    const { user, withdrawal } = await createHeldWithdrawal(tag);
+
+    const r1 = await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-same-${tag}` });
+    expect(r1.idempotent).toBe(false);
+    expect((r1.result as any).status).toBe('CANCELLED');
+
+    // Same key after CANCELLED — must replay, not fail on status.
+    const r2 = await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-same-${tag}` });
+    expect(r2.idempotent).toBe(true);
+    expect((r2.result as any).status).toBe('CANCELLED');
+  });
+
+  it('cancel same key with different caller (new user) does not replay', async () => {
+    const tag = `cancel-replay-auth-${Date.now()}`;
+    const { user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-auth-${tag}` });
+
+    const otherUser = await createUser(`other-cancel-auth-${tag}`);
+    // Another user reusing same key on a withdrawal they do not own must be
+    // rejected on authorization (ownership), not treated as a replay.
+    await expect(
+      cancelHeldWithdrawal(otherUser.id, withdrawal.id, { idempotencyKey: `cancel-auth-${tag}` })
+    ).rejects.toThrow(/does not belong to you|not found|forbidden/i);
   });
 });

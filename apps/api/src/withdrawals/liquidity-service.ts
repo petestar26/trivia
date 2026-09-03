@@ -467,10 +467,14 @@ export async function releaseReservedLiquidity(
     throw ApiError.conflict('Concurrent liquidity modification during reservation release — please retry');
   }
 
-  await tx.withdrawalLiquidityReservation.update({
-    where: { id: reservation.id },
+  // Release exactly one ACTIVE reservation — never a consumed/released one.
+  const reservationClaim = await tx.withdrawalLiquidityReservation.updateMany({
+    where: { id: reservation.id, status: 'ACTIVE' },
     data: { status: 'RELEASED', releasedAt: new Date() },
   });
+  if (reservationClaim.count !== 1) {
+    throw ApiError.internal('Liquidity reservation is not ACTIVE and cannot be released');
+  }
 
   await tx.agentFiatLiquidityLedger.create({
     data: {
