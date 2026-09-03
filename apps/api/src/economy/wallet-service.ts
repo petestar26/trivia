@@ -141,7 +141,7 @@ export interface BalanceChange {
   amount: number; // positive integer
   ledgerType: 'CREDIT' | 'DEBIT';
   transactionType: 'COIN_CREDIT' | 'COIN_DEBIT' | 'GAME_POINT_CREDIT' | 'GAME_POINT_DEBIT';
-  referenceType: 'GIFT' | 'REWARD' | 'PURCHASE' | 'GAME' | 'ADMIN' | 'TRANSFER' | 'DAILY_REWARD' | 'TASK' | 'ACHIEVEMENT' | 'REFUND' | 'AGENT_ORDER';
+  referenceType: 'GIFT' | 'REWARD' | 'PURCHASE' | 'GAME' | 'ADMIN' | 'TRANSFER' | 'DAILY_REWARD' | 'TASK' | 'ACHIEVEMENT' | 'REFUND' | 'AGENT_ORDER' | 'WITHDRAWAL';
   referenceId?: string;
   description: string;
 }
