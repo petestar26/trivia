@@ -382,4 +382,71 @@ describe(`W-1D1: withdrawal lifecycle routes ${PREFIX}`, () => {
       expect(res.statusCode).toBe(400);
     });
   });
+
+  describe('W-1D1 R2: routes record ip/userAgent in audit', () => {
+    it('claim-payout route writes ip and user-agent to audit', async () => {
+      const tag = `routes-audit-claim-${Date.now()}`;
+      const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+      const res = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${withdrawal.id}/claim-payout`,
+        headers: { authorization: mintToken(agentUser), 'user-agent': 'route-agent-claim' },
+        payload: { idempotencyKey: `rc-${tag}` },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYOUT_CLAIMED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(audit).not.toBeNull();
+      expect(audit!.userAgent).toBe('route-agent-claim');
+      expect(audit!.ip).toBeTruthy();
+    });
+
+    it('submit-payment route writes ip and user-agent to audit without secrets', async () => {
+      const tag = `routes-audit-sub${Date.now()}`;
+      const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+      await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `rc-${tag}` });
+
+      const res = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${withdrawal.id}/submit-payment`,
+        headers: { authorization: mintToken(agentUser), 'user-agent': 'route-agent-sub' },
+        payload: { referenceNumber: 'ROUTE-REF', idempotencyKey: `rs-${tag}` },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYMENT_SUBMITTED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(audit).not.toBeNull();
+      expect(audit!.userAgent).toBe('route-agent-sub');
+      expect(audit!.ip).toBeTruthy();
+      const raw = JSON.stringify(audit!.newData);
+      expect(raw).not.toContain('accountNumber');
+      expect(raw).not.toContain('paymentSnapshot');
+    });
+
+    it('cancel route writes ip and user-agent to audit', async () => {
+      const tag = `routes-audit-cx-${Date.now()}`;
+      const { user, withdrawal } = await createHeldWithdrawal(tag);
+      const res = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${withdrawal.id}/cancel`,
+        headers: { authorization: mintToken(user), 'user-agent': 'route-agent-cx' },
+        payload: { idempotencyKey: `rx-${tag}` },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entityId: withdrawal.id, action: 'WITHDRAWAL_CANCELLED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(audit).not.toBeNull();
+      expect(audit!.userAgent).toBe('route-agent-cx');
+      expect(audit!.ip).toBeTruthy();
+    });
+  });
 });

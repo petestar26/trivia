@@ -449,10 +449,29 @@ function computeCancelHash(): string {
 }
 
 // ─── Authorization helpers ─────────────────────────────────────
+//
+// W-1D1 agent reads and state-changing actions are restricted to agents
+// whose profile status is ACTIVE. Any other status (PENDING_VERIFICATION,
+// TEMPORARILY_SUSPENDED, DISABLED, UNDER_REVIEW) is blocked with 403 for
+// every W-1D1 agent path. Recovery for a suspended/disabled assigned agent
+// belongs to the W-1D2 admin escalation — no admin override exists here.
+// User-initiated cancelHeldWithdrawal does NOT go through these helpers:
+// it is a user action and must succeed regardless of the assigned agent's
+// status.
 
-async function requireAssignedAgent(actorUserId: string, withdrawalAgentId: string) {
+const AGENT_ACTIVE_STATUS = 'ACTIVE';
+
+async function requireActiveAgent(actorUserId: string) {
   const agent = await prisma.agent.findUnique({ where: { userId: actorUserId } });
   if (!agent) throw ApiError.forbidden('You do not have an agent account');
+  if (agent.status !== AGENT_ACTIVE_STATUS) {
+    throw ApiError.forbidden('Your agent account is not active');
+  }
+  return agent;
+}
+
+async function requireAssignedAgent(actorUserId: string, withdrawalAgentId: string) {
+  const agent = await requireActiveAgent(actorUserId);
   if (agent.id !== withdrawalAgentId) {
     throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
   }
@@ -469,8 +488,8 @@ export async function listAssignedWithdrawals(
   actorUserId: string,
   filters?: WithdrawalFilter
 ) {
-  const agent = await prisma.agent.findUnique({ where: { userId: actorUserId } });
-  if (!agent) throw ApiError.forbidden('You do not have an agent account');
+  // Only ACTIVE agents may read their assigned withdrawals (R1).
+  const agent = await requireActiveAgent(actorUserId);
 
   const where: Record<string, unknown> = { agentId: agent.id };
   if (filters?.status) {
@@ -499,7 +518,6 @@ export async function getAssignedWithdrawal(
   await requireAssignedAgent(actorUserId, withdrawal.agentId);
   return withdrawal;
 }
-
 // ─── W-1D1 Function 3: claimPayout ────────────────────────────
 //
 // HELD → PAYOUT_IN_PROGRESS
@@ -511,7 +529,8 @@ export async function getAssignedWithdrawal(
 export async function claimPayout(
   actorUserId: string,
   withdrawalId: string,
-  opts: { idempotencyKey: string }
+  opts: { idempotencyKey: string },
+  context?: { ip?: string; userAgent?: string }
 ) {
   const { idempotencyKey } = opts;
   const requestHash = computeClaimPayoutHash();
@@ -620,6 +639,8 @@ export async function claimPayout(
         action: 'WITHDRAWAL_PAYOUT_CLAIMED',
         entity: 'Withdrawal',
         entityId: withdrawalId,
+        ip: context?.ip,
+        userAgent: context?.userAgent,
         newData: { status: 'PAYOUT_IN_PROGRESS', agentId: agent.id },
       },
     });
@@ -643,7 +664,8 @@ const DEFAULT_CONFIRMATION_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
 export async function submitPayment(
   actorUserId: string,
   withdrawalId: string,
-  args: { referenceNumber: string; note?: string; idempotencyKey: string }
+  args: { referenceNumber: string; note?: string; idempotencyKey: string },
+  context?: { ip?: string; userAgent?: string }
 ) {
   const { referenceNumber, note, idempotencyKey } = args;
   if (!referenceNumber || referenceNumber.trim().length === 0) {
@@ -751,6 +773,8 @@ export async function submitPayment(
         action: 'WITHDRAWAL_PAYMENT_SUBMITTED',
         entity: 'Withdrawal',
         entityId: withdrawalId,
+        ip: context?.ip,
+        userAgent: context?.userAgent,
         newData: {
           status: 'PAYMENT_SUBMITTED',
           agentId: agent.id,
@@ -798,7 +822,8 @@ export async function submitPayment(
 export async function cancelHeldWithdrawal(
   actorUserId: string,
   withdrawalId: string,
-  opts: { idempotencyKey: string }
+  opts: { idempotencyKey: string },
+  context?: { ip?: string; userAgent?: string }
 ) {
   const { idempotencyKey } = opts;
   const requestHash = computeCancelHash();
@@ -949,6 +974,8 @@ export async function cancelHeldWithdrawal(
         action: 'WITHDRAWAL_CANCELLED',
         entity: 'Withdrawal',
         entityId: withdrawalId,
+        ip: context?.ip,
+        userAgent: context?.userAgent,
         newData: {
           status: 'CANCELLED',
           previousStatus: locked.status,

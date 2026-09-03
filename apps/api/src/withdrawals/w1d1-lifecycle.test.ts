@@ -909,3 +909,182 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     ).rejects.toThrow(/does not belong to you|not found|forbidden/i);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// W-1D1 R1+R2: non-ACTIVE agent rejection and audit context
+// ═══════════════════════════════════════════════════════════════════
+
+async function setAgentStatus(agentId: string, status: string) {
+  return prisma.agent.update({ where: { id: agentId }, data: { status: status as any } });
+}
+
+describeIf('W-1D1 R1: non-ACTIVE assigned agent is blocked', () => {
+  beforeAll(() => cleanLifecycleFixtures());
+
+  it('non-ACTIVE assigned agent cannot list assigned withdrawals', async () => {
+    const tag = `r1-list-${Date.now()}`;
+    const { agent, agentUser } = await createHeldWithdrawal(tag);
+    await setAgentStatus(agent.id, 'DISABLED');
+
+    await expect(listAssignedWithdrawals(agentUser.id)).rejects.toThrow(/not active/i);
+  });
+
+  it('non-ACTIVE assigned agent cannot get assigned withdrawal detail', async () => {
+    const tag = `r1-get-${Date.now()}`;
+    const { agent, agentUser, withdrawal } = await createHeldWithdrawal(tag);
+    await setAgentStatus(agent.id, 'UNDER_REVIEW');
+
+    await expect(getAssignedWithdrawal(agentUser.id, withdrawal.id)).rejects.toThrow(/not active/i);
+  });
+
+  it('non-ACTIVE assigned agent cannot claim payout', async () => {
+    const tag = `r1-claim-${Date.now()}`;
+    const { agent, agentUser, withdrawal } = await createHeldWithdrawal(tag);
+    await setAgentStatus(agent.id, 'TEMPORARILY_SUSPENDED');
+
+    await expect(
+      claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `r1-claim-${tag}` })
+    ).rejects.toThrow(/not active/i);
+  });
+
+  it('non-ACTIVE assigned agent cannot submit payment', async () => {
+    const tag = `r1-submit-${Date.now()}`;
+    const { agent, agentUser, withdrawal } = await createHeldWithdrawal(tag);
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `r1-sub-claim-${tag}` });
+    // Withdrawal now PAYOUT_IN_PROGRESS. Disable the agent, then try to submit.
+    await setAgentStatus(agent.id, 'DISABLED');
+
+    await expect(
+      submitPayment(agentUser.id, withdrawal.id, { referenceNumber: 'REF', idempotencyKey: `r1-submit-${tag}` })
+    ).rejects.toThrow(/not active/i);
+  });
+
+  it('PENDING_VERIFICATION agent is also blocked', async () => {
+    const tag = `r1-pending-${Date.now()}`;
+    const { agent, agentUser } = await createHeldWithdrawal(tag);
+    await setAgentStatus(agent.id, 'PENDING_VERIFICATION');
+
+    await expect(listAssignedWithdrawals(agentUser.id)).rejects.toThrow(/not active/i);
+  });
+});
+
+describeIf('W-1D1 R1: ACTIVE agent still has full access', () => {
+  beforeAll(() => cleanLifecycleFixtures());
+
+  it('ACTIVE assigned agent can list/get/claim/submit', async () => {
+    const tag = `active-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+
+    const list = await listAssignedWithdrawals(agentUser.id);
+    expect(list.some((w: any) => w.id === withdrawal.id)).toBe(true);
+
+    const detail = await getAssignedWithdrawal(agentUser.id, withdrawal.id);
+    expect(detail.id).toBe(withdrawal.id);
+
+    const claim = await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `active-claim-${tag}` });
+    expect((claim.result as any).status).toBe('PAYOUT_IN_PROGRESS');
+
+    const sub = await submitPayment(agentUser.id, withdrawal.id, {
+      referenceNumber: 'ACTIVE-REF',
+      idempotencyKey: `active-sub-${tag}`,
+    });
+    expect((sub.withdrawal as any).status).toBe('PAYMENT_SUBMITTED');
+  });
+});
+
+describeIf('W-1D1 R1: user cancel works regardless of assigned agent status', () => {
+  beforeAll(() => cleanLifecycleFixtures());
+
+  it('user can cancel HELD withdrawal even if assigned agent was later disabled', async () => {
+    const tag = `cancel-disabled-${Date.now()}`;
+    const { agent, user, withdrawal } = await createHeldWithdrawal(tag);
+    // Disable the assigned agent AFTER the withdrawal was created (HELD).
+    await setAgentStatus(agent.id, 'DISABLED');
+
+    const result = await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-disabled-${tag}` });
+    expect(result.idempotent).toBe(false);
+    expect((result.result as any).status).toBe('CANCELLED');
+
+    // Hold refunded and reservation released even with a disabled agent.
+    const hold = await prisma.withdrawalHold.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(hold!.status).toBe('REFUNDED');
+    const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
+    expect(reservation!.status).toBe('RELEASED');
+  });
+});
+
+describeIf('W-1D1 R2: audit rows record ip/userAgent', () => {
+  beforeAll(() => cleanLifecycleFixtures());
+
+  it('claim-payout route writes ip/userAgent to audit', async () => {
+    const tag = `audit-claim-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `audit-claim-${tag}` }, { ip: '203.0.113.1', userAgent: 'test-agent' });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYOUT_CLAIMED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.ip).toBe('203.0.113.1');
+    expect(audit!.userAgent).toBe('test-agent');
+  });
+
+  it('submit-payment route writes ip/userAgent to audit (no secrets)', async () => {
+    const tag = `audit-submit-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+    await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `audit-sub-claim-${tag}` });
+
+    await submitPayment(
+      agentUser.id,
+      withdrawal.id,
+      { referenceNumber: 'REF-AUDIT', idempotencyKey: `audit-submit-${tag}` },
+      { ip: '198.51.100.2', userAgent: 'test-agent-2' }
+    );
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYMENT_SUBMITTED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.ip).toBe('198.51.100.2');
+    expect(audit!.userAgent).toBe('test-agent-2');
+    // Must not include paymentSnapshot / accountDetails secrets.
+    const raw = JSON.stringify(audit!.newData);
+    expect(raw).not.toContain('accountNumber');
+    expect(raw).not.toContain('paymentSnapshot');
+    expect(raw).not.toContain('bankName');
+  });
+
+  it('cancel route writes ip/userAgent to audit', async () => {
+    const tag = `audit-cancel-${Date.now()}`;
+    const { user, withdrawal } = await createHeldWithdrawal(tag);
+
+    await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `audit-cancel-${tag}` }, { ip: '192.0.2.3', userAgent: 'test-agent-3' });
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_CANCELLED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.ip).toBe('192.0.2.3');
+    expect(audit!.userAgent).toBe('test-agent-3');
+  });
+
+  it('service-level call without context still succeeds (context optional)', async () => {
+    const tag = `audit-nocontext-${Date.now()}`;
+    const { agentUser, withdrawal } = await createHeldWithdrawal(tag);
+
+    const claim = await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `audit-nc-${tag}` });
+    expect((claim.result as any).status).toBe('PAYOUT_IN_PROGRESS');
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: withdrawal.id, action: 'WITHDRAWAL_PAYOUT_CLAIMED' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).not.toBeNull();
+    expect(audit!.ip).toBeNull();
+    expect(audit!.userAgent).toBeNull();
+  });
+});

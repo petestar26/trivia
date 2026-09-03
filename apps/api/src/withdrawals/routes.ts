@@ -211,7 +211,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     { preHandler: auth, schema: lifecycleIdSchema },
     async (request, reply) => {
       const body = parse(claimPayoutSchema, request.body);
-      const result = await claimPayout(request.user!.sub, request.params.id, body);
+      const result = await claimPayout(request.user!.sub, request.params.id, body, requestContext(request));
       return reply
         .status(200)
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
@@ -223,7 +223,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     { preHandler: auth, schema: lifecycleIdSchema },
     async (request, reply) => {
       const body = parse(submitPaymentSchema, request.body);
-      const result = await submitPayment(request.user!.sub, request.params.id, body);
+      const result = await submitPayment(request.user!.sub, request.params.id, body, requestContext(request));
       return reply
         .status(200)
         .send({
@@ -242,7 +242,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     { preHandler: auth, schema: lifecycleIdSchema },
     async (request, reply) => {
       const body = parse(cancelWithdrawalSchema, request.body);
-      const result = await cancelHeldWithdrawal(request.user!.sub, request.params.id, body);
+      const result = await cancelHeldWithdrawal(request.user!.sub, request.params.id, body, requestContext(request));
       return reply
         .status(200)
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
