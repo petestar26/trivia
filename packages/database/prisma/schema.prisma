@@ -57,6 +57,7 @@ model User {
   finalizedCompetitions     GroupCompetition[]         @relation("CompetitionFinalizer")
   agentProfile              Agent?                     @relation("AgentIdentity")
   agentOrders               AgentOrder[]
+  withdrawals               Withdrawal[]
 
   // W-0 security step-up foundation (inverse relation sides only — no
   // existing User field is altered).
@@ -385,6 +386,7 @@ enum TransactionReferenceType {
   ACHIEVEMENT
   REFUND
   AGENT_ORDER
+  WITHDRAWAL
 }
 
 model Wallet {
@@ -1041,6 +1043,58 @@ enum MessageSenderRole {
   AGENT
 }
 
+// ─── Withdrawal ──────────────────────────────────────────────────
+
+enum WithdrawalStatus {
+  CREATED
+  HELD
+  PAYMENT_SUBMITTED
+  DISPUTED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum WithdrawalHoldStatus {
+  ACTIVE
+  CONSUMED
+  REFUNDED
+}
+
+enum WithdrawalSettlementOrigin {
+  USER_CONFIRMED
+  ADMIN_DISPUTE_RESOLUTION
+  DIRECT
+}
+
+enum FiatLiquidityType {
+  INITIAL_FUNDING
+  RESERVE
+  RELEASE
+  CONSUME
+  ADMIN_ADJUSTMENT
+  AGENT_CREDIT
+  AGENT_DEBIT
+}
+
+enum WithdrawalDisputeStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+}
+
+enum WithdrawalDisputeReason {
+  FIAT_NOT_RECEIVED
+  WRONG_FIAT_AMOUNT
+  AGENT_UNRESPONSIVE
+  OTHER
+}
+
+enum WithdrawalDisputeResolution {
+  RELEASE_COINS
+  CANCEL_WITHDRAWAL
+}
+
 // ─── Configuration ────────────────────────────────────────────────
 
 model Country {
@@ -1129,6 +1183,12 @@ model Agent {
   orders          AgentOrder[]
   reservations    AgentReservation[]
   conversation    AgentConversation?
+  withdrawals     Withdrawal[]
+  // One row per (agent, fiatCurrency) — no longer a to-one relation now
+  // that agentId alone isn't unique (see AgentFiatLiquidity.@@unique).
+  fiatLiquidity   AgentFiatLiquidity[]
+  fiatLiquidityLedger  AgentFiatLiquidityLedger[]
+  withdrawalReservations  WithdrawalLiquidityReservation[]
 
   @@index([countryId, status])
   @@map("agents")
@@ -1381,6 +1441,225 @@ model AgentMessage {
 
   @@index([conversationId, createdAt])
   @@map("agent_messages")
+}
+
+// ─── W-1: Withdrawal ─────────────────────────────────────────────
+//
+// The withdrawal aggregate and its satellite models. Withdrawal is the
+// reverse economic direction of AgentOrder: user gives Coins, agent pays
+// local fiat, user confirms receipt.
+//
+// Lock ordering for every transaction touching both agent fiat liquidity
+// and user wallet:
+//
+//   Withdrawal
+//   → WithdrawalLiquidityReservation
+//   → AgentFiatLiquidity (AGENT RESOURCE)
+//   → WithdrawalHold → Wallet (USER WALLET)
+//
+// Never Wallet first and Agent liquidity second.
+//
+// Fiat minor-unit fields use BigInt (not Int) to support currencies
+// whose minor units exceed Int32 range. API serialization will later
+// expose BigInt values as strings — no service code exists in W-1A.
+
+model Withdrawal {
+  id                     String           @id @default(uuid())
+  withdrawalNumber       String           @unique // "WD-000123", human-facing — via sequence
+  userId                 String
+  agentId                String?          // nullable until assigned at HELD transition
+  requestHash            String           // SHA-256 of canonical request fields — creation idempotency
+  idempotencyKey         String           // client-side dedup — same pattern as AgentOrder
+  countryId              String           // immutable snapshot — never re-read
+  paymentMethodDefId     String           // immutable snapshot — never re-read
+  paymentAccountId       String           // agent's payout account — immutable snapshot
+  paymentSnapshot        Json             // AUTHORITATIVE: agent's payout details — never live FK
+  fiatAmount             BigInt           // smallest fiat unit — immutable
+  fiatCurrency           String           // ISO 4217 — immutable
+  exchangeRateConfigId   String           // reference to rate config used — never re-read
+  exchangeRateValue      Decimal          @db.Decimal(18, 6) // snapshot of the rate — never re-read
+  coinAmount             Int              // coins debited from user — immutable
+  status                 WithdrawalStatus @default(CREATED)
+  quoteExpiresAt         DateTime         // CREATED → EXPIRED sweep
+  confirmationDeadlineAt DateTime?        // set at PAYMENT_SUBMITTED; PAYMENT_SUBMITTED → DISPUTED sweep
+  paymentSubmittedAt     DateTime?
+  completedAt            DateTime?
+  cancelledAt            DateTime?
+  expiredAt              DateTime?
+  disputedAt             DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  user        User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agent       Agent?                       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  hold        WithdrawalHold?
+  settlement  WithdrawalSettlement?
+  evidence    WithdrawalEvidence[]
+  disputes    WithdrawalDispute[]
+  liquidityReservation WithdrawalLiquidityReservation?
+
+  // Request-level idempotency (client retry) — mirrors AgentOrder pattern.
+  // requestHash is stored but deliberately NOT unique: W-1B compares it
+  // against the row already found by [userId, idempotencyKey] (same key,
+  // same hash => return existing; same key, different hash => 409). A
+  // unique constraint on requestHash alone would permanently block a user
+  // from ever making the same-shaped withdrawal again, which is the normal
+  // case for a saved payout account, not an edge case.
+  @@unique([userId, idempotencyKey])
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([status, confirmationDeadlineAt]) // sweep: confirmation timeout
+  @@index([status, quoteExpiresAt])         // sweep: quote expiry
+  @@map("withdrawals")
+}
+
+model WithdrawalHold {
+  id                        String               @id @default(uuid())
+  withdrawalId              String               @unique // 1:1 — hard backstop
+  coinAmount                Int                  // coins held — matches WalletTransaction.amount
+  status                    WithdrawalHoldStatus @default(ACTIVE)
+  debitWalletTransactionId  String               @unique // WalletTransaction.id from COIN_DEBIT at HELD
+  refundWalletTransactionId String?              @unique // WalletTransaction.id from COIN_CREDIT at refund
+  createdAt                 DateTime             @default(now())
+  consumedAt                DateTime?
+  releasedAt                DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@map("withdrawal_holds")
+}
+
+model WithdrawalSettlement {
+  id                  String                  @id @default(uuid())
+  withdrawalId        String                  @unique // 1:1 hard backstop — mirrors AgentOrderSettlement.orderId
+  reservationId       String                  // reference to WithdrawalLiquidityReservation.id — soft reference
+  coinAmount          Int                     // coins consumed from hold
+  fiatAmount          BigInt                  // fiat amount settled
+  walletTransactionId String                  // the WalletTransaction.id from the hold debit — soft reference
+  resolvedVia         WithdrawalSettlementOrigin
+  completedByUserId   String                  // user who confirmed or admin who resolved
+  idempotencyKey      String?                 // per-operation, scoped to withdrawal — NOT per-user
+  createdAt           DateTime                @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  // Operation-scoped idempotency — prevents duplicate settlement operations
+  // on the same withdrawal. The withdrawalId @unique is the hard backstop;
+  // this compound unique is the idempotency layer.
+  @@unique([withdrawalId, idempotencyKey])
+  @@map("withdrawal_settlements")
+}
+
+model WithdrawalEvidence {
+  id               String   @id @default(uuid())
+  withdrawalId     String
+  submittedBy      String   // userId of the agent who uploaded proof
+  referenceNumber  String?
+  paymentTimestamp DateTime?
+  note             String?  @db.Text
+  fileBucket       String   // served via authenticated route only — never public /storage
+  fileKey          String
+  mimeType         String
+  fileSize         Int
+  createdAt        DateTime @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@index([withdrawalId])
+  @@map("withdrawal_evidence")
+}
+
+model WithdrawalDispute {
+  id              String                    @id @default(uuid())
+  withdrawalId    String
+  openedBy        String                    // userId — user, agent, or "SYSTEM"
+  reason          WithdrawalDisputeReason
+  description     String                    @db.Text
+  status          WithdrawalDisputeStatus   @default(OPEN)
+  assignedAdminId String?
+  resolution      WithdrawalDisputeResolution?
+  resolutionNote  String?
+  resolvedBy      String?
+  idempotencyKey  String?
+  openedAt        DateTime                  @default(now())
+  assignedAt      DateTime?
+  resolvedAt      DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  // At-most-one-active-dispute-per-withdrawal enforced by partial unique
+  // index in migration SQL — same pattern as disputes_active_order_unique.
+  @@unique([withdrawalId, idempotencyKey])
+  @@index([withdrawalId, status])
+  @@index([status, openedAt]) // admin queue query
+  @@map("withdrawal_disputes")
+}
+
+// ─── Agent fiat liquidity (withdrawal payouts) ──────────────────
+//
+// Separate from AgentInventory (Coin stock). AgentFiatLiquidity tracks
+// local fiat the agent can pay out for withdrawals. Mirrors
+// AgentInventory exactly — same versioned-balance + ledger pattern.
+
+model AgentFiatLiquidity {
+  id              String   @id @default(uuid())
+  agentId         String   // one row per (agent, fiatCurrency) — not unique alone
+  fiatCurrency    String   // ISO 4217 — scopes the balance to a single currency
+  totalBalance    BigInt   @default(0) // fiat minor units
+  reservedBalance BigInt   @default(0) // fiat promised to live withdrawals
+  // availableBalance = totalBalance - reservedBalance — computed at read,
+  // never stored. Same principle as AgentInventory.
+  version         Int      @default(0) // optimistic lock — mirrors Wallet.version
+  updatedAt       DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, fiatCurrency])
+  @@map("agent_fiat_liquidities")
+}
+
+model AgentFiatLiquidityLedger {
+  id                 String             @id @default(uuid())
+  agentId            String
+  fiatCurrency       String             // matches the AgentFiatLiquidity row this entry moves
+  type               FiatLiquidityType
+  amount             BigInt             // always positive; direction implied by type
+  totalBefore        BigInt
+  totalAfter         BigInt
+  reservedBefore     BigInt
+  reservedAfter      BigInt
+  reservationId      String?            // set for RESERVE / RELEASE / CONSUME
+  withdrawalId       String?            // denormalized for fast lookup
+  reason             String?            // populated only for ADMIN_ADJUSTMENT
+  performedByAdminId String?            // populated only for ADMIN_ADJUSTMENT
+  idempotencyKey     String?            // admin-supplied, adjustments only
+  createdAt          DateTime           @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, fiatCurrency, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@index([withdrawalId])
+  @@index([reservationId])
+  @@map("agent_fiat_liquidity_ledger")
+}
+
+model WithdrawalLiquidityReservation {
+  id         String            @id @default(uuid())
+  withdrawalId String          @unique // 1:1 — mirrors AgentReservation.orderId
+  agentId    String
+  fiatCurrency String          // matches the AgentFiatLiquidity row reserved against
+  amount     BigInt            // fiat minor units reserved
+  status     ReservationStatus @default(ACTIVE) // reuses existing enum: ACTIVE/RELEASED/CONSUMED
+  createdAt  DateTime          @default(now())
+  releasedAt DateTime?
+  consumedAt DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+  agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, status])
+  @@map("withdrawal_liquidity_reservations")
 }
 
 // ─── W-0: Security Step-Up Foundation ───────────────────────────
