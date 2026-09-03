@@ -27,6 +27,13 @@ import {
 
 const MAX_LIQUIDITY_RETRY_ATTEMPTS = 3;
 
+// W-1D0: deterministic constant — no WithdrawalConfig table exists yet to
+// source this from (docs/withdrawal-w1-w2-design.md §2.2 proposes one,
+// unimplemented). Matches the design doc's own recommended default
+// ("Agent is notified and has 15 minutes to make the payout", §1.1).
+// Internal only — never client-supplied, never echoed as configurable.
+const DEFAULT_PAYMENT_SUBMISSION_WINDOW_MS = 15 * 60 * 1000;
+
 export interface CreateWithdrawalArgs {
   quoteId: string;
   payoutAccountId: string;
@@ -105,7 +112,10 @@ async function nextWithdrawalNumber(tx: any): Promise<string> {
  *      Agent liquidity second." The reservation's ledger entry and its
  *      own WithdrawalLiquidityReservation row are deferred until after
  *      step 6 creates the parent Withdrawal — see the ordering note on
- *      incrementReservedLiquidity in liquidity-service.ts.
+ *      incrementReservedLiquidity in liquidity-service.ts. W-1D0:
+ *      candidates whose Agent.userId equals the withdrawing user are
+ *      excluded — a user's own agent profile may never be selected to
+ *      pay out their own withdrawal (see selectEligibleAgentLiquidity).
  *   5. debit coins from the wallet exactly once (applyBalanceChanges).
  *   6. create the Withdrawal row itself, status HELD — the parent row
  *      must exist before step 7's children, since both carry a real FK
@@ -252,7 +262,8 @@ export async function createWithdrawal(
           tx,
           quote!.countryId,
           quote!.fiatCurrency,
-          quote!.fiatAmount
+          quote!.fiatAmount,
+          actorUserId
         );
         await incrementReservedLiquidity(tx, candidate, quote!.fiatAmount);
 
@@ -295,6 +306,7 @@ export async function createWithdrawal(
             coinAmount: quote!.coinAmount,
             status: 'HELD',
             quoteExpiresAt: quote!.expiresAt,
+            paymentSubmissionDeadlineAt: new Date(now.getTime() + DEFAULT_PAYMENT_SUBMISSION_WINDOW_MS),
           },
         });
 

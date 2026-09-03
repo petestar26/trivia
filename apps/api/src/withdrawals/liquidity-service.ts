@@ -322,12 +322,20 @@ interface LiquidityCandidateRow {
  * query cannot tell those apart. The caller (withdrawal-service.ts) is
  * expected to retry the WHOLE creation transaction a bounded number of
  * times before concluding real INSUFFICIENT_LIQUIDITY.
+ *
+ * W-1D0: `withdrawingUserId` excludes the withdrawing user's own agent
+ * profile from candidacy (via `a."userId" != withdrawingUserId`) — an
+ * agent must never be assigned to pay out their own withdrawal, even as
+ * the sole liquid candidate for the country/currency. Rejected up front
+ * rather than left to a later step, since nothing downstream in the
+ * creation transaction would otherwise catch it.
  */
 export async function selectEligibleAgentLiquidity(
   tx: any,
   countryId: string,
   fiatCurrency: string,
-  amount: bigint
+  amount: bigint,
+  withdrawingUserId: string
 ): Promise<LiquidityCandidateRow> {
   const candidates = await tx.$queryRaw<LiquidityCandidateRow[]>`
     SELECT afl.id, afl."agentId", afl."totalBalance", afl."reservedBalance", afl.version
@@ -335,6 +343,7 @@ export async function selectEligibleAgentLiquidity(
     JOIN "agents" a ON a.id = afl."agentId"
     WHERE a."countryId" = ${countryId}
       AND a.status = 'ACTIVE'
+      AND a."userId" != ${withdrawingUserId}
       AND afl."fiatCurrency" = ${fiatCurrency}
       AND (afl."totalBalance" - afl."reservedBalance") >= ${amount}
     ORDER BY (afl."totalBalance" - afl."reservedBalance") DESC

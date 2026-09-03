@@ -752,4 +752,118 @@ describeIf('withdrawals/withdrawal-service', () => {
     );
     expect((retried.withdrawal as any).status).toBe('HELD');
   });
+
+  // ── W-1D0: self-assignment exclusion ────────────────────────────
+
+  it('excludes the withdrawing user\'s own agent profile from liquidity selection, even as the sole candidate', async () => {
+    await cleanWithdrawalFixtures();
+    const tag = `self-assign-sole-${Date.now()}`;
+    const admin = await createAdmin(tag);
+    const superAdmin = await createSuperAdmin(`${tag}-super`);
+    const country = await createCountry(tag);
+    const method = await createPaymentMethod(country.id, tag);
+    await createExchangeRate(country.id, 'USD', 2, admin.id);
+
+    // The withdrawing user is ALSO this country's only funded agent.
+    const selfUser = await createFundedUser(tag, 10_000);
+    const { application } = await submitAgentApplication(selfUser.id, {
+      countryId: country.id,
+      displayName: `Self Assign Agent ${tag}`,
+      contactEmail: `wcreate-agent-self-${tag}@test.local`,
+    });
+    await approveAgentApplication(admin.id, application.id, undefined);
+    const selfAgent = await prisma.agent.findUnique({ where: { userId: selfUser.id } });
+    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'USD', 100_000n, `fund-self-${tag}`);
+
+    const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
+    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 1000 });
+
+    // No OTHER agent has liquidity, so this must fail as if no liquidity
+    // existed at all — never fall back to assigning the user's own agent.
+    await expect(
+      createWithdrawal(
+        selfUser.id,
+        { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
+        1000
+      )
+    ).rejects.toThrow(/INSUFFICIENT_LIQUIDITY|No agent liquidity/);
+
+    expect(await prisma.withdrawal.count({ where: { userId: selfUser.id } })).toBe(0);
+    // The self agent's liquidity must be untouched — no reservation leaked.
+    const selfLiquidity = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'USD' } },
+    });
+    expect(selfLiquidity!.reservedBalance).toBe(0n);
+  });
+
+  it('selects a different agent over the withdrawing user\'s own, even when the user\'s own agent has more liquidity', async () => {
+    await cleanWithdrawalFixtures();
+    const tag = `self-assign-outbid-${Date.now()}`;
+    const admin = await createAdmin(tag);
+    const superAdmin = await createSuperAdmin(`${tag}-super`);
+    const country = await createCountry(tag);
+    const method = await createPaymentMethod(country.id, tag);
+    await createExchangeRate(country.id, 'USD', 2, admin.id);
+
+    const selfUser = await createFundedUser(tag, 10_000);
+    const { application } = await submitAgentApplication(selfUser.id, {
+      countryId: country.id,
+      displayName: `Self Assign Agent ${tag}`,
+      contactEmail: `wcreate-agent-self-${tag}@test.local`,
+    });
+    await approveAgentApplication(admin.id, application.id, undefined);
+    const selfAgent = await prisma.agent.findUnique({ where: { userId: selfUser.id } });
+    // Self agent has FAR more liquidity than the other candidate — if
+    // selection were merely deprioritizing self rather than excluding it
+    // outright, the ORDER BY (available DESC) would still pick self here.
+    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'USD', 10_000_000n, `fund-self-${tag}`);
+    const otherAgent = await createFundedAgent(`${tag}-other`, country.id, admin, superAdmin, 100_000n);
+
+    const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
+    const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 1000 });
+
+    const { withdrawal } = await createWithdrawal(
+      selfUser.id,
+      { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
+      1000
+    );
+
+    expect((withdrawal as any).agentId).toBe(otherAgent.id);
+    expect((withdrawal as any).agentId).not.toBe(selfAgent!.id);
+
+    const selfLiquidity = await prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'USD' } },
+    });
+    expect(selfLiquidity!.reservedBalance).toBe(0n); // untouched
+  });
+
+  // ── W-1D0: paymentSubmissionDeadlineAt ───────────────────────────
+
+  it('sets paymentSubmissionDeadlineAt atomically at creation (HELD), ~15 minutes out', async () => {
+    await cleanWithdrawalFixtures();
+    const tag = `payment-deadline-${Date.now()}`;
+    const { user, country, payoutAccount } = await setupHappyPath(tag);
+
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    const before = Date.now();
+    const { withdrawal } = await createWithdrawal(
+      user.id,
+      { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-${tag}` },
+      1000
+    );
+    const after = Date.now();
+
+    const w = withdrawal as any;
+    expect(w.status).toBe('HELD');
+    expect(w.paymentSubmissionDeadlineAt).toBeTruthy();
+    const deadline = new Date(w.paymentSubmissionDeadlineAt).getTime();
+    const fifteenMinutes = 15 * 60 * 1000;
+    expect(deadline).toBeGreaterThanOrEqual(before + fifteenMinutes);
+    expect(deadline).toBeLessThanOrEqual(after + fifteenMinutes + 5_000); // small margin for test runtime
+
+    // Persisted, not just present on the return value.
+    const persisted = await prisma.withdrawal.findUnique({ where: { id: w.id } });
+    expect(persisted!.paymentSubmissionDeadlineAt).not.toBeNull();
+    expect(persisted!.paymentSubmissionDeadlineAt!.getTime()).toBe(deadline);
+  });
 });

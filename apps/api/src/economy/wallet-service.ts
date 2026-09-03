@@ -136,6 +136,26 @@ export async function getWalletTransactions(
 // can bypass it.
 const MAX_BALANCE = 1_000_000_000;
 
+// W-1D0: a withdrawal refund (cancellation/dispute-refund crediting back
+// a coin hold) must be allowed to push a balance above MAX_BALANCE,
+// because the balance being refunded INTO was itself already capped at
+// MAX_BALANCE before the withdrawal's own debit — capping the refund
+// the same way the ordinary MAX_BALANCE check does would make some
+// withdrawals unrefundable. It is still bounded, never unlimited:
+//
+//   capped balance                        <= 1e9  (MAX_BALANCE)
+//   maximum outstanding withdrawal refund  <= 1e9  (a hold can only ever
+//     debit coins out of a balance that was itself <= MAX_BALANCE)
+//   worst case combined                    <= 2e9
+//   Postgres INTEGER max is 2,147,483,647 — 2e9 fits with margin.
+//
+// WITHDRAWAL_REFUND_CEILING enforces that 2e9 bound as a hard ceiling —
+// it is not merely documented, see the check below. Only a change with
+// referenceType 'WITHDRAWAL' and ledgerType 'CREDIT' is exempt from the
+// ordinary MAX_BALANCE cap at all; every other credit path stays capped
+// at MAX_BALANCE exactly as before.
+const WITHDRAWAL_REFUND_CEILING = 2 * MAX_BALANCE;
+
 export interface BalanceChange {
   currency: Currency;
   amount: number; // positive integer
@@ -144,6 +164,27 @@ export interface BalanceChange {
   referenceType: 'GIFT' | 'REWARD' | 'PURCHASE' | 'GAME' | 'ADMIN' | 'TRANSFER' | 'DAILY_REWARD' | 'TASK' | 'ACHIEVEMENT' | 'REFUND' | 'AGENT_ORDER' | 'WITHDRAWAL';
   referenceId?: string;
   description: string;
+}
+
+/**
+ * True only if every CREDIT change to `currency` within this batch is a
+ * withdrawal refund (referenceType 'WITHDRAWAL', ledgerType 'CREDIT').
+ * A batch with no credit to this currency at all is NOT exempt — this
+ * only ever relaxes the cap for a currency an exempt credit is actually
+ * pushing over it, never as a side effect of an unrelated change sharing
+ * the same batch.
+ *
+ * Hardcoded to COINS: withdrawals never touch GAME_POINTS anywhere in
+ * this domain (every withdrawal model is coin/fiat-denominated only), so
+ * that path stays capped at MAX_BALANCE with no exception, even if a
+ * caller mistakenly labels a GAME_POINTS change referenceType
+ * 'WITHDRAWAL'.
+ */
+function isWithdrawalRefundExempt(currency: Currency, changes: BalanceChange[]): boolean {
+  if (currency !== 'COINS') return false;
+  const credits = changes.filter((c) => c.currency === currency && c.ledgerType === 'CREDIT');
+  if (credits.length === 0) return false;
+  return credits.every((c) => c.referenceType === 'WITHDRAWAL');
 }
 
 export interface ExecuteBalanceChangeArgs {
@@ -218,9 +259,22 @@ export async function applyBalanceChanges(
   if (newGamePoints < 0) throw ApiError.internal('Negative game points balance detected');
 
   // Enforce central overflow guard so cumulative credits cannot exceed
-  // the 32-bit Int column capacity.
-  if (newCoins > MAX_BALANCE) throw ApiError.badRequest('Coin balance exceeds maximum allowed');
-  if (newGamePoints > MAX_BALANCE) throw ApiError.badRequest('Game Points balance exceeds maximum allowed');
+  // the 32-bit Int column capacity — except a withdrawal refund credit,
+  // which is allowed up to WITHDRAWAL_REFUND_CEILING (see its own
+  // comment above for the overflow proof). A currency is exempt from
+  // MAX_BALANCE only when every CREDIT change to it in this batch is a
+  // WITHDRAWAL refund; any other credit to that currency in the same
+  // batch keeps the ordinary cap.
+  if (newCoins > MAX_BALANCE) {
+    if (!isWithdrawalRefundExempt('COINS', changes) || newCoins > WITHDRAWAL_REFUND_CEILING) {
+      throw ApiError.badRequest('Coin balance exceeds maximum allowed');
+    }
+  }
+  if (newGamePoints > MAX_BALANCE) {
+    if (!isWithdrawalRefundExempt('GAME_POINTS', changes) || newGamePoints > WITHDRAWAL_REFUND_CEILING) {
+      throw ApiError.badRequest('Game Points balance exceeds maximum allowed');
+    }
+  }
 
   // Update wallet with version lock. updateMany returns { count } without
   // throwing when no row matches, so we explicitly check the matched count

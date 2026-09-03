@@ -60,6 +60,7 @@ model User {
   withdrawals               Withdrawal[]
   withdrawalQuotes          WithdrawalQuote[]
   payoutAccounts            UserPayoutAccount[]
+  withdrawalPaymentSubmissions WithdrawalPaymentSubmission[]
 
   // W-0 security step-up foundation (inverse relation sides only — no
   // existing User field is altered).
@@ -1050,6 +1051,10 @@ enum MessageSenderRole {
 enum WithdrawalStatus {
   CREATED
   HELD
+  // W-1D0: added ahead of W-1D1 lifecycle routes. No transition logic
+  // consumes this value yet — see the migration header for why the
+  // ADD VALUE still lives in its own migration file regardless.
+  PAYOUT_IN_PROGRESS
   PAYMENT_SUBMITTED
   DISPUTED
   COMPLETED
@@ -1093,6 +1098,13 @@ enum WithdrawalDisputeReason {
 }
 
 enum WithdrawalDisputeResolution {
+  // Dispute resolved as PAID: consumes the coin hold (coins do NOT
+  // return to the user — they were already exchanged for fiat) and
+  // consumes the fiat reservation. The name is a holdover from an
+  // earlier draft and is potentially misleading in isolation; kept
+  // as-is in W-1D0 rather than renamed, per instruction, since renaming
+  // an already-deployed enum value is out of scope for this hardening
+  // slice.
   RELEASE_COINS
   CANCEL_WITHDRAWAL
 }
@@ -1194,6 +1206,7 @@ model Agent {
   fiatLiquidity   AgentFiatLiquidity[]
   fiatLiquidityLedger  AgentFiatLiquidityLedger[]
   withdrawalReservations  WithdrawalLiquidityReservation[]
+  withdrawalPaymentSubmissions WithdrawalPaymentSubmission[]
 
   @@index([countryId, status])
   @@map("agents")
@@ -1579,6 +1592,13 @@ model Withdrawal {
   coinAmount             Int              // coins debited from user — immutable
   status                 WithdrawalStatus @default(CREATED)
   quoteExpiresAt         DateTime         // CREATED → EXPIRED sweep
+  // W-1D0: deadline for the ASSIGNED AGENT to submit payment after HELD —
+  // distinct from confirmationDeadlineAt below (the USER's post-submission
+  // confirmation window). Set atomically at withdrawal creation (HELD) —
+  // see nextWithdrawalNumber's neighbor in withdrawal-service.ts. Not a
+  // repurposing of quoteExpiresAt, which stays dead code per the file
+  // header note in withdrawal-service.ts.
+  paymentSubmissionDeadlineAt DateTime?
   confirmationDeadlineAt DateTime?        // set at PAYMENT_SUBMITTED; PAYMENT_SUBMITTED → DISPUTED sweep
   paymentSubmittedAt     DateTime?
   completedAt            DateTime?
@@ -1597,6 +1617,9 @@ model Withdrawal {
   evidence    WithdrawalEvidence[]
   disputes    WithdrawalDispute[]
   liquidityReservation WithdrawalLiquidityReservation?
+  // W-1D0: model only — no route creates these yet (see WithdrawalPaymentSubmission / WithdrawalOperation below).
+  paymentSubmission WithdrawalPaymentSubmission?
+  operations        WithdrawalOperation[]
 
   // Request-level idempotency (client retry) — mirrors AgentOrder pattern.
   // requestHash is stored but deliberately NOT unique: W-1B compares it
@@ -1610,6 +1633,7 @@ model Withdrawal {
   @@index([userId, status])
   @@index([status, confirmationDeadlineAt]) // sweep: confirmation timeout
   @@index([status, quoteExpiresAt])         // sweep: quote expiry
+  @@index([status, paymentSubmissionDeadlineAt]) // W-1D0: sweep: agent payment-submission timeout
   @@map("withdrawals")
 }
 
@@ -1693,6 +1717,88 @@ model WithdrawalDispute {
   @@index([withdrawalId, status])
   @@index([status, openedAt]) // admin queue query
   @@map("withdrawal_disputes")
+}
+
+// ─── W-1D0: withdrawal lifecycle hardening (models only) ─────────
+//
+// Both models below exist so W-1D1's lifecycle routes (submit-payment,
+// cancel, confirm-receipt, dispute) have a safe place to persist their
+// state — no route in this repository writes to either table yet, and
+// none of the transition logic that would populate WithdrawalStatus's
+// new PAYOUT_IN_PROGRESS value exists here either.
+
+// An agent's payment-submission record for a withdrawal. Reference-only
+// (referenceNumber/note) — no binary evidence upload here; that needs a
+// new authenticated storage route and is explicitly out of scope for
+// this hardening slice. Distinct from WithdrawalEvidence (fileBucket/
+// fileKey binary uploads) and from AuditLog: a future submit-payment
+// route must persist here, not into AuditLog.
+//
+// withdrawalId is 1:1 (an agent submits payment for a withdrawal at most
+// once) — the field-level @unique is the hard structural backstop, the
+// same role Withdrawal.quoteId's @unique plays for quote consumption.
+// The compound @@unique below is the idempotency-replay layer, mirroring
+// WithdrawalSettlement.@@unique([withdrawalId, idempotencyKey]) exactly:
+// a future route looks up by (withdrawalId, idempotencyKey) — a hit with
+// a matching requestHash is a replay (return the existing row), a hit
+// with a different requestHash is a 409 conflict.
+model WithdrawalPaymentSubmission {
+  id                String   @id @default(uuid())
+  withdrawalId      String   @unique
+  agentId           String
+  submittedByUserId String
+  submittedAt       DateTime
+  referenceNumber   String
+  note              String?
+  idempotencyKey    String
+  requestHash       String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  withdrawal      Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+  agent           Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  submittedByUser User       @relation(fields: [submittedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@map("withdrawal_payment_submissions")
+}
+
+// Narrow, domain-scoped answer to design-doc risk #7 (docs/withdrawal-w1
+// -w2-design.md §10): the existing global IdempotencyRecord is keyed only
+// by (userId, key) with no operation dimension in its unique constraint,
+// so two DIFFERENT withdrawal lifecycle operations that happened to reuse
+// the same client-supplied key could collide. This table is scoped to
+// withdrawal lifecycle actions ONLY (submit-payment, cancel, confirm-
+// receipt, dispute, ...) — it does not replace IdempotencyRecord for any
+// other domain, and (like WithdrawalPaymentSubmission above) no route
+// writes to it yet.
+//
+// Intended future usage, inside a lifecycle route's own state-changing
+// transaction: look up by (withdrawalId, action, idempotencyKey) — a hit
+// with a matching requestHash is an idempotent replay (return the
+// original result via resultType/resultId), a hit with a different
+// requestHash is a 409 conflict, and no hit means the operation may
+// proceed and must insert its own row together with its state mutation.
+// One withdrawal has MANY operations over its lifetime — unlike
+// WithdrawalPaymentSubmission, withdrawalId here is deliberately NOT
+// @unique on its own.
+model WithdrawalOperation {
+  id             String   @id @default(uuid())
+  withdrawalId   String
+  actorUserId    String
+  action         String   // e.g. "SUBMIT_PAYMENT", "CANCEL", "CONFIRM_RECEIPT", "DISPUTE_OPEN"
+  idempotencyKey String
+  requestHash    String
+  resultType     String   // e.g. "Withdrawal", "WithdrawalPaymentSubmission", "WithdrawalDispute"
+  resultId       String   // id of the row this operation produced/affected
+  createdAt      DateTime @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, action, idempotencyKey])
+  @@index([withdrawalId, action])
+  @@map("withdrawal_operations")
 }
 
 // ─── Agent fiat liquidity (withdrawal payouts) ──────────────────
