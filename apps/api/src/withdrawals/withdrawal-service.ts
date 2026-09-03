@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import type { Withdrawal } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service';
 import { requiresStepUp, requireStepUp } from '../security/step-up-service';
@@ -8,6 +9,7 @@ import {
   selectEligibleAgentLiquidity,
   incrementReservedLiquidity,
   writeReserveLedgerEntry,
+  releaseReservedLiquidity,
 } from './liquidity-service';
 
 // W-1B Task D: withdrawal creation service.
@@ -401,4 +403,425 @@ export async function getOwnWithdrawalById(actorUserId: string, withdrawalId: st
 
 export async function listOwnWithdrawals(actorUserId: string) {
   return prisma.withdrawal.findMany({ where: { userId: actorUserId }, orderBy: { createdAt: 'desc' } });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// W-1D1: withdrawal lifecycle — agent reads, payout claim, payment
+// submission, user cancel
+//
+// Every state-changing function follows the same idempotency pattern:
+//   1. Lock the withdrawal row (SELECT ... FOR UPDATE inside $transaction).
+//   2. Re-check status and authorization inside the lock.
+//   3. Check WithdrawalOperation by (withdrawalId, action, idempotencyKey):
+//        - hit + matching requestHash  → idempotent replay (re-read, return)
+//        - hit + mismatched requestHash → 409 CONFLICT
+//        - no hit → proceed with mutation + insert WithdrawalOperation
+//   4. On replay: re-read canonical DB entities (never return cached data),
+//      re-evaluate authorization before returning.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Request hash helpers ──────────────────────────────────────
+
+function hashLifecycleRequest(parts: string[]): string {
+  return createHash('sha256').update(parts.join(':')).digest('hex');
+}
+
+function computeClaimPayoutHash(): string {
+  return hashLifecycleRequest(['claim-payout']);
+}
+
+function computeSubmitPaymentHash(referenceNumber: string, note: string | null | undefined): string {
+  return hashLifecycleRequest(['submit-payment', referenceNumber, note ?? '']);
+}
+
+function computeCancelHash(): string {
+  return hashLifecycleRequest(['cancel']);
+}
+
+// ─── Authorization helpers ─────────────────────────────────────
+
+async function requireAssignedAgent(actorUserId: string, withdrawalAgentId: string) {
+  const agent = await prisma.agent.findUnique({ where: { userId: actorUserId } });
+  if (!agent) throw ApiError.forbidden('You do not have an agent account');
+  if (agent.id !== withdrawalAgentId) {
+    throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
+  }
+  return agent;
+}
+
+// ─── W-1D1 Function 1: listAssignedWithdrawals ────────────────
+
+export interface WithdrawalFilter {
+  status?: string;
+}
+
+export async function listAssignedWithdrawals(
+  actorUserId: string,
+  filters?: WithdrawalFilter
+) {
+  const agent = await prisma.agent.findUnique({ where: { userId: actorUserId } });
+  if (!agent) throw ApiError.forbidden('You do not have an agent account');
+
+  const where: Record<string, unknown> = { agentId: agent.id };
+  if (filters?.status) {
+    where.status = filters.status;
+  }
+
+  return prisma.withdrawal.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      hold: { select: { coinAmount: true, status: true } },
+      user: { select: { id: true, username: true, displayName: true } },
+    },
+  });
+}
+
+// ─── W-1D1 Function 2: getAssignedWithdrawal ──────────────────
+
+export async function getAssignedWithdrawal(
+  actorUserId: string,
+  withdrawalId: string
+) {
+  const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!withdrawal) throw ApiError.notFound('Withdrawal not found');
+  if (!withdrawal.agentId) throw ApiError.notFound('Withdrawal has no assigned agent');
+  await requireAssignedAgent(actorUserId, withdrawal.agentId);
+  return withdrawal;
+}
+
+// ─── W-1D1 Function 3: claimPayout ────────────────────────────
+//
+// HELD → PAYOUT_IN_PROGRESS
+//
+// The assigned agent signals they are beginning the payout process.
+// MUST NOT set paymentSubmittedAt (only submitPayment does that).
+// Authorised only for the assigned agent.
+
+export async function claimPayout(
+  actorUserId: string,
+  withdrawalId: string,
+  opts: { idempotencyKey: string }
+) {
+  const { idempotencyKey } = opts;
+  const requestHash = computeClaimPayoutHash();
+
+  // Pre-flight: load withdrawal + agent outside the transaction.
+  const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!withdrawal) throw ApiError.notFound('Withdrawal not found');
+  if (!withdrawal.agentId) throw ApiError.notFound('Withdrawal has no assigned agent');
+  const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
+
+  return prisma.$transaction(async (tx) => {
+    // ── Lock the withdrawal row ────────────────────────────────
+    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
+      SELECT id, status, "agentId"
+      FROM withdrawals
+      WHERE id = ${withdrawalId}
+      FOR UPDATE
+    `;
+    const locked = rows[0];
+    if (!locked) throw ApiError.notFound('Withdrawal not found');
+    if (locked.status !== 'HELD') {
+      throw ApiError.badRequest(`Cannot claim payout from status: ${locked.status}`);
+    }
+    if (locked.agentId !== agent.id) {
+      throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
+    }
+
+    // ── Idempotency check ─────────────────────────────────────
+    const existingOp = await tx.withdrawalOperation.findUnique({
+      where: {
+        withdrawalId_action_idempotencyKey: {
+          withdrawalId,
+          action: 'CLAIM_PAYOUT',
+          idempotencyKey,
+        },
+      },
+    });
+    if (existingOp) {
+      if (existingOp.requestHash !== requestHash) {
+        throw ApiError.conflict('Idempotency key reused with different request data', {
+          code: 'IDEMPOTENCY_CONFLICT',
+        });
+      }
+      // Replay: re-read canonical entity.
+      const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+      return { result: fresh, idempotent: true };
+    }
+
+    // ── Transition: HELD → PAYOUT_IN_PROGRESS ──────────────────
+    await tx.withdrawal.update({
+      where: { id: withdrawalId },
+      data: { status: 'PAYOUT_IN_PROGRESS' },
+    });
+
+    const opId = randomUUID();
+    await tx.withdrawalOperation.create({
+      data: {
+        id: opId,
+        withdrawalId,
+        actorUserId,
+        action: 'CLAIM_PAYOUT',
+        idempotencyKey,
+        requestHash,
+        resultType: 'Withdrawal',
+        resultId: withdrawalId,
+      },
+    });
+
+    const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    return { result: fresh, idempotent: false };
+  });
+}
+
+// ─── W-1D1 Function 4: submitPayment ──────────────────────────
+//
+// PAYOUT_IN_PROGRESS → PAYMENT_SUBMITTED
+//
+// The assigned agent records proof of payment (referenceNumber + note).
+// Creates an immutable WithdrawalPaymentSubmission row.
+// Sets paymentSubmittedAt and confirmationDeadlineAt on the withdrawal.
+// Authorised only for the assigned agent.
+
+const DEFAULT_CONFIRMATION_WINDOW_MS = 72 * 60 * 60 * 1000; // 72 hours
+
+export async function submitPayment(
+  actorUserId: string,
+  withdrawalId: string,
+  args: { referenceNumber: string; note?: string; idempotencyKey: string }
+) {
+  const { referenceNumber, note, idempotencyKey } = args;
+  if (!referenceNumber || referenceNumber.trim().length === 0) {
+    throw ApiError.badRequest('referenceNumber is required');
+  }
+  const requestHash = computeSubmitPaymentHash(referenceNumber.trim(), note);
+
+  // Pre-flight: load withdrawal + agent outside the transaction.
+  const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!withdrawal) throw ApiError.notFound('Withdrawal not found');
+  if (!withdrawal.agentId) throw ApiError.notFound('Withdrawal has no assigned agent');
+  const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
+
+  return prisma.$transaction(async (tx) => {
+    // ── Lock the withdrawal row ────────────────────────────────
+    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
+      SELECT id, status, "agentId"
+      FROM withdrawals
+      WHERE id = ${withdrawalId}
+      FOR UPDATE
+    `;
+    const locked = rows[0];
+    if (!locked) throw ApiError.notFound('Withdrawal not found');
+    if (locked.status !== 'PAYOUT_IN_PROGRESS') {
+      throw ApiError.badRequest(`Cannot submit payment from status: ${locked.status}`);
+    }
+    if (locked.agentId !== agent.id) {
+      throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
+    }
+
+    // ── Idempotency check via WithdrawalOperation ──────────────
+    const existingOp = await tx.withdrawalOperation.findUnique({
+      where: {
+        withdrawalId_action_idempotencyKey: {
+          withdrawalId,
+          action: 'SUBMIT_PAYMENT',
+          idempotencyKey,
+        },
+      },
+    });
+    if (existingOp) {
+      if (existingOp.requestHash !== requestHash) {
+        throw ApiError.conflict('Idempotency key reused with different request data', {
+          code: 'IDEMPOTENCY_CONFLICT',
+        });
+      }
+      // Replay: re-read the canonical payment submission.
+      const existingSubmission = await tx.withdrawalPaymentSubmission.findUnique({
+        where: { withdrawalId },
+      });
+      const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+      return { result: existingSubmission, withdrawal: fresh, idempotent: true };
+    }
+
+    // ── Create the payment submission ──────────────────────────
+    const now = new Date();
+    const submission = await tx.withdrawalPaymentSubmission.create({
+      data: {
+        withdrawalId,
+        agentId: agent.id,
+        submittedByUserId: actorUserId,
+        submittedAt: now,
+        referenceNumber: referenceNumber.trim(),
+        note: note ?? null,
+        idempotencyKey,
+        requestHash,
+      },
+    });
+
+    // ── Transition: PAYOUT_IN_PROGRESS → PAYMENT_SUBMITTED ─────
+    await tx.withdrawal.update({
+      where: { id: withdrawalId },
+      data: {
+        status: 'PAYMENT_SUBMITTED',
+        paymentSubmittedAt: now,
+        confirmationDeadlineAt: new Date(now.getTime() + DEFAULT_CONFIRMATION_WINDOW_MS),
+      },
+    });
+
+    const opId = randomUUID();
+    await tx.withdrawalOperation.create({
+      data: {
+        id: opId,
+        withdrawalId,
+        actorUserId,
+        action: 'SUBMIT_PAYMENT',
+        idempotencyKey,
+        requestHash,
+        resultType: 'WithdrawalPaymentSubmission',
+        resultId: submission.id,
+      },
+    });
+
+    const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    return { result: submission, withdrawal: fresh, idempotent: false };
+  });
+}
+
+// ─── W-1D1 Function 5: cancelHeldWithdrawal ───────────────────
+//
+// HELD → CANCELLED
+//
+// The USER (not the agent) cancels a withdrawal that is still held.
+// This is the most financially complex operation — it must atomically:
+//   1. Refund coins from the hold (using hold.coinAmount, NOT withdrawal.coinAmount)
+//   2. Mark the hold as REFUNDED with the refund transaction id
+//   3. Release the fiat reservation (AgentFiatLiquidity.reservedBalance decreases)
+//   4. NEVER touch AgentInventory or AgentInventoryLedger
+//
+// Rejects from PAYOUT_IN_PROGRESS and PAYMENT_SUBMITTED (terminal states for cancel).
+
+export async function cancelHeldWithdrawal(
+  actorUserId: string,
+  withdrawalId: string,
+  opts: { idempotencyKey: string }
+) {
+  const { idempotencyKey } = opts;
+  const requestHash = computeCancelHash();
+
+  // Pre-flight: load withdrawal outside the transaction.
+  const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!withdrawal) throw ApiError.notFound('Withdrawal not found');
+  if (withdrawal.userId !== actorUserId) {
+    throw ApiError.forbidden('This withdrawal does not belong to you');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // ── Lock the withdrawal row ────────────────────────────────
+    const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'userId'>[]>`
+      SELECT id, status, "userId"
+      FROM withdrawals
+      WHERE id = ${withdrawalId}
+      FOR UPDATE
+    `;
+    const locked = rows[0];
+    if (!locked) throw ApiError.notFound('Withdrawal not found');
+    if (locked.status !== 'HELD') {
+      throw ApiError.badRequest(`Cannot cancel withdrawal from status: ${locked.status}`);
+    }
+    if (locked.userId !== actorUserId) {
+      throw ApiError.forbidden('This withdrawal does not belong to you');
+    }
+
+    // ── Idempotency check ─────────────────────────────────────
+    const existingOp = await tx.withdrawalOperation.findUnique({
+      where: {
+        withdrawalId_action_idempotencyKey: {
+          withdrawalId,
+          action: 'CANCEL',
+          idempotencyKey,
+        },
+      },
+    });
+    if (existingOp) {
+      if (existingOp.requestHash !== requestHash) {
+        throw ApiError.conflict('Idempotency key reused with different request data', {
+          code: 'IDEMPOTENCY_CONFLICT',
+        });
+      }
+      // Replay: re-read canonical entities.
+      const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+      return { result: fresh, idempotent: true };
+    }
+
+    // ── Read the hold (refund amount from hold.coinAmount) ──────
+    const hold = await tx.withdrawalHold.findUnique({ where: { withdrawalId } });
+    if (!hold) throw ApiError.internal('Withdrawal hold not found');
+    if (hold.status !== 'ACTIVE') {
+      throw ApiError.internal(`Hold is not ACTIVE: ${hold.status}`);
+    }
+
+    // ── Refund coins to the user ───────────────────────────────
+    const freshWithdrawal = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    if (!freshWithdrawal) throw ApiError.notFound('Withdrawal not found');
+
+    await getOrCreateWallet(freshWithdrawal.userId, tx);
+    const creditResult = await applyBalanceChanges(tx, freshWithdrawal.userId, [
+      {
+        currency: 'COINS',
+        amount: hold.coinAmount,
+        ledgerType: 'CREDIT',
+        transactionType: 'COIN_CREDIT',
+        referenceType: 'WITHDRAWAL',
+        referenceId: withdrawalId,
+        description: `Withdrawal cancelled — coin refund`,
+      },
+    ]);
+
+    // ── Mark the hold as REFUNDED ──────────────────────────────
+    await tx.withdrawalHold.update({
+      where: { id: hold.id },
+      data: {
+        status: 'REFUNDED',
+        refundWalletTransactionId: creditResult.transactions[0].id,
+        releasedAt: new Date(),
+      },
+    });
+
+    // ── Release the fiat reservation ───────────────────────────
+    const reservation = await tx.withdrawalLiquidityReservation.findUnique({
+      where: { withdrawalId },
+    });
+    if (reservation && reservation.status === 'ACTIVE') {
+      await releaseReservedLiquidity(tx, {
+        id: reservation.id,
+        agentId: reservation.agentId,
+        fiatCurrency: reservation.fiatCurrency,
+        amount: reservation.amount,
+        withdrawalId,
+      });
+    }
+
+    // ── Transition: HELD → CANCELLED ───────────────────────────
+    await tx.withdrawal.update({
+      where: { id: withdrawalId },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    });
+
+    // ── Record the operation ───────────────────────────────────
+    await tx.withdrawalOperation.create({
+      data: {
+        withdrawalId,
+        actorUserId,
+        action: 'CANCEL',
+        idempotencyKey,
+        requestHash,
+        resultType: 'Withdrawal',
+        resultId: withdrawalId,
+      },
+    });
+
+    const final = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    return { result: final, idempotent: false };
+  });
 }

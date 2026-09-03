@@ -423,3 +423,67 @@ export async function writeReserveLedgerEntry(
     },
   });
 }
+
+/**
+ * Releases a fiat reservation back to the agent's available balance.
+ * Called from cancelHeldWithdrawal (W-1D1) when the user cancels a HELD
+ * withdrawal before the agent begins payout.
+ *
+ * Invariants:
+ *   - AgentFiatLiquidity.reservedBalance decreases by reservation.amount.
+ *   - AgentFiatLiquidity.totalBalance is unchanged.
+ *   - An AgentFiatLiquidityLedger entry of type RELEASE is written.
+ *   - WithdrawalLiquidityReservation.status -> RELEASED.
+ *
+ * Must be called inside the caller's transaction.
+ */
+export async function releaseReservedLiquidity(
+  tx: any,
+  reservation: {
+    id: string;
+    agentId: string;
+    fiatCurrency: string;
+    amount: bigint;
+    withdrawalId: string;
+  }
+): Promise<void> {
+  const liquidity = await tx.agentFiatLiquidity.findUnique({
+    where: { agentId_fiatCurrency: { agentId: reservation.agentId, fiatCurrency: reservation.fiatCurrency } },
+  });
+  if (!liquidity) {
+    throw ApiError.internal('Agent fiat liquidity row not found during reservation release');
+  }
+
+  const newReserved = liquidity.reservedBalance - reservation.amount;
+  if (newReserved < 0n) {
+    throw ApiError.internal('Reservation release would take reservedBalance negative');
+  }
+
+  const claim = await tx.agentFiatLiquidity.updateMany({
+    where: { id: liquidity.id, version: liquidity.version },
+    data: { reservedBalance: newReserved, version: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    throw ApiError.conflict('Concurrent liquidity modification during reservation release — please retry');
+  }
+
+  await tx.withdrawalLiquidityReservation.update({
+    where: { id: reservation.id },
+    data: { status: 'RELEASED', releasedAt: new Date() },
+  });
+
+  await tx.agentFiatLiquidityLedger.create({
+    data: {
+      agentId: reservation.agentId,
+      fiatCurrency: reservation.fiatCurrency,
+      type: 'RELEASE',
+      amount: reservation.amount,
+      totalBefore: liquidity.totalBalance,
+      totalAfter: liquidity.totalBalance,
+      reservedBefore: liquidity.reservedBalance,
+      reservedAfter: newReserved,
+      reservationId: reservation.id,
+      withdrawalId: reservation.withdrawalId,
+    },
+  });
+}
