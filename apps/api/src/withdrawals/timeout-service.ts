@@ -189,7 +189,7 @@ async function sweepPayoutInProgressBatch(tx: any, batchSize: number): Promise<T
     FROM withdrawals
     WHERE status = 'PAYOUT_IN_PROGRESS'
       AND "paymentSubmissionDeadlineAt" IS NOT NULL
-      AND "paymentSubmissionDeadlineAt" <= now()
+      AND "paymentSubmissionDeadlineAt" <= (now() AT TIME ZONE 'UTC')
     ORDER BY "paymentSubmissionDeadlineAt" ASC
     LIMIT ${batchSize}
     FOR UPDATE SKIP LOCKED
@@ -294,7 +294,7 @@ async function sweepPaymentSubmittedBatch(tx: any, batchSize: number): Promise<T
     FROM withdrawals
     WHERE status = 'PAYMENT_SUBMITTED'
       AND "confirmationDeadlineAt" IS NOT NULL
-      AND "confirmationDeadlineAt" <= now()
+      AND "confirmationDeadlineAt" <= (now() AT TIME ZONE 'UTC')
     ORDER BY "confirmationDeadlineAt" ASC
     LIMIT ${batchSize}
     FOR UPDATE SKIP LOCKED
