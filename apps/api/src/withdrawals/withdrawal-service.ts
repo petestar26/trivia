@@ -556,7 +556,22 @@ async function requireAssignedAgent(actorUserId: string, withdrawalAgentId: stri
 // obtain a SUCCESSFUL idempotent replay of one. Authorization stays before
 // idempotent replay; idempotent replay stays before the status gate.
 async function assertActiveAssignedAgentInTx(tx: any, actorUserId: string, withdrawalAgentId: string) {
-  const agent = await tx.agent.findUnique({ where: { userId: actorUserId } });
+  // Lock the Agent row after the caller has locked Withdrawal. A plain
+  // findUnique is not enough under READ COMMITTED: it can observe ACTIVE
+  // while a concurrent admin status change is still uncommitted, then allow
+  // claim/submit to commit after the disable. FOR SHARE serializes against
+  // role/status UPDATEs while remaining compatible with the KEY SHARE lock a
+  // concurrent withdrawal creation takes for its Agent foreign key. This
+  // avoids a cycle with that creation's already-locked fiat-liquidity row.
+  const rows = await tx.$queryRaw<
+    { id: string; userId: string; status: string }[]
+  >`
+    SELECT id, "userId", status
+    FROM agents
+    WHERE "userId" = ${actorUserId}
+    FOR SHARE
+  `;
+  const agent = rows[0];
   if (!agent) throw ApiError.forbidden('You do not have an agent account');
   if (agent.id !== withdrawalAgentId) {
     throw ApiError.forbidden('You are not the assigned agent for this withdrawal');

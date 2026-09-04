@@ -1,4 +1,4 @@
-import type { Withdrawal, WithdrawalQuote } from '@socialplay/database';
+import type { Withdrawal, WithdrawalQuote, WithdrawalSettlement } from '@socialplay/database';
 
 // W-1C route-boundary DTO serializers.
 //
@@ -22,6 +22,10 @@ export interface SerializedWithdrawal extends Omit<Withdrawal, 'fiatAmount' | 'e
   exchangeRateValue: string;
 }
 
+export interface SerializedWithdrawalSettlement extends Omit<WithdrawalSettlement, 'fiatAmount'> {
+  fiatAmount: string;
+}
+
 export function serializeQuote(quote: WithdrawalQuote): SerializedWithdrawalQuote {
   return {
     ...quote,
@@ -35,5 +39,12 @@ export function serializeWithdrawal(withdrawal: Withdrawal): SerializedWithdrawa
     ...withdrawal,
     fiatAmount: withdrawal.fiatAmount.toString(),
     exchangeRateValue: withdrawal.exchangeRateValue.toString(),
+  };
+}
+
+export function serializeSettlement(settlement: WithdrawalSettlement): SerializedWithdrawalSettlement {
+  return {
+    ...settlement,
+    fiatAmount: settlement.fiatAmount.toString(),
   };
 }

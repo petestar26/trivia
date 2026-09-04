@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { WithdrawalStatus } from '@socialplay/database';
 import type { Withdrawal } from '@socialplay/database';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, requirePermission, ApiError } from '../middleware';
 import { createWithdrawalQuote, getOwnWithdrawalQuote } from './quote-service';
 import {
   createUserPayoutAccount,
@@ -20,7 +20,22 @@ import {
   submitPayment,
   cancelHeldWithdrawal,
 } from './withdrawal-service';
-import { serializeQuote, serializeWithdrawal } from './dto';
+import {
+  claimWithdrawalDispute,
+  confirmWithdrawalReceipt,
+  escalateWithdrawalToDispute,
+  getWithdrawalDisputeForAdmin,
+  listWithdrawalDisputesForAdmin,
+  listWithdrawalEscalationCandidates,
+  openUserWithdrawalDispute,
+  resolveWithdrawalDispute,
+} from './dispute-service';
+import type {
+  WithdrawalDisputeReasonValue,
+  WithdrawalEscalationReason,
+  WithdrawalResolutionOutcome,
+} from './dispute-service';
+import { serializeQuote, serializeSettlement, serializeWithdrawal } from './dto';
 
 // W-1C withdrawal API routes.
 //
@@ -206,6 +221,50 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     idempotencyKey: z.string().min(8).max(128),
   });
 
+  const confirmReceiptSchema = z.object({
+    idempotencyKey: z.string().min(8).max(128),
+  });
+
+  const openDisputeSchema = z.object({
+    reason: z.enum(['FIAT_NOT_RECEIVED', 'WRONG_FIAT_AMOUNT', 'AGENT_UNRESPONSIVE', 'OTHER']),
+    description: z.string().trim().min(1).max(4000),
+    idempotencyKey: z.string().min(8).max(128),
+  });
+
+  const escalateSchema = z.object({
+    escalationReason: z.enum(['AGENT_NOT_ACTIVE', 'PAYMENT_DEADLINE_ELAPSED', 'FRAUD_SUSPECTED']),
+    description: z.string().trim().min(1).max(4000),
+    idempotencyKey: z.string().min(8).max(128),
+  });
+
+  const claimDisputeSchema = z.object({
+    idempotencyKey: z.string().min(8).max(128),
+  });
+
+  const adminVerifiedPaymentSchema = z.object({
+    referenceNumber: z.string().trim().min(1).max(256),
+    paymentOccurredAt: z.string().datetime({ offset: true }),
+    note: z.string().max(1024).optional(),
+  });
+
+  const resolveDisputeSchema = z.object({
+    outcome: z.enum(['COMPLETED', 'CANCELLED']),
+    resolutionNote: z.string().trim().min(1).max(4000),
+    idempotencyKey: z.string().min(8).max(128),
+    adminVerifiedPayment: adminVerifiedPaymentSchema.optional(),
+  });
+
+  const adminDisputeQuerySchema = z.object({
+    status: z.enum(['OPEN', 'ASSIGNED', 'RESOLVED']).optional(),
+    cursor: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  });
+
+  const escalationCandidateQuerySchema = z.object({
+    cursor: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  });
+
   server.post<{ Params: { id: string } }>(
     '/:id/claim-payout',
     { preHandler: auth, schema: lifecycleIdSchema },
@@ -246,6 +305,175 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
       return reply
         .status(200)
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
+    }
+  );
+
+  // ── W-1D2: user settlement/dispute transitions ──────────────
+
+  server.post<{ Params: { id: string } }>(
+    '/:id/confirm-receipt',
+    { preHandler: auth, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const body = parse(confirmReceiptSchema, request.body);
+      const result = await confirmWithdrawalReceipt(
+        request.user!.sub,
+        request.params.id,
+        body,
+        requestContext(request)
+      );
+      return reply.send({
+        success: true,
+        data: {
+          withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          settlement: serializeSettlement(result.settlement),
+        },
+        idempotent: result.idempotent,
+      });
+    }
+  );
+
+  server.post<{ Params: { id: string } }>(
+    '/:id/dispute',
+    { preHandler: auth, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const body = parse(openDisputeSchema, request.body);
+      const result = await openUserWithdrawalDispute(
+        request.user!.sub,
+        request.params.id,
+        body as {
+          reason: WithdrawalDisputeReasonValue;
+          description: string;
+          idempotencyKey: string;
+        },
+        requestContext(request)
+      );
+      return reply
+        .status(result.idempotent ? 200 : 201)
+        .send({
+          success: true,
+          data: {
+            dispute: result.dispute,
+            withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          },
+          idempotent: result.idempotent,
+        });
+    }
+  );
+
+  // ── W-1D2: admin-only escalation and resolution ─────────────
+
+  const withdrawalAdmin = [authenticate, requirePermission('withdrawal:admin')];
+
+  server.get('/admin/disputes', { preHandler: withdrawalAdmin }, async (request, reply) => {
+    const query = parse(adminDisputeQuerySchema, request.query);
+    const result = await listWithdrawalDisputesForAdmin(request.user!.sub, query);
+    return reply.send({ success: true, data: result.items, nextCursor: result.nextCursor });
+  });
+
+  server.get('/admin/escalation-candidates', { preHandler: withdrawalAdmin }, async (request, reply) => {
+    const query = parse(escalationCandidateQuerySchema, request.query);
+    const result = await listWithdrawalEscalationCandidates(request.user!.sub, query);
+    return reply.send({
+      success: true,
+      data: result.items.map(serializeWithdrawal),
+      nextCursor: result.nextCursor,
+    });
+  });
+
+  server.get<{ Params: { id: string } }>(
+    '/admin/disputes/:id',
+    { preHandler: withdrawalAdmin, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const result = await getWithdrawalDisputeForAdmin(request.user!.sub, request.params.id);
+      return reply.send({
+        success: true,
+        data: {
+          dispute: result.dispute,
+          withdrawal: serializeWithdrawal(result.withdrawal),
+        },
+      });
+    }
+  );
+
+  server.post<{ Params: { id: string } }>(
+    '/admin/:id/escalate',
+    { preHandler: withdrawalAdmin, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const body = parse(escalateSchema, request.body);
+      const result = await escalateWithdrawalToDispute(
+        request.user!.sub,
+        request.params.id,
+        body as {
+          escalationReason: WithdrawalEscalationReason;
+          description: string;
+          idempotencyKey: string;
+        },
+        requestContext(request)
+      );
+      return reply
+        .status(result.idempotent ? 200 : 201)
+        .send({
+          success: true,
+          data: {
+            dispute: result.dispute,
+            withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          },
+          idempotent: result.idempotent,
+        });
+    }
+  );
+
+  server.post<{ Params: { id: string } }>(
+    '/admin/disputes/:id/claim',
+    { preHandler: withdrawalAdmin, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const body = parse(claimDisputeSchema, request.body);
+      const result = await claimWithdrawalDispute(
+        request.user!.sub,
+        request.params.id,
+        body,
+        requestContext(request)
+      );
+      return reply.send({
+        success: true,
+        data: {
+          dispute: result.dispute,
+          withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+        },
+        idempotent: result.idempotent,
+      });
+    }
+  );
+
+  server.post<{ Params: { id: string } }>(
+    '/admin/disputes/:id/resolve',
+    { preHandler: withdrawalAdmin, schema: lifecycleIdSchema },
+    async (request, reply) => {
+      const body = parse(resolveDisputeSchema, request.body);
+      const result = await resolveWithdrawalDispute(
+        request.user!.sub,
+        request.params.id,
+        body as {
+          outcome: WithdrawalResolutionOutcome;
+          resolutionNote: string;
+          idempotencyKey: string;
+          adminVerifiedPayment?: {
+            referenceNumber: string;
+            paymentOccurredAt: string;
+            note?: string;
+          };
+        },
+        requestContext(request)
+      );
+      return reply.send({
+        success: true,
+        data: {
+          dispute: result.dispute,
+          withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          settlement: serializeSettlement(result.settlement),
+        },
+        idempotent: result.idempotent,
+      });
     }
   );
 
