@@ -379,17 +379,22 @@ describeIf('W-1D3: sweepWithdrawalTimeouts — no-op before either deadline elap
 
     // Force both deadlines safely into the future rather than trusting the
     // fixtures' default windows (15min / 72h) to still be unexpired by the
-    // time the sweep runs — a shared `future` value keeps both rows
-    // unambiguously non-candidates without depending on fixture-creation
-    // timing at all.
-    const future = new Date(Date.now() + 60 * 60 * 1000);
+    // time the sweep runs. The production query compares against the
+    // DATABASE's now(), not the Node process's clock — on a machine where
+    // those two clocks are skewed, a Node.now()-based "future" value can
+    // still land at or before the DB's now() by the time the sweep's SQL
+    // runs. Anchor to DB now() instead so this is correct regardless of
+    // any app/DB clock skew.
+    const [{ now: dbNow }] = await prisma.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+    const future = new Date(dbNow.getTime() + 60 * 60 * 1000);
     await prisma.withdrawal.update({ where: { id: pip.withdrawal.id }, data: { paymentSubmissionDeadlineAt: future } });
     await prisma.withdrawal.update({ where: { id: ps.withdrawal.id }, data: { confirmationDeadlineAt: future } });
 
     const pipBefore = await prisma.withdrawal.findUnique({ where: { id: pip.withdrawal.id } });
     const psBefore = await prisma.withdrawal.findUnique({ where: { id: ps.withdrawal.id } });
-    expect(pipBefore!.paymentSubmissionDeadlineAt!.getTime()).toBeGreaterThan(Date.now());
-    expect(psBefore!.confirmationDeadlineAt!.getTime()).toBeGreaterThan(Date.now());
+    const [{ now: beforeSweepDbNow }] = await prisma.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+    expect(pipBefore!.paymentSubmissionDeadlineAt!.getTime()).toBeGreaterThan(beforeSweepDbNow.getTime());
+    expect(psBefore!.confirmationDeadlineAt!.getTime()).toBeGreaterThan(beforeSweepDbNow.getTime());
 
     const summary = await sweepWithdrawalTimeouts();
 
@@ -597,7 +602,12 @@ describeIf('W-1D3: sweep -> claim -> resolve preserves W-1D2 admin/dispute lifec
     const disputeId = outcome!.disputeId!;
 
     const admin = await createAdmin(`t1-resolve-${tag}`);
-    await claimWithdrawalDispute(admin.id, disputeId, { idempotencyKey: `claim-${tag}` });
+    // Claiming IMMEDIATELY after a system-opened dispute is exactly the
+    // near-zero-elapsed-time case that used to violate
+    // withdrawal_disputes_chronology_check's assignedAt >= openedAt.
+    const claimResult = await claimWithdrawalDispute(admin.id, disputeId, { idempotencyKey: `claim-${tag}` });
+    const claimedDispute = claimResult.dispute as any;
+    expect(claimedDispute.assignedAt.getTime()).toBeGreaterThanOrEqual(claimedDispute.openedAt.getTime());
 
     await expect(
       resolveWithdrawalDispute(admin.id, disputeId, {
@@ -617,6 +627,8 @@ describeIf('W-1D3: sweep -> claim -> resolve preserves W-1D2 admin/dispute lifec
       },
     });
     expect((result.withdrawal as any).status).toBe('COMPLETED');
+    const resolvedDispute = result.dispute as any;
+    expect(resolvedDispute.resolvedAt.getTime()).toBeGreaterThanOrEqual(resolvedDispute.assignedAt.getTime());
   });
 
   it('a T2 system dispute rejects adminVerifiedPayment when resolving COMPLETED', async () => {
@@ -629,7 +641,10 @@ describeIf('W-1D3: sweep -> claim -> resolve preserves W-1D2 admin/dispute lifec
     const disputeId = outcome!.disputeId!;
 
     const admin = await createAdmin(`t2-resolve-${tag}`);
-    await claimWithdrawalDispute(admin.id, disputeId, { idempotencyKey: `claim-${tag}` });
+    // Same near-zero-elapsed-time claim as the T1 test above.
+    const claimResult = await claimWithdrawalDispute(admin.id, disputeId, { idempotencyKey: `claim-${tag}` });
+    const claimedDispute = claimResult.dispute as any;
+    expect(claimedDispute.assignedAt.getTime()).toBeGreaterThanOrEqual(claimedDispute.openedAt.getTime());
 
     await expect(
       resolveWithdrawalDispute(admin.id, disputeId, {
@@ -649,5 +664,7 @@ describeIf('W-1D3: sweep -> claim -> resolve preserves W-1D2 admin/dispute lifec
       idempotencyKey: `resolve-ok-${tag}`,
     });
     expect((result.withdrawal as any).status).toBe('COMPLETED');
+    const resolvedDispute = result.dispute as any;
+    expect(resolvedDispute.resolvedAt.getTime()).toBeGreaterThanOrEqual(resolvedDispute.assignedAt.getTime());
   });
 });

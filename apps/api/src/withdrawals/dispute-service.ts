@@ -139,6 +139,24 @@ function idempotencyConflict(): never {
   });
 }
 
+// withdrawal_disputes_chronology_check requires assignedAt >= openedAt and
+// resolvedAt >= assignedAt. openedAt/assignedAt are DB-generated (or, for a
+// system-opened dispute, set from the sweep's own `new Date()` moments
+// earlier), so the app clock's `new Date()` at claim/resolve time can land
+// a few milliseconds BEFORE the locked row's own timestamp — most visibly
+// for a dispute claimed immediately after it was opened, where there is
+// close to zero real time between the two. Clamp the app clock forward to
+// never precede any of the row's own already-written timestamps, so the
+// write is always monotonic relative to what's actually in the locked row
+// regardless of clock granularity or ordering.
+function dateAtOrAfterNow(...dates: Array<Date | null | undefined>): Date {
+  let ms = Date.now();
+  for (const value of dates) {
+    if (value) ms = Math.max(ms, value.getTime());
+  }
+  return new Date(ms);
+}
+
 async function lockWithdrawal(tx: any, withdrawalId: string): Promise<LockedWithdrawal> {
   const rows = await tx.$queryRaw<LockedWithdrawal[]>`
     SELECT id, "withdrawalNumber", "userId", "agentId", status,
@@ -921,7 +939,7 @@ export async function claimWithdrawalDispute(
       throw ApiError.conflict(`Withdrawal dispute cannot be claimed from status: ${dispute.status}`);
     }
 
-    const now = new Date();
+    const now = dateAtOrAfterNow(dispute.openedAt);
     const claim = await tx.withdrawalDispute.updateMany({
       where: { id: disputeId, status: 'OPEN' },
       data: { status: 'ASSIGNED', assignedAdminId: adminId, assignedAt: now },
@@ -1004,8 +1022,19 @@ export async function resolveWithdrawalDispute(
       throw ApiError.forbidden('Only the admin who claimed this dispute may resolve it');
     }
 
-    const now = new Date();
-    const adminVerifiedPayment = normalizeAdminPayment(rawArgs.adminVerifiedPayment, now, withdrawal.createdAt);
+    // operationNow is the real wall clock — used only to validate that an
+    // admin-supplied adminVerifiedPayment.paymentOccurredAt isn't in the
+    // future, which must reflect actual real-world time, not the locked
+    // dispute row's timestamps. resolutionNow is what actually gets
+    // written below (paymentSubmittedAt, the payment submission's
+    // submittedAt, the settlement's completedAt/cancelledAt, and the
+    // dispute's own resolvedAt) — clamped to never precede this dispute's
+    // openedAt or assignedAt, satisfying withdrawal_disputes_chronology_check's
+    // resolvedAt >= assignedAt even when resolve happens within
+    // milliseconds of claim.
+    const operationNow = new Date();
+    const resolutionNow = dateAtOrAfterNow(dispute.openedAt, dispute.assignedAt);
+    const adminVerifiedPayment = normalizeAdminPayment(rawArgs.adminVerifiedPayment, operationNow, withdrawal.createdAt);
     const requestHash = hashOperation('DISPUTE_RESOLVE_ADMIN', {
       disputeId,
       outcome: rawArgs.outcome,
@@ -1078,13 +1107,13 @@ export async function resolveWithdrawalDispute(
         if (existingSubmission) {
           throw ApiError.internal('In-progress withdrawal unexpectedly already has a payment submission');
         }
-        paymentSubmittedAt = now;
+        paymentSubmittedAt = resolutionNow;
         await tx.withdrawalPaymentSubmission.create({
           data: {
             withdrawalId,
             agentId: agent.id,
             submittedByUserId: adminId,
-            submittedAt: now,
+            submittedAt: resolutionNow,
             source: 'ADMIN_VERIFIED',
             paymentOccurredAt: adminVerifiedPayment!.paymentOccurredAt,
             referenceNumber: adminVerifiedPayment!.referenceNumber,
@@ -1103,11 +1132,11 @@ export async function resolveWithdrawalDispute(
           adminId,
           'ADMIN_DISPUTE_RESOLUTION',
           idempotencyKey,
-          now,
+          resolutionNow,
           disputeId,
           paymentSubmittedAt
         )
-      : await settleCancelled(tx, withdrawal, adminId, idempotencyKey, now, disputeId);
+      : await settleCancelled(tx, withdrawal, adminId, idempotencyKey, resolutionNow, disputeId);
 
     const resolution = rawArgs.outcome === 'COMPLETED' ? 'RELEASE_COINS' : 'CANCEL_WITHDRAWAL';
     const disputeClaim = await tx.withdrawalDispute.updateMany({
@@ -1117,7 +1146,7 @@ export async function resolveWithdrawalDispute(
         resolution,
         resolutionNote,
         resolvedBy: adminId,
-        resolvedAt: now,
+        resolvedAt: resolutionNow,
       },
     });
     if (disputeClaim.count !== 1) throw ApiError.internal('Withdrawal dispute left ASSIGNED while locked');
