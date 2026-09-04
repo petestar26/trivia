@@ -36,6 +36,8 @@ import type {
   WithdrawalResolutionOutcome,
 } from './dispute-service';
 import { serializeAdminWithdrawal, serializeQuote, serializeSettlement, serializeWithdrawal } from './dto';
+import { sweepWithdrawalTimeouts } from './timeout-service';
+import { runWithdrawalReconciliation } from './reconciliation-service';
 
 // W-1C withdrawal API routes.
 //
@@ -265,6 +267,17 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     limit: z.coerce.number().int().min(1).max(100).default(50),
   });
 
+  const sweepTimeoutsBodySchema = z
+    .object({
+      batchSize: z.number().int().min(1).max(500).optional(),
+    })
+    .optional();
+
+  const reconciliationQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    staleDisputeThresholdHours: z.coerce.number().positive().optional(),
+  });
+
   server.post<{ Params: { id: string } }>(
     '/:id/claim-payout',
     { preHandler: auth, schema: lifecycleIdSchema },
@@ -476,6 +489,27 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
       });
     }
   );
+
+  // ── W-1D3: admin-only timeout sweep and reconciliation ──────
+
+  server.post('/admin/sweeps/timeouts', { preHandler: withdrawalAdmin }, async (request, reply) => {
+    const body = parse(sweepTimeoutsBodySchema, request.body) ?? {};
+    // Counts + withdrawal/dispute ids + reason codes only — never a full
+    // Withdrawal body, so there is no paymentSnapshot or BigInt field to
+    // leak here regardless of caller.
+    const summary = await sweepWithdrawalTimeouts({ batchSize: body.batchSize });
+    return reply.send({ success: true, data: summary });
+  });
+
+  server.get('/admin/reconciliation', { preHandler: withdrawalAdmin }, async (request, reply) => {
+    const query = parse(reconciliationQuerySchema, request.query);
+    const report = await runWithdrawalReconciliation({
+      limit: query.limit,
+      staleDisputeThresholdMs:
+        query.staleDisputeThresholdHours !== undefined ? query.staleDisputeThresholdHours * 60 * 60 * 1000 : undefined,
+    });
+    return reply.send({ success: true, data: report });
+  });
 
   // ── Single withdrawal by ID (MUST be after /agent/ and /:id/lifecycle routes) ──
 

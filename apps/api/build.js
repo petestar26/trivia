@@ -17,7 +17,7 @@ async function buildApi() {
 
   // Bundle with esbuild
   await build({
-    entryPoints: [join(__dirname, 'src/server.ts')],
+    entryPoints: [join(__dirname, 'src/server.ts'), join(__dirname, 'src/worker.ts')],
     bundle: true,
     platform: 'node',
     format: 'esm',
