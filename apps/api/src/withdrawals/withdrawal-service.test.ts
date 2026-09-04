@@ -189,6 +189,7 @@ async function cleanWithdrawalFixtures() {
     await prisma.withdrawalSettlement.deleteMany({ where: { withdrawal: { userId: { in: userIds } } } });
     await prisma.withdrawalHold.deleteMany({ where: { withdrawal: { userId: { in: userIds } } } });
     await prisma.withdrawalLiquidityReservation.deleteMany({ where: { withdrawal: { userId: { in: userIds } } } });
+    await prisma.withdrawalOperation.deleteMany({ where: { withdrawal: { userId: { in: userIds } } } });
     await prisma.withdrawal.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.withdrawalQuote.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.userPayoutAccount.deleteMany({ where: { userId: { in: userIds } } });
@@ -391,11 +392,19 @@ describeIf('withdrawals/withdrawal-service', () => {
     const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
 
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    await createWithdrawal(
+    const first = await createWithdrawal(
       user.id,
       { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` },
       1000
     );
+
+    // W-1D2A one-live-withdrawal-per-user rule: the first withdrawal is
+    // still HELD/live, so a retry with a DIFFERENT idempotency key would
+    // hit ACTIVE_WITHDRAWAL_EXISTS before ever reaching the consumed-quote
+    // check this test exists to prove. Cancel the first withdrawal so
+    // there is no live withdrawal, then the retry actually reaches the
+    // quote-reuse branch this test is about.
+    await cancelHeldWithdrawal(user.id, (first.withdrawal as any).id, { idempotencyKey: `cancel-${tag}` });
 
     await expect(
       createWithdrawal(
