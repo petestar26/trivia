@@ -377,6 +377,20 @@ describeIf('W-1D3: sweepWithdrawalTimeouts — no-op before either deadline elap
     const pip = await createPayoutInProgressWithdrawal(`${tag}-pip`);
     const ps = await createPaymentSubmittedWithdrawal(`${tag}-ps`);
 
+    // Force both deadlines safely into the future rather than trusting the
+    // fixtures' default windows (15min / 72h) to still be unexpired by the
+    // time the sweep runs — a shared `future` value keeps both rows
+    // unambiguously non-candidates without depending on fixture-creation
+    // timing at all.
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    await prisma.withdrawal.update({ where: { id: pip.withdrawal.id }, data: { paymentSubmissionDeadlineAt: future } });
+    await prisma.withdrawal.update({ where: { id: ps.withdrawal.id }, data: { confirmationDeadlineAt: future } });
+
+    const pipBefore = await prisma.withdrawal.findUnique({ where: { id: pip.withdrawal.id } });
+    const psBefore = await prisma.withdrawal.findUnique({ where: { id: ps.withdrawal.id } });
+    expect(pipBefore!.paymentSubmissionDeadlineAt!.getTime()).toBeGreaterThan(Date.now());
+    expect(psBefore!.confirmationDeadlineAt!.getTime()).toBeGreaterThan(Date.now());
+
     const summary = await sweepWithdrawalTimeouts();
 
     expect(summary.payoutDeadline.outcomes.some((o) => o.withdrawalId === pip.withdrawal.id)).toBe(false);
