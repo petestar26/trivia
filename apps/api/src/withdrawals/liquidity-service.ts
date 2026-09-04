@@ -509,3 +509,92 @@ export async function releaseReservedLiquidity(
     },
   });
 }
+
+/**
+ * Consumes a fiat reservation when a withdrawal completes (payout delivered).
+ * Mirrors releaseReservedLiquidity, but for the COMPLETED path: the reserved
+ * fiat is disbursed, so BOTH totalBalance and reservedBalance decrease by the
+ * reservation amount, and the reservation transitions ACTIVE -> CONSUMED.
+ *
+ * Invariants:
+ *   - AgentFiatLiquidity.totalBalance decreases by reservation.amount.
+ *   - AgentFiatLiquidity.reservedBalance decreases by reservation.amount.
+ *   - An AgentFiatLiquidityLedger entry of type CONSUME is written.
+ *   - WithdrawalLiquidityReservation.status -> CONSUMED (never RELEASED).
+ *   - Neither the user's Wallet nor AgentInventory / AgentInventoryLedger is
+ *     touched.
+ *
+ * W-1D2A: no route calls this yet — it is a helper for the W-1D2 completion
+ * paths. Must be called inside the caller's transaction.
+ */
+export async function consumeReservedLiquidity(
+  tx: any,
+  reservation: {
+    id: string;
+    agentId: string;
+    fiatCurrency: string;
+    amount: bigint;
+    withdrawalId: string;
+  }
+): Promise<void> {
+  // Lock the liquidity row BEFORE reading it, mirroring releaseReservedLiquidity
+  // and selectEligibleAgentLiquidity: FOR UPDATE serializes concurrent
+  // consume/release against the SAME (agent, currency) row so the
+  // version-pinned updateMany below never spuriously returns count === 0 under
+  // routine concurrency.
+  const rows = await tx.$queryRaw<
+    { id: string; totalBalance: bigint; reservedBalance: bigint; version: number }[]
+  >`
+    SELECT id, "totalBalance", "reservedBalance", version
+    FROM "agent_fiat_liquidities"
+    WHERE "agentId" = ${reservation.agentId} AND "fiatCurrency" = ${reservation.fiatCurrency}
+    FOR UPDATE
+  `;
+  const liquidity = rows[0];
+  if (!liquidity) {
+    throw ApiError.internal('Agent fiat liquidity row not found during reservation consume');
+  }
+
+  const newTotal = liquidity.totalBalance - reservation.amount;
+  const newReserved = liquidity.reservedBalance - reservation.amount;
+  if (newTotal < 0n) {
+    throw ApiError.internal('Reservation consume would take totalBalance negative');
+  }
+  if (newReserved < 0n) {
+    throw ApiError.internal('Reservation consume would take reservedBalance negative');
+  }
+
+  const claim = await tx.agentFiatLiquidity.updateMany({
+    where: { id: liquidity.id, version: liquidity.version },
+    data: { totalBalance: newTotal, reservedBalance: newReserved, version: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    // Should be unreachable — FOR UPDATE above already holds this row's lock —
+    // kept as defense-in-depth, matching releaseReservedLiquidity.
+    throw ApiError.conflict('Concurrent liquidity modification during reservation consume — please retry');
+  }
+
+  // Consume exactly one ACTIVE reservation — never a RELEASED/consumed one.
+  const reservationClaim = await tx.withdrawalLiquidityReservation.updateMany({
+    where: { id: reservation.id, status: 'ACTIVE' },
+    data: { status: 'CONSUMED', consumedAt: new Date() },
+  });
+  if (reservationClaim.count !== 1) {
+    throw ApiError.internal('Liquidity reservation is not ACTIVE and cannot be consumed');
+  }
+
+  await tx.agentFiatLiquidityLedger.create({
+    data: {
+      agentId: reservation.agentId,
+      fiatCurrency: reservation.fiatCurrency,
+      type: 'CONSUME',
+      amount: reservation.amount,
+      totalBefore: liquidity.totalBalance,
+      totalAfter: newTotal,
+      reservedBefore: liquidity.reservedBalance,
+      reservedAfter: newReserved,
+      reservationId: reservation.id,
+      withdrawalId: reservation.withdrawalId,
+    },
+  });
+}

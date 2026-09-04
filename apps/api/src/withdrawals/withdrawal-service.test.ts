@@ -5,7 +5,7 @@ import { submitAgentApplication, approveAgentApplication } from '../agents/agent
 import { fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from './liquidity-service';
 import { createWithdrawalQuote } from './quote-service';
 import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, getOwnWithdrawalById, listOwnWithdrawals } from './withdrawal-service';
+import { createWithdrawal, getOwnWithdrawalById, listOwnWithdrawals, cancelHeldWithdrawal } from './withdrawal-service';
 import { getWalletBalance } from '../economy/wallet-service';
 import { executeBalanceChange } from '../economy/wallet-service';
 import { setOwnStepUpPolicy } from '../security/step-up-service';
@@ -442,7 +442,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect(withdrawals).toHaveLength(1);
   });
 
-  it('a new idempotency key allows a repeated same-shaped withdrawal', async () => {
+  it('a new idempotency key allows a repeated same-shaped withdrawal (once any live withdrawal is terminal)', async () => {
     await cleanWithdrawalFixtures();
     const tag = `repeat-shape-${Date.now()}`;
     const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
@@ -450,10 +450,22 @@ describeIf('withdrawals/withdrawal-service', () => {
     const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const a = await createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000);
 
+    // W-1D2A: a second LIVE withdrawal (different key) while the first is HELD
+    // is now rejected by the one-live-withdrawal rule.
+    const quoteLive = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
+    await expect(
+      createWithdrawal(user.id, { quoteId: quoteLive.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-b-${tag}` }, 1000)
+    ).rejects.toMatchObject({ details: { code: 'ACTIVE_WITHDRAWAL_EXISTS' } });
+
+    // Once the first is cancelled (terminal), a NEW idempotency key allows a
+    // same-shaped withdrawal again — the idempotency unique is scoped per key,
+    // not per user.
+    await cancelHeldWithdrawal(user.id, (a.withdrawal as any).id, { idempotencyKey: `cancel-${tag}` });
+
     const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const b = await createWithdrawal(user.id, { quoteId: quoteB.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-b-${tag}` }, 1000);
 
-    expect((a.withdrawal as any).id).not.toBe((b.withdrawal as any).id);
+    expect((b.withdrawal as any).id).not.toBe((a.withdrawal as any).id);
     const withdrawals = await prisma.withdrawal.findMany({ where: { userId: user.id } });
     expect(withdrawals).toHaveLength(2);
   });
@@ -522,14 +534,21 @@ describeIf('withdrawals/withdrawal-service', () => {
   it('withdrawalNumber is allocated via the sequence, is WD-prefixed, and unique across two withdrawals', async () => {
     await cleanWithdrawalFixtures();
     const tag = `number-${Date.now()}`;
-    const { user, country, payoutAccount } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
+    // W-1D2A: the one-live-withdrawal-per-user rule forbids two SIMULTANEOUS
+    // live withdrawals for one user. This test only cares about withdrawal
+    // number uniqueness across two withdrawals, so it uses two different
+    // users (option b).
+    const { user: userA, country: countryA, payoutAccount: accountA } = await setupHappyPath(tag, { coins: 20_000, liquidityUsd: 200_000n });
+    const { user: userB, country: countryB, payoutAccount: accountB } = await setupHappyPath(`${tag}-b`, { coins: 20_000, liquidityUsd: 200_000n });
 
-    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    const a = await createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-a-${tag}` }, 1000);
-    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
-    const b = await createWithdrawal(user.id, { quoteId: quoteB.id, payoutAccountId: payoutAccount.id, idempotencyKey: `key-b-${tag}` }, 1000);
+    const quoteA = await createWithdrawalQuote(userA.id, { countryId: countryA.id, coinAmount: 1000 });
+    const a = await createWithdrawal(userA.id, { quoteId: quoteA.id, payoutAccountId: accountA.id, idempotencyKey: `key-a-${tag}` }, 1000);
+
+    const quoteB = await createWithdrawalQuote(userB.id, { countryId: countryB.id, coinAmount: 1000 });
+    const b = await createWithdrawal(userB.id, { quoteId: quoteB.id, payoutAccountId: accountB.id, idempotencyKey: `key-b-${tag}` }, 1000);
 
     expect((a.withdrawal as any).withdrawalNumber).toMatch(/^WD-\d{6}$/);
+    expect((b.withdrawal as any).withdrawalNumber).toMatch(/^WD-\d{6}$/);
     expect((b.withdrawal as any).withdrawalNumber).not.toBe((a.withdrawal as any).withdrawalNumber);
   });
 

@@ -186,6 +186,26 @@ export async function createWithdrawal(
         const withdrawalId = randomUUID();
         const now = new Date();
 
+        // W-1D2A Step 0: one-live-withdrawal-per-user rule. Reject before the
+        // quote is claimed / wallet is debited / liquidity is reserved if the
+        // user already has a live withdrawal (HELD / PAYOUT_IN_PROGRESS /
+        // PAYMENT_SUBMITTED / DISPUTED). This is the deterministic
+        // application-level guard; the partial unique index
+        // (withdrawals_one_live_per_user_unique) remains the hard DB backstop
+        // for the concurrent race. Idempotent replays never reach here — the
+        // pre-flight check above returns the existing withdrawal first.
+        const liveWithdrawalCount = await tx.withdrawal.count({
+          where: {
+            userId: actorUserId,
+            status: { in: ['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED', 'DISPUTED'] },
+          },
+        });
+        if (liveWithdrawalCount > 0) {
+          throw ApiError.conflict('You already have an active withdrawal in progress', {
+            code: 'ACTIVE_WITHDRAWAL_EXISTS',
+          });
+        }
+
         // Step 1: atomic quote claim, setting both sides of the 1:1 at
         // once (Opus requirement #2).
         const quoteClaim = await tx.withdrawalQuote.updateMany({
@@ -478,6 +498,29 @@ async function requireAssignedAgent(actorUserId: string, withdrawalAgentId: stri
   return agent;
 }
 
+// W-1D2A: re-verify the assigned agent is ACTIVE **inside the caller's
+// transaction**, against a fresh read, AFTER the Withdrawal row is locked.
+//
+// The pre-flight requireAssignedAgent() reads the agent row (and its status)
+// OUTSIDE the transaction. An admin may disable/suspend the agent in the
+// window between that read and the Withdrawal FOR UPDATE lock. Re-reading the
+// agent here — before the idempotent-replay lookup and before any mutation —
+// guarantees authorization (identity AND ACTIVE status) is re-validated under
+// the lock, so a disabled/suspended agent can neither begin a NEW payout nor
+// obtain a SUCCESSFUL idempotent replay of one. Authorization stays before
+// idempotent replay; idempotent replay stays before the status gate.
+async function assertActiveAssignedAgentInTx(tx: any, actorUserId: string, withdrawalAgentId: string) {
+  const agent = await tx.agent.findUnique({ where: { userId: actorUserId } });
+  if (!agent) throw ApiError.forbidden('You do not have an agent account');
+  if (agent.id !== withdrawalAgentId) {
+    throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
+  }
+  if (agent.status !== AGENT_ACTIVE_STATUS) {
+    throw ApiError.forbidden('Your agent account is not active');
+  }
+  return agent;
+}
+
 // ─── W-1D1 Function 1: listAssignedWithdrawals ────────────────
 
 export interface WithdrawalFilter {
@@ -558,6 +601,11 @@ export async function claimPayout(
     if (locked.agentId !== agent.id) {
       throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
     }
+
+    // W-1D2A: re-verify the assigned agent is ACTIVE inside this transaction
+    // (fresh read) before idempotent replay or any mutation — see
+    // assertActiveAssignedAgentInTx.
+    await assertActiveAssignedAgentInTx(tx, actorUserId, locked.agentId);
 
     // ── 3. Idempotency check BEFORE status ─────────────────────
     // Same-key replay must work even after the withdrawal progressed, so
@@ -695,6 +743,11 @@ export async function submitPayment(
     if (locked.agentId !== agent.id) {
       throw ApiError.forbidden('You are not the assigned agent for this withdrawal');
     }
+
+    // W-1D2A: re-verify the assigned agent is ACTIVE inside this transaction
+    // (fresh read) before idempotent replay or any mutation — see
+    // assertActiveAssignedAgentInTx.
+    await assertActiveAssignedAgentInTx(tx, actorUserId, locked.agentId);
 
     // ── 3. Idempotency check BEFORE status ─────────────────────
     const existingOp = await tx.withdrawalOperation.findUnique({

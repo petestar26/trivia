@@ -1074,6 +1074,27 @@ enum WithdrawalSettlementOrigin {
   DIRECT
 }
 
+// W-1D2A: distinguishes a settlement that completed the payout from one
+// that recorded an admin cancellation/refund. WithdrawalSettlement previously
+// modelled successful completion only; CANCELLED lets it unambiguously record
+// an admin cancellation/refund (refundWalletTransactionId must be present —
+// see the migration's CHECK).
+enum WithdrawalSettlementOutcome {
+  COMPLETED
+  CANCELLED
+}
+
+// W-1D2A: traces where a payment-submission record came from. Every existing
+// (agent-submitted) row defaults to AGENT_SUBMITTED; a future admin-verified
+// evidence path sets ADMIN_VERIFIED. paymentOccurredAt carries when the
+// external fiat payment actually occurred (or was admin-verified to have), so
+// a COMPLETED withdrawal can satisfy the "payment submitted" invariant without
+// relying on the agent-supplied referenceNumber alone.
+enum PaymentSubmissionSource {
+  AGENT_SUBMITTED
+  ADMIN_VERIFIED
+}
+
 enum FiatLiquidityType {
   INITIAL_FUNDING
   RESERVE
@@ -1654,16 +1675,35 @@ model WithdrawalHold {
 }
 
 model WithdrawalSettlement {
-  id                  String                  @id @default(uuid())
-  withdrawalId        String                  @unique // 1:1 hard backstop — mirrors AgentOrderSettlement.orderId
-  reservationId       String                  // reference to WithdrawalLiquidityReservation.id — soft reference
-  coinAmount          Int                     // coins consumed from hold
-  fiatAmount          BigInt                  // fiat amount settled
-  walletTransactionId String                  // the WalletTransaction.id from the hold debit — soft reference
+  id                  String                             @id @default(uuid())
+  withdrawalId        String                             @unique // 1:1 hard backstop — mirrors AgentOrderSettlement.orderId
+  reservationId       String                             // reference to WithdrawalLiquidityReservation.id — soft reference
+  coinAmount          Int                                // coins consumed from hold
+  fiatAmount          BigInt                             // fiat amount settled
+  walletTransactionId String                             // the WalletTransaction.id from the hold debit — soft reference
   resolvedVia         WithdrawalSettlementOrigin
-  completedByUserId   String                  // user who confirmed or admin who resolved
-  idempotencyKey      String?                 // per-operation, scoped to withdrawal — NOT per-user
-  createdAt           DateTime                @default(now())
+  // W-1D2A: outcome (COMPLETED vs CANCELLED) is required and must be supplied
+  // explicitly by every settlement write — no Prisma-level default, matching
+  // the migration which backfills pre-existing rows to COMPLETED (historically
+  // settlements only recorded successful completion) and then applies NOT NULL
+  // without a persisted default, so the DB never silently defaults a new row.
+  outcome             WithdrawalSettlementOutcome
+  // W-1D2A: soft reference (no relation/FK) to the dispute this settlement
+  // resolved, if any. Unique — one settlement per dispute. Nullable so a
+  // settlement can also arise directly (USER_CONFIRMED / DIRECT) without a
+  // dispute.
+  disputeId               String?                    @unique
+  // W-1D2A: for a CANCELLED outcome, the WalletTransaction.id from the refund
+  // COIN_CREDIT. Unique, nullable — must be present iff outcome = CANCELLED
+  // (enforced by the migration's CHECK). walletTransactionId above always
+  // stays the ORIGINAL hold debit.
+  refundWalletTransactionId String? @unique
+  // W-1D2A: Prisma-facing name for the user who confirmed or admin who
+  // resolved the settlement. @map keeps the already-deployed physical column
+  // name "completedByUserId" unchanged — no ALTER/RENAME on it.
+  resolvedByUserId    String                             @map("completedByUserId")
+  idempotencyKey      String?                            // per-operation, scoped to withdrawal — NOT per-user
+  createdAt           DateTime                           @default(now())
 
   withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
 
@@ -1704,6 +1744,12 @@ model WithdrawalDispute {
   resolution      WithdrawalDisputeResolution?
   resolutionNote  String?
   resolvedBy      String?
+  // W-1D2A: the Withdrawal status the dispute was opened FROM (e.g. HELD,
+  // PAYOUT_IN_PROGRESS, PAYMENT_SUBMITTED). Nullable so pre-W-1D2A rows (and
+  // any SYSTEM-originated dispute) are not forced to fabricate an origin.
+  openedFromStatus  WithdrawalStatus?
+  // W-1D2A: optional admin escalation note/reason carried with the dispute.
+  escalationReason  String?                   @db.Text
   idempotencyKey  String?
   openedAt        DateTime                  @default(now())
   assignedAt      DateTime?
@@ -1743,17 +1789,19 @@ model WithdrawalDispute {
 // a matching requestHash is a replay (return the existing row), a hit
 // with a different requestHash is a 409 conflict.
 model WithdrawalPaymentSubmission {
-  id                String   @id @default(uuid())
-  withdrawalId      String   @unique
+  id                String                  @id @default(uuid())
+  withdrawalId      String                  @unique
   agentId           String
   submittedByUserId String
   submittedAt       DateTime
+  source            PaymentSubmissionSource @default(AGENT_SUBMITTED) // W-1D2A provenance
+  paymentOccurredAt DateTime?                                      // W-1D2A: when payment actually occurred
   referenceNumber   String
   note              String?
   idempotencyKey    String
   requestHash       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   withdrawal      Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
   agent           Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
