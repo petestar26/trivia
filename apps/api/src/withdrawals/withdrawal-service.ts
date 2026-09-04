@@ -186,6 +186,30 @@ export async function createWithdrawal(
         const withdrawalId = randomUUID();
         const now = new Date();
 
+        // Follow-up fix: repeat the idempotency lookup INSIDE the
+        // transaction, before the one-live-withdrawal check below. The
+        // pre-flight lookup above runs OUTSIDE any transaction, so it is a
+        // fast path only — a concurrent request carrying the SAME [userId,
+        // idempotencyKey] can miss it (both copies read null before either
+        // has written anything), then this copy enters the transaction
+        // AFTER the winning copy has already committed a live withdrawal.
+        // Without this re-check, the loser would fall straight into the
+        // one-live-withdrawal count below, see the winner's own row, and
+        // incorrectly throw ACTIVE_WITHDRAWAL_EXISTS instead of replaying
+        // idempotently — the request never even reaches quote claim, so
+        // the existing quote-claim-race fallback (below) cannot catch it.
+        const existingInTx = await tx.withdrawal.findUnique({
+          where: { userId_idempotencyKey: { userId: actorUserId, idempotencyKey: args.idempotencyKey } },
+        });
+        if (existingInTx) {
+          if (existingInTx.requestHash === requestHash) {
+            return { withdrawal: existingInTx, idempotent: true };
+          }
+          throw ApiError.conflict('A withdrawal already exists for this idempotency key with different request data', {
+            code: 'IDEMPOTENCY_CONFLICT',
+          });
+        }
+
         // W-1D2A Step 0: one-live-withdrawal-per-user rule. Reject before the
         // quote is claimed / wallet is debited / liquidity is reserved if the
         // user already has a live withdrawal (HELD / PAYOUT_IN_PROGRESS /
@@ -193,7 +217,8 @@ export async function createWithdrawal(
         // application-level guard; the partial unique index
         // (withdrawals_one_live_per_user_unique) remains the hard DB backstop
         // for the concurrent race. Idempotent replays never reach here — the
-        // pre-flight check above returns the existing withdrawal first.
+        // pre-flight check above AND the in-transaction re-check just above
+        // both return the existing withdrawal first.
         const liveWithdrawalCount = await tx.withdrawal.count({
           where: {
             userId: actorUserId,
@@ -389,12 +414,15 @@ export async function createWithdrawal(
 
       const code = (err as { code?: string }).code;
       if (code === 'P2002') {
-        // Mirrors order-service.ts's exact defensive pattern: a P2002
-        // here is EITHER the [userId, idempotencyKey] unique constraint
-        // (a concurrent duplicate request won the race) OR the
-        // withdrawalNumber unique constraint (an unrelated numbering
-        // collision) — refetch by idempotency key rather than parse
-        // Prisma's non-stable error target shape.
+        // A P2002 here can come from any of THREE unique constraints:
+        // [userId, idempotencyKey], the withdrawals_one_live_per_user_unique
+        // partial index (W-1D2A), or the withdrawalNumber sequence
+        // collision. Rather than parse Prisma's non-stable error target
+        // shape, disambiguate by re-reading in priority order — each
+        // check only converts the error when it can positively explain
+        // it; if neither explains it, the error is rethrown unchanged
+        // below rather than masked as the wrong case (requirement: do not
+        // mask an unrelated P2002).
         const winner = await prisma.withdrawal.findUnique({
           where: { userId_idempotencyKey: { userId: actorUserId, idempotencyKey: args.idempotencyKey } },
         });
@@ -406,6 +434,24 @@ export async function createWithdrawal(
             code: 'IDEMPOTENCY_CONFLICT',
           });
         }
+
+        // Not an idempotency-key collision — check whether it's the
+        // one-live-per-user partial unique index instead: a genuinely
+        // DIFFERENT concurrent request for the same user that raced past
+        // the in-transaction liveWithdrawalCount check above (both read 0
+        // before either committed).
+        const liveNow = await prisma.withdrawal.count({
+          where: {
+            userId: actorUserId,
+            status: { in: ['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED', 'DISPUTED'] },
+          },
+        });
+        if (liveNow > 0) {
+          throw ApiError.conflict('You already have an active withdrawal in progress', {
+            code: 'ACTIVE_WITHDRAWAL_EXISTS',
+          });
+        }
+
         if (attempt < MAX_LIQUIDITY_RETRY_ATTEMPTS - 1) continue;
       }
       throw err;

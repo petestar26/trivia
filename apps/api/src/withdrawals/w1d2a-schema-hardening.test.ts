@@ -252,6 +252,86 @@ describeIf('W-1D2A: one-live-withdrawal-per-user creation rule', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────
+// Follow-up fix: createWithdrawal's pre-flight idempotency lookup runs
+// OUTSIDE the transaction, so a genuinely concurrent same-key request can
+// miss it, then enter the transaction after the winner has already
+// committed a live withdrawal — without an in-transaction re-check, that
+// loser would see the winner's own row at the one-live-withdrawal count
+// and incorrectly throw ACTIVE_WITHDRAWAL_EXISTS instead of replaying.
+// These tests require TRUE concurrency (Promise.allSettled, not
+// sequential awaits) to exercise that race at all — a sequential replay
+// (as in the test above) never reaches the transaction, since the
+// pre-flight check always short-circuits it first.
+// ─────────────────────────────────────────────────────────────────
+
+describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live rule, under concurrency', () => {
+  beforeAll(() => cleanFixtures());
+
+  async function setupUserForConcurrency(tag: string) {
+    const admin = await createAdmin(tag);
+    const superAdmin = await createSuperAdmin(`${tag}-super`);
+    const country = await createCountry(tag);
+    const method = await createPaymentMethod(country.id, tag);
+    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createFundedAgent(tag, country.id, admin, superAdmin, 500_000n);
+    const user = await createFundedUser(tag, 50_000);
+    const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
+    return { user, country, payoutAccount };
+  }
+
+  it('concurrent creates with the SAME idempotency key + same payload both resolve to the same withdrawal — no spurious ACTIVE_WITHDRAWAL_EXISTS', async () => {
+    const tag = `concurrent-same-key-${Date.now()}`;
+    const { user, country, payoutAccount } = await setupUserForConcurrency(tag);
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 5_000 });
+    const args = { quoteId: quote.id, payoutAccountId: payoutAccount.id, idempotencyKey: `same-key-${tag}` };
+
+    const results = await Promise.allSettled([
+      createWithdrawal(user.id, args, 1000),
+      createWithdrawal(user.id, args, 1000),
+    ]);
+
+    // Neither concurrent copy of the SAME request may see
+    // ACTIVE_WITHDRAWAL_EXISTS — both must fulfill: one as the creator,
+    // one as an idempotent replay of it.
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    const fulfilled = results as PromiseFulfilledResult<Awaited<ReturnType<typeof createWithdrawal>>>[];
+
+    const idempotentFlags = fulfilled.map((r) => r.value.idempotent).sort();
+    expect(idempotentFlags).toEqual([false, true]);
+
+    const ids = new Set(fulfilled.map((r) => (r.value.withdrawal as any).id));
+    expect(ids.size).toBe(1);
+
+    expect(await prisma.withdrawal.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it('concurrent creates with DIFFERENT idempotency keys for the same user: exactly one succeeds, the loser maps to ACTIVE_WITHDRAWAL_EXISTS, never a raw P2002', async () => {
+    const tag = `concurrent-diff-key-${Date.now()}`;
+    const { user, country, payoutAccount } = await setupUserForConcurrency(tag);
+    const quoteA = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 4_000 });
+    const quoteB = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 4_500 });
+
+    const results = await Promise.allSettled([
+      createWithdrawal(user.id, { quoteId: quoteA.id, payoutAccountId: payoutAccount.id, idempotencyKey: `diff-a-${tag}` }, 1000),
+      createWithdrawal(user.id, { quoteId: quoteB.id, payoutAccountId: payoutAccount.id, idempotencyKey: `diff-b-${tag}` }, 1000),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // The loser must map to the friendly ACTIVE_WITHDRAWAL_EXISTS conflict
+    // — never a raw, unmapped Prisma P2002 error leaking to the caller.
+    const reason = rejected[0].reason as any;
+    expect(reason?.details?.code).toBe('ACTIVE_WITHDRAWAL_EXISTS');
+    expect(reason?.code).not.toBe('P2002');
+
+    expect(await prisma.withdrawal.count({ where: { userId: user.id } })).toBe(1);
+  });
+});
+
 describeIf('W-1D2A: DB backstop rejects two live withdrawals per user', () => {
   beforeAll(() => cleanFixtures());
 
@@ -294,7 +374,6 @@ describeIf('W-1D2A: DB backstop rejects two live withdrawals per user', () => {
 
     // Cleanup the second quote so the fixture cleanup can proceed.
     await prisma.withdrawalQuote.deleteMany({ where: { id: quote2!.id } });
-  });
   });
 });
 
