@@ -274,7 +274,14 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
-    await createFundedAgent(tag, country.id, admin, superAdmin, 500_000n);
+    // W-1D2A follow-up fix: both concurrency tests below race two
+    // createWithdrawal calls against the SAME agent's liquidity row. The
+    // different-key test is only meant to prove the one-live-withdrawal
+    // rule maps the loser to ACTIVE_WITHDRAWAL_EXISTS — not to exercise
+    // liquidity exhaustion — so fund a large buffer well beyond both
+    // competing quotes' fiat amounts to keep that test deterministic
+    // rather than timing/setup-sensitive to INSUFFICIENT_LIQUIDITY.
+    await createFundedAgent(tag, country.id, admin, superAdmin, 10_000_000n);
     const user = await createFundedUser(tag, 50_000);
     const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
     return { user, country, payoutAccount };
