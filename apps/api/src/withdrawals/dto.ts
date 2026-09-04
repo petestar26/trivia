@@ -48,3 +48,50 @@ export function serializeSettlement(settlement: WithdrawalSettlement): Serialize
     fiatAmount: settlement.fiatAmount.toString(),
   };
 }
+
+// W-1D2: admin-facing withdrawal serialization.
+//
+// Withdrawal.paymentSnapshot is the user's AUTHORITATIVE, UNMASKED payout
+// destination (see withdrawal-service.ts) — legitimately unmasked on the
+// withdrawing user's own routes (it's their own data) and on the assigned
+// agent's routes (the agent needs the real account number to actually send
+// the payout). serializeWithdrawal above is deliberately left as-is for
+// both of those; this file makes no behavior change to owner/agent routes.
+//
+// W-1D2 is the first surface where a withdrawal becomes browsable by a
+// party who is neither the owner nor the agent executing the payout — an
+// ADMIN/SUPER_ADMIN reviewing or resolving a dispute does not need the raw
+// account number to do that job. serializeAdminWithdrawal masks it before
+// any admin route can echo it back.
+//
+// Mirrors payout-account-service.ts's maskAccountDetails exactly, kept as
+// a local duplicate rather than exported cross-domain — matching this
+// repo's existing precedent of small per-domain private helpers (see that
+// file's own validateAccountDetails duplication note).
+function maskPaymentSnapshotValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  if (value.length <= 4) return '*'.repeat(value.length);
+  return '*'.repeat(value.length - 4) + value.slice(-4);
+}
+
+function maskPaymentSnapshot(paymentSnapshot: unknown): unknown {
+  if (!paymentSnapshot || typeof paymentSnapshot !== 'object' || Array.isArray(paymentSnapshot)) {
+    return paymentSnapshot;
+  }
+  const masked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(paymentSnapshot as Record<string, unknown>)) {
+    masked[key] = maskPaymentSnapshotValue(value);
+  }
+  return masked;
+}
+
+export interface SerializedAdminWithdrawal extends Omit<SerializedWithdrawal, 'paymentSnapshot'> {
+  paymentSnapshot: unknown;
+}
+
+export function serializeAdminWithdrawal(withdrawal: Withdrawal): SerializedAdminWithdrawal {
+  return {
+    ...serializeWithdrawal(withdrawal),
+    paymentSnapshot: maskPaymentSnapshot(withdrawal.paymentSnapshot),
+  };
+}

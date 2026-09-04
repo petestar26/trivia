@@ -35,7 +35,7 @@ import type {
   WithdrawalEscalationReason,
   WithdrawalResolutionOutcome,
 } from './dispute-service';
-import { serializeQuote, serializeSettlement, serializeWithdrawal } from './dto';
+import { serializeAdminWithdrawal, serializeQuote, serializeSettlement, serializeWithdrawal } from './dto';
 
 // W-1C withdrawal API routes.
 //
@@ -375,7 +375,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
     const result = await listWithdrawalEscalationCandidates(request.user!.sub, query);
     return reply.send({
       success: true,
-      data: result.items.map(serializeWithdrawal),
+      data: result.items.map(serializeAdminWithdrawal),
       nextCursor: result.nextCursor,
     });
   });
@@ -389,7 +389,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: {
           dispute: result.dispute,
-          withdrawal: serializeWithdrawal(result.withdrawal),
+          withdrawal: serializeAdminWithdrawal(result.withdrawal),
         },
       });
     }
@@ -416,7 +416,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
           success: true,
           data: {
             dispute: result.dispute,
-            withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+            withdrawal: serializeAdminWithdrawal(result.withdrawal as Withdrawal),
           },
           idempotent: result.idempotent,
         });
@@ -438,7 +438,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: {
           dispute: result.dispute,
-          withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          withdrawal: serializeAdminWithdrawal(result.withdrawal as Withdrawal),
         },
         idempotent: result.idempotent,
       });
@@ -469,7 +469,7 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: {
           dispute: result.dispute,
-          withdrawal: serializeWithdrawal(result.withdrawal as Withdrawal),
+          withdrawal: serializeAdminWithdrawal(result.withdrawal as Withdrawal),
           settlement: serializeSettlement(result.settlement),
         },
         idempotent: result.idempotent,
