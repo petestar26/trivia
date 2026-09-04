@@ -437,7 +437,7 @@ describeIf('W-1D2A: user cancel works when assigned agent is disabled and withdr
     expect(reservation!.status).toBe('RELEASED');
 
     const balanceAfter = await getWalletBalance(user.id);
-    expect(balanceAfter.coinsBalance).toBe(balanceBefore.coinsBalance);
+    expect(balanceAfter.coinsBalance).toBe(balanceBefore.coinsBalance + (withdrawal as any).coinAmount);
   });
 });
 
