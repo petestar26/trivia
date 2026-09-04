@@ -668,3 +668,70 @@ describeIf('W-1D3: sweep -> claim -> resolve preserves W-1D2 admin/dispute lifec
     expect(resolvedDispute.resolvedAt.getTime()).toBeGreaterThanOrEqual(resolvedDispute.assignedAt.getTime());
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Non-UTC session regression — proves the AT TIME ZONE 'UTC' fix
+// ═══════════════════════════════════════════════════════════════════
+
+describeIf('W-1D3: sweepWithdrawalTimeouts — non-UTC session does not falsely escalate', () => {
+  beforeAll(() => cleanFixtures());
+
+  it('future deadlines under Asia/Bangkok timezone are not selected/escalated for T1 or T2', async () => {
+    const tag = `utc-regression-${Date.now()}`;
+
+    // Switch the Postgres session to a non-UTC timezone so the sweep's SQL
+    // runs with Asia/Bangkok (+07). Under the old selector
+    // (deadline <= now()), Postgres would implicitly convert the
+    // timestamp_without_tz deadline through the +07 session timezone,
+    // making a future-in-UTC deadline appear to have already elapsed.
+    // The fixed selector (deadline <= now() AT TIME ZONE 'UTC') always
+    // compares timestamps without timezone ambiguity.
+    await prisma.$executeRawUnsafe(`SET timezone = 'Asia/Bangkok'`);
+    try {
+      const [{ tz }] = await prisma.$queryRaw<{ tz: string }[]>`SELECT current_setting('timezone') AS tz`;
+      expect(tz).toBe('Asia/Bangkok');
+
+      // Create one T1 and one T2 withdrawal, each with a deadline
+      // anchored 1 hour into the future (in UTC).
+      const pip = await createPayoutInProgressWithdrawal(`${tag}-pip`);
+      const ps = await createPaymentSubmittedWithdrawal(`${tag}-ps`);
+
+      const [{ now: dbNow }] = await prisma.$queryRaw<{ now: Date }[]>`SELECT now() AS now`;
+      const future = new Date(dbNow.getTime() + 60 * 60 * 1000);
+      await prisma.withdrawal.update({ where: { id: pip.withdrawal.id }, data: { paymentSubmissionDeadlineAt: future } });
+      await prisma.withdrawal.update({ where: { id: ps.withdrawal.id }, data: { confirmationDeadlineAt: future } });
+
+      const summary = await sweepWithdrawalTimeouts();
+      expect(summary.lockAcquired).toBe(true);
+
+      // Neither withdrawal must appear in the sweep's outcomes.
+      expect(summary.payoutDeadline.outcomes.some((o) => o.withdrawalId === pip.withdrawal.id)).toBe(false);
+      expect(summary.confirmationDeadline.outcomes.some((o) => o.withdrawalId === ps.withdrawal.id)).toBe(false);
+
+      // Statuses remain unchanged — not escalated to DISPUTED.
+      const pipAfter = await prisma.withdrawal.findUnique({ where: { id: pip.withdrawal.id } });
+      expect(pipAfter!.status).toBe('PAYOUT_IN_PROGRESS');
+      expect(pipAfter!.disputedAt).toBeNull();
+
+      const psAfter = await prisma.withdrawal.findUnique({ where: { id: ps.withdrawal.id } });
+      expect(psAfter!.status).toBe('PAYMENT_SUBMITTED');
+      expect(psAfter!.disputedAt).toBeNull();
+
+      // No dispute or operation rows must have been created.
+      const disputeCount = await prisma.withdrawalDispute.count({
+        where: { withdrawalId: { in: [pip.withdrawal.id, ps.withdrawal.id] } },
+      });
+      expect(disputeCount).toBe(0);
+      const operationCount = await prisma.withdrawalOperation.count({
+        where: {
+          withdrawalId: { in: [pip.withdrawal.id, ps.withdrawal.id] },
+          action: { in: ['SYSTEM_TIMEOUT_ESCALATE_PAYOUT', 'SYSTEM_TIMEOUT_ESCALATE_CONFIRMATION'] },
+        },
+      });
+      expect(operationCount).toBe(0);
+    } finally {
+      // Restore session timezone to UTC regardless of test outcome.
+      await prisma.$executeRawUnsafe(`SET timezone = 'UTC'`);
+    }
+  });
+});
