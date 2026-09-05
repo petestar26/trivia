@@ -8,6 +8,7 @@ import {
   createAbortableSleep,
   DEFAULT_SWEEP_INTERVAL_MS,
   DEFAULT_RECONCILIATION_INTERVAL_MS,
+  MAX_TIMER_DELAY_MS,
 } from './worker';
 import type { WorkerConfig, WorkerDeps } from './worker';
 
@@ -89,6 +90,30 @@ describe('worker config parsing', () => {
     expect(() => parsePositiveInt('0', 3600000, 'WORKER_RECONCILIATION_INTERVAL_MS')).toThrow(/positive integer/);
   });
 
+  it('rejects an interval above Node setTimeout\'s 32-bit signed max, for both interval vars', () => {
+    // 3_000_000_000 > 2_147_483_647 (2^31-1) — setTimeout silently clamps a
+    // value this large to 1ms rather than erroring, which is exactly the
+    // hot-loop failure mode this bound exists to catch at config-parse time.
+    expect(() => parsePositiveInt('3000000000', 300000, 'WORKER_SWEEP_INTERVAL_MS')).toThrow(
+      /positive integer <= 2147483647/
+    );
+    expect(() => parsePositiveInt('3000000000', 3600000, 'WORKER_RECONCILIATION_INTERVAL_MS')).toThrow(
+      /positive integer <= 2147483647/
+    );
+    // The boundary itself is still valid.
+    expect(parsePositiveInt(String(MAX_TIMER_DELAY_MS), 300000, 'WORKER_SWEEP_INTERVAL_MS')).toBe(MAX_TIMER_DELAY_MS);
+    expect(() => parsePositiveInt(String(MAX_TIMER_DELAY_MS + 1), 300000, 'WORKER_SWEEP_INTERVAL_MS')).toThrow(
+      /positive integer/
+    );
+
+    expect(() =>
+      parseWorkerConfig([], { WORKER_SWEEP_INTERVAL_MS: '3000000000' })
+    ).toThrow(/positive integer <= 2147483647/);
+    expect(() =>
+      parseWorkerConfig([], { WORKER_RECONCILIATION_INTERVAL_MS: '3000000000' })
+    ).toThrow(/positive integer <= 2147483647/);
+  });
+
   it('parses booleans from true/false/1/0 and rejects anything else', () => {
     expect(parseBool('true', true)).toBe(true);
     expect(parseBool('false', true)).toBe(false);
@@ -104,23 +129,25 @@ describe('worker config parsing', () => {
 describe('runWorkerCycle', () => {
   it('runs one sweep and logs its duration', async () => {
     const deps = makeDeps();
-    const last = await runWorkerCycle(deps, baseConfig(), -1);
+    const result = await runWorkerCycle(deps, baseConfig(), -1);
 
     expect(deps.sweep).toHaveBeenCalledTimes(1);
     const sweepLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'timeout sweep completed');
     expect(sweepLog).toBeDefined();
     expect(sweepLog![0].durationMs).toBe(0);
-    expect(last).not.toBe(-1); // reconciliation ran, so lastReconcileAt advanced
+    expect(result.lastReconcileAt).not.toBe(-1); // reconciliation ran, so lastReconcileAt advanced
+    expect(result.failed).toBe(false);
   });
 
   it('skips reconciliation when disabled by config', async () => {
     const deps = makeDeps();
     const config = { ...baseConfig(), runReconciliation: false };
-    const last = await runWorkerCycle(deps, config, -1);
+    const result = await runWorkerCycle(deps, config, -1);
 
     expect(deps.sweep).toHaveBeenCalledTimes(1);
     expect(deps.reconcile).not.toHaveBeenCalled();
-    expect(last).toBe(-1); // unchanged sentinel
+    expect(result.lastReconcileAt).toBe(-1); // unchanged sentinel
+    expect(result.failed).toBe(false);
   });
 
   it('emits a warning log when reconciliation reports issues', async () => {
@@ -133,6 +160,35 @@ describe('runWorkerCycle', () => {
     const warn = deps.log.mock.calls.find(([entry]) => entry.level === 'warn' && entry.msg === 'reconciliation detected issues');
     expect(warn).toBeDefined();
     expect(warn![0].totalIssues).toBe(3);
+  });
+
+  it('a failing sweep still allows a due reconciliation to run, and reports failed:true', async () => {
+    const deps = makeDeps({
+      sweep: vi.fn().mockRejectedValue(new Error('sweep exploded')),
+    });
+    const result = await runWorkerCycle(deps, baseConfig(), -1);
+
+    expect(deps.sweep).toHaveBeenCalledTimes(1);
+    expect(deps.reconcile).toHaveBeenCalledTimes(1); // NOT suppressed by the sweep failure
+    const sweepErrLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'timeout sweep failed');
+    expect(sweepErrLog).toBeDefined();
+    expect(sweepErrLog![0].error.message).toBe('sweep exploded');
+    expect(result.failed).toBe(true);
+    expect(result.lastReconcileAt).not.toBe(-1); // reconciliation itself still succeeded
+  });
+
+  it('a failing reconciliation logs its own error, reports failed:true, and leaves lastReconcileAt unchanged for retry', async () => {
+    const deps = makeDeps({
+      reconcile: vi.fn().mockRejectedValue(new Error('reconcile exploded')),
+    });
+    const result = await runWorkerCycle(deps, baseConfig(), -1);
+
+    expect(deps.sweep).toHaveBeenCalledTimes(1); // sweep still ran normally
+    const reconcileErrLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation failed');
+    expect(reconcileErrLog).toBeDefined();
+    expect(reconcileErrLog![0].error.message).toBe('reconcile exploded');
+    expect(result.failed).toBe(true);
+    expect(result.lastReconcileAt).toBe(-1); // unchanged sentinel — retried next cycle, not treated as having run
   });
 });
 
@@ -156,16 +212,30 @@ describe('runWorkerLoop -- once mode', () => {
     expect(deps.sleep).not.toHaveBeenCalled();
   });
 
-  it('returns 1 when the sweep fails in once mode', async () => {
+  it('returns 1 when the sweep fails in once mode, even though reconciliation still ran', async () => {
     const deps = makeDeps({
       sweep: vi.fn().mockRejectedValue(new Error('sweep exploded')),
     });
     const code = await runWorkerLoop(deps, { ...baseConfig(), once: true }, noopSignal);
 
     expect(code).toBe(1);
-    const errLog = deps.log.mock.calls.find(([entry]) => entry.level === 'error' && entry.msg === 'worker cycle failed');
+    expect(deps.reconcile).toHaveBeenCalledTimes(1); // not suppressed by the sweep failure
+    const errLog = deps.log.mock.calls.find(([entry]) => entry.level === 'error' && entry.msg === 'timeout sweep failed');
     expect(errLog).toBeDefined();
     expect(errLog![0].error.message).toBe('sweep exploded');
+  });
+
+  it('returns 1 when reconciliation fails in once mode, and logs the reconciliation error', async () => {
+    const deps = makeDeps({
+      reconcile: vi.fn().mockRejectedValue(new Error('reconcile exploded')),
+    });
+    const code = await runWorkerLoop(deps, { ...baseConfig(), once: true }, noopSignal);
+
+    expect(code).toBe(1);
+    expect(deps.sweep).toHaveBeenCalledTimes(1); // sweep still ran normally
+    const errLog = deps.log.mock.calls.find(([entry]) => entry.level === 'error' && entry.msg === 'reconciliation failed');
+    expect(errLog).toBeDefined();
+    expect(errLog![0].error.message).toBe('reconcile exploded');
   });
 });
 
@@ -220,7 +290,7 @@ describe('runWorkerLoop -- continuous mode', () => {
     expect(deps.reconcile).toHaveBeenCalledTimes(1);
   });
 
-  it('continues after a single failed cycle and does not crash', async () => {
+  it('continues after a sweep failure and does not crash', async () => {
     const controller = new AbortController();
     const deps = makeDeps({
       sweep: vi
@@ -235,8 +305,41 @@ describe('runWorkerLoop -- continuous mode', () => {
 
     expect(code).toBe(0);
     expect(deps.sweep).toHaveBeenCalledTimes(2);
-    const errLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'worker cycle failed; continuing');
+    // The failure is logged (inside runWorkerCycle) as its own step-level
+    // error — it never reaches runWorkerLoop's outer catch as an exception,
+    // since runWorkerCycle doesn't throw for an ordinary step failure.
+    const errLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'timeout sweep failed');
     expect(errLog).toBeDefined();
+    // Reconciliation still ran on the failing cycle (cycle 1, sentinel-due) —
+    // not suppressed by the sweep having failed on that same cycle. The
+    // clock doesn't advance in this test, so cycle 2's reconciliation isn't
+    // due yet (that cadence interaction is covered separately below).
+    expect(deps.reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues after a reconciliation failure and does not crash', async () => {
+    const controller = new AbortController();
+    const deps = makeDeps({
+      reconcile: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('reconcile boom'))
+        .mockResolvedValue({ totalIssues: 0, ranAt: '2026-09-05T00:00:00.000Z' }),
+      sleep: vi.fn(async () => {
+        deps.advance(3000); // reconciliationIntervalMs, so it's due again next cycle
+        if (deps.sweep.mock.calls.length >= 2) controller.abort();
+      }),
+    });
+    const code = await runWorkerLoop(deps, baseConfig(), controller.signal);
+
+    expect(code).toBe(0);
+    expect(deps.sweep).toHaveBeenCalledTimes(2); // sweep unaffected by reconciliation failing
+    const errLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation failed');
+    expect(errLog).toBeDefined();
+    expect(errLog![0].error.message).toBe('reconcile boom');
+    // Retried on the next cycle after the failure, and succeeded.
+    expect(deps.reconcile).toHaveBeenCalledTimes(2);
+    const successLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation completed');
+    expect(successLog).toBeDefined();
   });
 });
 

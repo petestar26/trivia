@@ -46,6 +46,13 @@ export const DEFAULT_RECONCILIATION_INTERVAL_MS = 60 * 60 * 1000; // 60 minutes
 export const DEFAULT_RUN_RECONCILIATION = true;
 export const ONCE_FLAG = '--once';
 
+// Node's setTimeout takes a 32-bit signed int for its delay. A larger value
+// doesn't error — it silently clamps to 1ms (with a TimeoutOverflowWarning),
+// which would turn an interval meant to fire "rarely" into a hot loop
+// continuously re-running the sweep/reconciliation transactions. Reject it
+// at config-parse time instead of discovering it at runtime.
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 // Sentinel for "reconciliation has never run yet". Distinct from any real
 // timestamp so the very first cycle always performs a reconciliation run.
 const NEVER_RAN = -1;
@@ -53,8 +60,8 @@ const NEVER_RAN = -1;
 export function parsePositiveInt(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === '') return fallback;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be a positive integer, got "${value}"`);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_TIMER_DELAY_MS) {
+    throw new Error(`${name} must be a positive integer <= ${MAX_TIMER_DELAY_MS}, got "${value}"`);
   }
   return parsed;
 }
@@ -114,62 +121,102 @@ export function createAbortableSleep(signal: AbortSignal): (ms: number) => Promi
     });
 }
 
+export interface WorkerCycleResult {
+  lastReconcileAt: number;
+  failed: boolean;
+}
+
 // Runs one sweep, then one reconciliation if (a) enabled and (b) the cadence
-// has elapsed. Returns the updated "last reconciliation ran" timestamp.
-// Throws if either step fails — the caller decides whether to continue or
-// exit. durationMs is measured with deps.now() so tests can drive the clock.
+// has elapsed. The two steps are independently caught and logged: a failing
+// sweep never suppresses reconciliation (it still runs when due), and a
+// failing reconciliation leaves lastReconcileAt unchanged so it is retried
+// on a later cycle rather than being treated as "just ran". This function
+// never throws for an ordinary step failure — `failed` communicates that to
+// the caller instead, which decides the exit code / whether to keep looping.
+// durationMs is measured with deps.now() so tests can drive the clock.
 export async function runWorkerCycle(
   deps: WorkerDeps,
   config: WorkerConfig,
   lastReconcileAt: number
-): Promise<number> {
-  const sweepStart = deps.now();
-  const summary = await deps.sweep();
-  deps.log({
-    level: 'info',
-    msg: 'timeout sweep completed',
-    durationMs: deps.now() - sweepStart,
-    results: summary,
-  });
+): Promise<WorkerCycleResult> {
+  let failed = false;
 
-  if (!config.runReconciliation) return lastReconcileAt;
+  const sweepStart = deps.now();
+  try {
+    const summary = await deps.sweep();
+    deps.log({
+      level: 'info',
+      msg: 'timeout sweep completed',
+      durationMs: deps.now() - sweepStart,
+      results: summary,
+    });
+  } catch (err) {
+    failed = true;
+    deps.log({
+      level: 'error',
+      msg: 'timeout sweep failed',
+      durationMs: deps.now() - sweepStart,
+      error: serializeError(err),
+    });
+  }
+
+  if (!config.runReconciliation) return { lastReconcileAt, failed };
   // NEVER_RAN means reconciliation has never run (startup) — run it
   // immediately, then respect the configured cadence thereafter.
   if (lastReconcileAt !== NEVER_RAN && deps.now() - lastReconcileAt < config.reconciliationIntervalMs) {
-    return lastReconcileAt;
+    return { lastReconcileAt, failed };
   }
 
   const reconcileStart = deps.now();
-  const report = await deps.reconcile();
-  deps.log({
-    level: 'info',
-    msg: 'reconciliation completed',
-    durationMs: deps.now() - reconcileStart,
-    totalIssues: report.totalIssues,
-    ranAt: report.ranAt,
-  });
-  if (report.totalIssues > 0) {
+  try {
+    const report = await deps.reconcile();
     deps.log({
-      level: 'warn',
-      msg: 'reconciliation detected issues',
+      level: 'info',
+      msg: 'reconciliation completed',
+      durationMs: deps.now() - reconcileStart,
       totalIssues: report.totalIssues,
       ranAt: report.ranAt,
     });
+    if (report.totalIssues > 0) {
+      deps.log({
+        level: 'warn',
+        msg: 'reconciliation detected issues',
+        totalIssues: report.totalIssues,
+        ranAt: report.ranAt,
+      });
+    }
+    return { lastReconcileAt: deps.now(), failed };
+  } catch (err) {
+    deps.log({
+      level: 'error',
+      msg: 'reconciliation failed',
+      durationMs: deps.now() - reconcileStart,
+      error: serializeError(err),
+    });
+    // Leave lastReconcileAt unchanged — a failed run is not a run, so the
+    // next cycle sees it as still (or newly, if this was the sentinel)
+    // due and retries, rather than waiting a full interval.
+    return { lastReconcileAt, failed: true };
   }
-  return deps.now();
 }
 
 export async function runWorkerLoop(deps: WorkerDeps, config: WorkerConfig, signal: AbortSignal): Promise<number> {
   let lastReconcileAt = NEVER_RAN;
 
-  const cycle = async () => {
-    lastReconcileAt = await runWorkerCycle(deps, config, lastReconcileAt);
+  // Returns whether the cycle failed (sweep and/or reconciliation). This
+  // itself is not expected to throw — runWorkerCycle catches and logs both
+  // steps' own errors — but a try/catch remains as defense in depth against
+  // anything outside that contract (e.g. deps.log itself throwing).
+  const cycle = async (): Promise<boolean> => {
+    const result = await runWorkerCycle(deps, config, lastReconcileAt);
+    lastReconcileAt = result.lastReconcileAt;
+    return result.failed;
   };
 
   if (config.once) {
     try {
-      await cycle();
-      return 0;
+      const failed = await cycle();
+      return failed ? 1 : 0;
     } catch (err) {
       deps.log({ level: 'error', msg: 'worker cycle failed', error: serializeError(err) });
       return 1;
@@ -235,9 +282,18 @@ async function main(): Promise<number> {
 // malformed URL on Windows (argv[1] is a native backslash path), so compare
 // native-to-native via fileURLToPath instead.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().then((code) => {
-    process.exitCode = code;
-  });
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err) => {
+      // main() itself isn't expected to reject (its own body is one big
+      // try/catch by construction via runWorkerLoop), but this is the last
+      // line of defense against an unhandled rejection crashing the process
+      // with an unstructured stack trace instead of a structured log line.
+      console.error(JSON.stringify({ level: 'error', msg: 'withdrawal worker crashed', error: serializeError(err) }));
+      process.exitCode = 1;
+    });
 }
 
 export { main };
