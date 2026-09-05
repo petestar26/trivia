@@ -1,0 +1,25 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter web build",
+  "outputDirectory": "apps/web/dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://REPLACE_WITH_RAILWAY_API_DOMAIN/api/$1"
+    },
+    {
+      "source": "/ws/(.*)",
+      "destination": "https://REPLACE_WITH_RAILWAY_API_DOMAIN/ws/$1"
+    },
+    {
+      "source": "/ws",
+      "destination": "https://REPLACE_WITH_RAILWAY_API_DOMAIN/ws"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
