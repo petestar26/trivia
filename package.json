@@ -8,6 +8,7 @@
     "build": "pnpm --filter web build && pnpm --filter api build",
     "build:web": "pnpm --filter web build",
     "build:api": "pnpm --filter api build",
+    "build:packages": "pnpm --filter @socialplay/config build && pnpm --filter @socialplay/shared build && pnpm --filter @socialplay/database build && pnpm --filter @socialplay/storage build",
     "lint": "pnpm -r run lint",
     "lint:fix": "pnpm -r run lint:fix",
     "typecheck": "pnpm -r run typecheck",

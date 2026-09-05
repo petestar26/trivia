@@ -1,2 +1,2 @@
-export { prisma, default } from './client';
+export { prisma, default } from './client.js';
 export * from '@prisma/client';
