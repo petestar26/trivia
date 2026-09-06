@@ -1,6 +1,6 @@
 const API_BASE = '/api/v1';
 
-interface ApiResponse<T> {
+export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: {
@@ -13,6 +13,34 @@ interface ApiResponse<T> {
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
+}
+
+/**
+ * Minimal shape the individual game pages need from `GET /games`. The catalog
+ * returns more fields (see the games hub), but each game page only looks up its
+ * own entry by `key` and reads the bet bounds.
+ */
+export interface GameCatalogEntry {
+  key: string;
+  minBet: number;
+  maxBet: number;
+}
+
+/**
+ * Safely extract data from an ApiResponse, throwing a descriptive error if
+ * the response indicates failure or data is missing. This avoids the common
+ * pattern of `res.data?.property` which returns `undefined` at runtime when
+ * the server returns a success flag without data.
+ */
+export function unwrapData<T>(response: ApiResponse<T>, context?: string): T {
+  if (!response.success) {
+    const msg = response.error?.message || 'API request failed';
+    throw new Error(`${context ? `${context}: ` : ''}${msg}`);
+  }
+  if (response.data === undefined || response.data === null) {
+    throw new Error(`${context ? `${context}: ` : ''}API response missing data`);
+  }
+  return response.data;
 }
 
 class ApiClient {
@@ -64,10 +92,10 @@ class ApiClient {
     return this.request<T>(endpoint, { method: 'GET', params });
   }
 
-  async post<T>(endpoint: string, body: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
+  async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: body !== undefined ? JSON.stringify(body) : undefined,
       params,
     });
   }
@@ -156,8 +184,16 @@ class ApiClient {
     return this.post(`/competitions/${groupId}/${competitionId}/join`);
   }
 
-  async playCompetition(groupId: string, competitionId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
+  async playCompetition<T = unknown>(
+    groupId: string,
+    competitionId: string,
+    clientData?: Record<string, unknown>
+  ): Promise<ApiResponse<T>> {
     return this.post(`/competitions/${groupId}/${competitionId}/play`, { clientData });
+  }
+
+  async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
   }
 
   // Wallet / Economy

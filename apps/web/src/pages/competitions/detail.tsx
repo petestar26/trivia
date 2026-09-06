@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { api, Competition } from '@/lib/api';
+import { api, unwrapData, Competition } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useSocket } from '@/providers/socket-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +51,12 @@ export function CompetitionDetailPage() {
     enabled: !!groupId && !!competitionId,
     refetchOnWindowFocus: true,
   });
+
+  // Derived here (not stored in state) so it's available to playMutation's
+  // onSuccess below without a "used before declaration" ordering problem —
+  // this is plain synchronous derivation, not a hook, so it can sit anywhere
+  // relative to other hooks.
+  const isTriviaCompetition = competition?.game?.key === 'trivia';
 
   // ── Fetch group info for UX role display (not for security) ────────
   // Security is enforced server-side; this is display-only.
@@ -110,7 +116,10 @@ export function CompetitionDetailPage() {
   });
 
   const playMutation = useMutation({
-    mutationFn: (clientData?: Record<string, unknown>) => api.playCompetition(groupId!, competitionId!, clientData),
+    mutationFn: async (clientData?: Record<string, unknown>) => {
+      const res = await api.playCompetition<PlayCompetitionResult>(groupId!, competitionId!, clientData);
+      return unwrapData(res, 'Play competition response');
+    },
     onSuccess: (data) => {
       // Handle two-phase trivia flow
       if (isTriviaCompetition && data.phase === 'question' && data.question) {
@@ -164,16 +173,6 @@ export function CompetitionDetailPage() {
   const [triviaQuestion, setTriviaQuestion] = useState<TriviaQuestion | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showTriviaQuestion, setShowTriviaQuestion] = useState(false);
-  const [isTriviaCompetition, setIsTriviaCompetition] = useState(false);
-
-  // Track if this is a trivia competition
-  useEffect(() => {
-    if (competition?.game?.key === 'trivia') {
-      setIsTriviaCompetition(true);
-    } else {
-      setIsTriviaCompetition(false);
-    }
-  }, [competition?.game?.key]);
 
   // ── Loading / error guards — AFTER all hooks ───────────────────────
   const isLoading = compLoading || groupLoading;

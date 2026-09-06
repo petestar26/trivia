@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, unwrapData, GameCatalogEntry } from '@/lib/api';
 
 interface SpinResult {
   name: string;
@@ -24,16 +24,15 @@ export function LuckySpinPage() {
   const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
+  const { data: games } = useQuery<GameCatalogEntry[]>({
     queryKey: ['games'],
-    queryFn: async () => api.get('/games'),
+    queryFn: async () => unwrapData(await api.get<GameCatalogEntry[]>('/games'), 'Games response'),
   });
-  const game = games?.data?.find((g) => g.key === 'lucky_spin');
+  const game = games?.find((g) => g.key === 'lucky_spin');
 
   const playMutation = useMutation({
     mutationFn: async (betAmount: number) => {
-      const res = await api.post<SpinPlayResult>('/games/lucky_spin/play', { betAmount });
-      return res.data;
+      return unwrapData(await api.post<SpinPlayResult>('/games/lucky_spin/play', { betAmount }), 'Spin play response');
     },
     onSuccess: (data) => {
       setLastResult(data.result);

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useEffect } from 'react';
 
@@ -36,27 +36,23 @@ const GAME_ROUTES: Record<string, string> = {
 
 export function GamesPage() {
   const { user } = useAuth();
-  const { id: userId } = user;
 
-  const { data: gamesData, isLoading } = useQuery<{ data: GameCatalogItem[] }>({
+  const { data: games, isLoading } = useQuery<GameCatalogItem[]>({
     queryKey: ['games'],
     queryFn: async () => {
-      const res = await api.get<{ data: GameCatalogItem[] }>('/games');
-      return res.data;
+      return unwrapData<GameCatalogItem[]>(await api.get<GameCatalogItem[]>('/games'), 'Games response');
     },
   });
-  const games = gamesData?.data;
 
   const { data: wallet, refetch: refetchWallet } = useQuery<WalletData>({
-    queryKey: ['wallet', userId],
+    queryKey: ['wallet', user?.id],
     queryFn: async () => {
-      const res = await api.get<WalletData>('/wallet');
-      return res.data;
+      return unwrapData<WalletData>(await api.get<WalletData>('/wallet'), 'Wallet response');
     },
+    enabled: !!user?.id,
   });
 
   useEffect(() => {
-    // Any time games load, refresh wallet balance
     refetchWallet();
   }, [refetchWallet]);
 

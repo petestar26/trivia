@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, unwrapData, GameCatalogEntry } from '@/lib/api';
 import { useEffect } from 'react';
 
 interface TriviaQuestion {
@@ -32,17 +32,17 @@ export function TriviaGamePage() {
   const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
+  const { data: games } = useQuery<GameCatalogEntry[]>({
     queryKey: ['games'],
-    queryFn: async () => api.get('/games'),
+    queryFn: async () => unwrapData(await api.get<GameCatalogEntry[]>('/games'), 'Games response'),
   });
-  const game = games?.data?.find((g) => g.key === 'trivia');
+  const game = games?.find((g) => g.key === 'trivia');
 
   const { data: questionData, refetch: refetchQuestion, isFetching } = useQuery<
-    { data: TriviaQuestion[] }
+    TriviaQuestion[]
   >({
     queryKey: ['trivia-questions'],
-    queryFn: async () => api.get('/games/questions'),
+    queryFn: async () => unwrapData(await api.get<TriviaQuestion[]>('/games/questions'), 'Trivia questions response'),
     enabled: false,
   });
 
@@ -50,7 +50,7 @@ export function TriviaGamePage() {
     refetchQuestion();
   }, [refetchQuestion]);
 
-  const questions = questionData?.data ?? [];
+  const questions = questionData ?? [];
   const [current, setCurrent] = useState<TriviaQuestion | null>(null);
 
   useEffect(() => {
@@ -61,8 +61,7 @@ export function TriviaGamePage() {
 
   const playMutation = useMutation({
     mutationFn: async (payload: { betAmount: number; questionId: string; answerIndex: number }) => {
-      const res = await api.post<TriviaPlayResult>('/games/trivia/play', payload);
-      return res.data;
+      return unwrapData(await api.post<TriviaPlayResult>('/games/trivia/play', payload), 'Trivia play response');
     },
     onSuccess: (data) => {
       setLastResult(data.result);

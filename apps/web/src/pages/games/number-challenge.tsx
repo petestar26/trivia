@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, unwrapData, GameCatalogEntry } from '@/lib/api';
 
 interface NumResult {
   guess: number;
@@ -23,16 +23,15 @@ export function NumberChallengePage() {
   const [serverBalance, setServerBalance] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: games } = useQuery<{ data: { minBet: number; maxBet: number }[] }>({
+  const { data: games } = useQuery<GameCatalogEntry[]>({
     queryKey: ['games'],
-    queryFn: async () => api.get('/games'),
+    queryFn: async () => unwrapData(await api.get<GameCatalogEntry[]>('/games'), 'Games response'),
   });
-  const game = games?.data?.find((g) => g.key === 'number_challenge');
+  const game = games?.find((g) => g.key === 'number_challenge');
 
   const playMutation = useMutation({
     mutationFn: async (payload: { betAmount: number; guess: number }) => {
-      const res = await api.post<NumPlayResult>('/games/number_challenge/play', payload);
-      return res.data;
+      return unwrapData(await api.post<NumPlayResult>('/games/number_challenge/play', payload), 'Number challenge play response');
     },
     onSuccess: (data) => {
       setLastResult(data.result);

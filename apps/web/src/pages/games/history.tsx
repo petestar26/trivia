@@ -44,13 +44,10 @@ export function GameHistoryPage() {
   const { data, isLoading, isFetching } = useQuery<HistoryResponse>({
     queryKey: ['game-history', page],
     queryFn: async () => {
-      const res = await api.get<{ data: GameHistoryItem[]; meta: HistoryResponse['meta'] }>(
-        '/games/history',
-        { page, limit }
-      );
+      const res = await api.get<GameHistoryItem[]>('/games/history', { page, limit });
       return {
         data: res.data ?? [],
-        meta: res.meta ?? { page, total: 0, totalPages: 0 },
+        meta: (res.meta as HistoryResponse['meta']) ?? { page, total: 0, totalPages: 0 },
       };
     },
   });
