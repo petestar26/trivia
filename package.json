@@ -5,6 +5,7 @@
   "description": "SocialPlay - Web-first social platform",
   "scripts": {
     "dev": "pnpm --filter web dev & pnpm --filter api dev",
+    "start": "pnpm --filter api start",
     "build": "pnpm --filter web build && pnpm --filter api build",
     "build:web": "pnpm --filter web build",
     "build:api": "pnpm --filter api build",
