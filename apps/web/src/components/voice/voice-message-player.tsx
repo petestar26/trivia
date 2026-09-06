@@ -96,6 +96,7 @@ export function VoiceMessagePlayer({
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
         ref={audioRef}
+        crossOrigin="use-credentials"
         src={voiceMessageUrl(groupId, messageId)}
         preload="metadata"
         className="hidden"

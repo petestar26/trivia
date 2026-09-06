@@ -1,4 +1,4 @@
-const API_BASE = '/api/v1';
+import { API_BASE } from './api-config';
 
 export interface ApiResponse<T> {
   success: boolean;

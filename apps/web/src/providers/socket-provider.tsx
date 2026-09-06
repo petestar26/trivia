@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './auth-provider';
+import { API_ORIGIN } from '@/lib/api-config';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -24,7 +25,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const newSocket = io('/', {
+    const newSocket = io(API_ORIGIN || '/', {
       path: '/ws',
       withCredentials: true,
       transports: ['websocket', 'polling'],
