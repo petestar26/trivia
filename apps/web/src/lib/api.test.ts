@@ -28,7 +28,7 @@ describe('API destination', () => {
       json: async () => ({ success: true, data: {} }),
     });
     vi.stubGlobal('fetch', fetchMock);
-    const { api, voiceMessageUrl } = await import('./api');
+    const { api, voiceMessageUrl, getApiHealth } = await import('./api');
     const { API_ORIGIN } = await import('./api-config');
     expect(API_ORIGIN).toBe(origin); // Also used as the Socket.IO origin.
     const base = `${origin || window.location.origin}/api/v1`;
@@ -49,6 +49,11 @@ describe('API destination', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(`${base}/auth/logout`, expect.objectContaining({
       method: 'POST', credentials: 'include',
     }));
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) });
+    await expect(getApiHealth()).resolves.toEqual({ status: 'ok' });
+    expect(fetchMock).toHaveBeenLastCalledWith(`${origin}/health`);
+    fetchMock.mockResolvedValueOnce({ ok: false });
+    await expect(getApiHealth()).rejects.toThrow('API health check failed');
   });
 
   it.each(['https://api.example.com/other', 'https://api.example.com?query=1', 'ftp://api.example.com']) (

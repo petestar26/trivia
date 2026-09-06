@@ -1,4 +1,10 @@
-import { API_BASE } from './api-config';
+import { API_BASE, API_ORIGIN } from './api-config';
+
+export async function getApiHealth(): Promise<{ status: string }> {
+  const response = await fetch(`${API_ORIGIN}/health`);
+  if (!response.ok) throw new Error('API health check failed');
+  return response.json();
+}
 
 export interface ApiResponse<T> {
   success: boolean;

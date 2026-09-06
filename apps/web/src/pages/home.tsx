@@ -1,27 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { getApiHealth } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useSocket } from '@/providers/socket-provider';
-
-interface HealthResponse {
-  success: boolean;
-  data?: {
-    name: string;
-    version: string;
-    status: string;
-  };
-}
 
 export function HomePage() {
   const { user } = useAuth();
   const { isConnected } = useSocket();
 
-  const { data: health, isLoading: healthLoading } = useQuery<HealthResponse>({
+  const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ['health'],
-    queryFn: async () => {
-      const res = await api.get<HealthResponse['data']>('/health');
-      return res;
-    },
+    queryFn: getApiHealth,
   });
 
   return (
@@ -45,13 +33,13 @@ export function HomePage() {
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-600 dark:text-gray-300">API Server</span>
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              health?.data?.status === 'running'
+              health?.status === 'ok'
                 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
                 : healthLoading
                   ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
                   : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
             }`}>
-              {healthLoading ? 'Checking...' : health?.data?.status || 'Offline'}
+              {healthLoading ? 'Checking...' : health?.status || 'Offline'}
             </span>
           </div>
         </div>
