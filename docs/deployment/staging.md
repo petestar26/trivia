@@ -1,5 +1,23 @@
 # Staging Deployment Guide (H-0B)
 
+## H-0D: Waiting for Railway API domain
+
+This change prepares repository documentation only; deployment activation is pending.
+Use [the H-0D staging runbook](staging-runbook.md) for the activation checklist.
+The Railway API domain is not known yet. Do not create root `vercel.json` or use
+an example hostname as an active rewrite destination.
+
+- [ ] Confirm the isolated Railway project is `playqube-staging` with PostgreSQL,
+      API, and worker services, using the repository root as source/build root.
+- [ ] Configure secrets only in Railway/Vercel dashboards; never commit values.
+- [ ] Obtain and verify the real staging Railway API public domain and `/health`.
+- [ ] Only then prepare root `vercel.json` from the staging example, replacing all
+      domain placeholders and preserving the build settings, rewrites, and SPA fallback.
+- [ ] Complete the runbook smoke tests before marking staging ready.
+
+All deployment steps below are for a later staging activation. Do not deploy or
+promote production. Existing package names and JWT issuer/audience remain unchanged.
+
 ## Architecture Overview
 
 ```
@@ -42,15 +60,15 @@
 - PostgreSQL database provisioned on Railway
 - GitHub repo with H-0A Node 20 fixes merged to master
 
-## Known Blocker: Frontend Build Currently Fails
+## H-0D Local Build Validation
 
-`pnpm --filter web build` fails today on pre-existing frontend TypeScript errors that
-predate H-0B and are unrelated to this deployment-foundation work. This does **not**
-block merging H-0B itself — H-0B only adds deployment templates and documentation,
-it does not touch frontend source — but it **does** block an actual successful Vercel
-deployment until those errors are fixed in a separate task. Confirm the current state
-with `pnpm --filter web build` (or `pnpm --filter web typecheck`) before attempting a
-real Vercel deploy, and do not treat a green H-0B merge as evidence the frontend builds.
+Both required builds passed locally on 2026-09-06 at the H-0D baseline:
+
+- Frontend: `pnpm --filter web build`
+- API: `pnpm --filter api build`
+
+The earlier H-0B frontend build blocker is no longer reproduced. Deployment and
+remote smoke tests remain pending; rerun both builds for the activation revision.
 
 ## Railway Setup
 
@@ -84,7 +102,7 @@ services; only the config file path differs between them.
 
 ```bash
 railway login
-railway init socialplay-staging
+railway init playqube-staging
 ```
 
 ### 2. Provision PostgreSQL
@@ -93,7 +111,9 @@ railway init socialplay-staging
 railway add postgres --service database
 ```
 
-Note the `DATABASE_URL` from the database service environment variables.
+Configure `DATABASE_URL` through the Railway dashboard only. All secret values must
+stay in Railway/Vercel dashboards, never in committed files or shell commands.
+The variable lists below are reference documentation; configure them in dashboards.
 
 ### 3. Deploy API Service
 
@@ -267,8 +287,7 @@ not also check `/api/v1/health`, that path does not exist.
 
 ### Vercel Frontend
 
-Blocked until the frontend build failure above is fixed — do not attempt these until
-`pnpm --filter web build` succeeds:
+Run these during staging activation after the domain gate and builds pass:
 
 - [ ] SPA loads correctly
 - [ ] API calls work via rewrites (network tab shows 200 from `/api/v1/*`)
@@ -298,7 +317,8 @@ railway rollback --service worker
 
 1. Go to Vercel dashboard → Deployments
 2. Find the last working deployment
-3. Click **...** → **Promote to Production**
+3. Restore the known-good revision in the staging/preview environment only. Never
+   use **Promote to Production** for this staging runbook.
 
 ### Database Rollback
 
@@ -447,8 +467,7 @@ reduce deploy frequency deliberately.
 
 ### Vercel Build Fails
 
-- See "Known Blocker: Frontend Build Currently Fails" above — this is likely the
-  pre-existing frontend TypeScript issue, not a deployment misconfiguration
+- Rerun the frontend build for the deployment revision and inspect the actual error
 - Check build logs for pnpm errors
 - Ensure `pnpm install --frozen-lockfile` succeeds
 - Verify Node version is 20+ in Vercel settings
