@@ -7,6 +7,20 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+/**
+ * Shape this page renders from `GET /groups/:id/messages`. Typed (rather than
+ * `any`) so the compiler rejects a second `.data` unwrap — the query below
+ * already resolves to the array.
+ */
+interface ChatMessage {
+  id: string;
+  content: string;
+  createdAt: string;
+  isDeleted?: boolean;
+  isEdited?: boolean;
+  sender?: { displayName?: string | null; username?: string | null } | null;
+}
+
 export function MessagesPage() {
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
@@ -16,9 +30,10 @@ export function MessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasJoinedRoomRef = useRef(false);
 
-  const { data: msgData, isLoading, isError } = useQuery({
+  // Resolves directly to the array; the render path uses it as-is.
+  const { data: messages = [], isLoading, isError } = useQuery<ChatMessage[]>({
     queryKey: ['messages', groupId],
-    queryFn: async () => (await api.getGroupMessages(groupId!, { limit: 50 })).data,
+    queryFn: async () => (await api.getGroupMessages(groupId!, { limit: 50 })).data ?? [],
     enabled: !!groupId,
     refetchOnWindowFocus: true,
   });
@@ -82,7 +97,35 @@ export function MessagesPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [msgData?.data]);
+  }, [messages]);
+
+  // Declared above every conditional return below. Previously this sat after
+  // the `!groupId` / `isLoading` / `isError` guards, so the loading render
+  // skipped it and the loaded render called it — changing the hook count
+  // between renders and crashing the page with React error #310
+  // ("Rendered more hooks than during the previous render").
+  const sendMutation = useMutation({
+    mutationFn: (content: string) => {
+      // The send controls only render once `groupId` exists, but the hook
+      // itself must stay unconditional — so guard here instead.
+      if (!groupId) throw new Error('Cannot send a message without a group');
+      return api.post(`/groups/${groupId}/messages`, { content });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
+    },
+    onError: (err) => {
+      // Error handling could be improved with toast
+      console.error('Failed to send message:', err);
+    },
+  });
+
+  const handleSend = () => {
+    if (!message.trim()) return;
+    sendMutation.mutate(message.trim(), {
+      onSuccess: () => setMessage(''),
+    });
+  };
 
   if (!groupId) {
     return (
@@ -108,27 +151,6 @@ export function MessagesPage() {
     );
   }
 
-  const messages = msgData?.data ?? [];
-
-  // Use mutation for sending messages with proper query invalidation
-  const sendMutation = useMutation({
-    mutationFn: (content: string) => api.post(`/groups/${groupId}/messages`, { content }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
-    },
-    onError: (err) => {
-      // Error handling could be improved with toast
-      console.error('Failed to send message:', err);
-    },
-  });
-
-  const handleSend = () => {
-    if (!message.trim()) return;
-    sendMutation.mutate(message.trim(), {
-      onSuccess: () => setMessage(''),
-    });
-  };
-
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
       <div className="flex items-center gap-3">
@@ -142,7 +164,7 @@ export function MessagesPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No messages yet. Start the conversation!</p>
           ) : (
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {messages.map((msg: any) => (
+              {messages.map((msg) => (
                 <div key={msg.id} className={`flex flex-col ${msg.isDeleted ? 'opacity-40' : ''}`}>
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-semibold text-primary-600 dark:text-primary-400">
