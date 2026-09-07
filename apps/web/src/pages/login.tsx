@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/providers/auth-provider';
+import { getErrorMessage } from '@/lib/error-message';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,8 +39,7 @@ export function LoginPage() {
       await login(data.email, data.password);
       navigate('/');
     } catch (err) {
-      const errorData = JSON.parse((err as Error).message);
-      setError(errorData.error?.message || 'Login failed');
+      setError(getErrorMessage(err, 'Login failed'));
     } finally {
       setIsLoading(false);
     }
