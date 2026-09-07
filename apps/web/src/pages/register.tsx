@@ -24,7 +24,12 @@ const registerSchema = z.object({
     .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
     .regex(/[0-9]/, 'Password must contain at least one number')
     .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
-  displayName: z.string().min(1, 'Display name is required').max(100).optional(),
+  // Genuinely optional. `.min(1)` rejected the empty string that react-hook-form
+  // submits for an untouched input, so leaving this blank silently blocked the
+  // entire form. Length is still enforced when it is filled in; a blank value is
+  // converted to `undefined` at the call site, because the API declares
+  // displayName with minLength 1 and would reject an empty string.
+  displayName: z.string().max(100, 'Display name must be at most 100 characters').optional(),
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
@@ -51,7 +56,10 @@ export function RegisterPage() {
         username: data.username,
         email: data.email,
         password: data.password,
-        displayName: data.displayName,
+        // Omit a blank display name rather than sending '': the API declares
+        // displayName with minLength 1, and its handler already falls back to
+        // the username when the field is absent.
+        displayName: data.displayName || undefined,
       });
       navigate('/');
     } catch (err) {
@@ -123,7 +131,15 @@ export function RegisterPage() {
                 placeholder="John Doe"
                 {...register('displayName')}
                 disabled={isLoading}
+                aria-invalid={!!errors.displayName}
               />
+              {/* This field previously rendered no error element, so a failed
+                  validation here was completely invisible. */}
+              {errors.displayName && (
+                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                  {errors.displayName.message}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300">
