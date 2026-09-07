@@ -1,29 +1,75 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+
+/**
+ * Shape this page renders from `GET /tasks`. `api.listTasks()` already
+ * resolves to this array via `.data` in the queryFn; typed (rather than
+ * `any`) so the compiler rejects a second `.data` access that would silently
+ * produce `undefined` and render a permanently empty task list.
+ */
+interface TaskSummary {
+  id: string;
+  key: string;
+  type: string;
+  title: string;
+  description: string;
+  target: number;
+  xpReward: number;
+  coinReward: number;
+  gamePointReward: number;
+  progress: number;
+  status: string;
+}
+
+/**
+ * Shape this page renders from `GET /achievements`, mapped by the backend
+ * from the joined user-achievement rows.
+ */
+interface AchievementSummary {
+  key: string;
+  title: string;
+  category: string;
+  description: string;
+  unlockedAt: string;
+}
+
+interface VipStatus {
+  isActive: boolean;
+  tier: string | null;
+  expiresAt?: string | null;
+}
+
+interface ProgressStatus {
+  level: number;
+  xp: number;
+}
 
 export function RewardsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: tasksData, isLoading: tasksLoading, isError: tasksError } = useQuery({
+  // Each queryFn resolves directly to its domain object; the render path
+  // consumes these values as-is (no second `.data` unwrap).
+  const { data: tasks = [], isLoading: tasksLoading, isError: tasksError } = useQuery<TaskSummary[]>({
     queryKey: ['tasks'],
-    queryFn: async () => (await api.listTasks()).data,
+    queryFn: async () => (await api.listTasks()).data ?? [],
   });
 
-  const { data: achievementsData, isLoading: achLoading } = useQuery({
+  const { data: achievements = [], isLoading: achLoading } = useQuery<AchievementSummary[]>({
     queryKey: ['achievements'],
-    queryFn: async () => (await api.listAchievements()).data,
+    queryFn: async () => (await api.listAchievements()).data ?? [],
   });
 
-  const { data: vipData, isLoading: vipLoading } = useQuery({
+  const { data: vip, isLoading: vipLoading } = useQuery<VipStatus | undefined>({
     queryKey: ['vip'],
     queryFn: async () => (await api.getVip()).data,
   });
 
-  const { data: progressData, isLoading: progLoading } = useQuery({
+  const { data: progress, isLoading: progLoading } = useQuery<ProgressStatus | undefined>({
     queryKey: ['progress'],
     queryFn: async () => (await api.getProgress()).data,
   });
@@ -32,13 +78,14 @@ export function RewardsPage() {
     mutationFn: (taskId: string) => api.claimTaskReward(taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      // Monetary rewards create a ledger entry, so both the wallet balance and
+      // transaction history must refresh after a successful claim.
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] });
       toast({ title: 'Reward claimed!' });
     },
     onError: (err) => {
-      let msg = 'Failed to claim';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to claim'), variant: 'destructive' });
     },
   });
 
@@ -59,11 +106,6 @@ export function RewardsPage() {
       </div>
     );
   }
-
-  const tasks = tasksData?.data ?? [];
-  const achievements = achievementsData?.data ?? [];
-  const vip = vipData;
-  const progress = progressData;
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-6">
@@ -115,7 +157,7 @@ export function RewardsPage() {
             <p className="text-sm text-gray-500 text-center py-4">No tasks available.</p>
           ) : (
             <div className="space-y-3">
-              {tasks.map((task: any) => (
+              {tasks.map((task) => (
                 <div key={task.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-white">{task.title}</p>
@@ -159,7 +201,7 @@ export function RewardsPage() {
             <p className="text-sm text-gray-500 text-center py-4">No achievements unlocked yet.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
-              {achievements.map((ach: any) => (
+              {achievements.map((ach) => (
                 <div key={ach.key} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{ach.title}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{ach.description}</p>

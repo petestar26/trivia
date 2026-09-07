@@ -2,15 +2,34 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
+/**
+ * Shape this page renders from `GET /wallet/transactions`. The API wraps the
+ * list under `data` and puts paging under `meta`; `api.getWalletTransactions()`
+ * already resolves to the array via `.data` in the queryFn, so the render path
+ * consumes it as-is (no second `.data` access).
+ */
+interface WalletTransaction {
+  id: string;
+  type: string;
+  currency: string;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  referenceType: string;
+  referenceId: string | null;
+  description: string;
+  createdAt: string;
+}
+
 export function WalletPage() {
-  const { data: wallet, isLoading: walletLoading, isError: walletError } = useQuery({
+  const { data: wallet, isLoading: walletLoading, isError: walletError } = useQuery<any>({
     queryKey: ['wallet'],
     queryFn: async () => (await api.getWallet()).data,
   });
 
-  const { data: txData, isLoading: txLoading, isError: txError } = useQuery({
+  const { data: transactions = [], isLoading: txLoading, isError: txError } = useQuery<WalletTransaction[]>({
     queryKey: ['wallet-transactions'],
-    queryFn: async () => (await api.getWalletTransactions({ limit: 50 })).data,
+    queryFn: async () => (await api.getWalletTransactions({ limit: 50 })).data ?? [],
   });
 
   const loading = walletLoading || txLoading;
@@ -32,7 +51,6 @@ export function WalletPage() {
     );
   }
 
-  const transactions = txData?.data ?? [];
   const coins = wallet?.coinsBalance ?? 0;
   const gamePoints = wallet?.gamePointsBalance ?? 0;
 
@@ -70,16 +88,30 @@ export function WalletPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((tx: any) => (
-                    <tr key={tx.id} className="border-b border-gray-100 dark:border-gray-800">
-                      <td className="py-2 pr-4 font-medium">{tx.type}</td>
-                      <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">{tx.currency}</td>
-                      <td className={`py-2 pr-4 text-right font-semibold ${tx.ledgerType === 'CREDIT' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {tx.ledgerType === 'CREDIT' ? '+' : '−'}{tx.amount}
-                      </td>
-                      <td className="py-2 text-right text-gray-500 text-xs">{new Date(tx.createdAt).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
+                  {transactions.map((tx) => {
+                    // The API stores `amount` as a positive magnitude and does
+                    // not return `ledgerType`; direction is derived from the
+                    // authoritative before/after balances.
+                    const delta = tx.balanceAfter - tx.balanceBefore;
+                    const isCredit = delta > 0;
+                    const isDebit = delta < 0;
+                    const sign = isCredit ? '+' : isDebit ? '−' : '';
+                    const amountClass = isCredit
+                      ? 'text-green-600 dark:text-green-400'
+                      : isDebit
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-gray-600 dark:text-gray-400';
+                    return (
+                      <tr key={tx.id} className="border-b border-gray-100 dark:border-gray-800">
+                        <td className="py-2 pr-4 font-medium">{tx.type}</td>
+                        <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">{tx.currency}</td>
+                        <td className={`py-2 pr-4 text-right font-semibold ${amountClass}`}>
+                          {sign}{tx.amount}
+                        </td>
+                        <td className="py-2 text-right text-gray-500 text-xs">{new Date(tx.createdAt).toLocaleDateString()}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
