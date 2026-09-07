@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,8 @@ export function GroupsPage() {
     mutationFn: (groupId: string) => api.joinGroup(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
+      // Joining a group may fire achievement/progression side effects.
+      invalidateProgressionQueries(queryClient);
       toast({ title: 'Joined group' });
     },
     onError: (err) => {

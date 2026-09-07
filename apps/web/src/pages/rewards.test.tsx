@@ -170,12 +170,15 @@ describe('RewardsPage — claim', () => {
 
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith({ title: 'Reward claimed!' }));
 
-    // A successful monetary claim must refresh the task list plus both wallet
-    // cache families. `['wallet']` keeps its partial-key semantics, matching
-    // e.g. `['wallet', userId]`.
+    // A successful monetary claim must refresh every progression surface via
+    // invalidateProgressionQueries: achievements/progress/tasks/wallet balance
+    // and wallet-transactions. `['wallet']` keeps its partial-key semantics,
+    // matching e.g. `['wallet', userId]`.
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }))
     );
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
 
@@ -290,5 +293,61 @@ describe('RewardsPage — claim', () => {
       })
     );
     expect(toastMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('RewardsPage — achievement cache freshness', () => {
+  const FIRST_GROUP = {
+    key: 'first_group',
+    title: 'First Group',
+    category: 'SOCIAL',
+    description: 'Joined your first group',
+    unlockedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  // Mirrors the app-wide default: 5-minute staleTime with default (5-minute)
+  // gcTime so cache entries survive an unmount/remount within the test. The
+  // production achievements query overrides staleTime to 0.
+  function createAppLikeClient() {
+    return new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: 5 * 60 * 1000, gcTime: 5 * 60 * 1000 },
+      },
+    });
+  }
+
+  function renderRewardsOn(client: QueryClient) {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{children}</MemoryRouter>
+      </QueryClientProvider>
+    );
+    return render(<RewardsPage />, { wrapper });
+  }
+
+  // A cached empty result, whose refetch ALSO loses the async race, must be
+  // stale on every subsequent mount (staleTime: 0) so the page self-heals once
+  // the backend finishes. Three real network attempts on one client.
+  it('three-stage: recovery after a refetch that itself loses the race', async () => {
+    const client = createAppLikeClient();
+    stubSupportingQueries();
+
+    // Stage 1: backend still processing → empty list cached.
+    listAchievements.mockResolvedValue({ success: true, data: [] });
+    const first = renderRewardsOn(client);
+    await screen.findByText('No achievements unlocked yet.');
+    first.unmount();
+
+    // Stage 2: a later mount refetches but the backend is STILL incomplete.
+    const second = renderRewardsOn(client);
+    await screen.findByText('No achievements unlocked yet.');
+    second.unmount();
+
+    // Stage 3: backend now finished — the page must refetch and render.
+    listAchievements.mockResolvedValue({ success: true, data: [FIRST_GROUP] });
+    renderRewardsOn(client);
+    expect(await screen.findByText('First Group')).toBeInTheDocument();
+
+    expect(listAchievements).toHaveBeenCalledTimes(3);
   });
 });

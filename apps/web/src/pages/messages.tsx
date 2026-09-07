@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useSocket } from '@/providers/socket-provider';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -113,6 +114,10 @@ export function MessagesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
+      // Sending a message may fire achievement/progression side effects.
+      // Deliberately NOT called from the generic socket refresh handler for
+      // other users' messages — only for this user's own successful send.
+      invalidateProgressionQueries(queryClient);
     },
     onError: (err) => {
       // Error handling could be improved with toast

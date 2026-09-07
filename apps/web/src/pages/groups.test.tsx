@@ -1,23 +1,28 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
 const listGroups = vi.fn();
+const joinGroup = vi.fn();
+const toastMock = vi.fn();
 
-vi.mock('@/lib/api', () => ({ api: { listGroups: (...a: unknown[]) => listGroups(...a), joinGroup: vi.fn() } }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/lib/api', () => ({
+  api: { listGroups: (...a: unknown[]) => listGroups(...a), joinGroup: (...a: unknown[]) => joinGroup(...a) },
+}));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
 
 import { GroupsPage } from './groups';
 
 afterEach(() => {
   cleanup();
   listGroups.mockReset();
+  joinGroup.mockReset();
+  toastMock.mockReset();
 });
 
-function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderPage(client: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>
       <MemoryRouter>{children}</MemoryRouter>
@@ -75,5 +80,60 @@ describe('GroupsPage', () => {
     renderPage();
 
     expect(await screen.findByText('No groups found.')).toBeInTheDocument();
+  });
+});
+
+describe('GroupsPage — join progression invalidation', () => {
+  const OPEN_GROUP = { id: 'group-2', name: 'Open Group', memberCount: 4, isMember: false, isPrivate: false };
+
+  it('invalidates progression caches on successful join, preserving the groups refresh', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [OPEN_GROUP] });
+    joinGroup.mockResolvedValue({ success: true });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
+
+    const joinButton = await screen.findByRole('button', { name: 'Join' });
+    fireEvent.click(joinButton);
+
+    await waitFor(() => expect(joinGroup).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }))
+    );
+    // invalidateProgressionQueries effects.
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }))
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+    expect(toastMock).toHaveBeenCalledWith({ title: 'Joined group' });
+  });
+
+  it('does NOT invalidate progression caches when the join fails', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [OPEN_GROUP] });
+    joinGroup.mockRejectedValue(new Error(JSON.stringify({ status: 500, message: 'boom' })));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
+
+    const joinButton = await screen.findByRole('button', { name: 'Join' });
+    fireEvent.click(joinButton);
+
+    await waitFor(() => expect(joinGroup).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith({ title: 'Error', description: 'boom', variant: 'destructive' })
+    );
+
+    // Neither the groups refresh nor any progression surface is invalidated.
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
   });
 });

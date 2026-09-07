@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,12 @@ export function RewardsPage() {
   const { data: achievements = [], isLoading: achLoading } = useQuery<AchievementSummary[]>({
     queryKey: ['achievements'],
     queryFn: async () => (await api.listAchievements()).data ?? [],
+    // Achievement processing is asynchronous fire-and-forget backend work. The
+    // 5-minute global default would keep a cached empty list "fresh" and hide
+    // achievements unlocked meanwhile. staleTime: 0 makes every later Rewards
+    // mount refetch. This does NOT guarantee the FIRST navigation sees
+    // backend processing that has not finished yet — no polling, no timers.
+    staleTime: 0,
   });
 
   const { data: vip, isLoading: vipLoading } = useQuery<VipStatus | undefined>({
@@ -77,11 +84,9 @@ export function RewardsPage() {
   const claimMutation = useMutation({
     mutationFn: (taskId: string) => api.claimTaskReward(taskId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      // Monetary rewards create a ledger entry, so both the wallet balance and
-      // transaction history must refresh after a successful claim.
-      queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      // A successful claim can change tasks, achievements, progress, wallet
+      // balance and wallet transactions — invalidate every progression surface.
+      invalidateProgressionQueries(queryClient);
       toast({ title: 'Reward claimed!' });
     },
     onError: (err) => {
