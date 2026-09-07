@@ -72,10 +72,17 @@ class ApiClient {
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
 
+    // Only declare a JSON content type when a body is actually being sent.
+    // Fastify's default body parser rejects `Content-Type: application/json`
+    // on a request with an empty body (FST_ERR_CTP_EMPTY_JSON_BODY) — every
+    // bodyless call (e.g. POST /auth/logout) was hitting exactly that before
+    // its route handler ever ran. Caller-supplied headers still win either way.
+    const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
+
     const response = await fetch(url, {
       ...fetchOptions,
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...headers,
       },
       credentials: 'include',

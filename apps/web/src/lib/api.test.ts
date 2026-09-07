@@ -36,6 +36,7 @@ describe('API destination', () => {
     await api.post('/auth/register', { username: 'test' });
     expect(fetchMock).toHaveBeenLastCalledWith(`${base}/auth/register`, expect.objectContaining({
       method: 'POST', credentials: 'include', body: '{"username":"test"}',
+      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
     }));
     await api.get('/auth/me', { page: 1, query: 'a & b', absent: undefined });
     expect(fetchMock.mock.lastCall?.[0]).toBe(`${base}/auth/me?page=1&query=a+%26+b`);
@@ -49,6 +50,18 @@ describe('API destination', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(`${base}/auth/logout`, expect.objectContaining({
       method: 'POST', credentials: 'include',
     }));
+    // Regression: a bodyless POST must not declare a JSON content type.
+    // Fastify's default body parser rejects `Content-Type: application/json`
+    // on an empty body (FST_ERR_CTP_EMPTY_JSON_BODY) before the route handler
+    // runs at all — this is exactly what made every /auth/logout call fail
+    // with 400 and silently never revoke the server-side session.
+    const logoutCall = fetchMock.mock.lastCall;
+    expect(logoutCall?.[1]?.body).toBeUndefined();
+    expect(logoutCall?.[1]?.headers).not.toHaveProperty('Content-Type');
+    // No caller currently passes custom headers through the public get/post/
+    // put/patch/delete methods (only the private `request()` accepts them via
+    // RequestOptions), so there is no existing custom-header call site whose
+    // behavior this fix could regress.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) });
     await expect(getApiHealth()).resolves.toEqual({ status: 'ok' });
     expect(fetchMock).toHaveBeenLastCalledWith(`${origin}/health`);
