@@ -31,7 +31,7 @@ const describeIf = dbAvailable ? describe : describe.skip;
 
 // ─── Fixtures ──────────────────────────────────────────────────
 
-async function createUser(tag: string) {
+async function createUser(tag: string, overrides: { status?: string } = {}) {
   const email = `chal-${tag}@test.local`;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return existing;
@@ -41,6 +41,7 @@ async function createUser(tag: string) {
       username: `chal_${tag}`,
       passwordHash: 'fixture-only-not-a-real-hash',
       displayName: `Chal ${tag}`,
+      status: (overrides.status as any) ?? 'ACTIVE',
     },
   });
 }
@@ -723,4 +724,82 @@ describeIf('Challenge accept/decline race hardening', () => {
     const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
     expect(challengedAfter).toBe(challengedBefore);
   });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CREATECHALLENGE ACTIVE ENFORCEMENT
+//
+// Before the fix, createChallenge only checked "does the target user exist?"
+// (findUnique + notFound). A non-ACTIVE target (INACTIVE, SUSPENDED, BANNED,
+// PENDING_VERIFICATION) would pass that check, have a wallet created, and
+// receive a CHALLENGE_RECEIVED notification — despite being an invalid
+// recipient. After the fix, the status check is done BEFORE wallet creation,
+// and a non-ACTIVE target throws an identical 404 with zero side effects.
+// ═══════════════════════════════════════════════════════════════
+
+describeIf('createChallenge ACTIVE enforcement', () => {
+  const ENTRY = 25;
+
+  for (const status of ['INACTIVE', 'SUSPENDED', 'BANNED', 'PENDING_VERIFICATION'] as const) {
+    it(`rejects a ${status} target with 404 and no side effects`, async () => {
+      const challenger = await createUser(`ae_ch_${status.toLowerCase()}`);
+      const challenged = await createUser(`ae_tg_${status.toLowerCase()}`, { status });
+      await primeGamePoints(challenger.id, 1000);
+
+      const challengerBefore = await getWalletBalance(challenger.id);
+      const challengerVersion = await prisma.wallet.findUnique({
+        where: { userId: challenger.id },
+        select: { version: true },
+      });
+      const challengerTxCountBefore = await prisma.walletTransaction.count({
+        where: { userId: challenger.id },
+      });
+      const challengedTxCountBefore = await prisma.walletTransaction.count({
+        where: { userId: challenged.id },
+      });
+
+      await expect(
+        createChallenge(challenger.id, challenged.id, 'dice', ENTRY)
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        code: 'NOT_FOUND',
+        message: 'Challenged user not found',
+      });
+
+      // Challenger state unchanged
+      const challengerAfter = await getWalletBalance(challenger.id);
+      expect(challengerAfter.gamePointsBalance).toBe(challengerBefore.gamePointsBalance);
+      const challengerVersionAfter = await prisma.wallet.findUnique({
+        where: { userId: challenger.id },
+        select: { version: true },
+      });
+      expect(challengerVersionAfter!.version).toBe(challengerVersion!.version);
+      const challengerTxCountAfter = await prisma.walletTransaction.count({
+        where: { userId: challenger.id },
+      });
+      expect(challengerTxCountAfter).toBe(challengerTxCountBefore);
+
+      // No challenge row created
+      const challenges = await prisma.gameChallenge.findMany({
+        where: { challengerId: challenger.id, challengedId: challenged.id },
+      });
+      expect(challenges.length).toBe(0);
+
+      // No notification created
+      const notifications = await prisma.notification.findMany({
+        where: { userId: challenged.id, type: 'CHALLENGE_RECEIVED' },
+      });
+      expect(notifications.length).toBe(0);
+
+      // No wallet created for target
+      const targetWallet = await prisma.wallet.findUnique({ where: { userId: challenged.id } });
+      expect(targetWallet).toBeNull();
+
+      // Target's ledger unchanged
+      const challengedTxCountAfter = await prisma.walletTransaction.count({
+        where: { userId: challenged.id },
+      });
+      expect(challengedTxCountAfter).toBe(challengedTxCountBefore);
+    });
+  }
 });

@@ -49,8 +49,13 @@ export async function createChallenge(
     throw ApiError.badRequest('Entry amount must be a non-negative integer');
   }
 
-  const challengedUser = await prisma.user.findUnique({ where: { id: challengedId } });
-  if (!challengedUser) throw ApiError.notFound('Challenged user not found');
+  const challengedUser = await prisma.user.findUnique({
+    where: { id: challengedId },
+    select: { status: true },
+  });
+  if (!challengedUser || challengedUser.status !== 'ACTIVE') {
+    throw ApiError.notFound('Challenged user not found');
+  }
 
   await getOrCreateWallet(challengerId);
   await getOrCreateWallet(challengedId);
