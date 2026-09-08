@@ -2,7 +2,6 @@ import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../economy/wallet-service';
 import { applyXp } from '../progress/progress-service';
-import { unlockAchievement } from './achievement-service';
 
 export interface RewardGrant {
   sourceType: string; // 'TASK' | 'ACHIEVEMENT' | 'DAILY_LOGIN' | ...
@@ -118,13 +117,6 @@ export async function grantReward(
     const walletResult =
       changes.length > 0 ? await applyBalanceChanges(tx, userId, changes) : null;
 
-    // If the XP award caused a level-up to level 2+, unlock the milestone
-    // achievement. This runs inside the same transaction; the UserAchievement
-    // unique guard makes it safe. We defer the actual unlock to after commit
-    // to avoid nested-transaction issues — instead we flag it and handle
-    // post-commit below.
-    const shouldUnlockLevel = progress.leveledUp && progress.level >= 2;
-
     const grantResult: GrantResult = {
       granted: true,
       alreadyClaimed: false,
@@ -134,31 +126,16 @@ export async function grantReward(
       gamePointsBalance: walletResult?.gamePointsBalance ?? 0,
     };
 
-    // Stash the level-up flag for post-commit use (callerTx path already
-    // committed; standalone path commits after doGrant returns).
-    (grantResult as GrantResult & { _shouldUnlockLevel?: boolean })._shouldUnlockLevel = shouldUnlockLevel;
-
     return grantResult;
   };
 
   if (callerTx) {
     // Run within the caller's transaction. P2002 is handled by the caller.
-    const result = await doGrant(callerTx);
-    // Post-commit (caller's transaction has committed by the time control
-    // returns here in the achievement flow): unlock level milestone.
-    if ((result as GrantResult & { _shouldUnlockLevel?: boolean })._shouldUnlockLevel) {
-      try { await unlockAchievement(userId, 'level_2'); } catch { /* non-critical */ }
-    }
-    return result;
+    return doGrant(callerTx);
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => doGrant(tx));
-    // Post-commit: unlock level milestone if the reward caused a level-up.
-    if ((result as GrantResult & { _shouldUnlockLevel?: boolean })._shouldUnlockLevel) {
-      try { await unlockAchievement(userId, 'level_2'); } catch { /* non-critical */ }
-    }
-    return result;
+    return await prisma.$transaction(async (tx) => doGrant(tx));
   } catch (err) {
     if ((err as { code?: string }).code === 'P2002') {
       return {

@@ -78,6 +78,15 @@ export async function recordActivity(
       // Non-critical.
     }
   }
+
+  // Level milestone — must run last so it observes all committed XP-producing
+  // work above. The predicate is state-based, so missed historical unlocks
+  // self-heal on later activity.
+  try {
+    await maybeUnlockLevelMilestones(userId);
+  } catch {
+    // Non-critical.
+  }
 }
 
 /** Unlock streak milestones based on current streak value (once each). */
