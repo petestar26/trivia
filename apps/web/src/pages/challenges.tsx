@@ -1,8 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { api, Challenge, CreateChallengeBody } from '@/lib/api';
+import { api, Challenge, CreateChallengeBody, UserSearchResult } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useToast } from '@/hooks/use-toast';
+import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 
 const challengeSchema = z.object({
-  challengedId: z.string().min(1, 'User ID required'),
   gameKey: z.string().min(1, 'Game key required'),
   // react-hook-form valueAsNumber coerces string → number
   entryAmount: z.coerce.number().int().min(0, 'Must be non-negative'),
@@ -33,6 +34,51 @@ const STATUS_COLOR: Record<string, string> = {
   CANCELLED: 'text-gray-500 dark:text-gray-400',
 };
 
+// Mirrors the backend's own username validation (POST /users/search) so the
+// frontend only fires requests the server can actually match — the backend
+// remains authoritative on what counts as a valid identifier.
+const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/;
+// Permissive on purpose: just enough to avoid firing on an obviously
+// malformed address. The backend's own email schema is authoritative.
+const PERMISSIVE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isSearchableQuery(q: string): boolean {
+  if (!q) return false;
+  return q.includes('@') ? PERMISSIVE_EMAIL_RE.test(q) : USERNAME_RE.test(q);
+}
+
+// Only the messages createChallenge actually throws today are mapped to
+// friendly copy; anything else falls back to a generic message rather than
+// surfacing an arbitrary server string.
+const CHALLENGE_ERROR_MESSAGES: Record<string, string> = {
+  'Challenged user not found': 'This user is no longer available to challenge.',
+  'Cannot challenge yourself': "You can't challenge yourself.",
+  'Insufficient Game Points for entry': "You don't have enough Game Points for this entry amount.",
+  'Game not found': "That game isn't available right now.",
+  'This game is currently unavailable': "That game isn't available right now.",
+  'Entry amount must be a non-negative integer': 'Entry amount must be a non-negative integer.',
+};
+const GENERIC_CHALLENGE_ERROR = "Couldn't send the challenge. Please try again.";
+
+function mapChallengeError(err: unknown): string {
+  const message = getErrorMessage(err, GENERIC_CHALLENGE_ERROR);
+  return CHALLENGE_ERROR_MESSAGES[message] ?? GENERIC_CHALLENGE_ERROR;
+}
+
+function RecipientAvatar({ user }: { user: Pick<UserSearchResult, 'avatarUrl' | 'displayName' | 'username'> }) {
+  const initial = (user.displayName || user.username)[0]?.toUpperCase() ?? '?';
+  return (
+    <span className="h-8 w-8 flex-shrink-0 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center overflow-hidden">
+      {user.avatarUrl ? (
+        // eslint-disable-next-line jsx-a11y/alt-text
+        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="text-sm font-medium text-primary-600 dark:text-primary-400">{initial}</span>
+      )}
+    </span>
+  );
+}
+
 export function ChallengesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -48,25 +94,139 @@ export function ChallengesPage() {
     },
   });
 
+  // ── Recipient search (privacy-safe; never cached in React Query) ───
+  const [searchText, setSearchText] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [selectedRecipient, setSelectedRecipient] = useState<UserSearchResult | null>(null);
+  const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [searchError, setSearchError] = useState<'RATE_LIMITED' | 'GENERIC' | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [lastCompletedQuery, setLastCompletedQuery] = useState<string | null>(null);
+  const requestGenRef = useRef(0);
+
+  const searchMutation = useMutation({
+    mutationFn: (q: string) => api.searchUsers(q),
+    retry: 0,
+  });
+
+  // Debounce: only update debouncedQuery ~300ms after the user stops typing.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchText.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
+
+  // Fire (or clear) a search whenever the debounced query changes. Keyed
+  // only on debouncedQuery — searchMutation's own identity is stable but
+  // re-created each render, and is deliberately excluded so this doesn't
+  // re-fire on every render.
+  useEffect(() => {
+    const q = debouncedQuery;
+    if (!isSearchableQuery(q)) {
+      requestGenRef.current += 1;
+      setResults([]);
+      setSearchError(null);
+      setIsSearching(false);
+      setLastCompletedQuery(null);
+      return;
+    }
+
+    const gen = ++requestGenRef.current;
+    setIsSearching(true);
+    setSearchError(null);
+
+    searchMutation.mutate(q, {
+      onSuccess: (res) => {
+        if (gen !== requestGenRef.current) return; // superseded by a newer query
+        setResults(res.data ?? []);
+        setSearchError(null);
+        setIsSearching(false);
+        setLastCompletedQuery(q);
+      },
+      onError: (err) => {
+        if (gen !== requestGenRef.current) return; // superseded by a newer query
+        setResults([]);
+        setIsSearching(false);
+        setSearchError(getErrorStatus(err) === 429 ? 'RATE_LIMITED' : 'GENERIC');
+        setLastCompletedQuery(q);
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
+
+  const handleSearchChange = (value: string) => {
+    setSearchText(value);
+    if (selectedRecipient) {
+      // Editing after a selection must invalidate it immediately. Stale
+      // results are NOT cleared here — `resultsCurrent` (lastCompletedQuery
+      // === debouncedQuery) already hides them until a genuinely different
+      // query completes, and preserving them lets the picker fall straight
+      // back to a still-valid result set instead of going blank.
+      requestGenRef.current += 1;
+      setSelectedRecipient(null);
+      setSearchError(null);
+    }
+  };
+
+  const handleSelectRecipient = (u: UserSearchResult) => {
+    requestGenRef.current += 1;
+    setSelectedRecipient(u);
+    setSearchError(null);
+    setIsSearching(false);
+    // results/lastCompletedQuery are intentionally kept — the dropdown is
+    // hidden while selectedRecipient is set, and keeping them lets Remove
+    // restore the list without an unnecessary re-search.
+  };
+
+  const handleRemoveRecipient = () => {
+    requestGenRef.current += 1;
+    setSelectedRecipient(null);
+    setSearchError(null);
+    // searchText, results, and lastCompletedQuery are intentionally
+    // preserved: if the debounced query hasn't changed, resultsCurrent is
+    // still true and the prior result list reappears immediately with no
+    // extra request, instead of leaving the picker in a dead, resultless
+    // state until the user retypes something.
+  };
+
+  const searchable = isSearchableQuery(debouncedQuery);
+  const resultsCurrent = lastCompletedQuery === debouncedQuery;
+  const showSearching = !selectedRecipient && searchable && isSearching;
+  const showRateLimited = !selectedRecipient && !isSearching && searchError === 'RATE_LIMITED';
+  const showGenericError = !selectedRecipient && !isSearching && searchError === 'GENERIC';
+  const showNoResults =
+    !selectedRecipient && !isSearching && !searchError && searchable && resultsCurrent && results.length === 0;
+  const showResults =
+    !selectedRecipient && !isSearching && !searchError && resultsCurrent && results.length > 0;
+  const showDropdown = showSearching || showRateLimited || showGenericError || showNoResults || showResults;
+
   // ── Create challenge form ─────────────────────────────────────────
   const { register, handleSubmit, formState: { errors }, reset } =
     useForm<ChallengeFormValues>({
       resolver: zodResolver(challengeSchema),
-      defaultValues: { challengedId: '', gameKey: '', entryAmount: 0 },
+      defaultValues: { gameKey: '', entryAmount: 0 },
     });
 
   const createMutation = useMutation({
-    mutationFn: (body: ChallengeFormValues) => api.createChallenge(body),
+    mutationFn: (body: CreateChallengeBody) => api.createChallenge(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['challenges'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
       toast({ title: 'Challenge sent', description: 'Your challenge has been sent.' });
       reset();
+      requestGenRef.current += 1;
+      setSelectedRecipient(null);
+      setSearchText('');
+      setDebouncedQuery('');
+      setResults([]);
+      setSearchError(null);
+      setLastCompletedQuery(null);
     },
     onError: (err) => {
-      let msg = 'Failed to send challenge';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Challenge failed', description: msg, variant: 'destructive' });
+      // Deliberately does NOT clear selectedRecipient — e.g. a "Challenged
+      // user not found" 404 (the recipient went non-ACTIVE after selection)
+      // should leave the form usable so the user can intentionally Remove
+      // or retry, rather than silently losing their selection.
+      toast({ title: 'Challenge failed', description: mapChallengeError(err), variant: 'destructive' });
     },
   });
 
@@ -80,9 +240,7 @@ export function ChallengesPage() {
       navigate(`/challenges/${id}`);
     },
     onError: (err) => {
-      let msg = 'Failed to accept challenge';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to accept challenge'), variant: 'destructive' });
     },
   });
 
@@ -94,9 +252,7 @@ export function ChallengesPage() {
       toast({ title: 'Challenge declined' });
     },
     onError: (err) => {
-      let msg = 'Failed to decline challenge';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to decline challenge'), variant: 'destructive' });
     },
   });
 
@@ -108,9 +264,7 @@ export function ChallengesPage() {
       toast({ title: 'Challenge cancelled' });
     },
     onError: (err) => {
-      let msg = 'Failed to cancel challenge';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to cancel challenge'), variant: 'destructive' });
     },
   });
 
@@ -243,24 +397,110 @@ export function ChallengesPage() {
       <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Challenge a Friend</h2>
         <form
-          onSubmit={handleSubmit((data) => createMutation.mutate(data))}
+          onSubmit={handleSubmit((values) => {
+            if (!selectedRecipient) return;
+            createMutation.mutate({
+              challengedId: selectedRecipient.id,
+              gameKey: values.gameKey,
+              entryAmount: values.entryAmount,
+            });
+          })}
           className="space-y-4"
         >
           <div>
-            <label htmlFor="challengedId" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Friend's User ID
+            <label htmlFor="recipientSearch" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Search by username or email
             </label>
             <Input
-              id="challengedId"
-              placeholder="paste-their-uuid-here"
-              {...register('challengedId')}
+              id="recipientSearch"
+              placeholder="@username or email@example.com"
+              value={searchText}
+              onChange={(e) => handleSearchChange(e.target.value)}
               disabled={createMutation.isPending}
+              autoComplete="off"
+              aria-expanded={showDropdown}
+              aria-busy={showSearching}
               className="mt-1"
             />
-            {errors.challengedId && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
-                {errors.challengedId.message}
-              </p>
+
+            {!selectedRecipient && (
+              <>
+                <div aria-live="polite" className="mt-1">
+                  {showSearching && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Searching…</p>
+                  )}
+                  {showRateLimited && (
+                    <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                      Too many searches. Try again shortly.
+                    </p>
+                  )}
+                  {showGenericError && (
+                    <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                      Unable to search right now.
+                    </p>
+                  )}
+                  {showNoResults && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No matching user found.</p>
+                  )}
+                </div>
+
+                {showResults && (
+                  <ul
+                    role="listbox"
+                    aria-label="Search results"
+                    className="mt-1 max-h-72 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800"
+                  >
+                    {results.map((r) => (
+                      <li key={r.id} role="option" aria-selected={false}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectRecipient(r)}
+                          disabled={createMutation.isPending}
+                          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                        >
+                          <RecipientAvatar user={r} />
+                          <span className="min-w-0 flex-1">
+                            {r.displayName && (
+                              <span className="block truncate text-sm font-medium text-gray-900 dark:text-white">
+                                {r.displayName}
+                              </span>
+                            )}
+                            <span className="block truncate text-xs text-gray-500 dark:text-gray-400">
+                              @{r.username}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+
+            {selectedRecipient && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-gray-200 dark:border-gray-700 p-2">
+                <RecipientAvatar user={selectedRecipient} />
+                <div className="min-w-0 flex-1">
+                  {selectedRecipient.displayName && (
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                      {selectedRecipient.displayName}
+                    </p>
+                  )}
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    @{selectedRecipient.username}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Remove selected recipient"
+                  onClick={handleRemoveRecipient}
+                  disabled={createMutation.isPending}
+                >
+                  Remove
+                </Button>
+              </div>
             )}
           </div>
 
@@ -305,13 +545,13 @@ export function ChallengesPage() {
             )}
           </div>
 
-          <Button type="submit" disabled={createMutation.isPending}>
+          <Button type="submit" disabled={!selectedRecipient || createMutation.isPending}>
             {createMutation.isPending ? 'Sending…' : 'Send Challenge'}
           </Button>
 
           {createMutation.isError && (
             <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-              {(createMutation.error as Error)?.message ?? 'Something went wrong'}
+              {mapChallengeError(createMutation.error)}
             </p>
           )}
         </form>

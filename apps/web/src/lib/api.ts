@@ -1,4 +1,7 @@
 import { API_BASE, API_ORIGIN } from './api-config';
+import type { UserSearchResult } from '@socialplay/shared';
+
+export type { UserSearchResult };
 
 export async function getApiHealth(): Promise<{ status: string }> {
   const response = await fetch(`${API_ORIGIN}/health`);
@@ -178,6 +181,12 @@ class ApiClient {
 
   async playChallengeTurn(challengeId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
     return this.post(`/challenges/${challengeId}/play`, { clientData });
+  }
+
+  // Privacy-safe recipient search (exact username, username prefix, or exact
+  // stored email). Results carry only { id, username, displayName, avatarUrl }.
+  async searchUsers(q: string): Promise<ApiResponse<UserSearchResult[]>> {
+    return this.post('/users/search', { q });
   }
 
   // Competition API

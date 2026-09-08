@@ -49,3 +49,31 @@ export function getErrorMessage(err: unknown, fallback: string): string {
   // Parsed, but nothing worth showing — don't leak the payload.
   return fallback;
 }
+
+/**
+ * Extract the HTTP status code from an ApiClient-thrown error, if present.
+ *
+ * Parses the same flattened `{ status, code, message }` shape `getErrorMessage`
+ * reads. Returns `null` for anything that isn't that shape — a plain transport
+ * error, a non-Error throw, or JSON with no numeric `status` — so callers can
+ * distinguish a specific status (e.g. 429) without a second ad hoc parser.
+ */
+export function getErrorStatus(err: unknown): number | null {
+  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const status = (parsed as Record<string, unknown>).status;
+    if (typeof status === 'number') return status;
+  }
+
+  return null;
+}
