@@ -9,8 +9,9 @@ import {
   getUserChallenges,
   getChallengeById,
 } from './challenge-service';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange } from '../economy/wallet-service';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
 import { ensureGameDefinitions } from '../games/game-catalog';
+import { ApiError } from '../middleware';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -75,6 +76,28 @@ async function cleanChalFixtures() {
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
+}
+
+// ─── Ledger-count helpers ───────────────────────────────────────
+// The accept/decline/cancel race assertions must never rely on balances
+// alone: the exact number of matching ledger rows proves whether a refund
+// or entry debit happened exactly once (0 or 1 for a fresh fixture user).
+
+const CHALLENGE_REFUND_DESCRIPTIONS = [
+  'Challenge cancelled — entry refund',
+  'Challenge declined — entry refund',
+];
+
+function countChallengeRefunds(userId: string) {
+  return prisma.walletTransaction.count({
+    where: { userId, description: { in: CHALLENGE_REFUND_DESCRIPTIONS } },
+  });
+}
+
+function countChallengeEntries(userId: string, gameKey: string) {
+  return prisma.walletTransaction.count({
+    where: { userId, description: `Challenge entry: ${gameKey}` },
+  });
 }
 
 // ─── CREATE CHALLENGE ──────────────────────────────────────────
@@ -482,5 +505,222 @@ describeIf('Challenge concurrency + winner correctness (P1/P2 regression)', () =
     if (detail!.status === 'CANCELLED' || detail!.status === 'COMPLETED') {
       expect(combinedAfter).toBe(combinedBefore + ENTRY * 2);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CHALLENGE ACCEPT/DECLINE RACE HARDENING
+//
+// The status re-check and the state write must happen under the challenge
+// row lock, in the same challenge-then-wallet order as cancel/play. Before
+// the fix, declineChallenge refunded and wrote DECLINED with no row lock
+// and a status-unconditional update, so a racing cancel/accept could leave
+// a double refund, a stale overwrite of the terminal state, or stranded
+// funds. acceptChallenge had the same unlocked-read gap.
+// ═══════════════════════════════════════════════════════════════
+
+describeIf('Challenge accept/decline race hardening', () => {
+  beforeAll(async () => {
+    await ensureGameDefinitions();
+  });
+
+  // ── Deterministic held-lock: decline vs an in-flight cancel ──
+  it('a decline blocked on a held cancel refunds once and never overwrites CANCELLED', async () => {
+    const ENTRY = 20;
+    const challenger = await createUser('held_cl');
+    const challenged = await createUser('held_cd');
+    await primeGamePoints(challenger.id, 1000);
+
+    const chal = await createChallenge(challenger.id, challenged.id, 'dice', ENTRY);
+    const escrowBalance = (await getWalletBalance(challenger.id)).gamePointsBalance;
+    const challengedBefore = (await getWalletBalance(challenged.id)).gamePointsBalance;
+
+    // Simulate a cancel that is mid-flight: lock the challenge row, refund
+    // the challenger, set CANCELLED, and hold it all uncommitted while the
+    // decline runs and blocks.
+    const outcome: { decline?: { ok: boolean; error?: unknown } } = {};
+    await prisma.$transaction(async (ctlTx) => {
+      await ctlTx.$queryRaw`SELECT "status" FROM "game_challenges" WHERE "id" = ${chal.id} FOR UPDATE`;
+      await applyBalanceChanges(ctlTx, challenger.id, [
+        {
+          currency: 'GAME_POINTS',
+          amount: ENTRY,
+          ledgerType: 'CREDIT',
+          transactionType: 'GAME_POINT_CREDIT',
+          referenceType: 'GAME',
+          description: 'Challenge cancelled — entry refund',
+        },
+      ]);
+      await ctlTx.gameChallenge.update({ where: { id: chal.id }, data: { status: 'CANCELLED' } });
+
+      outcome.decline = declineChallenge(challenged.id, chal.id)
+        .then(() => ({ ok: true as const }))
+        .catch((error: unknown) => ({ ok: false as const, error }));
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    // The decline MUST be rejected by the status re-check under the row lock
+    // ('Challenge is not pending'), never by a wallet version conflict (the
+    // un-locked pre-fix path) and never by silently succeeding.
+    const declineResult = await outcome.decline!;
+    expect(declineResult.ok).toBe(false);
+    expect((declineResult.error as ApiError).message).toBe('Challenge is not pending');
+
+    const detail = await prisma.gameChallenge.findUnique({ where: { id: chal.id } });
+    expect(detail!.status).toBe('CANCELLED');
+
+    const refunds = await prisma.walletTransaction.findMany({
+      where: { userId: challenger.id, description: { in: CHALLENGE_REFUND_DESCRIPTIONS } },
+    });
+    expect(refunds.length).toBe(1);
+    expect(refunds[0].description).toBe('Challenge cancelled — entry refund');
+    expect(refunds[0].amount).toBe(ENTRY);
+
+    const challengerAfter = (await getWalletBalance(challenger.id)).gamePointsBalance;
+    expect(challengerAfter).toBe(escrowBalance + ENTRY);
+    const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
+    expect(challengedAfter).toBe(challengedBefore);
+  });
+
+  // ── decline vs cancel: realistic race, 5 fresh rounds ──
+  it('decline racing cancel settles with exactly one refund and one terminal state (5 rounds)', async () => {
+    const ENTRY = 20;
+
+    for (let i = 0; i < 5; i++) {
+      const challenger = await createUser(`rc8_c${i}`);
+      const challenged = await createUser(`rc8_d${i}`);
+      await primeGamePoints(challenger.id, 1000);
+      await primeGamePoints(challenged.id, 1000);
+
+      const chal = await createChallenge(challenger.id, challenged.id, 'dice', ENTRY);
+      const escrowBalance = (await getWalletBalance(challenger.id)).gamePointsBalance;
+      const challengedBefore = (await getWalletBalance(challenged.id)).gamePointsBalance;
+
+      const results = await Promise.allSettled([
+        declineChallenge(challenged.id, chal.id),
+        cancelChallenge(challenger.id, chal.id),
+      ]);
+
+      // Exactly one operation wins; the other is rejected by the status
+      // re-check under the row lock.
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+
+      // No terminal-state overwrite: the challenge lands on exactly one of
+      // the two winning terminals, and the refund that actually happened must
+      // match that terminal (never both movements, never a stale overwrite).
+      const detail = await prisma.gameChallenge.findUnique({ where: { id: chal.id } });
+      expect(['DECLINED', 'CANCELLED']).toContain(detail!.status);
+
+      const refunds = await prisma.walletTransaction.findMany({
+        where: { userId: challenger.id, description: { in: CHALLENGE_REFUND_DESCRIPTIONS } },
+      });
+      expect(refunds.length).toBe(1);
+      const expectedRefund =
+        detail!.status === 'CANCELLED'
+          ? 'Challenge cancelled — entry refund'
+          : 'Challenge declined — entry refund';
+      expect(refunds[0].description).toBe(expectedRefund);
+
+      const challengerAfter = (await getWalletBalance(challenger.id)).gamePointsBalance;
+      expect(challengerAfter).toBe(escrowBalance + ENTRY);
+      const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
+      expect(challengedAfter).toBe(challengedBefore);
+    }
+  });
+
+  // ── decline vs accept: realistic race, 5 fresh funded rounds ──
+  it('decline racing accept settles with one winner and no stranded funds (5 rounds)', async () => {
+    const ENTRY = 20;
+
+    for (let i = 0; i < 5; i++) {
+      const challenger = await createUser(`ra9_c${i}`);
+      const challenged = await createUser(`ra9_cd${i}`);
+      await primeGamePoints(challenger.id, 1000);
+      await primeGamePoints(challenged.id, 1000);
+
+      const chal = await createChallenge(challenger.id, challenged.id, 'dice', ENTRY);
+      const escrowBalance = (await getWalletBalance(challenger.id)).gamePointsBalance;
+      const challengedBefore = (await getWalletBalance(challenged.id)).gamePointsBalance;
+
+      const results = await Promise.allSettled([
+        declineChallenge(challenged.id, chal.id),
+        acceptChallenge(challenged.id, chal.id),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled.length).toBe(1);
+      expect(rejected.length).toBe(1);
+
+      const detail = await prisma.gameChallenge.findUnique({ where: { id: chal.id } });
+      expect(['DECLINED', 'ACTIVE']).toContain(detail!.status);
+
+      const challengerRefunds = await countChallengeRefunds(challenger.id);
+      const challengerEntries = await countChallengeEntries(challenger.id, 'dice');
+      const challengedEntries = await countChallengeEntries(challenged.id, 'dice');
+
+      if (detail!.status === 'DECLINED') {
+        // Challenge never started: challenger stake fully refunded, challenged
+        // never paid, acceptedAt stays null.
+        expect(challengerRefunds).toBe(1);
+        expect(challengerEntries).toBe(1);
+        expect(challengedEntries).toBe(0);
+        const challengerAfter = (await getWalletBalance(challenger.id)).gamePointsBalance;
+        expect(challengerAfter).toBe(escrowBalance + ENTRY);
+        const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
+        expect(challengedAfter).toBe(challengedBefore);
+        expect(detail!.acceptedAt).toBeNull();
+        // Zero stranded funds: both players are back to their pre-challenge
+        // starting balances.
+        expect(challengerAfter + challengedAfter).toBe(2000);
+      } else {
+        // Challenge accepted: each player holds exactly one entry debit, the
+        // challenger's stake stays escrowed (no refund), acceptedAt is set.
+        expect(challengerRefunds).toBe(0);
+        expect(challengerEntries).toBe(1);
+        expect(challengedEntries).toBe(1);
+        const challengerAfter = (await getWalletBalance(challenger.id)).gamePointsBalance;
+        expect(challengerAfter).toBe(escrowBalance);
+        const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
+        expect(challengedAfter).toBe(challengedBefore - ENTRY);
+        expect(detail!.acceptedAt).not.toBeNull();
+        // Zero stranded funds: exactly the 2 x ENTRY pot is escrowed in-game.
+        expect(challengerAfter + challengedAfter).toBe(1960);
+      }
+    }
+  });
+
+  // ── Atomicity: a failing refund rolls the whole decline back ──
+  it('a failed decline refund rolls back atomically and never mutates state', async () => {
+    const ENTRY = 20;
+    const MAX_BALANCE = 1_000_000_000;
+
+    const challenger = await createUser('roll_cl');
+    const challenged = await createUser('roll_cd');
+    // Put the challenger exactly at the MAX_BALANCE guard.
+    await primeGamePoints(challenger.id, MAX_BALANCE);
+    await primeGamePoints(challenged.id, 1000);
+
+    const chal = await createChallenge(challenger.id, challenged.id, 'dice', ENTRY);
+    // Top the challenger back up to MAX_BALANCE so a decline refund of ENTRY
+    // would exceed the guard and fail.
+    await primeGamePoints(challenger.id, ENTRY);
+    const challengedBefore = (await getWalletBalance(challenged.id)).gamePointsBalance;
+
+    await expect(declineChallenge(challenged.id, chal.id)).rejects.toThrow();
+
+    const detail = await prisma.gameChallenge.findUnique({ where: { id: chal.id } });
+    expect(detail!.status).toBe('PENDING');
+
+    // The refund ledger row must not persist — refund and state transition
+    // are one atomic transaction.
+    expect(await countChallengeRefunds(challenger.id)).toBe(0);
+
+    const challengedAfter = (await getWalletBalance(challenged.id)).gamePointsBalance;
+    expect(challengedAfter).toBe(challengedBefore);
   });
 });

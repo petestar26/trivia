@@ -135,24 +135,31 @@ export async function acceptChallenge(userId: string, challengeId: string) {
   await getOrCreateWallet(userId);
 
   const updated = await prisma.$transaction(async (tx) => {
-    // Re-verify status within the transaction to prevent double-accept races.
-    const fresh = await tx.gameChallenge.findUnique({ where: { id: challengeId } });
-    if (!fresh) throw ApiError.notFound('Challenge not found');
-    if (fresh.status !== 'PENDING') throw ApiError.badRequest('Challenge is not pending');
-    if (fresh.expiresAt < new Date()) throw ApiError.badRequest('Challenge has expired');
+    // ── LOCK the challenge row FIRST, before any wallet mutation ──
+    // Same challenge-then-wallet order as cancelChallenge and
+    // playChallengeTurn: the status re-check under the row lock prevents a
+    // racing decline/cancel from double-debiting or overwriting the terminal
+    // state, and the fixed lock order avoids wallet→challenge deadlocks.
+    const lockedRows = await tx.$queryRaw<{ status: string; expiresAt: Date }[]>`
+      SELECT "status", "expiresAt" FROM "game_challenges" WHERE "id" = ${challengeId} FOR UPDATE
+    `;
+    const locked = lockedRows[0];
+    if (!locked) throw ApiError.notFound('Challenge not found');
+    if (locked.status !== 'PENDING') throw ApiError.badRequest('Challenge is not pending');
+    if (locked.expiresAt < new Date()) throw ApiError.badRequest('Challenge has expired');
 
-    if (fresh.entryAmount > 0) {
+    if (existing.entryAmount > 0) {
       const wallet = await tx.wallet.findUnique({
         where: { userId },
         select: { gamePointsBalance: true },
       });
-      if (!wallet || wallet.gamePointsBalance < fresh.entryAmount) {
+      if (!wallet || wallet.gamePointsBalance < existing.entryAmount) {
         throw ApiError.badRequest('Insufficient Game Points for entry');
       }
       await applyBalanceChanges(tx, userId, [
         {
           currency: 'GAME_POINTS',
-          amount: fresh.entryAmount,
+          amount: existing.entryAmount,
           ledgerType: 'DEBIT',
           transactionType: 'GAME_POINT_DEBIT',
           referenceType: 'GAME',
@@ -161,26 +168,34 @@ export async function acceptChallenge(userId: string, challengeId: string) {
       ]);
     }
 
-    const accepted = await tx.gameChallenge.update({
-      where: { id: challengeId },
+    const accepted = await tx.gameChallenge.updateMany({
+      where: { id: challengeId, status: 'PENDING' },
       data: { status: 'ACTIVE', acceptedAt: new Date() },
+    });
+    if (accepted.count !== 1) throw ApiError.conflict('Challenge is no longer pending');
+
+    // updateMany returns no relations — reload inside the transaction so the
+    // notification/socket/return payloads keep their existing shape.
+    const reloaded = await tx.gameChallenge.findUnique({
+      where: { id: challengeId },
       include: {
         challenger: { select: { id: true, username: true, displayName: true } },
         challenged: { select: { id: true, username: true, displayName: true } },
       },
     });
+    if (!reloaded) throw ApiError.notFound('Challenge not found');
 
     await tx.notification.create({
       data: {
-        userId: accepted.challengerId,
+        userId: reloaded.challengerId,
         type: 'CHALLENGE_ACCEPTED',
         title: 'Challenge Accepted',
-        body: `${accepted.challenged.displayName || accepted.challenged.username} accepted your challenge`,
+        body: `${reloaded.challenged.displayName || reloaded.challenged.username} accepted your challenge`,
         data: { challengeId, gameKey: existing.game.key },
       },
     });
 
-    return accepted;
+    return reloaded;
   });
 
   emitToUser(updated.challengerId, 'challenge:accepted', challengeEvent(updated));
@@ -195,6 +210,18 @@ export async function declineChallenge(userId: string, challengeId: string) {
   if (existing.status !== 'PENDING') throw ApiError.badRequest('Challenge is not pending');
 
   const updated = await prisma.$transaction(async (tx) => {
+    // ── LOCK the challenge row FIRST, before any wallet mutation ──
+    // Same challenge-then-wallet order as cancelChallenge and
+    // playChallengeTurn: the status re-check under the row lock prevents a
+    // racing cancel/accept from leaving a double refund or a terminal-state
+    // overwrite, and the fixed lock order avoids wallet→challenge deadlocks.
+    const lockedRows = await tx.$queryRaw<{ status: string }[]>`
+      SELECT "status" FROM "game_challenges" WHERE "id" = ${challengeId} FOR UPDATE
+    `;
+    const locked = lockedRows[0];
+    if (!locked) throw ApiError.notFound('Challenge not found');
+    if (locked.status !== 'PENDING') throw ApiError.badRequest('Challenge is not pending');
+
     if (existing.entryAmount > 0) {
       await applyBalanceChanges(tx, existing.challengerId, [
         {
@@ -207,11 +234,20 @@ export async function declineChallenge(userId: string, challengeId: string) {
         },
       ]);
     }
-    const d = await tx.gameChallenge.update({
-      where: { id: challengeId },
+
+    const declined = await tx.gameChallenge.updateMany({
+      where: { id: challengeId, status: 'PENDING' },
       data: { status: 'DECLINED' },
+    });
+    if (declined.count !== 1) throw ApiError.conflict('Challenge is no longer pending');
+
+    // updateMany returns no relations — reload inside the transaction so the
+    // challengeEvent payload keeps its existing shape.
+    const d = await tx.gameChallenge.findUnique({
+      where: { id: challengeId },
       include: { challenger: true, challenged: true },
     });
+    if (!d) throw ApiError.notFound('Challenge not found');
     return d;
   });
 
