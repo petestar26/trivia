@@ -33,6 +33,7 @@ model User {
   referredByAgent   Agent?  @relation("AgentReferrals", fields: [referredByAgentId], references: [id], onDelete: SetNull)
 
   profile                   Profile?
+  sessions                  Session[]
   ownedGroups               Group[]                    @relation("GroupOwner")
   groupMemberships          GroupMember[]
   messages                  Message[]
@@ -98,6 +99,8 @@ model Session {
   ip           String?
   expiresAt    DateTime
   createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([refreshToken])

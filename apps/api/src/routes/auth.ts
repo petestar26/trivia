@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { registerSchema, loginSchema, refreshTokenSchema, RefreshTokenPayload } from '@socialplay/shared';
@@ -12,7 +13,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof registerSchema> }>(
     '/register',
     {
-      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      config: {
+        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      },
       schema: {
         body: {
           type: 'object',
@@ -20,7 +23,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           properties: {
             username: { type: 'string', minLength: 3, maxLength: 30, pattern: '^[a-zA-Z0-9_]+$' },
             email: { type: 'string', format: 'email', maxLength: 255 },
-            password: { type: 'string', minLength: 8, maxLength: 128 },
+            // Mirrors the shared password policy (packages/shared passwordSchema):
+            // min 8, max 128, at least one uppercase, lowercase, digit, special.
+            password: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 128,
+              allOf: [
+                { pattern: '[A-Z]' },
+                { pattern: '[a-z]' },
+                { pattern: '[0-9]' },
+                { pattern: '[^A-Za-z0-9]' },
+              ],
+            },
             displayName: { type: 'string', minLength: 1, maxLength: 100 },
           },
         },
@@ -44,52 +59,78 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       const passwordHash = await hashPassword(password);
 
-      const user = await prisma.user.create({
-        data: {
-          email,
-          username,
-          passwordHash,
-          displayName: displayName || username,
-        },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          displayName: true,
-          isVerified: true,
-          role: true,
-          createdAt: true,
-        },
-      });
+      // Atomic registration: create the User and its initial Session inside a
+      // single interactive transaction. If Session creation fails, the User is
+      // rolled back — no orphan User can remain from a failed registration.
+      // Bcrypt hashing happens OUTSIDE the transaction, so no DB transaction
+      // is held open while hashing. Cookies are set only after commit.
+      try {
+        const { user, tokens } = await prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              username,
+              passwordHash,
+              displayName: displayName || username,
+            },
+            select: {
+              id: true,
+              email: true,
+              username: true,
+              displayName: true,
+              isVerified: true,
+              role: true,
+              tokenVersion: true,
+              createdAt: true,
+            },
+          });
 
-      const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
+          const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
 
-      await prisma.session.create({
-        data: {
-          userId: user.id,
-          refreshToken: tokens.refreshToken,
-          userAgent: request.headers['user-agent'],
-          ip: request.ip,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        },
-      });
+          await tx.session.create({
+            data: {
+              userId: user.id,
+              refreshToken: tokens.refreshToken,
+              userAgent: request.headers['user-agent'],
+              ip: request.ip,
+              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            },
+          });
 
-      setAuthCookies(reply, tokens);
+          return { user, tokens };
+        });
 
-      reply.status(201).send({
-        success: true,
-        data: {
-          user,
-          ...tokens,
-        },
-      });
+        setAuthCookies(reply, tokens);
+
+        reply.status(201).send({
+          success: true,
+          data: {
+            user,
+            ...tokens,
+          },
+        });
+      } catch (err) {
+        // Concurrent duplicate registration: both requests pass the pre-check
+        // above, so the loser hits a unique constraint inside the transaction.
+        // Classify only the known User email/username unique constraints;
+        // anything else (e.g. a Session refreshToken collision) rethrows.
+        if ((err as { code?: string }).code === 'P2002') {
+          const target = (err as { meta?: { target?: string | string[] } }).meta?.target;
+          const targetName = Array.isArray(target) ? target.join(',') : String(target ?? '');
+          if (targetName.includes('email')) throw ApiError.conflict('Email already registered');
+          if (targetName.includes('username')) throw ApiError.conflict('Username already taken');
+        }
+        throw err;
+      }
     }
   );
 
   server.post<{ Body: z.infer<typeof loginSchema> }>(
     '/login',
     {
-      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      config: {
+        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      },
       schema: {
         body: {
           type: 'object',
@@ -168,7 +209,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof refreshTokenSchema> }>(
     '/refresh',
     {
-      rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      config: {
+        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+      },
       schema: {
         body: {
           type: 'object',
@@ -200,7 +243,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       // outstanding refresh token is invalid.
       try {
         const decoded = await request.server.jwt.verify<RefreshTokenPayload>(refreshToken, {
-          secret: config.JWT_REFRESH_SECRET,
+          // @fastify/jwt merges route options with the plugin secret and only
+          // honors a `key` option (a plain `secret` option is ignored, which
+          // would verify with the access-token secret). Pass the refresh
+          // secret as `key` so the refresh token's HS256 signature checks out.
+          key: config.JWT_REFRESH_SECRET,
           issuer: config.JWT_ISSUER,
           audience: config.JWT_AUDIENCE,
         });
@@ -216,13 +263,32 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       // in a single transaction so a crash between the two cannot leave
       // the user with no valid refresh token, and concurrent refreshes
       // resolve cleanly (the delete fails on the loser → P2025 → 404).
-      const tokens = generateTokens(
+      const generated = generateTokens(
         session.user.id,
         session.user.email,
         session.user.username,
         [session.user.role],
         session.user.tokenVersion
       );
+
+      // The substitute refresh token is signed with a fresh `jti` so two
+      // rotations in the same second never mint identical tokens. Without a
+      // unique identifier a concurrent duplicate refresh could match the
+      // winner's rotated row by its byte-identical token and double-rotate.
+      const tokens = {
+        accessToken: generated.accessToken,
+        refreshToken: request.server.jwt.sign(
+          {
+            sub: session.user.id,
+            tokenVersion: session.user.tokenVersion,
+            iss: config.JWT_ISSUER,
+            aud: config.JWT_AUDIENCE,
+            jti: randomUUID(),
+          },
+          { key: config.JWT_REFRESH_SECRET, expiresIn: config.JWT_REFRESH_EXPIRY }
+        ),
+        expiresIn: generated.expiresIn,
+      };
 
       try {
         await prisma.$transaction(async (tx) => {
