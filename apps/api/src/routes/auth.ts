@@ -1,6 +1,5 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { registerSchema, loginSchema, refreshTokenSchema, RefreshTokenPayload } from '@socialplay/shared';
@@ -263,32 +262,17 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       // in a single transaction so a crash between the two cannot leave
       // the user with no valid refresh token, and concurrent refreshes
       // resolve cleanly (the delete fails on the loser → P2025 → 404).
-      const generated = generateTokens(
+      // The replacement tokens come from the single generateTokens() path;
+      // generateTokens() mints a unique refresh token (fresh jti) per call,
+      // so two rotations in the same second never produce identical tokens —
+      // a concurrent duplicate refresh cannot match the winner's rotated row.
+      const tokens = generateTokens(
         session.user.id,
         session.user.email,
         session.user.username,
         [session.user.role],
         session.user.tokenVersion
       );
-
-      // The substitute refresh token is signed with a fresh `jti` so two
-      // rotations in the same second never mint identical tokens. Without a
-      // unique identifier a concurrent duplicate refresh could match the
-      // winner's rotated row by its byte-identical token and double-rotate.
-      const tokens = {
-        accessToken: generated.accessToken,
-        refreshToken: request.server.jwt.sign(
-          {
-            sub: session.user.id,
-            tokenVersion: session.user.tokenVersion,
-            iss: config.JWT_ISSUER,
-            aud: config.JWT_AUDIENCE,
-            jti: randomUUID(),
-          },
-          { key: config.JWT_REFRESH_SECRET, expiresIn: config.JWT_REFRESH_EXPIRY }
-        ),
-        expiresIn: generated.expiresIn,
-      };
 
       try {
         await prisma.$transaction(async (tx) => {

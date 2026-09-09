@@ -1,7 +1,7 @@
 import { config } from '@socialplay/config';
 import { JwtPayload, RefreshTokenPayload, TokenPair } from '@socialplay/shared';
 import { FastifyInstance } from 'fastify';
-import { createHmac } from 'crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 
 export async function hashPassword(password: string): Promise<string> {
   // bcryptjs is CommonJS; under ESM its exports land on `.default`, so
@@ -33,11 +33,17 @@ export function generateTokens(
     aud: config.JWT_AUDIENCE,
   };
 
-  const refreshPayload: Omit<RefreshTokenPayload, 'iat' | 'exp'> = {
+  // The refresh payload carries a cryptographically random `jti` so every
+  // issued refresh token is unique by construction — even for two issuances
+  // to the same user within the same second. iat/exp are second-resolution,
+  // so without jti two same-second tokens would be byte-identical and collide
+  // on Session.refreshToken's unique constraint.
+  const refreshPayload: Omit<RefreshTokenPayload, 'iat' | 'exp'> & { jti: string } = {
     sub: userId,
     tokenVersion,
     iss: config.JWT_ISSUER,
     aud: config.JWT_AUDIENCE,
+    jti: randomUUID(),
   };
 
   const accessToken = signJwt(accessPayload, config.JWT_ACCESS_SECRET, config.JWT_ACCESS_EXPIRY);

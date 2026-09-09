@@ -294,4 +294,88 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
     const after = await prisma.session.count({ where: { userId } });
     expect(after).toBe(0);
   });
+
+  // ─── J. REFRESH-TOKEN UNIQUENESS (central JTI) ─────────────
+
+  it('J1: two same-second generateTokens calls mint different refresh tokens (access unchanged)', () => {
+    const fixedMs = Date.parse('2026-09-09T00:00:00.000Z');
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(fixedMs);
+    try {
+      const a = authUtils.generateTokens('j1-user', 'j1@test.local', 'j1_user', ['USER'], 0);
+      const b = authUtils.generateTokens('j1-user', 'j1@test.local', 'j1_user', ['USER'], 0);
+      expect(a.refreshToken).not.toBe(b.refreshToken);
+      expect(a.accessToken).toBe(b.accessToken);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('J2: two same-second logins both succeed and store distinct refresh tokens', async () => {
+    const { res, email } = await registerUser('j2');
+    expect(res.statusCode).toBe(201);
+    const userId = res.json().data.user.id;
+
+    const fixedMs = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(fixedMs);
+    try {
+      const [l1, l2] = await Promise.all([
+        server.inject({ method: 'POST', url: `${PREFIX}/login`, payload: { email, password: VALID_PASSWORD } }),
+        server.inject({ method: 'POST', url: `${PREFIX}/login`, payload: { email, password: VALID_PASSWORD } }),
+      ]);
+      expect(l1.statusCode).toBe(200);
+      expect(l2.statusCode).toBe(200);
+
+      const rt1 = l1.json().data.refreshToken;
+      const rt2 = l2.json().data.refreshToken;
+      expect(rt1).toBeTruthy();
+      expect(rt2).toBeTruthy();
+      expect(rt1).not.toBe(rt2);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const sessions = await prisma.session.findMany({ where: { userId }, select: { refreshToken: true } });
+    // 1 from registration + 2 from the same-second logins.
+    expect(sessions).toHaveLength(3);
+    const tokens = sessions.map((s) => s.refreshToken);
+    expect(new Set(tokens).size).toBe(3);
+  });
+
+  it('J3: generated refresh token verifies with production semantics and carries a fresh jti', async () => {
+    const fixedMs = Date.parse('2026-09-09T00:00:00.000Z');
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(fixedMs);
+    try {
+      const a = authUtils.generateTokens('j3-user', 'j3@test.local', 'j3_user', ['USER'], 7);
+      const b = authUtils.generateTokens('j3-user', 'j3@test.local', 'j3_user', ['USER'], 7);
+
+      for (const tok of [a.refreshToken, b.refreshToken]) {
+        const decoded = await server.jwt.verify<{
+          sub: string;
+          tokenVersion: number;
+          iss: string;
+          aud: string;
+          jti?: string;
+          iat?: number;
+          exp?: number;
+        }>(tok, {
+          key: config.JWT_REFRESH_SECRET,
+          issuer: config.JWT_ISSUER,
+          audience: config.JWT_AUDIENCE,
+        });
+        expect(decoded.sub).toBe('j3-user');
+        expect(decoded.tokenVersion).toBe(7);
+        expect(decoded.iss).toBe(config.JWT_ISSUER);
+        expect(decoded.aud).toBe(config.JWT_AUDIENCE);
+        expect(typeof decoded.jti).toBe('string');
+        expect(decoded.jti).not.toBe('');
+      }
+
+      const jwtA = JSON.parse(Buffer.from(a.refreshToken.split('.')[1], 'base64url').toString());
+      const jwtB = JSON.parse(Buffer.from(b.refreshToken.split('.')[1], 'base64url').toString());
+      expect(jwtA.jti).toBeTruthy();
+      expect(jwtA.jti).not.toBe(jwtB.jti);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
