@@ -16,14 +16,14 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 export function generateTokens(
   userId: string,
-  email: string,
+  email: string | null | undefined,
   username: string,
   roles: string[],
   tokenVersion: number = 0
 ): TokenPair {
   const accessPayload: Omit<JwtPayload, 'iat' | 'exp'> = {
     sub: userId,
-    email,
+    ...(email ? { email } : {}),
     username,
     roles,
     iss: config.JWT_ISSUER,

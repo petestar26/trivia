@@ -38,7 +38,7 @@ export interface RequestContext {
 
 export interface JwtPayload {
   sub: string;
-  email: string;
+  email?: string;
   username: string;
   roles: string[];
   iat: number;

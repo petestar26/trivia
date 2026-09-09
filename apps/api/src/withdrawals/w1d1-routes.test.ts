@@ -125,8 +125,13 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
   return { user, agentUser, agent, withdrawal: withdrawal as any };
 }
 
-function mintToken(user: { id: string; email: string; username: string; role: string }) {
-  const token = server.jwt.sign({ sub: user.id, email: user.email, username: user.username, roles: [user.role] });
+function mintToken(user: { id: string; email: string | null; username: string; role: string }) {
+  const token = server.jwt.sign({
+    sub: user.id,
+    ...(user.email !== null ? { email: user.email } : {}),
+    username: user.username,
+    roles: [user.role],
+  });
   return `Bearer ${token}`;
 }
 

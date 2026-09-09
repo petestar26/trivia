@@ -378,4 +378,302 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
       spy.mockRestore();
     }
   });
+
+  // ─── K. SLICE 4A — EMAIL IDENTITY DUAL-WRITE ────────────────
+
+  it('K1: legacy registration still returns 201 with the same response shape', async () => {
+    const { res, payload } = await registerUser('4a_k1');
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.user).toBeDefined();
+    expect(body.data.user.email).toBe(payload.email);
+    expect(body.data.accessToken).toBeTruthy();
+    expect(body.data.refreshToken).toBeTruthy();
+    expect(body.data.expiresIn).toBeDefined();
+  });
+
+  it('K2: registration creates exactly one EMAIL identity (verbatim subject, verifiedAt null)', async () => {
+    const email = `k2-${uniqueTag('4a')}@test.local`;
+    createdEmails.push(email);
+    const { res } = await registerUser('4a_k2', { email });
+    expect(res.statusCode).toBe(201);
+    const userId = res.json().data.user.id;
+
+    const identities = await prisma.userAuthIdentity.findMany({ where: { userId } });
+    expect(identities).toHaveLength(1);
+    expect(identities[0].provider).toBe('EMAIL');
+    expect(identities[0].providerSubject).toBe(email);
+    expect(identities[0].verifiedAt).toBeNull();
+    expect(identities[0].lastUsedAt).toBeNull();
+  });
+
+  it('K3: legacy login still returns 200', async () => {
+    const { res, email, payload } = await registerUser('4a_k3');
+    expect(res.statusCode).toBe(201);
+    const login = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/login`,
+      payload: { email, password: payload.password },
+    });
+    expect(login.statusCode).toBe(200);
+  });
+
+  it('K4: login with a null passwordHash returns 401 Invalid credentials', async () => {
+    const suffix = uniqueTag('4a');
+    const email = `k4-${suffix}@test.local`;
+    const username = `k4_${suffix}`.slice(0, 30);
+    createdEmails.push(email);
+    await prisma.user.create({
+      data: { email, username, passwordHash: null, displayName: username, status: 'ACTIVE', role: 'USER', tokenVersion: 0 },
+    });
+    const login = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/login`,
+      payload: { email, password: VALID_PASSWORD },
+    });
+    expect(login.statusCode).toBe(401);
+    expect(login.json().error.message).toBe('Invalid credentials');
+  });
+
+  it('K5: identity insert failure on a pre-seeded EMAIL identity rolls back the whole registration', async () => {
+    const suffix = uniqueTag('4a');
+    const email = `k5-${suffix}@test.local`;
+    const proxy = await prisma.user.create({
+      data: {
+        email,
+        username: `k5_proxy_${suffix}`.slice(0, 30),
+        passwordHash: 'proxy-only',
+        displayName: 'proxy',
+      },
+    });
+    // Pre-seed a legacy identity for email X, then null the proxy email so the
+    // registration pre-check passes but the identity insert violates
+    // (provider, providerSubject) inside the transaction.
+    await prisma.userAuthIdentity.create({
+      data: { userId: proxy.id, provider: 'EMAIL', providerSubject: email, verifiedAt: null },
+    });
+    await prisma.user.update({ where: { id: proxy.id }, data: { email: null } });
+
+    try {
+      const attempt = await registerUser('4a_k5', { email });
+      expect(attempt.res.statusCode).toBe(409);
+      expect(attempt.res.json().error.message).toBe('Email already registered');
+
+      const createdUsers = await prisma.user.count({ where: { email } });
+      expect(createdUsers).toBe(0);
+      const identities = await prisma.userAuthIdentity.count({ where: { providerSubject: email } });
+      expect(identities).toBe(1); // only the pre-seeded one survives
+      const sessions = await prisma.session.count({ where: { userId: proxy.id } });
+      expect(sessions).toBe(0);
+    } finally {
+      await prisma.userAuthIdentity.deleteMany({ where: { userId: proxy.id } });
+      await prisma.user.delete({ where: { id: proxy.id } });
+    }
+  });
+
+  it('K6: Session creation failure rolls back User, identity, and Session together', async () => {
+    const baseline = await registerUser('4a_k6');
+    const existingRefresh = baseline.res.json().data.refreshToken;
+
+    const spy = vi.spyOn(authUtils, 'generateTokens').mockImplementation(((() => ({
+      accessToken: 'mock-access-token',
+      refreshToken: existingRefresh,
+      expiresIn: 0,
+    })) as typeof authUtils.generateTokens));
+
+    const attemptEmail = `k6-${uniqueTag('4a')}@test.local`;
+    createdEmails.push(attemptEmail);
+    try {
+      const attempt = await registerUser('4a_k6_dup', { email: attemptEmail });
+      const attemptBody = attempt.res.json();
+      // The unclassified P2002 (refreshToken collision) rethrows from the
+      // register catch and surfaces as 409 ALREADY_EXISTS per the global
+      // error mapper.
+      expect(attempt.res.statusCode).toBe(409);
+      expect(attemptBody.error?.code).toBe('ALREADY_EXISTS');
+
+      const persisted = await prisma.user.findUnique({ where: { email: attemptEmail } });
+      expect(persisted).toBeNull();
+
+      const identities = await prisma.userAuthIdentity.count({ where: { providerSubject: attemptEmail } });
+      expect(identities).toBe(0);
+
+      const sessions = await prisma.session.count({ where: { user: { email: attemptEmail } } });
+      expect(sessions).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ─── L. SLICE 4A — JWT BEHAVIOUR WITH NULLABLE EMAIL ────────
+
+  it('L1: generateTokens with null email omits the email claim entirely', () => {
+    const tokens = authUtils.generateTokens('l1-user', null, 'l1_user', ['USER'], 0);
+    const decoded = server.jwt.decode<{ email?: string }>(tokens.accessToken);
+    expect(decoded).not.toBeNull();
+    expect('email' in (decoded ?? {})).toBe(false);
+  });
+
+  it('L2: generateTokens with undefined email omits the email claim entirely', () => {
+    const tokens = authUtils.generateTokens('l2-user', undefined, 'l2_user', ['USER'], 0);
+    const decoded = server.jwt.decode<{ email?: string }>(tokens.accessToken);
+    expect('email' in (decoded ?? {})).toBe(false);
+  });
+
+  it('L3: generateTokens with a real email keeps the email claim', () => {
+    const tokens = authUtils.generateTokens('l3-user', 'legacy@example.com', 'l3_user', ['USER'], 0);
+    const decoded = server.jwt.decode<{ email?: string }>(tokens.accessToken);
+    expect(decoded?.email).toBe('legacy@example.com');
+  });
+
+  it('L4: a null-email access token verifies through the production jwt path', () => {
+    const tokens = authUtils.generateTokens('l4-user', null, 'l4_user', ['USER'], 0);
+    const decoded = server.jwt.verify<{ sub: string; email?: string }>(tokens.accessToken);
+    expect(decoded.sub).toBe('l4-user');
+    expect('email' in decoded).toBe(false);
+  });
+
+  // ─── M. SLICE 4A — EMAIL-LESS REFRESH ───────────────────────
+
+  it('M1: an email-less User can refresh; token rotates; replay rejected; access lacks email', async () => {
+    const suffix = uniqueTag('4a');
+    const username = `m1_${suffix}`.slice(0, 30);
+    const user = await prisma.user.create({
+      data: {
+        email: null,
+        passwordHash: null,
+        username,
+        displayName: username,
+        status: 'ACTIVE',
+        role: 'USER',
+        tokenVersion: 0,
+      },
+    });
+
+    const tokens = authUtils.generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
+    await prisma.session.create({
+      data: {
+        userId: user.id,
+        refreshToken: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    try {
+      const refresh = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/refresh`,
+        payload: { refreshToken: tokens.refreshToken },
+      });
+      expect(refresh.statusCode).toBe(200);
+      const body = refresh.json();
+      expect(body.data.refreshToken).not.toBe(tokens.refreshToken);
+
+      const newAccess = server.jwt.decode<{ email?: string }>(body.data.accessToken);
+      expect('email' in (newAccess ?? {})).toBe(false);
+
+      // Replay of the original (now-rotated) token must be rejected.
+      const replay = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/refresh`,
+        payload: { refreshToken: tokens.refreshToken },
+      });
+      expect(replay.statusCode).toBe(401);
+
+      // Sanity: the replacement token still works.
+      const second = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/refresh`,
+        payload: { refreshToken: body.data.refreshToken },
+      });
+      expect(second.statusCode).toBe(200);
+    } finally {
+      await prisma.user.delete({ where: { id: user.id } });
+    }
+  });
+
+  // ─── N. SLICE 4A — CONCURRENCY (10 rounds each) ─────────────
+
+  it('N1: 10 rounds of concurrent same-email registration yield one 201/409 per round with one identity', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      // A fresh server per round keeps the per-IP auth rate limit from
+      // masking a genuine 201/409 outcome across the 20 total requests.
+      const roundServer = await freshServer();
+      try {
+        const email = `n1-${uniqueTag('4a')}@test.local`;
+        createdEmails.push(email);
+        const s = uniqueTag('n1');
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/register`,
+            payload: { username: `n1_ia_${s}`.slice(0, 30), email, password: VALID_PASSWORD },
+          }),
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/register`,
+            payload: { username: `n1_ib_${s}`.slice(0, 30), email, password: VALID_PASSWORD },
+          }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([201, 409]);
+        const loser = a.statusCode === 409 ? a : b;
+        expect(loser.json().error.message).toBe('Email already registered');
+
+        const users = await prisma.user.findMany({ where: { email } });
+        expect(users).toHaveLength(1);
+        const identities = await prisma.userAuthIdentity.count({
+          where: { userId: users[0].id, provider: 'EMAIL', providerSubject: email },
+        });
+        expect(identities).toBe(1);
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(1);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
+
+  it('N2: 10 rounds of concurrent same-username registration yield one 201/409 per round', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      const roundServer = await freshServer();
+      try {
+        const username = `n2_${uniqueTag('4a')}`.slice(0, 30);
+        const s = uniqueTag('n2');
+        const emailA = `n2_a_${s}@test.local`;
+        const emailB = `n2_b_${s}@test.local`;
+        createdEmails.push(emailA, emailB);
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/register`,
+            payload: { username, email: emailA, password: VALID_PASSWORD },
+          }),
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/register`,
+            payload: { username, email: emailB, password: VALID_PASSWORD },
+          }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([201, 409]);
+        const loser = a.statusCode === 409 ? a : b;
+        expect(loser.json().error.message).toBe('Username already taken');
+
+        const users = await prisma.user.findMany({ where: { username } });
+        expect(users).toHaveLength(1);
+        const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+        expect(identities).toBe(1);
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(1);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
 });

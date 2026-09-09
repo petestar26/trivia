@@ -11,9 +11,9 @@ datasource db {
 
 model User {
   id           String     @id @default(uuid())
-  email        String     @unique
+  email        String?    @unique
   username     String     @unique
-  passwordHash String
+  passwordHash String?
   displayName  String?
   bio          String?    @db.Text
   avatarUrl    String?
@@ -31,6 +31,8 @@ model User {
   // Agent.referredUsers for the inverse side.
   referredByAgentId String?
   referredByAgent   Agent?  @relation("AgentReferrals", fields: [referredByAgentId], references: [id], onDelete: SetNull)
+
+  identities UserAuthIdentity[]
 
   profile                   Profile?
   sessions                  Session[]
@@ -89,6 +91,34 @@ enum UserRole {
   MODERATOR
   ADMIN
   SUPER_ADMIN
+}
+
+// A canonical PlayQube User owns zero or more authentication identities.
+// Each identity is scoped to one external identity provider and one subject
+// key within that provider. The `(provider, providerSubject)` pair is the
+// only ownership arbiter — never introduce email-based identity resolution.
+enum AuthProvider {
+  EMAIL
+  PHONE
+  GOOGLE
+  TELEGRAM
+}
+
+model UserAuthIdentity {
+  id              String       @id @default(uuid())
+  userId          String
+  provider        AuthProvider
+  providerSubject String
+  verifiedAt      DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+  @@map("user_auth_identities")
 }
 
 model Session {

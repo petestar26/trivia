@@ -84,6 +84,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             },
           });
 
+          // Dual-write: create the EMAIL identity inside the same transaction.
+          // providerSubject is the verbatim supplied email (no normalization).
+          // verifiedAt = NULL : legacy EMAIL identity existence does NOT mean
+          // ownership verification (see §1B-D in the 4A architecture).
+          await tx.userAuthIdentity.create({
+            data: {
+              userId: user.id,
+              provider: 'EMAIL',
+              providerSubject: email,
+              verifiedAt: null,
+            },
+          });
+
           const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
 
           await tx.session.create({
@@ -114,10 +127,22 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         // Classify only the known User email/username unique constraints;
         // anything else (e.g. a Session refreshToken collision) rethrows.
         if ((err as { code?: string }).code === 'P2002') {
-          const target = (err as { meta?: { target?: string | string[] } }).meta?.target;
-          const targetName = Array.isArray(target) ? target.join(',') : String(target ?? '');
-          if (targetName.includes('email')) throw ApiError.conflict('Email already registered');
-          if (targetName.includes('username')) throw ApiError.conflict('Username already taken');
+          const target =
+            (err as { meta?: { target?: string | string[] } }).meta?.target;
+
+          const fields =
+            Array.isArray(target)
+              ? target
+              : target
+                ? [String(target)]
+                : [];
+
+          if (fields.includes('email')) throw ApiError.conflict('Email already registered');
+          if (fields.includes('username')) throw ApiError.conflict('Username already taken');
+          if (fields.includes('provider') && fields.includes('providerSubject')) {
+            throw ApiError.conflict('Email already registered');
+          }
+          throw err;
         }
         throw err;
       }
@@ -150,6 +175,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       });
 
       if (!user) {
+        throw ApiError.unauthorized('Invalid credentials');
+      }
+
+      // passwordHash is nullable (provider-only accounts). Use a generic
+      // guard; never reveal whether this is a Google/Telegram-only account.
+      if (!user.passwordHash) {
         throw ApiError.unauthorized('Invalid credentials');
       }
 

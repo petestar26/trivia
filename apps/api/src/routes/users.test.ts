@@ -40,16 +40,28 @@ async function createUser(tag: string, overrides: { status?: string; email?: str
   const suffix = uniqueSuffix();
   const email = overrides.email ?? `usearch-${tag}-${suffix}@test.local`;
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return existing;
-  return prisma.user.create({
-    data: {
-      email,
-      username: `usrch_${tag}_${suffix}`.slice(0, 30),
-      passwordHash: 'fixture-only-not-a-real-hash',
-      displayName: `UserSearch Test ${tag} ${suffix}`.slice(0, 100),
-      status: (overrides.status as any) ?? 'ACTIVE',
-    },
-  });
+  const user =
+    existing ??
+    (await prisma.user.create({
+      data: {
+        email,
+        username: `usrch_${tag}_${suffix}`.slice(0, 30),
+        passwordHash: 'fixture-only-not-a-real-hash',
+        displayName: `UserSearch Test ${tag} ${suffix}`.slice(0, 100),
+        status: (overrides.status as any) ?? 'ACTIVE',
+      },
+    }));
+
+  // Prisma truthfully returns email: string | null. This fixture always
+  // stores a known non-null email, so narrow it once at the fixture boundary.
+  if (user.email === null) {
+    throw new Error('Test fixture expected non-null email');
+  }
+
+  return {
+    ...user,
+    email: user.email,
+  };
 }
 
 async function cleanUserSearchFixtures() {

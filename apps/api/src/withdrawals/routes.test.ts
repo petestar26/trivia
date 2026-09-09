@@ -196,8 +196,13 @@ async function mintWithdrawalStepUp(userId: string, tokenIat: number, purpose = 
  * Returns the token's actual iat (decoded back out, not independently
  * recomputed) so step-up fixtures can bind to the exact same value
  * requireStepUp() will look up. */
-async function mintToken(user: { id: string; email: string; username: string; role: string }) {
-  const token = server.jwt.sign({ sub: user.id, email: user.email, username: user.username, roles: [user.role] });
+async function mintToken(user: { id: string; email: string | null; username: string; role: string }) {
+  const token = server.jwt.sign({
+    sub: user.id,
+    ...(user.email !== null ? { email: user.email } : {}),
+    username: user.username,
+    roles: [user.role],
+  });
   const decoded = server.jwt.decode<{ iat: number }>(token);
   return { token, iat: decoded!.iat };
 }
