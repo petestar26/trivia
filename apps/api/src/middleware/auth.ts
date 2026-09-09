@@ -1,11 +1,14 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { config } from '@socialplay/config';
 import { JwtPayload, ErrorCode } from '@socialplay/shared';
 import { ApiError } from './error-handler';
 
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: JwtPayload;
+// Canonical @fastify/jwt user augmentation. The plugin type-checks the
+// decoded access token against `FastifyJWT.user`; this replaces the previous
+// direct `FastifyRequest.user` augmentation (which conflicted with the
+// plugin's own declaration).
+declare module '@fastify/jwt' {
+  interface FastifyJWT {
+    user: JwtPayload;
   }
 }
 
@@ -19,11 +22,7 @@ export async function authenticate(
     // @fastify/jwt `cookie` option in plugins/index.ts. Do NOT pre-empt it
     // with a manual Bearer-header gate, or cookie-auth clients can never
     // authenticate.
-    const decoded = await request.jwtVerify<JwtPayload>({
-      secret: config.JWT_ACCESS_SECRET,
-      issuer: config.JWT_ISSUER,
-      audience: config.JWT_AUDIENCE,
-    });
+    const decoded = await request.jwtVerify<JwtPayload>();
 
     request.user = decoded;
   } catch (err) {
@@ -46,11 +45,8 @@ export function optionalAuth(
 
   const token = authHeader.substring(7);
 
-  return request.jwtVerify<JwtPayload>({
-    secret: config.JWT_ACCESS_SECRET,
-    issuer: config.JWT_ISSUER,
-    audience: config.JWT_AUDIENCE,
-  })
+  return request
+    .jwtVerify<JwtPayload>()
     .then((decoded) => {
       request.user = decoded;
     })

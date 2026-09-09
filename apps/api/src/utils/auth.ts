@@ -1,6 +1,5 @@
 import { config } from '@socialplay/config';
 import { JwtPayload, RefreshTokenPayload, TokenPair } from '@socialplay/shared';
-import { FastifyInstance } from 'fastify';
 import { createHmac, randomUUID } from 'node:crypto';
 
 export async function hashPassword(password: string): Promise<string> {
@@ -22,8 +21,6 @@ export function generateTokens(
   roles: string[],
   tokenVersion: number = 0
 ): TokenPair {
-  const fastify = { jwt: { sign: signJwt } } as unknown as FastifyInstance;
-
   const accessPayload: Omit<JwtPayload, 'iat' | 'exp'> = {
     sub: userId,
     email,

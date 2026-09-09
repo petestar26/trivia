@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
@@ -247,8 +247,6 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           // would verify with the access-token secret). Pass the refresh
           // secret as `key` so the refresh token's HS256 signature checks out.
           key: config.JWT_REFRESH_SECRET,
-          issuer: config.JWT_ISSUER,
-          audience: config.JWT_AUDIENCE,
         });
         if (decoded.tokenVersion !== session.user.tokenVersion) {
           throw ApiError.unauthorized('Token revoked', { code: ErrorCode.TOKEN_EXPIRED });
@@ -360,7 +358,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   );
 }
 
-function setAuthCookies(reply: FastifyInstance['reply'], tokens: { accessToken: string; refreshToken: string }): void {
+function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refreshToken: string }): void {
   const cookieOptions = {
     httpOnly: true,
     secure: config.COOKIE_SECURE,
@@ -380,7 +378,7 @@ function setAuthCookies(reply: FastifyInstance['reply'], tokens: { accessToken: 
   });
 }
 
-function clearAuthCookies(reply: FastifyInstance['reply']): void {
+function clearAuthCookies(reply: FastifyReply): void {
   const cookieOptions = {
     httpOnly: true,
     secure: config.COOKIE_SECURE,

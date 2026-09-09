@@ -56,10 +56,6 @@ export async function registerPlugins(server: FastifyInstance): Promise<void> {
       audience: config.JWT_AUDIENCE,
       expiresIn: config.JWT_ACCESS_EXPIRY,
     },
-    verify: {
-      issuer: config.JWT_ISSUER,
-      audience: config.JWT_AUDIENCE,
-    },
     cookie: {
       cookieName: 'sp_access_token',
       signed: false,
