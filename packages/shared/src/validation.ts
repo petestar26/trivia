@@ -33,6 +33,7 @@ export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   displayName: z.string().min(1).max(100).optional(),
+  referralCode: z.string().optional(),
 });
 
 export const loginSchema = z.object({

@@ -32,6 +32,10 @@ model User {
   referredByAgentId String?
   referredByAgent   Agent?  @relation("AgentReferrals", fields: [referredByAgentId], references: [id], onDelete: SetNull)
 
+  referralCode   String?    @unique
+  referralReceived Referral? @relation("ReferralReferred")
+  referralsMade    Referral[] @relation("ReferralReferrer")
+
   identities UserAuthIdentity[]
 
   profile                   Profile?
@@ -119,6 +123,26 @@ model UserAuthIdentity {
   @@unique([provider, providerSubject])
   @@index([userId])
   @@map("user_auth_identities")
+}
+
+// ─── User→User Referral Foundation (Slice 5) ─────────────────
+// At most one Referral row per referred User (referredUserId @unique).
+// No reward amounts, verification status, or expiry — Slice 5 is attribution-only.
+// Self-referral is prevented by a raw CHECK constraint in the migration
+// (Prisma cannot express CHECK natively).
+
+model Referral {
+  id             String   @id @default(uuid())
+  referredUserId String   @unique
+  referrerUserId String
+  referralCode   String
+  createdAt      DateTime @default(now())
+
+  referredUser User @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referrerUser User @relation("ReferralReferrer", fields: [referrerUserId], references: [id], onDelete: Restrict)
+
+  @@index([referrerUserId])
+  @@map("referrals")
 }
 
 model Session {

@@ -7,6 +7,11 @@ import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth';
 import { safeRecordActivity } from '../rewards/activity-service';
+import {
+  canonicalizeReferralCode,
+  isValidReferralCode,
+  generateUniqueReferralCode,
+} from '../referrals/referral-service.js';
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: z.infer<typeof registerSchema> }>(
@@ -36,12 +41,28 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               ],
             },
             displayName: { type: 'string', minLength: 1, maxLength: 100 },
+            referralCode: { type: 'string', maxLength: 50 },
           },
         },
       },
     },
     async (request, reply) => {
       const { username, email, password, displayName } = request.body;
+
+      // ─── Referral code canonicalization (before any DB work) ───
+      const rawReferralCode = (request.body as Record<string, unknown>).referralCode;
+      // "" or whitespace-only → treated as omitted.
+      let suppliedCode: string | null = null;
+
+      if (typeof rawReferralCode === 'string' && rawReferralCode.trim().length > 0) {
+        const canonical = canonicalizeReferralCode(rawReferralCode);
+        // Format validation only here — referrer existence/eligibility is
+        // resolved INSIDE the registration transaction (§19).
+        if (!isValidReferralCode(canonical)) {
+          throw ApiError.badRequest('Invalid referral code');
+        }
+        suppliedCode = canonical;
+      }
 
       const existingUser = await prisma.user.findFirst({
         where: {
@@ -58,94 +79,119 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       const passwordHash = await hashPassword(password);
 
-      // Atomic registration: create the User and its initial Session inside a
-      // single interactive transaction. If Session creation fails, the User is
-      // rolled back — no orphan User can remain from a failed registration.
-      // Bcrypt hashing happens OUTSIDE the transaction, so no DB transaction
-      // is held open while hashing. Cookies are set only after commit.
-      try {
-        const { user, tokens } = await prisma.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              email,
-              username,
-              passwordHash,
-              displayName: displayName || username,
-            },
-            select: {
-              id: true,
-              email: true,
-              username: true,
-              displayName: true,
-              isVerified: true,
-              role: true,
-              tokenVersion: true,
-              createdAt: true,
-            },
+      // Atomic registration with collision retry for generated referralCode.
+      // The whole registration transaction is retried on referralCode unique
+      // collision only; all other failures propagate immediately.
+      const MAX_REGISTRATION_RETRIES = 5;
+
+      for (let attempt = 0; attempt < MAX_REGISTRATION_RETRIES; attempt++) {
+        try {
+          const { user, tokens } = await prisma.$transaction(async (tx) => {
+            const ownCode = await generateUniqueReferralCode();
+
+            const user = await tx.user.create({
+              data: {
+                email,
+                username,
+                passwordHash,
+                displayName: displayName || username,
+                referralCode: ownCode,
+              },
+              select: {
+                id: true,
+                email: true,
+                username: true,
+                displayName: true,
+                isVerified: true,
+                role: true,
+                tokenVersion: true,
+                createdAt: true,
+              },
+            });
+
+            // Dual-write: create the EMAIL identity inside the same transaction.
+            await tx.userAuthIdentity.create({
+              data: {
+                userId: user.id,
+                provider: 'EMAIL',
+                providerSubject: email,
+                verifiedAt: null,
+              },
+            });
+
+            // Referral attribution (if a valid code was supplied).
+            // Referrer is resolved by canonical referral code INSIDE this
+            // transaction; only ACTIVE referrers are eligible. Any failure
+            // path here rolls back the whole registration (User + identity
+            // + Referral + Session leave no partial state).
+            if (suppliedCode) {
+              const referrer = await tx.user.findUnique({
+                where: { referralCode: suppliedCode },
+                select: { id: true, status: true },
+              });
+
+              if (!referrer || referrer.status !== 'ACTIVE') {
+                throw ApiError.badRequest('Invalid referral code');
+              }
+
+              await tx.referral.create({
+                data: {
+                  referredUserId: user.id,
+                  referrerUserId: referrer.id,
+                  referralCode: suppliedCode,
+                },
+              });
+            }
+
+            const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
+
+            await tx.session.create({
+              data: {
+                userId: user.id,
+                refreshToken: tokens.refreshToken,
+                userAgent: request.headers['user-agent'],
+                ip: request.ip,
+                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              },
+            });
+
+            return { user, tokens };
           });
 
-          // Dual-write: create the EMAIL identity inside the same transaction.
-          // providerSubject is the verbatim supplied email (no normalization).
-          // verifiedAt = NULL : legacy EMAIL identity existence does NOT mean
-          // ownership verification (see §1B-D in the 4A architecture).
-          await tx.userAuthIdentity.create({
+          setAuthCookies(reply, tokens);
+
+          reply.status(201).send({
+            success: true,
             data: {
-              userId: user.id,
-              provider: 'EMAIL',
-              providerSubject: email,
-              verifiedAt: null,
+              user,
+              ...tokens,
             },
           });
+          return; // success — exit retry loop
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          const target = (err as { meta?: { target?: string | string[] } }).meta?.target;
+          const fields = Array.isArray(target) ? target : target ? [String(target)] : [];
 
-          const tokens = generateTokens(user.id, user.email, user.username, [user.role], user.tokenVersion);
+          // referralCode collision on our OWN generated code → retry
+          if (code === 'P2002' && fields.includes('referralCode')) {
+            continue; // retry with fresh generated code
+          }
 
-          await tx.session.create({
-            data: {
-              userId: user.id,
-              refreshToken: tokens.refreshToken,
-              userAgent: request.headers['user-agent'],
-              ip: request.ip,
-              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-            },
-          });
-
-          return { user, tokens };
-        });
-
-        setAuthCookies(reply, tokens);
-
-        reply.status(201).send({
-          success: true,
-          data: {
-            user,
-            ...tokens,
-          },
-        });
-      } catch (err) {
-        // Concurrent duplicate registration: both requests pass the pre-check
-        // above, so the loser hits a unique constraint inside the transaction.
-        // Classify only the known User email/username unique constraints;
-        // anything else (e.g. a Session refreshToken collision) rethrows.
-        if ((err as { code?: string }).code === 'P2002') {
-          const target =
-            (err as { meta?: { target?: string | string[] } }).meta?.target;
-
-          const fields =
-            Array.isArray(target)
-              ? target
-              : target
-                ? [String(target)]
-                : [];
-
-          if (fields.includes('email')) throw ApiError.conflict('Email already registered');
-          if (fields.includes('username')) throw ApiError.conflict('Username already taken');
-          if (fields.includes('provider') && fields.includes('providerSubject')) {
-            throw ApiError.conflict('Email already registered');
+          // Known User/identity constraints → classify and fail immediately
+          if (code === 'P2002') {
+            if (fields.includes('email')) throw ApiError.conflict('Email already registered');
+            if (fields.includes('username')) throw ApiError.conflict('Username already taken');
+            if (fields.includes('provider') && fields.includes('providerSubject')) {
+              throw ApiError.conflict('Email already registered');
+            }
           }
           throw err;
         }
-        throw err;
       }
+
+      // All retry attempts exhausted for referralCode collisions.
+      throw ApiError.internal('Registration failed due to repeated referral code collisions');
     }
   );
 

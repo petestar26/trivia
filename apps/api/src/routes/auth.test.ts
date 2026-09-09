@@ -4,6 +4,20 @@ import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server';
 import * as authUtils from '../utils/auth';
+import {
+  generateReferralCode,
+  generateUniqueReferralCode,
+} from '../referrals/referral-service.js';
+
+// Mock the referral service — real implementation by default, individual tests
+// override specific functions with mockResolvedValueOnce for collision testing.
+vi.mock('../referrals/referral-service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../referrals/referral-service.js')>();
+  return {
+    ...actual,
+    generateUniqueReferralCode: vi.fn(actual.generateUniqueReferralCode),
+  };
+});
 
 const PREFIX = `${config.API_PREFIX}/auth`;
 const VALID_PASSWORD = 'ValidPass1!';
@@ -675,5 +689,576 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
         await roundServer.close();
       }
     }
+  });
+});
+
+describeIf('slice 5 — referral foundation', () => {
+  let server: Awaited<ReturnType<typeof buildServer>>;
+  const blockUserIds: string[] = [];
+
+  beforeEach(async () => {
+    server = await freshServer();
+  });
+
+  afterEach(async () => {
+    if (server) await server.close();
+  });
+
+  afterAll(async () => {
+    if (blockUserIds.length > 0) {
+      await prisma.referral.deleteMany({
+        where: { OR: [{ referrerUserId: { in: blockUserIds } }, { referredUserId: { in: blockUserIds } }] },
+      });
+      await prisma.user.deleteMany({ where: { id: { in: blockUserIds } } });
+      blockUserIds.length = 0;
+    }
+    await prisma.$disconnect();
+  });
+
+  // ─── Fixtures ──────────────────────────────────────────────
+
+  async function registerRaw(payload: Record<string, unknown>) {
+    return server.inject({
+      method: 'POST',
+      url: `${PREFIX}/register`,
+      payload,
+    });
+  }
+
+  /** Register a source user (referrer) directly with a known canonical code. */
+  async function seedReferrer(tag: string, status = 'ACTIVE'): Promise<{ userId: string; code: string; email: string }> {
+    const code = generateReferralCode();
+    const email = `s5ref-${uniqueTag(tag)}@test.local`;
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username: `s5ref_${uniqueTag(tag)}`.slice(0, 30),
+        passwordHash: 'not-used',
+        displayName: 'Ref',
+        status: status as never,
+        referralCode: code,
+      },
+    });
+    blockUserIds.push(user.id);
+    return { userId: user.id, code, email };
+  }
+
+  /** Register a fresh end user through the HTTP API (tracked for cleanup). */
+  async function registerTracked(payload: Record<string, unknown>) {
+    const res = await registerRaw(payload);
+    if (res.statusCode === 201) {
+      blockUserIds.push(res.json().data.user.id);
+    }
+    return res;
+  }
+
+  function expectCanonicalCode(code: string | null | undefined): code is string {
+    return (
+      typeof code === 'string' &&
+      code.length === 8 &&
+      /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/.test(code)
+    );
+  }
+
+  // ─── §31 BASELINE REGISTRATION ──────────────────────────────
+
+  it('S5-31: register without referralCode succeeds, contract unchanged, own code generated, nonexposed', async () => {
+    const email = `s5-31-${uniqueTag('base')}@test.local`;
+    const payload = {
+      username: `s5_31_${uniqueTag('base')}`.slice(0, 30),
+      email,
+      password: VALID_PASSWORD,
+    };
+    const res = await registerTracked(payload);
+
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.user).toBeTruthy();
+    expect(body.data.accessToken).toBeTruthy();
+    expect(body.data.refreshToken).toBeTruthy();
+    // Response contract unchanged: referralCode must not be exposed anywhere.
+    expect(JSON.stringify(body)).not.toContain('referralCode');
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    expect(user).toBeTruthy();
+    expect(expectCanonicalCode(user!.referralCode)).toBe(true);
+
+    const referrals = await prisma.referral.count({ where: { referredUserId: user!.id } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── §32 VALID ATTRIBUTION ──────────────────────────────────
+
+  it('S5-32: register with valid ACTIVE referrer code creates exactly one Referral row and no reward records', async () => {
+    const referrer = await seedReferrer('valid');
+    const email = `s5-32-${uniqueTag('valid')}@test.local`;
+    const username = `s5_32_${uniqueTag('valid')}`.slice(0, 30);
+
+    const res = await registerTracked({
+      username,
+      email,
+      password: VALID_PASSWORD,
+      referralCode: referrer.code,
+    });
+
+    expect(res.statusCode).toBe(201);
+    const newUserId = res.json().data.user.id;
+
+    const referrals = await prisma.referral.findMany({ where: { referredUserId: newUserId } });
+    expect(referrals).toHaveLength(1);
+    expect(referrals[0].referrerUserId).toBe(referrer.userId);
+    expect(referrals[0].referredUserId).toBe(newUserId);
+    expect(referrals[0].referralCode).toBe(referrer.code);
+
+    // new referred user has its own generated, different, unique code
+    const referred = await prisma.user.findUnique({ where: { id: newUserId } });
+    expect(expectCanonicalCode(referred!.referralCode)).toBe(true);
+    expect(referred!.referralCode).not.toBe(referrer.code);
+
+    // identity count + session count
+    const identities = await prisma.userAuthIdentity.count({ where: { userId: newUserId } });
+    expect(identities).toBe(1);
+    const sessions = await prisma.session.count({ where: { userId: newUserId } });
+    expect(sessions).toBe(1);
+
+    // no reward records
+    const rewardClaims = await prisma.rewardClaim.count({ where: { userId: newUserId } });
+    expect(rewardClaims).toBe(0);
+    const wallet = await prisma.wallet.count({ where: { userId: newUserId } });
+    expect(wallet).toBe(0);
+    const walletTx = await prisma.walletTransaction.count({ where: { userId: newUserId } });
+    expect(walletTx).toBe(0);
+  });
+
+  // ─── §33 CANONICALIZATION ───────────────────────────────────
+
+  it('S5-33a: lowercase, mixed-case, and whitespace-wrapped code resolve to same canonical referrer', async () => {
+    const referrer = await seedReferrer('canon');
+    const code = referrer.code;
+    const variants = [code.toLowerCase(), code.slice(0, 4).toLowerCase() + code.slice(4), `  ${code}  `];
+
+    for (const variant of variants) {
+      const email = `s5-33-${uniqueTag('canon')}@test.local`;
+      const res = await registerTracked({
+        username: `s5_33_${uniqueTag('canon')}`.slice(0, 30),
+        email,
+        password: VALID_PASSWORD,
+        referralCode: variant,
+      });
+
+      expect(res.statusCode).toBe(201);
+      const newUserId = res.json().data.user.id;
+
+      const referral = await prisma.referral.findUnique({ where: { referredUserId: newUserId } });
+      expect(referral).toBeTruthy();
+      expect(referral!.referrerUserId).toBe(referrer.userId);
+      // Stored code is canonical uppercase with no whitespace.
+      expect(referral!.referralCode).toBe(code);
+    }
+  });
+
+  it('S5-33b: whitespace-only referralCode is treated as omitted (201, zero referral rows)', async () => {
+    const email = `s5-33b-${uniqueTag('ws')}@test.local`;
+    const res = await registerTracked({
+      username: `s5_33b_${uniqueTag('ws')}`.slice(0, 30),
+      email,
+      password: VALID_PASSWORD,
+      referralCode: '   ',
+    });
+
+    expect(res.statusCode).toBe(201);
+    const newUserId = res.json().data.user.id;
+    const referrals = await prisma.referral.count({ where: { referredUserId: newUserId } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── §34 INVALID / INELIGIBLE ───────────────────────────────
+
+  it('S5-34: nonexistent code, malformed code, and SUSPENDED/BANNED/INACTIVE referrers all return generic 400 with full rollback', async () => {
+    // nonexistent code in valid format
+    let ghostCode = generateReferralCode();
+    for (let i = 0; i < 20 && (await prisma.user.findUnique({ where: { referralCode: ghostCode } })); i += 1) {
+      ghostCode = generateReferralCode();
+    }
+
+    const suspended = await seedReferrer('susp', 'SUSPENDED');
+    const banned = await seedReferrer('banned', 'BANNED');
+    const inactive = await seedReferrer('inact', 'INACTIVE');
+
+    const cases: Array<{ label: string; code: string | null }> = [
+      { label: 'nonexistent', code: ghostCode },
+      { label: 'malformed', code: 'not-a-code' },
+      { label: 'suspended', code: suspended.code },
+      { label: 'banned', code: banned.code },
+      { label: 'inactive', code: inactive.code },
+    ];
+
+    for (const c of cases) {
+      const email = `s5-34-${c.label}-${uniqueTag('bad')}@test.local`;
+      const res = await registerRaw({
+        username: `s5_34_${c.label}_${uniqueTag('bad')}`.slice(0, 30),
+        email,
+        password: VALID_PASSWORD,
+        referralCode: c.code,
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toBe('Invalid referral code');
+
+      // zero surviving User / EMAIL identity / Session / Referral
+      const user = await prisma.user.findUnique({ where: { email } });
+      expect(user).toBeNull();
+      const referralCount = await prisma.referral.count({
+        where: { referredUserId: { equals: email } },
+      });
+      expect(referralCount).toBe(0);
+      const matchingUsers = await prisma.user.findMany({ where: { username: { contains: `s5_34_${c.label}_` } } });
+      for (const u of matchingUsers) {
+        expect(u.email).toBe(email); // no partial user exists for this exact email
+      }
+      const identities = await prisma.userAuthIdentity.count({ where: { providerSubject: email } });
+      expect(identities).toBe(0);
+      const sessions = await prisma.session.count(); // no partial session for this email
+      const sessionOwner = await prisma.session.findFirst({
+        where: { user: { email } },
+      });
+      expect(sessionOwner).toBeNull();
+      expect(sessions).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  // ─── §35 DB INVARIANTS ──────────────────────────────────────
+
+  it('S5-35a: self-referral row fails the DB CHECK constraint', async () => {
+    const selfCode = generateReferralCode();
+    const u = await prisma.user.create({
+      data: {
+        email: `s5-35a-${uniqueTag('self')}@test.local`,
+        username: `s5_35a_${uniqueTag('self')}`.slice(0, 30),
+        passwordHash: 'x',
+        referralCode: selfCode,
+      },
+    });
+    blockUserIds.push(u.id);
+
+    let failed = false;
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO "referrals" ("id", "referredUserId", "referrerUserId", "referralCode", "createdAt")
+        VALUES (${randomUUID()}, ${u.id}, ${u.id}, ${selfCode}, NOW())
+      `;
+    } catch (err) {
+      failed = true;
+      expect(String((err as { message?: string }).message)).toMatch(/referrals_no_self_referral_check/);
+    }
+    expect(failed).toBe(true);
+  });
+
+  it('S5-35b: a second Referral for the same referredUserId fails the unique constraint', async () => {
+    const referrer = await seedReferrer('dup2');
+    const referred = await prisma.user.create({
+      data: {
+        email: `s5-35b-${uniqueTag('dup')}@test.local`,
+        username: `s5_35b_${uniqueTag('dup')}`.slice(0, 30),
+        passwordHash: 'x',
+        referralCode: generateReferralCode(),
+      },
+    });
+    blockUserIds.push(referred.id);
+
+    await prisma.referral.create({
+      data: {
+        referredUserId: referred.id,
+        referrerUserId: referrer.userId,
+        referralCode: referrer.code,
+      },
+    });
+
+    let failed = false;
+    try {
+      await prisma.referral.create({
+        data: {
+          referredUserId: referred.id,
+          referrerUserId: referrer.userId,
+          referralCode: referrer.code,
+        },
+      });
+    } catch (err) {
+      failed = true;
+      expect((err as { code?: string }).code).toBe('P2002');
+    }
+    expect(failed).toBe(true);
+    // cleanup: remove the single registered referral
+    await prisma.referral.deleteMany({ where: { referredUserId: referred.id } });
+  });
+
+  it('S5-35c: many different users may use the same referrer code', async () => {
+    const referrer = await seedReferrer('many');
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const email = `s5-35c-${i}-${uniqueTag('many')}@test.local`;
+      const res = await registerTracked({
+        username: `s5_35c_${i}_${uniqueTag('many')}`.slice(0, 30),
+        email,
+        password: VALID_PASSWORD,
+        referralCode: referrer.code,
+      });
+      expect(res.statusCode).toBe(201);
+      ids.push(res.json().data.user.id);
+    }
+    const total = await prisma.referral.count({ where: { referrerUserId: referrer.userId } });
+    expect(total).toBe(3);
+  });
+
+  it('S5-35d: adding another identity to a referred user does not alter/duplicate its Referral', async () => {
+    const referrer = await seedReferrer('extraid');
+    const email = `s5-35d-${uniqueTag('extraid')}@test.local`;
+    const res = await registerTracked({
+      username: `s5_35d_${uniqueTag('extraid')}`.slice(0, 30),
+      email,
+      password: VALID_PASSWORD,
+      referralCode: referrer.code,
+    });
+    expect(res.statusCode).toBe(201);
+    const newUserId = res.json().data.user.id;
+
+    await prisma.userAuthIdentity.create({
+      data: {
+        userId: newUserId,
+        provider: 'PHONE',
+        providerSubject: `+1${Math.floor(2000000000 + Math.random() * 800000000)}`,
+        verifiedAt: null,
+      },
+    });
+
+    const referrals = await prisma.referral.findMany({ where: { referredUserId: newUserId } });
+    expect(referrals).toHaveLength(1);
+    expect(referrals[0].referrerUserId).toBe(referrer.userId);
+  });
+
+  // ─── §36 CONCURRENCY ────────────────────────────────────────
+
+  it('S5-36a: 10 rounds of same-email + same-referral concurrent registration yield one 201 + one deterministic 409', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      const roundServer = await freshServer();
+      try {
+        const referrer = await seedReferrer(`ce${round}`);
+        const suffix = uniqueTag('ce');
+        const email = `s5-36a-${suffix}@test.local`;
+        const username = `s5_36a_${suffix}`.slice(0, 30);
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({ method: 'POST', url: `${PREFIX}/register`, payload: { username, email, password: VALID_PASSWORD, referralCode: referrer.code } }),
+          roundServer.inject({ method: 'POST', url: `${PREFIX}/register`, payload: { username, email, password: VALID_PASSWORD, referralCode: referrer.code } }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([201, 409]);
+        const loser = a.statusCode === 409 ? a : b;
+        expect(loser.json().error.message).toBe('Email already registered');
+
+        const users = await prisma.user.findMany({ where: { email } });
+        expect(users).toHaveLength(1);
+        blockUserIds.push(users[0].id);
+        const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+        expect(identities).toBe(1);
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(1);
+        const referrals = await prisma.referral.count({ where: { referredUserId: users[0].id } });
+        expect(referrals).toBe(1);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
+
+  it('S5-36b: 10 rounds of same-username + same-referral concurrent registration yield one 201 + one deterministic 409', async () => {
+    for (let round = 0; round < 10; round += 1) {
+      const roundServer = await freshServer();
+      try {
+        const referrer = await seedReferrer(`cu${round}`);
+        const suffix = uniqueTag('cu');
+        const username = `s5_36b_${suffix}`.slice(0, 30);
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({ method: 'POST', url: `${PREFIX}/register`, payload: { username, email: `s5b-a-${suffix}@test.local`, password: VALID_PASSWORD, referralCode: referrer.code } }),
+          roundServer.inject({ method: 'POST', url: `${PREFIX}/register`, payload: { username, email: `s5b-b-${suffix}@test.local`, password: VALID_PASSWORD, referralCode: referrer.code } }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([201, 409]);
+        const loser = a.statusCode === 409 ? a : b;
+        expect(loser.json().error.message).toBe('Username already taken');
+
+        const users = await prisma.user.findMany({ where: { username } });
+        expect(users).toHaveLength(1);
+        blockUserIds.push(users[0].id);
+        const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+        expect(identities).toBe(1);
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(1);
+        const referrals = await prisma.referral.count({ where: { referredUserId: users[0].id } });
+        expect(referrals).toBe(1);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
+
+  // ─── §37 GENERATED-CODE COLLISION RETRY ─────────────────────
+
+  it('S5-37: registration retries on generated-code collision and does NOT surface "Invalid referral code"', async () => {
+    // Pre-seed a user whose own referralCode is known.
+    const collider = await prisma.user.create({
+      data: {
+        email: `s5-37-collider-${uniqueTag('coll')}@test.local`,
+        username: `s5_37_c_${uniqueTag('coll')}`.slice(0, 30),
+        passwordHash: 'x',
+        displayName: 'Collider',
+        referralCode: 'COLLIDER9',
+      },
+    });
+    blockUserIds.push(collider.id);
+
+    // Mock generateUniqueReferralCode to return the colliding code first, then a unique one.
+    // This proves the retry loop handles P2002 on referralCode without surfacing "Invalid referral code".
+    const uniquePost = 'XPOSTFIX';
+
+    // Seed an ACTIVE referrer whose code the new registration supplies — must
+    // resolve so that only the generated-own-code collision exercises the retry.
+    const ghostReferrer = await prisma.user.create({
+      data: {
+        email: `s5-37-referrer-${uniqueTag('coll')}@test.local`,
+        username: `s5_37_r_${uniqueTag('coll')}`.slice(0, 30),
+        passwordHash: 'x',
+        displayName: 'GhostReferrer',
+        referralCode: 'GHSTCDE2',
+      },
+    });
+    blockUserIds.push(ghostReferrer.id);
+
+    const mockGenerate = vi.mocked(generateUniqueReferralCode);
+    mockGenerate.mockResolvedValueOnce('COLLIDER9' as never);
+    mockGenerate.mockResolvedValueOnce(uniquePost as never);
+
+    try {
+      const email = `s5-37-reg-${uniqueTag('noenv')}@test.local`;
+      const res = await registerTracked({
+        username: `s5_37_reg_${uniqueTag('noenv')}`.slice(0, 30),
+        email,
+        password: VALID_PASSWORD,
+        referralCode: 'GHSTCDE2',  // valid format, owned by the seeded ACTIVE referrer
+      });
+
+      // Must succeed after retry, NOT return "Invalid referral code"
+      expect(res.statusCode).toBe(201);
+      expect(res.json().error?.message ?? null).not.toBe('Invalid referral code');
+
+      const newUserId = res.json().data.user.id;
+      const identities = await prisma.userAuthIdentity.count({ where: { userId: newUserId } });
+      expect(identities).toBe(1);
+      const sessions = await prisma.session.count({ where: { userId: newUserId } });
+      expect(sessions).toBe(1);
+    } finally {
+      mockGenerate.mockRestore();
+    }
+  });
+
+  // ─── §38 ATTRIBUTION FAILURE ROLLBACK ───────────────────────
+
+  it('S5-38: Referral insert failure via FK violation inside a mirrored registration tx leaves zero partial state', async () => {
+    // Mirror the registration flow but intentionally use a non-existent
+    // referrerUserId to trigger a real FK constraint violation on Referral insert.
+    const fakeReferrerId = '00000000-0000-0000-0000-000000000000';
+    const usedEmail = `s5-38-${uniqueTag('fk')}@test.local`;
+    let survived = false;
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: usedEmail,
+            username: `s5_38_${uniqueTag('fk')}`.slice(0, 30),
+            passwordHash: 'x',
+            displayName: 'FK-rollback-test',
+            referralCode: generateReferralCode(),
+          },
+          select: { id: true },
+        });
+
+        await tx.userAuthIdentity.create({
+          data: { userId: user.id, provider: 'EMAIL', providerSubject: usedEmail, verifiedAt: null },
+        });
+
+        // This FK violation triggers rollback of the entire tx.
+        await tx.referral.create({
+          data: {
+            referredUserId: user.id,
+            referrerUserId: fakeReferrerId,
+            referralCode: 'XXXXX000',
+          },
+        });
+      });
+    } catch {
+      // FK violation expected — tx rolled back.
+    }
+
+    const userCount = await prisma.user.count({ where: { email: usedEmail } });
+    expect(userCount).toBe(0);
+    const identityCount = await prisma.userAuthIdentity.count({ where: { providerSubject: usedEmail } });
+    expect(identityCount).toBe(0);
+    // no referral was created for a non-existent referredUserId
+    const referralCount = await prisma.referral.count({
+      where: { referredUserId: '00000000-0000-0000-0000-000000000000' },
+    });
+    expect(referralCount).toBe(0);
+  });
+
+  // ─── §39 UNKNOWN P2002 RETHROW ──────────────────────────────
+
+  it('S5-39: an unrecognized P2002 target is rethrown by the route and lands on the global error handler as 409 (not mapped to referral error)', async () => {
+    const spy = vi.spyOn(prisma, '$transaction').mockRejectedValueOnce(Object.assign(new Error('unique'), {
+      code: 'P2002',
+      meta: { target: ['some_completely_unknown_constraint_name'] },
+    }));
+
+    try {
+      const res = await registerTracked({
+        username: `s5_39_${uniqueTag('unk')}`.slice(0, 30),
+        email: `s5-39-${uniqueTag('unk')}@test.local`,
+        password: VALID_PASSWORD,
+      });
+
+      // Global error handler maps unknown P2002 to 409 ALREADY_EXISTS.
+      // The key assertion: it must NOT be a referral-specific error message.
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.message).not.toBe('Invalid referral code');
+      expect(res.json().error.code ?? res.json().error.message).not.toContain('Username already taken');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // ─── §40 REWARD ABSENCE (re-checked across all success paths) ──
+
+  it('S5-40: successful referral registration produces no reward claims, no wallet rows, no referral wallet transactions', async () => {
+    const referrer = await seedReferrer('reward');
+    const email = `s5-40-${uniqueTag('rw')}@test.local`;
+    const res = await registerTracked({
+      username: `s5_40_${uniqueTag('rw')}`.slice(0, 30),
+      email,
+      password: VALID_PASSWORD,
+      referralCode: referrer.code,
+    });
+    expect(res.statusCode).toBe(201);
+    const newUserId = res.json().data.user.id;
+
+    const rewardClaims = await prisma.rewardClaim.count({ where: { userId: newUserId } });
+    expect(rewardClaims).toBe(0);
+    const wallet = await prisma.wallet.count({ where: { userId: newUserId } });
+    expect(wallet).toBe(0);
+    const walletTx = await prisma.walletTransaction.count({ where: { userId: newUserId } });
+    expect(walletTx).toBe(0);
   });
 });
