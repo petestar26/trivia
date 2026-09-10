@@ -59,7 +59,14 @@ beforeEach(() => {
   mockInitialize.mockImplementation((opts: { callback: (response: { credential?: string }) => void }) => {
     capturedCallback = opts.callback;
   });
-  mockRenderButton.mockImplementation(() => {});
+  mockRenderButton.mockImplementation((parent: HTMLElement) => {
+    // Load-bearing: render the SAME kind of imperative third-party DOM Google
+    // inserts. A no-op mock hid the surviving personalized-button defect.
+    const child = document.createElement('div');
+    child.dataset.testid = 'fake-google-child';
+    child.textContent = 'Fake Google button';
+    parent.appendChild(child);
+  });
   (globalThis as never as { google: unknown }).google = {
     accounts: {
       id: {
@@ -96,6 +103,8 @@ describe('GoogleSignInButton', () => {
     render(<GoogleSignInButton />);
     await waitFor(() => expect(mockInitialize).toHaveBeenCalledTimes(1));
     expect(mockRenderButton).toHaveBeenCalledTimes(1);
+    // The foreign Google-managed DOM is actually present in the host.
+    expect(screen.getByTestId('fake-google-child')).toBeInTheDocument();
     const initArgs = mockInitialize.mock.calls[0][0] as {
       client_id: string;
       nonce: string;
@@ -279,6 +288,69 @@ describe('GoogleSignInButton', () => {
     await waitFor(() => expect(capturedCallback).toBeTruthy());
     triggerCallback({ credential: 'direct-cred' });
     await waitFor(() => expect(mockGoogleAuthenticate).toHaveBeenCalledTimes(1));
+    expect(screen.queryByPlaceholderText('username')).not.toBeInTheDocument();
+  });
+
+  it('removes the foreign Google DOM when USERNAME_REQUIRED opens onboarding and submits a usable username', async () => {
+    mockGoogleAuthenticate.mockRejectedValue(
+      new Error(JSON.stringify({ status: 422, code: 'USERNAME_REQUIRED', message: 'Please choose a username' })),
+    );
+    render(<GoogleSignInButton />);
+    await waitFor(() => expect(mockInitialize).toHaveBeenCalledTimes(1));
+    // GIS renderButton inserted its fake foreign child into the button host.
+    expect(screen.getByTestId('fake-google-child')).toBeInTheDocument();
+
+    triggerCallback({ credential: 'original-cred' });
+    // Onboarding appears.
+    await waitFor(() => expect(screen.getByPlaceholderText('username')).toBeInTheDocument());
+    // Google-managed DOM is gone from the onboarding row.
+    expect(screen.queryByTestId('fake-google-child')).not.toBeInTheDocument();
+    const continueButton = screen.getByRole('button', { name: 'Continue' });
+    expect(continueButton).toBeInTheDocument();
+    expect(continueButton).toBeDisabled();
+
+    const input = screen.getByPlaceholderText('username');
+    await userEvent.type(input, 'peterstage26');
+    expect(input).toHaveValue('peterstage26');
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() =>
+      expect(mockGoogleAuthenticate).toHaveBeenCalledWith({ credential: 'original-cred', username: 'peterstage26' }),
+    );
+    expect(screen.queryByTestId('fake-google-child')).not.toBeInTheDocument();
+  });
+
+  it('Back to sign in discards the credential and re-initializes a clean Google state with a fresh nonce', async () => {
+    mockGoogleAuthenticate
+      .mockImplementationOnce(() =>
+        Promise.reject(new Error(JSON.stringify({ status: 422, code: 'USERNAME_REQUIRED', message: 'Please choose a username' }))),
+      )
+      .mockResolvedValue(undefined);
+    render(<GoogleSignInButton />);
+    await waitFor(() => expect(mockInitialize).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('fake-google-child')).toBeInTheDocument();
+
+    triggerCallback({ credential: 'first-cred' });
+    await waitFor(() => expect(screen.getByPlaceholderText('username')).toBeInTheDocument());
+    expect(screen.queryByTestId('fake-google-child')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Back to sign in'));
+    await waitFor(() => expect(screen.queryByPlaceholderText('username')).not.toBeInTheDocument());
+    // A fresh nonce was fetched, GIS was re-initialized, and the Google button
+    // host was re-rendered cleanly (new foreign child present again).
+    await waitFor(() => expect(mockGoogleNonce).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockInitialize).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockRenderButton).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('fake-google-child')).toBeInTheDocument());
+
+    // The discarded credential is not reused: a fresh callback works directly.
+    triggerCallback({ credential: 'second-cred' });
+    await waitFor(() =>
+      expect(mockGoogleAuthenticate).toHaveBeenLastCalledWith({ credential: 'second-cred' }),
+    );
+    expect(mockGoogleAuthenticate).toHaveBeenCalledTimes(2);
+    expect(mockGoogleAuthenticate).not.toHaveBeenCalledWith({ credential: 'first-cred', username: expect.anything() });
     expect(screen.queryByPlaceholderText('username')).not.toBeInTheDocument();
   });
 });

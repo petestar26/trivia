@@ -23,6 +23,16 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   const [scriptReady, setScriptReady] = useState(false);
   const initializedRef = useRef(false);
 
+  // Leave username onboarding: discard the retained Google credential and reset
+  // so the Google-button state re-initializes with a fresh nonce next render.
+  const exitUsernameMode = () => {
+    credentialRef.current = null;
+    setUsername('');
+    setUsernameError(null);
+    setError(null);
+    setNeedsUsername(false);
+  };
+
   // Load GIS script once.
   useEffect(() => {
     if (!clientId || scriptReady) return;
@@ -80,6 +90,11 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
               const code = parsed.code || '';
               const message = parsed.message || msg;
               if (code === 'USERNAME_REQUIRED' || message.includes('Please choose a username')) {
+                // Google manages the children inside buttonRef. Remove them
+                // before React switches UI state so the personalized button
+                // cannot linger inside the username row.
+                buttonRef.current?.replaceChildren();
+                initializedRef.current = false;
                 setNeedsUsername(true);
               } else if (code === 'ACCOUNT_LINK_REQUIRED') {
                 setError('An account already exists for this email. Please sign in with your existing method.');
@@ -105,7 +120,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
       }
     };
     loadNonceAndInit();
-  }, [clientId, googleAuthenticate, onSuccess, scriptReady]);
+  }, [clientId, googleAuthenticate, needsUsername, onSuccess, scriptReady]);
 
   const handleUsernameSubmit = async () => {
     if (!credentialRef.current) return;
@@ -139,9 +154,9 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
 
   if (needsUsername) {
     return (
-      <div className="space-y-3">
+      <div key="google-username" className="space-y-3">
         <p className="text-sm text-gray-700 dark:text-gray-300 text-center">Choose a username for your new account</p>
-        <div className="flex gap-2">
+        <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
           <Input
             type="text"
             placeholder="username"
@@ -149,13 +164,15 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
             onChange={(e) => { setUsername(e.target.value); setUsernameError(null); }}
             disabled={loading}
             maxLength={30}
+            autoFocus
+            className="min-w-0 w-full"
           />
           <Button onClick={handleUsernameSubmit} disabled={loading || !username.trim()}>
             {loading ? '...' : 'Continue'}
           </Button>
         </div>
         {usernameError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{usernameError}</p>}
-        <button type="button" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300" onClick={() => { setNeedsUsername(false); credentialRef.current = null; setUsername(''); setUsernameError(null); }}>
+        <button type="button" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300" onClick={exitUsernameMode}>
           Back to sign in
         </button>
       </div>
@@ -163,7 +180,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   }
 
   return (
-    <div className="space-y-2">
+    <div key="google-signin" className="space-y-2">
       {error && (
         <p className="text-sm text-red-600 dark:text-red-400 text-center" role="alert">{error}</p>
       )}
