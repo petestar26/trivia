@@ -66,7 +66,7 @@ export interface UserPublicProfile {
   id: string;
   username: string;
   displayName: string;
-  email: string;
+  email: string | null;
   avatarUrl?: string;
   bio?: string;
   isVerified: boolean;

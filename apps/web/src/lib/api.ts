@@ -1,5 +1,5 @@
 import { API_BASE, API_ORIGIN } from './api-config';
-import type { UserSearchResult } from '@socialplay/shared';
+import type { UserPublicProfile, UserSearchResult } from '@socialplay/shared';
 
 export type { UserSearchResult };
 
@@ -284,12 +284,25 @@ class ApiClient {
   async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {
     return this.get('/gifts/transactions', params);
   }
+
+  // Google auth
+  async googleAuth(body: { credential: string; username?: string; referralCode?: string }): Promise<ApiResponse<{ user: UserPublicProfile; accessToken: string; refreshToken: string }>> {
+    return this.post('/auth/google', body);
+  }
+
+  async googleNonce(): Promise<ApiResponse<{ nonce: string }>> {
+    return this.get('/auth/google/nonce');
+  }
 }
 
 export const api = new ApiClient();
 
 export function voiceMessageUrl(groupId: string, messageId: string): string {
   return `${API_BASE}/groups/${groupId}/voice-messages/${messageId}`;
+}
+
+export function googleClientId(): string | undefined {
+  return import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || undefined;
 }
 
 // Challenge as returned by GET /challenges (list) — mapped shape.

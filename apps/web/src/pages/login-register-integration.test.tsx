@@ -15,6 +15,7 @@ vi.mock('@/lib/api', () => ({
     get: (...a: unknown[]) => apiGet(...a),
     post: (...a: unknown[]) => apiPost(...a),
   },
+  googleClientId: () => undefined,
 }));
 
 import { AuthProvider } from '@/providers/auth-provider';

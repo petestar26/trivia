@@ -37,6 +37,11 @@ const envSchema = z.object({
     .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters (32 bytes)')
     .optional(),
 
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === undefined || v === '' ? undefined : v)),
 
   COOKIE_DOMAIN: z.string().optional(),
   COOKIE_SECURE: booleanFromEnv(false),

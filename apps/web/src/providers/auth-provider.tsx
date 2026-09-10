@@ -9,6 +9,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: { username: string; email: string; password: string; displayName?: string }) => Promise<void>;
+  googleAuthenticate: (data: { credential: string; username?: string; referralCode?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -166,6 +167,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Google auth is the SAME identity boundary as login/register.
+  // Returns normally for authenticated success, throws for server errors.
+  // USERNAME_REQUIRED is surfaced as a thrown error (code: 'USERNAME_REQUIRED').
+  const googleAuthenticate = async (data: { credential: string; username?: string; referralCode?: string }) => {
+    const claim = ++credGenRef.current;
+    pendingCredRef.current += 1;
+    try {
+      const response = await api.googleAuth(data);
+      if (claim !== credGenRef.current) return;
+      if (!response.success || !response.data?.user) {
+        throw new Error(response.error?.message || 'Google authentication failed');
+      }
+      publishTransition(response.data.user);
+    } catch (err) {
+      if (claim !== credGenRef.current) return;
+      setIsLoading(false);
+      throw err;
+    } finally {
+      pendingCredRef.current -= 1;
+    }
+  };
+
   const refreshUser = async () => {
     const pubSnapshot = pubGenRef.current;
     const credSnapshot = credGenRef.current;
@@ -204,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         register,
+        googleAuthenticate,
         logout,
         refreshUser,
       }}

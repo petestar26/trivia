@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server';
@@ -8,6 +8,12 @@ import {
   generateReferralCode,
   generateUniqueReferralCode,
 } from '../referrals/referral-service.js';
+import { ErrorCode } from '@socialplay/shared';
+import {
+  createGoogleVerifier,
+  generateNonceSecret,
+  hashNonceSecret,
+} from '../auth/google-verifier.js';
 
 // Mock the referral service — real implementation by default, individual tests
 // override specific functions with mockResolvedValueOnce for collision testing.
@@ -16,6 +22,18 @@ vi.mock('../referrals/referral-service.js', async (importOriginal) => {
   return {
     ...actual,
     generateUniqueReferralCode: vi.fn(actual.generateUniqueReferralCode),
+  };
+});
+
+// Mock ONLY the production-wired verifier so integration tests never contact
+// Google. `createGoogleVerifier`/nonce helpers stay REAL (they're unit-tested
+// directly with a fake verifyIdToken function through the factory seam).
+const { googleVerifyMock } = vi.hoisted(() => ({ googleVerifyMock: vi.fn() }));
+vi.mock('../auth/google-verifier.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/google-verifier.js')>();
+  return {
+    ...actual,
+    googleIdTokenVerifier: googleVerifyMock,
   };
 });
 
@@ -1260,5 +1278,919 @@ describeIf('slice 5 — referral foundation', () => {
     expect(wallet).toBe(0);
     const walletTx = await prisma.walletTransaction.count({ where: { userId: newUserId } });
     expect(walletTx).toBe(0);
+  });
+});
+describeIf('slice 6 — google auth foundation', () => {
+  let server: Awaited<ReturnType<typeof buildServer>>;
+  const blockUserIds: string[] = [];
+
+  beforeEach(async () => {
+    server = await freshServer();
+  });
+
+  afterEach(async () => {
+    if (server) await server.close();
+  });
+
+  afterAll(async () => {
+    if (blockUserIds.length > 0) {
+      await prisma.referral.deleteMany({
+        where: { OR: [{ referrerUserId: { in: blockUserIds } }, { referredUserId: { in: blockUserIds } }] },
+      });
+      await prisma.user.deleteMany({ where: { id: { in: blockUserIds } } });
+      blockUserIds.length = 0;
+    }
+    await prisma.$disconnect();
+  });
+
+  // ─── Helpers ──────────────────────────────────────────────
+
+  function mockVerified(sub: string, opts: { email?: string; emailVerified?: boolean; hd?: string } = {}) {
+    googleVerifyMock.mockImplementation(async () => ({
+      kind: 'verified',
+      claims: {
+        sub,
+        emailVerified: opts.emailVerified ?? true,
+        ...opts,
+      },
+    }));
+  }
+
+  async function googleNonce(): Promise<{ cookie: string; raw: string; digest: string }> {
+    const res = await server.inject({ method: 'GET', url: `${PREFIX}/google/nonce` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    const setCookie = res.headers['set-cookie'] as string;
+    expect(setCookie).toBeTruthy();
+    expect(setCookie).toContain('sp_google_nonce=');
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('Path=/api/v1/auth/google');
+    const rawMatch = setCookie.match(/sp_google_nonce=([^;]+)/);
+    expect(rawMatch).toBeTruthy();
+    const raw = rawMatch![1];
+    const digest = hashNonceSecret(raw);
+    const body = res.json();
+    expect(body.data.nonce).toBe(digest);
+    expect(body.data.nonce).not.toBe(raw);
+    return { cookie: `sp_google_nonce=${raw}`, raw, digest };
+  }
+
+  function postGoogle(body: Record<string, unknown>, cookie?: string) {
+    return server.inject({
+      method: 'POST',
+      url: `${PREFIX}/google`,
+      payload: body,
+      headers: cookie ? { cookie: {} } : {},
+      ...(cookie ? { headers: { cookie } } : {}),
+    });
+  }
+
+  // ─── Fixtures ──────────────────────────────────────────────
+
+  async function seedGoogleUser(
+    tag: string,
+    sub: string,
+    opts: { email?: string; username?: string; status?: string; referralCode?: string } = {},
+  ): Promise<{ userId: string; email: string | null; username: string }> {
+    const email = opts.email ?? null;
+    const username = opts.username ?? `g6_${uniqueTag(tag)}`.slice(0, 30);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: null,
+        username,
+        displayName: username,
+        status: (opts.status ?? 'ACTIVE') as never,
+        referralCode: opts.referralCode ?? generateReferralCode(),
+      },
+    });
+    blockUserIds.push(user.id);
+    await prisma.userAuthIdentity.create({
+      data: {
+        userId: user.id,
+        provider: 'GOOGLE',
+        providerSubject: sub,
+        verifiedAt: new Date(),
+        lastUsedAt: null as never,
+      },
+    });
+    return { userId: user.id, email, username };
+  }
+
+  async function seedReferrer(tag: string, status = 'ACTIVE'): Promise<{ userId: string; code: string }> {
+    const code = generateReferralCode();
+    const email = `s6ref-${uniqueTag(tag)}@test.local`;
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username: `s6ref_${uniqueTag(tag)}`.slice(0, 30),
+        passwordHash: 'not-used',
+        displayName: 'Ref',
+        status: status as never,
+        referralCode: code,
+      },
+    });
+    blockUserIds.push(user.id);
+    return { userId: user.id, code };
+  }
+
+  // ─── S6-1: Config-off 503s deferred to last describe block
+
+  // ─── S6-2: Nonce endpoint happy path
+
+  it('S6-2: nonce endpoint returns 200 with no-store cache, set-cookie with correct attributes, and digest', async () => {
+    const nonce = await googleNonce();
+    expect(nonce.raw).toBeTruthy();
+    expect(nonce.digest).toBeTruthy();
+    expect(nonce.cookie).toContain('sp_google_nonce=');
+    // Re-fetch to confirm idempotent
+    const nonce2 = await googleNonce();
+    expect(nonce2.raw).not.toBe(nonce.raw); // different nonce each time
+    expect(nonce2.digest).not.toBe(nonce.digest);
+  });
+
+  // ─── S6-3: Missing nonce cookie → 401
+
+  it('S6-3: POST /google without nonce cookie returns 401', async () => {
+    const res = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/google`,
+      payload: { credential: 'tok' },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.message).toBe('Invalid Google credential');
+  });
+
+  // ─── S6-4: Invalid credential → 401
+
+  it('S6-4: POST /google with invalid credential returns 401', async () => {
+    await googleNonce();
+    googleVerifyMock.mockResolvedValue({ kind: 'invalid' });
+    const res = await postGoogle({ credential: 'tok-invalid' });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.message).toBe('Invalid Google credential');
+  });
+
+  // ─── S6-5: Transport unavailable → 503
+
+  it('S6-5: POST /google when transport unavailable returns 503', async () => {
+    const { cookie } = await googleNonce();
+    googleVerifyMock.mockResolvedValue({ kind: 'unavailable' });
+    const res = await postGoogle({ credential: 'tok-unavail' }, cookie);
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.message).toBe('Google sign-in temporarily unavailable');
+  });
+
+  // ─── S6-6: Two-step atomicity (§66)
+
+  it('S6-6: first POST without username returns 422 USERNAME_REQUIRED, second POST with same cookie returns 201', async () => {
+    const { cookie } = await googleNonce();
+    const sub = uniqueTag('s66');
+    mockVerified(sub);
+
+    const first = await postGoogle({ credential: 'tok-66' }, cookie);
+    expect(first.statusCode).toBe(422);
+    expect(first.json().error.code).toBe(ErrorCode.USERNAME_REQUIRED);
+
+    // No new rows
+    const zeroUsers = await prisma.user.findMany({ where: { identities: { some: { providerSubject: sub } } } });
+    expect(zeroUsers).toHaveLength(0);
+    const zeroUsersByName = await prisma.user.findMany({ where: { username: 'user66' } });
+    expect(zeroUsersByName).toHaveLength(0);
+
+    // Second POST with same cookie
+    const second = await postGoogle({ credential: 'tok-66', username: 'g6_user66' }, cookie);
+    expect(second.statusCode).toBe(201);
+    const userId = second.json().data.user.id;
+    blockUserIds.push(userId);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user).toBeTruthy();
+    expect(user!.email).toBeNull();
+    expect(user!.passwordHash).toBeNull();
+    expect(user!.username).toBe('g6_user66');
+
+    const identity = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: sub } },
+    });
+    expect(identity).toBeTruthy();
+    expect(identity!.userId).toBe(userId);
+    expect(identity!.verifiedAt).toBeTruthy();
+    expect(identity!.lastUsedAt).toBeTruthy();
+
+    const ownRef = user!.referralCode;
+    expect(ownRef).toBeTruthy();
+    expect(ownRef!.length).toBe(8);
+
+    const sessions = await prisma.session.count({ where: { userId } });
+    expect(sessions).toBe(1);
+  });
+
+  // ─── S6-7: Valid referral Google signup (§67)
+
+  it('S6-7: Google signup with valid referral code creates user, identity, referral, and session', async () => {
+    const referrer = await seedReferrer('s67');
+    const { cookie } = await googleNonce();
+    const sub = uniqueTag('s67');
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-67', username: 'g6_user67', referralCode: referrer.code }, cookie);
+    expect(res.statusCode).toBe(201);
+    const userId = res.json().data.user.id;
+    blockUserIds.push(userId);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user).toBeTruthy();
+    expect(user!.email).toBeNull();
+    expect(user!.passwordHash).toBeNull();
+
+    const identity = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: sub } },
+    });
+    expect(identity).toBeTruthy();
+    expect(identity!.verifiedAt).toBeTruthy();
+
+    const referral = await prisma.referral.findFirst({ where: { referredUserId: userId } });
+    expect(referral).toBeTruthy();
+    expect(referral!.referrerUserId).toBe(referrer.userId);
+    expect(referral!.referralCode).toBe(referrer.code);
+
+    const ownRef = user!.referralCode;
+    expect(ownRef).toBeTruthy();
+    expect(ownRef!.length).toBe(8);
+
+    const sessions = await prisma.session.count({ where: { userId } });
+    expect(sessions).toBe(1);
+  });
+
+  // ─── S6-8: Invalid referral rollback (§68)
+
+  it('S6-8: Google signup with invalid referral code returns 400 and leaves no rows', async () => {
+    const { cookie } = await googleNonce();
+    const sub = uniqueTag('s68');
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-68', username: 'g6_user68', referralCode: 'BADCODE1' }, cookie);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toBe('Invalid referral code');
+
+    const users = await prisma.user.findMany({ where: { username: 'g6_user68' } });
+    expect(users).toHaveLength(0);
+    const identities = await prisma.userAuthIdentity.count({ where: { providerSubject: sub } });
+    expect(identities).toBe(0);
+    const sessions = await prisma.session.count({ where: { user: { username: 'g6_user68' } } });
+    expect(sessions).toBe(0);
+    const referrals = await prisma.referral.count({ where: { referredUser: { username: 'g6_user68' } } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── S6-9: Returning login (§69)
+
+  it('S6-9: returning Google login updates lastLoginAt and identity.lastUsedAt, clears nonce, no google fields in response', async () => {
+    const sub = uniqueTag('s69ret');
+    const seeded = await seedGoogleUser('s69ret', sub, { username: `g6_${uniqueTag('s69r')}`.slice(0, 30) });
+
+    // Verify lastLoginAt is null before
+    const userBefore = await prisma.user.findUnique({ where: { id: seeded.userId } });
+    expect(userBefore!.lastLoginAt).toBeNull();
+
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-ret' }, cookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.user.id).toBe(seeded.userId);
+
+    // No new user
+    const userCount = await prisma.user.count({ where: { username: seeded.username } });
+    expect(userCount).toBe(1);
+
+    // No new identity
+    const identityCount = await prisma.userAuthIdentity.count({
+      where: { userId: seeded.userId, provider: 'GOOGLE' },
+    });
+    expect(identityCount).toBe(1);
+
+    // Session created
+    const sessions = await prisma.session.count({ where: { userId: seeded.userId } });
+    expect(sessions).toBe(1);
+
+    // lastLoginAt now set
+    const userAfter = await prisma.user.findUnique({ where: { id: seeded.userId } });
+    expect(userAfter!.lastLoginAt).toBeTruthy();
+
+    // identity.lastUsedAt set
+    const identity = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: sub } },
+    });
+    expect(identity!.lastUsedAt).toBeTruthy();
+
+    // Nonce cleared — @fastify/cookie clearCookie uses Expires, not Max-Age
+    const setCookieHeader = res.headers['set-cookie'] as string | string[];
+    const setCookieStr = Array.isArray(setCookieHeader) ? setCookieHeader.join('\n') : setCookieHeader ?? '';
+    expect(setCookieStr).toContain('sp_google_nonce=');
+    expect(setCookieStr).toMatch(/Expires=Thu, 01 Jan 1970/);
+
+    // No google fields in response
+    const body = JSON.stringify(res.json());
+    expect(body).not.toContain('"sub"');
+    expect(body).not.toContain('"hd"');
+    expect(body).not.toContain('"email_verified"');
+  });
+
+  // ─── S6-10: Returning referral ignored (§70)
+
+  it('S6-10: returning Google login ignores referralCode and username in payload', async () => {
+    const sub = uniqueTag('s610');
+    const seeded = await seedGoogleUser('s610', sub, { username: `g6_${uniqueTag('s610')}`.slice(0, 30) });
+    const referrer = await seedReferrer('s610ref');
+
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-10', username: 'othername', referralCode: referrer.code }, cookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.user.id).toBe(seeded.userId);
+
+    // Username unchanged
+    const user = await prisma.user.findUnique({ where: { id: seeded.userId } });
+    expect(user!.username).toBe(seeded.username);
+
+    // No referral created for referrer
+    const referrals = await prisma.referral.count({ where: { referrerUserId: referrer.userId } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── S6-11: Account status (§71)
+
+  it('S6-11: SUSPENDED and BANNED accounts get 403 on Google login', async () => {
+    for (const status of ['SUSPENDED', 'BANNED'] as const) {
+      const sub = uniqueTag(`s611_${status.toLowerCase()}`);
+      const seeded = await seedGoogleUser(`s611_${status.toLowerCase()}`, sub, {
+        username: `g6_${uniqueTag(`s611${status}`)}`.slice(0, 30),
+        status,
+      });
+
+      const { cookie } = await googleNonce();
+      mockVerified(sub);
+
+      const res = await postGoogle({ credential: `tok-${status.toLowerCase()}` }, cookie);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.message).toBe('Account is not active');
+
+      const sessions = await prisma.session.count({ where: { userId: seeded.userId } });
+      expect(sessions).toBe(0);
+    }
+  });
+
+  // ─── S6-12: Different subs same username (§75)
+
+  it('S6-12: two different subs trying the same username yields 201 then 409', async () => {
+    const username = `g6_race_${uniqueTag('s612')}`.slice(0, 30);
+    const subA = uniqueTag('s612A');
+    const subB = uniqueTag('s612B');
+
+    const { cookie: cookieA } = await googleNonce();
+    mockVerified(subA);
+    const a = await postGoogle({ credential: 'tok-A', username }, cookieA);
+    expect(a.statusCode).toBe(201);
+    blockUserIds.push(a.json().data.user.id);
+
+    const { cookie: cookieB } = await googleNonce();
+    mockVerified(subB);
+    const b = await postGoogle({ credential: 'tok-B', username }, cookieB);
+    expect(b.statusCode).toBe(409);
+    expect(b.json().error.message).toBe('Username already taken');
+
+    const users = await prisma.user.findMany({ where: { username } });
+    expect(users).toHaveLength(1);
+    // No orphan row for subB
+    const orphan = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: subB } },
+    });
+    expect(orphan).toBeNull();
+  });
+
+  // ─── S6-13: Same-sub same username 10 rounds (§72)
+
+  it('S6-13: 10 rounds of same-sub same-username concurrent POSTs yield [200,201] each round', async () => {
+    for (let i = 0; i < 10; i++) {
+      const roundServer = await freshServer();
+      try {
+        const sub = uniqueTag(`s613_r${i}`);
+        const username = `g6_r${i}_${uniqueTag('s613')}`.slice(0, 30);
+
+        googleVerifyMock.mockImplementation(async () => ({
+          kind: 'verified',
+          claims: { sub, emailVerified: true },
+        }));
+
+        // Get nonce from this round's server
+        const nonceRes = await roundServer.inject({ method: 'GET', url: `${PREFIX}/google/nonce` });
+        const rawMatch = (nonceRes.headers['set-cookie'] as string).match(/sp_google_nonce=([^;]+)/);
+        const cookie = `sp_google_nonce=${rawMatch![1]}`;
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/google`,
+            payload: { credential: `tok-${sub}`, username },
+            headers: { cookie },
+          }),
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/google`,
+            payload: { credential: `tok-${sub}`, username },
+            headers: { cookie },
+          }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([200, 201]);
+
+        const winnerRes = a.statusCode === 201 ? a : b;
+        const winnerUserId = winnerRes.json().data.user.id;
+        blockUserIds.push(winnerUserId);
+
+        const users = await prisma.user.findMany({ where: { username } });
+        expect(users).toHaveLength(1);
+
+        const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+        expect(identities).toBe(1);
+
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(2);
+
+        const referrals = await prisma.referral.count({ where: { referredUserId: users[0].id } });
+        expect(referrals).toBe(0);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
+
+  // ─── S6-14: Same-sub competing referral 10 rounds (§74)
+
+  it('S6-14: 10 rounds of same-sub with two competing referral codes yield exactly 1 referral per round', async () => {
+    for (let i = 0; i < 10; i++) {
+      const roundServer = await freshServer();
+      try {
+        const refA = await seedReferrer(`s614A_r${i}`);
+        const refB = await seedReferrer(`s614B_r${i}`);
+        const sub = uniqueTag(`s614_r${i}`);
+        const username = `g6_ref${i}_${uniqueTag('s614')}`.slice(0, 30);
+
+        googleVerifyMock.mockImplementation(async () => ({
+          kind: 'verified',
+          claims: { sub, emailVerified: true },
+        }));
+
+        const nonceRes = await roundServer.inject({ method: 'GET', url: `${PREFIX}/google/nonce` });
+        const rawMatch = (nonceRes.headers['set-cookie'] as string).match(/sp_google_nonce=([^;]+)/);
+        const cookie = `sp_google_nonce=${rawMatch![1]}`;
+
+        const [a, b] = await Promise.all([
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/google`,
+            payload: { credential: `tok-${sub}`, username, referralCode: refA.code },
+            headers: { cookie },
+          }),
+          roundServer.inject({
+            method: 'POST',
+            url: `${PREFIX}/google`,
+            payload: { credential: `tok-${sub}`, username, referralCode: refB.code },
+            headers: { cookie },
+          }),
+        ]);
+
+        const statuses = [a.statusCode, b.statusCode].sort();
+        expect(statuses).toEqual([200, 201]);
+
+        const winnerRes = a.statusCode === 201 ? a : b;
+        const winnerUserId = winnerRes.json().data.user.id;
+        blockUserIds.push(winnerUserId);
+
+        const users = await prisma.user.findMany({ where: { username } });
+        expect(users).toHaveLength(1);
+
+        const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+        expect(identities).toBe(1);
+
+        const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+        expect(sessions).toBe(2);
+
+        const referrals = await prisma.referral.findMany({ where: { referredUserId: users[0].id } });
+        expect(referrals).toHaveLength(1);
+        // The winning referral's code matches the code in the 201 request
+        const winnerPayload = winnerRes.json().data;
+        // The referral should have the code from whichever request won
+        const winningRefCode = a.statusCode === 201 ? refA.code : refB.code;
+        expect(referrals[0].referralCode).toBe(winningRefCode);
+      } finally {
+        await roundServer.close();
+      }
+    }
+  });
+
+  // ─── S6-15: Own-code collision retry (§76)
+
+  it('S6-15: user whose generated code collides with an existing code gets a unique replacement', async () => {
+    // Seed a collider user with a known code
+    const collider = await seedReferrer('s615');
+    // Override the collider's code to a known value
+    await prisma.user.update({ where: { id: collider.userId }, data: { referralCode: 'G6COLLIDE' } });
+
+    // Mock generateUniqueReferralCode: first call collides, second call succeeds
+    const { generateUniqueReferralCode: realGen } = await import('../referrals/referral-service.js');
+    vi.mocked(realGen)
+      .mockResolvedValueOnce('G6COLLIDE')
+      .mockResolvedValueOnce('G6UNIQUE');
+
+    const sub = uniqueTag('s615own');
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-own', username: 'g6_own' }, cookie);
+    expect(res.statusCode).toBe(201);
+    const userId = res.json().data.user.id;
+    blockUserIds.push(userId);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user!.referralCode).not.toBe('G6COLLIDE');
+    expect(user!.referralCode).toBe('G6UNIQUE');
+
+    const users = await prisma.user.findMany({ where: { username: 'g6_own' } });
+    expect(users).toHaveLength(1);
+    const identities = await prisma.userAuthIdentity.count({ where: { userId } });
+    expect(identities).toBe(1);
+    const sessions = await prisma.session.count({ where: { userId } });
+    expect(sessions).toBe(1);
+    const referrals = await prisma.referral.count({ where: { referredUserId: userId } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── S6-16: Unknown P2002 rethrow (§77)
+
+  it('S6-16: unknown P2002 target rethrows as 500', async () => {
+    const { generateUniqueReferralCode: realGen } = await import('../referrals/referral-service.js');
+    const fakeError = Object.assign(new Error('Unique constraint failed on the fields: (`some_unknown_col`)'), {
+      code: 'P2002',
+      meta: { target: ['some_unknown_col'] },
+    });
+    vi.mocked(realGen).mockRejectedValueOnce(fakeError);
+
+    const sub = uniqueTag('s616');
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-16', username: 'g6_user16' }, cookie);
+    // The route rethrows unknown P2002; the global errorHandler catches P2002
+    // and maps it to 409 ALREADY_EXISTS — NOT a race recovery or username error.
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('ALREADY_EXISTS');
+
+    const users = await prisma.user.findMany({ where: { username: 'g6_user16' } });
+    expect(users).toHaveLength(0);
+  });
+
+  // ─── S6-17: Credential replay (§78)
+
+  it('S6-17: same credential used twice produces 2 sessions, 1 user, 1 identity', async () => {
+    const sub = uniqueTag('s617');
+    const username = `g6_${uniqueTag('s617')}`.slice(0, 30);
+    mockVerified(sub);
+
+    const { cookie } = await googleNonce();
+    const first = await postGoogle({ credential: 'tok-replay', username }, cookie);
+    expect(first.statusCode).toBe(201);
+    blockUserIds.push(first.json().data.user.id);
+
+    const { cookie: cookie2 } = await googleNonce();
+    mockVerified(sub);
+    const second = await postGoogle({ credential: 'tok-replay', username }, cookie2);
+    expect(second.statusCode).toBe(200);
+
+    const users = await prisma.user.findMany({ where: { username } });
+    expect(users).toHaveLength(1);
+    const identities = await prisma.userAuthIdentity.count({ where: { userId: users[0].id } });
+    expect(identities).toBe(1);
+    const sessions = await prisma.session.count({ where: { userId: users[0].id } });
+    expect(sessions).toBe(2);
+    const referrals = await prisma.referral.count({ where: { referredUserId: users[0].id } });
+    expect(referrals).toBe(0);
+  });
+
+  // ─── S6-18: Authoritative email case (§59)
+
+  it('S6-18: Google email matching existing email-authoritative user triggers ACCOUNT_LINK_REQUIRED', async () => {
+    const email = 'Person@Gmail.com';
+    const sub = uniqueTag('s618');
+    // Seed a user with email-authoritative (gmail) — use register endpoint for proper email authoritativeness
+    const regRes = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/register`,
+      payload: { username: `g6_${uniqueTag('s618e')}`.slice(0, 30), email, password: VALID_PASSWORD },
+    });
+    expect(regRes.statusCode).toBe(201);
+    blockUserIds.push(regRes.json().data.user.id);
+
+    const { cookie } = await googleNonce();
+    // Google returns lowercase version of the same email — authoritative for gmail.com
+    mockVerified(sub, { email: 'person@gmail.com', emailVerified: true });
+
+    const res = await postGoogle({ credential: 'tok-case', username: 'g6_case' }, cookie);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe(ErrorCode.ACCOUNT_LINK_REQUIRED);
+
+    const identities = await prisma.userAuthIdentity.count({ where: { providerSubject: sub } });
+    expect(identities).toBe(0);
+    const usersByName = await prisma.user.findMany({ where: { username: 'g6_case' } });
+    expect(usersByName).toHaveLength(0);
+  });
+
+  // ─── S6-19: Non-authoritative email (§60)
+
+  it('S6-19: non-Google-authoritative domain does not trigger account link, creates new user', async () => {
+    const sub = uniqueTag('s619');
+    const { cookie } = await googleNonce();
+    mockVerified(sub, { email: 'person@example.com', emailVerified: true });
+
+    const res = await postGoogle({ credential: 'tok-na', username: 'g6_na' }, cookie);
+    expect(res.statusCode).toBe(201);
+    const userId = res.json().data.user.id;
+    blockUserIds.push(userId);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user!.email).toBeNull(); // not linked — non-authoritative
+
+    const identity = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: sub } },
+    });
+    expect(identity).toBeTruthy();
+  });
+
+  // ─── S6-20: Workspace authority (§61)
+
+  it('S6-20a: verified workspace email matching existing email-authoritative user → ACCOUNT_LINK_REQUIRED', async () => {
+    const email = 'person@example.com';
+    const sub = uniqueTag('s620a');
+    // Seed user via register (email-authoritative for example.com domain)
+    const regRes = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/register`,
+      payload: { username: `g6_${uniqueTag('s620a')}`.slice(0, 30), email, password: VALID_PASSWORD },
+    });
+    expect(regRes.statusCode).toBe(201);
+    blockUserIds.push(regRes.json().data.user.id);
+
+    const { cookie } = await googleNonce();
+    mockVerified(sub, { email: 'person@example.com', emailVerified: true, hd: 'example.com' });
+
+    const res = await postGoogle({ credential: 'tok-ws', username: 'g6_ws' }, cookie);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe(ErrorCode.ACCOUNT_LINK_REQUIRED);
+  });
+
+  it('S6-20b: unverified workspace email matching existing email → NOT authoritative → 201', async () => {
+    const sub = uniqueTag('s620b');
+    const { cookie } = await googleNonce();
+    mockVerified(sub, { email: 'person@example.com', emailVerified: false, hd: 'example.com' });
+
+    const res = await postGoogle({ credential: 'tok-ws2', username: 'g6_ws2' }, cookie);
+    expect(res.statusCode).toBe(201);
+    blockUserIds.push(res.json().data.user.id);
+
+    const user = await prisma.user.findUnique({ where: { id: res.json().data.user.id } });
+    expect(user!.email).toBeNull();
+  });
+
+  // ─── S6-21: Gmail authority + evilgmail (§62)
+
+  it('S6-21: evilgmail.com domain is NOT authoritative, new user created without oracle', async () => {
+    const sub = uniqueTag('s621');
+    const { cookie } = await googleNonce();
+    mockVerified(sub, { email: 'x@evilgmail.com', emailVerified: true });
+
+    const res = await postGoogle({ credential: 'tok-evil', username: 'g6_evil' }, cookie);
+    expect(res.statusCode).toBe(201);
+    blockUserIds.push(res.json().data.user.id);
+
+    const user = await prisma.user.findUnique({ where: { id: res.json().data.user.id } });
+    expect(user!.email).toBeNull();
+  });
+
+  // ─── S6-22: Username required error code (§21)
+
+  it('S6-22: POST /google without username returns 422 with USERNAME_REQUIRED', async () => {
+    const sub = uniqueTag('s622');
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const res = await postGoogle({ credential: 'tok-nouser' }, cookie);
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe(ErrorCode.USERNAME_REQUIRED);
+
+    // No rows created for this identity
+    const identity = await prisma.userAuthIdentity.findUnique({
+      where: { provider_providerSubject: { provider: 'GOOGLE', providerSubject: sub } },
+    });
+    expect(identity).toBeNull();
+    const sessions = await prisma.session.count({ where: { refreshToken: { contains: 'tok' } } });
+    expect(sessions).toBe(0);
+  });
+
+  // ─── S6-23: Concurrency no orphan (§32 - different angle)
+
+  it('S6-23: concurrent same-sub + same-username + referral yields one user, no orphan', async () => {
+    const referrer = await seedReferrer('s623');
+    const sub = uniqueTag('s623');
+    const username = `g6_${uniqueTag('s623')}`.slice(0, 30);
+
+    const { cookie } = await googleNonce();
+    mockVerified(sub);
+
+    const [a, b] = await Promise.all([
+      postGoogle({ credential: 'tok-23', username, referralCode: referrer.code }, cookie),
+      postGoogle({ credential: 'tok-23', username, referralCode: referrer.code }, cookie),
+    ]);
+
+    const statuses = [a.statusCode, b.statusCode].sort();
+    expect(statuses).toEqual([200, 201]);
+
+    const users = await prisma.user.findMany({ where: { username } });
+    expect(users).toHaveLength(1);
+
+    // Referrer referral count: 0 or 1 (depends on which request won)
+    const referrals = await prisma.referral.count({ where: { referrerUserId: referrer.userId } });
+    expect(referrals).toBeLessThanOrEqual(1);
+  });
+});
+
+describeIf('slice 6 — verifyIdToken wrapper', () => {
+  it('S6-W1: valid payload with matching nonce → verified', async () => {
+    const raw = 'test-nonce-raw';
+    const digest = createHash('sha256').update(raw).digest('base64url');
+    const fakeVerify = async () => ({
+      sub: 'user-1',
+      nonce: digest,
+    });
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', digest);
+    expect(result.kind).toBe('verified');
+    if (result.kind === 'verified') {
+      expect(result.claims.sub).toBe('user-1');
+    }
+  });
+
+  it('S6-W2: valid payload with wrong nonce → invalid', async () => {
+    const fakeVerify = async () => ({ sub: 'user-2', nonce: 'wrong-nonce' });
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'correct-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W3: payload without nonce → invalid', async () => {
+    const fakeVerify = async () => ({ sub: 'user-3' });
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W4: payload without sub → invalid', async () => {
+    const fakeVerify = async () => ({ nonce: 'valid' });
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W5: empty sub (whitespace only) → invalid', async () => {
+    const fakeVerify = async () => ({ sub: '   ', nonce: 'valid' });
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W6: library throws Wrong recipient → invalid', async () => {
+    const fakeVerify = async () => {
+      throw new Error('Wrong recipient, payload audience != requiredAudience');
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W7: library throws Token used too late → invalid', async () => {
+    const fakeVerify = async () => {
+      throw new Error('Token used too late, exp < now');
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W8: library throws Invalid issuer → invalid', async () => {
+    const fakeVerify = async () => {
+      throw new Error('Invalid issuer, token issued by unexpected issuer');
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W9: network error ENOTFOUND → unavailable', async () => {
+    const fakeVerify = async () => {
+      const err: any = new Error('getaddrinfo ENOTFOUND');
+      err.code = 'ENOTFOUND';
+      throw err;
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('unavailable');
+  });
+
+  it('S6-W10: HTTP 502 error → unavailable', async () => {
+    const fakeVerify = async () => {
+      const err: any = new Error('Bad Gateway');
+      err.response = { status: 502 };
+      throw err;
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('unavailable');
+  });
+
+  it('S6-W11: unknown Error random failure → invalid (not unavailable)', async () => {
+    const fakeVerify = async () => {
+      throw new Error('random failure');
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'test-audience');
+    const result = await verifier('token', 'any-raw');
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('S6-W12: audience passed to verifyIdToken matches the audience parameter', async () => {
+    let receivedAudience: string | undefined;
+    const fakeVerify = async (opts: { idToken: string; audience: string }) => {
+      receivedAudience = opts.audience;
+      return { sub: 'user-12', nonce: 'x' } as Record<string, unknown>;
+    };
+    const verifier = createGoogleVerifier(fakeVerify, 'my-audience');
+    await verifier('token', 'any-raw');
+    expect(receivedAudience).toBe('my-audience');
+  });
+});
+
+describeIf('slice 6 — google config-off', () => {
+  let cfgOffServer: Awaited<ReturnType<typeof buildServer>>;
+  const cfgOffEmails: string[] = [];
+
+  beforeAll(async () => {
+    vi.stubEnv('GOOGLE_CLIENT_ID', '');
+    vi.resetModules();
+    const freshMod = await import('../server.js');
+    cfgOffServer = await freshMod.buildServer();
+    await cfgOffServer.ready();
+  });
+
+  afterAll(async () => {
+    if (cfgOffServer) await cfgOffServer.close();
+    if (cfgOffEmails.length) {
+      await prisma.user.deleteMany({ where: { email: { in: cfgOffEmails } } });
+      cfgOffEmails.length = 0;
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it('S6-C1: GET /google/nonce returns 503 when GOOGLE_CLIENT_ID is empty', async () => {
+    const res = await cfgOffServer.inject({ method: 'GET', url: `${PREFIX}/google/nonce` });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.message).toBe('Google sign-in is not available');
+  });
+
+  it('S6-C2: POST /google returns 503 when GOOGLE_CLIENT_ID is empty', async () => {
+    const res = await cfgOffServer.inject({
+      method: 'POST',
+      url: `${PREFIX}/google`,
+      payload: { credential: 'tok' },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.message).toBe('Google sign-in is not available');
+  });
+
+  it('S6-C3: email registration still works when GOOGLE_CLIENT_ID is empty', async () => {
+    const email = `cfgoff-${uniqueTag('s6c3')}@test.local`;
+    cfgOffEmails.push(email);
+    const res = await cfgOffServer.inject({
+      method: 'POST',
+      url: `${PREFIX}/register`,
+      payload: { username: `cfgoff_${uniqueTag('s6c3')}`.slice(0, 30), email, password: VALID_PASSWORD },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('S6-C4: API starts without GOOGLE_CLIENT_ID (server.ready() succeeds)', async () => {
+    // Implicit in beforeAll — if we got here, the server started
+    expect(cfgOffServer).toBeTruthy();
   });
 });

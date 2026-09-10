@@ -231,6 +231,14 @@ export const fileUploadSchema = z.object({
   bucket: z.string().min(1),
 });
 
+export const googleAuthSchema = z.object({
+  credential: z.string().min(1).max(8192),
+  username: usernameSchema.optional(),
+  referralCode: z.string().max(50).optional(),
+});
+
+export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
+
 export type PaginationInput = z.infer<typeof paginationSchema>;
 export type IdParam = z.infer<typeof idParamSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
