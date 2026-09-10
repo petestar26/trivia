@@ -123,7 +123,7 @@ export function LoginPage() {
               <span className="bg-gray-50 dark:bg-gray-900 px-2 text-gray-500 dark:text-gray-400">or</span>
             </div>
           </div>
-          <GoogleSignInButton />
+          <GoogleSignInButton onSuccess={() => navigate('/')} />
         </CardContent>
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
