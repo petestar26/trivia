@@ -5,6 +5,7 @@ import { assertGroupRole, assertActiveMember, getGroupMembership } from '../real
 import { emitToGroup } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
 import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
+import { competitionLifecycleInfo } from './competition-lifecycle';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
 
@@ -1153,7 +1154,7 @@ export async function getCompetitionForGroup(groupId: string, competitionId: str
     },
   });
   if (!comp || comp.groupId !== groupId) throw ApiError.notFound('Competition not found');
-  return comp;
+  return { ...comp, ...competitionLifecycleInfo(comp) };
 }
 
 export async function listCompetitionsForGroup(groupId: string, userId: string) {
@@ -1166,5 +1167,5 @@ export async function listCompetitionsForGroup(groupId: string, userId: string) 
     include: { game: { select: { key: true, name: true } } },
     orderBy: { createdAt: 'desc' },
   });
-  return comps;
+  return comps.map((comp) => ({ ...comp, ...competitionLifecycleInfo(comp) }));
 }

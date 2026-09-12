@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { api, unwrapData, Competition } from '@/lib/api';
+import { api, unwrapData, Competition, CompetitionPhase } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useSocket } from '@/providers/socket-provider';
 import { useToast } from '@/hooks/use-toast';
@@ -34,6 +34,22 @@ interface PlayCompetitionResult {
   gamesPlayed?: number;
   question?: TriviaQuestion;
 }
+
+const PHASE_LABEL: Record<CompetitionPhase, string> = {
+  UPCOMING: 'Upcoming',
+  OPEN: 'Open',
+  ENDED: 'Ended',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+const PHASE_COLOR: Record<CompetitionPhase, string> = {
+  UPCOMING: 'text-yellow-600 dark:text-yellow-400',
+  OPEN: 'text-green-600 dark:text-green-400',
+  ENDED: 'text-rose-600 dark:text-rose-400',
+  COMPLETED: 'text-blue-600 dark:text-blue-400',
+  CANCELLED: 'text-gray-400',
+};
 
 export function CompetitionDetailPage() {
   const { groupId, competitionId } = useParams<{ groupId: string; competitionId: string }>();
@@ -99,6 +115,33 @@ export function CompetitionDetailPage() {
     socket.on('competition:ended', refresh);
     return () => { socket.off('competition:ended', refresh); };
   }, [socket, competitionId, groupId, queryClient]);
+
+  // ── Boundary refresh ─────────────────────────────────────────────
+  // One focused timer to the next lifecycle boundary (startsAt if the
+  // competition has not started, otherwise endsAt). When the boundary is
+  // crossed the detail query is refetched so Join→Play→Finalize transitions
+  // happen without a manual reload. No aggressive polling. Only near
+  // boundaries arm a timer: beyond this horizon the wait would overflow
+  // setTimeout's 32-bit limit, and returning users are covered by the page's
+  // refetchOnWindowFocus.
+  const MAX_BOUNDARY_WAIT = 24 * 60 * 60 * 1000;
+  useEffect(() => {
+    if (!competition) return;
+    const start = new Date(competition.startsAt).getTime();
+    const end = new Date(competition.endsAt).getTime();
+    const now = Date.now();
+    const nextBoundary = now < start ? start : now < end ? end : null;
+    if (nextBoundary === null) return;
+
+    const wait = Math.max(0, nextBoundary - now) + 250;
+    if (wait > MAX_BOUNDARY_WAIT) return;
+
+    const timer = window.setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
+    }, wait);
+
+    return () => window.clearTimeout(timer);
+  }, [competition?.startsAt, competition?.endsAt, groupId, competitionId, queryClient]);
 
   // ── Mutations ─────────────────────────────────────────────────────
   const joinMutation = useMutation({
@@ -204,10 +247,17 @@ export function CompetitionDetailPage() {
   const isManager = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
   const canFinalize = isManager;
 
-  const isScheduled  = competition.status === 'SCHEDULED';
-  const isActive     = competition.status === 'ACTIVE';
-  const isCompleted  = competition.status === 'COMPLETED';
-  const isCancelled  = competition.status === 'CANCELLED';
+  // Server-derived lifecycle phase (separate from persisted status). The clock
+  // decides UPCOMING/OPEN/ENDED; terminal persisted statuses override it.
+  const phase: CompetitionPhase = competition.phase;
+  const isFull = competition.isFull ??
+    (competition.maxParticipants != null && (competition.participantCount ?? 0) >= competition.maxParticipants);
+
+  const isUpcoming = phase === 'UPCOMING';
+  const isOpen     = phase === 'OPEN';
+  const isEnded    = phase === 'ENDED';
+  const isCompleted = phase === 'COMPLETED';
+  const isCancelled = phase === 'CANCELLED';
 
   const mutBusy = joinMutation.isPending || playMutation.isPending || finalizeMutation.isPending;
 
@@ -265,13 +315,8 @@ export function CompetitionDetailPage() {
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Status</p>
-              <p className={`font-semibold ${
-                isScheduled ? 'text-yellow-600 dark:text-yellow-400' :
-                isActive    ? 'text-green-600 dark:text-green-400'  :
-                isCompleted ? 'text-blue-600 dark:text-blue-400'    :
-                'text-gray-500'
-              }`}>
-                {competition.status}
+              <p className={`font-semibold ${PHASE_COLOR[phase] ?? 'text-gray-500'}`}>
+                {PHASE_LABEL[phase] ?? phase}
               </p>
             </div>
             <div>
@@ -305,8 +350,8 @@ export function CompetitionDetailPage() {
             </div>
           )}
 
-          {/* Join — SCHEDULED competitions open for joining */}
-          {isScheduled && !iAmParticipant && (
+          {/* Join — OPEN only; no pre-start registration, nothing after endsAt */}
+          {isOpen && !iAmParticipant && !isFull && (
             <Button
               onClick={() => joinMutation.mutate()}
               disabled={mutBusy}
@@ -316,14 +361,29 @@ export function CompetitionDetailPage() {
             </Button>
           )}
 
-          {isScheduled && iAmParticipant && (
-            <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-              ✓ You are registered — the competition will start soon.
+          {/* Full — never an apparently-usable Join (backend stays authoritative) */}
+          {isOpen && !iAmParticipant && isFull && (
+            <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">
+              This competition is full.
             </p>
           )}
 
-          {/* Play — ACTIVE competitions */}
-          {isActive && iAmParticipant && (
+          {/* UPCOMING — no Join/Play before startsAt */}
+          {isUpcoming && (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                This competition starts {new Date(competition.startsAt).toLocaleString()}.
+              </p>
+              {iAmParticipant && (
+                <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                  ✓ You are joined — play opens when it starts.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Play — OPEN competitions */}
+          {isOpen && iAmParticipant && (
             <div className="space-y-3">
               {/* Trivia Competition - Two Phase */}
               {isTriviaCompetition && (
@@ -406,12 +466,6 @@ export function CompetitionDetailPage() {
             </div>
           )}
 
-          {isActive && !iAmParticipant && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              You did not join this competition before it started.
-            </p>
-          )}
-
           {/* Cancelled */}
           {isCancelled && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -419,11 +473,11 @@ export function CompetitionDetailPage() {
             </p>
           )}
 
-          {/* Completed but not yet finalized */}
-          {isCompleted && !competition.finalizedAt && (
+          {/* ENDED — no Join/Play; OWNER/ADMIN may finalize only here */}
+          {isEnded && (
             <div className="space-y-2">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Competition has ended — awaiting finalization.
+                This competition has ended.
               </p>
               {canFinalize && (
                 <Button
@@ -437,19 +491,11 @@ export function CompetitionDetailPage() {
             </div>
           )}
 
-          {/* Manager panel (UX only — authorization enforced server-side) */}
-          {isManager && (isScheduled || isActive) && (
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-sm space-y-2">
-              <p className="font-medium text-blue-800 dark:text-blue-300">Manager actions</p>
-              <Button
-                size="sm"
-                onClick={() => finalizeMutation.mutate()}
-                disabled={mutBusy}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {finalizeMutation.isPending ? 'Finalizing…' : 'Finalize now'}
-              </Button>
-            </div>
+          {/* COMPLETED — terminal status, no live actions */}
+          {isCompleted && !competition.finalizedAt && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              This competition has ended.
+            </p>
           )}
         </CardContent>
       </Card>

@@ -332,6 +332,9 @@ export interface CreateChallengeBody {
 // Competition as returned by the backend (Prisma include shape).
 // The backend uses { include: { game: { select: { key, name } } } }
 // so the game name is in competition.game.name, not competition.gameName.
+// phase is server-derived from startsAt/endsAt/status on every read.
+export type CompetitionPhase = 'UPCOMING' | 'OPEN' | 'ENDED' | 'COMPLETED' | 'CANCELLED';
+
 export interface Competition {
   id: string;
   groupId: string;
@@ -339,6 +342,9 @@ export interface Competition {
   title: string;
   description?: string | null;
   status: 'SCHEDULED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  phase: CompetitionPhase;
+  isFull?: boolean;
+  participantCount?: number;
   scoring?: string;
   entryAmount: number;
   maxParticipants?: number | null;
