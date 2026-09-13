@@ -311,7 +311,9 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     // no reload, remount, focus change, or socket event.
     memberRole = 'OWNER';
     const startsAt = new Date(Date.now() + 150).toISOString();
-    const endsAt = new Date(Date.now() + 500).toISOString();
+    // 250 ms grace after startsAt, then ~750+ ms of OPEN before the endsAt
+    // refresh lands; endsAt leaves enough headroom for slow CI without dragging.
+    const endsAt = new Date(Date.now() + 1400).toISOString();
     getCompetitionForGroup.mockImplementation(async () => {
       const now = Date.now();
       const start = new Date(startsAt).getTime();

@@ -47,10 +47,14 @@ function phaseFallback(
   return 'ENDED';
 }
 
-// setTimeout's 32-bit signed limit. Long-horizon boundary waits are chained in
-// slices of at most this many ms, so a far-future startsAt/endsAt can never
-// overflow the delay (which would clamp to 1 ms and fire immediately).
-const MAX_TIMEOUT = 2_147_483_647;
+// setTimeout's 32-bit signed limit is MAX_TIMER_DELAY ms; boundary refresh also
+// adds BOUNDARY_GRACE_MS on top of the raw remaining delay. Chained waits use
+// MAX_TIMER_SLICE so the final delay (slice + grace) can never exceed
+// MAX_TIMER_DELAY — scheduling any larger value would overflow to a 1 ms timer.
+// A far-future startsAt/endsAt therefore chains in MAX_TIMER_SLICE slices.
+const BOUNDARY_GRACE_MS = 250;
+const MAX_TIMER_DELAY = 2_147_483_647;
+const MAX_TIMER_SLICE = MAX_TIMER_DELAY - BOUNDARY_GRACE_MS;
 
 export function GroupCompetitionsPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -75,10 +79,11 @@ export function GroupCompetitionsPage() {
   // so phase badges flip UPCOMING→OPEN→ENDED without a manual reload. No
   // polling — no network request fires between boundaries. Long horizons are
   // handled by bounded chained waiting: the remaining local delay is recomputed
-  // every ≤ 2^31 - 1 ms, so setTimeout can never overflow and a boundary is
-  // never abandoned merely because it is far away. At now === endsAt the OPEN
-  // phase is still valid, so a refresh is still scheduled just past the
-  // boundary to flip to ENDED.
+  // every MAX_TIMER_SLICE ms, so no scheduled delay (slice, or slice +
+  // boundary grace) ever exceeds MAX_TIMER_DELAY, and a boundary is never
+  // abandoned merely because it is far away. At now === endsAt the OPEN phase
+  // is still valid, so a refresh is still scheduled just past the boundary to
+  // flip to ENDED.
   useEffect(() => {
     const nextBoundary = competitions.reduce<number | null>((acc, comp) => {
       const start = new Date(comp.startsAt).getTime();
@@ -99,13 +104,15 @@ export function GroupCompetitionsPage() {
     const arm = () => {
       if (cancelled) return;
       const remaining = Math.max(0, nextBoundary - Date.now());
-      if (remaining > MAX_TIMEOUT) {
-        timer = window.setTimeout(arm, MAX_TIMEOUT);
+      if (remaining > MAX_TIMER_SLICE) {
+        // Far from the boundary: keep the local chain alive in safe slices.
+        // No invalidation here — that only happens at the real boundary.
+        timer = window.setTimeout(arm, MAX_TIMER_SLICE);
         return;
       }
       timer = window.setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['competitions', groupId] });
-      }, remaining + 250);
+      }, remaining + BOUNDARY_GRACE_MS);
     };
 
     arm();
