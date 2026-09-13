@@ -308,7 +308,45 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
     expect(screen.getByRole('button', { name: 'View results' })).toBeInTheDocument();
   });
 
-  it('slices far-future waits safely and cancels the active timer on cleanup', async () => {
+  it('continues a far-future wait through its safe slice to the boundary', async () => {
+    vi.useFakeTimers();
+    notifyManager.setScheduler((callback) => callback());
+    vi.setSystemTime(FAKE_NOW);
+    const timers = recordWindowTimers();
+    const startsAt = new Date(FAKE_NOW + MAX_TIMER_SLICE + 10_000).toISOString();
+    const endsAt = new Date(FAKE_NOW + MAX_TIMER_SLICE + 70_000).toISOString();
+    listCompetitionsForGroup.mockResolvedValue({
+      success: true,
+      data: [makeCompetition({ id: 'c-far-future', phase: 'UPCOMING', startsAt, endsAt })],
+    });
+
+    renderPage();
+    await flushQueryUpdates();
+
+    const initialSliceIndex = timers.scheduled.findIndex(({ delay }) => delay === MAX_TIMER_SLICE);
+    expect(initialSliceIndex).toBeGreaterThanOrEqual(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MAX_TIMER_SLICE);
+    });
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
+
+    const startContinuationDelay = 10_000 + BOUNDARY_GRACE_MS;
+    const continuationTimer = timers.scheduled
+      .slice(initialSliceIndex + 1)
+      .find(({ delay }) => delay === startContinuationDelay)?.timer;
+    expect(continuationTimer).toBeDefined();
+    expect(timers.scheduled.every(({ delay }) => delay <= MAX_TIMER_DELAY)).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(startContinuationDelay);
+    });
+    await flushQueryUpdates();
+
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels an active far-future continuation timer on cleanup', async () => {
     vi.useFakeTimers();
     notifyManager.setScheduler((callback) => callback());
     vi.setSystemTime(FAKE_NOW);
@@ -323,16 +361,25 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
     const page = renderPage();
     await flushQueryUpdates();
 
-    const boundaryTimerIndex = timers.scheduled.findIndex(({ delay }) => delay === MAX_TIMER_SLICE);
-    expect(boundaryTimerIndex).toBeGreaterThanOrEqual(0);
-    expect(timers.scheduled.every(({ delay }) => delay <= MAX_TIMER_DELAY)).toBe(true);
-    const boundaryTimer = timers.scheduled[boundaryTimerIndex]?.timer;
+    const initialSliceIndex = timers.scheduled.findIndex(({ delay }) => delay === MAX_TIMER_SLICE);
+    expect(initialSliceIndex).toBeGreaterThanOrEqual(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MAX_TIMER_SLICE);
+    });
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
+
+    const continuationDelay = 10_000 + BOUNDARY_GRACE_MS;
+    const continuationTimer = timers.scheduled
+      .slice(initialSliceIndex + 1)
+      .find(({ delay }) => delay === continuationDelay)?.timer;
+    expect(continuationTimer).toBeDefined();
 
     page.unmount();
 
-    expect(timers.cleared).toContain(boundaryTimer);
+    expect(timers.cleared).toContain(continuationTimer);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(MAX_TIMER_SLICE);
+      await vi.advanceTimersByTimeAsync(continuationDelay);
     });
     expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
   });
