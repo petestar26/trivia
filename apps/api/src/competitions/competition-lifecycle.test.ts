@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   competitionLifecyclePhase,
   competitionLifecycleInfo,
-} from './competition-lifecycle';
+} from './competition-lifecycle.js';
 
 const STARTS_AT = new Date('2026-01-01T00:00:00.000Z');
 const ENDS_AT = new Date('2026-01-02T00:00:00.000Z');

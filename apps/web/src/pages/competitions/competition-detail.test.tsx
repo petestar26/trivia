@@ -40,7 +40,7 @@ const FUTURE_END = '2027-01-02T00:00:00.000Z';
 
 function makeCompetition(overrides: {
   id?: string;
-  phase: CompetitionPhase;
+  phase?: CompetitionPhase;
   status?: Competition['status'];
   startsAt?: string;
   endsAt?: string;
@@ -57,7 +57,6 @@ function makeCompetition(overrides: {
     title: 'Detail Comp',
     description: null,
     status: overrides.status ?? 'SCHEDULED',
-    phase: overrides.phase,
     isFull: overrides.isFull ?? false,
     participantCount: overrides.participantCount ?? 0,
     entryAmount: 10,
@@ -69,7 +68,10 @@ function makeCompetition(overrides: {
     createdAt: '2026-01-01T00:00:00.000Z',
     finalizedAt: overrides.finalizedAt ?? null,
     participants: overrides.participants ?? [],
-  };
+    // `phase` is only present when explicitly provided, so tests can simulate
+    // the deployment-skew payload where the server does not send it yet.
+    ...(overrides.phase !== undefined && { phase: overrides.phase }),
+  } as Competition;
 }
 
 // Active observer for the ['wallet'] query so join-session wallet invalidation
@@ -300,16 +302,26 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(walletCalls()).toBeGreaterThanOrEqual(2);
   });
 
-  it('crossing startsAt transitions the detail page from Upcoming to Open without reload', async () => {
+  it('crosses BOTH boundaries UPCOMING → OPEN → ENDED on a single mount', async () => {
+    // Regression: the boundary effect originally omitted `phase` from its deps,
+    // so after the startsAt refetch flipped the phase to OPEN the effect never
+    // re-ran — no endsAt timer was ever armed and ENDED was never reached. A
+    // test that starts OPEN cannot catch that. This mounts exactly once in
+    // UPCOMING state and expects the page to traverse the whole lifecycle with
+    // no reload, remount, focus change, or socket event.
+    memberRole = 'OWNER';
     const startsAt = new Date(Date.now() + 150).toISOString();
-    const endsAt = new Date(Date.now() + 60_000).toISOString();
+    const endsAt = new Date(Date.now() + 500).toISOString();
     getCompetitionForGroup.mockImplementation(async () => {
       const now = Date.now();
-      const phase: CompetitionPhase = now < new Date(startsAt).getTime() ? 'UPCOMING' : 'OPEN';
+      const start = new Date(startsAt).getTime();
+      const end = new Date(endsAt).getTime();
+      const phase: CompetitionPhase = now < start ? 'UPCOMING' : now <= end ? 'OPEN' : 'ENDED';
       return {
         success: true,
         data: makeCompetition({
           phase,
+          status: 'SCHEDULED',
           startsAt,
           endsAt,
           participants: [{ userId: 'u1', score: 0, gamesPlayed: 0 }],
@@ -319,11 +331,96 @@ describe('CompetitionDetailPage lifecycle phases', () => {
 
     renderPage();
 
+    // 1. UPCOMING: banner only, no Join/Play.
     expect(await screen.findByText('Upcoming')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
 
+    // 2. startsAt crossed: refetch → OPEN → existing participant sees Play.
     await waitFor(() => expect(screen.getByRole('button', { name: /Play a round/ })).toBeInTheDocument(), {
-      timeout: 3000,
-      interval: 50,
+      timeout: 4000,
+      interval: 40,
     });
-  }, 10_000);
+
+    // 3+4. endsAt crossed: second refetch → ENDED → Play disappears.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument(), {
+      timeout: 4000,
+      interval: 40,
+    });
+
+    // 5. Manager sees Finalize in the ENDED phase.
+    expect(screen.getByRole('button', { name: /Finalize & distribute rewards/ })).toBeInTheDocument();
+    expect(screen.getByText('This competition has ended.')).toBeInTheDocument();
+  }, 15_000);
+
+  it('falls back to clock-derived OPEN when phase is absent (deployment skew)', async () => {
+    const startsAt = new Date(Date.now() - 60_000).toISOString();
+    const endsAt = new Date(Date.now() + 60_000).toISOString();
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({ status: 'SCHEDULED', startsAt, endsAt, participants: [] }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Open')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Join Competition/ })).toBeInTheDocument();
+  });
+
+  it('falls back to clock-derived ENDED when phase is absent', async () => {
+    const startsAt = new Date(Date.now() - 120_000).toISOString();
+    const endsAt = new Date(Date.now() - 60_000).toISOString();
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        status: 'SCHEDULED',
+        startsAt,
+        endsAt,
+        participants: [{ userId: 'u1', score: 5, gamesPlayed: 1 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('This competition has ended.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
+  });
+
+  it('terminal COMPLETED status overrides timestamps when phase is absent', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        status: 'COMPLETED',
+        finalizedAt: '2026-01-03T00:00:00.000Z',
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+        participants: [{ userId: 'u1', score: 10, gamesPlayed: 1 }],
+      }),
+    });
+
+    renderPage();
+
+    // Even though startsAt/endsAt are still in the future, the persisted
+    // COMPLETED status must win and render results — not an empty/upcoming view.
+    expect(await screen.findByText(/Final Results/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play/i })).not.toBeInTheDocument();
+  });
+
+  it('terminal CANCELLED status overrides timestamps when phase is absent', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        status: 'CANCELLED',
+        startsAt: FUTURE_START,
+        endsAt: FUTURE_END,
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('This competition was cancelled.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play/i })).not.toBeInTheDocument();
+  });
 });

@@ -5,7 +5,7 @@ import { assertGroupRole, assertActiveMember, getGroupMembership } from '../real
 import { emitToGroup } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
 import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
-import { competitionLifecycleInfo } from './competition-lifecycle';
+import { competitionLifecycleInfo } from './competition-lifecycle.js';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
 

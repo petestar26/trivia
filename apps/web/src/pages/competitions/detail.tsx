@@ -51,6 +51,29 @@ const PHASE_COLOR: Record<CompetitionPhase, string> = {
   CANCELLED: 'text-gray-400',
 };
 
+// Compatibility fallback for the brief deployment window where a page bundle
+// is ahead of the API and `phase` is absent from a competition payload. Uses
+// the exact lifecycle semantics: terminal persisted statuses override
+// timestamps; otherwise UPCOMING/OPEN/ENDED is decided by the clock.
+function phaseFallback(
+  status: Competition['status'] | undefined,
+  startsAt: string,
+  endsAt: string,
+): CompetitionPhase {
+  if (status === 'COMPLETED' || status === 'CANCELLED') return status;
+  const now = Date.now();
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (now < start) return 'UPCOMING';
+  if (now <= end) return 'OPEN';
+  return 'ENDED';
+}
+
+// setTimeout's 32-bit signed limit. Long-horizon boundary waits are chained in
+// slices of at most this many ms, so a far-future startsAt/endsAt can never
+// overflow the delay (which would clamp to 1 ms and fire immediately).
+const MAX_TIMEOUT = 2_147_483_647;
+
 export function CompetitionDetailPage() {
   const { groupId, competitionId } = useParams<{ groupId: string; competitionId: string }>();
   const { user } = useAuth();
@@ -73,6 +96,14 @@ export function CompetitionDetailPage() {
   // this is plain synchronous derivation, not a hook, so it can sit anywhere
   // relative to other hooks.
   const isTriviaCompetition = competition?.game?.key === 'trivia';
+
+  // Server-derived lifecycle phase, computed BEFORE the boundary effect so the
+  // effect can depend on it (re-arm UPCOMING→OPEN→ENDED as refetches arrive).
+  // Server phase is authoritative; the fallback only covers deployment skew
+  // where a payload arrives without `phase`.
+  const phase: CompetitionPhase = competition
+    ? competition.phase ?? phaseFallback(competition.status, competition.startsAt, competition.endsAt)
+    : 'OPEN';
 
   // ── Fetch group info for UX role display (not for security) ────────
   // Security is enforced server-side; this is display-only.
@@ -117,31 +148,49 @@ export function CompetitionDetailPage() {
   }, [socket, competitionId, groupId, queryClient]);
 
   // ── Boundary refresh ─────────────────────────────────────────────
-  // One focused timer to the next lifecycle boundary (startsAt if the
-  // competition has not started, otherwise endsAt). When the boundary is
-  // crossed the detail query is refetched so Join→Play→Finalize transitions
-  // happen without a manual reload. No aggressive polling. Only near
-  // boundaries arm a timer: beyond this horizon the wait would overflow
-  // setTimeout's 32-bit limit, and returning users are covered by the page's
-  // refetchOnWindowFocus.
-  const MAX_BOUNDARY_WAIT = 24 * 60 * 60 * 1000;
+  // One focused timer chain that walks UPCOMING→OPEN→ENDED against the real
+  // startsAt/endsAt boundaries: refetch at each boundary, then re-arm for the
+  // next one (phase is an effect dependency, so refetching at startsAt flips
+  // the phase to OPEN and re-arms for endsAt). No aggressive polling — no
+  // network request fires between boundaries. Long horizons are handled by
+  // bounded chained waiting: the remaining local delay is recomputed every
+  // ≤ 2^31 - 1 ms, so setTimeout can never overflow and a boundary is never
+  // abandoned merely because it is far away. At now === endsAt the OPEN phase
+  // is still valid, so a refresh is still scheduled just past the boundary to
+  // flip to ENDED.
   useEffect(() => {
     if (!competition) return;
+
     const start = new Date(competition.startsAt).getTime();
     const end = new Date(competition.endsAt).getTime();
+    if (phase === 'COMPLETED' || phase === 'CANCELLED' || phase === 'ENDED') return;
+
     const now = Date.now();
-    const nextBoundary = now < start ? start : now < end ? end : null;
+    const nextBoundary = now < start ? start : now <= end ? end : null;
     if (nextBoundary === null) return;
 
-    const wait = Math.max(0, nextBoundary - now) + 250;
-    if (wait > MAX_BOUNDARY_WAIT) return;
+    let cancelled = false;
+    let timer: number | undefined;
 
-    const timer = window.setTimeout(() => {
-      queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
-    }, wait);
+    const arm = () => {
+      if (cancelled) return;
+      const remaining = Math.max(0, nextBoundary - Date.now());
+      if (remaining > MAX_TIMEOUT) {
+        timer = window.setTimeout(arm, MAX_TIMEOUT);
+        return;
+      }
+      timer = window.setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
+      }, remaining + 250);
+    };
 
-    return () => window.clearTimeout(timer);
-  }, [competition?.startsAt, competition?.endsAt, groupId, competitionId, queryClient]);
+    arm();
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [competition?.startsAt, competition?.endsAt, phase, groupId, competitionId, queryClient]);
 
   // ── Mutations ─────────────────────────────────────────────────────
   const joinMutation = useMutation({
@@ -247,9 +296,8 @@ export function CompetitionDetailPage() {
   const isManager = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
   const canFinalize = isManager;
 
-  // Server-derived lifecycle phase (separate from persisted status). The clock
-  // decides UPCOMING/OPEN/ENDED; terminal persisted statuses override it.
-  const phase: CompetitionPhase = competition.phase;
+  // `phase` is derived beside the competition query (server phase, with the
+  // clock-based compatibility fallback) so the boundary effect can depend on it.
   const isFull = competition.isFull ??
     (competition.maxParticipants != null && (competition.participantCount ?? 0) >= competition.maxParticipants);
 

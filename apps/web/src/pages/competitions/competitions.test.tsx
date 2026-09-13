@@ -17,7 +17,7 @@ import { GroupCompetitionsPage } from './index';
 
 function makeCompetition(overrides: {
   id: string;
-  phase: CompetitionPhase;
+  phase?: CompetitionPhase;
   startsAt: string;
   endsAt: string;
   status?: Competition['status'];
@@ -30,7 +30,6 @@ function makeCompetition(overrides: {
     title: `Competition ${overrides.id}`,
     description: null,
     status: overrides.status ?? 'SCHEDULED',
-    phase: overrides.phase,
     isFull: overrides.isFull ?? false,
     participantCount: 0,
     entryAmount: 0,
@@ -40,7 +39,10 @@ function makeCompetition(overrides: {
     startsAt: overrides.startsAt,
     endsAt: overrides.endsAt,
     createdAt: '2026-01-01T00:00:00.000Z',
-  };
+    // `phase` is only present when explicitly provided, so tests can simulate
+    // the deployment-skew payload where the server does not send it yet.
+    ...(overrides.phase !== undefined && { phase: overrides.phase }),
+  } as Competition;
 }
 
 const PAST_START = '2026-01-01T00:00:00.000Z';
@@ -217,4 +219,46 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
       interval: 50,
     });
   }, 10_000);
+
+  it('falls back to clock-derived OPEN when phase is absent', async () => {
+    const startsAt = new Date(Date.now() - 60_000).toISOString();
+    const endsAt = new Date(Date.now() + 60_000).toISOString();
+    listCompetitionsForGroup.mockResolvedValue({
+      success: true,
+      data: [makeCompetition({ id: 'c-no-phase-open', status: 'SCHEDULED', startsAt, endsAt })],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Open')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+  });
+
+  it('terminal COMPLETED and CANCELLED statuses override future timestamps when phase is absent', async () => {
+    listCompetitionsForGroup.mockResolvedValue({
+      success: true,
+      data: [
+        makeCompetition({
+          id: 'c-no-phase-completed',
+          status: 'COMPLETED',
+          startsAt: FUTURE_START,
+          endsAt: FUTURE_END,
+        }),
+        makeCompetition({
+          id: 'c-no-phase-cancelled',
+          status: 'CANCELLED',
+          startsAt: FUTURE_START,
+          endsAt: FUTURE_END,
+        }),
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Completed')).toBeInTheDocument();
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    // Terminal status is authoritative even though the timestamps are future.
+    expect(screen.queryByText('Upcoming')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'View results' })).toHaveLength(2);
+  });
 });
