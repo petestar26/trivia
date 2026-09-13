@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, Competition, CompetitionPhase } from '@/lib/api';
+import { normalizeCompetitionPhase } from '@/lib/competition-lifecycle';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -29,24 +30,6 @@ const PHASE_COLOR: Record<CompetitionPhase, string> = {
   CANCELLED: 'text-gray-400',
 };
 
-// Compatibility fallback for the brief deployment window where a page bundle
-// is ahead of the API and `phase` is absent from a competition payload. Uses
-// the exact lifecycle semantics: terminal persisted statuses override
-// timestamps; otherwise UPCOMING/OPEN/ENDED is decided by the clock.
-function phaseFallback(
-  status: Competition['status'] | undefined,
-  startsAt: string,
-  endsAt: string,
-): CompetitionPhase {
-  if (status === 'COMPLETED' || status === 'CANCELLED') return status;
-  const now = Date.now();
-  const start = new Date(startsAt).getTime();
-  const end = new Date(endsAt).getTime();
-  if (now < start) return 'UPCOMING';
-  if (now <= end) return 'OPEN';
-  return 'ENDED';
-}
-
 // setTimeout's 32-bit signed limit is MAX_TIMER_DELAY ms; boundary refresh also
 // adds BOUNDARY_GRACE_MS on top of the raw remaining delay. Chained waits use
 // MAX_TIMER_SLICE so the final delay (slice + grace) can never exceed
@@ -65,12 +48,14 @@ export function GroupCompetitionsPage() {
     queryKey: ['competitions', groupId],
     queryFn: async () => {
       const res = await api.listCompetitionsForGroup(groupId!);
-      return res.data ?? [];
+      const now = Date.now();
+      return (res.data ?? []).map((competition) => normalizeCompetitionPhase(competition, now));
     },
     enabled: !!groupId,
     // Explicit recovery hook: boundary changes become visible on tab return
     // even if the local re-arming chain was torn down while the tab was away.
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: 'always',
+    refetchOnMount: 'always',
   });
 
   // ── Boundary refresh ─────────────────────────────────────────────
@@ -89,8 +74,8 @@ export function GroupCompetitionsPage() {
       const start = new Date(comp.startsAt).getTime();
       const end = new Date(comp.endsAt).getTime();
       const now = Date.now();
-      // Skip terminal statuses: their phase is persisted, not time-driven.
-      if (comp.status === 'COMPLETED' || comp.status === 'CANCELLED') return acc;
+      // Terminal phases are persisted/server-authoritative and need no timer.
+      if (comp.phase === 'COMPLETED' || comp.phase === 'CANCELLED' || comp.phase === 'ENDED') return acc;
       const boundary = now < start ? start : now <= end ? end : null;
       if (boundary === null) return acc;
       return Math.min(acc ?? Infinity, boundary);
@@ -162,8 +147,8 @@ export function GroupCompetitionsPage() {
             const gameName = comp.game?.name ?? '—';
             const now = Date.now();
             const started = new Date(comp.startsAt).getTime() <= now;
-            const ended   = new Date(comp.endsAt).getTime()   <= now;
-            const phase = comp.phase ?? phaseFallback(comp.status, comp.startsAt, comp.endsAt);
+            const ended = new Date(comp.endsAt).getTime() <= now;
+            const phase = comp.phase;
             // List cards never advertise Join/Play: participation is only known
             // on the detail page. The card action is navigation only.
             const actionLabel = phase === 'OPEN' || phase === 'UPCOMING' ? 'View' : 'View results';

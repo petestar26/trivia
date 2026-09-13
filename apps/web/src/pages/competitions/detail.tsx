@@ -4,6 +4,7 @@ import { api, unwrapData, Competition, CompetitionPhase } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useSocket } from '@/providers/socket-provider';
 import { useToast } from '@/hooks/use-toast';
+import { normalizeCompetitionPhase } from '@/lib/competition-lifecycle';
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,24 +52,6 @@ const PHASE_COLOR: Record<CompetitionPhase, string> = {
   CANCELLED: 'text-gray-400',
 };
 
-// Compatibility fallback for the brief deployment window where a page bundle
-// is ahead of the API and `phase` is absent from a competition payload. Uses
-// the exact lifecycle semantics: terminal persisted statuses override
-// timestamps; otherwise UPCOMING/OPEN/ENDED is decided by the clock.
-function phaseFallback(
-  status: Competition['status'] | undefined,
-  startsAt: string,
-  endsAt: string,
-): CompetitionPhase {
-  if (status === 'COMPLETED' || status === 'CANCELLED') return status;
-  const now = Date.now();
-  const start = new Date(startsAt).getTime();
-  const end = new Date(endsAt).getTime();
-  if (now < start) return 'UPCOMING';
-  if (now <= end) return 'OPEN';
-  return 'ENDED';
-}
-
 // setTimeout's 32-bit signed limit is MAX_TIMER_DELAY ms; boundary refresh also
 // adds BOUNDARY_GRACE_MS on top of the raw remaining delay. Chained waits use
 // MAX_TIMER_SLICE so the final delay (slice + grace) can never exceed
@@ -89,10 +72,11 @@ export function CompetitionDetailPage() {
     queryKey: ['competition', groupId, competitionId],
     queryFn: async () => {
       const res = await api.getCompetitionForGroup(groupId!, competitionId!);
-      return res.data!;
+      return normalizeCompetitionPhase(res.data!);
     },
     enabled: !!groupId && !!competitionId,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: 'always',
+    refetchOnMount: 'always',
   });
 
   // Derived here (not stored in state) so it's available to playMutation's
@@ -101,13 +85,9 @@ export function CompetitionDetailPage() {
   // relative to other hooks.
   const isTriviaCompetition = competition?.game?.key === 'trivia';
 
-  // Server-derived lifecycle phase, computed BEFORE the boundary effect so the
-  // effect can depend on it (re-arm UPCOMING→OPEN→ENDED as refetches arrive).
-  // Server phase is authoritative; the fallback only covers deployment skew
-  // where a payload arrives without `phase`.
-  const phase: CompetitionPhase = competition
-    ? competition.phase ?? phaseFallback(competition.status, competition.startsAt, competition.endsAt)
-    : 'OPEN';
+  // The query normalizes deployment-skew payloads before they enter the cache,
+  // so a boundary changes cached `phase` and re-arms this page's timer effect.
+  const phase: CompetitionPhase = competition?.phase ?? 'OPEN';
 
   // ── Fetch group info for UX role display (not for security) ────────
   // Security is enforced server-side; this is display-only.

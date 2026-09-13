@@ -1,5 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  defaultScheduler,
+  notifyManager,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -49,9 +54,54 @@ const PAST_START = '2026-01-01T00:00:00.000Z';
 const PAST_END = '2026-01-02T00:00:00.000Z';
 const FUTURE_START = '2027-01-01T00:00:00.000Z';
 const FUTURE_END = '2027-01-02T00:00:00.000Z';
+const BOUNDARY_GRACE_MS = 250;
+const MAX_TIMER_DELAY = 2_147_483_647;
+const MAX_TIMER_SLICE = MAX_TIMER_DELAY - BOUNDARY_GRACE_MS;
+const FAKE_NOW = Date.parse('2030-01-01T00:00:00.000Z');
+let restoreTimerRecorder: (() => void) | undefined;
+
+function recordWindowTimers() {
+  const originalSetTimeout = window.setTimeout;
+  const originalClearTimeout = window.clearTimeout;
+  const scheduled: Array<{ timer: number; delay: number }> = [];
+  const cleared: number[] = [];
+
+  window.setTimeout = ((handler: TimerHandler, timeout?: number) => {
+    const timer = originalSetTimeout(handler, timeout);
+    scheduled.push({ timer, delay: Number(timeout ?? 0) });
+    return timer;
+  }) as typeof window.setTimeout;
+  window.clearTimeout = ((timer?: number) => {
+    if (timer !== undefined) cleared.push(timer);
+    originalClearTimeout(timer);
+  }) as typeof window.clearTimeout;
+
+  restoreTimerRecorder = () => {
+    window.setTimeout = originalSetTimeout;
+    window.clearTimeout = originalClearTimeout;
+  };
+
+  return { scheduled, cleared };
+}
+
+async function flushQueryUpdates() {
+  await act(async () => {
+    // A query result resolves in a microtask, then React Query schedules its
+    // observer notification on a zero-delay timer. Drain both stages (twice,
+    // because a refetch can enqueue the notification after the first pass).
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
 
 afterEach(() => {
   cleanup();
+  restoreTimerRecorder?.();
+  restoreTimerRecorder = undefined;
+  notifyManager.setScheduler(defaultScheduler);
+  vi.useRealTimers();
   listCompetitionsForGroup.mockReset();
 });
 
@@ -95,9 +145,9 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
     expect(screen.queryByText(/View \/ Join/i)).not.toBeInTheDocument();
   });
 
-  it('OPEN lists the competition as Open (persisted status irrelevant)', async () => {
-    // Persisted status stays SCHEDULED in production (no SCHEDULED→ACTIVE
-    // path); the OPEN badge must come from phase, not from status.
+  it('keeps a supplied OPEN phase authoritative over status and expired timestamps', async () => {
+    // Both timestamps are expired, but the supplied server phase remains the
+    // authority. Persisted SCHEDULED/ACTIVE status does not replace it.
     listCompetitionsForGroup.mockResolvedValue({
       success: true,
       data: [
@@ -175,6 +225,31 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
     expect(screen.queryByText(/Play/i)).not.toBeInTheDocument();
   });
 
+  it('refetches on remount even while the lifecycle query is fresh', async () => {
+    listCompetitionsForGroup.mockResolvedValue({
+      success: true,
+      data: [makeCompetition({
+        id: 'c-remount',
+        phase: 'COMPLETED',
+        status: 'COMPLETED',
+        startsAt: PAST_START,
+        endsAt: PAST_END,
+      })],
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
+    });
+
+    const firstMount = renderPage(client);
+    expect(await screen.findByText('Completed')).toBeInTheDocument();
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
+
+    firstMount.unmount();
+    renderPage(client);
+
+    await waitFor(() => expect(listCompetitionsForGroup).toHaveBeenCalledTimes(2));
+  });
+
   it('a full competition is flagged Full on the card', async () => {
     listCompetitionsForGroup.mockResolvedValue({
       success: true,
@@ -194,31 +269,73 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
     expect(await screen.findByText('Full')).toBeInTheDocument();
   });
 
-  it('crossing startsAt transitions the card from Upcoming to Open without reload', async () => {
-    const startsAt = new Date(Date.now() + 150).toISOString();
-    const endsAt = new Date(Date.now() + 60_000).toISOString();
-    // The server derives phase from the clock on every read, so the mock must
-    // do the same for the post-refetch data to change.
-    listCompetitionsForGroup.mockImplementation(async () => {
-      const now = Date.now();
-      const phase: CompetitionPhase = now < new Date(startsAt).getTime() ? 'UPCOMING' : 'OPEN';
-      return {
-        success: true,
-        data: [
-          makeCompetition({ id: 'c-boundary', phase, status: 'SCHEDULED', startsAt, endsAt }),
-        ],
-      };
+  it('normalizes identical phase-less responses across UPCOMING → OPEN → ENDED without remounting', async () => {
+    vi.useFakeTimers();
+    notifyManager.setScheduler((callback) => callback());
+    vi.setSystemTime(FAKE_NOW);
+    const startsAt = new Date(FAKE_NOW + 1_000).toISOString();
+    const endsAt = new Date(FAKE_NOW + 3_000).toISOString();
+    const unchangedPayload = makeCompetition({
+      id: 'c-boundary',
+      status: 'SCHEDULED',
+      startsAt,
+      endsAt,
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [unchangedPayload] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+
+    renderPage(client);
+    await flushQueryUpdates();
+
+    expect(screen.getByText('Upcoming')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument();
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000 + BOUNDARY_GRACE_MS);
+    });
+    await flushQueryUpdates();
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData<Competition[]>(['competitions', 'g1'])?.[0]?.phase).toBe('OPEN');
+    expect(screen.getByText('Open')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await flushQueryUpdates();
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('Ended')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View results' })).toBeInTheDocument();
+  });
+
+  it('slices far-future waits safely and cancels the active timer on cleanup', async () => {
+    vi.useFakeTimers();
+    notifyManager.setScheduler((callback) => callback());
+    vi.setSystemTime(FAKE_NOW);
+    const timers = recordWindowTimers();
+    const startsAt = new Date(FAKE_NOW + MAX_TIMER_SLICE + 10_000).toISOString();
+    const endsAt = new Date(FAKE_NOW + MAX_TIMER_SLICE + 70_000).toISOString();
+    listCompetitionsForGroup.mockResolvedValue({
+      success: true,
+      data: [makeCompetition({ id: 'c-far-future', phase: 'UPCOMING', startsAt, endsAt })],
     });
 
-    renderPage();
+    const page = renderPage();
+    await flushQueryUpdates();
 
-    expect(await screen.findByText('Upcoming')).toBeInTheDocument();
+    const boundaryTimerIndex = timers.scheduled.findIndex(({ delay }) => delay === MAX_TIMER_SLICE);
+    expect(boundaryTimerIndex).toBeGreaterThanOrEqual(0);
+    expect(timers.scheduled.every(({ delay }) => delay <= MAX_TIMER_DELAY)).toBe(true);
+    const boundaryTimer = timers.scheduled[boundaryTimerIndex]?.timer;
 
-    await waitFor(() => expect(screen.getByText('Open')).toBeInTheDocument(), {
-      timeout: 3000,
-      interval: 50,
+    page.unmount();
+
+    expect(timers.cleared).toContain(boundaryTimer);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MAX_TIMER_SLICE);
     });
-  }, 10_000);
+    expect(listCompetitionsForGroup).toHaveBeenCalledTimes(1);
+  });
 
   it('falls back to clock-derived OPEN when phase is absent', async () => {
     const startsAt = new Date(Date.now() - 60_000).toISOString();
@@ -235,30 +352,38 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
   });
 
   it('terminal COMPLETED and CANCELLED statuses override future timestamps when phase is absent', async () => {
+    vi.useFakeTimers();
+    notifyManager.setScheduler((callback) => callback());
+    vi.setSystemTime(FAKE_NOW);
+    const timers = recordWindowTimers();
+    const startsAt = new Date(FAKE_NOW + 10_000).toISOString();
+    const endsAt = new Date(FAKE_NOW + 20_000).toISOString();
     listCompetitionsForGroup.mockResolvedValue({
       success: true,
       data: [
         makeCompetition({
           id: 'c-no-phase-completed',
           status: 'COMPLETED',
-          startsAt: FUTURE_START,
-          endsAt: FUTURE_END,
+          startsAt,
+          endsAt,
         }),
         makeCompetition({
           id: 'c-no-phase-cancelled',
           status: 'CANCELLED',
-          startsAt: FUTURE_START,
-          endsAt: FUTURE_END,
+          startsAt,
+          endsAt,
         }),
       ],
     });
 
     renderPage();
+    await flushQueryUpdates();
 
-    expect(await screen.findByText('Completed')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.getByText('Cancelled')).toBeInTheDocument();
     // Terminal status is authoritative even though the timestamps are future.
     expect(screen.queryByText('Upcoming')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'View results' })).toHaveLength(2);
+    expect(timers.scheduled.some(({ delay }) => delay >= BOUNDARY_GRACE_MS)).toBe(false);
   });
 });
