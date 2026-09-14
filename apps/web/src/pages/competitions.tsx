@@ -52,8 +52,11 @@ export function CompetitionsPage() {
       </p>
 
       {groups.length === 0 ? (
-        <div className="py-16 text-center text-gray-500 dark:text-gray-400">
-          You are not a member of any groups yet.
+        <div className="py-16 text-center text-gray-500 dark:text-gray-400 space-y-3">
+          <p>You are not a member of any groups yet.</p>
+          <Button size="sm" onClick={() => navigate('/groups')}>
+            Create a group
+          </Button>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

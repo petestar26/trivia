@@ -232,6 +232,21 @@ class ApiClient {
     return this.get('/groups', params);
   }
 
+  async createGroup(body: { name: string; description?: string; isPrivate?: boolean }): Promise<ApiResponse<{
+    id: string;
+    ownerId: string;
+    name: string;
+    description: string | null;
+    imageUrl: string | null;
+    coverUrl: string | null;
+    isPrivate: boolean;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
+    return this.post('/groups', body);
+  }
+
   async getGroup(groupId: string): Promise<ApiResponse<any>> {
     return this.get(`/groups/${groupId}`);
   }
