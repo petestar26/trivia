@@ -819,7 +819,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('Offline Cup');
   });
 
-  it('shows an error and does not navigate when the server responds success with no competition id', async () => {
+  it('closes the form, warns via toast, and does not navigate when the server responds success with no competition id', async () => {
     mockMembershipWithGames('OWNER');
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
     createCompetition.mockResolvedValue({ success: true, data: {} });
@@ -836,16 +836,38 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(
-      await screen.findByText('Competition created, but the server response was incomplete. Refresh the list to find it.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+    // Never claims the normal success toast, and never navigates — we can't
+    // confirm the competition was actually created or find its id.
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith({
+        title: 'Competition status unknown',
+        description: "We couldn't confirm the competition was created. Check the competition list before trying again.",
+        variant: 'destructive',
+      }),
+    );
     expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
+    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+
+    // The form closes/resets rather than staying open with the entered
+    // values — there is no retained payload left to accidentally resubmit.
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(screen.queryByText('Incomplete Response Cup')).not.toBeInTheDocument();
+
     // The competition (and any prize escrow debit) is already committed
     // server-side despite the incomplete response body, so the list and
     // wallet caches are still refreshed rather than left stale.
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+
+    // Nothing left in this render can trigger a second create request: the
+    // toggle (freshly reopenable) only starts a blank form, not a resubmit.
+    expect(createCompetition).toHaveBeenCalledTimes(1);
+    const toggle = await screen.findByRole('button', { name: 'Create competition' });
+    fireEvent.click(toggle);
+    await screen.findByLabelText('Title');
+    expect(screen.getByLabelText('Title')).toHaveValue('');
+    expect(createCompetition).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an entry amount above the Postgres Int32 ceiling', async () => {
@@ -949,6 +971,70 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
       expect(createCompetition).not.toHaveBeenCalled();
     },
   );
+
+  it('uses type="text" + inputMode="numeric" (not type="number") for max participants', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    const maxInput = screen.getByLabelText(/Max participants/);
+    // A native type="number" input silently sanitizes malformed text like
+    // "2e" or "-" to "" before the component ever sees it (badInput), which
+    // would read as blank = "unlimited" — this is the actual mechanism the
+    // malformed-input tests above depend on to be meaningful.
+    expect(maxInput).toHaveAttribute('type', 'text');
+    expect(maxInput).toHaveAttribute('inputmode', 'numeric');
+  });
+
+  it('accepts entry amount and max participants exactly at the Postgres Int32 ceiling (2,147,483,647)', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    createCompetition.mockResolvedValue({ success: true, data: { id: 'at-cap-1' } });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'At The Ceiling');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), { target: { value: '2147483647' } });
+    fireEvent.change(screen.getByLabelText(/Max participants/), { target: { value: '2147483647' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
+    expect(createCompetition).toHaveBeenCalledWith(
+      expect.objectContaining({ entryAmount: 2_147_483_647, maxParticipants: 2_147_483_647 }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('accepts each reward exactly at the server cap (1,000,000)', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    createCompetition.mockResolvedValue({ success: true, data: { id: 'at-cap-2' } });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'At The Reward Ceiling');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (GP)'), { target: { value: '1000000' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), { target: { value: '1000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
+    expect(createCompetition).toHaveBeenCalledWith(
+      expect.objectContaining({ rewardGamePoints: 1_000_000, rewardCoins: 1_000_000 }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
 
 describe('GroupCompetitionsPage — active game catalog states', () => {
@@ -959,7 +1045,7 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     return screen.findByRole('button', { name: 'Create competition' });
   }
 
-  it('shows a loading state and disables the game selector while the catalog is loading', async () => {
+  it('shows a loading state, disables the game selector while the catalog is loading, and focuses Title instead of the disabled select', async () => {
     let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
@@ -973,13 +1059,15 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
 
     expect(await screen.findByText('Loading games…')).toBeInTheDocument();
     expect(screen.getByLabelText('Game')).toBeDisabled();
+    // Focusing a disabled control is a silent no-op — Title is the fallback.
+    expect(screen.getByLabelText('Title')).toHaveFocus();
 
     resolveGames({ success: true, data: [{ key: 'dice', name: 'Dice' }] });
     await waitFor(() => expect(screen.queryByText('Loading games…')).not.toBeInTheDocument());
     expect(screen.getByLabelText('Game')).not.toBeDisabled();
   });
 
-  it('shows an accessible error with a Retry button when the catalog fails to load, and Retry can recover it', async () => {
+  it('shows an accessible error with a Retry button when the catalog fails to load, focuses Title while disabled, and Retry both recovers it and moves focus to the game select', async () => {
     let gamesCalls = 0;
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
@@ -998,15 +1086,65 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     const errorMessage = await screen.findByText('Could not load games.');
     expect(errorMessage).toHaveAttribute('role', 'alert');
     expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled();
+    expect(screen.getByLabelText('Title')).toHaveFocus();
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => expect(screen.queryByText('Could not load games.')).not.toBeInTheDocument());
     expect(screen.getByLabelText('Game') as HTMLSelectElement).not.toBeDisabled();
     expect(screen.getByRole('button', { name: 'Create competition' })).not.toBeDisabled();
+    // A successful Retry moves focus onto the now-usable game select.
+    await waitFor(() => expect(screen.getByLabelText('Game')).toHaveFocus());
   });
 
-  it('shows "No active games are available." and disables submission when the catalog is empty', async () => {
+  it('keeps focus on the Retry button (the same DOM node) when a retry fails again', async () => {
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') throw new Error('network down');
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+    await screen.findByText('Could not load games.');
+
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    retry.focus();
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(screen.getByText('Could not load games.')).toBeInTheDocument());
+    // Same conditional block, same position -> React reuses this exact node,
+    // so the browser's own focus persistence carries it through untouched —
+    // no code needs to actively re-focus it, and nothing should steal focus.
+    expect(screen.getByRole('button', { name: 'Retry' })).toHaveFocus();
+  });
+
+  it('after a Retry that succeeds with an empty catalog, focus lands on Title rather than <body>', async () => {
+    let gamesCalls = 0;
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') {
+        gamesCalls += 1;
+        if (gamesCalls === 1) throw new Error('network down');
+        return { success: true, data: [] };
+      }
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+    await screen.findByText('Could not load games.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('No active games are available.')).toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByLabelText('Title')).toHaveFocus();
+  });
+
+  it('shows "No active games are available.", disables submission when the catalog is empty, and focuses Title instead of the disabled select', async () => {
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
       if (url === '/games') return { success: true, data: [] };
@@ -1019,6 +1157,7 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
 
     expect(await screen.findByText('No active games are available.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled());
+    expect(screen.getByLabelText('Title')).toHaveFocus();
   });
 });
 
@@ -1048,12 +1187,20 @@ describe('GroupCompetitionsPage — create-competition form accessibility', () =
     // reference is still attached to the document.
     expect(document.body.contains(toggle)).toBe(true);
     expect(toggle).toHaveAttribute('hidden');
+    // The `hidden` attribute alone loses the cascade to Button's own
+    // `inline-flex` base class in the real built stylesheet (confirmed by
+    // rendering the actual production CSS: `inline-flex` computed as the
+    // element's `display`, leaving it visible and focusable). The `hidden`
+    // utility class is what actually removes it from layout.
+    expect(toggle).toHaveClass('hidden');
+    expect(toggle).not.toHaveClass('inline-flex');
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expect(toggle).toHaveFocus());
     expect(toggle).not.toHaveAttribute('hidden');
+    expect(toggle).not.toHaveClass('hidden');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 

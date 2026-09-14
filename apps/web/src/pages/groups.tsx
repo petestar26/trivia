@@ -229,13 +229,22 @@ export function GroupsPage() {
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Groups</h1>
-        {/* Stays mounted (hidden, not unmounted) while the form is open: `hidden`
-            drops it from the accessibility tree and from `getByRole` queries just
-            like unmounting would, but keeps `toggleRef` pointing at a stable node
-            so focus can reliably return to it on Cancel/success. */}
+        {/* Stays mounted (hidden, not unmounted) while the form is open: the
+            `hidden` attribute drops it from the accessibility tree and from
+            `getByRole` queries just like unmounting would, but keeps
+            `toggleRef` pointing at a stable node so focus can reliably return
+            to it on Cancel/success. `hidden` alone is not enough — Button's
+            base class includes `inline-flex`, and Tailwind's
+            `[hidden]{display:none}` base rule sits earlier in the stylesheet
+            than the `.inline-flex{display:inline-flex}` utility, so
+            `inline-flex` would win the cascade and the button would stay
+            visible and focusable. Passing `className="hidden"` lets `cn()`
+            (clsx + tailwind-merge) drop the conflicting `inline-flex`
+            utility instead of just losing a specificity fight. */}
         <Button
           ref={toggleRef}
           hidden={showCreateForm}
+          className={showCreateForm ? 'hidden' : undefined}
           size="sm"
           aria-expanded={showCreateForm}
           aria-controls="create-group-form"

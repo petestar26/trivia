@@ -357,13 +357,38 @@ describe('GroupsPage — self-service group creation', () => {
     // reference is still attached to the document.
     expect(document.body.contains(toggle)).toBe(true);
     expect(toggle).toHaveAttribute('hidden');
+    // The `hidden` attribute alone loses the cascade to Button's own
+    // `inline-flex` base class in the real built stylesheet (confirmed by
+    // rendering the actual production CSS: `inline-flex` computed as the
+    // element's `display`, leaving it visible and focusable). The `hidden`
+    // utility class is what actually removes it from layout.
+    expect(toggle).toHaveClass('hidden');
+    expect(toggle).not.toHaveClass('inline-flex');
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expect(toggle).toHaveFocus());
     expect(toggle).not.toHaveAttribute('hidden');
+    expect(toggle).not.toHaveClass('hidden');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('restores focus to the toggle after a successful group creation', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [] });
+    createGroup.mockResolvedValue({ success: true, data: { id: 'group-new', name: 'Focus Group' } });
+
+    renderPage();
+
+    const toggle = await screen.findByRole('button', { name: 'Create group' });
+    fireEvent.click(toggle);
+
+    await userEvent.type(screen.getByLabelText('Name'), 'Focus Group');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).not.toBeInTheDocument());
+    await waitFor(() => expect(toggle).toHaveFocus());
+    expect(toggle).not.toHaveAttribute('hidden');
   });
 
   it('associates a validation error with its field via aria-invalid and aria-describedby', async () => {

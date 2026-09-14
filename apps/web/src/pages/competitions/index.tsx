@@ -107,6 +107,7 @@ export function GroupCompetitionsPage() {
   const {
     data: games = [],
     isLoading: gamesLoading,
+    isFetching: gamesFetching,
     isError: gamesFailed,
     refetch: refetchGames,
   } = useQuery<ActiveGame[]>({
@@ -134,17 +135,52 @@ export function GroupCompetitionsPage() {
   // a freshly-mounted node each time.
   const toggleRef = useRef<HTMLButtonElement>(null);
   const gameSelectRef = useRef<HTMLSelectElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const wasOpenRef = useRef(false);
+  // Set by the Retry click handler; consumed once the resulting refetch
+  // settles (see the effect below) so Retry's own focus outcome doesn't
+  // fight with the open/close effect above it.
+  const retryPendingRef = useRef(false);
 
   useEffect(() => {
     if (showCreateForm) {
       wasOpenRef.current = true;
-      gameSelectRef.current?.focus();
+      // Mirrors the select's own `disabled` condition: focusing a disabled
+      // control is a silent no-op in real browsers, so land on Title (always
+      // enabled at this point) whenever the select isn't actually usable yet.
+      if (!gamesLoading && !gamesUnavailable) {
+        gameSelectRef.current?.focus();
+      } else {
+        titleRef.current?.focus();
+      }
     } else if (wasOpenRef.current) {
       wasOpenRef.current = false;
       toggleRef.current?.focus();
     }
+    // Deliberately keyed only on open/close, not on every games-state change
+    // — see the dedicated Retry-settlement effect below for that transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCreateForm]);
+
+  // Moves focus once a user-initiated Retry settles. `isFetching` (not
+  // `isLoading`) is required here: refetching an already-errored query
+  // keeps `status: 'error'` (so `isLoading` stays false) while
+  // `fetchStatus: 'fetching'` is true for the retry's duration.
+  useEffect(() => {
+    if (!showCreateForm || !retryPendingRef.current || gamesFetching) return;
+    retryPendingRef.current = false;
+    if (!gamesUnavailable) {
+      gameSelectRef.current?.focus();
+    } else if (!gamesFailed) {
+      // Retry succeeded but the catalog is still empty — nothing new to
+      // focus into; land on Title rather than leaving focus wherever the
+      // (now-removed) error text and Retry button used to be.
+      titleRef.current?.focus();
+    }
+    // Otherwise retry failed again: the Retry button is the same DOM node
+    // across that re-render (same position in the same conditional block),
+    // so it already naturally kept focus from the user's own click.
+  }, [gamesFetching, gamesFailed, gamesUnavailable, showCreateForm]);
 
   function resetCreateForm() {
     setGameKey('');
@@ -192,7 +228,7 @@ export function GroupCompetitionsPage() {
         ok: false,
         fields: ['new-comp-entry'],
         error: entryResult.tooLarge
-          ? `Entry amount must be ${MAX_ENTRY_AMOUNT.toLocaleString()} or less.`
+          ? `Entry amount must be ${MAX_ENTRY_AMOUNT.toLocaleString('en-US')} or less.`
           : 'Entry amount must be a non-negative whole number.',
       };
     }
@@ -203,7 +239,7 @@ export function GroupCompetitionsPage() {
         ok: false,
         fields: ['new-comp-reward-gp'],
         error: rGPResult.tooLarge
-          ? `Game Point reward must be ${MAX_REWARD_AMOUNT.toLocaleString()} or less.`
+          ? `Game Point reward must be ${MAX_REWARD_AMOUNT.toLocaleString('en-US')} or less.`
           : 'Game Point reward must be a non-negative whole number.',
       };
     }
@@ -214,7 +250,7 @@ export function GroupCompetitionsPage() {
         ok: false,
         fields: ['new-comp-reward-coins'],
         error: rCoinsResult.tooLarge
-          ? `Coin reward must be ${MAX_REWARD_AMOUNT.toLocaleString()} or less.`
+          ? `Coin reward must be ${MAX_REWARD_AMOUNT.toLocaleString('en-US')} or less.`
           : 'Coin reward must be a non-negative whole number.',
       };
     }
@@ -237,7 +273,7 @@ export function GroupCompetitionsPage() {
       if (n > MAX_PARTICIPANTS_CAP) {
         return {
           ok: false,
-          error: `Max participants must be ${MAX_PARTICIPANTS_CAP.toLocaleString()} or fewer.`,
+          error: `Max participants must be ${MAX_PARTICIPANTS_CAP.toLocaleString('en-US')} or fewer.`,
           fields: ['new-comp-max'],
         };
       }
@@ -273,11 +309,20 @@ export function GroupCompetitionsPage() {
 
       const created = res.data;
       if (!created?.id) {
-        // Successful HTTP response, but without an id we cannot navigate to
-        // the new competition. Surface this rather than silently toasting
-        // success and leaving the manager stranded on a reset, empty form.
-        setFormError('Competition created, but the server response was incomplete. Refresh the list to find it.');
-        setFormErrorFields([]);
+        // A 2xx response without an id — including a non-JSON 2xx body,
+        // which ApiClient.request() silently parses to `{}` — means we
+        // cannot confirm the competition was actually created or find it.
+        // Never claim success here: close/reset the form rather than
+        // leaving the entered values sitting ready to resubmit, which would
+        // risk creating (and escrow-funding) a duplicate. The warning goes
+        // through the toast system — the form and its inline alert are
+        // gone by the time this fires — rather than a normal success toast.
+        resetCreateForm();
+        toast({
+          title: 'Competition status unknown',
+          description: "We couldn't confirm the competition was created. Check the competition list before trying again.",
+          variant: 'destructive',
+        });
         return;
       }
       toast({ title: 'Competition created' });
@@ -401,14 +446,23 @@ export function GroupCompetitionsPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
         </div>
         {/* OWNER/ADMIN only — display-only gate; the backend re-validates on submit.
-            Stays mounted (hidden, not unmounted) while the form is open: `hidden`
-            drops it from the accessibility tree and from `getByRole` queries just
-            like unmounting would, but keeps `toggleRef` pointing at a stable node
-            so focus can reliably return to it on Cancel/success. */}
+            Stays mounted (hidden, not unmounted) while the form is open: the
+            `hidden` attribute drops it from the accessibility tree and from
+            `getByRole` queries just like unmounting would, but keeps
+            `toggleRef` pointing at a stable node so focus can reliably return
+            to it on Cancel/success. The `hidden` attribute alone is not
+            enough here — Button's own base class includes `inline-flex`,
+            and Tailwind's `[hidden]{display:none}` base rule sits earlier in
+            the stylesheet than the `.inline-flex{display:inline-flex}`
+            utility, so `inline-flex` would win the cascade and the button
+            would stay visible and focusable. Passing `className="hidden"`
+            lets `cn()` (clsx + tailwind-merge) drop the conflicting
+            `inline-flex` utility instead of just losing a specificity fight. */}
         {canCreate && (
           <Button
             ref={toggleRef}
             hidden={showCreateForm}
+            className={showCreateForm ? 'hidden' : undefined}
             size="sm"
             aria-expanded={showCreateForm}
             aria-controls="create-competition-form"
@@ -459,7 +513,15 @@ export function GroupCompetitionsPage() {
                     <p role="alert" className="text-xs text-red-600 dark:text-red-400">
                       Could not load games.
                     </p>
-                    <Button type="button" variant="outline" size="sm" onClick={() => refetchGames()}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        retryPendingRef.current = true;
+                        refetchGames();
+                      }}
+                    >
                       Retry
                     </Button>
                   </div>
@@ -475,6 +537,7 @@ export function GroupCompetitionsPage() {
                 </label>
                 <Input
                   id="new-comp-title"
+                  ref={titleRef}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Competition title"
