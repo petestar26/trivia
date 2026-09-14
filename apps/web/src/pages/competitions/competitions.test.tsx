@@ -819,7 +819,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('Offline Cup');
   });
 
-  it('closes the form, warns via toast, and does not navigate when the server responds success with no competition id', async () => {
+  it('renders an accessible warning, closes the form, and does not navigate when the server responds success with no competition id', async () => {
     mockMembershipWithGames('OWNER');
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
     createCompetition.mockResolvedValue({ success: true, data: {} });
@@ -838,15 +838,15 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     // Never claims the normal success toast, and never navigates — we can't
     // confirm the competition was actually created or find its id.
-    await waitFor(() =>
-      expect(toastMock).toHaveBeenCalledWith({
-        title: 'Competition status unknown',
-        description: "We couldn't confirm the competition was created. Check the competition list before trying again.",
-        variant: 'destructive',
-      }),
-    );
     expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
     expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+
+    // The warning is rendered as an accessible banner near the page header,
+    // not via the shared toast system.
+    const warning = await screen.findByRole('alert');
+    expect(warning).toHaveTextContent(
+      "We couldn't confirm the competition was created. Check the competition list before trying again.",
+    );
 
     // The form closes/resets rather than staying open with the entered
     // values — there is no retained payload left to accidentally resubmit.
@@ -863,9 +863,12 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     // Nothing left in this render can trigger a second create request: the
     // toggle (freshly reopenable) only starts a blank form, not a resubmit.
     expect(createCompetition).toHaveBeenCalledTimes(1);
+
+    // Reopening the form clears the warning.
     const toggle = await screen.findByRole('button', { name: 'Create competition' });
     fireEvent.click(toggle);
     await screen.findByLabelText('Title');
+    expect(screen.queryByText(/couldn't confirm/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Title')).toHaveValue('');
     expect(createCompetition).toHaveBeenCalledTimes(1);
   });
@@ -1097,7 +1100,7 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     await waitFor(() => expect(screen.getByLabelText('Game')).toHaveFocus());
   });
 
-  it('keeps focus on the Retry button (the same DOM node) when a retry fails again', async () => {
+  it('restores focus to the new Retry button when a retry fails again', async () => {
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
       if (url === '/games') throw new Error('network down');
@@ -1109,15 +1112,18 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     await openForm();
     await screen.findByText('Could not load games.');
 
-    const retry = screen.getByRole('button', { name: 'Retry' });
-    retry.focus();
-    fireEvent.click(retry);
+    // Focus and activate the Retry button.
+    const initialRetry = screen.getByRole('button', { name: 'Retry' });
+    initialRetry.focus();
+    fireEvent.click(initialRetry);
 
-    await waitFor(() => expect(screen.getByText('Could not load games.')).toBeInTheDocument());
-    // Same conditional block, same position -> React reuses this exact node,
-    // so the browser's own focus persistence carries it through untouched —
-    // no code needs to actively re-focus it, and nothing should steal focus.
-    expect(screen.getByRole('button', { name: 'Retry' })).toHaveFocus();
+    // The refetch resolves immediately (always-error mock), so React Query
+    // re-renders the error block with a fresh DOM node. Wait for the new
+    // Retry button to appear and assert it received focus.
+    await waitFor(() => {
+      const replacementRetry = screen.getByRole('button', { name: 'Retry' });
+      expect(replacementRetry).toHaveFocus();
+    });
   });
 
   it('after a Retry that succeeds with an empty catalog, focus lands on Title rather than <body>', async () => {

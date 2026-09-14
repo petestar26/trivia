@@ -129,6 +129,7 @@ export function GroupCompetitionsPage() {
   const [rewardCoins, setRewardCoins] = useState('0');
   const [formError, setFormError] = useState<string | null>(null);
   const [formErrorFields, setFormErrorFields] = useState<string[]>([]);
+  const [missingIdWarning, setMissingIdWarning] = useState<string | null>(null);
 
   // Disclosure-toggle stays mounted (see `hidden` below) so a ref reliably
   // survives the open/close cycle for focus management, rather than chasing
@@ -141,6 +142,10 @@ export function GroupCompetitionsPage() {
   // settles (see the effect below) so Retry's own focus outcome doesn't
   // fight with the open/close effect above it.
   const retryPendingRef = useRef(false);
+  // Ref to the currently-rendered Retry button so that if a retry fails
+  // again (the error block re-renders with a fresh DOM node), focus can
+  // be restored to that new button.
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (showCreateForm) {
@@ -176,10 +181,12 @@ export function GroupCompetitionsPage() {
       // focus into; land on Title rather than leaving focus wherever the
       // (now-removed) error text and Retry button used to be.
       titleRef.current?.focus();
+    } else {
+      // Retry failed again — React re-rendered the error block, producing
+      // a new Retry button DOM node. Restore focus to it so keyboard
+      // users can immediately re-activate without hunting.
+      retryButtonRef.current?.focus();
     }
-    // Otherwise retry failed again: the Retry button is the same DOM node
-    // across that re-render (same position in the same conditional block),
-    // so it already naturally kept focus from the user's own click.
   }, [gamesFetching, gamesFailed, gamesUnavailable, showCreateForm]);
 
   function resetCreateForm() {
@@ -314,15 +321,11 @@ export function GroupCompetitionsPage() {
         // cannot confirm the competition was actually created or find it.
         // Never claim success here: close/reset the form rather than
         // leaving the entered values sitting ready to resubmit, which would
-        // risk creating (and escrow-funding) a duplicate. The warning goes
-        // through the toast system — the form and its inline alert are
-        // gone by the time this fires — rather than a normal success toast.
+        // risk creating (and escrow-funding) a duplicate. The warning is
+        // rendered as a persistent on-page banner, not a toast, so the user
+        // can read it after the form closes.
         resetCreateForm();
-        toast({
-          title: 'Competition status unknown',
-          description: "We couldn't confirm the competition was created. Check the competition list before trying again.",
-          variant: 'destructive',
-        });
+        setMissingIdWarning("We couldn't confirm the competition was created. Check the competition list before trying again.");
         return;
       }
       toast({ title: 'Competition created' });
@@ -466,12 +469,18 @@ export function GroupCompetitionsPage() {
             size="sm"
             aria-expanded={showCreateForm}
             aria-controls="create-competition-form"
-            onClick={() => setShowCreateForm(true)}
+            onClick={() => { setMissingIdWarning(null); setShowCreateForm(true); }}
           >
             Create competition
           </Button>
         )}
       </div>
+
+      {missingIdWarning && (
+        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+          {missingIdWarning}
+        </div>
+      )}
 
       {canCreate && showCreateForm && (
         <Card>
@@ -514,6 +523,7 @@ export function GroupCompetitionsPage() {
                       Could not load games.
                     </p>
                     <Button
+                      ref={retryButtonRef}
                       type="button"
                       variant="outline"
                       size="sm"
