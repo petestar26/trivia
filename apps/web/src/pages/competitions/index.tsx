@@ -429,7 +429,12 @@ export function GroupCompetitionsPage() {
 
   if (isError) {
     return (
-      <div className="max-w-2xl mx-auto p-4">
+      <div className="max-w-2xl mx-auto p-4 space-y-4">
+        {missingIdWarning && (
+          <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+            {missingIdWarning}
+          </div>
+        )}
         <Card>
           <CardContent className="py-8 text-center text-gray-500 dark:text-gray-400">
             Could not load competitions — you may not be an active member of this group.

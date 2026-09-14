@@ -836,17 +836,17 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    // Never claims the normal success toast, and never navigates — we can't
-    // confirm the competition was actually created or find its id.
-    expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
-    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
-
-    // The warning is rendered as an accessible banner near the page header,
-    // not via the shared toast system.
+    // Wait for the accessible warning banner before asserting anything — the
+    // mutation's onSuccess fires asynchronously.
     const warning = await screen.findByRole('alert');
     expect(warning).toHaveTextContent(
       "We couldn't confirm the competition was created. Check the competition list before trying again.",
     );
+
+    // Never claims the normal success toast, and never navigates — we can't
+    // confirm the competition was actually created or find its id.
+    expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
+    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
 
     // The form closes/resets rather than staying open with the entered
     // values — there is no retained payload left to accidentally resubmit.
@@ -871,6 +871,46 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     expect(screen.queryByText(/couldn't confirm/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Title')).toHaveValue('');
     expect(createCompetition).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the missing-ID warning when the competition list subsequently fails to refresh', async () => {
+    mockMembershipWithGames('OWNER');
+    // First call succeeds (initial mount), second call fails (refetch after mutation invalidation).
+    listCompetitionsForGroup
+      .mockResolvedValueOnce({ success: true, data: [] })
+      .mockRejectedValueOnce(new Error('network blip'));
+    createCompetition.mockResolvedValue({ success: true, data: {} });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Ghost Comp');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    // Wait for the creation to complete and the warning to appear.
+    const warning = await screen.findByRole('alert');
+    expect(warning).toHaveTextContent(
+      "We couldn't confirm the competition was created. Check the competition list before trying again.",
+    );
+
+    // The mutation already invalidated the list query; the refetch will use
+    // the second (rejected) mock, putting the query into error state.
+    await waitFor(() =>
+      expect(screen.getByText(/Could not load competitions/)).toBeInTheDocument(),
+    );
+
+    // The missing-ID warning persists alongside the list error — the two
+    // messages carry distinct, non-confusing content.
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't confirm/);
+    expect(screen.getByText(/Could not load competitions/)).toBeInTheDocument();
+    // There is exactly one role="alert" for the warning (the list error uses
+    // a plain <CardContent> without role="alert", so no duplicate alerts).
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
   });
 
   it('rejects an entry amount above the Postgres Int32 ceiling', async () => {
@@ -1101,39 +1141,18 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
   });
 
   it('restores focus to the new Retry button when a retry fails again', async () => {
-    apiGet.mockImplementation(async (url: string) => {
-      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
-      if (url === '/games') throw new Error('network down');
-      throw new Error(`unexpected api.get(${url})`);
-    });
-    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
-
-    renderPage();
-    await openForm();
-    await screen.findByText('Could not load games.');
-
-    // Focus and activate the Retry button.
-    const initialRetry = screen.getByRole('button', { name: 'Retry' });
-    initialRetry.focus();
-    fireEvent.click(initialRetry);
-
-    // The refetch resolves immediately (always-error mock), so React Query
-    // re-renders the error block with a fresh DOM node. Wait for the new
-    // Retry button to appear and assert it received focus.
-    await waitFor(() => {
-      const replacementRetry = screen.getByRole('button', { name: 'Retry' });
-      expect(replacementRetry).toHaveFocus();
-    });
-  });
-
-  it('after a Retry that succeeds with an empty catalog, focus lands on Title rather than <body>', async () => {
+    let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
+    let rejectGames!: (err: Error) => void;
     let gamesCalls = 0;
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
       if (url === '/games') {
         gamesCalls += 1;
         if (gamesCalls === 1) throw new Error('network down');
-        return { success: true, data: [] };
+        return new Promise((resolve, reject) => {
+          resolveGames = resolve as typeof resolveGames;
+          rejectGames = reject;
+        });
       }
       throw new Error(`unexpected api.get(${url})`);
     });
@@ -1143,10 +1162,58 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     await openForm();
     await screen.findByText('Could not load games.');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    // Focus and activate the initial Retry button.
+    const initialRetry = screen.getByRole('button', { name: 'Retry' });
+    initialRetry.focus();
+    fireEvent.click(initialRetry);
 
+    // The deferred promise means the loading state is observable.
+    expect(await screen.findByText('Loading games…')).toBeInTheDocument();
+    // React Query re-rendered the error block; the initial Retry button is gone.
+    expect(initialRetry).not.toBeInTheDocument();
+
+    // Reject the deferred request so the error block reappears.
+    rejectGames(new Error('still down'));
+    await waitFor(() => expect(screen.getByText('Could not load games.')).toBeInTheDocument());
+
+    // The replacement Retry button is a different DOM node and receives focus.
+    const replacementRetry = screen.getByRole('button', { name: 'Retry' });
+    expect(replacementRetry).not.toBe(initialRetry);
+    expect(replacementRetry).toHaveFocus();
+  });
+
+  it('after a Retry that succeeds with an empty catalog, focus lands on Title rather than <body>', async () => {
+    let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
+    let gamesCalls = 0;
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') {
+        gamesCalls += 1;
+        if (gamesCalls === 1) throw new Error('network down');
+        return new Promise((resolve) => {
+          resolveGames = resolve as typeof resolveGames;
+        });
+      }
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+    await screen.findByText('Could not load games.');
+
+    // Focus the initial Retry button so we can verify it disappears.
+    const initialRetry = screen.getByRole('button', { name: 'Retry' });
+    initialRetry.focus();
+    fireEvent.click(initialRetry);
+
+    // The deferred promise means the loading state is observable.
+    expect(await screen.findByText('Loading games…')).toBeInTheDocument();
+    expect(initialRetry).not.toBeInTheDocument();
+
+    // Resolve with an empty games array.
+    resolveGames({ success: true, data: [] });
     expect(await screen.findByText('No active games are available.')).toBeInTheDocument();
-    expect(document.activeElement).not.toBe(document.body);
     expect(screen.getByLabelText('Title')).toHaveFocus();
   });
 
