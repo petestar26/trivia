@@ -345,6 +345,7 @@ export interface Competition {
   phase: CompetitionPhase;
   isFull?: boolean;
   participantCount?: number;
+  maxPlaysPerParticipant?: number | null;
   scoring?: string;
   entryAmount: number;
   maxParticipants?: number | null;

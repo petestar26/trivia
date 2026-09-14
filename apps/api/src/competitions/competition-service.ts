@@ -29,6 +29,10 @@ const MANAGER_ROLES = ['OWNER', 'ADMIN'];
 // confirmed by product before relying on it in a real economy.
 const MAX_NON_TRIVIA_PLAYS_PER_COMPETITION = 5;
 
+function maxPlaysPerParticipant(gameType: string): number | null {
+  return gameType === 'TRIVIA' ? null : MAX_NON_TRIVIA_PLAYS_PER_COMPETITION;
+}
+
 // Upper bound for a single competition prize pool, per currency. Prize funds are
 // escrowed from the creator's wallet at creation time, so the creator's actual
 // balance is the real ceiling; this constant is defence-in-depth so an absurd
@@ -1146,7 +1150,7 @@ export async function getCompetitionForGroup(groupId: string, competitionId: str
   const comp = await prisma.groupCompetition.findUnique({
     where: { id: competitionId },
     include: {
-      game: { select: { key: true, name: true } },
+      game: { select: { key: true, name: true, type: true } },
       participants: {
         orderBy: [{ score: 'desc' }],
         select: { userId: true, score: true, gamesPlayed: true },
@@ -1154,7 +1158,12 @@ export async function getCompetitionForGroup(groupId: string, competitionId: str
     },
   });
   if (!comp || comp.groupId !== groupId) throw ApiError.notFound('Competition not found');
-  return { ...comp, ...competitionLifecycleInfo(comp) };
+  return {
+    ...comp,
+    game: { key: comp.game.key, name: comp.game.name },
+    ...competitionLifecycleInfo(comp),
+    maxPlaysPerParticipant: maxPlaysPerParticipant(comp.game.type),
+  };
 }
 
 export async function listCompetitionsForGroup(groupId: string, userId: string) {

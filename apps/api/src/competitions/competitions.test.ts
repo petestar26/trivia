@@ -1896,6 +1896,19 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     }
   });
 
+  it.each([
+    ['dice', MAX_PLAYS],
+    ['number_challenge', MAX_PLAYS],
+    ['lucky_spin', MAX_PLAYS],
+    ['trivia', null],
+  ] as const)('exposes the authoritative detail limit for %s', async (gameKey, expectedLimit) => {
+    const comp = await newCompetition(gameKey, `Detail Limit ${gameKey}`);
+
+    const detail = await getCompetitionForGroup(group.id, comp.id, player.id);
+
+    expect(detail.maxPlaysPerParticipant).toBe(expectedLimit);
+  });
+
   it('allows exactly the final permitted play, then rejects the next one', async () => {
     const comp = await newCompetition('dice', 'Exact Limit');
     let last;
@@ -2202,6 +2215,14 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     });
     await joinCompetition(player2.id, comp.id);
 
+    // Simulate an established participant with more than five completed
+    // trivia rounds. Trivia remains governed by per-question attempts, not
+    // the fixed non-trivia play-count gate.
+    await prisma.competitionParticipant.update({
+      where: { competitionId_userId: { competitionId: comp.id, userId: player2.id } },
+      data: { gamesPlayed: MAX_PLAYS + 1 },
+    });
+
     // Phase 1 alone can legitimately be called many more times than
     // MAX_NON_TRIVIA_PLAYS_PER_COMPETITION — it performs no writes and must
     // never be gated by a play-count cap.
@@ -2215,7 +2236,8 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     const phase1 = await playCompetition(player2.id, comp.id);
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
-    await playCompetition(player2.id, comp.id, { questionId, answerIndex: q!.correctIndex });
+    const answer = await playCompetition(player2.id, comp.id, { questionId, answerIndex: q!.correctIndex });
+    expect(answer.gamesPlayed).toBe(MAX_PLAYS + 2);
     await expect(
       playCompetition(player2.id, comp.id, { questionId, answerIndex: q!.correctIndex })
     ).rejects.toThrow(/already answered/i);

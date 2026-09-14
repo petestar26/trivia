@@ -228,6 +228,10 @@ export function CompetitionDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
     onError: (err) => {
+      // The server owns the atomic play-count gate. A stale tab can therefore
+      // lose the final slot to another request; refresh detail so this page
+      // immediately reflects the authoritative gamesPlayed value.
+      queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
       let msg = 'Failed to play';
       try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
       toast({ title: 'Error', description: msg, variant: 'destructive' });
@@ -278,7 +282,11 @@ export function CompetitionDetailPage() {
 
   // ── Derived display values ────────────────────────────────────────
   const gameName = competition.game?.name ?? '—';
-  const iAmParticipant = competition.participants?.some((p) => p.userId === user?.id) ?? false;
+  const currentParticipant = competition.participants?.find((p) => p.userId === user?.id);
+  const iAmParticipant = currentParticipant !== undefined;
+  const playLimit = competition.maxPlaysPerParticipant;
+  const hasCompletedAllRounds =
+    playLimit != null && currentParticipant !== undefined && currentParticipant.gamesPlayed >= playLimit;
   // Role is for UX display only — backend re-validates on every mutating request.
   const isManager = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
   const canFinalize = isManager;
@@ -489,7 +497,7 @@ export function CompetitionDetailPage() {
                   )}
                 </div>
               )}
-              {!isTriviaCompetition && (
+              {!isTriviaCompetition && !hasCompletedAllRounds && (
                 <Button
                   onClick={() => playMutation.mutate({})}
                   disabled={mutBusy}
@@ -497,6 +505,11 @@ export function CompetitionDetailPage() {
                 >
                   {playMutation.isPending ? 'Playing…' : 'Play a round'}
                 </Button>
+              )}
+              {!isTriviaCompetition && hasCompletedAllRounds && (
+                <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                  You have completed all {playLimit} rounds.
+                </p>
               )}
             </div>
           )}

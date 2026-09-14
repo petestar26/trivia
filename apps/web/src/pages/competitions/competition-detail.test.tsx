@@ -97,16 +97,21 @@ function makeCompetition(overrides: {
   participantCount?: number;
   participants?: Competition['participants'];
   finalizedAt?: string | null;
+  game?: Competition['game'];
+  maxPlaysPerParticipant?: number | null;
 }): Competition {
   return {
     id: 'c1',
     groupId: 'g1',
-    game: { key: 'dice', name: 'Dice' },
+    game: overrides.game ?? { key: 'dice', name: 'Dice' },
     title: 'Detail Comp',
     description: null,
     status: overrides.status ?? 'SCHEDULED',
     isFull: overrides.isFull ?? false,
     participantCount: overrides.participantCount ?? 0,
+    maxPlaysPerParticipant: overrides.maxPlaysPerParticipant === undefined
+      ? 5
+      : overrides.maxPlaysPerParticipant,
     entryAmount: 10,
     maxParticipants: overrides.maxParticipants ?? null,
     rewardGamePoints: 100,
@@ -233,6 +238,110 @@ describe('CompetitionDetailPage lifecycle phases', () => {
 
     expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Join/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps Play available when the participant has four of five rounds recorded', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 5,
+        participants: [{ userId: 'u1', score: 20, gamesPlayed: 4 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
+    expect(screen.queryByText('You have completed all 5 rounds.')).not.toBeInTheDocument();
+  });
+
+  it('hides Play and shows the server-provided round limit once it is reached', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 5,
+        participants: [{ userId: 'u1', score: 25, gamesPlayed: 5 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('You have completed all 5 rounds.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps Trivia playable beyond five recorded rounds when the API limit is null', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        game: { key: 'trivia', name: 'Trivia' },
+        maxPlaysPerParticipant: null,
+        participants: [{ userId: 'u1', score: 4000, gamesPlayed: 6 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
+    expect(screen.queryByText(/completed all .* rounds/i)).not.toBeInTheDocument();
+  });
+
+  it('replaces Play immediately after the final successful play refetches detail', async () => {
+    let gamesPlayed = 4;
+    getCompetitionForGroup.mockImplementation(async () => ({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 5,
+        participants: [{ userId: 'u1', score: gamesPlayed * 5, gamesPlayed }],
+      }),
+    }));
+    playCompetition.mockImplementation(async () => {
+      gamesPlayed = 5;
+      return { success: true, data: { score: 5, gamesPlayed } };
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Play a round/ }));
+
+    expect(await screen.findByText('You have completed all 5 rounds.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
+    expect(getCompetitionForGroup).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches detail after a stale play is rejected at the server limit', async () => {
+    let serverRejectedAtLimit = false;
+    getCompetitionForGroup.mockImplementation(async () => ({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 5,
+        participants: [{
+          userId: 'u1',
+          score: 25,
+          gamesPlayed: serverRejectedAtLimit ? 5 : 4,
+        }],
+      }),
+    }));
+    playCompetition.mockImplementation(async () => {
+      serverRejectedAtLimit = true;
+      throw new Error(JSON.stringify({ message: 'You have reached the maximum of 5 plays for this competition' }));
+    });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Play a round/ }));
+
+    expect(await screen.findByText('You have completed all 5 rounds.')).toBeInTheDocument();
+    expect(getCompetitionForGroup).toHaveBeenCalledTimes(2);
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Error',
+      description: 'You have reached the maximum of 5 plays for this competition',
+    }));
   });
 
   it('persisted SCHEDULED + OPEN phase still offers Play for a joined participant', async () => {
