@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -51,13 +51,37 @@ export function GroupsPage() {
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formErrorFields, setFormErrorFields] = useState<string[]>([]);
+
+  // Disclosure-toggle stays mounted (see `hidden` below) so a ref reliably
+  // survives the open/close cycle for focus management.
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (showCreateForm) {
+      wasOpenRef.current = true;
+      nameInputRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      toggleRef.current?.focus();
+    }
+  }, [showCreateForm]);
 
   function resetCreateForm() {
     setName('');
     setDescription('');
     setIsPrivate(false);
     setFormError(null);
+    setFormErrorFields([]);
     setShowCreateForm(false);
+  }
+
+  /** Associates the shared form-error alert with the field(s) it describes. */
+  function fieldErrorProps(fieldId: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+    if (!formError || !formErrorFields.includes(fieldId)) return {};
+    return { 'aria-invalid': true, 'aria-describedby': 'create-group-error' };
   }
 
   const createMutation = useMutation({
@@ -73,6 +97,7 @@ export function GroupsPage() {
       let msg = 'Failed to create group';
       try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
       setFormError(msg);
+      setFormErrorFields([]);
     },
   });
 
@@ -86,14 +111,17 @@ export function GroupsPage() {
     // input never round-trips — the server remains the actual authority.
     if (trimmedName.length < NAME_MIN || trimmedName.length > NAME_MAX) {
       setFormError(`Group name must be between ${NAME_MIN} and ${NAME_MAX} characters.`);
+      setFormErrorFields(['new-group-name']);
       return;
     }
     if (trimmedDescription.length > DESCRIPTION_MAX) {
       setFormError(`Description must be ${DESCRIPTION_MAX} characters or fewer.`);
+      setFormErrorFields(['new-group-description']);
       return;
     }
 
     setFormError(null);
+    setFormErrorFields([]);
     createMutation.mutate({
       name: trimmedName,
       description: trimmedDescription || undefined,
@@ -104,18 +132,20 @@ export function GroupsPage() {
   const createGroupForm = (
     <Card>
       <CardContent className="pt-6">
-        <form onSubmit={handleCreateSubmit} className="space-y-3" aria-label="Create group">
+        <form id="create-group-form" onSubmit={handleCreateSubmit} className="space-y-3" aria-label="Create group">
           <div>
             <label htmlFor="new-group-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Name
             </label>
             <Input
               id="new-group-name"
+              ref={nameInputRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={NAME_MAX}
               placeholder="Group name"
               disabled={createMutation.isPending}
+              {...fieldErrorProps('new-group-name')}
             />
           </div>
           <div>
@@ -131,6 +161,7 @@ export function GroupsPage() {
               placeholder="What's this group about?"
               disabled={createMutation.isPending}
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              {...fieldErrorProps('new-group-description')}
             />
           </div>
           <label className="flex items-center space-x-2">
@@ -145,7 +176,9 @@ export function GroupsPage() {
           </label>
 
           {formError && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>
+            <p id="create-group-error" role="alert" className="text-sm text-red-600 dark:text-red-400">
+              {formError}
+            </p>
           )}
 
           <div className="flex gap-2">
@@ -196,11 +229,20 @@ export function GroupsPage() {
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Groups</h1>
-        {!showCreateForm && (
-          <Button size="sm" onClick={() => setShowCreateForm(true)}>
-            Create group
-          </Button>
-        )}
+        {/* Stays mounted (hidden, not unmounted) while the form is open: `hidden`
+            drops it from the accessibility tree and from `getByRole` queries just
+            like unmounting would, but keeps `toggleRef` pointing at a stable node
+            so focus can reliably return to it on Cancel/success. */}
+        <Button
+          ref={toggleRef}
+          hidden={showCreateForm}
+          size="sm"
+          aria-expanded={showCreateForm}
+          aria-controls="create-group-form"
+          onClick={() => setShowCreateForm(true)}
+        >
+          Create group
+        </Button>
       </div>
 
       {showCreateForm && createGroupForm}

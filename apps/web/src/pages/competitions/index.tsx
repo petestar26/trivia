@@ -6,7 +6,7 @@
  * Action affordances (badge, button) are driven by the server-derived `phase`
  * (UPCOMING/OPEN/ENDED), never by the persisted status alone.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, unwrapData, Competition, CompetitionPhase, CreateCompetitionBody } from '@/lib/api';
@@ -25,23 +25,40 @@ interface ActiveGame {
 const inputClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
 
+// Client-side ceilings that mirror server-side limits, so an obviously
+// oversized value is rejected with a clear message instead of round-tripping
+// into a Postgres Int32 overflow (500) or the server's own reward cap (400).
+// The server remains the actual authority either way.
+const MAX_ENTRY_AMOUNT = 2_147_483_647; // Postgres Int32 ceiling — GroupCompetition.entryAmount
+const MAX_PARTICIPANTS_CAP = 2_147_483_647; // Postgres Int32 ceiling — GroupCompetition.maxParticipants
+const MAX_REWARD_AMOUNT = 1_000_000; // Mirrors MAX_COMPETITION_REWARD in competition-service.ts
+
+interface BoundedIntResult {
+  valid: boolean;
+  tooLarge: boolean;
+  value: number | null;
+}
+
 /**
- * Parses a non-negative-integer form field. Blank is treated as the caller's
- * problem (required-field check happens separately) — this only judges
- * whether a *supplied* value is safe: finite, a whole number, and >= 0.
- * Mirrors the server's own `validateRewardAmount`/entryAmount checks so
- * obviously-invalid input is rejected before the request, while the server
- * remains the actual authority.
+ * Parses a non-negative-integer form field, bounded by `max`. Blank is
+ * treated as the caller's problem (required-field checks happen separately)
+ * — this only judges whether a *supplied* value is safe: finite, a whole
+ * number, >= 0, and no larger than `max`. `tooLarge` is reported separately
+ * from generic invalidity so the caller can show a distinct, actionable
+ * message rather than lumping "not a number" and "too big" together.
  */
-function parseNonNegativeInt(value: string): number | null {
-  if (value.trim() === '') return null;
+function parseBoundedNonNegativeInt(value: string, max: number): BoundedIntResult {
+  if (value.trim() === '') return { valid: false, tooLarge: false, value: null };
   const n = Number(value);
-  if (!Number.isFinite(n) || !Number.isSafeInteger(n) || n < 0) return null;
-  return n;
+  if (!Number.isFinite(n) || !Number.isSafeInteger(n) || n < 0) {
+    return { valid: false, tooLarge: false, value: null };
+  }
+  if (n > max) return { valid: false, tooLarge: true, value: null };
+  return { valid: true, tooLarge: false, value: n };
 }
 
 type CreateFormResult =
-  | { ok: false; error: string }
+  | { ok: false; error: string; fields: string[] }
   | { ok: true; payload: Omit<CreateCompetitionBody, 'groupId'> };
 
 const PHASE_LABEL: Record<CompetitionPhase, string> = {
@@ -87,11 +104,17 @@ export function GroupCompetitionsPage() {
   });
   const canCreate = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
 
-  const { data: games = [] } = useQuery<ActiveGame[]>({
+  const {
+    data: games = [],
+    isLoading: gamesLoading,
+    isError: gamesFailed,
+    refetch: refetchGames,
+  } = useQuery<ActiveGame[]>({
     queryKey: ['games'],
     queryFn: async () => unwrapData(await api.get<ActiveGame[]>('/games'), 'Games response'),
     enabled: canCreate,
   });
+  const gamesUnavailable = !gamesLoading && (gamesFailed || games.length === 0);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [gameKey, setGameKey] = useState('');
@@ -104,6 +127,24 @@ export function GroupCompetitionsPage() {
   const [rewardGamePoints, setRewardGamePoints] = useState('0');
   const [rewardCoins, setRewardCoins] = useState('0');
   const [formError, setFormError] = useState<string | null>(null);
+  const [formErrorFields, setFormErrorFields] = useState<string[]>([]);
+
+  // Disclosure-toggle stays mounted (see `hidden` below) so a ref reliably
+  // survives the open/close cycle for focus management, rather than chasing
+  // a freshly-mounted node each time.
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const gameSelectRef = useRef<HTMLSelectElement>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (showCreateForm) {
+      wasOpenRef.current = true;
+      gameSelectRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      toggleRef.current?.focus();
+    }
+  }, [showCreateForm]);
 
   function resetCreateForm() {
     setGameKey('');
@@ -116,40 +157,89 @@ export function GroupCompetitionsPage() {
     setRewardGamePoints('0');
     setRewardCoins('0');
     setFormError(null);
+    setFormErrorFields([]);
     setShowCreateForm(false);
   }
 
+  /** Associates the shared form-error alert with the field(s) it describes. */
+  function fieldErrorProps(fieldId: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+    if (!formError || !formErrorFields.includes(fieldId)) return {};
+    return { 'aria-invalid': true, 'aria-describedby': 'create-competition-error' };
+  }
+
   function buildCreatePayload(): CreateFormResult {
-    if (!gameKey) return { ok: false, error: 'Choose a game.' };
+    if (!gameKey) return { ok: false, error: 'Choose a game.', fields: ['new-comp-game'] };
     const trimmedTitle = title.trim();
-    if (!trimmedTitle) return { ok: false, error: 'Title is required.' };
-    if (!startsAtLocal || !endsAtLocal) return { ok: false, error: 'Start and end time are required.' };
+    if (!trimmedTitle) return { ok: false, error: 'Title is required.', fields: ['new-comp-title'] };
+    if (!startsAtLocal || !endsAtLocal) {
+      return { ok: false, error: 'Start and end time are required.', fields: ['new-comp-starts', 'new-comp-ends'] };
+    }
 
     // datetime-local values are interpreted in the browser's local time zone,
     // exactly matching what the user saw and picked in the field.
     const startsAtDate = new Date(startsAtLocal);
     const endsAtDate = new Date(endsAtLocal);
     if (Number.isNaN(startsAtDate.getTime()) || Number.isNaN(endsAtDate.getTime())) {
-      return { ok: false, error: 'Start and end time must be valid.' };
+      return { ok: false, error: 'Start and end time must be valid.', fields: ['new-comp-starts', 'new-comp-ends'] };
     }
     if (endsAtDate <= startsAtDate) {
-      return { ok: false, error: 'End time must be after start time.' };
+      return { ok: false, error: 'End time must be after start time.', fields: ['new-comp-starts', 'new-comp-ends'] };
     }
 
-    const entry = parseNonNegativeInt(entryAmount);
-    if (entry === null) return { ok: false, error: 'Entry amount must be a non-negative whole number.' };
+    const entryResult = parseBoundedNonNegativeInt(entryAmount, MAX_ENTRY_AMOUNT);
+    if (!entryResult.valid) {
+      return {
+        ok: false,
+        fields: ['new-comp-entry'],
+        error: entryResult.tooLarge
+          ? `Entry amount must be ${MAX_ENTRY_AMOUNT.toLocaleString()} or less.`
+          : 'Entry amount must be a non-negative whole number.',
+      };
+    }
 
-    const rGP = parseNonNegativeInt(rewardGamePoints);
-    if (rGP === null) return { ok: false, error: 'Game Point reward must be a non-negative whole number.' };
+    const rGPResult = parseBoundedNonNegativeInt(rewardGamePoints, MAX_REWARD_AMOUNT);
+    if (!rGPResult.valid) {
+      return {
+        ok: false,
+        fields: ['new-comp-reward-gp'],
+        error: rGPResult.tooLarge
+          ? `Game Point reward must be ${MAX_REWARD_AMOUNT.toLocaleString()} or less.`
+          : 'Game Point reward must be a non-negative whole number.',
+      };
+    }
 
-    const rCoins = parseNonNegativeInt(rewardCoins);
-    if (rCoins === null) return { ok: false, error: 'Coin reward must be a non-negative whole number.' };
+    const rCoinsResult = parseBoundedNonNegativeInt(rewardCoins, MAX_REWARD_AMOUNT);
+    if (!rCoinsResult.valid) {
+      return {
+        ok: false,
+        fields: ['new-comp-reward-coins'],
+        error: rCoinsResult.tooLarge
+          ? `Coin reward must be ${MAX_REWARD_AMOUNT.toLocaleString()} or less.`
+          : 'Coin reward must be a non-negative whole number.',
+      };
+    }
 
     let maxP: number | undefined;
     if (maxParticipants.trim() !== '') {
+      // The field is `type="text" inputMode="numeric"` (not `type="number"`)
+      // specifically so malformed input like "2e" or "-" arrives here as the
+      // literal typed string rather than being silently coerced to "" by
+      // native number-input `badInput` sanitization, which would otherwise
+      // read as blank and silently become "unlimited" below.
       const n = Number(maxParticipants);
       if (!Number.isFinite(n) || !Number.isSafeInteger(n) || n < 2) {
-        return { ok: false, error: 'Max participants must be blank or an integer of 2 or more.' };
+        return {
+          ok: false,
+          error: 'Max participants must be blank or an integer of 2 or more.',
+          fields: ['new-comp-max'],
+        };
+      }
+      if (n > MAX_PARTICIPANTS_CAP) {
+        return {
+          ok: false,
+          error: `Max participants must be ${MAX_PARTICIPANTS_CAP.toLocaleString()} or fewer.`,
+          fields: ['new-comp-max'],
+        };
       }
       maxP = n;
     }
@@ -162,10 +252,10 @@ export function GroupCompetitionsPage() {
         description: description.trim() || undefined,
         startsAt: startsAtDate.toISOString(),
         endsAt: endsAtDate.toISOString(),
-        entryAmount: entry,
+        entryAmount: entryResult.value!,
         maxParticipants: maxP,
-        rewardGamePoints: rGP,
-        rewardCoins: rCoins,
+        rewardGamePoints: rGPResult.value!,
+        rewardCoins: rCoinsResult.value!,
       },
     };
   }
@@ -173,18 +263,32 @@ export function GroupCompetitionsPage() {
   const createMutation = useMutation({
     mutationFn: (body: CreateCompetitionBody) => api.createCompetition(body),
     onSuccess: (res) => {
+      // The competition (and, if funded, its prize escrow debit) is already
+      // committed server-side at this point regardless of what the response
+      // body looks like below, so the list and wallet caches are refreshed
+      // unconditionally.
       queryClient.invalidateQueries({ queryKey: ['competitions', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] });
+
       const created = res.data;
+      if (!created?.id) {
+        // Successful HTTP response, but without an id we cannot navigate to
+        // the new competition. Surface this rather than silently toasting
+        // success and leaving the manager stranded on a reset, empty form.
+        setFormError('Competition created, but the server response was incomplete. Refresh the list to find it.');
+        setFormErrorFields([]);
+        return;
+      }
       toast({ title: 'Competition created' });
       resetCreateForm();
-      if (created?.id) {
-        navigate(`/competitions/${groupId}/${created.id}`);
-      }
+      navigate(`/competitions/${groupId}/${created.id}`);
     },
     onError: (err) => {
       let msg = 'Failed to create competition';
       try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
       setFormError(msg);
+      setFormErrorFields([]);
     },
   });
 
@@ -195,9 +299,11 @@ export function GroupCompetitionsPage() {
     const result = buildCreatePayload();
     if (!result.ok) {
       setFormError(result.error);
+      setFormErrorFields(result.fields);
       return;
     }
     setFormError(null);
+    setFormErrorFields([]);
     createMutation.mutate({ ...result.payload, groupId: groupId! });
   }
 
@@ -294,9 +400,20 @@ export function GroupCompetitionsPage() {
           </Button>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
         </div>
-        {/* OWNER/ADMIN only — display-only gate; the backend re-validates on submit. */}
-        {canCreate && !showCreateForm && (
-          <Button size="sm" onClick={() => setShowCreateForm(true)}>
+        {/* OWNER/ADMIN only — display-only gate; the backend re-validates on submit.
+            Stays mounted (hidden, not unmounted) while the form is open: `hidden`
+            drops it from the accessibility tree and from `getByRole` queries just
+            like unmounting would, but keeps `toggleRef` pointing at a stable node
+            so focus can reliably return to it on Cancel/success. */}
+        {canCreate && (
+          <Button
+            ref={toggleRef}
+            hidden={showCreateForm}
+            size="sm"
+            aria-expanded={showCreateForm}
+            aria-controls="create-competition-form"
+            onClick={() => setShowCreateForm(true)}
+          >
             Create competition
           </Button>
         )}
@@ -309,23 +426,47 @@ export function GroupCompetitionsPage() {
                 otherwise silently block submission before our own JS validation
                 runs, hiding our clearer error messages behind an inconsistent
                 native tooltip. Our checks below are authoritative instead. */}
-            <form onSubmit={handleCreateSubmit} className="space-y-3" aria-label="Create competition" noValidate>
+            <form
+              id="create-competition-form"
+              onSubmit={handleCreateSubmit}
+              className="space-y-3"
+              aria-label="Create competition"
+              noValidate
+            >
               <div>
                 <label htmlFor="new-comp-game" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Game
                 </label>
                 <select
                   id="new-comp-game"
+                  ref={gameSelectRef}
                   value={gameKey}
                   onChange={(e) => setGameKey(e.target.value)}
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || gamesLoading || gamesUnavailable}
                   className={inputClass}
+                  {...fieldErrorProps('new-comp-game')}
                 >
                   <option value="">Select a game…</option>
                   {games.map((g) => (
                     <option key={g.key} value={g.key}>{g.name}</option>
                   ))}
                 </select>
+                {gamesLoading && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Loading games…</p>
+                )}
+                {!gamesLoading && gamesFailed && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+                      Could not load games.
+                    </p>
+                    <Button type="button" variant="outline" size="sm" onClick={() => refetchGames()}>
+                      Retry
+                    </Button>
+                  </div>
+                )}
+                {!gamesLoading && !gamesFailed && games.length === 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">No active games are available.</p>
+                )}
               </div>
 
               <div>
@@ -338,6 +479,7 @@ export function GroupCompetitionsPage() {
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Competition title"
                   disabled={createMutation.isPending}
+                  {...fieldErrorProps('new-comp-title')}
                 />
               </div>
 
@@ -366,6 +508,7 @@ export function GroupCompetitionsPage() {
                     value={startsAtLocal}
                     onChange={(e) => setStartsAtLocal(e.target.value)}
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-starts')}
                   />
                 </div>
                 <div>
@@ -378,6 +521,7 @@ export function GroupCompetitionsPage() {
                     value={endsAtLocal}
                     onChange={(e) => setEndsAtLocal(e.target.value)}
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-ends')}
                   />
                 </div>
               </div>
@@ -395,21 +539,28 @@ export function GroupCompetitionsPage() {
                     value={entryAmount}
                     onChange={(e) => setEntryAmount(e.target.value)}
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-entry')}
                   />
                 </div>
                 <div>
                   <label htmlFor="new-comp-max" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Max participants <span className="text-gray-400 font-normal">(optional)</span>
                   </label>
+                  {/* type="text" + inputMode="numeric" (not type="number") so a
+                      malformed value like "2e" or "-" arrives in onChange as the
+                      literal typed string instead of being silently sanitized to
+                      "" by native number-input badInput handling — which would
+                      otherwise read as blank and become "unlimited" below. */}
                   <Input
                     id="new-comp-max"
-                    type="number"
-                    min={2}
-                    step={1}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
                     value={maxParticipants}
                     onChange={(e) => setMaxParticipants(e.target.value)}
                     placeholder="Unlimited"
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-max')}
                   />
                 </div>
               </div>
@@ -427,6 +578,7 @@ export function GroupCompetitionsPage() {
                     value={rewardGamePoints}
                     onChange={(e) => setRewardGamePoints(e.target.value)}
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-reward-gp')}
                   />
                 </div>
                 <div>
@@ -441,16 +593,27 @@ export function GroupCompetitionsPage() {
                     value={rewardCoins}
                     onChange={(e) => setRewardCoins(e.target.value)}
                     disabled={createMutation.isPending}
+                    {...fieldErrorProps('new-comp-reward-coins')}
                   />
                 </div>
               </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Rewards are deducted from your balance as soon as the competition is created, whether or not anyone joins.
+              </p>
 
               {formError && (
-                <p role="alert" className="text-sm text-red-600 dark:text-red-400">{formError}</p>
+                <p id="create-competition-error" role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  {formError}
+                </p>
               )}
 
               <div className="flex gap-2">
-                <Button type="submit" size="sm" disabled={createMutation.isPending}>
+                {/* Only gated on a *confirmed* empty/failed games result, not on
+                    `gamesLoading` itself — while loading, "Choose a game." from
+                    the normal required-field check already blocks submission,
+                    without a transient disable flicker while the catalog fetch
+                    is still in flight. */}
+                <Button type="submit" size="sm" disabled={createMutation.isPending || gamesUnavailable}>
                   {createMutation.isPending ? 'Creating…' : 'Create competition'}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={resetCreateForm} disabled={createMutation.isPending}>

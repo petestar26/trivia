@@ -499,9 +499,14 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
   it.each(['MEMBER', 'MODERATOR'] as const)('never shows Create competition to a %s', async (role) => {
     mockMembershipWithGames(role);
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 
-    renderPage();
+    renderPage(client);
 
+    // Wait for the membership query itself to settle (not just for some
+    // other element to appear) before asserting absence, so this can't pass
+    // vacuously by checking before `canCreate` has even been derived.
+    await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.status).toBe('success'));
     await screen.findByText('No competitions in this group yet.');
     expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument();
   });
@@ -555,8 +560,14 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
       gameKey: 'trivia',
       title: 'Weekend Cup',
       description: 'Friendly weekend trivia',
-      startsAt: new Date('2026-06-01T10:00').toISOString(),
-      endsAt: new Date('2026-06-01T12:00').toISOString(),
+      // Literal expected ISO strings (not `new Date(local).toISOString()` —
+      // the same expression the component itself uses) so a regression that
+      // treats the `datetime-local` value as UTC would actually fail this
+      // assertion. The suite runs pinned to America/New_York (vitest.config.ts
+      // `test.env.TZ`), where 2026-06-01 is EDT (UTC-4): 10:00/12:00 local
+      // -> 14:00/16:00 UTC.
+      startsAt: '2026-06-01T14:00:00.000Z',
+      endsAt: '2026-06-01T16:00:00.000Z',
       entryAmount: 25,
       maxParticipants: 8,
       rewardGamePoints: 100,
@@ -566,6 +577,10 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }))
     );
+    // Rewards are escrow-debited from the creator at creation time, so the
+    // wallet caches must refresh alongside the competition list.
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
     expect(toastMock).toHaveBeenCalledWith({ title: 'Competition created' });
     expect(await screen.findByTestId('detail-marker')).toHaveTextContent('detail:g1/new-comp-1');
   });
@@ -756,5 +771,308 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     resolveCreate({ success: true, data: { id: 'slow-1' } });
     await waitFor(() => expect(screen.getByTestId('detail-marker')).toBeInTheDocument());
     expect(createCompetition).toHaveBeenCalledTimes(1);
+  });
+
+  it('a same-tick duplicate form submission produces exactly one request', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    createCompetition.mockImplementation(() => new Promise(() => {})); // never resolves
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Race Cup');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    // Dispatch the submit event directly, twice, rather than clicking the
+    // submit button once and relying on its `disabled` attribute — this
+    // exercises the `if (createMutation.isPending) return;` guard itself,
+    // which a click-only test can never reach a second time.
+    const form = screen.getByRole('form', { name: 'Create competition' });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows a generic message and preserves entered values on a network failure', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    // A network failure or CORS/offline error never reaches JSON.parse —
+    // this is not the JSON-error-body path covered above.
+    createCompetition.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Offline Cup');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Failed to create competition')).toBeInTheDocument();
+    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Offline Cup');
+  });
+
+  it('shows an error and does not navigate when the server responds success with no competition id', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    createCompetition.mockResolvedValue({ success: true, data: {} });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Incomplete Response Cup');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(
+      await screen.findByText('Competition created, but the server response was incomplete. Refresh the list to find it.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+    expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
+    // The competition (and any prize escrow debit) is already committed
+    // server-side despite the incomplete response body, so the list and
+    // wallet caches are still refreshed rather than left stale.
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+  });
+
+  it('rejects an entry amount above the Postgres Int32 ceiling', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Overflow Entry');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), { target: { value: '3000000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Entry amount must be 2,147,483,647 or less.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('rejects a max participants value above the Postgres Int32 ceiling', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Overflow Max');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText(/Max participants/), { target: { value: '3000000000' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Max participants must be 2,147,483,647 or fewer.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Game Point reward above the server cap', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Overflow Reward GP');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (GP)'), { target: { value: '1000001' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Game Point reward must be 1,000,000 or less.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Coin reward above the server cap', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Overflow Reward Coins');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), { target: { value: '1000001' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Coin reward must be 1,000,000 or less.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it.each(['2e', '-', 'abc'])(
+    'rejects malformed max participants input %s instead of silently treating it as unlimited',
+    async (badValue) => {
+      mockMembershipWithGames('OWNER');
+      listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+      renderPage();
+      await openForm();
+
+      fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+      await userEvent.type(screen.getByLabelText('Title'), 'Malformed Max');
+      fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+      fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+      // The field is type="text" (not type="number"), so this literal string
+      // reaches the component's onChange exactly as typed, proving the
+      // validation genuinely rejects it rather than a native number-input
+      // sanitizing it to "" (which would read as blank = "unlimited").
+      fireEvent.change(screen.getByLabelText(/Max participants/), { target: { value: badValue } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+      expect(await screen.findByText('Max participants must be blank or an integer of 2 or more.')).toBeInTheDocument();
+      expect(createCompetition).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('GroupCompetitionsPage — active game catalog states', () => {
+  const OWNER_MEMBERSHIP = { success: true, data: { isMember: true, memberRole: 'OWNER' as const } };
+
+  async function openForm() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Create competition' }));
+    return screen.findByRole('button', { name: 'Create competition' });
+  }
+
+  it('shows a loading state and disables the game selector while the catalog is loading', async () => {
+    let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') return new Promise((resolve) => { resolveGames = resolve; });
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    expect(await screen.findByText('Loading games…')).toBeInTheDocument();
+    expect(screen.getByLabelText('Game')).toBeDisabled();
+
+    resolveGames({ success: true, data: [{ key: 'dice', name: 'Dice' }] });
+    await waitFor(() => expect(screen.queryByText('Loading games…')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Game')).not.toBeDisabled();
+  });
+
+  it('shows an accessible error with a Retry button when the catalog fails to load, and Retry can recover it', async () => {
+    let gamesCalls = 0;
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') {
+        gamesCalls += 1;
+        if (gamesCalls === 1) throw new Error('network down');
+        return { success: true, data: [{ key: 'dice', name: 'Dice' }] };
+      }
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    const errorMessage = await screen.findByText('Could not load games.');
+    expect(errorMessage).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.queryByText('Could not load games.')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Game') as HTMLSelectElement).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Create competition' })).not.toBeDisabled();
+  });
+
+  it('shows "No active games are available." and disables submission when the catalog is empty', async () => {
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return OWNER_MEMBERSHIP;
+      if (url === '/games') return { success: true, data: [] };
+      throw new Error(`unexpected api.get(${url})`);
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    expect(await screen.findByText('No active games are available.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled());
+  });
+});
+
+describe('GroupCompetitionsPage — create-competition form accessibility', () => {
+  function mockMembershipWithGames() {
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === '/groups/g1') return { success: true, data: { isMember: true, memberRole: 'OWNER' } };
+      if (url === '/games') return { success: true, data: [{ key: 'dice', name: 'Dice' }] };
+      throw new Error(`unexpected api.get(${url})`);
+    });
+  }
+
+  it('exposes aria-expanded/aria-controls on the toggle, stays mounted while open, and moves focus on open/Cancel', async () => {
+    mockMembershipWithGames();
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+
+    const toggle = await screen.findByRole('button', { name: 'Create competition' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', 'create-competition-form');
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(screen.getByLabelText('Game')).toHaveFocus());
+    // Proves the toggle was hidden, not unmounted: the exact same node
+    // reference is still attached to the document.
+    expect(document.body.contains(toggle)).toBe(true);
+    expect(toggle).toHaveAttribute('hidden');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(toggle).toHaveFocus());
+    expect(toggle).not.toHaveAttribute('hidden');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('associates a validation error with its field via aria-invalid and aria-describedby', async () => {
+    mockMembershipWithGames();
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Create competition' }));
+
+    const gameSelect = await screen.findByLabelText('Game');
+    const titleInput = screen.getByLabelText('Title');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    const alert = await screen.findByText('Choose a game.');
+    expect(alert).toHaveAttribute('id', 'create-competition-error');
+    expect(gameSelect).toHaveAttribute('aria-invalid', 'true');
+    expect(gameSelect).toHaveAttribute('aria-describedby', 'create-competition-error');
+    expect(titleInput).not.toHaveAttribute('aria-invalid');
   });
 });

@@ -28,8 +28,12 @@ export function CompetitionsPage() {
   const { data: groups = [], isLoading } = useQuery<GroupSummary[]>({
     queryKey: ['groups-for-competitions'],
     queryFn: async () => {
-      // GET /groups returns { success, data: GroupSummary[], meta }.
-      const res = await api.get<GroupSummary[]>('/groups');
+      // GET /groups returns { success, data: GroupSummary[], meta }, newest
+      // first, with no "my groups" filter — the server default limit (20)
+      // can miss a member's older groups entirely. Request the server's
+      // supported maximum as a web-only stopgap; a real fix needs a
+      // dedicated "my groups" endpoint (see follow-up risk in the review).
+      const res = await api.get<GroupSummary[]>('/groups', { limit: 100 });
       const all = res.data ?? [];
       // Show only groups the user is an active member of.
       return all.filter((g) => g.isMember);

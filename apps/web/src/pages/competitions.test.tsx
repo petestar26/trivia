@@ -91,4 +91,18 @@ describe('CompetitionsPage', () => {
     expect(await screen.findByText('My Group')).toBeInTheDocument();
     expect(screen.queryByText('You are not a member of any groups yet.')).not.toBeInTheDocument();
   });
+
+  // Regression: GET /groups without a limit defaults to the server's 20
+  // newest ACTIVE groups (public and private), so a member whose groups
+  // aren't among those 20 saw a false "not a member of any groups" empty
+  // state. Requesting the server-supported maximum is a web-only stopgap;
+  // see the follow-up risk for a real "my groups" endpoint.
+  it('requests up to the server-supported maximum of 100 groups before filtering memberships', async () => {
+    apiGet.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await screen.findByText('You are not a member of any groups yet.');
+
+    expect(apiGet).toHaveBeenCalledWith('/groups', { limit: 100 });
+  });
 });

@@ -302,4 +302,84 @@ describe('GroupsPage — self-service group creation', () => {
     expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
     expect(createGroup).not.toHaveBeenCalled();
   });
+
+  it('a same-tick duplicate form submission produces exactly one request', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [] });
+    createGroup.mockImplementation(() => new Promise(() => {})); // never resolves
+
+    renderPage();
+    await screen.findByText('No groups found.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    await userEvent.type(screen.getByLabelText('Name'), 'Race Group');
+
+    // Dispatch the submit event directly, twice, rather than clicking the
+    // submit button once and relying on its `disabled` attribute — this
+    // exercises the `if (createMutation.isPending) return;` guard itself,
+    // which a click-only test can never reach a second time.
+    const form = screen.getByRole('form', { name: 'Create group' });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows a generic message and preserves entered values on a network failure', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [] });
+    // A network failure or CORS/offline error never reaches JSON.parse —
+    // not the JSON-error-body path covered above.
+    createGroup.mockRejectedValue(new TypeError('Failed to fetch'));
+
+    renderPage();
+    await screen.findByText('No groups found.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    await userEvent.type(screen.getByLabelText('Name'), 'Offline Group');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    expect(await screen.findByText('Failed to create group')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('Offline Group');
+  });
+
+  it('exposes aria-expanded/aria-controls on the toggle, stays mounted while open, and moves focus on open/Cancel', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+
+    const toggle = await screen.findByRole('button', { name: 'Create group' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', 'create-group-form');
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveFocus());
+    // Proves the toggle was hidden, not unmounted: the exact same node
+    // reference is still attached to the document.
+    expect(document.body.contains(toggle)).toBe(true);
+    expect(toggle).toHaveAttribute('hidden');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(toggle).toHaveFocus());
+    expect(toggle).not.toHaveAttribute('hidden');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('associates a validation error with its field via aria-invalid and aria-describedby', async () => {
+    listGroups.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await screen.findByText('No groups found.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    const nameInput = screen.getByLabelText('Name');
+    // Blank name -> "must be between 2 and 100 characters" is field-specific.
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+    const alert = await screen.findByText('Group name must be between 2 and 100 characters.');
+    expect(alert).toHaveAttribute('id', 'create-group-error');
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    expect(nameInput).toHaveAttribute('aria-describedby', 'create-group-error');
+  });
 });
