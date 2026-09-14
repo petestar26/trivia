@@ -26,7 +26,7 @@ vi.mock('@/lib/api', () => ({
 }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
 
-import { GroupCompetitionsPage } from './index';
+import { GroupCompetitionsPage, parseStrictLocalDateTime } from './index';
 
 function makeCompetition(overrides: {
   id: string;
@@ -138,6 +138,53 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
   );
 }
 
+
+// A native `datetime-local` input's own value setter sanitizes an
+// out-of-range CALENDAR date (e.g. February 30, or February 29 in a
+// non-leap year) to "" before onChange ever sees it — confirmed identical
+// in jsdom and real browsers, since both implement the same "valid
+// floating date and time string" grammar. That guarantee makes the
+// calendar-rejection branch of `parseStrictLocalDateTime` unreachable
+// through the rendered form itself (a blank value there just hits the
+// pre-existing "Start and end time are required." check instead) — so it's
+// tested directly here as a pure function, the same way
+// competition-lifecycle.test.ts tests `normalizeCompetitionPhase`. The
+// DST-gap rejection and the ordinary/boundary acceptance cases, in
+// contrast, ARE reachable through the widget (a DST-gap time like
+// 2027-03-14T02:30 is calendar-valid, just not a valid local instant), and
+// are covered by the full-form tests in the "self-service competition
+// creation" describe below.
+describe('parseStrictLocalDateTime', () => {
+  it('rejects invalid normalized calendar dates instead of silently rolling them over', () => {
+    // `new Date(2026, 1, 30, ...)` would silently normalize to March 2.
+    expect(parseStrictLocalDateTime('2026-02-30T10:00')).toBeNull();
+    // `new Date(2026, 3, 31, ...)` would silently normalize to May 1.
+    expect(parseStrictLocalDateTime('2026-04-31T10:00')).toBeNull();
+    // 2026 is not a leap year.
+    expect(parseStrictLocalDateTime('2026-02-29T10:00')).toBeNull();
+    // Malformed strings.
+    expect(parseStrictLocalDateTime('not-a-date')).toBeNull();
+    expect(parseStrictLocalDateTime('')).toBeNull();
+  });
+
+  it('rejects a local time that falls in the DST spring-forward gap', () => {
+    // Pinned suite timezone: America/New_York (vitest.config.ts). 2027 is
+    // the US spring-forward date — 02:00-02:59:59 does not exist locally.
+    expect(parseStrictLocalDateTime('2027-03-14T02:00')).toBeNull();
+    expect(parseStrictLocalDateTime('2027-03-14T02:30')).toBeNull();
+    expect(parseStrictLocalDateTime('2027-03-14T02:59:59')).toBeNull();
+  });
+
+  it('accepts ordinary and gap-adjacent valid values and produces the exact expected instant', () => {
+    expect(parseStrictLocalDateTime('2026-06-01T10:00')?.toISOString()).toBe('2026-06-01T14:00:00.000Z');
+    expect(parseStrictLocalDateTime('2026-06-01T12:00')?.toISOString()).toBe('2026-06-01T16:00:00.000Z');
+    // Immediately before and after the DST gap.
+    expect(parseStrictLocalDateTime('2027-03-14T01:59')?.toISOString()).toBe('2027-03-14T06:59:00.000Z');
+    expect(parseStrictLocalDateTime('2027-03-14T03:00')?.toISOString()).toBe('2027-03-14T07:00:00.000Z');
+    // Optional seconds component.
+    expect(parseStrictLocalDateTime('2026-06-01T10:00:30')?.toISOString()).toBe('2026-06-01T14:00:30.000Z');
+  });
+});
 
 describe('GroupCompetitionsPage lifecycle phases', () => {
   it('UPCOMING shows no Join or Play affordance', async () => {
@@ -664,6 +711,77 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
+  // The whole suite is pinned to America/New_York (vitest.config.ts
+  // `process.env.TZ`), where 2027-03-14 is the US spring-forward date:
+  // local clocks jump from 02:00 directly to 03:00, so 02:00-02:59:59 on
+  // that date does not exist as a local time at all.
+  it('rejects a start time that falls in the DST spring-forward gap and sends no request', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Nonexistent Start');
+    // 02:30 does not exist locally on this date — the naive `new Date(str)`
+    // this replaced would have silently shifted it to 03:30 instead of
+    // rejecting it.
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2027-03-14T02:30' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2027-03-14T04:30' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Choose a valid local start time.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('rejects an end time that falls in the DST spring-forward gap', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Nonexistent End');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2027-03-14T01:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2027-03-14T02:45' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    expect(await screen.findByText('Choose a valid local end time.')).toBeInTheDocument();
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid local time immediately outside the DST gap and converts it to the exact expected ISO instant', async () => {
+    mockMembershipWithGames('OWNER');
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    createCompetition.mockResolvedValue({ success: true, data: { id: 'post-gap-1' } });
+
+    renderPage();
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Right After The Gap');
+    // 03:00 is the first local instant that exists again after the
+    // spring-forward gap — already on EDT (UTC-4) for this date.
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2027-03-14T03:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2027-03-14T04:30' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
+
+    await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
+    expect(createCompetition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startsAt: '2027-03-14T07:00:00.000Z',
+        endsAt: '2027-03-14T08:30:00.000Z',
+      }),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+
   it('rejects a max participants value below 2', async () => {
     mockMembershipWithGames('OWNER');
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
@@ -1080,6 +1198,178 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
   });
 });
 
+describe('GroupCompetitionsPage — membership authorization gate', () => {
+  const ACTIVE_GAMES = [{ key: 'dice', name: 'Dice' }];
+
+  function mockOwnerMembership() {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/groups/g1') {
+        return Promise.resolve({ success: true, data: { isMember: true, memberRole: 'OWNER' } });
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+  }
+
+  async function openForm() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Create competition' }));
+    return screen.findByRole('button', { name: 'Create competition' });
+  }
+
+  it('cached successful OWNER membership followed by a pending refresh: controls are unavailable while unresolved', async () => {
+    let groupCalls = 0;
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/groups/g1') {
+        groupCalls += 1;
+        if (groupCalls === 1) {
+          return Promise.resolve({ success: true, data: { isMember: true, memberRole: 'OWNER' } });
+        }
+        // The refetch (2nd+ call) never settles — simulates an in-flight,
+        // unresolved refresh of previously-successful cached data.
+        return new Promise(() => {});
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+
+    // Initial resolve: OWNER, controls available.
+    await screen.findByRole('button', { name: 'Create competition' });
+
+    // Trigger a refetch that will hang.
+    client.refetchQueries({ queryKey: ['group', 'g1'] });
+    await waitFor(() => expect(groupCalls).toBe(2));
+
+    // Cached `memberRole: 'OWNER'` data is still sitting in the cache, but
+    // the gate must not derive authorization from it alone while a
+    // fetch/refetch is unresolved.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('cached OWNER membership followed by a failed refresh: controls remain unavailable despite retained cached data', async () => {
+    let groupCalls = 0;
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/groups/g1') {
+        groupCalls += 1;
+        if (groupCalls === 1) {
+          return Promise.resolve({ success: true, data: { isMember: true, memberRole: 'OWNER' } });
+        }
+        return Promise.reject(new Error('network blip'));
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+
+    await screen.findByRole('button', { name: 'Create competition' });
+
+    client.refetchQueries({ queryKey: ['group', 'g1'] });
+    await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.status).toBe('error'));
+
+    // React Query keeps the last successful `data` (OWNER) around through a
+    // failing background refetch by default — this proves the gate checks
+    // the query's own status, not merely "does cached memberRole data
+    // exist and look right".
+    expect(client.getQueryData(['group', 'g1'])).toEqual({ isMember: true, memberRole: 'OWNER' });
+    expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument();
+  });
+
+  it('memberRole OWNER with isMember false: controls remain unavailable', async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/groups/g1') {
+        return Promise.resolve({ success: true, data: { isMember: false, memberRole: 'OWNER' } });
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    renderPage();
+
+    await screen.findByText('No competitions in this group yet.');
+    expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument();
+  });
+
+  it('a programmatic submit after authorization becomes invalid in the query cache does not call createCompetition', async () => {
+    mockOwnerMembership();
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+    // Never resolves: if the mutation *did* fire, this isolates that fact
+    // (call count) from any onSuccess/onError side effects.
+    createCompetition.mockImplementation(() => new Promise(() => {}));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Race Cup');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    const form = screen.getByRole('form', { name: 'Create competition' });
+
+    // Revoke authorization directly in the query cache WITHOUT letting React
+    // re-render first — React Query's notifications are scheduled, not
+    // synchronous, so the component's own `canCreate` (captured by this
+    // render's closure) is still stale-true at this exact instant. Firing
+    // the submit synchronously right after proves the handler re-checks the
+    // live cache (via `isMembershipAuthorized`) rather than trusting that
+    // stale closure value.
+    client.setQueryData(['group', 'g1'], { isMember: false, memberRole: 'MEMBER' });
+    fireEvent.submit(form);
+
+    // `useMutation().mutate(...)` invokes the mutationFn on a later
+    // microtask, not synchronously with the submit event, so this must
+    // actually flush before a "was not called" assertion means anything —
+    // without it, the assertion below passes trivially whether or not the
+    // guard exists at all, because any call simply hasn't happened yet at
+    // the point of the check (confirmed via mutation testing).
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(createCompetition).not.toHaveBeenCalled();
+  });
+
+  it('a subsequent successful active OWNER refresh restores creation access', async () => {
+    let groupCalls = 0;
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/groups/g1') {
+        groupCalls += 1;
+        if (groupCalls === 2) return Promise.reject(new Error('network blip'));
+        return Promise.resolve({ success: true, data: { isMember: true, memberRole: 'OWNER' } });
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+
+    await screen.findByRole('button', { name: 'Create competition' });
+
+    // First refetch fails: controls disappear despite retained cached data.
+    client.refetchQueries({ queryKey: ['group', 'g1'] });
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+    );
+
+    // Second refetch succeeds (active OWNER again): controls return.
+    client.refetchQueries({ queryKey: ['group', 'g1'] });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument(),
+    );
+  });
+});
+
 describe('GroupCompetitionsPage — active game catalog states', () => {
   const OWNER_MEMBERSHIP = { success: true, data: { isMember: true, memberRole: 'OWNER' as const } };
 
@@ -1110,14 +1400,18 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     expect(screen.getByLabelText('Game')).not.toBeDisabled();
   });
 
-  it('shows an accessible error with a Retry button when the catalog fails to load, focuses Title while disabled, and Retry both recovers it and moves focus to the game select', async () => {
+  it('shows an accessible error with a Retry button when the catalog fails to load, focuses Title while disabled, and a successful Retry recovers it and moves focus to the game select', async () => {
+    let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
     let gamesCalls = 0;
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
       if (url === '/games') {
         gamesCalls += 1;
         if (gamesCalls === 1) throw new Error('network down');
-        return { success: true, data: [{ key: 'dice', name: 'Dice' }] };
+        // Deferred: makes the loading state observable and proves the
+        // original Retry button actually unmounts, rather than resolving
+        // in the same tick where a stale reference could still "pass".
+        return new Promise((resolve) => { resolveGames = resolve as typeof resolveGames; });
       }
       throw new Error(`unexpected api.get(${url})`);
     });
@@ -1131,9 +1425,21 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled();
     expect(screen.getByLabelText('Title')).toHaveFocus();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    // Focus and activate the original Retry button.
+    const initialRetry = screen.getByRole('button', { name: 'Retry' });
+    initialRetry.focus();
+    fireEvent.click(initialRetry);
 
-    await waitFor(() => expect(screen.queryByText('Could not load games.')).not.toBeInTheDocument());
+    // The deferred promise means the loading state is observable, and
+    // proves the original Retry button (and its error text) unmounted —
+    // not just that some button named "Retry" happens to still resolve.
+    expect(await screen.findByText('Loading games…')).toBeInTheDocument();
+    expect(initialRetry).not.toBeInTheDocument();
+    expect(screen.queryByText('Could not load games.')).not.toBeInTheDocument();
+
+    resolveGames({ success: true, data: [{ key: 'dice', name: 'Dice' }] });
+
+    await waitFor(() => expect(screen.queryByText('Loading games…')).not.toBeInTheDocument());
     expect(screen.getByLabelText('Game') as HTMLSelectElement).not.toBeDisabled();
     expect(screen.getByRole('button', { name: 'Create competition' })).not.toBeDisabled();
     // A successful Retry moves focus onto the now-usable game select.

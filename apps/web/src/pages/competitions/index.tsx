@@ -57,6 +57,40 @@ function parseBoundedNonNegativeInt(value: string, max: number): BoundedIntResul
   return { valid: true, tooLarge: false, value: n };
 }
 
+/**
+ * Strictly parses a `datetime-local` input value ("YYYY-MM-DDTHH:mm" or
+ * "YYYY-MM-DDTHH:mm:ss") as browser-local time. Neither the single-string
+ * `Date` constructor nor the multi-argument one *rejects* out-of-range
+ * components — they normalize them instead: day 30 in February silently
+ * becomes March 2, and an hour that falls in a DST spring-forward gap
+ * silently shifts to a different real moment, with no indication anything
+ * was off. This reads the constructed date's components back and rejects
+ * the value outright if the browser's calendar/DST math changed ANY of
+ * them, rather than accepting whatever it silently normalized to.
+ */
+export function parseStrictLocalDateTime(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+  if (!match) return null;
+  const [, yStr, moStr, dStr, hStr, miStr, sStr] = match;
+  const year = Number(yStr);
+  const month = Number(moStr); // 1-12, as typed
+  const day = Number(dStr);
+  const hour = Number(hStr);
+  const minute = Number(miStr);
+  const second = sStr !== undefined ? Number(sStr) : 0;
+
+  const date = new Date(year, month - 1, day, hour, minute, second, 0);
+  const matchesInput =
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hour &&
+    date.getMinutes() === minute &&
+    date.getSeconds() === second;
+
+  return matchesInput ? date : null;
+}
+
 type CreateFormResult =
   | { ok: false; error: string; fields: string[] }
   | { ok: true; payload: Omit<CreateCompetitionBody, 'groupId'> };
@@ -94,7 +128,11 @@ export function GroupCompetitionsPage() {
 
   // Same endpoint + query key the detail page uses for this same purpose
   // (display-only role check — the backend re-validates on every mutation).
-  const { data: groupInfo } = useQuery<{ isMember: boolean; memberRole?: string }>({
+  const {
+    data: groupInfo,
+    status: groupStatus,
+    isFetching: groupFetching,
+  } = useQuery<{ isMember: boolean; memberRole?: string }>({
     queryKey: ['group', groupId],
     queryFn: async () => {
       const res = await api.get<{ isMember: boolean; memberRole?: string }>(`/groups/${groupId}`);
@@ -102,7 +140,22 @@ export function GroupCompetitionsPage() {
     },
     enabled: !!groupId,
   });
-  const canCreate = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
+  // Authorization requires ALL of: the membership query has actually
+  // succeeded (not merely "has data" — React Query keeps the last
+  // successful `data` around through a *failing* background refetch by
+  // default, which would otherwise let a demoted/removed member keep
+  // seeing create affordances driven by stale cached data); no
+  // fetch/refetch of it is currently unresolved; the user is an active
+  // member; and their role is exactly OWNER or ADMIN. If any of this
+  // becomes untrue while the form is open (a background refetch starts,
+  // fails, or reveals a role change), every render below that reads
+  // `canCreate` immediately stops offering the toggle/form/games query —
+  // the backend remains the actual authority regardless.
+  const canCreate =
+    groupStatus === 'success' &&
+    !groupFetching &&
+    groupInfo?.isMember === true &&
+    (groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN');
 
   const {
     data: games = [],
@@ -210,6 +263,24 @@ export function GroupCompetitionsPage() {
     return { 'aria-invalid': true, 'aria-describedby': 'create-competition-error' };
   }
 
+  /**
+   * Re-derives authorization directly from the query cache at submission
+   * time, rather than trusting `canCreate` — which is a value captured by
+   * *this render's* closure. React Query's cache writes (e.g. a refetch
+   * settling, or a test calling `setQueryData`) are not synchronous with a
+   * React re-render: its notifications are scheduled, so a stale-true
+   * closure value can briefly outlive a cache change that has already
+   * happened. This is the last check before the network call that actually
+   * creates (and, if funded, escrow-debits) a competition, so it reads the
+   * live cache instead of the possibly-one-render-behind `canCreate`.
+   */
+  function isMembershipAuthorized(): boolean {
+    const state = queryClient.getQueryState<{ isMember: boolean; memberRole?: string }>(['group', groupId]);
+    if (!state || state.status !== 'success' || state.fetchStatus === 'fetching') return false;
+    const data = state.data;
+    return data?.isMember === true && (data?.memberRole === 'OWNER' || data?.memberRole === 'ADMIN');
+  }
+
   function buildCreatePayload(): CreateFormResult {
     if (!gameKey) return { ok: false, error: 'Choose a game.', fields: ['new-comp-game'] };
     const trimmedTitle = title.trim();
@@ -218,12 +289,18 @@ export function GroupCompetitionsPage() {
       return { ok: false, error: 'Start and end time are required.', fields: ['new-comp-starts', 'new-comp-ends'] };
     }
 
-    // datetime-local values are interpreted in the browser's local time zone,
-    // exactly matching what the user saw and picked in the field.
-    const startsAtDate = new Date(startsAtLocal);
-    const endsAtDate = new Date(endsAtLocal);
-    if (Number.isNaN(startsAtDate.getTime()) || Number.isNaN(endsAtDate.getTime())) {
-      return { ok: false, error: 'Start and end time must be valid.', fields: ['new-comp-starts', 'new-comp-ends'] };
+    // datetime-local values are interpreted in the browser's local time
+    // zone, exactly matching what the user saw and picked in the field —
+    // strictly: parseStrictLocalDateTime rejects a value outright rather
+    // than silently normalizing an invalid calendar date or a DST-gap time
+    // into a different moment than what was actually entered.
+    const startsAtDate = parseStrictLocalDateTime(startsAtLocal);
+    if (!startsAtDate) {
+      return { ok: false, error: 'Choose a valid local start time.', fields: ['new-comp-starts'] };
+    }
+    const endsAtDate = parseStrictLocalDateTime(endsAtLocal);
+    if (!endsAtDate) {
+      return { ok: false, error: 'Choose a valid local end time.', fields: ['new-comp-ends'] };
     }
     if (endsAtDate <= startsAtDate) {
       return { ok: false, error: 'End time must be after start time.', fields: ['new-comp-starts', 'new-comp-ends'] };
@@ -343,6 +420,7 @@ export function GroupCompetitionsPage() {
   function handleCreateSubmit(e: FormEvent) {
     e.preventDefault();
     if (createMutation.isPending) return;
+    if (!isMembershipAuthorized()) return;
 
     const result = buildCreatePayload();
     if (!result.ok) {
