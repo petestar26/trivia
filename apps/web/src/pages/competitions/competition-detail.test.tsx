@@ -109,9 +109,12 @@ function makeCompetition(overrides: {
     status: overrides.status ?? 'SCHEDULED',
     isFull: overrides.isFull ?? false,
     participantCount: overrides.participantCount ?? 0,
-    maxPlaysPerParticipant: overrides.maxPlaysPerParticipant === undefined
-      ? 5
-      : overrides.maxPlaysPerParticipant,
+    // When not provided, the property is genuinely absent — no test-default
+    // mask. The detail page must still show Play for any OPEN non-Trivia
+    // participant regardless of whether the server sent this field.
+    ...(overrides.maxPlaysPerParticipant !== undefined && {
+      maxPlaysPerParticipant: overrides.maxPlaysPerParticipant,
+    }),
     entryAmount: 10,
     maxParticipants: overrides.maxParticipants ?? null,
     rewardGamePoints: 100,
@@ -270,6 +273,54 @@ describe('CompetitionDetailPage lifecycle phases', () => {
 
     expect(await screen.findByText('You have completed all 5 rounds.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
+  });
+
+  it('still shows Play when the API omits maxPlaysPerParticipant (backward compat)', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        participants: [{ userId: 'u1', score: 0, gamesPlayed: 0 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
+    expect(screen.queryByText(/completed all .* rounds/i)).not.toBeInTheDocument();
+  });
+
+  it('honours a non-five round limit (3): Play at 2, hidden at 3', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 3,
+        participants: [{ userId: 'u1', score: 20, gamesPlayed: 3 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('You have completed all 3 rounds.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
+
+    cleanup();
+
+    getCompetitionForGroup.mockReset();
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 3,
+        participants: [{ userId: 'u1', score: 10, gamesPlayed: 2 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
+    expect(screen.queryByText('You have completed all 3 rounds.')).not.toBeInTheDocument();
   });
 
   it('keeps Trivia playable beyond five recorded rounds when the API limit is null', async () => {
