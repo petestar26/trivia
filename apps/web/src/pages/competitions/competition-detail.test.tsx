@@ -280,7 +280,7 @@ describe('CompetitionDetailPage lifecycle phases', () => {
       success: true,
       data: makeCompetition({
         phase: 'OPEN',
-        participants: [{ userId: 'u1', score: 0, gamesPlayed: 0 }],
+        participants: [{ userId: 'u1', score: 50, gamesPlayed: 5 }],
       }),
     });
 
@@ -290,24 +290,7 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(screen.queryByText(/completed all .* rounds/i)).not.toBeInTheDocument();
   });
 
-  it('honours a non-five round limit (3): Play at 2, hidden at 3', async () => {
-    getCompetitionForGroup.mockResolvedValue({
-      success: true,
-      data: makeCompetition({
-        phase: 'OPEN',
-        maxPlaysPerParticipant: 3,
-        participants: [{ userId: 'u1', score: 20, gamesPlayed: 3 }],
-      }),
-    });
-
-    renderPage();
-
-    expect(await screen.findByText('You have completed all 3 rounds.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
-
-    cleanup();
-
-    getCompetitionForGroup.mockReset();
+  it('limit 3 with 2 plays shows Play', async () => {
     getCompetitionForGroup.mockResolvedValue({
       success: true,
       data: makeCompetition({
@@ -321,6 +304,22 @@ describe('CompetitionDetailPage lifecycle phases', () => {
 
     expect(await screen.findByRole('button', { name: /Play a round/ })).toBeInTheDocument();
     expect(screen.queryByText('You have completed all 3 rounds.')).not.toBeInTheDocument();
+  });
+
+  it('limit 3 with 3 plays hides Play and shows the completed message', async () => {
+    getCompetitionForGroup.mockResolvedValue({
+      success: true,
+      data: makeCompetition({
+        phase: 'OPEN',
+        maxPlaysPerParticipant: 3,
+        participants: [{ userId: 'u1', score: 20, gamesPlayed: 3 }],
+      }),
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('You have completed all 3 rounds.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
   });
 
   it('keeps Trivia playable beyond five recorded rounds when the API limit is null', async () => {
