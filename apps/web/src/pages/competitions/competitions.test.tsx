@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import {
   defaultScheduler,
   notifyManager,
+  onlineManager,
   QueryClient,
   QueryClientProvider,
 } from '@tanstack/react-query';
@@ -110,6 +111,10 @@ afterEach(() => {
   restoreTimerRecorder = undefined;
   notifyManager.setScheduler(defaultScheduler);
   vi.useRealTimers();
+  // Safety net alongside each paused-state test's own try/finally:
+  // `onlineManager` is a module-level singleton, so leaving it offline
+  // after a failed assertion would otherwise leak into later tests.
+  onlineManager.setOnline(true);
   listCompetitionsForGroup.mockReset();
   createCompetition.mockReset();
   apiGet.mockReset();
@@ -1368,6 +1373,138 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
       expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument(),
     );
   });
+
+  it('treats a paused (offline) membership refresh as unresolved, not as settled retained data', async () => {
+    apiGet.mockImplementation((url: string) => {
+      // Every call resolves OWNER — the offline-triggered refetch, once it
+      // auto-resumes back online, settles successfully again too.
+      if (url === '/groups/g1') {
+        return Promise.resolve({ success: true, data: { isMember: true, memberRole: 'OWNER' } });
+      }
+      if (url === '/games') return Promise.resolve({ success: true, data: ACTIVE_GAMES });
+      return Promise.reject(new Error(`unexpected api.get(${url})`));
+    });
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+
+    await screen.findByRole('button', { name: 'Create competition' });
+    const gamesCallsBeforePause = apiGet.mock.calls.filter(([u]) => u === '/games').length;
+
+    try {
+      onlineManager.setOnline(false);
+      // With `networkMode: 'online'` (the default) and a mounted observer,
+      // this transitions the query's `fetchStatus` to 'paused' — retained
+      // `status: 'success'` and retained OWNER data — synchronously, with
+      // no fetch attempt and no `queryFn` re-invocation while offline.
+      client.refetchQueries({ queryKey: ['group', 'g1'] });
+
+      const pausedState = client.getQueryState(['group', 'g1']);
+      expect(pausedState?.status).toBe('success');
+      expect(pausedState?.fetchStatus).toBe('paused');
+      // `isFetching` is strictly `fetchStatus === 'fetching'`, so a paused
+      // query also reports `isFetching: false` — this is exactly the case
+      // `!isFetching` alone would get wrong.
+      expect(pausedState?.fetchStatus).not.toBe('fetching');
+      expect(pausedState?.data).toEqual({ isMember: true, memberRole: 'OWNER' });
+
+      // Controls unavailable despite the retained OWNER data.
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+      );
+      // The games query gains no new enablement off the retained role.
+      const gamesCallsWhilePaused = apiGet.mock.calls.filter(([u]) => u === '/games').length;
+      expect(gamesCallsWhilePaused).toBe(gamesCallsBeforePause);
+      // No creation request is reachable through any path while paused.
+      expect(createCompetition).not.toHaveBeenCalled();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+
+    // Coming back online auto-resumes the paused refetch; it settles
+    // successfully (still active OWNER), restoring access.
+    await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.fetchStatus).toBe('idle'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument(),
+    );
+  });
+
+  it('a microtask-boundary revocation between submit and mutationFn prevents the API call, with no success side effects', async () => {
+    mockOwnerMembership();
+    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText('Game'), { target: { value: 'dice' } });
+    await userEvent.type(screen.getByLabelText('Title'), 'Race Cup');
+    fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
+    fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
+
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandledRejection);
+
+    try {
+      const form = screen.getByRole('form', { name: 'Create competition' });
+      // Submit while still genuinely authorized — this passes BOTH the
+      // submit-handler's own live-cache check and (at this instant) would
+      // also pass the mutationFn's. `mutate()` schedules the mutationFn
+      // call for a later microtask rather than invoking it synchronously
+      // (confirmed via mutation testing below), so revoking authorization
+      // in the SAME synchronous tick, immediately after, lands in exactly
+      // the gap the mutationFn-level guard exists to cover — the submit
+      // handler's own check has already run and already passed.
+      fireEvent.submit(form);
+      client.setQueryData(['group', 'g1'], { isMember: false, memberRole: 'MEMBER' });
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // Give a same-turn `unhandledRejection` (Node fires it on a later
+      // microtask/macrotask than the rejection itself) room to surface.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(createCompetition).not.toHaveBeenCalled();
+      expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
+      expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
+      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }));
+      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
+      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+      // React Query's mutation observer catches the mutationFn's throw and
+      // routes it to `onError` — it must never surface as an unhandled
+      // rejection in the page's own promise chain.
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  });
+
+  // Not separately tested: "paused membership state at mutation
+  // invocation". Attempted via `onlineManager.setOnline(false)` right after
+  // `mutate()` — but `useMutation` itself defaults to the same
+  // `networkMode: 'online'` as queries, sharing the same global
+  // `onlineManager`. Going offline that way pauses the MUTATION itself
+  // (confirmed directly: `mutationFn` never runs while offline, the
+  // mutation cache reports `isPaused: true`) before its own scheduled
+  // microtask fires — so a "createCompetition not called" assertion built
+  // that way would pass for the wrong reason (React Query's own
+  // network-mode gate on the mutation), not because of the mutationFn's
+  // authorization guard above, and would keep passing even with that guard
+  // deleted. There's no way to pause the membership *query* without also
+  // pausing the mutation without either changing the mutation's own
+  // `networkMode` (a production behavior change outside this fix's scope)
+  // or poking at `Query` internals directly. This is covered anyway,
+  // by construction: both the render-time gate (see the paused-refresh
+  // test above) and the mutationFn guard call the exact same
+  // `isMembershipSnapshotAuthorized`, and mutation testing already proves
+  // that function's `fetchStatus !== 'idle'` check is load-bearing for a
+  // 'paused' snapshot — there is no code path where the mutationFn's call
+  // to that identical function would treat 'paused' any differently.
 });
 
 describe('GroupCompetitionsPage — active game catalog states', () => {

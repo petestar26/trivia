@@ -91,9 +91,70 @@ export function parseStrictLocalDateTime(value: string): Date | null {
   return matchesInput ? date : null;
 }
 
+/** Membership payload shape, as returned by `GET /groups/:id`. */
+interface MembershipData {
+  isMember: boolean;
+  memberRole?: string;
+}
+
+/**
+ * Minimal shape of a query's own status this predicate needs — matches
+ * both `useQuery(...)`'s return value and `queryClient.getQueryState(...)`,
+ * so the exact same function can be called at render time, at submit time,
+ * and again inside the mutation itself.
+ */
+interface MembershipQuerySnapshot {
+  status: 'pending' | 'error' | 'success';
+  fetchStatus: 'fetching' | 'paused' | 'idle';
+  data: MembershipData | undefined;
+}
+
+/**
+ * Single shared predicate for "is this membership snapshot currently
+ * authorized to create a competition" — used identically for the
+ * creation-toggle's visibility, the creation-form's rendering, the games
+ * query's `enabled`, the submit-handler's live-cache guard, and again
+ * inside the mutation itself immediately before the network call.
+ * Requires ALL of:
+ *
+ *  - `status === 'success'`: the query's own fetch actually succeeded —
+ *    not merely "has data". React Query keeps the last successful `data`
+ *    around through a *failing* background refetch by default, which
+ *    would otherwise let a demoted/removed member keep seeing create
+ *    affordances driven by stale cached data.
+ *  - `fetchStatus === 'idle'`: the query is fully settled, not merely
+ *    "not fetching". A query whose refetch is queued behind the browser
+ *    being offline has `fetchStatus: 'paused'` — and `isFetching: false`,
+ *    since `isFetching` is only ever `fetchStatus === 'fetching'` — so
+ *    `!isFetching` alone would wrongly treat a paused, unresolved refresh
+ *    as settled and keep offering access off retained (possibly stale)
+ *    cached data.
+ *  - `isMember === true` and the role is exactly OWNER or ADMIN.
+ */
+export function isMembershipSnapshotAuthorized(snapshot: MembershipQuerySnapshot | undefined | null): boolean {
+  if (!snapshot) return false;
+  if (snapshot.status !== 'success') return false;
+  if (snapshot.fetchStatus !== 'idle') return false;
+  return (
+    snapshot.data?.isMember === true &&
+    (snapshot.data?.memberRole === 'OWNER' || snapshot.data?.memberRole === 'ADMIN')
+  );
+}
+
 type CreateFormResult =
   | { ok: false; error: string; fields: string[] }
   | { ok: true; payload: Omit<CreateCompetitionBody, 'groupId'> };
+
+/**
+ * Mutation variables shaped as `{ groupId, payload }` rather than a flat
+ * `CreateCompetitionBody` — `groupId` is what the mutationFn's own live
+ * authorization re-check needs, kept explicit and separate from the
+ * already-validated creation payload it sends to the API.
+ */
+interface CreateCompetitionMutationVariables {
+  groupId: string;
+  payload: Omit<CreateCompetitionBody, 'groupId'>;
+}
 
 const PHASE_LABEL: Record<CompetitionPhase, string> = {
   UPCOMING: 'Upcoming',
@@ -131,31 +192,26 @@ export function GroupCompetitionsPage() {
   const {
     data: groupInfo,
     status: groupStatus,
-    isFetching: groupFetching,
-  } = useQuery<{ isMember: boolean; memberRole?: string }>({
+    fetchStatus: groupFetchStatus,
+  } = useQuery<MembershipData>({
     queryKey: ['group', groupId],
     queryFn: async () => {
-      const res = await api.get<{ isMember: boolean; memberRole?: string }>(`/groups/${groupId}`);
+      const res = await api.get<MembershipData>(`/groups/${groupId}`);
       return res.data ?? { isMember: false };
     },
     enabled: !!groupId,
   });
-  // Authorization requires ALL of: the membership query has actually
-  // succeeded (not merely "has data" — React Query keeps the last
-  // successful `data` around through a *failing* background refetch by
-  // default, which would otherwise let a demoted/removed member keep
-  // seeing create affordances driven by stale cached data); no
-  // fetch/refetch of it is currently unresolved; the user is an active
-  // member; and their role is exactly OWNER or ADMIN. If any of this
-  // becomes untrue while the form is open (a background refetch starts,
-  // fails, or reveals a role change), every render below that reads
-  // `canCreate` immediately stops offering the toggle/form/games query —
-  // the backend remains the actual authority regardless.
-  const canCreate =
-    groupStatus === 'success' &&
-    !groupFetching &&
-    groupInfo?.isMember === true &&
-    (groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN');
+  // See isMembershipSnapshotAuthorized for exactly what this requires and
+  // why. If any of it becomes untrue while the form is open (a background
+  // refetch starts, pauses because the browser goes offline, fails, or
+  // reveals a role change), every render below that reads `canCreate`
+  // immediately stops offering the toggle/form/games query — the backend
+  // remains the actual authority regardless.
+  const canCreate = isMembershipSnapshotAuthorized({
+    status: groupStatus,
+    fetchStatus: groupFetchStatus,
+    data: groupInfo,
+  });
 
   const {
     data: games = [],
@@ -270,15 +326,16 @@ export function GroupCompetitionsPage() {
    * settling, or a test calling `setQueryData`) are not synchronous with a
    * React re-render: its notifications are scheduled, so a stale-true
    * closure value can briefly outlive a cache change that has already
-   * happened. This is the last check before the network call that actually
-   * creates (and, if funded, escrow-debits) a competition, so it reads the
-   * live cache instead of the possibly-one-render-behind `canCreate`.
+   * happened. This is one of two checks before the network call that
+   * actually creates (and, if funded, escrow-debits) a competition — the
+   * mutation itself re-checks again immediately before calling the API,
+   * since `mutate()` and the mutationFn's own invocation are not
+   * synchronous with each other either.
    */
   function isMembershipAuthorized(): boolean {
-    const state = queryClient.getQueryState<{ isMember: boolean; memberRole?: string }>(['group', groupId]);
-    if (!state || state.status !== 'success' || state.fetchStatus === 'fetching') return false;
-    const data = state.data;
-    return data?.isMember === true && (data?.memberRole === 'OWNER' || data?.memberRole === 'ADMIN');
+    return isMembershipSnapshotAuthorized(
+      queryClient.getQueryState<MembershipData>(['group', groupId]),
+    );
   }
 
   function buildCreatePayload(): CreateFormResult {
@@ -381,7 +438,24 @@ export function GroupCompetitionsPage() {
   }
 
   const createMutation = useMutation({
-    mutationFn: (body: CreateCompetitionBody) => api.createCompetition(body),
+    mutationFn: (variables: CreateCompetitionMutationVariables) => {
+      // A second, independent authorization check — synchronously, right
+      // before the network call. `mutate()` was already guarded by
+      // `isMembershipAuthorized()` in the submit handler above, but React
+      // Query invokes `mutationFn` on its own schedule (a microtask or more
+      // after `mutate()` returns), so membership can be revoked or paused
+      // in the gap between those two moments. This reads the CURRENT cache
+      // state for `variables.groupId` — not the route closure, not
+      // render-time `canCreate`, not any value captured earlier — with no
+      // asynchronous gap before either throwing or calling the API.
+      const state = queryClient.getQueryState<MembershipData>(['group', variables.groupId]);
+      if (!isMembershipSnapshotAuthorized(state)) {
+        throw new Error(
+          JSON.stringify({ message: 'You no longer have permission to create competitions in this group.' }),
+        );
+      }
+      return api.createCompetition({ ...variables.payload, groupId: variables.groupId });
+    },
     onSuccess: (res) => {
       // The competition (and, if funded, its prize escrow debit) is already
       // committed server-side at this point regardless of what the response
@@ -430,7 +504,7 @@ export function GroupCompetitionsPage() {
     }
     setFormError(null);
     setFormErrorFields([]);
-    createMutation.mutate({ ...result.payload, groupId: groupId! });
+    createMutation.mutate({ groupId: groupId!, payload: result.payload });
   }
 
   const { data: competitions = [], isLoading, isError } = useQuery<Competition[]>({
