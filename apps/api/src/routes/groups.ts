@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { prisma } from '@socialplay/database';
+import { prisma, type Prisma } from '@socialplay/database';
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
@@ -281,8 +281,12 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  // List/discover groups
-  server.get<{ Querystring: { page?: number; limit?: number; query?: string } }>(
+  // List/discover groups — also serves as the "My Groups" query when
+  // `mine=true` is passed (see below), rather than splitting that into a
+  // separate endpoint: both modes share the same pagination/response
+  // contract and the same per-group membership lookup, so a second route
+  // would just duplicate this one with a different `where`.
+  server.get<{ Querystring: { page?: number; limit?: number; query?: string; mine?: boolean } }>(
     '/',
     {
       preHandler: [authenticate],
@@ -293,6 +297,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             page: { type: 'integer', minimum: 1, default: 1 },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
             query: { type: 'string', maxLength: 100 },
+            mine: { type: 'boolean' },
           },
         },
       },
@@ -301,14 +306,26 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const page = request.query.page ?? 1;
       const limit = request.query.limit ?? 20;
       const q = request.query.query?.trim();
+      const mine = request.query.mine ?? false;
+      const userId = request.user!.sub;
 
-      const where: Record<string, unknown> = {
+      // `mine: true` narrows to ACTIVE groups where the caller has an
+      // ACTIVE membership — a `some` relation filter applied at the
+      // database level, so it composes with `orderBy`/`skip`/`take`/
+      // `count` below rather than filtering a page after the fact (which
+      // would both mis-paginate and let an older membership fall outside
+      // the page before it was ever checked). Private groups are included
+      // here precisely because membership is what's being required, not
+      // `isPrivate: false` — a private group the caller has actually
+      // joined is exactly what "My Groups" means to show. PENDING/LEFT/
+      // BANNED/MUTED memberships, another user's membership, and a
+      // missing membership row all fail `some`, so none of those groups
+      // match.
+      const where: Prisma.GroupWhereInput = {
         status: 'ACTIVE',
+        ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
+        ...(mine ? { members: { some: { userId, status: 'ACTIVE' } } } : {}),
       };
-
-      if (q) {
-        where.name = { contains: q, mode: 'insensitive' };
-      }
 
       const [groups, total] = await Promise.all([
         prisma.group.findMany({
@@ -329,34 +346,49 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
                 },
               },
             },
+            // The caller's own membership row (if any), fetched in this
+            // same query instead of one `getGroupMembership` call per
+            // group afterward — that N+1 pattern meant a page of `limit`
+            // groups cost `limit` additional round trips just to compute
+            // `isMember`/`memberRole`. `userId` is unique per group (see
+            // the `@@unique([groupId, userId])` constraint), so this
+            // returns at most one row.
+            members: {
+              where: { userId },
+              select: { role: true, status: true },
+            },
           },
-          orderBy: { createdAt: 'desc' },
+          // Deterministic: `createdAt` alone can tie (two groups created
+          // in the same millisecond), which would make skip/take page
+          // boundaries — and therefore which groups land on which page —
+          // depend on whatever arbitrary order the database happens to
+          // return ties in. `id` is unique, so appending it as a
+          // tie-breaker makes the order, and so the pages, reproducible.
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           skip: (page - 1) * limit,
           take: limit,
         }),
         prisma.group.count({ where }),
       ]);
 
-      const data = await Promise.all(
-        groups.map(async (g) => {
-          const membership = await getGroupMembership(g.id, request.user!.sub);
-          return {
-            id: g.id,
-            name: g.name,
-            description: g.description,
-            imageUrl: g.imageUrl,
-            coverUrl: g.coverUrl,
-            isPrivate: g.isPrivate,
-            status: g.status,
-            memberCount: g._count.members,
-            isMember: !!membership && membership.status === 'ACTIVE',
-            memberRole: membership?.role,
-            owner: g.owner,
-            createdAt: g.createdAt,
-            updatedAt: g.updatedAt,
-          };
-        })
-      );
+      const data = groups.map((g) => {
+        const membership = g.members[0];
+        return {
+          id: g.id,
+          name: g.name,
+          description: g.description,
+          imageUrl: g.imageUrl,
+          coverUrl: g.coverUrl,
+          isPrivate: g.isPrivate,
+          status: g.status,
+          memberCount: g._count.members,
+          isMember: !!membership && membership.status === 'ACTIVE',
+          memberRole: membership?.role,
+          owner: g.owner,
+          createdAt: g.createdAt,
+          updatedAt: g.updatedAt,
+        };
+      });
 
       const totalPages = Math.ceil(total / limit);
 

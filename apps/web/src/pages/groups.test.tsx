@@ -108,6 +108,10 @@ describe('GroupsPage — join progression invalidation', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }))
     );
+    // The Competitions hub's membership-filtered list must refresh too,
+    // or a newly-joined group stays invisible there until an unrelated
+    // refetch happens to occur.
+    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups-for-competitions'] }));
     // invalidateProgressionQueries effects.
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }))
@@ -137,6 +141,9 @@ describe('GroupsPage — join progression invalidation', () => {
 
     // Neither the groups refresh nor any progression surface is invalidated.
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['groups-for-competitions'] }),
+    );
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }));
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));

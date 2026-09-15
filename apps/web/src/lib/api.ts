@@ -228,7 +228,7 @@ class ApiClient {
   }
 
   // Groups
-  async listGroups(params?: { page?: number; limit?: number; query?: string }): Promise<ApiResponse<any>> {
+  async listGroups(params?: { page?: number; limit?: number; query?: string; mine?: boolean }): Promise<ApiResponse<any>> {
     return this.get('/groups', params);
   }
 

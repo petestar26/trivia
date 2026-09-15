@@ -197,7 +197,9 @@ export function GroupsPage() {
   const joinMutation = useMutation({
     mutationFn: (groupId: string) => api.joinGroup(groupId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      for (const queryKey of GROUP_LIST_QUERY_KEYS) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       // Joining a group may fire achievement/progression side effects.
       invalidateProgressionQueries(queryClient);
       toast({ title: 'Joined group' });
