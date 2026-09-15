@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
-import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
+import { GROUPS_QUERY_KEY, GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -43,7 +43,7 @@ export function GroupsPage() {
 
   // Resolves directly to the array; the render path uses it as-is.
   const { data: groups = [], isLoading, isError } = useQuery<GroupSummary[]>({
-    queryKey: ['groups'],
+    queryKey: GROUPS_QUERY_KEY,
     queryFn: async () => (await api.listGroups({ limit: 50 })).data ?? [],
   });
 

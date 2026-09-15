@@ -354,30 +354,6 @@ describeIf('groups/routes — GET /groups', () => {
       const seenIds = [...page1.body.data, ...page2.body.data].map((g) => g.id).sort();
       expect(seenIds).toEqual([...groups.map((g) => g.id)].sort());
     });
-
-    it('orders newest createdAt first with a deterministic id tie-breaker', async () => {
-      const caller = await createUser('ordering');
-      const token = await mintToken(caller);
-
-      const tiedAt = new Date('2023-06-01T00:00:00.000Z');
-      const gA = await createGroup(caller.id, 'Tied A', { createdAt: tiedAt });
-      const gB = await createGroup(caller.id, 'Tied B', { createdAt: tiedAt });
-      const newer = await createGroup(caller.id, 'Newer', {
-        createdAt: new Date('2023-06-02T00:00:00.000Z'),
-      });
-      await addMember(gA.id, caller.id, 'OWNER');
-      await addMember(gB.id, caller.id, 'OWNER');
-      await addMember(newer.id, caller.id, 'OWNER');
-
-      const runs = await Promise.all(
-        Array.from({ length: 3 }, () => listGroups(token, { mine: true, limit: 50 }))
-      );
-      const orders = runs.map((r) => r.body.data.map((g) => g.id));
-      // Newest first, always.
-      for (const order of orders) expect(order[0]).toBe(newer.id);
-      // The tie between gA/gB resolves the same way on every request.
-      expect(new Set(orders.map((o) => JSON.stringify(o))).size).toBe(1);
-    });
   });
 
   describe('mine=false / omitted mine preserve existing discovery behavior', () => {
@@ -462,44 +438,48 @@ describeIf('groups/routes — GET /groups', () => {
   });
 
   describe('deterministic ordering with an id tie-breaker', () => {
-    it('sorts equal-createdAt groups by createdAt DESC, id DESC across page boundaries, repeatedly', async () => {
+    it('orders by createdAt DESC then id DESC with exact ids on every page, using collision-safe random ids', async () => {
       const caller = await createUser('ties');
       const token = await mintToken(caller);
 
+      // Random primary keys: nothing fixed can collide with rows left behind
+      // by an aborted earlier run or created by another test process sharing
+      // this database.
       const tiedAt = new Date('2024-05-05T00:00:00.000Z');
-      const idC = '00000000-0000-0000-0000-00000000000c';
-      const idB = '00000000-0000-0000-0000-00000000000b';
-      const idA = '00000000-0000-0000-0000-00000000000a';
-      const gA = await createGroup(caller.id, 'Tie A', { id: idA, createdAt: tiedAt });
-      const gB = await createGroup(caller.id, 'Tie B', { id: idB, createdAt: tiedAt });
-      const gC = await createGroup(caller.id, 'Tie C', { id: idC, createdAt: tiedAt });
-      for (const g of [gA, gB, gC]) await addMember(g.id, caller.id, GroupMemberRole.OWNER);
-
-      // Descending createdAt then descending id: C, B, A.
-      const expectedDesc = [idC, idB, idA];
-
-      // Page boundaries with limit: 1 and limit: 2.
-      const oneByOne = [];
-      for (const page of [1, 2, 3]) {
-        const { body } = await listGroups(token, { mine: true, limit: 1, page });
-        oneByOne.push(...body.data.map((g) => g.id));
+      const tiedIds = Array.from({ length: 4 }, () => randomUUID());
+      // Insert the tied groups in ASCENDING id order — the reverse of the
+      // expected result — so a missing (or ascending) id tie-breaker cannot
+      // pass merely by returning rows in insertion order.
+      const ascendingIds = [...tiedIds].sort();
+      for (const [i, id] of ascendingIds.entries()) {
+        const g = await createGroup(caller.id, `Tie ${i}`, { id, createdAt: tiedAt });
+        await addMember(g.id, caller.id, GroupMemberRole.OWNER);
       }
-      expect(oneByOne).toEqual(expectedDesc);
+      // createdAt takes precedence over id in both directions.
+      const newer = await createGroup(caller.id, 'Tie Newer', { createdAt: new Date('2024-05-06T00:00:00.000Z') });
+      await addMember(newer.id, caller.id, GroupMemberRole.OWNER);
+      const older = await createGroup(caller.id, 'Tie Older', { createdAt: new Date('2024-05-04T00:00:00.000Z') });
+      await addMember(older.id, caller.id, GroupMemberRole.OWNER);
 
-      const twoPage1 = await listGroups(token, { mine: true, limit: 2, page: 1 });
-      const twoPage2 = await listGroups(token, { mine: true, limit: 2, page: 2 });
-      expect(twoPage1.body.data.map((g) => g.id)).toEqual([idC, idB]);
-      expect(twoPage2.body.data.map((g) => g.id)).toEqual([idA]);
+      const expected = [newer.id, ...[...tiedIds].sort().reverse(), older.id];
 
-      // No duplicate and no skipped ids across the page boundary.
-      const stitched = [...twoPage1.body.data, ...twoPage2.body.data].map((g) => g.id);
-      expect(new Set(stitched)).toEqual(new Set(expectedDesc));
+      // Every page boundary (limit 1), boundaries splitting the tie (limit
+      // 2 and 4): exact ids per page, so no duplicate and no skip anywhere.
+      for (const limit of [1, 2, 4]) {
+        const pageCount = Math.ceil(expected.length / limit);
+        const expectedPages = Array.from({ length: pageCount }, (_, i) => expected.slice(i * limit, (i + 1) * limit));
+        const actualPages: string[][] = [];
+        for (let page = 1; page <= pageCount; page++) {
+          const { body } = await listGroups(token, { mine: true, limit, page });
+          expect(body.meta.total).toBe(expected.length);
+          actualPages.push(body.data.map((g) => g.id));
+        }
+        expect(actualPages).toEqual(expectedPages);
+      }
 
-      // Identical results on repeated full scans.
-      const again = await listGroups(token, { mine: true, limit: 50 });
-      expect(again.body.data.map((g) => g.id)).toEqual(expectedDesc);
-      const third = await listGroups(token, { mine: true, limit: 50 });
-      expect(third.body.data.map((g) => g.id)).toEqual(expectedDesc);
+      // A full scan returns the same exact order.
+      const full = await listGroups(token, { mine: true, limit: 50 });
+      expect(full.body.data.map((g) => g.id)).toEqual(expected);
     });
   });
 

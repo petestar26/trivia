@@ -346,20 +346,23 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
                 },
               },
             },
-            // The caller's own membership row (if any), fetched in this
-            // same query instead of one `getGroupMembership` call per
-            // group afterward. Keeping that look-up inside this single
-            // `findMany` matters because it eliminates the per-item
-            // delegate calls: while Prisma batches same-tick `findUnique`
-            // calls, they are still separate executable statements per
-            // group, and the included `where: { userId }` would otherwise
-            // need a delegate round trip for each returned row. Filtering
-            // to `status: 'ACTIVE'` here also guarantees `memberRole` is
-            // never the caller's stale role from an inactive membership —
-            // PENDING/LEFT/BANNED/MUTED rows return no membership at all,
-            // so `isMember` is false and `memberRole` is omitted. `userId`
-            // is unique per group (see the `@@unique([groupId, userId])`
-            // constraint), so this returns at most one row.
+            // The caller's own ACTIVE membership row (if any) is selected
+            // inside this main group query instead of being looked up per
+            // group afterwards via `getGroupMembership` (a
+            // `groupMember.findUnique` delegate call for every returned
+            // row). That keeps membership selection in the group query and
+            // removes the per-item delegate lookups from the request path.
+            // Prisma may batch same-tick `findUnique` calls into a single
+            // extra query, so the old pattern did not necessarily cost one
+            // SQL statement per group — but it was still an additional
+            // lookup that this include avoids.
+            //
+            // Filtering to `status: 'ACTIVE'` also guarantees `memberRole` is
+            // never a stale role from an inactive membership: PENDING/LEFT/
+            // BANNED/MUTED rows are not returned, so `isMember` is false and
+            // `memberRole` is omitted. `userId` is unique per group (see the
+            // `@@unique([groupId, userId])` constraint), so this returns at
+            // most one row.
             members: {
               where: { userId, status: 'ACTIVE' },
               select: { role: true, status: true },

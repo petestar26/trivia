@@ -8,8 +8,10 @@
  * in each page.
  *
  * The competitions hub deliberately keeps a DISTINCT single-segment key
- * (`['groups-for-competitions']`) that is a PREFIX of neither `['groups']`
- * nor anything else; consumers invalidate these exact keys, not wildcards.
+ * (`['groups-for-competitions']`), so neither list key is a prefix of the
+ * other. React Query's `invalidateQueries({ queryKey })` matches by PREFIX
+ * unless `exact: true` is supplied: invalidating one of these keys also
+ * refreshes any query whose key starts with it, but never the other list.
  */
 export const GROUPS_QUERY_KEY = ['groups'] as const;
 export const COMPETITIONS_HUB_GROUPS_QUERY_KEY = ['groups-for-competitions'] as const;

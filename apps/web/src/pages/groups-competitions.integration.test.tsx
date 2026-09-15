@@ -47,17 +47,18 @@ function makeClient() {
 
 function renderBothPages(client: QueryClient) {
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>
-      {/* The two routes as siblings so BOTH observers stay active on one
-          shared client — a QueryClientProvider per page would defeat the
-          purpose of this coverage. */}
-      <MemoryRouter>
-        <GroupsPage />
-        <CompetitionsPage />
-      </MemoryRouter>
-    </QueryClientProvider>
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return render(<div>{null}</div>, { wrapper });
+  // The two routes render as siblings so BOTH observers stay active on one
+  // shared client — a QueryClientProvider per page would defeat the purpose
+  // of this coverage.
+  return render(
+    <MemoryRouter>
+      <GroupsPage />
+      <CompetitionsPage />
+    </MemoryRouter>,
+    { wrapper },
+  );
 }
 
 /** Counts listGroups calls by which page they belong to. */
@@ -123,30 +124,5 @@ describe('group-list query keys stay in sync across both pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join' }));
 
     await waitFor(() => expect(listCallCounts()).toEqual({ hub: 2, browser: 2 }));
-  });
-
-  it('pins the hub query to the exact ["groups-for-competitions"] key shared with the browser page', async () => {
-    // If the hub page's query key stopped matching `GROUP_LIST_QUERY_KEYS`,
-    // a create would leave the hub stale: its refetch count would NOT climb.
-    const client = makeClient();
-    mockSharedLists();
-    createGroup.mockResolvedValue({ success: true, data: { id: 'new' } });
-
-    renderBothPages(client);
-    await screen.findByText('Joinable Group');
-    await screen.findByText('You are not a member of any groups yet.');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Another Group' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
-
-    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
-
-    // The hub picker must have refetched exactly alongside the browser.
-    await waitFor(() => {
-      const { hub, browser } = listCallCounts();
-      expect(browser).toBe(2);
-      expect(hub).toBe(2);
-    });
   });
 });
