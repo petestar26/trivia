@@ -488,30 +488,34 @@ describeIf('groups/routes — GET /groups', () => {
       const caller = await createUser('statuses');
       const token = await mintToken(caller);
 
-      const active = await createGroup(caller.id, 'Status Active Group');
+      // Unique test-specific prefix so assertions are scoped to these
+      // fixtures — never to the count of every ACTIVE group in the shared
+      // database, which is unstable under concurrent writers.
+      const prefix = `OpusStatusScope${Date.now()}`;
+      const active = await createGroup(caller.id, `${prefix} Active Group`);
       await addMember(active.id, caller.id, GroupMemberRole.OWNER);
-      const inactive = await createGroup(caller.id, 'Status Inactive Group', { status: GroupStatus.INACTIVE });
-      const archived = await createGroup(caller.id, 'Status Archived Group', { status: GroupStatus.ARCHIVED });
-      const banned = await createGroup(caller.id, 'Status Banned Group', { status: GroupStatus.BANNED });
+      const inactive = await createGroup(caller.id, `${prefix} Inactive Group`, { status: GroupStatus.INACTIVE });
+      const archived = await createGroup(caller.id, `${prefix} Archived Group`, { status: GroupStatus.ARCHIVED });
+      const banned = await createGroup(caller.id, `${prefix} Banned Group`, { status: GroupStatus.BANNED });
       await addMember(inactive.id, caller.id, GroupMemberRole.OWNER);
       await addMember(archived.id, caller.id, GroupMemberRole.OWNER);
       await addMember(banned.id, caller.id, GroupMemberRole.OWNER);
 
-      // Discovery shows every ACTIVE group regardless of membership; the
-      // `total` must exclude the non-active fixtures exactly as the data
-      // does. For mine=true the filtered set is just the caller's group.
-      const activeCount = await prisma.group.count({ where: { status: 'ACTIVE' } });
-
+      // Only these scoped fixtures match the query, so `total` is deterministic
+      // regardless of what other processes create or delete concurrently.
       const modes: Array<{ mine?: boolean }> = [{ mine: true }, {}, { mine: false }];
       for (const params of modes) {
-        const { body } = await listGroups(token, { ...params, limit: 50 });
+        const { body } = await listGroups(token, { ...params, query: prefix, limit: 50 });
         const ids = new Set(body.data.map((g) => g.id));
         expect(ids.has(active.id)).toBe(true);
         expect(ids.has(inactive.id)).toBe(false);
         expect(ids.has(archived.id)).toBe(false);
         expect(ids.has(banned.id)).toBe(false);
 
-        const expectedTotal = params.mine === true ? 1 : activeCount;
+        // Scoped to the unique prefix, exactly one ACTIVE group matches in
+        // every mode: mine=true via the caller's membership, and discovery by
+        // the name filter alone. The non-active fixtures never inflate it.
+        const expectedTotal = 1;
         expect(body.meta.total).toBe(expectedTotal);
         // Pagination metadata is derived from that same filtered count.
         expect(body.meta.totalPages).toBe(Math.ceil(expectedTotal / body.meta.limit));

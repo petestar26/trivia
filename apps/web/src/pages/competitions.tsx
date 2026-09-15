@@ -124,7 +124,17 @@ export function CompetitionsPage() {
   // page request is already in flight from cancelling (and silently
   // re-sending) that same page, so two same-tick activations produce exactly
   // one network call. Used for BOTH Load more and the next-page Retry.
+  //
+  // A background refetch (invalidation/refetchQueries while the list is
+  // already cached) must not blur the focused Load more button: Chromium
+  // drops focus onto <body> when a focused control becomes natively
+  // disabled. During that window Load more stays focusable with
+  // `aria-disabled` and the handler below refuses to run, so no duplicate
+  // request escapes the guard. Only a user-initiated next-page fetch keeps
+  // the native `disabled` so the control reads as genuinely unavailable.
+  const isBackgroundRefetching = isFetching && !isFetchingNextPage && !isLoading;
   const loadNextPage = () => {
+    if (isBackgroundRefetching) return;
     setPaginationEngaged(true);
     setCompletionMessage('');
     trackActivation({ kind: 'next-page', groupCountBefore: groups.length }, fetchNextPage({ cancelRefetch: false }));
@@ -202,11 +212,9 @@ export function CompetitionsPage() {
     return (
       <div ref={rootRef} className="max-w-3xl mx-auto p-4 space-y-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
-        <Card>
-          <CardContent className="py-8 text-center text-red-600 dark:text-red-400">
-            Failed to load your groups.
-          </CardContent>
-        </Card>
+        <p role="alert" className="text-center text-sm text-red-600 dark:text-red-400">
+          Failed to load your groups.
+        </p>
         <div className="flex justify-center">
           <Button variant="outline" size="sm" data-refresh-retry onClick={retryRefresh} disabled={isFetching}>
             {isFetching ? 'Retrying…' : 'Retry'}
@@ -230,10 +238,9 @@ export function CompetitionsPage() {
           message that is NOT a "load more" error. */}
       {isRefetchError && (
         <div
-          role="alert"
           className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200 flex items-center gap-3"
         >
-          <span className="flex-1">Couldn&apos;t refresh groups.</span>
+          <span role="alert" className="flex-1">Couldn&apos;t refresh groups.</span>
           <Button variant="outline" size="sm" data-refresh-retry onClick={retryRefresh} disabled={isFetching}>
             {isFetching ? 'Retrying…' : 'Retry'}
           </Button>
@@ -278,8 +285,11 @@ export function CompetitionsPage() {
           {/* Next-page failure and Load more share the footer. A failed
               fetchNextPage keeps the already-loaded cards on screen; only
               the button area swaps to a clearly-labelled Retry. Both
-              controls stay disabled during ANY fetch, so an activation can
-              never be silently absorbed by an in-flight background refetch. */}
+              controls stay native-disabled only while a user-initiated
+              next-page fetch is in flight; during a background refetch they
+              switch to `aria-disabled` so Chromium never drops focus from the
+              focused control to <body>. The activation guard in loadNextPage
+              rejects any click while a background refetch is running. */}
           {(footerHasControl || paginationEngaged) && (
             <div ref={footerRef} className={footerHasControl ? 'flex flex-col items-center gap-2 pt-2' : undefined}>
               {isFetchNextPageError ? (
@@ -292,7 +302,8 @@ export function CompetitionsPage() {
                     size="sm"
                     data-next-page-control
                     onClick={loadNextPage}
-                    disabled={isFetching}
+                    disabled={isFetchingNextPage}
+                    aria-disabled={isBackgroundRefetching || undefined}
                     aria-busy={isFetchingNextPage}
                   >
                     {isFetchingNextPage ? 'Retrying…' : 'Retry next page'}
@@ -304,7 +315,8 @@ export function CompetitionsPage() {
                   size="sm"
                   data-next-page-control
                   onClick={loadNextPage}
-                  disabled={isFetching}
+                  disabled={isFetchingNextPage}
+                  aria-disabled={isBackgroundRefetching || undefined}
                   aria-busy={isFetchingNextPage}
                 >
                   {isFetchingNextPage ? 'Loading…' : 'Load more'}

@@ -191,20 +191,29 @@ describe('CompetitionsPage', () => {
 
     expect(await screen.findByText('Failed to load your groups.')).toBeInTheDocument();
     expect(screen.queryByText('You are not a member of any groups yet.')).not.toBeInTheDocument();
-    // A Retry control is offered for the failed initial load.
+    // Exactly one role="alert", containing ONLY the message (never the Retry
+    // label), and announced separately from the Retry button.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('Failed to load your groups.');
+    expect(alerts[0].textContent).not.toMatch(/Retry/i);
+    // A Retry control is offered for the failed initial load, outside the
+    // alert, so its changing label is never re-announced as part of it.
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
-  it('recovers from an initial request failure via Retry', async () => {
+  it('recovers from an initial request failure via Retry, clearing the alert', async () => {
     listGroups.mockRejectedValueOnce(new Error('network down'));
     renderPage();
     expect(await screen.findByText('Failed to load your groups.')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
 
     listGroups.mockResolvedValueOnce({ success: true, data: [GROUP_A], meta: page1Meta({ total: 1, totalPages: 1 }) });
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByText('Group Alpha')).toBeInTheDocument();
     expect(screen.queryByText('Failed to load your groups.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('keeps cards visible and shows a distinct refresh error when a background refetch fails', async () => {
@@ -227,6 +236,13 @@ describe('CompetitionsPage', () => {
     });
     expect(screen.queryByText('Couldn\'t load more groups.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    // The role="alert" covers ONLY the message, not the Retry button label,
+    // so the announcement stays "Couldn't refresh groups." — never
+    // "Couldn't refresh groups." + "Retry".
+    const refreshAlerts = screen.getAllByRole('alert');
+    expect(refreshAlerts).toHaveLength(1);
+    expect(refreshAlerts[0]).toHaveTextContent('Couldn\'t refresh groups.');
+    expect(refreshAlerts[0].textContent).not.toMatch(/Retry/i);
   });
 
   it('recovers from a failed background refresh via Retry', async () => {
@@ -369,29 +385,77 @@ describe('CompetitionsPage', () => {
       expect(screen.queryByRole('button', { name: 'Loading…' })).not.toBeInTheDocument();
     });
 
-    it('disables Load more during a background refetch and makes it usable again afterwards', async () => {
+    it('makes Load more aria-disabled (not native-disabled) during a background refetch, preserving focus and request guard', async () => {
       const calls = controlListGroups();
       const client = makeClient();
       renderPage(client);
       await settle(() => nth(calls, 0).request.resolve(listPage(1, [GROUP_A], true)));
 
-      expect(await screen.findByRole('button', { name: 'Load more' })).toBeEnabled();
+      const loadMore = await screen.findByRole('button', { name: 'Load more' });
+      expect(loadMore).toBeEnabled();
+      loadMore.focus();
+      expect(document.activeElement).toBe(loadMore);
 
       refetchHub(client);
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load more' })).toBeDisabled());
 
-      // An activation during the refresh cannot start (or be absorbed into)
+      // During a background refetch Load more stays focusable and is revealed
+      // via aria-disabled — never native `disabled`, which would blur focus
+      // to <body> in Chromium.
+      await waitFor(() => {
+        const btn = screen.getByRole('button', { name: 'Load more' });
+        expect(btn).toBeEnabled();
+        expect(btn).toHaveAttribute('aria-disabled', 'true');
+        expect(btn).not.toHaveAttribute('disabled');
+      });
+      expect(document.activeElement).toBe(loadMore);
+
+      // An activation while aria-disabled cannot start (or be absorbed into)
       // any request.
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
       expect(calls.map((c) => c.page)).toEqual([1, 1]);
 
       await settle(() => nth(calls, 1).request.resolve(listPage(1, [GROUP_A], true)));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled());
+      await waitFor(() => {
+        const btn = screen.getByRole('button', { name: 'Load more' });
+        expect(btn).toBeEnabled();
+        expect(btn).not.toHaveAttribute('aria-disabled');
+      });
+      expect(document.activeElement).toBe(loadMore);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      fireEvent.click(loadMore);
       await waitFor(() => expect(calls.map((c) => c.page)).toEqual([1, 1, 2]));
       await settle(() => nth(calls, 2).request.resolve(listPage(2, [GROUP_B], false)));
       expect(await screen.findByText('Group Beta')).toBeInTheDocument();
+    });
+
+    it('an activation while aria-disabled is fully guarded — no request, no pagination engagement', async () => {
+      const calls = controlListGroups();
+      const client = makeClient();
+      renderPage(client);
+      await settle(() => nth(calls, 0).request.resolve(listPage(1, [GROUP_A], true)));
+
+      const loadMore = await screen.findByRole('button', { name: 'Load more' });
+      loadMore.focus();
+
+      // A background refetch that settles onto the final page.
+      refetchHub(client);
+      await waitFor(() => expect(calls).toHaveLength(2));
+
+      // Activating while aria-disabled must not merely be absorbed: the guard
+      // must stop pagination from being engaged, or the final-page refetch
+      // below would leave a stale footer/status region announcing a page turn
+      // the user never asked for.
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      expect(calls.map((c) => c.page)).toEqual([1, 1]);
+
+      await settle(() => nth(calls, 1).request.resolve(listPage(1, [GROUP_A], false)));
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+      });
+      // No pagination was engaged by the blocked activation, so no completion
+      // status remains mounted in the footer.
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(screen.queryByText('All 1 groups loaded.')).not.toBeInTheDocument();
     });
 
     it('issues exactly one page request for two same-tick Load more activations', async () => {
