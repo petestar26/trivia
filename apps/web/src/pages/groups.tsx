@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -32,8 +33,8 @@ interface GroupSummary {
 // Both list views over `GET /groups` — the flat groups browser here, and the
 // membership-filtered picker on the competitions hub — must refresh together
 // whenever a group is created, or the new group is invisible on one of them
-// until an unrelated refetch happens to occur.
-const GROUP_LIST_QUERY_KEYS = [['groups'], ['groups-for-competitions']] as const;
+// until an unrelated refetch happens to occur. The shared key list lives in
+// @/lib/groups-query-keys so the two pages cannot drift apart.
 
 export function GroupsPage() {
   const navigate = useNavigate();

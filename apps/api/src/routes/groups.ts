@@ -348,13 +348,20 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             },
             // The caller's own membership row (if any), fetched in this
             // same query instead of one `getGroupMembership` call per
-            // group afterward — that N+1 pattern meant a page of `limit`
-            // groups cost `limit` additional round trips just to compute
-            // `isMember`/`memberRole`. `userId` is unique per group (see
-            // the `@@unique([groupId, userId])` constraint), so this
-            // returns at most one row.
+            // group afterward. Keeping that look-up inside this single
+            // `findMany` matters because it eliminates the per-item
+            // delegate calls: while Prisma batches same-tick `findUnique`
+            // calls, they are still separate executable statements per
+            // group, and the included `where: { userId }` would otherwise
+            // need a delegate round trip for each returned row. Filtering
+            // to `status: 'ACTIVE'` here also guarantees `memberRole` is
+            // never the caller's stale role from an inactive membership —
+            // PENDING/LEFT/BANNED/MUTED rows return no membership at all,
+            // so `isMember` is false and `memberRole` is omitted. `userId`
+            // is unique per group (see the `@@unique([groupId, userId])`
+            // constraint), so this returns at most one row.
             members: {
-              where: { userId },
+              where: { userId, status: 'ACTIVE' },
               select: { role: true, status: true },
             },
           },
@@ -382,7 +389,11 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           isPrivate: g.isPrivate,
           status: g.status,
           memberCount: g._count.members,
-          isMember: !!membership && membership.status === 'ACTIVE',
+          // The included membership is already restricted to status ACTIVE,
+          // so a present row means the caller is an active member; an
+          // inactive (or absent) membership produces `isMember: false` and
+          // no `memberRole` at all.
+          isMember: !!membership,
           memberRole: membership?.role,
           owner: g.owner,
           createdAt: g.createdAt,

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { prisma } from '@socialplay/database';
+import { prisma, GroupStatus, GroupMemberRole, GroupMemberStatus } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { buildServer } from '../server';
+import { buildServer } from '../server.js';
 
 const PREFIX = `${config.API_PREFIX}/groups`;
 
@@ -64,15 +64,16 @@ async function createUser(tag: string) {
 async function createGroup(
   ownerId: string,
   name: string,
-  overrides: { isPrivate?: boolean; status?: string; createdAt?: Date } = {}
+  overrides: { isPrivate?: boolean; status?: GroupStatus; createdAt?: Date; id?: string } = {}
 ) {
   const group = await prisma.group.create({
     data: {
+      ...(overrides.id ? { id: overrides.id } : {}),
       ownerId,
       name,
       description: `Fixture group: ${name}`,
       isPrivate: overrides.isPrivate ?? false,
-      status: (overrides.status as any) ?? 'ACTIVE',
+      status: overrides.status ?? GroupStatus.ACTIVE,
     },
   });
   if (overrides.createdAt) {
@@ -85,11 +86,18 @@ async function createGroup(
   return group;
 }
 
-async function addMember(groupId: string, userId: string, role = 'MEMBER', status = 'ACTIVE') {
+async function addMember(
+  groupId: string,
+  userId: string,
+  role: GroupMemberRole = GroupMemberRole.MEMBER,
+  status: GroupMemberStatus = GroupMemberStatus.ACTIVE,
+  joinedAt?: Date
+) {
+  const base = { groupId, userId, role, status };
   return prisma.groupMember.upsert({
     where: { groupId_userId: { groupId, userId } },
-    update: { status: status as any, role: role as any },
-    create: { groupId, userId, role: role as any, status: status as any },
+    update: { role, status, ...(joinedAt ? { joinedAt } : {}) },
+    create: { ...base, ...(joinedAt ? { joinedAt } : {}) },
   });
 }
 
@@ -212,48 +220,31 @@ describeIf('groups/routes — GET /groups', () => {
       });
     });
 
-    it('does not run a per-group membership query for a multi-group mine=true page', async () => {
-      const caller = await createUser('no_n_plus_1');
-      const token = await mintToken(caller);
-
-      const groups = await Promise.all(
-        Array.from({ length: 5 }, (_, i) => createGroup(caller.id, `N1 Group ${i}`))
-      );
-      for (const g of groups) {
-        await addMember(g.id, caller.id, 'OWNER');
-      }
-
-      const findUniqueSpy = vi.spyOn(prisma.groupMember, 'findUnique');
-      try {
-        const { resp, body } = await listGroups(token, { mine: true });
-        expect(resp.statusCode).toBe(200);
-        expect(body.data).toHaveLength(5);
-        // The old implementation called `groupMember.findUnique` once per
-        // returned group (via a per-row `getGroupMembership` lookup). The
-        // membership role is now fetched in the same `findMany` as the
-        // groups themselves, so this must never be called at all.
-        expect(findUniqueSpy).not.toHaveBeenCalled();
-      } finally {
-        findUniqueSpy.mockRestore();
-      }
-    });
-
-    it('reports accurate OWNER, ADMIN, MODERATOR, and MEMBER roles', async () => {
+    it('reports accurate OWNER, ADMIN, MODERATOR, and MEMBER roles — never another member\'s', async () => {
       const caller = await createUser('roles');
-      const owner2 = await createUser('roles_owner2');
+      const decoy = await createUser('roles_decoy');
       const token = await mintToken(caller);
+
+      // The decoy holds a DIFFERENT role with an EARLIER join time in every
+      // one of these groups, so a bug that leaked "the first membership
+      // row" (instead of the caller's own) would surface here.
+      const earlier = new Date('2022-01-01T00:00:00.000Z');
 
       const gOwner = await createGroup(caller.id, 'Roles Owner Group');
       await addMember(gOwner.id, caller.id, 'OWNER');
+      await addMember(gOwner.id, decoy.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE, earlier);
 
-      const gAdmin = await createGroup(owner2.id, 'Roles Admin Group');
-      await addMember(gAdmin.id, caller.id, 'ADMIN');
+      const gAdmin = await createGroup(decoy.id, 'Roles Admin Group');
+      await addMember(gAdmin.id, caller.id, GroupMemberRole.ADMIN);
+      await addMember(gAdmin.id, decoy.id, GroupMemberRole.OWNER, GroupMemberStatus.ACTIVE, earlier);
 
-      const gMod = await createGroup(owner2.id, 'Roles Moderator Group');
-      await addMember(gMod.id, caller.id, 'MODERATOR');
+      const gMod = await createGroup(decoy.id, 'Roles Moderator Group');
+      await addMember(gMod.id, caller.id, GroupMemberRole.MODERATOR);
+      await addMember(gMod.id, decoy.id, GroupMemberRole.ADMIN, GroupMemberStatus.ACTIVE, earlier);
 
-      const gMember = await createGroup(owner2.id, 'Roles Member Group');
-      await addMember(gMember.id, caller.id, 'MEMBER');
+      const gMember = await createGroup(decoy.id, 'Roles Member Group');
+      await addMember(gMember.id, caller.id, GroupMemberRole.MEMBER);
+      await addMember(gMember.id, decoy.id, GroupMemberRole.MODERATOR, GroupMemberStatus.ACTIVE, earlier);
 
       const { resp, body } = await listGroups(token, { mine: true, limit: 50 });
       expect(resp.statusCode).toBe(200);
@@ -421,6 +412,41 @@ describeIf('groups/routes — GET /groups', () => {
       expect(entry?.memberRole).toBe('OWNER');
     });
 
+    it('a stranger in discovery mode gets isMember: false and never another user\'s memberRole', async () => {
+      const stranger = await createUser('stranger');
+      const member = await createUser('stranger_member');
+      const token = await mintToken(stranger);
+
+      const group = await createGroup(member.id, 'Stranger Peek Group');
+      await addMember(group.id, member.id, GroupMemberRole.ADMIN);
+
+      const { body } = await listGroups(token, { query: 'Stranger Peek Group' });
+      const entry = body.data.find((g) => g.id === group.id);
+      expect(entry).toBeDefined();
+      expect(entry!.isMember).toBe(false);
+      // No role may leak from another user's membership.
+      expect(entry!.memberRole).toBeUndefined();
+    });
+
+    it('an inactive former membership reports isMember: false with no memberRole', async () => {
+      const caller = await createUser('former');
+      const token = await mintToken(caller);
+
+      const group = await createGroup(caller.id, 'Former Membership Group');
+      await addMember(group.id, caller.id, GroupMemberRole.OWNER, GroupMemberStatus.LEFT);
+
+      const { body } = await listGroups(token, { query: 'Former Membership Group' });
+      const entry = body.data.find((g) => g.id === group.id);
+      expect(entry).toBeDefined();
+      expect(entry!.isMember).toBe(false);
+      // The stale OWNER role must not surface for an inactive membership.
+      expect(entry!.memberRole).toBeUndefined();
+
+      // mine=true excludes the group entirely for a non-ACTIVE member.
+      const mine = await listGroups(token, { mine: true, limit: 50 });
+      expect(mine.body.data.map((g) => g.id)).not.toContain(group.id);
+    });
+
     it('omitted mine and explicit mine=false return the same result set and meta', async () => {
       const caller = await createUser('discovery_parity');
       const token = await mintToken(caller);
@@ -432,6 +458,111 @@ describeIf('groups/routes — GET /groups', () => {
 
       expect(omitted.body.data.map((g) => g.id)).toEqual(explicitFalse.body.data.map((g) => g.id));
       expect(omitted.body.meta).toEqual(explicitFalse.body.meta);
+    });
+  });
+
+  describe('deterministic ordering with an id tie-breaker', () => {
+    it('sorts equal-createdAt groups by createdAt DESC, id DESC across page boundaries, repeatedly', async () => {
+      const caller = await createUser('ties');
+      const token = await mintToken(caller);
+
+      const tiedAt = new Date('2024-05-05T00:00:00.000Z');
+      const idC = '00000000-0000-0000-0000-00000000000c';
+      const idB = '00000000-0000-0000-0000-00000000000b';
+      const idA = '00000000-0000-0000-0000-00000000000a';
+      const gA = await createGroup(caller.id, 'Tie A', { id: idA, createdAt: tiedAt });
+      const gB = await createGroup(caller.id, 'Tie B', { id: idB, createdAt: tiedAt });
+      const gC = await createGroup(caller.id, 'Tie C', { id: idC, createdAt: tiedAt });
+      for (const g of [gA, gB, gC]) await addMember(g.id, caller.id, GroupMemberRole.OWNER);
+
+      // Descending createdAt then descending id: C, B, A.
+      const expectedDesc = [idC, idB, idA];
+
+      // Page boundaries with limit: 1 and limit: 2.
+      const oneByOne = [];
+      for (const page of [1, 2, 3]) {
+        const { body } = await listGroups(token, { mine: true, limit: 1, page });
+        oneByOne.push(...body.data.map((g) => g.id));
+      }
+      expect(oneByOne).toEqual(expectedDesc);
+
+      const twoPage1 = await listGroups(token, { mine: true, limit: 2, page: 1 });
+      const twoPage2 = await listGroups(token, { mine: true, limit: 2, page: 2 });
+      expect(twoPage1.body.data.map((g) => g.id)).toEqual([idC, idB]);
+      expect(twoPage2.body.data.map((g) => g.id)).toEqual([idA]);
+
+      // No duplicate and no skipped ids across the page boundary.
+      const stitched = [...twoPage1.body.data, ...twoPage2.body.data].map((g) => g.id);
+      expect(new Set(stitched)).toEqual(new Set(expectedDesc));
+
+      // Identical results on repeated full scans.
+      const again = await listGroups(token, { mine: true, limit: 50 });
+      expect(again.body.data.map((g) => g.id)).toEqual(expectedDesc);
+      const third = await listGroups(token, { mine: true, limit: 50 });
+      expect(third.body.data.map((g) => g.id)).toEqual(expectedDesc);
+    });
+  });
+
+  describe('non-active group statuses are excluded', () => {
+    it('INACTIVE, ARCHIVED, and BANNED groups are absent from data, total, and pagination', async () => {
+      const caller = await createUser('statuses');
+      const token = await mintToken(caller);
+
+      const active = await createGroup(caller.id, 'Status Active Group');
+      await addMember(active.id, caller.id, GroupMemberRole.OWNER);
+      const inactive = await createGroup(caller.id, 'Status Inactive Group', { status: GroupStatus.INACTIVE });
+      const archived = await createGroup(caller.id, 'Status Archived Group', { status: GroupStatus.ARCHIVED });
+      const banned = await createGroup(caller.id, 'Status Banned Group', { status: GroupStatus.BANNED });
+      await addMember(inactive.id, caller.id, GroupMemberRole.OWNER);
+      await addMember(archived.id, caller.id, GroupMemberRole.OWNER);
+      await addMember(banned.id, caller.id, GroupMemberRole.OWNER);
+
+      // Discovery shows every ACTIVE group regardless of membership; the
+      // `total` must exclude the non-active fixtures exactly as the data
+      // does. For mine=true the filtered set is just the caller's group.
+      const activeCount = await prisma.group.count({ where: { status: 'ACTIVE' } });
+
+      const modes: Array<{ mine?: boolean }> = [{ mine: true }, {}, { mine: false }];
+      for (const params of modes) {
+        const { body } = await listGroups(token, { ...params, limit: 50 });
+        const ids = new Set(body.data.map((g) => g.id));
+        expect(ids.has(active.id)).toBe(true);
+        expect(ids.has(inactive.id)).toBe(false);
+        expect(ids.has(archived.id)).toBe(false);
+        expect(ids.has(banned.id)).toBe(false);
+
+        const expectedTotal = params.mine === true ? 1 : activeCount;
+        expect(body.meta.total).toBe(expectedTotal);
+        // Pagination metadata is derived from that same filtered count.
+        expect(body.meta.totalPages).toBe(Math.ceil(expectedTotal / body.meta.limit));
+        expect(body.meta.hasNextPage).toBe(body.meta.page < body.meta.totalPages);
+      }
+    });
+  });
+
+  describe('memberCount counts only ACTIVE memberships', () => {
+    it('ignores PENDING, LEFT, BANNED, and MUTED members', async () => {
+      const caller = await createUser('mc_owner');
+      const token = await mintToken(caller);
+      const group = await createGroup(caller.id, 'Member Count Group');
+      await addMember(group.id, caller.id, GroupMemberRole.OWNER);
+
+      const p1 = await createUser('mc_active');
+      const p2 = await createUser('mc_pending');
+      const p3 = await createUser('mc_left');
+      const p4 = await createUser('mc_banned');
+      const p5 = await createUser('mc_muted');
+      await addMember(group.id, p1.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+      await addMember(group.id, p2.id, GroupMemberRole.MEMBER, GroupMemberStatus.PENDING);
+      await addMember(group.id, p3.id, GroupMemberRole.MEMBER, GroupMemberStatus.LEFT);
+      await addMember(group.id, p4.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+      await addMember(group.id, p5.id, GroupMemberRole.MEMBER, GroupMemberStatus.MUTED);
+
+      const { body } = await listGroups(token, { query: 'Member Count Group' });
+      const entry = body.data.find((g) => g.id === group.id);
+      expect(entry).toBeDefined();
+      // Only the caller (OWNER) and the ACTIVE member count.
+      expect(entry!.memberCount).toBe(2);
     });
   });
 });

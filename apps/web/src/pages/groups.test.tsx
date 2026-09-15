@@ -88,6 +88,24 @@ describe('GroupsPage', () => {
 
     expect(await screen.findByText('No groups found.')).toBeInTheDocument();
   });
+
+  it('shows a loading state without flashing the empty state while the list loads', async () => {
+    let resolvePage!: (v: unknown) => void;
+    listGroups.mockImplementation(() => new Promise((resolve) => { resolvePage = resolve; }));
+
+    renderPage();
+
+    // No premature "No groups found." while waiting for the first request.
+    expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create your first group' })).not.toBeInTheDocument();
+
+    resolvePage({
+      success: true,
+      data: [{ id: 'group-1', name: 'Loaded Group', memberCount: 1, isMember: true, isPrivate: false }],
+    });
+    expect(await screen.findByText('Loaded Group')).toBeInTheDocument();
+    expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
+  });
 });
 
 describe('GroupsPage — join progression invalidation', () => {
