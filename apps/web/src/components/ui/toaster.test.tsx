@@ -21,6 +21,14 @@ afterEach(() => {
   });
   unmount();
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  // Sweep up any manually-appended "outside" focus target a test forgot
+  // to remove itself, so a leftover focused, orphaned node can't bleed
+  // into the next test's `document.activeElement` state.
+  document.querySelectorAll('[data-test-outside]').forEach((n) => n.remove());
+  if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+    document.activeElement.blur();
+  }
 });
 
 function regionWrapper() {
@@ -29,6 +37,29 @@ function regionWrapper() {
 
 function viewportOl() {
   return document.querySelector('ol') as HTMLOListElement | null;
+}
+
+/** A focusable element outside the toast stack, tagged for the afterEach
+ * sweep above so individual tests don't need their own manual `.remove()`. */
+function mountOutsideButton() {
+  const button = document.createElement('button');
+  button.textContent = 'outside';
+  button.setAttribute('data-test-outside', '');
+  document.body.appendChild(button);
+  return button;
+}
+
+/** Marks the next input as keyboard-driven for `Toaster`'s own input
+ * -modality tracking — the same public keydown/pointerdown heuristic
+ * `:focus-visible` (and its polyfills) use to tell a Tab-into-the-viewport
+ * apart from a mouse click that happens to leave focus in the same place. */
+function markKeyboardInput() {
+  fireEvent.keyDown(document.body, { key: 'Tab' });
+}
+
+/** Marks the next input as pointer-driven (see `markKeyboardInput`). */
+function markPointerInput() {
+  fireEvent.pointerDown(document.body);
 }
 
 describe('Toaster — viewport composition', () => {
@@ -107,7 +138,17 @@ describe('Toaster — viewport composition', () => {
 });
 
 describe('Toaster — accessible announcements', () => {
-  it('announces a default toast politely and a destructive one assertively, with title+description together and no duplicate live region on the visible toast', async () => {
+  async function waitForAnnounce() {
+    let status: Element | null = null;
+    await waitFor(() => {
+      status = document.querySelector('[role="status"]');
+      expect(status).not.toBeNull();
+      expect(status!.textContent).not.toBe('');
+    });
+    return status as unknown as Element;
+  }
+
+  it('announces title+description together, atomically, with no duplicate live region on the visible toast', async () => {
     render(<Toaster />);
     act(() => {
       toast({ title: 'Group created', description: 'Everyone can join now.' });
@@ -121,61 +162,77 @@ describe('Toaster — accessible announcements', () => {
     expect(li).not.toHaveAttribute('role', 'alert');
     expect(li).not.toHaveAttribute('aria-live');
 
-    await waitFor(() => {
-      const status = document.querySelector('[role="status"]');
-      expect(status).not.toBeNull();
-      expect(status!.getAttribute('aria-live')).toBe('polite');
-      // Exact text, not separate title/description regexes: this is what
-      // actually reaches a screen reader (Radix's default label + " " +
-      // this toast's own flattened text nodes), and it's the only way to
-      // catch title and description running together with no separator
-      // ("Group createdEveryone can join now.") or arriving out of order —
-      // both would still satisfy two independent substring regexes.
-      expect(status!.textContent).toBe('Notification Group created. Everyone can join now.');
-    });
+    const status = await waitForAnnounce();
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    // Exact text, not separate title/description regexes: this is what
+    // actually reaches a screen reader (Radix's default label + " " +
+    // this toast's own flattened text nodes), and it's the only way to
+    // catch title and description running together with no separator
+    // ("Group createdEveryone can join now.") or arriving out of order —
+    // both would still satisfy two independent substring regexes.
+    expect(status.textContent).toBe('Notification Group created. Everyone can join now.');
 
     // Exactly one live region exists for this one toast (no overlap).
     expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
   });
 
-  it('announces a destructive toast assertively', async () => {
+  it('announces a destructive toast assertively, ordered title-then-description', async () => {
     render(<Toaster />);
     act(() => {
-      toast({ title: 'Failed to create group', variant: 'destructive' });
-    });
-    await screen.findByText('Failed to create group');
-
-    await waitFor(() => {
-      const status = document.querySelector('[role="status"]');
-      expect(status).not.toBeNull();
-      expect(status!.getAttribute('aria-live')).toBe('assertive');
-      expect(status!.textContent).toMatch(/Failed to create group/);
-    });
-  });
-
-  it('separates title and description with clear punctuation in a destructive announcement', async () => {
-    render(<Toaster />);
-    act(() => {
-      toast({ title: 'Error', description: 'Failed to join.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to join', variant: 'destructive' });
     });
     await screen.findByText('Error');
 
-    await waitFor(() => {
-      const status = document.querySelector('[role="status"]');
-      expect(status).not.toBeNull();
-      // The separator only ever goes BETWEEN title and description — it
-      // doesn't invent trailing punctuation on top of whatever the
-      // description string itself already ends with.
-      expect(status!.textContent).toBe('Notification Error. Failed to join.');
+    const status = await waitForAnnounce();
+    expect(status.getAttribute('aria-live')).toBe('assertive');
+    expect(status.textContent).toBe('Notification Error. Failed to join');
+  });
+
+  describe('separator punctuation between title and description', () => {
+    it.each([
+      ['no trailing punctuation gets a full stop', 'Group created', 'Everyone can join', 'Notification Group created. Everyone can join'],
+      ['a title already ending in "." gets only a space', 'Failed to join.', 'Try again shortly', 'Notification Failed to join. Try again shortly'],
+      ['a title already ending in "!" gets only a space', 'Correct!', '+10 points', 'Notification Correct! +10 points'],
+      ['a title already ending in "?" gets only a space', 'Still there?', 'Reconnecting', 'Notification Still there? Reconnecting'],
+      ['a title already ending in ":" gets only a space', 'Warning:', 'Try again', 'Notification Warning: Try again'],
+      ['trailing whitespace after punctuation is still detected', 'Done!  ', 'Nice work', 'Notification Done!   Nice work'],
+    ])('%s', async (_label, title, description, expected) => {
+      render(<Toaster />);
+      act(() => {
+        toast({ title, description });
+      });
+      const status = await waitForAnnounce();
+      expect(status.textContent).toBe(expected);
     });
+  });
+
+  it('title-only: announced with no stray separator or trailing punctuation', async () => {
+    render(<Toaster />);
+    act(() => {
+      toast({ title: 'Joined group' });
+    });
+    const status = await waitForAnnounce();
+    expect(status.textContent).toBe('Notification Joined group');
+    // No sr-only separator span at all when there's nothing to separate.
+    expect(document.querySelector('li span.sr-only')).toBeNull();
+  });
+
+  it('description-only: announced with no stray separator', async () => {
+    render(<Toaster />);
+    act(() => {
+      toast({ description: 'Only a description' });
+    });
+    const status = await waitForAnnounce();
+    expect(status.textContent).toBe('Notification Only a description');
+    expect(document.querySelector('li span.sr-only')).toBeNull();
   });
 
   it('does not move keyboard focus when a toast appears', async () => {
     render(<Toaster />);
-    const outsideButton = document.createElement('button');
-    outsideButton.textContent = 'outside';
-    document.body.appendChild(outsideButton);
-    outsideButton.focus();
+    const outsideButton = mountOutsideButton();
+    act(() => {
+      outsideButton.focus();
+    });
     expect(document.activeElement).toBe(outsideButton);
 
     act(() => {
@@ -184,7 +241,6 @@ describe('Toaster — accessible announcements', () => {
     await screen.findByText('Reward claimed');
 
     expect(document.activeElement).toBe(outsideButton);
-    outsideButton.remove();
   });
 });
 
@@ -371,8 +427,12 @@ describe('Toaster — automatic expiration and bounded stacking', () => {
     // genuinely cleared, the pending-timer count would stay where it was
     // until that stale timer eventually fires on its own — a real,
     // measurable difference from actual cancellation, and the gap a
-    // "harmless because IDs are unique" argument can't paper over.
-    expect(vi.getTimerCount()).toBeLessThan(pendingBeforeDismiss);
+    // "harmless because IDs are unique" argument can't paper over. With
+    // only this one toast ever having existed, settlement means exactly
+    // zero pending timers, not merely "fewer than before" (which would
+    // also pass if only one of its two timers — the close timer or the
+    // announcer's own auto-hide timer — had actually been cleared).
+    expect(vi.getTimerCount()).toBe(0);
 
     // And advancing well past the original duration must not throw, warn,
     // or resurrect/affect anything.
@@ -619,6 +679,227 @@ describe('Toaster — resumes correctly after the queue empties out', () => {
   });
 });
 
+describe('Toaster — keyboard focus surviving a session remount stays paused', () => {
+  // The remount above (restoring focus so it doesn't fall to <body>)
+  // trades the original stuck-pause defect for a smaller one: Radix's own
+  // pause listeners aren't attached to the fresh viewport until AFTER
+  // this component's own effects run, so restoring focus there — on its
+  // own — doesn't produce the `focusin` Radix listens for. A genuine
+  // keyboard user who never actually left the notifications region would
+  // see their next toast auto-dismiss anyway. `Toaster` resolves this by
+  // re-triggering a real focus transition once Radix's listeners exist,
+  // but ONLY when the focus being restored was actually keyboard-driven —
+  // Radix's own `handleClose` moves focus onto the viewport identically
+  // for a mouse click, and that must keep expiring normally (this is the
+  // fix from the previous round; it must not regress).
+  it('keyboard: focus left on the remounted viewport keeps the next toast paused beyond its duration', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    markKeyboardInput();
+    act(() => {
+      toast({ title: 'First', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => {
+      closeButton.focus();
+    });
+    fireEvent.click(closeButton);
+    expect(document.activeElement).toBe(viewportOl());
+
+    act(() => {
+      toast({ title: 'Second', duration: 2000 });
+    });
+    // Focus was restored onto the new viewport by a genuine keyboard
+    // user — still there, and the deferred re-pause hasn't run yet.
+    expect(document.activeElement).toBe(viewportOl());
+
+    // Let the deferred re-pause settle, then advance well past the
+    // toast's nominal duration — still here, because it's paused.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.getByText('Second')).toBeInTheDocument();
+  });
+
+  it('keyboard: once focus actually leaves the remounted viewport, the toast resumes and expires', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    markKeyboardInput();
+    act(() => {
+      toast({ title: 'First', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => {
+      closeButton.focus();
+    });
+    fireEvent.click(closeButton);
+
+    act(() => {
+      toast({ title: 'Second', duration: 2000 });
+    });
+    // Let the deferred re-pause settle — the re-pause happens almost
+    // immediately after creation, so it's paused with close to its full
+    // original duration intact; advancing well past that original
+    // duration proves it's genuinely paused, not just slow to fire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.getByText('Second')).toBeInTheDocument();
+
+    const outside = mountOutsideButton();
+    fireEvent.focusOut(viewportOl()!, { relatedTarget: outside });
+    act(() => {
+      outside.focus();
+    });
+
+    // Resumes with its remaining duration (close to the full 2000ms,
+    // since almost none of it had elapsed before pausing) and eventually
+    // expires — this is the escape hatch: a keyboard user who tabs away
+    // is never stuck forever.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(screen.queryByText('Second')).not.toBeInTheDocument();
+  });
+
+  it('mouse: a click that leaves focus on the remounted viewport does NOT pause the next toast', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    markPointerInput();
+    act(() => {
+      toast({ title: 'First', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    fireEvent.pointerMove(regionWrapper()!);
+    act(() => {
+      // A real mouse click focuses its target as a side effect, even
+      // without JS — this reproduces that, not just the click itself.
+      closeButton.focus();
+    });
+    fireEvent.click(closeButton);
+    expect(document.activeElement).toBe(viewportOl());
+
+    act(() => {
+      toast({ title: 'Second', duration: 2000 });
+    });
+    expect(document.activeElement).toBe(viewportOl());
+
+    // Unpaused: expires right on schedule, not held open by the keyboard
+    // -only re-pause.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(screen.queryByText('Second')).not.toBeInTheDocument();
+  });
+
+  it('mouse: a later click genuinely resets modality back to pointer after an earlier keyboard input', async () => {
+    // Proves the modality tracker actually responds to a real pointerdown
+    // — not just that it happens to default to "pointer" — by marking
+    // keyboard input FIRST, then pointer input, then checking the
+    // pointer (not the earlier keyboard) modality is what's in effect at
+    // dismissal time.
+    vi.useFakeTimers();
+    render(<Toaster />);
+    markKeyboardInput();
+    markPointerInput();
+    act(() => {
+      toast({ title: 'First', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => {
+      closeButton.focus();
+    });
+    fireEvent.click(closeButton);
+
+    act(() => {
+      toast({ title: 'Second', duration: 2000 });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(screen.queryByText('Second')).not.toBeInTheDocument();
+  });
+
+  it('a real Tab into a freshly rendered toast still pauses it normally, independent of the remount fix', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    act(() => {
+      toast({ title: 'Ordinary', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    markKeyboardInput();
+    fireEvent.focusIn(closeButton);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(screen.getByText('Ordinary')).toBeInTheDocument();
+  });
+
+  it('does not duplicate the provider, toast, announcer, viewport, or timers while re-pausing', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    markKeyboardInput();
+    act(() => {
+      toast({ title: 'First', duration: 2000 });
+    });
+    const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+    act(() => {
+      closeButton.focus();
+    });
+    fireEvent.click(closeButton);
+
+    act(() => {
+      toast({ title: 'Second', duration: 2000 });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(document.querySelectorAll('li')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(document.querySelectorAll('ol')).toHaveLength(1);
+    const { result, unmount } = renderHook(() => useToast());
+    expect(result.current.toasts).toHaveLength(1);
+    unmount();
+  });
+
+  it('repeated close/reopen cycles keep re-pausing correctly each time', async () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    for (let i = 0; i < 3; i++) {
+      markKeyboardInput();
+      act(() => {
+        toast({ title: `Cycle ${i}`, duration: 2000 });
+      });
+      const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
+      act(() => {
+        closeButton.focus();
+      });
+      fireEvent.click(closeButton);
+
+      act(() => {
+        toast({ title: `After ${i}`, duration: 2000 });
+      });
+      expect(document.activeElement).toBe(viewportOl());
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      expect(screen.getByText(`After ${i}`)).toBeInTheDocument();
+
+      const outside = mountOutsideButton();
+      fireEvent.focusOut(viewportOl()!, { relatedTarget: outside });
+      act(() => {
+        outside.focus();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      expect(screen.queryByText(`After ${i}`)).not.toBeInTheDocument();
+    }
+  });
+});
+
 describe('Toaster — preserves focus during programmatic removal', () => {
   // Unlike the close button / Escape / swipe (which move focus to the
   // viewport themselves, synchronously, before Radix's own onClose fires),
@@ -667,17 +948,21 @@ describe('Toaster — preserves focus during programmatic removal', () => {
     expect(document.activeElement).toBe(viewportOl());
   });
 
-  it('eviction does not steal focus when the evicted toast does not contain it', async () => {
+  it('eviction does not steal focus when nothing is focused and the evicted toast is unfocused', async () => {
+    // Deliberately starts with NOTHING focused (`<body>`), rather than
+    // some other still-existing element outside the toast stack: React's
+    // own commit machinery quietly restores focus onto a previously
+    // -focused element that's still in the document after an unrelated
+    // DOM mutation elsewhere in the same commit — which would make a
+    // "focus stays on some other outside element" version of this test
+    // pass even if the fix's own cleanup unconditionally stole focus on
+    // every removal. Starting from `<body>` (nothing to restore to) is
+    // what makes the assertion below fail if focus is genuinely stolen.
     render(<Toaster />);
     act(() => {
       toast({ title: 'Oldest', duration: 60000 });
     });
-    const outside = document.createElement('button');
-    outside.textContent = 'outside';
-    document.body.appendChild(outside);
-    act(() => {
-      outside.focus();
-    });
+    expect(document.activeElement).toBe(document.body);
 
     act(() => {
       toast({ title: 'N1' });
@@ -686,9 +971,7 @@ describe('Toaster — preserves focus during programmatic removal', () => {
     });
 
     expect(screen.queryByText('Oldest')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(outside);
-
-    outside.remove();
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('ordinary close-button dismissal still moves focus to the viewport exactly as before', async () => {

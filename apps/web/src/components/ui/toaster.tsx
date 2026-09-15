@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -15,6 +16,63 @@ import {
   ToastTitle,
   ToastViewport,
 } from '@/components/ui/toast';
+
+// A string title that already ends (after trimming trailing whitespace)
+// in one of these needs only a space before the description — adding a
+// period on top would double up ("Correct!." or "Warning:."). Anything
+// else gets a full stop so two otherwise-unrelated sentences don't run
+// together.
+const TRAILING_PUNCTUATION_RE = /[.!?:]$/;
+
+/**
+ * The separator placed between title and description in the announcer's
+ * flattened text (see the comment at its usage site for why one is needed
+ * at all). A non-string title — a custom `ReactNode` a call site passed
+ * instead of plain text — is deliberately NOT inspected for its rendered
+ * text: walking arbitrary React children to guess whether they "end in
+ * punctuation" is unreliable and unsafe, so it always gets the safe
+ * default, `'. '`.
+ */
+function announceSeparator(title: ReactNode): string {
+  if (typeof title === 'string' && TRAILING_PUNCTUATION_RE.test(title.trimEnd())) {
+    return ' ';
+  }
+  return '. ';
+}
+
+type InputModality = 'keyboard' | 'pointer';
+
+/**
+ * Tracks whether the user's most recent input was keyboard-driven, using
+ * the same public-event heuristic the `:focus-visible` polyfill (and
+ * browsers' own native `:focus-visible` implementation) use: any keydown
+ * means "keyboard" until the next pointerdown flips it back to "pointer".
+ *
+ * Needed because Radix's own `handleClose` moves focus onto the viewport
+ * identically whether a toast was closed by a mouse click or a keyboard
+ * Enter/Escape — the resulting focus *location* can't tell those apart,
+ * but the input that produced it can. Only public DOM events are used
+ * here; nothing reaches into Radix's own internals.
+ */
+function useInputModality(): RefObject<InputModality> {
+  const modalityRef = useRef<InputModality>('pointer');
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onKeyDown = () => {
+      modalityRef.current = 'keyboard';
+    };
+    const onPointerDown = () => {
+      modalityRef.current = 'pointer';
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, []);
+  return modalityRef;
+}
 
 /**
  * Radix keeps its "is close paused" flag as a ref created once, inside
@@ -37,11 +95,27 @@ import {
  * see the note below on why this is Strict-Mode safe), so it can't
  * duplicate an in-flight timer or announcement: there is nothing mounted
  * under the old provider for it to duplicate.
+ *
+ * That remount trades one defect for a smaller one: if the old (now
+ * empty) viewport still held genuine *keyboard* focus, restoring focus
+ * onto the freshly-mounted viewport happens before Radix's own pause
+ * listeners are attached to it (they're wired up in `ToastViewport`'s own
+ * effect, which hasn't run yet when this component's layout effect moves
+ * focus). A real Tab keystroke arriving after that point pauses normally;
+ * focus merely being *restored* there does not, on its own, produce the
+ * `focusin` Radix listens for. `repauseNeededRef` flags that specific
+ * case — keyboard focus, not a mouse click that happens to leave focus in
+ * the same place — for `Toaster` to resolve once those listeners exist.
  */
-function useToastSession(isEmpty: boolean, viewportRef: RefObject<HTMLOListElement | null>) {
+function useToastSession(
+  isEmpty: boolean,
+  viewportRef: RefObject<HTMLOListElement | null>,
+  modalityRef: RefObject<InputModality>,
+) {
   const [wasEmpty, setWasEmpty] = useState(true);
   const [sessionKey, setSessionKey] = useState(0);
   const restoreFocusRef = useRef(false);
+  const repauseNeededRef = useRef(false);
 
   // Calling setState directly in the render body (rather than an effect)
   // is React's own documented pattern for "adjust state when a prop
@@ -58,12 +132,15 @@ function useToastSession(isEmpty: boolean, viewportRef: RefObject<HTMLOListEleme
       // that already has one, and never during module load or SSR.
       if (typeof document !== 'undefined' && viewportRef.current?.contains(document.activeElement)) {
         restoreFocusRef.current = true;
+        if (modalityRef.current === 'keyboard') {
+          repauseNeededRef.current = true;
+        }
       }
       setSessionKey((key) => key + 1);
     }
   }
 
-  return { sessionKey, restoreFocusRef };
+  return { sessionKey, restoreFocusRef, repauseNeededRef };
 }
 
 /**
@@ -133,7 +210,8 @@ export function Toaster() {
   // "move focus to the viewport first" strategy Radix's own close
   // button/Escape/swipe already use internally.
   const viewportRef = useRef<HTMLOListElement | null>(null);
-  const { sessionKey, restoreFocusRef } = useToastSession(isEmpty, viewportRef);
+  const modalityRef = useInputModality();
+  const { sessionKey, restoreFocusRef, repauseNeededRef } = useToastSession(isEmpty, viewportRef, modalityRef);
 
   useLayoutEffect(() => {
     if (restoreFocusRef.current) {
@@ -144,6 +222,55 @@ export function Toaster() {
     // not on every ordinary toast add/remove within a session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionKey]);
+
+  useEffect(() => {
+    if (!repauseNeededRef.current) return;
+    repauseNeededRef.current = false;
+    // Deferred across two animation frames, not a single macrotask and
+    // not a plain passive effect: one same-tick pass isn't enough, because
+    // each individual <Toast>'s own listener for Radix's pause/resume
+    // broadcast is gated behind `context.viewport`, a piece of *React
+    // state* set via the new <ToastViewport>'s ref callback — so it only
+    // becomes non-null after its OWN follow-up render, one this same
+    // commit's passive-effect flush doesn't wait for. Firing the
+    // blur/focus transition inside a plain `useEffect`, or even after a
+    // single `setTimeout(0)`, reliably reaches the region wrapper's own
+    // (ref-based, immediately-available) pause listener, but loses the
+    // race with that follow-up render in a real browser (confirmed: it
+    // works every time in jsdom/`act()`, which flushes all of a commit's
+    // cascading updates synchronously, and is unreliable in a real
+    // browser, where React's own scheduling of that follow-up render can
+    // take longer than either — so the broadcast fires before any toast
+    // is actually listening for it, and nothing's timer gets paused
+    // despite the wrapper itself correctly flipping to "paused"). Two
+    // animation frames is the standard "wait for the browser to have
+    // fully settled" pattern and was verified empirically to close this
+    // gap reliably; both frames are cancelled together on cleanup.
+    let rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        const el = viewportRef.current;
+        // Only proceed if focus is STILL on the viewport we just restored
+        // it to — if the user already moved on in the interim, there's
+        // nothing to re-pause.
+        if (typeof document === 'undefined' || !el || document.activeElement !== el) return;
+        // A `.blur()` immediately followed by `.focus()` is a genuine
+        // focus transition (the same shape of native `focusout`/`focusin`
+        // pair a real Tab keystroke produces), so Radix's listeners
+        // receive a real event and pause exactly as they would for an
+        // actual keyboard user re-entering the viewport — no
+        // Radix-internal ref or undocumented API involved, only its own
+        // public event contract.
+        el.blur();
+        el.focus();
+      });
+    });
+    return () => cancelAnimationFrame(rafId);
+    // `repauseNeededRef` is a stable ref object returned by
+    // `useToastSession` (its identity never changes across `Toaster`'s
+    // own re-renders), so listing it here doesn't change how often this
+    // effect runs — it only satisfies the "value from outside the effect"
+    // check.
+  }, [sessionKey, repauseNeededRef]);
 
   return (
     <ToastProvider key={sessionKey} duration={DEFAULT_TOAST_DURATION}>
@@ -180,8 +307,11 @@ export function Toaster() {
                 screen-reader-only (not `hidden`/`aria-hidden`/`display:
                 none`, all of which the announcer explicitly skips) so it
                 joins the announced text without changing anything
-                visible. */}
-            {title && description && <span className="sr-only">. </span>}
+                visible. `announceSeparator` picks a bare space instead of
+                a period when the title already ends in its own
+                punctuation ("Correct!" + "+10 points" → "Correct! +10
+                points", not "Correct!. +10 points"). */}
+            {title && description && <span className="sr-only">{announceSeparator(title)}</span>}
             {description && <ToastDescription>{description}</ToastDescription>}
           </div>
           {action}
