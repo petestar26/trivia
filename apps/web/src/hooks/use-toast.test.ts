@@ -1,7 +1,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { StrictMode, createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_TOAST_DURATION, TOAST_LIMIT, dismissToast, toast, useToast } from './use-toast';
+import {
+  DEFAULT_TOAST_DURATION,
+  TOAST_LIMIT,
+  __getListenerCountForTests,
+  dismissToast,
+  toast,
+  useToast,
+} from './use-toast';
 
 /**
  * Drains the module-level store back to empty after every test, so tests
@@ -74,6 +81,49 @@ describe('use-toast store', () => {
     expect(DEFAULT_TOAST_DURATION).toBeLessThanOrEqual(8000);
   });
 
+  describe('duration normalization', () => {
+    // `toast()` normalizes `duration` before it's ever stored, so a bad
+    // value can't reach <ToastProvider> and produce a toast that closes
+    // almost instantly (a truthy-but-tiny or negative delay, or a delay
+    // past the browser's 32-bit setTimeout limit) or never closes
+    // (`Infinity`). Normalizing to `undefined` here — rather than baking
+    // in DEFAULT_TOAST_DURATION directly — lets Radix's own
+    // `durationProp || context.duration` fallback do the rest, so there's
+    // one source of truth for what "the default" actually is.
+    const MAX_TOAST_DURATION_MS = 2_147_483_647;
+
+    it('keeps a valid custom duration unchanged', () => {
+      const { result } = renderHook(() => useToast());
+      act(() => { toast({ title: 'Valid', duration: 3000 }); });
+      expect(result.current.toasts[0].duration).toBe(3000);
+    });
+
+    it('keeps the maximum safe duration unchanged', () => {
+      const { result } = renderHook(() => useToast());
+      act(() => { toast({ title: 'Max', duration: MAX_TOAST_DURATION_MS }); });
+      expect(result.current.toasts[0].duration).toBe(MAX_TOAST_DURATION_MS);
+    });
+
+    it('normalizes an omitted duration to undefined', () => {
+      const { result } = renderHook(() => useToast());
+      act(() => { toast({ title: 'Omitted' }); });
+      expect(result.current.toasts[0].duration).toBeUndefined();
+    });
+
+    it.each([
+      ['zero', 0],
+      ['negative', -1],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['one past the safe maximum', MAX_TOAST_DURATION_MS + 1],
+      ['far past the safe maximum', 3_000_000_000],
+    ])('normalizes %s to undefined (falls back to the default)', (_label, duration) => {
+      const { result } = renderHook(() => useToast());
+      act(() => { toast({ title: 'Invalid', duration }); });
+      expect(result.current.toasts[0].duration).toBeUndefined();
+    });
+  });
+
   it('dismissToast(id) removes only the targeted toast', () => {
     const { result } = renderHook(() => useToast());
     let first!: { id: string };
@@ -90,16 +140,20 @@ describe('use-toast store', () => {
     expect(result.current.toasts[0].title).toBe('Stays');
   });
 
-  it('a component unmounting stops receiving further store updates (no stale-listener leak)', () => {
-    const { result, unmount } = renderHook(() => useToast());
-    unmount();
+  it('unmounting a subscriber actually removes it from the store (no orphaned listener)', () => {
+    // `toast()` not throwing after unmount proves nothing on its own —
+    // React 18 doesn't warn on a stale setState from an unmounted
+    // function component either way, so a leaked listener would be
+    // silently invisible to that kind of check. Assert the store's own
+    // subscriber count directly instead.
+    const before = __getListenerCountForTests();
+    const { unmount } = renderHook(() => useToast());
+    expect(__getListenerCountForTests()).toBe(before + 1);
 
-    // No assertion target on `result` after unmount — this just proves the
-    // subsequent `toast()` call doesn't throw from notifying a listener
-    // whose owning component is gone (i.e. the cleanup in the hook's
-    // effect actually removed it from `listeners`).
+    unmount();
+    expect(__getListenerCountForTests()).toBe(before);
+
     expect(() => act(() => { toast({ title: 'After unmount' }); })).not.toThrow();
-    void result;
   });
 
   it('multiple simultaneous useToast() subscribers stay in sync with a single shared store', () => {
@@ -142,17 +196,22 @@ describe('use-toast store', () => {
   });
 
   it('React Strict Mode subscribe/unsubscribe replay leaves exactly one live listener behind', () => {
-    // A second, independent subscriber outside Strict Mode acts as a
-    // witness: if the Strict-Mode component's mount→unmount→mount effect
-    // replay left two listeners registered (or zero), this witness would
-    // still observe the correct single broadcast either way once its own
-    // state is asserted after the fact — the real check is on the
-    // Strict-Mode hook's own `toasts` below settling to exactly one entry.
+    // Strict Mode replays this hook's subscribe effect (mount → cleanup →
+    // mount) in dev. Assert the store's actual subscriber count directly
+    // through the replay — +1 while mounted, however many times the
+    // effect replayed, and back to the baseline after unmount — rather
+    // than only inferring it indirectly from toasts array contents, which
+    // would look identical whether the replay left one listener or two.
+    const before = __getListenerCountForTests();
     const strict = renderHook(() => useToast(), { wrapper: StrictMode });
+    expect(__getListenerCountForTests()).toBe(before + 1);
+
     act(() => {
       toast({ title: 'Replay-safe' });
     });
     expect(strict.result.current.toasts.map((t) => t.title)).toEqual(['Replay-safe']);
+
     strict.unmount();
+    expect(__getListenerCountForTests()).toBe(before);
   });
 });

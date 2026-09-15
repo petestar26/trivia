@@ -221,13 +221,20 @@ export function ChallengesPage() {
       setSearchError(null);
       setLastCompletedQuery(null);
     },
-    onError: (err) => {
-      // Deliberately does NOT clear selectedRecipient — e.g. a "Challenged
-      // user not found" 404 (the recipient went non-ACTIVE after selection)
-      // should leave the form usable so the user can intentionally Remove
-      // or retry, rather than silently losing their selection.
-      toast({ title: 'Challenge failed', description: mapChallengeError(err), variant: 'destructive' });
-    },
+    // No onError handler: react-query populates `isError`/`error`
+    // automatically whether or not one is provided, which is exactly what
+    // the persistent inline `role="alert"` banner near the submit button
+    // (driven by `createMutation.isError` / `createMutation.error`, below)
+    // needs. A destructive Toast here as well would announce the same
+    // failure twice — once from that banner, once from the Toast's own
+    // assertive live region.
+    //
+    // This also deliberately does NOT clear selectedRecipient on error —
+    // e.g. a "Challenged user not found" 404 (the recipient went
+    // non-ACTIVE after selection) should leave the form usable so the
+    // user can intentionally Remove or retry, rather than silently losing
+    // their selection. Leaving onError undefined preserves that too: only
+    // onSuccess resets the form/selection.
   });
 
   // ── Accept/Decline/Cancel mutations ──────────────────────────────

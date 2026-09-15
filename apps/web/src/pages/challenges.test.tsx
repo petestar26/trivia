@@ -513,6 +513,41 @@ describe('ChallengesPage — challenge creation error handling', () => {
     // Selection is preserved so the user can Remove/retry intentionally.
     expect(screen.getByRole('button', { name: 'Remove selected recipient' })).toBeInTheDocument();
   });
+
+  it('produces exactly one accessible error announcement — no duplicate destructive Toast', async () => {
+    stubEmptyChallengeList();
+    searchUsers.mockResolvedValue({ success: true, data: [USER_PETE] });
+    createChallenge.mockRejectedValue(
+      new Error(JSON.stringify({ status: 404, code: 'NOT_FOUND', message: 'Challenged user not found' })),
+    );
+    await renderReady();
+
+    fillGameAndAmount();
+    fireEvent.change(getSearchInput(), { target: { value: 'petestar26' } });
+    await advanceAndFlush(300);
+    fireEvent.click(screen.getByRole('button', { name: /Peter/ }));
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send Challenge' }));
+    await act(async () => {});
+    await act(async () => {});
+
+    // Exactly one accessible error announcement: the persistent inline
+    // role="alert" banner, carrying the correct friendly text.
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent('This user is no longer available to challenge.');
+
+    // No destructive Toast alongside it — the Toast accessibility fix is
+    // what would otherwise make this same failure audible twice.
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Challenge failed' }));
+
+    // Form/error recovery is unchanged: selection and field values survive
+    // so the user can Remove/retry intentionally rather than starting over.
+    expect(screen.getByRole('button', { name: 'Remove selected recipient' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Game')).toHaveValue('dice');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
