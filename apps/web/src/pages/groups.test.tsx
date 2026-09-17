@@ -63,8 +63,8 @@ describe('GroupsPage', () => {
 
     expect(await screen.findByText('Smoke Group')).toBeInTheDocument();
     expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
-    // A group the user already belongs to offers Open (not Join).
-    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument();
+    // A group the user already belongs to offers Manage (not Join).
+    expect(screen.getByRole('button', { name: 'Manage' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Join' })).not.toBeInTheDocument();
     expect(screen.getByText(/1 member/)).toBeInTheDocument();
   });

@@ -263,6 +263,54 @@ class ApiClient {
     return this.get(`/groups/${groupId}/messages`, params);
   }
 
+  // Group members
+  async getGroupMembers(groupId: string): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/members`);
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<ApiResponse<any>> {
+    return this.delete(`/groups/${groupId}/members/${userId}`);
+  }
+
+  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<any>> {
+    return this.patch(`/groups/${groupId}/members/${userId}/role`, { role });
+  }
+
+  // Group invites
+  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/invites`, { email, role });
+  }
+
+  async listGroupInvites(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/invites`, params);
+  }
+
+  async revokeGroupInvite(groupId: string, inviteId: string): Promise<ApiResponse<any>> {
+    return this.delete(`/groups/${groupId}/invites/${inviteId}`);
+  }
+
+  async acceptGroupInvite(token: string): Promise<ApiResponse<any>> {
+    return this.post('/groups/accept-invite', { token });
+  }
+
+  // Join requests (private groups)
+  async requestJoinGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/request`);
+  }
+
+  async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/approve`);
+  }
+
+  async rejectJoinRequest(groupId: string, userId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/reject`);
+  }
+
+  // Ownership transfer
+  async transferOwnership(groupId: string, targetUserId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/transfer`, { targetUserId });
+  }
+
   // VIP
   async getVip(): Promise<ApiResponse<any>> {
     return this.get('/vip');

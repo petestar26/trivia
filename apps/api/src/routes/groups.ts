@@ -722,4 +722,593 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       };
     }
   );
+
+  // ─── Invitation Lifecycle ────────────────────────────────────
+
+  // Create invite (OWNER/ADMIN, private groups only)
+  server.post<{ Params: { id: string }; Body: { email: string; role?: string } }>(
+    '/:id/invites',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+        body: {
+          type: 'object',
+          required: ['email'],
+          properties: {
+            email: { type: 'string', format: 'email', maxLength: 255 },
+            role: { type: 'string', enum: ['ADMIN', 'MODERATOR', 'MEMBER'] },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const { email, role: rawRole } = request.body;
+      const role = (rawRole ?? 'MEMBER') as GroupMemberRole;
+
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      if (!group.isPrivate) {
+        throw ApiError.badRequest('Invites are only available for private groups');
+      }
+      await assertManager(groupId, request.user!.sub);
+
+      // Block if the target is already an active member.
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser) {
+        const existingMember = await getGroupMembership(groupId, existingUser.id);
+        if (existingMember && existingMember.status === 'ACTIVE') {
+          throw ApiError.conflict('User is already a member of this group');
+        }
+      }
+
+      // Block if a PENDING invite already exists for this email+group.
+      const existingInvite = await prisma.groupInvite.findFirst({
+        where: { groupId, email, status: 'PENDING' },
+      });
+      if (existingInvite) {
+        throw ApiError.conflict('An active invite already exists for this email');
+      }
+
+      const token = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const invite = await prisma.groupInvite.create({
+        data: {
+          groupId,
+          email,
+          role,
+          token,
+          expiresAt,
+          invitedBy: request.user!.sub,
+        },
+        select: {
+          id: true,
+          groupId: true,
+          email: true,
+          role: true,
+          status: true,
+          token: true,
+          expiresAt: true,
+          invitedBy: true,
+          createdAt: true,
+        },
+      });
+
+      // Notification to the target user if they exist.
+      if (existingUser) {
+        await prisma.notification.create({
+          data: {
+            userId: existingUser.id,
+            type: 'GROUP_INVITE',
+            title: 'Group invitation',
+            body: `You have been invited to join "${group.name}"`,
+            data: { groupId, inviteId: invite.id, groupName: group.name, invitedBy: request.user!.sub },
+          },
+        });
+      }
+
+      return { success: true, data: invite };
+    }
+  );
+
+  // List active invites (OWNER/ADMIN)
+  server.get<{ Params: { id: string }; Querystring: { page?: number; limit?: number } }>(
+    '/:id/invites',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            page: { type: 'integer', minimum: 1, default: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      await getGroupOrThrow(groupId);
+      await assertManager(groupId, request.user!.sub);
+
+      const page = request.query.page ?? 1;
+      const limit = request.query.limit ?? 20;
+
+      const [invites, total] = await Promise.all([
+        prisma.groupInvite.findMany({
+          where: { groupId, status: 'PENDING' },
+          include: {
+            group: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.groupInvite.count({ where: { groupId, status: 'PENDING' } }),
+      ]);
+
+      return {
+        success: true,
+        data: invites.map((i) => ({
+          id: i.id,
+          email: i.email,
+          role: i.role,
+          status: i.status,
+          expiresAt: i.expiresAt,
+          invitedBy: i.invitedBy,
+          createdAt: i.createdAt,
+        })),
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page < Math.ceil(total / limit),
+          hasPrevPage: page > 1,
+        },
+      };
+    }
+  );
+
+  // Revoke invite (OWNER/ADMIN)
+  server.delete<{ Params: { id: string; inviteId: string } }>(
+    '/:id/invites/:inviteId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'inviteId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            inviteId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const { inviteId } = request.params;
+
+      await getGroupOrThrow(groupId);
+      await assertManager(groupId, request.user!.sub);
+
+      const invite = await prisma.groupInvite.findFirst({
+        where: { id: inviteId, groupId },
+      });
+      if (!invite) {
+        throw ApiError.notFound('Invite not found');
+      }
+      if (invite.status !== 'PENDING') {
+        throw ApiError.badRequest('Invite is not active');
+      }
+
+      await prisma.groupInvite.update({
+        where: { id: inviteId },
+        data: { status: 'REVOKED' },
+      });
+
+      return { success: true, data: { message: 'Invite revoked' } };
+    }
+  );
+
+  // Accept invite (any authenticated user)
+  server.post<{ Body: { token: string } }>(
+    '/accept-invite',
+    {
+      preHandler: [authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['token'],
+          properties: { token: { type: 'string', minLength: 1 } },
+        },
+      },
+    },
+    async (request) => {
+      const userId = request.user!.sub;
+      const { token } = request.body;
+
+      const invite = await prisma.groupInvite.findUnique({ where: { token } });
+      if (!invite) {
+        throw ApiError.notFound('Invalid invite token');
+      }
+      if (invite.status === 'ACCEPTED') {
+        throw ApiError.conflict('This invite has already been accepted');
+      }
+      if (invite.status === 'REVOKED') {
+        throw ApiError.conflict('This invite has been revoked');
+      }
+      if (invite.expiresAt < new Date()) {
+        await prisma.groupInvite.updateMany({
+          where: { id: invite.id, status: 'PENDING' },
+          data: { status: 'EXPIRED' },
+        });
+        throw ApiError.badRequest('This invite has expired');
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const group = await tx.group.findUnique({ where: { id: invite.groupId } });
+        if (!group || group.status !== 'ACTIVE') {
+          throw ApiError.badRequest('Group is not active');
+        }
+
+        const existingMember = await tx.groupMember.findUnique({
+          where: { groupId_userId: { groupId: invite.groupId, userId } },
+        });
+        if (existingMember && existingMember.status === 'ACTIVE') {
+          throw ApiError.conflict('You are already a member of this group');
+        }
+
+        // Atomic single-use claim. If another concurrent accept won the race,
+        // the updateMany matches 0 rows and this request is treated as a replay.
+        const claimed = await tx.groupInvite.updateMany({
+          where: { id: invite.id, status: 'PENDING' },
+          data: { status: 'ACCEPTED', acceptedBy: userId },
+        });
+        if (claimed.count === 0) {
+          throw ApiError.conflict('This invite has already been accepted');
+        }
+
+        if (existingMember) {
+          await tx.groupMember.update({
+            where: { id: existingMember.id },
+            data: { role: invite.role as GroupMemberRole, status: 'ACTIVE' },
+          });
+        } else {
+          await tx.groupMember.create({
+            data: {
+              groupId: invite.groupId,
+              userId,
+              role: invite.role as GroupMemberRole,
+              status: 'ACTIVE',
+            },
+          });
+        }
+
+        const acceptor = await tx.user.findUnique({
+          where: { id: userId },
+          select: { username: true, displayName: true },
+        });
+        await tx.notification.create({
+          data: {
+            userId: invite.invitedBy,
+            type: 'GROUP_APPROVED',
+            title: 'Invite accepted',
+            body: `${acceptor?.displayName || acceptor?.username || 'A user'} accepted your invitation to "${group.name}"`,
+            data: { groupId: invite.groupId, inviteId: invite.id, acceptedBy: userId },
+          },
+        });
+
+        return { groupId: invite.groupId };
+      });
+
+      safeRecordActivity(userId, { type: 'GROUP_JOIN' });
+
+      return { success: true, data: { message: 'Invite accepted', ...result } };
+    }
+  );
+
+  // ─── Join Request Flow (Private Groups) ─────────────────────
+
+  // Request membership (any authenticated user, private groups only)
+  server.post<{ Params: { id: string } }>(
+    '/:id/request',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const userId = request.user!.sub;
+
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      if (!group.isPrivate) {
+        throw ApiError.badRequest('Public groups can be joined directly; use POST /join');
+      }
+
+      const existing = await getGroupMembership(groupId, userId);
+
+      if (existing) {
+        if (existing.status === 'ACTIVE') {
+          throw ApiError.conflict('You are already a member of this group');
+        }
+        if (existing.status === 'PENDING') {
+          throw ApiError.conflict('Your membership request is already pending');
+        }
+        if (existing.status === 'BANNED') {
+          throw ApiError.forbidden('You are banned from this group');
+        }
+      }
+
+      await prisma.$transaction(async (tx) => {
+        if (existing) {
+          await tx.groupMember.update({
+            where: { id: existing.id },
+            data: { status: 'PENDING', role: 'MEMBER' },
+          });
+        } else {
+          await tx.groupMember.create({
+            data: { groupId, userId, role: 'MEMBER', status: 'PENDING' },
+          });
+        }
+
+        // Notify all managers (OWNER/ADMIN).
+        const managers = await tx.groupMember.findMany({
+          where: { groupId, role: { in: ['OWNER', 'ADMIN'] }, status: 'ACTIVE' },
+        });
+        const requester = await tx.user.findUnique({
+          where: { id: userId },
+          select: { username: true, displayName: true },
+        });
+
+        const notifications = managers.map((m) => ({
+          userId: m.userId,
+          type: 'GROUP_JOIN_REQUEST' as const,
+          title: 'Join request',
+          body: `${requester?.displayName || requester?.username || 'A user'} requests to join "${group.name}"`,
+          data: { groupId, requesterId: userId },
+        }));
+        await tx.notification.createMany({ data: notifications });
+      });
+
+      return { success: true, data: { message: 'Join request submitted' } };
+    }
+  );
+
+  // Approve join request (OWNER/ADMIN)
+  server.post<{ Params: { id: string; userId: string } }>(
+    '/:id/requests/:userId/approve',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'userId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const targetUserId = request.params.userId;
+
+      await getGroupOrThrow(groupId);
+      await assertManager(groupId, request.user!.sub);
+
+      const target = await getGroupMembership(groupId, targetUserId);
+      if (!target) {
+        throw ApiError.notFound('Join request not found');
+      }
+      if (target.status !== 'PENDING') {
+        throw ApiError.badRequest('This request is not pending');
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // Atomic transition — prevents two managers racing to approve the same
+        // pending request from double-processing it.
+        const transitioned = await tx.groupMember.updateMany({
+          where: { id: target.id, status: 'PENDING' },
+          data: { status: 'ACTIVE' },
+        });
+        if (transitioned.count === 0) {
+          throw ApiError.badRequest('This request is not pending');
+        }
+
+        await tx.notification.create({
+          data: {
+            userId: targetUserId,
+            type: 'GROUP_APPROVED',
+            title: 'Request approved',
+            body: `Your request to join the group has been approved`,
+            data: { groupId, approvedBy: request.user!.sub },
+          },
+        });
+      });
+
+      safeRecordActivity(targetUserId, { type: 'GROUP_JOIN' });
+
+      return { success: true, data: { message: 'Request approved' } };
+    }
+  );
+
+  // Reject join request (OWNER/ADMIN)
+  server.post<{ Params: { id: string; userId: string } }>(
+    '/:id/requests/:userId/reject',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'userId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const targetUserId = request.params.userId;
+
+      await getGroupOrThrow(groupId);
+      await assertManager(groupId, request.user!.sub);
+
+      const target = await getGroupMembership(groupId, targetUserId);
+      if (!target) {
+        throw ApiError.notFound('Join request not found');
+      }
+      if (target.status !== 'PENDING') {
+        throw ApiError.badRequest('This request is not pending');
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // Atomic transition — guards against an approve racing the reject (or
+        // two managers rejecting the same request) so only one PENDING row is
+        // removed.
+        const removed = await tx.groupMember.deleteMany({
+          where: { id: target.id, status: 'PENDING' },
+        });
+        if (removed.count === 0) {
+          throw ApiError.badRequest('This request is not pending');
+        }
+
+        await tx.notification.create({
+          data: {
+            userId: targetUserId,
+            type: 'GROUP_REJECTED',
+            title: 'Request rejected',
+            body: `Your request to join the group has been rejected`,
+            data: { groupId, rejectedBy: request.user!.sub },
+          },
+        });
+      });
+
+      return { success: true, data: { message: 'Request rejected' } };
+    }
+  );
+
+  // ─── Ownership Transfer ──────────────────────────────────────
+
+  server.post<{ Params: { id: string }; Body: { targetUserId: string } }>(
+    '/:id/transfer',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+        body: {
+          type: 'object',
+          required: ['targetUserId'],
+          properties: { targetUserId: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const { targetUserId } = request.body;
+      const actorUserId = request.user!.sub;
+
+      if (targetUserId === actorUserId) {
+        throw ApiError.badRequest('You cannot transfer ownership to yourself');
+      }
+
+      const group = await getGroupOrThrow(groupId);
+
+      // OWNER only.
+      const actorMembership = await getGroupMembership(groupId, actorUserId);
+      if (!actorMembership || actorMembership.status !== 'ACTIVE' || actorMembership.role !== 'OWNER') {
+        throw ApiError.forbidden('Only the owner can transfer ownership');
+      }
+
+      // Target must be an ACTIVE member.
+      const targetMembership = await getGroupMembership(groupId, targetUserId);
+      if (!targetMembership || targetMembership.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Target user must be an active member');
+      }
+
+      // Atomic ownership transfer: use a single transaction with the
+      // ownerId check preventing concurrent conflicting transfers.
+      const result = await prisma.$transaction(async (tx) => {
+        // Optimistic lock: verify ownerId hasn't changed since we read it.
+        const updatedGroup = await tx.group.updateMany({
+          where: { id: groupId, ownerId: actorUserId },
+          data: { ownerId: targetUserId },
+        });
+        if (updatedGroup.count === 0) {
+          throw ApiError.conflict('Concurrent ownership change detected; please retry');
+        }
+
+        // Demote old owner to ADMIN.
+        await tx.groupMember.update({
+          where: { id: actorMembership.id },
+          data: { role: 'ADMIN' },
+        });
+
+        // Promote new owner.
+        await tx.groupMember.update({
+          where: { id: targetMembership.id },
+          data: { role: 'OWNER' },
+        });
+
+        // Notify both parties.
+        const [oldOwner, newOwner] = await Promise.all([
+          tx.user.findUnique({ where: { id: actorUserId }, select: { username: true, displayName: true } }),
+          tx.user.findUnique({ where: { id: targetUserId }, select: { username: true, displayName: true } }),
+        ]);
+
+        await tx.notification.createMany({
+          data: [
+            {
+              userId: targetUserId,
+              type: 'GROUP_OWNERSHIP_TRANSFERRED',
+              title: 'Ownership transferred',
+              body: `You are now the owner of "${group.name}"`,
+              data: { groupId, previousOwnerId: actorUserId },
+            },
+            {
+              userId: actorUserId,
+              type: 'GROUP_OWNERSHIP_TRANSFERRED',
+              title: 'Ownership transferred',
+              body: `Ownership of "${group.name}" has been transferred to ${newOwner?.displayName || newOwner?.username || 'a user'}`,
+              data: { groupId, newOwnerId: targetUserId },
+            },
+          ],
+        });
+
+        return { message: 'Ownership transferred' };
+      });
+
+      return { success: true, data: result };
+    }
+  );
 }

@@ -231,6 +231,24 @@ export const fileUploadSchema = z.object({
   bucket: z.string().min(1),
 });
 
+export const createGroupInviteSchema = z.object({
+  email: z.string().email('Invalid email format').max(255),
+  role: z.enum(['ADMIN', 'MODERATOR', 'MEMBER']).default('MEMBER'),
+});
+
+export const groupInviteParamsSchema = z.object({
+  id: z.string().uuid(),
+  inviteId: z.string().uuid(),
+});
+
+export const acceptGroupInviteSchema = z.object({
+  token: z.string().min(1),
+});
+
+export const transferOwnershipSchema = z.object({
+  targetUserId: z.string().uuid(),
+});
+
 export type PaginationInput = z.infer<typeof paginationSchema>;
 export type IdParam = z.infer<typeof idParamSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -259,3 +277,7 @@ export type NotificationInput = z.infer<typeof notificationSchema>;
 export type VipPurchaseInput = z.infer<typeof vipPurchaseSchema>;
 export type GameSessionInput = z.infer<typeof gameSessionSchema>;
 export type FileUploadInput = z.infer<typeof fileUploadSchema>;
+export type CreateGroupInviteInput = z.infer<typeof createGroupInviteSchema>;
+export type GroupInviteParams = z.infer<typeof groupInviteParamsSchema>;
+export type AcceptGroupInviteInput = z.infer<typeof acceptGroupInviteSchema>;
+export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>;

@@ -140,6 +140,8 @@ export enum NotificationType {
   GROUP_INVITE = 'group_invite',
   GROUP_JOIN_REQUEST = 'group_join_request',
   GROUP_APPROVED = 'group_approved',
+  GROUP_REJECTED = 'group_rejected',
+  GROUP_OWNERSHIP_TRANSFERRED = 'group_ownership_transferred',
   FRIEND_REQUEST = 'friend_request',
   FRIEND_ACCEPTED = 'friend_accepted',
   ACHIEVEMENT_UNLOCKED = 'achievement_unlocked',
