@@ -1338,7 +1338,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const groupId = request.params.id;
       const targetUserId = request.params.userId;
 
-      await getGroupOrThrow(groupId);
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
       await assertManager(groupId, request.user!.sub);
 
       const target = await getGroupMembership(groupId, targetUserId);

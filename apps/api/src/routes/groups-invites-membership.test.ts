@@ -1076,10 +1076,11 @@ describeIf('groups/routes — hardening findings', () => {
 
   describe('invite acceptance binding — verified email', () => {
     async function makeInvite(ownerId: string, groupId: string, email: string) {
+      const { id, email: ownerEmail, username } = await prisma.user.findUniqueOrThrow({ where: { id: ownerId } });
       const inv = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${groupId}/invites`,
-        headers: authHeader(await mintToken(await prisma.user.findUniqueOrThrow({ where: { id: ownerId } }))),
+        headers: authHeader(await mintToken({ id, email: ownerEmail!, username })),
         payload: { email },
       });
       return JSON.parse(inv.body).data.token;
@@ -1123,7 +1124,7 @@ describeIf('groups/routes — hardening findings', () => {
       const resp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/accept-invite`,
-        headers: authHeader(await mintToken(unverified)),
+        headers: authHeader(await mintToken({ id: unverified.id, email: unverified.email!, username: unverified.username })),
         payload: { token },
       });
       expect(resp.statusCode).toBe(403);
@@ -1196,10 +1197,41 @@ describeIf('groups/routes — hardening findings', () => {
       const resp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/accept-invite`,
-        headers: authHeader(await mintToken(bannedUser)),
+        headers: authHeader(await mintToken({ id: bannedUser.id, email: bannedUser.email!, username: bannedUser.username })),
         payload: { token: invT },
       });
       expect(resp.statusCode).toBe(403);
+    });
+
+    it('regression: mintToken accepts a user created via prisma.user.create', async () => {
+      const owner = await createUser('h-reg-mint');
+      const group = await createGroup(owner.id, 'RegMint', { isPrivate: true });
+      const suffix = uniqueSuffix();
+      const email = `${EMAIL_PREFIX}h-reg-${suffix}@test.local`;
+      const raw = await prisma.user.create({
+        data: {
+          email,
+          username: `h_reg_${suffix}`.slice(0, 30),
+          passwordHash: 'fixture-only-not-a-real-hash',
+          displayName: 'RegMint',
+          status: 'ACTIVE',
+          isVerified: true,
+        },
+      });
+      const inv = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: raw.email! },
+      });
+      const token = JSON.parse(inv.body).data.token;
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken({ id: raw.id, email: raw.email!, username: raw.username })),
+        payload: { token },
+      });
+      expect(resp.statusCode).toBe(200);
     });
   });
 
@@ -1314,6 +1346,27 @@ describeIf('groups/routes — hardening findings', () => {
         url: `${PREFIX}/${group.id}/transfer`,
         headers: authHeader(await mintToken(owner)),
         payload: { targetUserId: target.id },
+      });
+      expect(resp.statusCode).toBe(400);
+    });
+
+    it('rejects join-request rejection for a non-ACTIVE group', async () => {
+      const owner = await createUser('h-arch-r-owner');
+      const requester = await createUser('h-arch-r-req');
+      const group = await prisma.group.create({
+        data: {
+          ownerId: owner.id,
+          name: `ArchivedR-${uniqueSuffix()}`,
+          status: 'ARCHIVED',
+          isPrivate: true,
+        },
+      });
+      await addMember(group.id, requester.id, GroupMemberRole.MEMBER, GroupMemberStatus.PENDING);
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/requests/${requester.id}/reject`,
+        headers: authHeader(await mintToken(owner)),
       });
       expect(resp.statusCode).toBe(400);
     });
