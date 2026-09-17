@@ -713,16 +713,37 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       }
 
       const alreadyBanned = await prisma.$transaction(async (tx) => {
-        // Atomic transition — guards against a concurrent duplicate ban
-        // (two managers, or a retried request) creating a second
-        // MODERATION notification / redundantly re-revoking invites. If
-        // another request already moved this row to BANNED, `count` is 0
-        // and this call is treated as an idempotent no-op.
+        // Atomic transition — guards against two distinct races:
+        //
+        // 1. A concurrent duplicate ban (two managers, or a retried
+        //    request): another request already moved this row to BANNED,
+        //    so this call is treated as an idempotent no-op.
+        // 2. A concurrent ownership transfer promoting this same target to
+        //    OWNER between the pre-transaction check above and this write.
+        //    `role: { not: 'OWNER' }` keeps that promotion and this ban
+        //    mutually exclusive at the database level — whichever request's
+        //    write lands first wins, and the loser's `updateMany` affects
+        //    zero rows instead of leaving role=OWNER, status=BANNED, which
+        //    would permanently strand the group (no route can un-ban an
+        //    OWNER or transfer ownership away from a BANNED one).
+        //
+        // If `count` is 0, re-read inside the transaction to tell those two
+        // cases apart: only the first is a legitimate idempotent replay.
         const banned = await tx.groupMember.updateMany({
-          where: { id: target.id, status: { not: 'BANNED' } },
+          where: { id: target.id, status: { not: 'BANNED' }, role: { not: 'OWNER' } },
           data: { status: 'BANNED' },
         });
         if (banned.count === 0) {
+          const current = await tx.groupMember.findUnique({
+            where: { id: target.id },
+            select: { role: true },
+          });
+          if (current?.role === 'OWNER') {
+            // A concurrent transfer won the race — this is not a replay,
+            // it's the same "cannot ban the owner" rejection the early
+            // check above would have given if it had run a moment later.
+            throw ApiError.forbidden('You cannot ban the owner of the group');
+          }
           return true;
         }
 
