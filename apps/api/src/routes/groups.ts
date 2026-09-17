@@ -712,11 +712,19 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You cannot ban the owner of the group');
       }
 
-      await prisma.$transaction(async (tx) => {
-        await tx.groupMember.update({
-          where: { id: target.id },
+      const alreadyBanned = await prisma.$transaction(async (tx) => {
+        // Atomic transition — guards against a concurrent duplicate ban
+        // (two managers, or a retried request) creating a second
+        // MODERATION notification / redundantly re-revoking invites. If
+        // another request already moved this row to BANNED, `count` is 0
+        // and this call is treated as an idempotent no-op.
+        const banned = await tx.groupMember.updateMany({
+          where: { id: target.id, status: { not: 'BANNED' } },
           data: { status: 'BANNED' },
         });
+        if (banned.count === 0) {
+          return true;
+        }
 
         const user = await tx.user.findUnique({
           where: { id: targetUserId },
@@ -738,11 +746,13 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             data: { groupId, bannedBy: actorUserId },
           },
         });
+
+        return false;
       });
 
       return {
         success: true,
-        data: { message: 'Member banned' },
+        data: { message: alreadyBanned ? 'Member already banned' : 'Member banned' },
       };
     }
   );

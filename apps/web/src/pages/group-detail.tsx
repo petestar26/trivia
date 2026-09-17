@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
+import { NOTIFICATIONS_QUERY_KEY } from '@/lib/notifications-query-keys';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -169,6 +170,25 @@ export function GroupDetailPage() {
     },
   });
 
+  const banMutation = useMutation({
+    mutationFn: (userId: string) => api.banGroupMember(groupId, userId),
+    onSuccess: () => {
+      // The backend is the sole authority on whether a ban is permitted —
+      // this refresh just brings the UI in line with what it decided.
+      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
+      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
+      toast({ title: 'Member banned' });
+    },
+    onError: (err) => {
+      let msg = 'Failed to ban member';
+      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    },
+  });
+
   const roleMutation = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) => api.changeMemberRole(groupId, userId, role),
     onSuccess: () => {
@@ -259,6 +279,22 @@ export function GroupDetailPage() {
     transferMutation.mutate(transferTarget);
     setShowTransferConfirm(false);
     setTransferTarget('');
+  }
+
+  // ─── Ban confirmation ─────────────────────────────────────────
+
+  const [banTarget, setBanTarget] = useState('');
+  const [showBanConfirm, setShowBanConfirm] = useState(false);
+
+  const banTargetMember = membersQuery.data?.find(
+    (m) => m.user.id === banTarget && m.status === 'ACTIVE'
+  );
+
+  function handleBanConfirm() {
+    if (!banTargetMember) return;
+    banMutation.mutate(banTarget);
+    setShowBanConfirm(false);
+    setBanTarget('');
   }
 
   // ─── Loading / error ────────────────────────────────────────────
@@ -420,6 +456,14 @@ export function GroupDetailPage() {
                     >
                       Remove
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="text-xs h-6"
+                      onClick={() => { setBanTarget(m.user.id); setShowBanConfirm(true); }}
+                    >
+                      Ban
+                    </Button>
                     {isOwner && m.user.id !== group.owner?.id && (
                       <Button
                         size="sm"
@@ -516,6 +560,31 @@ export function GroupDetailPage() {
                 {transferMutation.isPending ? 'Transferring…' : 'Confirm transfer'}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setShowTransferConfirm(false); setTransferTarget(''); }}>
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Ban confirmation */}
+      {showBanConfirm && (
+        <Card className="border-red-300 dark:border-red-600">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-red-700 dark:text-red-300">Confirm ban</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {banTargetMember && (
+              <p className="text-sm">
+                Ban <strong>{banTargetMember.user.displayName || banTargetMember.user.username}</strong> from this group?
+                They will lose access immediately and won&apos;t be able to rejoin or redeem invites.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button size="sm" variant="destructive" disabled={banMutation.isPending} onClick={handleBanConfirm}>
+                {banMutation.isPending ? 'Banning…' : 'Confirm ban'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => { setShowBanConfirm(false); setBanTarget(''); }}>
                 Cancel
               </Button>
             </div>

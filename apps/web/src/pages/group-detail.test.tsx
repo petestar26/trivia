@@ -21,11 +21,16 @@ vi.mock('@/lib/api', () => ({
     createGroupInvite: vi.fn(),
     revokeGroupInvite: vi.fn(),
     transferOwnership: vi.fn(),
+    banGroupMember: vi.fn(),
   },
 }));
 
+// A single shared reference (not a fresh vi.fn() per useToast() call) so
+// tests can assert on what was actually shown to the user — required to
+// verify errors are surfaced accessibly, not just silently swallowed.
+const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
 }));
 
 import { api } from '@/lib/api';
@@ -46,6 +51,7 @@ const mocked = api as unknown as {
   createGroupInvite: ReturnType<typeof vi.fn>;
   revokeGroupInvite: ReturnType<typeof vi.fn>;
   transferOwnership: ReturnType<typeof vi.fn>;
+  banGroupMember: ReturnType<typeof vi.fn>;
 };
 
 const baseGroup = {
@@ -60,8 +66,10 @@ const baseGroup = {
   owner: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
 };
 
-function renderPage(groupId = 'g-1') {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderPage(
+  groupId = 'g-1',
+  client: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[`/groups/${groupId}`]}>
@@ -323,6 +331,115 @@ describe('GroupDetailPage', () => {
       renderPage();
       fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
       await waitFor(() => expect(mocked.removeGroupMember).toHaveBeenCalledWith('g-1', 'u-mem'));
+    });
+  });
+
+  describe('ban member', () => {
+    beforeEach(() => {
+      mocked.getGroupMembers.mockResolvedValue({
+        data: [
+          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
+          { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+        ],
+      });
+    });
+
+    it('shows a Ban action for an active, non-owner member when the viewer is a manager (OWNER)', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      renderPage();
+      await screen.findByText('Member');
+      expect(screen.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
+    });
+
+    it('shows Ban for an ADMIN manager too', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'ADMIN' } });
+      renderPage();
+      await screen.findByText('Member');
+      expect(screen.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
+    });
+
+    it('never shows a Ban action on the owner\'s own row', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      renderPage();
+      await screen.findByText('Owner');
+      const ownerRow = screen.getByText('Owner').closest('.border')!.closest('.border') as HTMLElement;
+      expect(ownerRow.querySelector('button')).toBeNull();
+    });
+
+    it('hides the Ban action entirely for a non-manager (MEMBER) viewer', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'MEMBER' } });
+      renderPage();
+      await screen.findByText('Member');
+      expect(screen.queryByRole('button', { name: 'Ban' })).not.toBeInTheDocument();
+    });
+
+    it('does not call the API until the ban is confirmed', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      expect(mocked.banGroupMember).not.toHaveBeenCalled();
+    });
+
+    it('shows a confirmation naming the target when Ban is clicked', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      expect(await screen.findByRole('heading', { name: 'Confirm ban' })).toBeInTheDocument();
+      expect(screen.getAllByText(/Member/).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Confirm ban' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    });
+
+    it('cancels without calling the API', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByText(/Confirm ban/)).not.toBeInTheDocument();
+      expect(mocked.banGroupMember).not.toHaveBeenCalled();
+    });
+
+    it('calls banGroupMember with the group and target user id on confirm', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      mocked.banGroupMember.mockResolvedValue({ data: { message: 'Member banned' } });
+      renderPage();
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+      await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledWith('g-1', 'u-mem'));
+    });
+
+    it('refreshes members, pending requests, invites, and notifications after a successful ban', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      mocked.banGroupMember.mockResolvedValue({ data: { message: 'Member banned' } });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+      const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+      renderPage('g-1', client);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+
+      await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(1));
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-members', 'g-1'] }));
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-requests', 'g-1'] }));
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-invites', 'g-1'] }));
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['notifications'] }));
+    });
+
+    it('surfaces a ban failure accessibly, without silently swallowing it', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      mocked.banGroupMember.mockRejectedValue(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+
+      await waitFor(() =>
+        expect(toastMock).toHaveBeenCalledWith({
+          title: 'Error',
+          description: 'Insufficient permissions',
+          variant: 'destructive',
+        })
+      );
     });
   });
 

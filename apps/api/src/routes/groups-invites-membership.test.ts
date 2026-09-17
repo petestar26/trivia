@@ -1267,6 +1267,78 @@ describeIf('groups/routes — hardening findings', () => {
       });
       expect(membership.status).toBe('BANNED');
     });
+
+    it('repeated bans of an already-banned member do not create a second MODERATION notification', async () => {
+      const owner = await createUser('h-rep-owner');
+      const victim = await createUser('h-rep-victim');
+      const group = await createGroup(owner.id, 'RepeatBan', { isPrivate: true });
+      await addMember(group.id, victim.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+      const headers = authHeader(await mintToken(owner));
+
+      const first = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+        headers,
+      });
+      expect(first.statusCode).toBe(200);
+      expect(JSON.parse(first.body).data.message).toBe('Member banned');
+
+      const second = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+        headers,
+      });
+      expect(second.statusCode).toBe(200);
+      expect(JSON.parse(second.body).data.message).toBe('Member already banned');
+
+      const third = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+        headers,
+      });
+      expect(third.statusCode).toBe(200);
+
+      const notifications = await prisma.notification.findMany({
+        where: { userId: victim.id, type: 'MODERATION' },
+      });
+      expect(notifications).toHaveLength(1);
+
+      const membership = await prisma.groupMember.findUniqueOrThrow({
+        where: { groupId_userId: { groupId: group.id, userId: victim.id } },
+      });
+      expect(membership.status).toBe('BANNED');
+    });
+
+    it('two concurrent ban requests for the same member create exactly one MODERATION notification', async () => {
+      const owner = await createUser('h-conc-ban-owner');
+      const admin = await createUser('h-conc-ban-admin');
+      const victim = await createUser('h-conc-ban-victim');
+      const group = await createGroup(owner.id, 'ConcBan', { isPrivate: true });
+      await addMember(group.id, admin.id, GroupMemberRole.ADMIN, GroupMemberStatus.ACTIVE);
+      await addMember(group.id, victim.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+      const [respA, respB] = await Promise.all([
+        server.inject({
+          method: 'POST',
+          url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+          headers: authHeader(await mintToken(owner)),
+        }),
+        server.inject({
+          method: 'POST',
+          url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+          headers: authHeader(await mintToken(admin)),
+        }),
+      ]);
+
+      expect([respA.statusCode, respB.statusCode]).toEqual([200, 200]);
+      const messages = [JSON.parse(respA.body).data.message, JSON.parse(respB.body).data.message].sort();
+      expect(messages).toEqual(['Member already banned', 'Member banned']);
+
+      const notifications = await prisma.notification.findMany({
+        where: { userId: victim.id, type: 'MODERATION' },
+      });
+      expect(notifications).toHaveLength(1);
+    });
   });
 
   describe('email normalization + duplicate races', () => {

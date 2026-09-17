@@ -323,6 +323,19 @@ class ApiClient {
     return this.post(`/groups/${groupId}/transfer`, { targetUserId });
   }
 
+  // Notifications
+  async listNotifications(params?: { page?: number; limit?: number; unreadOnly?: boolean }): Promise<ApiResponse<any>> {
+    return this.get('/notifications', params);
+  }
+
+  async markNotificationRead(id: string): Promise<ApiResponse<any>> {
+    return this.patch(`/notifications/${id}/read`, {});
+  }
+
+  async markAllNotificationsRead(): Promise<ApiResponse<any>> {
+    return this.post('/notifications/read-all');
+  }
+
   // VIP
   async getVip(): Promise<ApiResponse<any>> {
     return this.get('/vip');
