@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
-import { ApiError, authenticate } from '../middleware';
+import { ApiError } from '../middleware/error-handler.js';
+import { authenticate } from '../middleware/auth.js';
 
 // ─── Notifications ────────────────────────────────────────────────
 //

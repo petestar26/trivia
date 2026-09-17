@@ -43,6 +43,16 @@ export function NotificationBell() {
   const items = notificationsQuery.data?.items ?? [];
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
 
+  // A query that already has data reports `isError` when a BACKGROUND refetch
+  // fails, with the cached data still intact. Treating that the same as a
+  // first-load failure would throw away a perfectly good list the user is
+  // reading — and leave the badge (which reads the same cache) contradicting
+  // the panel. So the two cases are rendered differently: only a failure with
+  // nothing cached replaces the panel body.
+  const hasCachedItems = items.length > 0;
+  const showInitialError = notificationsQuery.isError && !hasCachedItems;
+  const showRefreshError = notificationsQuery.isError && hasCachedItems;
+
   const markReadMutation = useMutation({
     mutationFn: (id: string) => api.markNotificationRead(id),
     onSuccess: () => {
@@ -64,6 +74,25 @@ export function NotificationBell() {
       setStatusMessage('Failed to mark all notifications as read.');
     },
   });
+
+  function handleToggle() {
+    const next = !open;
+    setOpen(next);
+    // Opening the panel is an explicit "show me my notifications" gesture, so
+    // it always goes back to the server: the app-wide 5-minute staleTime (see
+    // main.tsx) would otherwise let the panel sit on a cached list for minutes,
+    // and nothing else refreshes it — there is no polling or socket feed.
+    // No separate in-flight check is needed to avoid duplicate requests:
+    // React Query keys fetches by queryKey, so a refetch() issued while one
+    // is already in flight for this same key shares that fetch rather than
+    // starting a second one (verified: toggling closed/open rapidly during
+    // an unresolved fetch does not increase the call count). cancelRefetch:
+    // false additionally asks it to prefer the in-flight fetch outright
+    // rather than aborting and restarting it.
+    if (next) {
+      void notificationsQuery.refetch({ cancelRefetch: false });
+    }
+  }
 
   // Close on outside click and on Escape (returning focus to the trigger,
   // per the standard disclosure-widget keyboard pattern) so the panel never
@@ -100,7 +129,7 @@ export function NotificationBell() {
         aria-expanded={open}
         aria-controls="notification-panel"
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
-        onClick={() => setOpen((o) => !o)}
+        onClick={handleToggle}
         className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
       >
         <Bell className="h-5 w-5 text-gray-700 dark:text-gray-300" aria-hidden="true" />
@@ -131,7 +160,7 @@ export function NotificationBell() {
           ref={panelRef}
           role="region"
           aria-label="Notifications"
-          aria-busy={notificationsQuery.isLoading}
+          aria-busy={notificationsQuery.isFetching}
           className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-50"
         >
           <div className="flex items-center justify-between gap-2 p-3 border-b border-gray-200 dark:border-gray-700">
@@ -148,7 +177,7 @@ export function NotificationBell() {
 
           {notificationsQuery.isLoading ? (
             <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading notifications…</p>
-          ) : notificationsQuery.isError ? (
+          ) : showInitialError ? (
             <div role="alert" className="p-4 space-y-2">
               <p className="text-sm text-red-600 dark:text-red-400">Failed to load notifications.</p>
               <Button size="sm" variant="outline" onClick={() => notificationsQuery.refetch()}>
@@ -158,27 +187,42 @@ export function NotificationBell() {
           ) : items.length === 0 ? (
             <p className="p-4 text-sm text-gray-500 dark:text-gray-400">You&apos;re all caught up.</p>
           ) : (
-            <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-              {items.map((n) => (
-                <li
-                  key={n.id}
-                  className={`p-3 ${!n.isRead ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
+            <>
+              {showRefreshError && (
+                <div
+                  role="alert"
+                  className="flex items-center justify-between gap-2 px-3 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20"
                 >
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{n.title}</p>
-                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{n.body}</p>
-                  {!n.isRead && (
-                    <button
-                      type="button"
-                      className="mt-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 hover:underline disabled:opacity-50 disabled:no-underline"
-                      onClick={() => markReadMutation.mutate(n.id)}
-                      disabled={markReadMutation.isPending && markReadMutation.variables === n.id}
-                    >
-                      {markReadMutation.isPending && markReadMutation.variables === n.id ? 'Marking…' : 'Mark as read'}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    Couldn&apos;t refresh. Showing the last loaded notifications.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => notificationsQuery.refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              )}
+              <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                {items.map((n) => (
+                  <li
+                    key={n.id}
+                    className={`p-3 ${!n.isRead ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
+                  >
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{n.title}</p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{n.body}</p>
+                    {!n.isRead && (
+                      <button
+                        type="button"
+                        className="mt-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 hover:underline disabled:opacity-50 disabled:no-underline"
+                        onClick={() => markReadMutation.mutate(n.id)}
+                        disabled={markReadMutation.isPending && markReadMutation.variables === n.id}
+                      >
+                        {markReadMutation.isPending && markReadMutation.variables === n.id ? 'Marking…' : 'Mark as read'}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}

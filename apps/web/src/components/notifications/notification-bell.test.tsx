@@ -28,8 +28,10 @@ function page(items: unknown[], unreadCount: number, overrides: Partial<Record<s
   };
 }
 
-function renderBell() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderBell(opts: { staleTime?: number } = {}) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: opts.staleTime ?? 0 } },
+  });
   return render(
     <QueryClientProvider client={client}>
       <NotificationBell />
@@ -98,7 +100,7 @@ describe('NotificationBell', () => {
   });
 
   it('shows an accessible error state with a working Retry', async () => {
-    mocked.listNotifications.mockRejectedValueOnce(new Error('network down'));
+    mocked.listNotifications.mockRejectedValue(new Error('network down'));
     renderBell();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Notifications' }));
@@ -110,6 +112,108 @@ describe('NotificationBell', () => {
 
     expect(await screen.findByText('Group invitation')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('a failed background refetch keeps the cached list visible and shows a non-destructive banner', async () => {
+    mocked.listNotifications.mockResolvedValueOnce(page([UNREAD_A, UNREAD_B], 2));
+    renderBell();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 2 unread' }));
+    expect(await screen.findByText('Group invitation')).toBeInTheDocument();
+    expect(screen.getByText('Banned from group')).toBeInTheDocument();
+
+    // Close and reopen with the next fetch failing — a background refetch,
+    // not the initial load, because data is already cached from the first
+    // successful fetch above.
+    mocked.listNotifications.mockRejectedValueOnce(new Error('network blip'));
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications, 2 unread' })); // close
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 2 unread' })); // reopen -> refetch
+
+    // 3 calls total: the initial mount fetch, the first open's refetch
+    // (fix #3 — both succeed), and this reopen's refetch (the one queued to fail).
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(3));
+
+    // The list must still be there — a transient failure must never blank
+    // a panel the user was already reading.
+    expect(screen.getByText('Group invitation')).toBeInTheDocument();
+    expect(screen.getByText('Banned from group')).toBeInTheDocument();
+    // The failure is represented, but as a dismissible banner alongside the
+    // list, never as the destructive "Failed to load" full-panel state.
+    expect(screen.queryByText('Failed to load notifications.')).not.toBeInTheDocument();
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent(/refresh/i);
+    // The badge (read from the same cache the list renders from) must stay
+    // consistent with what's visibly on screen — not silently reset to 0.
+    expect(screen.getByRole('button', { name: 'Notifications, 2 unread' })).toBeInTheDocument();
+  });
+
+  it('the initial-load error state is unaffected when there is no cached data to fall back on', async () => {
+    mocked.listNotifications.mockRejectedValue(new Error('down'));
+    renderBell();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications' }));
+
+    expect(await screen.findByText('Failed to load notifications.')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load notifications.');
+  });
+
+  it('opening the panel refetches; a second open while one is already in flight does not duplicate the request', async () => {
+    let resolveFirst!: (v: unknown) => void;
+    let resolveSecond!: (v: unknown) => void;
+    const calls: Array<Promise<unknown>> = [];
+    mocked.listNotifications.mockImplementation(() => {
+      const p = new Promise((resolve) => {
+        if (calls.length === 0) resolveFirst = resolve;
+        else resolveSecond = resolve;
+      });
+      calls.push(p);
+      return p;
+    });
+
+    renderBell();
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(1)); // mount fetch
+    resolveFirst(page([UNREAD_A], 1));
+    await screen.findByRole('button', { name: 'Notifications, 1 unread' });
+
+    const button = screen.getByRole('button', { name: 'Notifications, 1 unread' });
+    fireEvent.click(button); // open #1 -> triggers a refetch
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(2));
+
+    // Close and click open again WHILE that refetch is still unresolved.
+    fireEvent.click(button); // close
+    fireEvent.click(button); // open #2, request #2 still in flight
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mocked.listNotifications).toHaveBeenCalledTimes(2); // no duplicate fired
+
+    resolveSecond(page([UNREAD_A], 1));
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(2));
+  });
+
+  it('reopening after the in-flight request settles fetches again', async () => {
+    mocked.listNotifications.mockResolvedValue(page([UNREAD_A], 1));
+    renderBell();
+    const button = await screen.findByRole('button', { name: 'Notifications, 1 unread' });
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(1)); // mount
+
+    fireEvent.click(button); // open -> refetch #2
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(2));
+    fireEvent.click(button); // close
+
+    fireEvent.click(button); // reopen -> refetch #3, prior one already settled
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(3));
+  });
+
+  it('opening does not refetch a fresh cache under production staleTime defaults, but the explicit open-refetch still overrides it', async () => {
+    // main.tsx sets a real 5-minute staleTime; this proves the open-driven
+    // refetch (`cancelRefetch: false`, unconditional on open) still fires
+    // even though the data would otherwise be considered fresh.
+    mocked.listNotifications.mockResolvedValue(page([UNREAD_A], 1));
+    renderBell({ staleTime: 5 * 60 * 1000 });
+    const button = await screen.findByRole('button', { name: 'Notifications, 1 unread' });
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(button);
+    await waitFor(() => expect(mocked.listNotifications).toHaveBeenCalledTimes(2));
   });
 
   it('renders both read and unread items, with "Mark as read" offered only for unread ones', async () => {
@@ -124,9 +228,13 @@ describe('NotificationBell', () => {
   });
 
   it('marking one notification read calls the API with its id and announces the result', async () => {
-    mocked.listNotifications.mockResolvedValueOnce(page([UNREAD_A], 1));
-    mocked.markNotificationRead.mockResolvedValue({ success: true, data: { ...UNREAD_A, isRead: true } });
-    mocked.listNotifications.mockResolvedValueOnce(page([{ ...UNREAD_A, isRead: true }], 0));
+    mocked.listNotifications.mockResolvedValue(page([UNREAD_A], 1));
+    // Flip what the server returns as a side effect of the mutation, so the
+    // assertions hold no matter how many times the list is refetched.
+    mocked.markNotificationRead.mockImplementation(async () => {
+      mocked.listNotifications.mockResolvedValue(page([{ ...UNREAD_A, isRead: true }], 0));
+      return { success: true, data: { ...UNREAD_A, isRead: true } };
+    });
     renderBell();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }));
@@ -145,9 +253,11 @@ describe('NotificationBell', () => {
   });
 
   it('"Mark all read" calls the API and announces the result when there is something unread', async () => {
-    mocked.listNotifications.mockResolvedValueOnce(page([UNREAD_A, READ_ONE], 1));
-    mocked.markAllNotificationsRead.mockResolvedValue({ success: true, data: { updated: 1 } });
-    mocked.listNotifications.mockResolvedValueOnce(page([{ ...UNREAD_A, isRead: true }, READ_ONE], 0));
+    mocked.listNotifications.mockResolvedValue(page([UNREAD_A, READ_ONE], 1));
+    mocked.markAllNotificationsRead.mockImplementation(async () => {
+      mocked.listNotifications.mockResolvedValue(page([{ ...UNREAD_A, isRead: true }, READ_ONE], 0));
+      return { success: true, data: { updated: 1 } };
+    });
     renderBell();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Notifications, 1 unread' }));
