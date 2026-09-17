@@ -298,6 +298,18 @@ class ApiClient {
     return this.post(`/groups/${groupId}/request`);
   }
 
+  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/requests`, params);
+  }
+
+  async resolveGroupInvite(token: string): Promise<ApiResponse<any>> {
+    return this.get(`/groups/invites/${token}`);
+  }
+
+  async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/members/${userId}/ban`);
+  }
+
   async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<any>> {
     return this.post(`/groups/${groupId}/requests/${userId}/approve`);
   }

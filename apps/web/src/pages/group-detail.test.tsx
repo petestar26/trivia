@@ -9,8 +9,10 @@ vi.mock('@/lib/api', () => ({
     getGroup: vi.fn(),
     getGroupMembers: vi.fn(),
     listGroupInvites: vi.fn(),
+    listJoinRequests: vi.fn(),
     joinGroup: vi.fn(),
     requestJoinGroup: vi.fn(),
+    acceptGroupInvite: vi.fn(),
     leaveGroup: vi.fn(),
     approveJoinRequest: vi.fn(),
     rejectJoinRequest: vi.fn(),
@@ -32,8 +34,10 @@ const mocked = api as unknown as {
   getGroup: ReturnType<typeof vi.fn>;
   getGroupMembers: ReturnType<typeof vi.fn>;
   listGroupInvites: ReturnType<typeof vi.fn>;
+  listJoinRequests: ReturnType<typeof vi.fn>;
   joinGroup: ReturnType<typeof vi.fn>;
   requestJoinGroup: ReturnType<typeof vi.fn>;
+  acceptGroupInvite: ReturnType<typeof vi.fn>;
   leaveGroup: ReturnType<typeof vi.fn>;
   approveJoinRequest: ReturnType<typeof vi.fn>;
   rejectJoinRequest: ReturnType<typeof vi.fn>;
@@ -74,6 +78,7 @@ beforeEach(() => {
   mocked.getGroup.mockResolvedValue({ data: baseGroup });
   mocked.getGroupMembers.mockResolvedValue({ data: [] });
   mocked.listGroupInvites.mockResolvedValue({ data: [] });
+  mocked.listJoinRequests.mockResolvedValue({ data: [] });
 });
 
 describe('GroupDetailPage', () => {
@@ -105,6 +110,12 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null } });
       renderPage();
       expect(await screen.findByText('Request to join')).toBeInTheDocument();
+    });
+
+    it('shows request pending when requestStatus is PENDING', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, requestStatus: 'PENDING' } });
+      renderPage();
+      expect(await screen.findByText('Request pending')).toBeInTheDocument();
     });
   });
 
@@ -166,6 +177,10 @@ describe('GroupDetailPage', () => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
           { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
+        ],
+      });
+      mocked.listJoinRequests.mockResolvedValue({
+        data: [
           { id: 'm2', groupId: 'g-1', user: { id: 'u-pending', username: 'pending', displayName: 'Pending User' }, role: 'MEMBER', status: 'PENDING', joinedAt: '' },
         ],
       });
@@ -201,6 +216,22 @@ describe('GroupDetailPage', () => {
       fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
       await waitFor(() => expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER'));
+    });
+
+    it('copies the invite link after creation', async () => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: vi.fn().mockResolvedValue(undefined) },
+        configurable: true,
+      });
+      const clipboardSpy = vi.spyOn(navigator.clipboard, 'writeText');
+      mocked.createGroupInvite.mockResolvedValue({ data: { id: 'inv-2', token: 'tok-abc' } });
+      renderPage();
+      await screen.findByPlaceholderText('user@example.com');
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
+      await waitFor(() => expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER'));
+      expect(clipboardSpy).toHaveBeenCalledWith(expect.stringContaining('/groups/invite/tok-abc'));
+      clipboardSpy.mockRestore();
     });
   });
 
@@ -252,6 +283,10 @@ describe('GroupDetailPage', () => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
           { id: 'm1', groupId: 'g-1', user: { id: 'u-admin', username: 'admin', displayName: 'Admin' }, role: 'ADMIN', status: 'ACTIVE', joinedAt: '' },
+        ],
+      });
+      mocked.listJoinRequests.mockResolvedValue({
+        data: [
           { id: 'm2', groupId: 'g-1', user: { id: 'u-pending', username: 'requester', displayName: 'Requester' }, role: 'MEMBER', status: 'PENDING', joinedAt: '' },
         ],
       });

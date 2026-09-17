@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -22,6 +22,7 @@ type GroupInvite = {
   email: string;
   role: string;
   status: string;
+  token: string;
   expiresAt: string;
   invitedBy: string;
   createdAt: string;
@@ -36,6 +37,7 @@ type GroupDetail = {
   memberCount: number;
   isMember: boolean;
   memberRole?: string | null;
+  requestStatus?: string | null;
   owner?: { id: string; username: string; displayName?: string | null } | null;
 };
 
@@ -80,6 +82,12 @@ export function GroupDetailPage() {
     enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '') && groupQuery.data?.isPrivate,
   });
 
+  const requestsQuery = useQuery<GroupMember[]>({
+    queryKey: ['group-requests', groupId],
+    queryFn: async () => (await api.listJoinRequests(groupId)).data ?? [],
+    enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? ''),
+  });
+
   const isManager = ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '');
   const isOwner = groupQuery.data?.memberRole === 'OWNER';
 
@@ -120,6 +128,7 @@ export function GroupDetailPage() {
   const approveMutation = useMutation({
     mutationFn: (userId: string) => api.approveJoinRequest(groupId, userId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group', groupId] });
       toast({ title: 'Request approved' });
@@ -134,7 +143,9 @@ export function GroupDetailPage() {
   const rejectMutation = useMutation({
     mutationFn: (userId: string) => api.rejectJoinRequest(groupId, userId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
       toast({ title: 'Request rejected' });
     },
     onError: (err) => {
@@ -173,9 +184,16 @@ export function GroupDetailPage() {
 
   const inviteMutation = useMutation({
     mutationFn: ({ email, role }: { email: string; role?: string }) => api.createGroupInvite(groupId, email, role),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
-      toast({ title: 'Invite sent' });
+      const token = res?.data?.token;
+      if (token) {
+        const link = `${window.location.origin}/groups/invite/${token}`;
+        navigator.clipboard.writeText(link).catch(() => {});
+        toast({ title: 'Invite sent', description: 'Invite link copied to clipboard.' });
+      } else {
+        toast({ title: 'Invite sent' });
+      }
     },
     onError: (err) => {
       let msg = 'Failed to send invite';
@@ -284,8 +302,12 @@ export function GroupDetailPage() {
               {group.isPrivate && ' · Private'}
             </p>
             {group.isPrivate ? (
-              <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending}>
-                {joinMutation.isPending ? 'Requesting…' : 'Request to join'}
+              <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending || group.requestStatus === 'PENDING'}>
+                {joinMutation.isPending
+                  ? 'Requesting…'
+                  : group.requestStatus === 'PENDING'
+                    ? 'Request pending'
+                    : 'Request to join'}
               </Button>
             ) : (
               <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending}>
@@ -298,7 +320,7 @@ export function GroupDetailPage() {
     );
   }
 
-  const pendingMembers = membersQuery.data?.filter((m) => m.status === 'PENDING') ?? [];
+  const pendingMembers = requestsQuery.data?.filter((m) => m.status === 'PENDING') ?? [];
   const activeMembers = membersQuery.data?.filter((m) => m.status === 'ACTIVE') ?? [];
 
   return (

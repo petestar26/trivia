@@ -46,6 +46,7 @@ async function createUser(tag: string) {
       passwordHash: 'fixture-only-not-a-real-hash',
       displayName: `InvTest ${tag} ${suffix}`.slice(0, 100),
       status: 'ACTIVE',
+      isVerified: true,
     },
   });
   if (user.email === null) throw new Error('Expected non-null email');
@@ -372,16 +373,16 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'AcceptInv', { isPrivate: true });
 
+      const invitee = await createUser('inv-acceptee');
+      const inviteeToken = await mintToken(invitee);
+
       const createResp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(token),
-        payload: { email: 'acceptme@test.local' },
+        payload: { email: invitee.email },
       });
       const inviteData = JSON.parse(createResp.body).data;
-
-      const invitee = await createUser('inv-acceptee');
-      const inviteeToken = await mintToken(invitee);
 
       const resp = await server.inject({
         method: 'POST',
@@ -406,16 +407,16 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'ReplayInv', { isPrivate: true });
 
+      const invitee = await createUser('inv-replayee');
+      const inviteeToken = await mintToken(invitee);
+
       const createResp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(token),
-        payload: { email: 'replay@test.local' },
+        payload: { email: invitee.email },
       });
       const inviteData = JSON.parse(createResp.body).data;
-
-      const invitee = await createUser('inv-replayee');
-      const inviteeToken = await mintToken(invitee);
 
       // Accept once.
       await server.inject({
@@ -440,19 +441,19 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'ExpireInv', { isPrivate: true });
 
-      // Create an already-expired invite by backdating expiresAt.
+      const invitee = await createUser('inv-expiree');
+      const inviteeToken = await mintToken(invitee);
+
+      // Create an already-expired invite with matching email.
       const invite = await prisma.groupInvite.create({
         data: {
           groupId: group.id,
-          email: 'expired@test.local',
+          email: invitee.email.toLowerCase(),
           token: randomUUID(),
           expiresAt: new Date(Date.now() - 1000),
           invitedBy: owner.id,
         },
       });
-
-      const invitee = await createUser('inv-expiree');
-      const inviteeToken = await mintToken(invitee);
 
       const resp = await server.inject({
         method: 'POST',
@@ -472,11 +473,13 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'RevAccInv', { isPrivate: true });
 
+      const invitee = await createUser('inv-revacc-ee');
+
       const createResp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(token),
-        payload: { email: 'revoked-acc@test.local' },
+        payload: { email: invitee.email },
       });
       const inviteId = JSON.parse(createResp.body).data.id;
       const inviteToken = JSON.parse(createResp.body).data.token;
@@ -488,7 +491,6 @@ describeIf('groups/routes — Invitation lifecycle', () => {
         headers: authHeader(token),
       });
 
-      const invitee = await createUser('inv-revacc-ee');
       const inviteeToken = await mintToken(invitee);
 
       const resp = await server.inject({
@@ -505,16 +507,16 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'NotifAcceptInv', { isPrivate: true });
 
+      const invitee = await createUser('inv-notif-acceptee');
+      const inviteeToken = await mintToken(invitee);
+
       const createResp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(token),
-        payload: { email: 'notif-accept@test.local' },
+        payload: { email: invitee.email },
       });
       const inviteData = JSON.parse(createResp.body).data;
-
-      const invitee = await createUser('inv-notif-acceptee');
-      const inviteeToken = await mintToken(invitee);
 
       await server.inject({
         method: 'POST',
@@ -524,7 +526,7 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       });
 
       const notif = await prisma.notification.findFirst({
-        where: { userId: owner.id, type: 'GROUP_APPROVED' },
+        where: { userId: owner.id, type: 'GROUP_INVITE_ACCEPTED' },
       });
       expect(notif).not.toBeNull();
     });
@@ -534,29 +536,28 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'ConcAccInv', { isPrivate: true });
 
+      const invitee = await createUser('inv-conc-acceptor');
+      const inviteeToken = await mintToken(invitee);
+
       const createResp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(token),
-        payload: { email: 'concurrency@test.local' },
+        payload: { email: invitee.email },
       });
       const inviteData = JSON.parse(createResp.body).data;
-
-      // Two different users trying to accept the same token.
-      const userA = await createUser('inv-conc-a');
-      const userB = await createUser('inv-conc-b');
 
       const [respA, respB] = await Promise.all([
         server.inject({
           method: 'POST',
           url: `${PREFIX}/accept-invite`,
-          headers: authHeader(await mintToken(userA)),
+          headers: authHeader(inviteeToken),
           payload: { token: inviteData.token },
         }),
         server.inject({
           method: 'POST',
           url: `${PREFIX}/accept-invite`,
-          headers: authHeader(await mintToken(userB)),
+          headers: authHeader(inviteeToken),
           payload: { token: inviteData.token },
         }),
       ]);
@@ -571,7 +572,7 @@ describeIf('groups/routes — Invitation lifecycle', () => {
       expect(inviteAfter!.status).toBe('ACCEPTED');
 
       const membershipCount = await prisma.groupMember.count({
-        where: { groupId: group.id, userId: { in: [userA.id, userB.id] }, status: 'ACTIVE' },
+        where: { groupId: group.id, userId: invitee.id, status: 'ACTIVE' },
       });
       expect(membershipCount).toBe(1);
     });
@@ -916,7 +917,7 @@ describeIf('groups/routes — Ownership transfer', () => {
 // ─── Privacy Tests ───────────────────────────────────────────────
 
 describeIf('groups/routes — Private group privacy', () => {
-  it('non-members cannot access private group detail', async () => {
+  it('non-members can access private group safe summary (no members/invites leaked)', async () => {
     const owner = await createUser('priv-owner');
     const outsider = await createUser('priv-outsider');
     const group = await createGroup(owner.id, 'PrivGroup', { isPrivate: true });
@@ -926,22 +927,34 @@ describeIf('groups/routes — Private group privacy', () => {
       url: `${PREFIX}/${group.id}`,
       headers: authHeader(await mintToken(outsider)),
     });
-    expect(resp.statusCode).toBe(403);
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.isMember).toBe(false);
+    expect(body.data.memberRole).toBeNull();
+    expect(body.data.requestStatus).toBeNull();
+    expect(body.data.owner).toBeNull();
   });
 
-  it('private groups not viewable by non-members in detail', async () => {
+  it('private group summary includes requestStatus for non-members who already requested', async () => {
     const owner = await createUser('priv-disc');
     const outsider = await createUser('priv-disc-o');
     const group = await createGroup(owner.id, 'PrivDiscGroup', { isPrivate: true });
 
-    // List endpoint includes private groups (discovery is name-based), but
-    // the detail endpoint blocks non-members.
-    const detailResp = await server.inject({
+    // Simulate the outsider having requested.
+    await prisma.groupMember.create({
+      data: { groupId: group.id, userId: outsider.id, role: 'MEMBER', status: 'PENDING' },
+    });
+
+    const resp = await server.inject({
       method: 'GET',
       url: `${PREFIX}/${group.id}`,
       headers: authHeader(await mintToken(outsider)),
     });
-    expect(detailResp.statusCode).toBe(403);
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.isMember).toBe(false);
+    expect(body.data.requestStatus).toBe('PENDING');
+    expect(body.data.owner).toBeNull();
   });
 });
 
@@ -1016,5 +1029,368 @@ describeIf('groups/routes — Authorization matrix', () => {
       payload: { targetUserId: owner.id },
     });
     expect(tr.statusCode).toBe(403);
+  });
+});
+
+// ─── Hardening: review findings integration coverage ─────────────
+
+describeIf('groups/routes — hardening findings', () => {
+  describe('GET /groups/:id/requests — pending request listing', () => {
+    it('returns only PENDING requests for managers', async () => {
+      const owner = await createUser('h-req-owner');
+      const admin = await createUser('h-req-admin');
+      const pending = await createUser('h-req-pending');
+      const active = await createUser('h-req-active');
+      const group = await createGroup(owner.id, 'ReqList', { isPrivate: true });
+      await addMember(group.id, admin.id, GroupMemberRole.ADMIN, GroupMemberStatus.ACTIVE);
+      await addMember(group.id, pending.id, GroupMemberRole.MEMBER, GroupMemberStatus.PENDING);
+      await addMember(group.id, active.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+      const resp = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/${group.id}/requests`,
+        headers: authHeader(await mintToken(admin)),
+      });
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].user.id).toBe(pending.id);
+      expect(body.data[0].status).toBe('PENDING');
+    });
+
+    it('rejects non-managers and banned/LEFT members', async () => {
+      const owner = await createUser('h-req-o2');
+      const member = await createUser('h-req-m2');
+      const group = await createGroup(owner.id, 'ReqList2', { isPrivate: true });
+      await addMember(group.id, member.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+      const token = await mintToken(member);
+
+      const resp = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/${group.id}/requests`,
+        headers: authHeader(token),
+      });
+      expect(resp.statusCode).toBe(403);
+    });
+  });
+
+  describe('invite acceptance binding — verified email', () => {
+    async function makeInvite(ownerId: string, groupId: string, email: string) {
+      const inv = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${groupId}/invites`,
+        headers: authHeader(await mintToken(await prisma.user.findUniqueOrThrow({ where: { id: ownerId } }))),
+        payload: { email },
+      });
+      return JSON.parse(inv.body).data.token;
+    }
+
+    it('rejects acceptors whose verified email does not match the invite', async () => {
+      const owner = await createUser('h-email-owner');
+      const invitee = await createUser('h-email-target');
+      const mismatch = await createUser('h-email-wrong');
+      const group = await createGroup(owner.id, 'EmailBind', { isPrivate: true });
+
+      const token = await makeInvite(owner.id, group.id, invitee.email);
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken(mismatch)),
+        payload: { token },
+      });
+      expect(resp.statusCode).toBe(403);
+      expect(JSON.parse(resp.body).error.message).toBe('This invite is not for your email address');
+    });
+
+    it('rejects unverified identities even when the email matches', async () => {
+      const owner = await createUser('h-unver-owner');
+      const group = await createGroup(owner.id, 'UnverBind', { isPrivate: true });
+      const suffix = uniqueSuffix();
+      const email = `${EMAIL_PREFIX}h-unver-${suffix}@test.local`;
+      const unverified = await prisma.user.create({
+        data: {
+          email,
+          username: `h_unver_${suffix}`.slice(0, 30),
+          passwordHash: 'fixture-only-not-a-real-hash',
+          displayName: 'Unverified',
+          status: 'ACTIVE',
+          isVerified: false,
+        },
+      });
+
+      const token = await makeInvite(owner.id, group.id, unverified.email!);
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken(unverified)),
+        payload: { token },
+      });
+      expect(resp.statusCode).toBe(403);
+    });
+
+    it('matches the invite email case-insensitively', async () => {
+      const owner = await createUser('h-case-owner');
+      const invitee = await createUser('h-case-target');
+      const group = await createGroup(owner.id, 'CaseBind', { isPrivate: true });
+
+      const token = await makeInvite(owner.id, group.id, invitee.email.toUpperCase());
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken(invitee)),
+        payload: { token },
+      });
+      expect(resp.statusCode).toBe(200);
+    });
+  });
+
+  describe('invite acceptance — banned users', () => {
+    it('rejects a BANNED member trying to accept', async () => {
+      const owner = await createUser('h-ban-owner');
+      const invitee = await createUser('h-ban-invitee');
+      const group = await createGroup(owner.id, 'BanBind', { isPrivate: true });
+      // Existing BANNED membership.
+      await addMember(group.id, invitee.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+
+      const token = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: invitee.email },
+      });
+      const invT = JSON.parse(token.body).data.token;
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken(invitee)),
+        payload: { token: invT },
+      });
+      expect(resp.statusCode).toBe(403);
+      expect(JSON.parse(resp.body).error.message).toBe('You are banned from this group');
+    });
+
+    it('rejects an account whose user.status is BANNED', async () => {
+      const owner = await createUser('h-uban-owner');
+      const group = await createGroup(owner.id, 'UBanBind', { isPrivate: true });
+      const bannedUser = await prisma.user.create({
+        data: {
+          email: `${EMAIL_PREFIX}h-uban-${uniqueSuffix()}@test.local`,
+          username: `h_uban_${uniqueSuffix()}`.slice(0, 30),
+          passwordHash: 'fixture-only-not-a-real-hash',
+          displayName: 'BannedAcct',
+          status: 'BANNED',
+          isVerified: true,
+        },
+      });
+
+      const token = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: bannedUser.email! },
+      });
+      const invT = JSON.parse(token.body).data.token;
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/accept-invite`,
+        headers: authHeader(await mintToken(bannedUser)),
+        payload: { token: invT },
+      });
+      expect(resp.statusCode).toBe(403);
+    });
+  });
+
+  describe('ban lifecycle — revokes pending invites', () => {
+    it('revokes the banned user’s PENDING invite atomically on ban', async () => {
+      const owner = await createUser('h-rev-owner');
+      const victim = await createUser('h-rev-victim');
+      const group = await createGroup(owner.id, 'RevOnBan', { isPrivate: true });
+
+      // Invite the victim first (they are not a member yet).
+      const inv = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: victim.email },
+      });
+      expect(inv.statusCode).toBe(200);
+      const inviteId = JSON.parse(inv.body).data.id;
+
+      // Now the victim is a member, and the owner bans them.
+      await addMember(group.id, victim.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+      const ban = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/members/${victim.id}/ban`,
+        headers: authHeader(await mintToken(owner)),
+      });
+      expect(ban.statusCode).toBe(200);
+
+      const inviteAfter = await prisma.groupInvite.findUniqueOrThrow({ where: { id: inviteId } });
+      expect(inviteAfter.status).toBe('REVOKED');
+      const membership = await prisma.groupMember.findUniqueOrThrow({
+        where: { groupId_userId: { groupId: group.id, userId: victim.id } },
+      });
+      expect(membership.status).toBe('BANNED');
+    });
+  });
+
+  describe('email normalization + duplicate races', () => {
+    it('normalizes invite emails to lowercase', async () => {
+      const owner = await createUser('h-norm-owner');
+      const group = await createGroup(owner.id, 'NormEmail', { isPrivate: true });
+      const inv = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: 'MiXeD@Test.LOCAL' },
+      });
+      const invite = JSON.parse(inv.body).data;
+      expect(invite.email).toBe('mixed@test.local');
+    });
+
+    it('returns 409 when a PENDING invite already exists for the same email (any case)', async () => {
+      const owner = await createUser('h-dup-owner');
+      const group = await createGroup(owner.id, 'DupEmail', { isPrivate: true });
+      const token = await mintToken(owner);
+      const headers = authHeader(token);
+
+      await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers,
+        payload: { email: 'dup@test.local' },
+      });
+      const again = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers,
+        payload: { email: 'DUP@test.local' },
+      });
+      expect(again.statusCode).toBe(409);
+      expect(JSON.parse(again.body).error.message).toBe('An active invite already exists for this email');
+    });
+  });
+
+  describe('approve + transfer require ACTIVE groups', () => {
+    it('rejects approving requests for a non-ACTIVE group', async () => {
+      const owner = await createUser('h-arch-owner');
+      const requester = await createUser('h-arch-req');
+      const group = await prisma.group.create({
+        data: {
+          ownerId: owner.id,
+          name: `Archived-${uniqueSuffix()}`,
+          status: 'ARCHIVED',
+          isPrivate: true,
+        },
+      });
+      await addMember(group.id, requester.id, GroupMemberRole.MEMBER, GroupMemberStatus.PENDING);
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/requests/${requester.id}/approve`,
+        headers: authHeader(await mintToken(owner)),
+      });
+      expect(resp.statusCode).toBe(400);
+    });
+
+    it('rejects ownership transfer for a non-ACTIVE group', async () => {
+      const owner = await createUser('h-arch-t-owner');
+      const target = await createUser('h-arch-t-target');
+      const group = await prisma.group.create({
+        data: {
+          ownerId: owner.id,
+          name: `ArchivedT-${uniqueSuffix()}`,
+          status: 'ARCHIVED',
+          isPrivate: true,
+        },
+      });
+      await addMember(group.id, target.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/transfer`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { targetUserId: target.id },
+      });
+      expect(resp.statusCode).toBe(400);
+    });
+  });
+
+  describe('ownership transfer race', () => {
+    it('rejects a target that is no longer an ACTIVE member', async () => {
+      const owner = await createUser('h-race-owner');
+      const target = await createUser('h-race-target');
+      const group = await createGroup(owner.id, 'RaceTransfer', { isPrivate: true });
+      await addMember(group.id, target.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+      // The target leaves before the transfer request.
+      await prisma.groupMember.update({
+        where: { groupId_userId: { groupId: group.id, userId: target.id } },
+        data: { status: 'LEFT' },
+      });
+
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/transfer`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { targetUserId: target.id },
+      });
+      expect(resp.statusCode).toBe(400);
+    });
+
+    it('protects the transfer with an in-transaction ACTIVE guard (concurrent transfer to same target yields 409)', async () => {
+      const owner = await createUser('h-race2-owner');
+      const target = await createUser('h-race2-target');
+      const group = await createGroup(owner.id, 'RaceTransfer2', { isPrivate: true });
+      await addMember(group.id, target.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+      const [resp1, resp2] = await Promise.all([
+        server.inject({
+          method: 'POST',
+          url: `${PREFIX}/${group.id}/transfer`,
+          headers: authHeader(await mintToken(owner)),
+          payload: { targetUserId: target.id },
+        }),
+        server.inject({
+          method: 'POST',
+          url: `${PREFIX}/${group.id}/transfer`,
+          headers: authHeader(await mintToken(owner)),
+          payload: { targetUserId: target.id },
+        }),
+      ]);
+      const wins = [resp1, resp2].filter((r) => r.statusCode === 200);
+      const losses = [resp1, resp2].filter((r) => r.statusCode === 409);
+      expect(wins.length).toBe(1);
+      expect(losses.length).toBe(1);
+    });
+  });
+
+  describe('invite token resolution', () => {
+    it('exposes only safe summary for invite tokens', async () => {
+      const owner = await createUser('h-res-owner');
+      const group = await createGroup(owner.id, 'ResolveInv', { isPrivate: true });
+      const inv = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: 'resolve@test.local' },
+      });
+      const token = JSON.parse(inv.body).data.token;
+
+      const resp = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/invites/${token}`,
+        headers: authHeader(await mintToken(owner)),
+      });
+      expect(resp.statusCode).toBe(200);
+      const body = JSON.parse(resp.body).data;
+      expect(body.group.id).toBe(group.id);
+      expect(body.status).toBe('PENDING');
+      expect(body).not.toHaveProperty('email');
+      expect(body).not.toHaveProperty('token');
+    });
   });
 });

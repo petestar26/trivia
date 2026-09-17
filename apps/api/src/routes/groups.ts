@@ -144,18 +144,39 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('Group is banned');
       }
 
-      if (group.isPrivate) {
-        const membership = await getGroupMembership(request.params.id, request.user!.sub);
-        if (!membership || membership.status !== 'ACTIVE') {
-          throw ApiError.forbidden('Group is private');
-        }
+      const membership = await getGroupMembership(group.id, request.user!.sub);
+      const isActiveMember = !!membership && membership.status === 'ACTIVE';
+
+      // Private groups are reachable by non-members via a safe summary only:
+      // name/description/count/public metadata and the caller's own request
+      // status — never the member list, invites, or owner identity.
+      if (group.isPrivate && !isActiveMember) {
+        const memberCount = await prisma.groupMember.count({
+          where: { groupId: group.id, status: 'ACTIVE' },
+        });
+        return {
+          success: true,
+          data: {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            imageUrl: group.imageUrl,
+            coverUrl: group.coverUrl,
+            isPrivate: true,
+            status: group.status,
+            memberCount,
+            isMember: false,
+            memberRole: null,
+            requestStatus: membership?.status ?? null,
+            owner: null,
+          },
+        };
       }
 
       const memberCount = await prisma.groupMember.count({
         where: { groupId: group.id, status: 'ACTIVE' },
       });
 
-      const membership = await getGroupMembership(group.id, request.user!.sub);
       const owner = await prisma.user.findUnique({
         where: { id: group.ownerId },
         select: {
@@ -651,6 +672,81 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  // Ban member (OWNER/ADMIN) — atomically revokes the user's PENDING invites
+  // so a banned user can no longer redeem them.
+  server.post<{ Params: { id: string; userId: string } }>(
+    '/:id/members/:userId/ban',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'userId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const targetUserId = request.params.userId;
+      const actorUserId = request.user!.sub;
+
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      await assertManager(groupId, actorUserId);
+
+      if (targetUserId === actorUserId) {
+        throw ApiError.badRequest('You cannot ban yourself');
+      }
+
+      const target = await getGroupMembership(groupId, targetUserId);
+      if (!target) {
+        throw ApiError.notFound('User is not a member of this group');
+      }
+      if (target.role === 'OWNER') {
+        throw ApiError.forbidden('You cannot ban the owner of the group');
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.groupMember.update({
+          where: { id: target.id },
+          data: { status: 'BANNED' },
+        });
+
+        const user = await tx.user.findUnique({
+          where: { id: targetUserId },
+          select: { email: true },
+        });
+        if (user?.email) {
+          await tx.groupInvite.updateMany({
+            where: { groupId, email: user.email.toLowerCase(), status: 'PENDING' },
+            data: { status: 'REVOKED' },
+          });
+        }
+
+        await tx.notification.create({
+          data: {
+            userId: targetUserId,
+            type: 'MODERATION',
+            title: 'Banned from group',
+            body: `You have been banned from "${group.name}"`,
+            data: { groupId, bannedBy: actorUserId },
+          },
+        });
+      });
+
+      return {
+        success: true,
+        data: { message: 'Member banned' },
+      };
+    }
+  );
+
   // Change member role
   server.patch<{
     Params: { id: string; userId: string };
@@ -760,8 +856,12 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       }
       await assertManager(groupId, request.user!.sub);
 
-      // Block if the target is already an active member.
-      const existingUser = await prisma.user.findUnique({ where: { email } });
+      const normalizedEmail = email.toLowerCase();
+
+      // Block if the target is already an active member (case-insensitive).
+      const existingUser = await prisma.user.findFirst({
+        where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+      });
       if (existingUser) {
         const existingMember = await getGroupMembership(groupId, existingUser.id);
         if (existingMember && existingMember.status === 'ACTIVE') {
@@ -769,40 +869,46 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         }
       }
 
-      // Block if a PENDING invite already exists for this email+group.
       const existingInvite = await prisma.groupInvite.findFirst({
-        where: { groupId, email, status: 'PENDING' },
+        where: { groupId, email: normalizedEmail, status: 'PENDING' },
       });
       if (existingInvite) {
         throw ApiError.conflict('An active invite already exists for this email');
       }
 
       const token = crypto.randomUUID();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      const invite = await prisma.groupInvite.create({
-        data: {
-          groupId,
-          email,
-          role,
-          token,
-          expiresAt,
-          invitedBy: request.user!.sub,
-        },
-        select: {
-          id: true,
-          groupId: true,
-          email: true,
-          role: true,
-          status: true,
-          token: true,
-          expiresAt: true,
-          invitedBy: true,
-          createdAt: true,
-        },
-      });
+      let invite;
+      try {
+        invite = await prisma.groupInvite.create({
+          data: {
+            groupId,
+            email: normalizedEmail,
+            role,
+            token,
+            expiresAt,
+            invitedBy: request.user!.sub,
+          },
+          select: {
+            id: true,
+            groupId: true,
+            email: true,
+            role: true,
+            status: true,
+            token: true,
+            expiresAt: true,
+            invitedBy: true,
+            createdAt: true,
+          },
+        });
+      } catch (err: any) {
+        if (err.code === 'P2002' && err.meta?.target?.includes('email')) {
+          throw ApiError.conflict('An active invite already exists for this email');
+        }
+        throw err;
+      }
 
-      // Notification to the target user if they exist.
       if (existingUser) {
         await prisma.notification.create({
           data: {
@@ -867,6 +973,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           email: i.email,
           role: i.role,
           status: i.status,
+          token: i.token,
           expiresAt: i.expiresAt,
           invitedBy: i.invitedBy,
           createdAt: i.createdAt,
@@ -925,7 +1032,43 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  // Accept invite (any authenticated user)
+  // Resolve an invite by token (safe summary for the redemption page).
+  // No email, no token in the response — only group identity, expiry, and state.
+  server.get<{ Params: { token: string } }>(
+    '/invites/:token',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['token'],
+          properties: { token: { type: 'string', minLength: 1 } },
+        },
+      },
+    },
+    async (request) => {
+      const { token } = request.params;
+      const invite = await prisma.groupInvite.findUnique({
+        where: { token },
+        include: { group: { select: { id: true, name: true, isPrivate: true } } },
+      });
+      if (!invite) {
+        throw ApiError.notFound('Invalid invite token');
+      }
+
+      return {
+        success: true,
+        data: {
+          id: invite.id,
+          group: invite.group,
+          status: invite.status,
+          expiresAt: invite.expiresAt,
+        },
+      };
+    }
+  );
+
+  // Accept invite (any authenticated user with verified email matching invite)
   server.post<{ Body: { token: string } }>(
     '/accept-invite',
     {
@@ -960,6 +1103,20 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('This invite has expired');
       }
 
+      const caller = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, isVerified: true, status: true },
+      });
+      if (!caller || !caller.email || !caller.isVerified) {
+        throw ApiError.forbidden('You must have a verified email to accept invites');
+      }
+      if (caller.status === 'BANNED') {
+        throw ApiError.forbidden('You are banned from this group');
+      }
+      if (caller.email.toLowerCase() !== invite.email.toLowerCase()) {
+        throw ApiError.forbidden('This invite is not for your email address');
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         const group = await tx.group.findUnique({ where: { id: invite.groupId } });
         if (!group || group.status !== 'ACTIVE') {
@@ -972,9 +1129,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         if (existingMember && existingMember.status === 'ACTIVE') {
           throw ApiError.conflict('You are already a member of this group');
         }
+        if (existingMember && existingMember.status === 'BANNED') {
+          throw ApiError.forbidden('You are banned from this group');
+        }
 
-        // Atomic single-use claim. If another concurrent accept won the race,
-        // the updateMany matches 0 rows and this request is treated as a replay.
         const claimed = await tx.groupInvite.updateMany({
           where: { id: invite.id, status: 'PENDING' },
           data: { status: 'ACCEPTED', acceptedBy: userId },
@@ -1006,7 +1164,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         await tx.notification.create({
           data: {
             userId: invite.invitedBy,
-            type: 'GROUP_APPROVED',
+            type: 'GROUP_INVITE_ACCEPTED',
             title: 'Invite accepted',
             body: `${acceptor?.displayName || acceptor?.username || 'A user'} accepted your invitation to "${group.name}"`,
             data: { groupId: invite.groupId, inviteId: invite.id, acceptedBy: userId },
@@ -1118,7 +1276,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const groupId = request.params.id;
       const targetUserId = request.params.userId;
 
-      await getGroupOrThrow(groupId);
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
       await assertManager(groupId, request.user!.sub);
 
       const target = await getGroupMembership(groupId, targetUserId);
@@ -1214,6 +1375,79 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  // List pending join requests (OWNER/ADMIN only)
+  server.get<{ Params: { id: string }; Querystring: { page?: number; limit?: number } }>(
+    '/:id/requests',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            page: { type: 'integer', minimum: 1, default: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      await assertManager(groupId, request.user!.sub);
+
+      const page = request.query.page ?? 1;
+      const limit = request.query.limit ?? 20;
+
+      const [requests, total] = await Promise.all([
+        prisma.groupMember.findMany({
+          where: { groupId, status: 'PENDING' },
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+          orderBy: { joinedAt: 'asc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.groupMember.count({ where: { groupId, status: 'PENDING' } }),
+      ]);
+
+      return {
+        success: true,
+        data: requests.map((m) => ({
+          id: m.id,
+          groupId: m.groupId,
+          user: m.user,
+          role: m.role,
+          status: m.status,
+          joinedAt: m.joinedAt,
+        })),
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page < Math.ceil(total / limit),
+          hasPrevPage: page > 1,
+        },
+      };
+    }
+  );
+
   // ─── Ownership Transfer ──────────────────────────────────────
 
   server.post<{ Params: { id: string }; Body: { targetUserId: string } }>(
@@ -1243,6 +1477,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       }
 
       const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
 
       // OWNER only.
       const actorMembership = await getGroupMembership(groupId, actorUserId);
@@ -1250,7 +1487,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('Only the owner can transfer ownership');
       }
 
-      // Target must be an ACTIVE member.
+      // Target must be an ACTIVE member at read time; the in-transaction
+      // updateMany below re-verifies ACTIVE so a concurrent leave/removal
+      // turns into a 409 instead of promoting a stale membership row.
       const targetMembership = await getGroupMembership(groupId, targetUserId);
       if (!targetMembership || targetMembership.status !== 'ACTIVE') {
         throw ApiError.badRequest('Target user must be an active member');
@@ -1258,6 +1497,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
 
       // Atomic ownership transfer: use a single transaction with the
       // ownerId check preventing concurrent conflicting transfers.
+
       const result = await prisma.$transaction(async (tx) => {
         // Optimistic lock: verify ownerId hasn't changed since we read it.
         const updatedGroup = await tx.group.updateMany({
@@ -1274,11 +1514,15 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           data: { role: 'ADMIN' },
         });
 
-        // Promote new owner.
-        await tx.groupMember.update({
-          where: { id: targetMembership.id },
+        // Promote new owner — requiring ACTIVE status so a target that was
+        // banned/removed/left between the read and this write fails atomically.
+        const promoted = await tx.groupMember.updateMany({
+          where: { id: targetMembership.id, status: 'ACTIVE' },
           data: { role: 'OWNER' },
         });
+        if (promoted.count === 0) {
+          throw ApiError.conflict('Target user is no longer an active member');
+        }
 
         // Notify both parties.
         const [oldOwner, newOwner] = await Promise.all([

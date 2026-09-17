@@ -138,6 +138,7 @@ export enum NotificationType {
   REACTION = 'reaction',
   GIFT_RECEIVED = 'gift_received',
   GROUP_INVITE = 'group_invite',
+  GROUP_INVITE_ACCEPTED = 'group_invite_accepted',
   GROUP_JOIN_REQUEST = 'group_join_request',
   GROUP_APPROVED = 'group_approved',
   GROUP_REJECTED = 'group_rejected',

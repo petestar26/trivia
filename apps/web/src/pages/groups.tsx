@@ -283,7 +283,10 @@ export function GroupsPage() {
                 </p>
                 <div className="flex gap-2">
                   {group.isMember ? (
-                    <Button size="sm" onClick={() => navigate(`/groups/${group.id}`)}>Manage</Button>
+                    <>
+                      <Button size="sm" onClick={() => navigate(`/messages/${group.id}`)}>Messages</Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}`)}>Manage</Button>
+                    </>
                   ) : (
                     group.isPrivate ? (
                       <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}`)}>View</Button>
