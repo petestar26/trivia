@@ -39,6 +39,7 @@ type GroupDetail = {
   memberCount: number;
   isMember: boolean;
   memberRole?: string | null;
+  viewerMembershipStatus?: string | null;
   requestStatus?: string | null;
   owner?: { id: string; username: string; displayName?: string | null } | null;
 };
@@ -396,7 +397,11 @@ export function GroupDetailPage() {
               {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
               {group.isPrivate && ' · Private'}
             </p>
-            {group.isPrivate ? (
+            {group.viewerMembershipStatus === 'BANNED' ? (
+              <p role="status" className="text-sm text-red-600 dark:text-red-400" data-testid="banned-message">
+                You have been banned from this group.
+              </p>
+            ) : group.isPrivate ? (
               <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending || group.requestStatus === 'PENDING'}>
                 {joinMutation.isPending
                   ? 'Requesting…'

@@ -82,6 +82,7 @@ const baseGroup = {
   memberCount: 3,
   isMember: true,
   memberRole: 'MEMBER',
+  viewerMembershipStatus: 'ACTIVE',
   owner: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
 };
 
@@ -144,6 +145,47 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, requestStatus: 'PENDING' } });
       renderPage();
       expect(await screen.findByText('Request pending')).toBeInTheDocument();
+    });
+
+    it('renders the persistent banned message and no Request to join when viewerMembershipStatus is BANNED', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      renderPage();
+      expect(await screen.findByText('You have been banned from this group.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Request to join' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Join' })).not.toBeInTheDocument();
+    });
+
+    it('does not call the join-request API for a banned caller', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      renderPage();
+      await screen.findByText('You have been banned from this group.');
+      expect(mocked.requestJoinGroup).not.toHaveBeenCalled();
+      expect(mocked.joinGroup).not.toHaveBeenCalled();
+    });
+
+    it('shows Request to join for an eligible non-member with viewerMembershipStatus null', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: null, requestStatus: null } });
+      renderPage();
+      const card = await screen.findByText('Test Group');
+      const joinButton = card.closest('.border')!.querySelector('button');
+      expect(screen.getByRole('button', { name: 'Request to join' })).toBeInTheDocument();
+      expect(joinButton?.textContent).toContain('Request to join');
+      expect(screen.queryByText('You have been banned from this group.')).not.toBeInTheDocument();
+    });
+
+    it('PENDING renders the existing pending state and not the banned message', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'PENDING', requestStatus: 'PENDING' } });
+      renderPage();
+      expect(await screen.findByText('Request pending')).toBeInTheDocument();
+      expect(screen.queryByText('You have been banned from this group.')).not.toBeInTheDocument();
+    });
+
+    it('exposes the banned message through an accessible status role without CSS reliance', async () => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      renderPage();
+      const status = await screen.findByRole('status');
+      expect(status).toBeInTheDocument();
+      expect(status.textContent).toBe('You have been banned from this group.');
     });
   });
 

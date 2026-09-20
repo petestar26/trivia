@@ -83,6 +83,8 @@ export interface GroupBasicInfo {
   createdAt: string;
 }
 
+export type GroupMembershipStatus = 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
+
 export interface GroupDetailInfo extends GroupBasicInfo {
   owner: {
     id: string;
@@ -94,6 +96,9 @@ export interface GroupDetailInfo extends GroupBasicInfo {
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'BANNED';
   isMember: boolean;
   memberRole?: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+  /** The authenticated caller's own membership status in this group, when a
+   *  membership row exists (including BANNED); null when there is no row. */
+  viewerMembershipStatus: GroupMembershipStatus | null;
   updatedAt: string;
 }
 
@@ -107,7 +112,7 @@ export interface GroupMemberInfo {
     avatarUrl?: string;
   };
   role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
-  status: 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
+  status: GroupMembershipStatus;
   joinedAt: string;
 }
 

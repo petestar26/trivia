@@ -958,6 +958,165 @@ describeIf('groups/routes — Private group privacy', () => {
   });
 });
 
+// ─── Viewer Membership Status Tests ──────────────────────────────
+
+describeIf('groups/routes — GET /groups/:id viewerMembershipStatus', () => {
+  it('a banned caller receives viewerMembershipStatus BANNED with isMember false', async () => {
+    const owner = await createUser('vms-banned-o');
+    const banned = await createUser('vms-banned-u');
+    const group = await createGroup(owner.id, 'VMSBanned', { isPrivate: true });
+    await addMember(group.id, banned.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${group.id}`,
+      headers: authHeader(await mintToken(banned)),
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.viewerMembershipStatus).toBe('BANNED');
+    expect(body.data.isMember).toBe(false);
+  });
+
+  it('the private-group banned summary stays privacy-safe (no members/invites/owner/tokens/other status)', async () => {
+    const owner = await createUser('vms-priv-o');
+    const banned = await createUser('vms-priv-b');
+    const innocent = await createUser('vms-priv-i');
+    const group = await createGroup(owner.id, 'VMSPrivSafe', { isPrivate: true });
+    await addMember(group.id, banned.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+    await addMember(group.id, innocent.id, GroupMemberRole.ADMIN, GroupMemberStatus.ACTIVE);
+    await prisma.groupInvite.create({
+      data: {
+        groupId: group.id,
+        email: 'vms-priv-invite@test.local',
+        role: 'ADMIN',
+        token: `tok-${randomUUID()}`,
+        expiresAt: new Date(Date.now() + 86400000),
+        invitedBy: owner.id,
+      },
+    });
+
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${group.id}`,
+      headers: authHeader(await mintToken(banned)),
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    // Caller-scoped status only.
+    expect(body.data.viewerMembershipStatus).toBe('BANNED');
+    expect(body.data.isMember).toBe(false);
+    // No other user's membership status or role.
+    expect(body.data.owner).toBeNull();
+    expect(body.data.memberRole).toBeNull();
+    // No member list, invites, or invite tokens.
+    expect(body.data.members).toBeUndefined();
+    expect(body.data.invites).toBeUndefined();
+    expect(body.data.token).toBeUndefined();
+    expect(JSON.stringify(body.data)).not.toContain('vms-priv-invite@test.local');
+    expect(JSON.stringify(body.data)).not.toContain(innocent.id);
+  });
+
+  it('an ACTIVE member receives the canonical active status', async () => {
+    const owner = await createUser('vms-active-o');
+    const member = await createUser('vms-active-m');
+    const group = await createGroup(owner.id, 'VMSActive', { isPrivate: true });
+    await addMember(group.id, member.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${group.id}`,
+      headers: authHeader(await mintToken(member)),
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.viewerMembershipStatus).toBe('ACTIVE');
+    expect(body.data.isMember).toBe(true);
+  });
+
+  it('a PENDING requester receives canonical pending status and requestStatus stays PENDING', async () => {
+    const owner = await createUser('vms-pend-o');
+    const requester = await createUser('vms-pend-r');
+    const group = await createGroup(owner.id, 'VMSPending', { isPrivate: true });
+    await addMember(group.id, requester.id, GroupMemberRole.MEMBER, GroupMemberStatus.PENDING);
+
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${group.id}`,
+      headers: authHeader(await mintToken(requester)),
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.viewerMembershipStatus).toBe('PENDING');
+    expect(body.data.requestStatus).toBe('PENDING');
+    expect(body.data.isMember).toBe(false);
+  });
+
+  it('a true stranger receives viewerMembershipStatus null', async () => {
+    const owner = await createUser('vms-str-o');
+    const stranger = await createUser('vms-str-s');
+    const group = await createGroup(owner.id, 'VMSStrange', { isPrivate: true });
+
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${group.id}`,
+      headers: authHeader(await mintToken(stranger)),
+    });
+    expect(resp.statusCode).toBe(200);
+    const body = JSON.parse(resp.body);
+    expect(body.data.viewerMembershipStatus).toBeNull();
+    expect(body.data.isMember).toBe(false);
+  });
+
+  it('a banned caller is still rejected by the join-request route and creates no membership', async () => {
+    const owner = await createUser('vms-jr-o');
+    const banned = await createUser('vms-jr-b');
+    const group = await createGroup(owner.id, 'VMSJRReject', { isPrivate: true });
+    await addMember(group.id, banned.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+
+    const resp = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/${group.id}/request`,
+      headers: authHeader(await mintToken(banned)),
+    });
+    expect(resp.statusCode).toBe(403);
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: group.id, userId: banned.id } },
+    });
+    expect(membership).not.toBeNull();
+    expect(membership!.status).toBe('BANNED');
+  });
+
+  it('status is scoped by groupId and userId; a ban in one group does not leak into another', async () => {
+    const owner = await createUser('vms-scope-o');
+    const caller = await createUser('vms-scope-c');
+    const bannedGroup = await createGroup(owner.id, 'VMSScopeBan', { isPrivate: true });
+    const otherGroup = await createGroup(owner.id, 'VMSScopeOk', { isPrivate: false });
+    await addMember(bannedGroup.id, caller.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
+    // Caller is a genuinely unrelated stranger to `otherGroup` — no row at all.
+    const otherOwner = await createUser('vms-scope-o2');
+    await createGroup(otherOwner.id, 'VMSScopeOther', { isPrivate: true });
+
+    const bannedResp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${bannedGroup.id}`,
+      headers: authHeader(await mintToken(caller)),
+    });
+    expect(bannedResp.statusCode).toBe(200);
+    expect(JSON.parse(bannedResp.body).data.viewerMembershipStatus).toBe('BANNED');
+
+    const otherResp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/${otherGroup.id}`,
+      headers: authHeader(await mintToken(caller)),
+    });
+    expect(otherResp.statusCode).toBe(200);
+    expect(JSON.parse(otherResp.body).data.viewerMembershipStatus).toBeNull();
+    expect(JSON.parse(otherResp.body).data.isMember).toBe(false);
+  });
+});
+
 // ─── Authorization Matrix Tests ──────────────────────────────────
 
 describeIf('groups/routes — Authorization matrix', () => {
