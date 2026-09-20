@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
@@ -181,11 +181,20 @@ export function GroupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['group', groupId] });
       queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
       toast({ title: 'Member banned' });
+      // The banned row — and the Ban button that opened this — is about to
+      // disappear from the list, so focus goes to the Members heading, a
+      // control that survives the refresh. Without this, dismissing the
+      // confirmation would drop focus to <body> and a keyboard or screen
+      // reader user would lose their place entirely.
+      closeBanConfirm({ restoreTo: 'members-heading' });
     },
     onError: (err) => {
       let msg = 'Failed to ban member';
       try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
       toast({ title: 'Error', description: msg, variant: 'destructive' });
+      // The ban failed, so the member row and its Ban button are still
+      // there — send focus back to where the flow started.
+      closeBanConfirm({ restoreTo: 'trigger' });
     },
   });
 
@@ -285,16 +294,50 @@ export function GroupDetailPage() {
 
   const [banTarget, setBanTarget] = useState('');
   const [showBanConfirm, setShowBanConfirm] = useState(false);
+  // The Ban button that opened the confirmation, so Cancel (and a failed
+  // ban) can put focus back exactly where the user left it.
+  const banTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const banConfirmRef = useRef<HTMLButtonElement | null>(null);
+  const membersHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  // Guards against a double-click sending two bans. `banMutation.isPending`
+  // cannot do this on its own: neither it nor the button's `disabled`
+  // attribute has updated yet when a second click arrives in the SAME tick,
+  // so both clicks get through (measured: two requests). A ref flips
+  // synchronously, so the second click is dropped.
+  const banInFlightRef = useRef(false);
 
   const banTargetMember = membersQuery.data?.find(
     (m) => m.user.id === banTarget && m.status === 'ACTIVE'
   );
 
-  function handleBanConfirm() {
-    if (!banTargetMember) return;
-    banMutation.mutate(banTarget);
+  // Moving focus into the confirmation is what makes it a real confirmation
+  // step: it is rendered below the member list, so without this a keyboard
+  // or screen reader user gets no indication anything happened.
+  useEffect(() => {
+    if (showBanConfirm) banConfirmRef.current?.focus();
+  }, [showBanConfirm]);
+
+  function closeBanConfirm({ restoreTo }: { restoreTo: 'trigger' | 'members-heading' }) {
     setShowBanConfirm(false);
     setBanTarget('');
+    banInFlightRef.current = false;
+    const trigger = banTriggerRef.current;
+    const fallback = membersHeadingRef.current;
+    // A trigger that was removed from the DOM can't take focus, so fall
+    // back to the heading in that case too.
+    const destination =
+      restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : fallback;
+    destination?.focus();
+    banTriggerRef.current = null;
+  }
+
+  function handleBanConfirm() {
+    if (!banTargetMember || banInFlightRef.current) return;
+    banInFlightRef.current = true;
+    // Deliberately does NOT close the confirmation here: the card stays
+    // mounted for the whole request so its "Banning…" state is actually
+    // reachable, and closing is left to the mutation's settled callbacks.
+    banMutation.mutate(banTarget);
   }
 
   // ─── Loading / error ────────────────────────────────────────────
@@ -421,7 +464,9 @@ export function GroupDetailPage() {
       {/* Members */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Members ({activeMembers.length})</CardTitle>
+          <CardTitle className="text-sm" ref={membersHeadingRef} tabIndex={-1}>
+            Members ({activeMembers.length})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {membersQuery.isLoading ? (
@@ -460,7 +505,11 @@ export function GroupDetailPage() {
                       size="sm"
                       variant="destructive"
                       className="text-xs h-6"
-                      onClick={() => { setBanTarget(m.user.id); setShowBanConfirm(true); }}
+                      onClick={(e) => {
+                        banTriggerRef.current = e.currentTarget;
+                        setBanTarget(m.user.id);
+                        setShowBanConfirm(true);
+                      }}
                     >
                       Ban
                     </Button>
@@ -581,10 +630,21 @@ export function GroupDetailPage() {
               </p>
             )}
             <div className="flex gap-2">
-              <Button size="sm" variant="destructive" disabled={banMutation.isPending} onClick={handleBanConfirm}>
+              <Button
+                ref={banConfirmRef}
+                size="sm"
+                variant="destructive"
+                disabled={banMutation.isPending}
+                onClick={handleBanConfirm}
+              >
                 {banMutation.isPending ? 'Banning…' : 'Confirm ban'}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => { setShowBanConfirm(false); setBanTarget(''); }}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={banMutation.isPending}
+                onClick={() => closeBanConfirm({ restoreTo: 'trigger' })}
+              >
                 Cancel
               </Button>
             </div>

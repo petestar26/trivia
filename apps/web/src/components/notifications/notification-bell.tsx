@@ -24,7 +24,16 @@ const PANEL_LIMIT = 20;
 export function NotificationBell() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
+  // The nonce exists so that announcing the SAME outcome twice still
+  // reaches assistive technology. Setting an identical string makes React
+  // bail out, the text node never changes, and a live region that never
+  // mutates is never announced — so marking a second notification read was
+  // previously silent. The nonce alternates a zero-width space onto the
+  // rendered text: a real DOM mutation that adds nothing a screen reader
+  // speaks.
+  const [status, setStatus] = useState({ message: '', nonce: 0 });
+  const announce = (message: string) => setStatus((prev) => ({ message, nonce: prev.nonce + 1 }));
+  const announcedText = status.message === '' ? '' : `${status.message}${status.nonce % 2 ? '\u200B' : ''}`;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -57,10 +66,10 @@ export function NotificationBell() {
     mutationFn: (id: string) => api.markNotificationRead(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-      setStatusMessage('Notification marked as read.');
+      announce('Notification marked as read.');
     },
     onError: () => {
-      setStatusMessage('Failed to mark notification as read.');
+      announce('Failed to mark notification as read.');
     },
   });
 
@@ -68,10 +77,10 @@ export function NotificationBell() {
     mutationFn: () => api.markAllNotificationsRead(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-      setStatusMessage('All notifications marked as read.');
+      announce('All notifications marked as read.');
     },
     onError: () => {
-      setStatusMessage('Failed to mark all notifications as read.');
+      announce('Failed to mark all notifications as read.');
     },
   });
 
@@ -122,12 +131,17 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
+      {/* No aria-haspopup: `true` is a synonym for "menu", and this popup is
+          a region, not a menu — promising a menu changes how a screen reader
+          tells the user to interact with it. aria-expanded plus aria-controls
+          is the disclosure pattern this actually implements. aria-controls is
+          omitted while closed, because the panel is not in the DOM then and an
+          IDREF pointing at nothing is invalid. */}
       <button
         ref={buttonRef}
         type="button"
-        aria-haspopup="true"
         aria-expanded={open}
-        aria-controls="notification-panel"
+        aria-controls={open ? 'notification-panel' : undefined}
         aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
         onClick={handleToggle}
         className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -151,7 +165,7 @@ export function NotificationBell() {
           once here, once in the panel body — which is exactly the kind of
           ambiguity a screen reader's "find" gesture stumbles on too). */}
       <span role="status" aria-live="polite" className="sr-only">
-        {statusMessage}
+        {announcedText}
       </span>
 
       {open && (

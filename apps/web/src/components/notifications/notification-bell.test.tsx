@@ -315,6 +315,102 @@ describe('NotificationBell', () => {
     expect(screen.queryByRole('region', { name: 'Notifications' })).not.toBeInTheDocument();
   });
 
+  describe('accessibility semantics', () => {
+    it('does not claim to open a menu, and does not dangle aria-controls while closed', async () => {
+      mocked.listNotifications.mockResolvedValue(page([], 0));
+      renderBell();
+      const button = await screen.findByRole('button', { name: 'Notifications' });
+
+      // aria-haspopup="true" is a synonym for "menu"; the popup is a region.
+      expect(button).not.toHaveAttribute('aria-haspopup');
+      // While closed there is no panel, so aria-controls must not point at
+      // an element id that does not exist.
+      expect(button).not.toHaveAttribute('aria-controls');
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('points aria-controls at the real panel once open', async () => {
+      mocked.listNotifications.mockResolvedValue(page([], 0));
+      renderBell();
+      const button = await screen.findByRole('button', { name: 'Notifications' });
+      fireEvent.click(button);
+
+      const controls = button.getAttribute('aria-controls');
+      expect(controls).toBe('notification-panel');
+      expect(document.getElementById(controls!)).not.toBeNull();
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+      // Still not a menu.
+      expect(button).not.toHaveAttribute('aria-haspopup');
+      expect(screen.getByRole('region', { name: 'Notifications' })).toBeInTheDocument();
+    });
+
+    it('re-announces an identical outcome, so a second mark-read is not silent', async () => {
+      mocked.listNotifications.mockResolvedValue(page([UNREAD_A, UNREAD_B], 2));
+      mocked.markNotificationRead.mockResolvedValue({ success: true, data: {} });
+      renderBell();
+      fireEvent.click(await screen.findByRole('button', { name: /Notifications/ }));
+      await screen.findByText('Group invitation');
+
+      const region = screen.getByRole('status');
+      let mutations = 0;
+      const observer = new MutationObserver((records) => {
+        mutations += records.length;
+      });
+      observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]);
+      await waitFor(() => expect(region.textContent).toContain('Notification marked as read.'));
+      const afterFirst = mutations;
+      expect(afterFirst).toBeGreaterThan(0);
+
+      // Same outcome again. A live region only speaks when its content
+      // actually changes, so this must still produce a DOM mutation.
+      fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]);
+      await waitFor(() => expect(mocked.markNotificationRead).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mutations).toBeGreaterThan(afterFirst));
+      observer.disconnect();
+
+      expect(region.textContent).toContain('Notification marked as read.');
+    });
+
+    it('re-announces a repeated mark-all-read outcome too', async () => {
+      mocked.listNotifications.mockResolvedValue(page([UNREAD_A], 1));
+      mocked.markAllNotificationsRead.mockResolvedValue({ success: true, data: { updated: 1 } });
+      renderBell();
+      fireEvent.click(await screen.findByRole('button', { name: /Notifications/ }));
+
+      const region = screen.getByRole('status');
+      let mutations = 0;
+      const observer = new MutationObserver((records) => {
+        mutations += records.length;
+      });
+      observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+      const markAll = await screen.findByRole('button', { name: 'Mark all read' });
+      fireEvent.click(markAll);
+      await waitFor(() => expect(region.textContent).toContain('All notifications marked as read.'));
+      const afterFirst = mutations;
+
+      fireEvent.click(markAll);
+      await waitFor(() => expect(mocked.markAllNotificationsRead).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mutations).toBeGreaterThan(afterFirst));
+      observer.disconnect();
+    });
+
+    it('the announcement carries no visible punctuation change for sighted users', async () => {
+      mocked.listNotifications.mockResolvedValue(page([UNREAD_A], 1));
+      mocked.markNotificationRead.mockResolvedValue({ success: true, data: {} });
+      renderBell();
+      fireEvent.click(await screen.findByRole('button', { name: /Notifications/ }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Mark as read' }));
+
+      const region = await screen.findByRole('status');
+      await waitFor(() => expect(region.textContent).toContain('Notification marked as read.'));
+      // Only a zero-width space may ever be appended.
+      expect(region.textContent!.replace(/\u200B/g, '')).toBe('Notification marked as read.');
+    });
+  });
+
   it('sets aria-expanded to reflect the open state', async () => {
     mocked.listNotifications.mockResolvedValue(page([], 0));
     renderBell();

@@ -425,6 +425,167 @@ describe('GroupDetailPage', () => {
       expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['notifications'] }));
     });
 
+    describe('confirmation focus and pending state', () => {
+      /** A ban request the test controls the timing of. */
+      function deferredBan() {
+        let resolve!: (v: unknown) => void;
+        let reject!: (e: unknown) => void;
+        mocked.banGroupMember.mockReturnValue(
+          new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+          })
+        );
+        return { resolve, reject };
+      }
+
+      it('moves focus into the confirmation when it opens', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+
+        const confirm = await screen.findByRole('button', { name: 'Confirm ban' });
+        await waitFor(() => expect(confirm).toHaveFocus());
+      });
+
+      it('keeps the confirmation mounted and shows reachable "Banning…" while pending', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        const deferred = deferredBan();
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+
+        // The request is still in flight: the card must still be on screen
+        // and the pending label must be genuinely reachable, not dead code.
+        const pendingButton = await screen.findByRole('button', { name: 'Banning…' });
+        expect(pendingButton).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Confirm ban' })).toBeInTheDocument();
+
+        deferred.resolve({ data: { message: 'Member banned' } });
+        await waitFor(() =>
+          expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument()
+        );
+      });
+
+      it('disables both confirm and cancel while pending, so the ban cannot be double-sent', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        const deferred = deferredBan();
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+
+        const pendingButton = await screen.findByRole('button', { name: 'Banning…' });
+        expect(pendingButton).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+        // Clicking again while pending must not fire a second request.
+        fireEvent.click(pendingButton);
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(mocked.banGroupMember).toHaveBeenCalledTimes(1);
+
+        deferred.resolve({ data: { message: 'Member banned' } });
+        await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(1));
+      });
+
+      it('a same-tick double click sends only one ban request', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        deferredBan();
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+        const confirm = await screen.findByRole('button', { name: 'Confirm ban' });
+
+        // Both clicks land before React can re-render the button as
+        // disabled, so the `disabled` attribute alone cannot stop the
+        // second one — only the synchronous in-flight ref can.
+        fireEvent.click(confirm);
+        fireEvent.click(confirm);
+
+        await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(1));
+        await new Promise((r) => setTimeout(r, 30));
+        expect(mocked.banGroupMember).toHaveBeenCalledTimes(1);
+      });
+
+      it('a second ban still works after the first one completes', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        // Two bannable members, so the second ban is a fresh flow rather
+        // than a replay of the first.
+        mocked.getGroupMembers.mockResolvedValue({
+          data: [
+            { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
+            { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+            { id: 'm3', groupId: 'g-1', user: { id: 'u-mem2', username: 'member2', displayName: 'Member Two' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          ],
+        });
+        mocked.banGroupMember.mockResolvedValue({ data: { message: 'Member banned' } });
+        renderPage();
+
+        const banButtons = await screen.findAllByRole('button', { name: 'Ban' });
+        fireEvent.click(banButtons[0]);
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+        await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(1));
+        await waitFor(() =>
+          expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument()
+        );
+
+        // The in-flight guard must have been released, or this second ban
+        // would be dropped on the floor with no feedback at all.
+        const banButtonsAgain = await screen.findAllByRole('button', { name: 'Ban' });
+        fireEvent.click(banButtonsAgain[1]);
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+        await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(2));
+        expect(mocked.banGroupMember).toHaveBeenLastCalledWith('g-1', 'u-mem2');
+      });
+
+      it('cancel restores focus to the originating Ban button', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        renderPage();
+        const banButton = await screen.findByRole('button', { name: 'Ban' });
+        fireEvent.click(banButton);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+        expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument();
+        await waitFor(() => expect(banButton).toHaveFocus());
+      });
+
+      it('a successful ban restores focus to a surviving control, not the body', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        const deferred = deferredBan();
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+        await screen.findByRole('button', { name: 'Banning…' });
+
+        deferred.resolve({ data: { message: 'Member banned' } });
+
+        await waitFor(() =>
+          expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument()
+        );
+        // The banned row's Ban button is gone, so focus lands on the
+        // Members heading rather than being dropped to <body>.
+        const heading = screen.getByRole('heading', { name: /^Members \(/ });
+        await waitFor(() => expect(heading).toHaveFocus());
+        expect(document.activeElement).not.toBe(document.body);
+      });
+
+      it('a failed ban restores focus to the Ban button that is still there', async () => {
+        mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+        const deferred = deferredBan();
+        renderPage();
+        const banButton = await screen.findByRole('button', { name: 'Ban' });
+        fireEvent.click(banButton);
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
+        await screen.findByRole('button', { name: 'Banning…' });
+
+        deferred.reject(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
+
+        await waitFor(() =>
+          expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument()
+        );
+        await waitFor(() => expect(banButton).toHaveFocus());
+      });
+    });
+
     it('surfaces a ban failure accessibly, without silently swallowing it', async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.banGroupMember.mockRejectedValue(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
