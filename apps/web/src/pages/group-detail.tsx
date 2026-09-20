@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { NOTIFICATIONS_QUERY_KEY } from '@/lib/notifications-query-keys';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,6 +92,21 @@ export function GroupDetailPage() {
 
   const isManager = ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '');
   const isOwner = groupQuery.data?.memberRole === 'OWNER';
+
+  // Authenticated actor, keyed by stable user id. Required for row-level
+  // self-management suppression below.
+  const { user: currentUser } = useAuth();
+  const currentUserId = currentUser?.id;
+
+  // Shared visibility predicate for member-management controls (role
+  // selector, Remove, Ban, Transfer). Fails closed while the actor's
+  // identity is unresolved so destructive controls are never flashed;
+  // never surfaces on the actor's own row or the group owner's row.
+  const canShowMemberManagementControls = (member: GroupMember): boolean =>
+    !!currentUserId &&
+    isManager &&
+    member.user.id !== currentUserId &&
+    member.user.id !== groupQuery.data?.owner?.id;
 
   // ─── Mutations ──────────────────────────────────────────────────
 
@@ -480,7 +496,7 @@ export function GroupDetailPage() {
                   <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
                   {roleBadge(m.role)}
                 </div>
-                {isManager && m.user.id !== group.owner?.id && (
+                {canShowMemberManagementControls(m) && (
                   <div className="flex items-center gap-1">
                     <select
                       className="text-xs border rounded px-1.5 py-0.5"

@@ -1,8 +1,27 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { GroupDetailPage } from './group-detail';
+
+// Controllable authenticated identity for the self-management suppression
+// tests. Set `.current` per test; a null value simulates an unresolved
+// identity so the fail-closed branch can be exercised.
+const authState = vi.hoisted(() => ({
+  current: { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' } as {
+    id: string;
+    username: string;
+    displayName: string;
+  } | null,
+}));
+
+vi.mock('@/providers/auth-provider', () => ({
+  useAuth: () => ({
+    user: authState.current,
+    isAuthenticated: !!authState.current,
+    isLoading: authState.current === null,
+  }),
+}));
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -83,6 +102,7 @@ function renderPage(
 
 beforeEach(() => {
   vi.resetAllMocks();
+  authState.current = { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' };
   mocked.getGroup.mockResolvedValue({ data: baseGroup });
   mocked.getGroupMembers.mockResolvedValue({ data: [] });
   mocked.listGroupInvites.mockResolvedValue({ data: [] });
@@ -629,6 +649,92 @@ describe('GroupDetailPage', () => {
     it('shows "No members yet" when members list is empty', async () => {
       renderPage();
       expect(await screen.findByText('No members yet.')).toBeInTheDocument();
+    });
+  });
+
+  describe('self-management controls (current user row)', () => {
+    function memberRow(userId: string, name: string, role: string) {
+      return {
+        id: `m-${userId}`,
+        groupId: 'g-1',
+        user: { id: userId, username: name.toLowerCase(), displayName: name },
+        role,
+        status: 'ACTIVE' as const,
+        joinedAt: '',
+      };
+    }
+
+    /** The bordered row container for a given member display name. */
+    function rowFor(name: string): HTMLElement {
+      return screen.getByText(name).closest('.rounded-md.border.p-3') as HTMLElement;
+    }
+
+    it('ADMIN: no role selector, Remove, or Ban on own row; Leave stays; other member still manageable', async () => {
+      authState.current = { id: 'u-admin', username: 'admin', displayName: 'Admin' };
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'ADMIN' } });
+      mocked.getGroupMembers.mockResolvedValue({
+        data: [
+          memberRow('u-owner', 'Owner', 'OWNER'),
+          memberRow('u-admin', 'Admin', 'ADMIN'),
+          memberRow('u-bob', 'Bob', 'MEMBER'),
+        ],
+      });
+      renderPage();
+      await screen.findByText('Admin');
+
+      const ownRow = within(rowFor('Admin'));
+      expect(ownRow.queryByRole('combobox')).toBeNull();
+      expect(ownRow.queryByRole('button', { name: 'Remove' })).toBeNull();
+      expect(ownRow.queryByRole('button', { name: 'Ban' })).toBeNull();
+
+      expect(screen.getByRole('button', { name: 'Leave' })).toBeInTheDocument();
+
+      const bobRow = within(rowFor('Bob'));
+      expect(bobRow.getByRole('combobox')).toBeInTheDocument();
+      expect(bobRow.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+      expect(bobRow.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
+    });
+
+    it('OWNER: no management controls on own OWNER row; non-owner member still manageable', async () => {
+      authState.current = { id: 'u-owner', username: 'owner', displayName: 'Owner' };
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      mocked.getGroupMembers.mockResolvedValue({
+        data: [
+          memberRow('u-owner', 'Owner', 'OWNER'),
+          memberRow('u-bob', 'Bob', 'MEMBER'),
+        ],
+      });
+      renderPage();
+      await screen.findByText('Owner');
+
+      const ownRow = within(rowFor('Owner'));
+      expect(ownRow.queryByRole('combobox')).toBeNull();
+      expect(ownRow.queryByRole('button', { name: 'Remove' })).toBeNull();
+      expect(ownRow.queryByRole('button', { name: 'Ban' })).toBeNull();
+
+      const bobRow = within(rowFor('Bob'));
+      expect(bobRow.getByRole('combobox')).toBeInTheDocument();
+      expect(bobRow.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+      expect(bobRow.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
+    });
+
+    it('does not flash management controls while the user identity is unresolved', async () => {
+      authState.current = null;
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
+      mocked.getGroupMembers.mockResolvedValue({
+        data: [
+          memberRow('u-owner', 'Owner', 'OWNER'),
+          memberRow('u-bob', 'Bob', 'MEMBER'),
+        ],
+      });
+      renderPage();
+      await screen.findByText('Bob');
+
+      // Fail closed: with no resolved identity the manager controls must not
+      // render for any row, including rows the OWNER would otherwise manage.
+      expect(screen.queryByRole('combobox')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Ban' })).toBeNull();
     });
   });
 });
