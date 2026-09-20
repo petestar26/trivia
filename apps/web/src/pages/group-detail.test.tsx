@@ -265,7 +265,7 @@ describe('GroupDetailPage', () => {
     beforeEach(() => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, memberRole: 'OWNER' } });
       mocked.listGroupInvites.mockResolvedValue({
-        data: [{ id: 'inv-1', email: 'alice@test.com', role: 'MEMBER', status: 'PENDING', expiresAt: '', invitedBy: '', createdAt: '' }],
+        data: [{ id: 'inv-1', email: 'alice@test.com', role: 'MEMBER', status: 'PENDING', token: 'tok-alice', expiresAt: '', invitedBy: '', createdAt: '' }],
       });
     });
 

@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/providers/auth-provider';
 import { getErrorMessage } from '@/lib/error-message';
+import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,22 +25,10 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Validate the return-to path: must be a local relative path that starts
-  // with / but not // (protocol-relative). Reject external URLs, javascript:
-  // URIs, and any path traversal.
-  const returnTo = (() => {
-    const raw = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-    if (!raw || typeof raw !== 'string') return '/';
-    if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
-    try {
-      const url = new URL(raw, window.location.origin);
-      if (url.origin !== window.location.origin) return '/';
-    } catch {
-      return '/';
-    }
-    if (/^https?:/i.test(raw) || /^javascript:/i.test(raw)) return '/';
-    return raw;
-  })();
+  // Where to go after signing in: the location ProtectedRoute turned the
+  // visitor away from — path, query string and fragment — if it is a plain
+  // in-app location, otherwise the home page. See safe-return-to.ts.
+  const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
 
   const {
     register,
@@ -55,7 +44,8 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await login(data.email, data.password);
-      navigate(returnTo);
+      // Replace, so the sign-in page does not stay behind as a Back target.
+      navigate(returnTo, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, 'Login failed'));
     } finally {

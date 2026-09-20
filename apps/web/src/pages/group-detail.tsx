@@ -2,49 +2,26 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { copyText, type CopyOutcome } from '@/lib/clipboard';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
+import { inviteLink } from '@/lib/invite-link';
 import { notificationsScopeKey } from '@/lib/notifications-query-keys';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-
-type GroupMember = {
-  id: string;
-  groupId: string;
-  user: { id: string; username: string; displayName?: string | null; avatarUrl?: string | null };
-  role: string;
-  status: string;
-  joinedAt: string;
-};
-
-type GroupInvite = {
-  id: string;
-  email: string;
-  role: string;
-  status: string;
-  token: string;
-  expiresAt: string;
-  invitedBy: string;
-  createdAt: string;
-};
-
-type GroupDetail = {
-  id: string;
-  name: string;
-  description?: string | null;
-  isPrivate: boolean;
-  status: string;
-  memberCount: number;
-  isMember: boolean;
-  memberRole?: string | null;
-  viewerMembershipStatus?: string | null;
-  requestStatus?: string | null;
-  owner?: { id: string; username: string; displayName?: string | null } | null;
-};
+import type { GroupDetailInfo, GroupInviteInfo, GroupMemberInfo } from '@socialplay/shared';
 
 const ROLE_OPTIONS = ['ADMIN', 'MODERATOR', 'MEMBER'] as const;
+
+const inviteLinkFieldId = (inviteId: string) => `invite-link-${inviteId}`;
+
+const COPY_MESSAGES: Record<CopyOutcome, string> = {
+  copied: 'Invite link copied.',
+  failed: "Couldn't copy the link. It is selected above — copy it manually.",
+  unavailable: "This browser can't copy for you. The link is selected above — copy it manually.",
+};
 
 function roleBadge(role: string) {
   const colours: Record<string, string> = {
@@ -67,25 +44,31 @@ export function GroupDetailPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const groupQuery = useQuery<GroupDetail>({
+  const groupQuery = useQuery<GroupDetailInfo>({
     queryKey: ['group', groupId],
-    queryFn: async () => (await api.getGroup(groupId)).data,
+    queryFn: async () => {
+      const res = await api.getGroup(groupId);
+      if (!res.data) throw new Error('Group response carried no data');
+      return res.data;
+    },
     enabled: !!groupId,
   });
 
-  const membersQuery = useQuery<GroupMember[]>({
+  const membersQuery = useQuery<GroupMemberInfo[]>({
     queryKey: ['group-members', groupId],
     queryFn: async () => (await api.getGroupMembers(groupId)).data ?? [],
     enabled: !!groupId && !!groupQuery.data?.isMember,
   });
 
-  const invitesQuery = useQuery<GroupInvite[]>({
+  const invitesQuery = useQuery<GroupInviteInfo[]>({
     queryKey: ['group-invites', groupId],
-    queryFn: async () => (await api.listGroupInvites(groupId)).data ?? [],
+    // The API's largest page: every live invite a manager is likely to have,
+    // each with its recoverable link, rather than only the first twenty.
+    queryFn: async () => (await api.listGroupInvites(groupId, { limit: 100 })).data ?? [],
     enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '') && groupQuery.data?.isPrivate,
   });
 
-  const requestsQuery = useQuery<GroupMember[]>({
+  const requestsQuery = useQuery<GroupMemberInfo[]>({
     queryKey: ['group-requests', groupId],
     queryFn: async () => (await api.listJoinRequests(groupId)).data ?? [],
     enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? ''),
@@ -103,7 +86,7 @@ export function GroupDetailPage() {
   // selector, Remove, Ban, Transfer). Fails closed while the actor's
   // identity is unresolved so destructive controls are never flashed;
   // never surfaces on the actor's own row or the group owner's row.
-  const canShowMemberManagementControls = (member: GroupMember): boolean =>
+  const canShowMemberManagementControls = (member: GroupMemberInfo): boolean =>
     !!currentUserId &&
     isManager &&
     member.user.id !== currentUserId &&
@@ -233,30 +216,31 @@ export function GroupDetailPage() {
   const inviteMutation = useMutation({
     mutationFn: ({ email, role }: { email: string; role?: string }) => api.createGroupInvite(groupId, email, role),
     onSuccess: async (res) => {
-      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
-      const token = res?.data?.token;
-      if (token) {
-        const link = `${window.location.origin}/groups/invite/${token}`;
-        let copied = false;
-        try {
-          if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(link);
-            copied = true;
-          }
-        } catch {
-          // Clipboard write failed — the link is still shown below.
-        }
-        if (copied) {
-          toast({ title: 'Invite sent', description: 'Invite link copied to clipboard.' });
-        } else {
-          toast({
-            title: 'Invite sent',
-            description: `Copy the invite link: ${link}`,
-          });
-        }
-      } else {
-        toast({ title: 'Invite sent' });
+      const created = res?.data;
+      if (created?.token) {
+        // The invite exists now, and it must be reachable from the page no
+        // matter what the clipboard, the toast or the refetch below do: put it
+        // in the list straight from the response. The refetch then reconciles
+        // it with the server; if that refetch fails, the row is still here.
+        queryClient.setQueryData<GroupInviteInfo[]>(['group-invites', groupId], (current) => [
+          created,
+          ...(current ?? []).filter((inv) => inv.id !== created.id),
+        ]);
       }
+      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
+
+      // Copying on creation is a convenience, never the only way to get the
+      // link. Whatever it does, the row's own "Copy link" stays available.
+      const outcome = created?.token ? await copyText(inviteLink(created.token)) : null;
+      toast({
+        title: 'Invite created',
+        description:
+          outcome === 'copied'
+            ? 'The invite link was copied to your clipboard. It stays listed under Active invites.'
+            : created?.token
+              ? 'The invite link is listed under Active invites, where you can copy it whenever you need it.'
+              : undefined,
+      });
     },
     onError: (err) => {
       let msg = 'Failed to send invite';
@@ -298,6 +282,26 @@ export function GroupDetailPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('MEMBER');
   const inviteInputRef = useRef<HTMLInputElement>(null);
+
+  // The outcome of the most recent "Copy link" press, shown on that row. The
+  // nonce makes a repeated identical outcome a real DOM change, so a screen
+  // reader announces the second copy too (a live region whose text does not
+  // change is never re-announced).
+  const [copyFeedback, setCopyFeedback] = useState<{ inviteId: string; outcome: CopyOutcome; nonce: number } | null>(null);
+
+  async function copyInviteLink(invite: GroupInviteInfo) {
+    const outcome = await copyText(inviteLink(invite.token));
+    setCopyFeedback((prev) => ({ inviteId: invite.id, outcome, nonce: (prev?.nonce ?? 0) + 1 }));
+    if (outcome !== 'copied') {
+      // Recovery: put the link itself in front of the user, already selected,
+      // so copying it by hand is one keystroke.
+      const field = document.getElementById(inviteLinkFieldId(invite.id));
+      if (field instanceof HTMLInputElement) {
+        field.focus();
+        field.select();
+      }
+    }
+  }
 
   function handleInvite(e: FormEvent) {
     e.preventDefault();
@@ -614,17 +618,59 @@ export function GroupDetailPage() {
             <CardTitle className="text-sm">Active invites ({invitesQuery.data.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {invitesQuery.data.map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div>
-                  <span className="text-sm font-medium">{inv.email}</span>
-                  <span className="ml-2 text-xs text-gray-500">{roleBadge(inv.role)}</span>
+            {invitesQuery.data.map((inv) => {
+              const feedback = copyFeedback?.inviteId === inv.id ? copyFeedback : null;
+              return (
+                <div key={inv.id} className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-sm font-medium">{inv.email}</span>
+                      <span className="ml-2 text-xs text-gray-500">{roleBadge(inv.role)}</span>
+                    </div>
+                    <Button size="sm" variant="destructive" disabled={revokeMutation.isPending} onClick={() => revokeMutation.mutate(inv.id)}>
+                      Revoke
+                    </Button>
+                  </div>
+                  {/* The recoverable link. It is part of the row for as long as the
+                      invite is live — not something a toast carries and then takes
+                      away — so it can always be selected by hand or copied again. */}
+                  {inv.token && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id={inviteLinkFieldId(inv.id)}
+                          readOnly
+                          value={inviteLink(inv.token)}
+                          aria-label={`Invitation link for ${inv.email}`}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="h-9 font-mono text-xs"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          aria-label={`Copy link for ${inv.email}`}
+                          onClick={() => void copyInviteLink(inv)}
+                        >
+                          Copy link
+                        </Button>
+                      </div>
+                      <p
+                        role="status"
+                        aria-live="polite"
+                        className={`text-xs min-h-[1rem] ${
+                          feedback && feedback.outcome !== 'copied'
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {feedback ? `${COPY_MESSAGES[feedback.outcome]}${feedback.nonce % 2 ? '\u200B' : ''}` : ''}
+                      </p>
+                    </>
+                  )}
                 </div>
-                <Button size="sm" variant="destructive" disabled={revokeMutation.isPending} onClick={() => revokeMutation.mutate(inv.id)}>
-                  Revoke
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}

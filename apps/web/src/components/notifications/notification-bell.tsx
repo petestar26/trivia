@@ -119,7 +119,7 @@ function NotificationInbox({ userId }: { userId: string }) {
   // speaks.
   const [status, setStatus] = useState({ message: '', nonce: 0 });
   const announce = (message: string) => setStatus((prev) => ({ message, nonce: prev.nonce + 1 }));
-  const announcedText = status.message === '' ? '' : `${status.message}${status.nonce % 2 ? '​' : ''}`;
+  const announcedText = status.message === '' ? '' : `${status.message}${status.nonce % 2 ? '\u200B' : ''}`;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);

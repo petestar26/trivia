@@ -1,5 +1,15 @@
 import { API_BASE, API_ORIGIN } from './api-config';
-import type { NotificationInfo, NotificationListMeta, UserSearchResult } from '@socialplay/shared';
+import type {
+  CreatedGroupInviteInfo,
+  GroupDetailInfo,
+  GroupInviteInfo,
+  GroupInvitePreview,
+  GroupMemberInfo,
+  NotificationInfo,
+  NotificationListMeta,
+  PaginationMeta,
+  UserSearchResult,
+} from '@socialplay/shared';
 
 export type { UserSearchResult };
 
@@ -18,6 +28,11 @@ export interface ApiResponse<T, M = Record<string, unknown>> {
     details?: Record<string, unknown>;
   };
   meta?: M;
+}
+
+/** What every mutating group endpoint answers with. */
+export interface ApiMessage {
+  message: string;
 }
 
 interface RequestOptions extends RequestInit {
@@ -251,7 +266,7 @@ class ApiClient {
     return this.post('/groups', body);
   }
 
-  async getGroup(groupId: string): Promise<ApiResponse<any>> {
+  async getGroup(groupId: string): Promise<ApiResponse<GroupDetailInfo>> {
     return this.get(`/groups/${groupId}`);
   }
 
@@ -268,62 +283,65 @@ class ApiClient {
   }
 
   // Group members
-  async getGroupMembers(groupId: string): Promise<ApiResponse<any>> {
+  async getGroupMembers(groupId: string): Promise<ApiResponse<GroupMemberInfo[]>> {
     return this.get(`/groups/${groupId}/members`);
   }
 
-  async removeGroupMember(groupId: string, userId: string): Promise<ApiResponse<any>> {
+  async removeGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
     return this.delete(`/groups/${groupId}/members/${userId}`);
   }
 
-  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<any>> {
+  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<ApiMessage>> {
     return this.patch(`/groups/${groupId}/members/${userId}/role`, { role });
   }
 
   // Group invites
-  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<any>> {
+  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<CreatedGroupInviteInfo>> {
     return this.post(`/groups/${groupId}/invites`, { email, role });
   }
 
-  async listGroupInvites(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
-    return this.get(`/groups/${groupId}/invites`, params);
+  async listGroupInvites(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupInviteInfo[], PaginationMeta>> {
+    return this.get<GroupInviteInfo[], PaginationMeta>(`/groups/${groupId}/invites`, params);
   }
 
-  async revokeGroupInvite(groupId: string, inviteId: string): Promise<ApiResponse<any>> {
+  async revokeGroupInvite(groupId: string, inviteId: string): Promise<ApiResponse<ApiMessage>> {
     return this.delete(`/groups/${groupId}/invites/${inviteId}`);
   }
 
-  async acceptGroupInvite(token: string): Promise<ApiResponse<any>> {
+  async acceptGroupInvite(token: string): Promise<ApiResponse<ApiMessage & { groupId: string }>> {
     return this.post('/groups/accept-invite', { token });
   }
 
   // Join requests (private groups)
-  async requestJoinGroup(groupId: string): Promise<ApiResponse<any>> {
+  async requestJoinGroup(groupId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/request`);
   }
 
-  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
+  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<GroupMemberInfo[]>> {
     return this.get(`/groups/${groupId}/requests`, params);
   }
 
-  async resolveGroupInvite(token: string): Promise<ApiResponse<any>> {
+  async resolveGroupInvite(token: string): Promise<ApiResponse<GroupInvitePreview>> {
     return this.get(`/groups/invites/${token}`);
   }
 
-  async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<any>> {
+  async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/members/${userId}/ban`);
   }
 
-  async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<any>> {
+  async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/requests/${userId}/approve`);
   }
 
-  async rejectJoinRequest(groupId: string, userId: string): Promise<ApiResponse<any>> {
+  async rejectJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/requests/${userId}/reject`);
   }
 
   // Ownership transfer
-  async transferOwnership(groupId: string, targetUserId: string): Promise<ApiResponse<any>> {
+  async transferOwnership(groupId: string, targetUserId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/transfer`, { targetUserId });
   }
 
