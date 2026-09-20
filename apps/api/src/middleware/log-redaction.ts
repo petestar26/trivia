@@ -16,10 +16,11 @@
 
 const REDACTED = '[REDACTED]';
 
-// `/groups/invites/<token>` — with or without an /api/v1 style prefix, and
-// stopping at the next path separator, query string, or fragment so the
-// rest of the URL survives.
-const INVITE_TOKEN_PATH = /(\/groups\/invites\/)([^/?#]+)/gi;
+// `/groups/invites/<token>` — tolerates repeated slashes, double-slashes,
+// and percent-encoded separators (`%2F`) that bypass the strict-slash form.
+// With or without an /api/v1 style prefix, and stopping at the next path
+// separator, query string, or fragment so the rest of the URL survives.
+const INVITE_TOKEN_PATH = /((?:\/|%2F)+groups(?:\/|%2F)+invites(?:\/|%2F)+)([^/?#]+)/gi;
 
 /**
  * Replace invite tokens in a URL (or path) with a redaction marker.

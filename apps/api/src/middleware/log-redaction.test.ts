@@ -43,6 +43,27 @@ describe('redactUrl', () => {
     expect(redactUrl('')).toBe('');
   });
 
+  it('redacts tokens in paths with repeated separators', () => {
+    expect(redactUrl('//groups//invites//TOKEN')).toBe('//groups//invites//[REDACTED]');
+    expect(redactUrl('///groups///invites///TOKEN')).toBe('///groups///invites///[REDACTED]');
+  });
+
+  it('redacts tokens in paths with doubled prefix', () => {
+    expect(redactUrl('/api/v1/groups/invites/abc123')).toBe('/api/v1/groups/invites/[REDACTED]');
+    expect(redactUrl('/api/v1/groups//invites/abc123')).toBe('/api/v1/groups//invites/[REDACTED]');
+  });
+
+  it('redacts tokens with percent-encoded separators', () => {
+    expect(redactUrl('/api/v1/groups%2Finvites%2FTOKEN')).toBe('/api/v1/groups%2Finvites%2F[REDACTED]');
+    expect(redactUrl('/api/v1/groups/invites/TOKEN%3Ffoo')).toBe('/api/v1/groups/invites/[REDACTED]');
+  });
+
+  it('does not change HTTP status or behavior', () => {
+    const input = '/api/v1/groups/invites/abc123';
+    expect(redactUrl(input)).toBe('/api/v1/groups/invites/[REDACTED]');
+    // The replacement is purely textual; the method/status/headers are untouched.
+  });
+
   it('serializes a request with the URL redacted but route context intact', () => {
     const out = redactedRequestSerializer({
       method: 'GET',
@@ -131,6 +152,78 @@ describe('captured logs never contain an invite token', () => {
 
     expect(resp.statusCode).toBe(404);
     const logged = sink.text();
+    expect(logged).not.toContain(TOKEN);
+  });
+
+  it('redacts the token in malformed paths with repeated separators', async () => {
+    const { app, sink } = await buildLoggingServer();
+    const resp = await app.inject({ method: 'GET', url: `//groups//invites//${TOKEN}` });
+    expect(resp.statusCode).toBe(404);
+    await app.close();
+
+    const logged = sink.text();
+    expect(logged).not.toContain(TOKEN);
+    expect(logged).toContain('[REDACTED]');
+    expect(logged).toContain('Incoming request');
+    expect(logged).toContain('Request completed');
+  });
+
+  it('redacts the token in malformed paths with percent-encoded separators', async () => {
+    const { app, sink } = await buildLoggingServer();
+    const resp = await app.inject({ method: 'GET', url: `/api/v1/groups%2Finvites%2F${TOKEN}` });
+    expect(resp.statusCode).toBe(404);
+    await app.close();
+
+    const logged = sink.text();
+    expect(logged).not.toContain(TOKEN);
+    expect(logged).toContain('[REDACTED]');
+    expect(logged).toContain('Request completed');
+  });
+
+  it('redacts the token in malformed paths with lowercase %2f separators', async () => {
+    const { app, sink } = await buildLoggingServer();
+    const resp = await app.inject({ method: 'GET', url: `/api/v1/groups%2finvites%2f${TOKEN}` });
+    expect(resp.statusCode).toBe(404);
+    await app.close();
+
+    const logged = sink.text();
+    expect(logged).not.toContain(TOKEN);
+    expect(logged).toContain('[REDACTED]');
+    expect(logged).toContain('Request completed');
+  });
+
+  it('redacts the token in a doubled-prefix path', async () => {
+    const { app, sink } = await buildLoggingServer();
+    const resp = await app.inject({ method: 'GET', url: `/api/v1/groups//invites/${TOKEN}` });
+    expect(resp.statusCode).toBe(404);
+    await app.close();
+
+    const logged = sink.text();
+    expect(logged).not.toContain(TOKEN);
+    expect(logged).toContain('[REDACTED]');
+  });
+
+  it('leaves unrelated routes unchanged in log output', async () => {
+    const sink = captureSink();
+    const app = Fastify({
+      logger: {
+        level: 'info',
+        serializers: { req: redactedRequestSerializer },
+        stream: sink.stream,
+      },
+    });
+    app.addHook('onRequest', requestLogger);
+    app.get('/api/v1/notifications', async () => ({ success: true }));
+    await app.ready();
+
+    const resp = await app.inject({ method: 'GET', url: '/api/v1/notifications' });
+    expect(resp.statusCode).toBe(200);
+    await app.close();
+
+    const logged = sink.text();
+    expect(logged).toContain('Incoming request');
+    expect(logged).toContain('Request completed');
+    expect(logged).not.toContain('[REDACTED]');
     expect(logged).not.toContain(TOKEN);
   });
 });
