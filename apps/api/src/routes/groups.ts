@@ -421,7 +421,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           // no `memberRole` at all.
           isMember: !!membership,
           memberRole: membership?.role,
-          owner: g.owner,
+          // Only expose the owner to active members — consistent with the
+          // private-group safe summary which returns owner: null for non-members.
+          owner: membership ? g.owner : null,
           createdAt: g.createdAt,
           updatedAt: g.updatedAt,
         };
@@ -971,6 +973,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         if (existingMember && existingMember.status === 'ACTIVE') {
           throw ApiError.conflict('User is already a member of this group');
         }
+        if (existingMember && existingMember.status === 'BANNED') {
+          throw ApiError.forbidden('User is banned from this group');
+        }
       }
 
       const existingInvite = await prisma.groupInvite.findFirst({
@@ -983,46 +988,80 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const token = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      let invite;
+      // Membership eligibility and the invite create are one transaction so a
+      // ban landing between the pre-read and the insert cannot slip an invite
+      // in for a banned recipient. The unique-invite conflict is also handled
+      // here rather than relying on a later duplicate check.
+      let invite:
+        | {
+            id: string;
+            groupId: string;
+            email: string;
+            role: string;
+            status: string;
+            token: string;
+            expiresAt: Date;
+            invitedBy: string;
+            createdAt: Date;
+          }
+        | null = null;
       try {
-        invite = await prisma.groupInvite.create({
-          data: {
-            groupId,
-            email: normalizedEmail,
-            role,
-            token,
-            expiresAt,
-            invitedBy: request.user!.sub,
-          },
-          select: {
-            id: true,
-            groupId: true,
-            email: true,
-            role: true,
-            status: true,
-            token: true,
-            expiresAt: true,
-            invitedBy: true,
-            createdAt: true,
-          },
+        await prisma.$transaction(async (tx) => {
+          if (existingUser) {
+            const current = await tx.groupMember.findUnique({
+              where: { groupId_userId: { groupId, userId: existingUser.id } },
+              select: { status: true },
+            });
+            if (current?.status === 'ACTIVE') {
+              throw ApiError.conflict('User is already a member of this group');
+            }
+            if (current?.status === 'BANNED') {
+              throw ApiError.forbidden('User is banned from this group');
+            }
+          }
+
+          invite = await tx.groupInvite.create({
+            data: {
+              groupId,
+              email: normalizedEmail,
+              role,
+              token,
+              expiresAt,
+              invitedBy: request.user!.sub,
+            },
+            select: {
+              id: true,
+              groupId: true,
+              email: true,
+              role: true,
+              status: true,
+              token: true,
+              expiresAt: true,
+              invitedBy: true,
+              createdAt: true,
+            },
+          });
+
+          if (existingUser) {
+            await tx.notification.create({
+              data: {
+                userId: existingUser.id,
+                type: 'GROUP_INVITE',
+                title: 'Group invitation',
+                body: `You have been invited to join "${group.name}"`,
+                data: { groupId, inviteId: invite.id, groupName: group.name, invitedBy: request.user!.sub },
+              },
+            });
+          }
         });
-      } catch (err: any) {
-        if (err.code === 'P2002' && err.meta?.target?.includes('email')) {
-          throw ApiError.conflict('An active invite already exists for this email');
+      } catch (err) {
+        if (typeof err === 'object' && err !== null && 'code' in err) {
+          const prismaErr = err as { code?: string; meta?: { target?: unknown } };
+          if (prismaErr.code === 'P2002' && Array.isArray(prismaErr.meta?.target) && prismaErr.meta!.target!.includes('email')) {
+            throw ApiError.conflict('An active invite already exists for this email');
+          }
         }
         throw err;
-      }
-
-      if (existingUser) {
-        await prisma.notification.create({
-          data: {
-            userId: existingUser.id,
-            type: 'GROUP_INVITE',
-            title: 'Group invitation',
-            body: `You have been invited to join "${group.name}"`,
-            data: { groupId, inviteId: invite.id, groupName: group.name, invitedBy: request.user!.sub },
-          },
-        });
       }
 
       return { success: true, data: invite };
@@ -1217,6 +1256,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       if (caller.status === 'BANNED') {
         throw ApiError.forbidden('You are banned from this group');
       }
+      if (caller.status === 'SUSPENDED' || caller.status === 'INACTIVE') {
+        throw ApiError.forbidden('Your account is not eligible to accept invitations');
+      }
       if (caller.email.toLowerCase() !== invite.email.toLowerCase()) {
         throw ApiError.forbidden('This invite is not for your email address');
       }
@@ -1246,10 +1288,36 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         }
 
         if (existingMember) {
-          await tx.groupMember.update({
-            where: { id: existingMember.id },
+          // Atomic conditional transition — prevents a stale acceptance from
+          // overwriting a concurrently promoted OWNER, approved ACTIVE member,
+          // or newly BANNED user. Only LEFT, MUTED, or PENDING rows are
+          // eligible. If zero rows are affected, the membership was promoted
+          // or restricted between the pre-transaction read and this write.
+          const updated = await tx.groupMember.updateMany({
+            where: {
+              id: existingMember.id,
+              status: { in: ['LEFT', 'MUTED', 'PENDING'] },
+              role: { not: 'OWNER' },
+            },
             data: { role: invite.role as GroupMemberRole, status: 'ACTIVE' },
           });
+          if (updated.count === 0) {
+            // Re-read inside the transaction to produce a specific error.
+            const current = await tx.groupMember.findUnique({
+              where: { id: existingMember.id },
+              select: { status: true, role: true },
+            });
+            if (current?.status === 'ACTIVE') {
+              throw ApiError.conflict('You are already a member of this group');
+            }
+            if (current?.role === 'OWNER') {
+              throw ApiError.forbidden('Your membership status has changed and this invite is no longer valid');
+            }
+            if (current?.status === 'BANNED') {
+              throw ApiError.forbidden('You are banned from this group');
+            }
+            throw ApiError.conflict('Your membership status has changed since this invite was sent');
+          }
         } else {
           await tx.groupMember.create({
             data: {
@@ -1327,10 +1395,37 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
 
       await prisma.$transaction(async (tx) => {
         if (existing) {
-          await tx.groupMember.update({
-            where: { id: existing.id },
+          // Atomic conditional transition — only LEFT memberships are eligible.
+          // Prevents overwriting a concurrently approved/promoted OWNER, an
+          // ACTIVE member, a BANNED user, or a still-PENDING request.
+          const updated = await tx.groupMember.updateMany({
+            where: {
+              id: existing.id,
+              status: 'LEFT',
+              role: { not: 'OWNER' },
+            },
             data: { status: 'PENDING', role: 'MEMBER' },
           });
+          if (updated.count === 0) {
+            // Re-read inside the transaction for a specific rejection.
+            const current = await tx.groupMember.findUnique({
+              where: { id: existing.id },
+              select: { status: true, role: true },
+            });
+            if (current?.status === 'ACTIVE') {
+              throw ApiError.conflict('You are already a member of this group');
+            }
+            if (current?.status === 'PENDING') {
+              throw ApiError.conflict('Your membership request is already pending');
+            }
+            if (current?.status === 'BANNED') {
+              throw ApiError.forbidden('You are banned from this group');
+            }
+            if (current?.role === 'OWNER') {
+              throw ApiError.conflict('Your membership status cannot be changed');
+            }
+            throw ApiError.conflict('Your membership status has changed since this request was initiated');
+          }
         } else {
           await tx.groupMember.create({
             data: { groupId, userId, role: 'MEMBER', status: 'PENDING' },

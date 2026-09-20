@@ -14,9 +14,20 @@ interface NotificationItem {
   createdAt: string;
 }
 
-interface NotificationsPage {
+interface PageMeta {
+  page: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  total: number;
+}
+
+// The bell only renders the newest page and "load more" walks pages back
+// toward older notifications. This is a quoted-instance meta of the
+// *cached* loaded list, not the raw server response.
+interface LoadedState {
   items: NotificationItem[];
   unreadCount: number;
+  meta: PageMeta | null;
 }
 
 const PANEL_LIMIT = 20;
@@ -37,30 +48,72 @@ export function NotificationBell() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const notificationsQuery = useQuery<NotificationsPage>({
+  const notificationsQuery = useQuery<LoadedState>({
     queryKey: NOTIFICATIONS_QUERY_KEY,
     queryFn: async () => {
       const res = await api.listNotifications({ limit: PANEL_LIMIT });
-      const meta = res.meta as { unreadCount?: number } | undefined;
+      const meta = res.meta as (PageMeta & { unreadCount?: number }) | undefined;
       return {
         items: (res.data ?? []) as NotificationItem[],
         unreadCount: meta?.unreadCount ?? 0,
+        meta: meta
+          ? { page: meta.page, totalPages: meta.totalPages, hasNextPage: meta.hasNextPage, total: meta.total }
+          : null,
       };
     },
   });
 
   const items = notificationsQuery.data?.items ?? [];
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
+  const hasMeta = notificationsQuery.data?.meta ?? null;
+  const hasNextPage = hasMeta?.hasNextPage ?? false;
 
-  // A query that already has data reports `isError` when a BACKGROUND refetch
-  // fails, with the cached data still intact. Treating that the same as a
-  // first-load failure would throw away a perfectly good list the user is
-  // reading — and leave the badge (which reads the same cache) contradicting
-  // the panel. So the two cases are rendered differently: only a failure with
-  // nothing cached replaces the panel body.
-  const hasCachedItems = items.length > 0;
-  const showInitialError = notificationsQuery.isError && !hasCachedItems;
-  const showRefreshError = notificationsQuery.isError && hasCachedItems;
+  // Cached-success is defined by the query holding data, not by item count:
+  // an empty inbox is a legitimate loaded state, and conflating it with
+  // "never loaded" would drop a genuine "all caught up" for a destructive
+  // first-load error.
+  const hasCachedData = notificationsQuery.data !== undefined;
+  const showInitialError = notificationsQuery.isError && !hasCachedData;
+  const showRefreshError = notificationsQuery.isError && hasCachedData;
+
+  // Load-more walks pages deterministically and guards against duplicate
+  // fetches. When it fails, the already-loaded pages stay in place and
+  // the failure surfaces as a retry affordance.
+  const loadMoreMutation = useMutation({
+    mutationFn: async () => {
+      const meta = hasMeta;
+      if (!meta?.hasNextPage) return null;
+      const res = await api.listNotifications({ limit: PANEL_LIMIT, page: meta.page + 1 });
+      const page = res.meta as (PageMeta & { unreadCount?: number }) | undefined;
+      const newItems = (res.data ?? []) as NotificationItem[];
+      const seen = new Set(queryClient.getQueryData<LoadedState>(NOTIFICATIONS_QUERY_KEY)?.items.map((n) => n.id) ?? []);
+      const uniqueNew = newItems.filter((n) => !seen.has(n.id));
+      return {
+        items: uniqueNew,
+        meta: page
+          ? { page: page.page, totalPages: page.totalPages, hasNextPage: page.hasNextPage, total: page.total }
+          : null,
+        unreadCount: page?.unreadCount ?? queryClient.getQueryData<LoadedState>(NOTIFICATIONS_QUERY_KEY)?.unreadCount ?? 0,
+      };
+    },
+    onSuccess: (next) => {
+      if (!next) return;
+      queryClient.setQueryData<LoadedState>(NOTIFICATIONS_QUERY_KEY, (current) => {
+        const base = current ?? { items: [], unreadCount: 0, meta: null };
+        return {
+          items: [...base.items, ...next.items],
+          unreadCount: next.unreadCount,
+          meta: next.meta,
+        };
+      });
+      if (next.items.length > 0) {
+        announce(`Loaded ${next.items.length} more notification${next.items.length === 1 ? '' : 's'}.`);
+      }
+    },
+    onError: () => {
+      announce('Failed to load more notifications.');
+    },
+  });
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => api.markNotificationRead(id),
@@ -103,9 +156,10 @@ export function NotificationBell() {
     }
   }
 
-  // Close on outside click and on Escape (returning focus to the trigger,
-  // per the standard disclosure-widget keyboard pattern) so the panel never
-  // traps or strands keyboard/screen-reader users.
+  // Close on outside click and on Escape. Focus is restored to the bell
+  // only when Escape originated inside this disclosure (the trigger or the
+  // panel) — never stealing focus from an unrelated form, dialog, or input
+  // elsewhere on the page.
   useEffect(() => {
     if (!open) return;
 
@@ -116,8 +170,12 @@ export function NotificationBell() {
     }
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        const target = e.target as Node | null;
+        const inside = (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) ?? false;
         setOpen(false);
-        buttonRef.current?.focus();
+        if (inside) {
+          buttonRef.current?.focus();
+        }
       }
     }
 
@@ -236,6 +294,27 @@ export function NotificationBell() {
                   </li>
                 ))}
               </ul>
+              {loadMoreMutation.isError && (
+                <div role="alert" className="flex items-center justify-between gap-2 px-3 py-2 border-t border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                  <p className="text-xs text-amber-800 dark:text-amber-200">Couldn&apos;t load more notifications.</p>
+                  <Button size="sm" variant="outline" onClick={() => loadMoreMutation.mutate()}>
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {hasNextPage && (
+                <div className="p-2 border-t border-gray-200 dark:border-gray-700">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => loadMoreMutation.mutate()}
+                    disabled={loadMoreMutation.isPending}
+                  >
+                    {loadMoreMutation.isPending ? 'Loading…' : 'Load more'}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </div>

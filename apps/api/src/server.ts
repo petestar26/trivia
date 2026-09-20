@@ -8,7 +8,7 @@ import { healthRoutes } from './routes/health';
 import { registerWebSocket } from './ws';
 import { errorHandler } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
-import { redactedRequestSerializer } from './middleware/log-redaction.js';
+import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 
 async function buildServer(): Promise<FastifyInstance> {
   const server = Fastify({
@@ -38,6 +38,21 @@ async function buildServer(): Promise<FastifyInstance> {
 
   server.setErrorHandler(errorHandler);
   server.addHook('onRequest', requestLogger);
+
+  // Routine `Router not found` 404s carry the full request URL inside
+  // Fastify's log message. With malformed or mismatched invite paths, that
+  // URL can contain the bearer-equivalent invite token — so install a safe
+  // not-found handler that logs a redacted path and returns a generic 404.
+  // Status behavior is unchanged, and the route method/status stay
+  // diagnostic (only the URL token is masked). Registered before the route
+  // plugins so it is the global fallback.
+  server.setNotFoundHandler((request, reply) => {
+    request.log.warn({ url: redactUrl(request.url) }, 'Route not found');
+    return reply.code(404).send({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Route not found' },
+    });
+  });
 
   await registerPlugins(server);
 

@@ -230,13 +230,28 @@ export function GroupDetailPage() {
 
   const inviteMutation = useMutation({
     mutationFn: ({ email, role }: { email: string; role?: string }) => api.createGroupInvite(groupId, email, role),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
       const token = res?.data?.token;
       if (token) {
         const link = `${window.location.origin}/groups/invite/${token}`;
-        navigator.clipboard.writeText(link).catch(() => {});
-        toast({ title: 'Invite sent', description: 'Invite link copied to clipboard.' });
+        let copied = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(link);
+            copied = true;
+          }
+        } catch {
+          // Clipboard write failed — the link is still shown below.
+        }
+        if (copied) {
+          toast({ title: 'Invite sent', description: 'Invite link copied to clipboard.' });
+        } else {
+          toast({
+            title: 'Invite sent',
+            description: `Copy the invite link: ${link}`,
+          });
+        }
       } else {
         toast({ title: 'Invite sent' });
       }

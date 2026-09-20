@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,9 +19,27 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Validate the return-to path: must be a local relative path that starts
+  // with / but not // (protocol-relative). Reject external URLs, javascript:
+  // URIs, and any path traversal.
+  const returnTo = (() => {
+    const raw = (location.state as { from?: { pathname?: string } })?.from?.pathname;
+    if (!raw || typeof raw !== 'string') return '/';
+    if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+    try {
+      const url = new URL(raw, window.location.origin);
+      if (url.origin !== window.location.origin) return '/';
+    } catch {
+      return '/';
+    }
+    if (/^https?:/i.test(raw) || /^javascript:/i.test(raw)) return '/';
+    return raw;
+  })();
 
   const {
     register,
@@ -37,7 +55,7 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await login(data.email, data.password);
-      navigate('/');
+      navigate(returnTo);
     } catch (err) {
       setError(getErrorMessage(err, 'Login failed'));
     } finally {

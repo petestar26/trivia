@@ -1306,20 +1306,38 @@ describeIf('groups/routes — hardening findings', () => {
   });
 
   describe('invite acceptance — banned users', () => {
-    it('rejects a BANNED member trying to accept', async () => {
+    it('rejects creating an invite for an existing BANNED member', async () => {
       const owner = await createUser('h-ban-owner');
       const invitee = await createUser('h-ban-invitee');
       const group = await createGroup(owner.id, 'BanBind', { isPrivate: true });
-      // Existing BANNED membership.
       await addMember(group.id, invitee.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
 
-      const token = await server.inject({
+      const resp = await server.inject({
         method: 'POST',
         url: `${PREFIX}/${group.id}/invites`,
         headers: authHeader(await mintToken(owner)),
         payload: { email: invitee.email },
       });
-      const invT = JSON.parse(token.body).data.token;
+      expect(resp.statusCode).toBe(403);
+      expect(JSON.parse(resp.body).error.message).toContain('banned');
+    });
+
+    it('rejects a BANNED member trying to accept', async () => {
+      const owner = await createUser('h-ban-owner-2');
+      const invitee = await createUser('h-ban-invitee-2');
+      const group = await createGroup(owner.id, 'BanBind2', { isPrivate: true });
+
+      // Create invite while invitee is not yet banned.
+      const tokenResp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/${group.id}/invites`,
+        headers: authHeader(await mintToken(owner)),
+        payload: { email: invitee.email },
+      });
+      const invT = JSON.parse(tokenResp.body).data.token;
+
+      // Ban after invite was created.
+      await addMember(group.id, invitee.id, GroupMemberRole.MEMBER, GroupMemberStatus.BANNED);
 
       const resp = await server.inject({
         method: 'POST',
