@@ -1,5 +1,5 @@
 import { API_BASE, API_ORIGIN } from './api-config';
-import type { UserSearchResult } from '@socialplay/shared';
+import type { NotificationInfo, NotificationListMeta, UserSearchResult } from '@socialplay/shared';
 
 export type { UserSearchResult };
 
@@ -9,7 +9,7 @@ export async function getApiHealth(): Promise<{ status: string }> {
   return response.json();
 }
 
-export interface ApiResponse<T> {
+export interface ApiResponse<T, M = Record<string, unknown>> {
   success: boolean;
   data?: T;
   error?: {
@@ -17,7 +17,7 @@ export interface ApiResponse<T> {
     message: string;
     details?: Record<string, unknown>;
   };
-  meta?: Record<string, unknown>;
+  meta?: M;
 }
 
 interface RequestOptions extends RequestInit {
@@ -71,7 +71,7 @@ class ApiClient {
     return url.toString();
   }
 
-  private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+  private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
 
@@ -104,8 +104,12 @@ class ApiClient {
     return data;
   }
 
-  async get<T>(endpoint: string, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET', params });
+  async get<T, M = Record<string, unknown>>(
+    endpoint: string,
+    params?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<T, M>> {
+    return this.request<T, M>(endpoint, { method: 'GET', params, signal: options?.signal });
   }
 
   async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
@@ -324,15 +328,18 @@ class ApiClient {
   }
 
   // Notifications
-  async listNotifications(params?: { page?: number; limit?: number; unreadOnly?: boolean }): Promise<ApiResponse<any>> {
-    return this.get('/notifications', params);
+  async listNotifications(
+    params?: { page?: number; limit?: number; unreadOnly?: boolean },
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<NotificationInfo[], NotificationListMeta>> {
+    return this.get<NotificationInfo[], NotificationListMeta>('/notifications', params, options);
   }
 
-  async markNotificationRead(id: string): Promise<ApiResponse<any>> {
+  async markNotificationRead(id: string): Promise<ApiResponse<NotificationInfo>> {
     return this.patch(`/notifications/${id}/read`, {});
   }
 
-  async markAllNotificationsRead(): Promise<ApiResponse<any>> {
+  async markAllNotificationsRead(): Promise<ApiResponse<{ updated: number }>> {
     return this.post('/notifications/read-all');
   }
 

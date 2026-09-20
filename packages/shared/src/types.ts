@@ -1,13 +1,15 @@
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPrevPage: boolean;
-  };
+  meta: PaginationMeta;
 }
 
 export interface ApiResponse<T = null> {
@@ -208,6 +210,15 @@ export interface NotificationInfo {
   data?: Record<string, unknown>;
   isRead: boolean;
   createdAt: string;
+}
+
+/**
+ * `meta` of GET /notifications. `unreadCount` is the caller's TOTAL unread
+ * count across the whole inbox — not the number of unread rows on this page —
+ * so it is safe to drive a badge from any single page of the response.
+ */
+export interface NotificationListMeta extends PaginationMeta {
+  unreadCount: number;
 }
 
 export interface LeaderboardEntry {

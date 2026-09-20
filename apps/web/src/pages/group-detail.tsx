@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
-import { NOTIFICATIONS_QUERY_KEY } from '@/lib/notifications-query-keys';
+import { notificationsScopeKey } from '@/lib/notifications-query-keys';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -196,7 +196,9 @@ export function GroupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
+      // Scoped to the signed-in account: the notification cache is keyed by
+      // identity, so there is no shared inbox key to invalidate.
+      if (currentUserId) queryClient.invalidateQueries({ queryKey: notificationsScopeKey(currentUserId) });
       toast({ title: 'Member banned' });
       // The banned row — and the Ban button that opened this — is about to
       // disappear from the list, so focus goes to the Members heading, a
