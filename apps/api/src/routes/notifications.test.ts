@@ -346,4 +346,91 @@ describeIf('notifications/routes', () => {
       expect(body.data.updated).toBe(0);
     });
   });
+
+  // A notification inbox is per-user private data served over a
+  // credentialed request. With no cache directive it is heuristically
+  // cacheable, so a shared browser or proxy cache can serve one user's
+  // inbox to the next person on the machine. The plugin-scope onSend hook
+  // must therefore cover every reply, including the ones that never reach
+  // a handler.
+  describe('Cache-Control: no-store on every response', () => {
+    it('sets no-store on a successful list', async () => {
+      const user = await createUser('cc-ok');
+      const resp = await server.inject({ method: 'GET', url: PREFIX, headers: authHeader(await mintToken(user)) });
+      expect(resp.statusCode).toBe(200);
+      expect(resp.headers['cache-control']).toBe('no-store');
+    });
+
+    it('sets no-store on a 400 produced by schema validation (before the handler runs)', async () => {
+      const user = await createUser('cc-400');
+      const resp = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}?page=0`,
+        headers: authHeader(await mintToken(user)),
+      });
+      expect(resp.statusCode).toBe(400);
+      expect(resp.headers['cache-control']).toBe('no-store');
+    });
+
+    it('sets no-store on a 401 produced by the authenticate preHandler', async () => {
+      const resp = await server.inject({ method: 'GET', url: PREFIX });
+      expect(resp.statusCode).toBe(401);
+      expect(resp.headers['cache-control']).toBe('no-store');
+    });
+
+    it('sets no-store on a 404 from mark-one-read', async () => {
+      const user = await createUser('cc-404');
+      const resp = await server.inject({
+        method: 'PATCH',
+        url: `${PREFIX}/${randomUUID()}/read`,
+        headers: authHeader(await mintToken(user)),
+      });
+      expect(resp.statusCode).toBe(404);
+      expect(resp.headers['cache-control']).toBe('no-store');
+    });
+
+    it('sets no-store on mark-all-read', async () => {
+      const user = await createUser('cc-readall');
+      const resp = await server.inject({
+        method: 'POST',
+        url: `${PREFIX}/read-all`,
+        headers: authHeader(await mintToken(user)),
+      });
+      expect(resp.statusCode).toBe(200);
+      expect(resp.headers['cache-control']).toBe('no-store');
+    });
+  });
+
+  // `page` reaches Prisma as `skip: (page - 1) * limit`, and Prisma's skip
+  // is a 32-bit Int. A page like 1e21 is still a valid JSON integer, so it
+  // satisfies `type: 'integer'` and used to overflow into a 500.
+  describe('pagination bounds', () => {
+    it('accepts the valid boundaries', async () => {
+      const user = await createUser('page-bounds');
+      const token = await mintToken(user);
+      for (const qs of ['page=1&limit=1', 'page=1&limit=100', 'page=1000000&limit=100']) {
+        const resp = await server.inject({ method: 'GET', url: `${PREFIX}?${qs}`, headers: authHeader(token) });
+        expect(resp.statusCode, `expected 200 for ?${qs}`).toBe(200);
+      }
+    });
+
+    it('rejects overflowing page values with 400, never 500', async () => {
+      const user = await createUser('page-overflow');
+      const token = await mintToken(user);
+      const overflowing = [
+        'page=999999999999999999999',
+        'page=1000001',
+        'page=99999999999',
+        'page=9007199254740993',
+        'limit=101',
+        'page=0',
+        'page=-1',
+      ];
+      for (const qs of overflowing) {
+        const resp = await server.inject({ method: 'GET', url: `${PREFIX}?${qs}`, headers: authHeader(token) });
+        expect(resp.statusCode, `expected 400 for ?${qs}`).toBe(400);
+        expect(resp.headers['cache-control']).toBe('no-store');
+      }
+    });
+  });
 });

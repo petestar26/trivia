@@ -8,6 +8,7 @@ import { healthRoutes } from './routes/health';
 import { registerWebSocket } from './ws';
 import { errorHandler } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
+import { redactedRequestSerializer } from './middleware/log-redaction.js';
 
 async function buildServer(): Promise<FastifyInstance> {
   const server = Fastify({
@@ -16,6 +17,13 @@ async function buildServer(): Promise<FastifyInstance> {
       transport: config.LOG_PRETTY
         ? { target: 'pino-pretty', options: { colorize: true } }
         : undefined,
+      // Fastify's built-in `req` serializer logs `req.url` verbatim on its
+      // automatic request/response lines, which would publish the invite
+      // token from GET /groups/invites/:token to every log sink. Override
+      // it with the redacting serializer — see middleware/log-redaction.ts.
+      serializers: {
+        req: redactedRequestSerializer,
+      },
     },
     ajv: {
       customOptions: {

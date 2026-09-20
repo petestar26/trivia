@@ -557,10 +557,38 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You are banned from this group');
       }
 
-      await prisma.groupMember.update({
-        where: { id: membership.id },
+      // Same atomicity requirement as remove/role-change: a concurrent
+      // ownership transfer can promote this member to OWNER between the
+      // checks above and this write, and marking the new owner LEFT would
+      // strand the group with no active owner. The status guard mirrors the
+      // LEFT/BANNED pre-checks so their outcomes are unchanged.
+      const left = await prisma.groupMember.updateMany({
+        where: {
+          id: membership.id,
+          role: { not: 'OWNER' },
+          status: { notIn: ['LEFT', 'BANNED'] },
+        },
         data: { status: 'LEFT' },
       });
+
+      if (left.count === 0) {
+        const current = await prisma.groupMember.findUnique({
+          where: { id: membership.id },
+          select: { role: true, status: true },
+        });
+        if (!current) {
+          throw ApiError.notFound('You are not a member of this group');
+        }
+        if (current.role === 'OWNER') {
+          throw ApiError.badRequest(
+            'The owner cannot leave the group. Transfer ownership or delete the group instead.'
+          );
+        }
+        if (current.status === 'BANNED') {
+          throw ApiError.forbidden('You are banned from this group');
+        }
+        throw ApiError.conflict('You have already left this group');
+      }
 
       return {
         success: true,
@@ -661,9 +689,29 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You cannot remove the owner of the group');
       }
 
-      await prisma.groupMember.delete({
-        where: { id: target.id },
+      // `role: { not: 'OWNER' }` makes the owner check atomic with the
+      // delete. The pre-check above is only a fast path: a concurrent
+      // ownership transfer can promote this same row to OWNER in between,
+      // and an unguarded delete would then remove the group's owner, leaving
+      // group.ownerId pointing at a membership that no longer exists — a
+      // state no route can repair.
+      const removed = await prisma.groupMember.deleteMany({
+        where: { id: target.id, role: { not: 'OWNER' } },
       });
+
+      if (removed.count === 0) {
+        // Zero rows means the row either vanished (concurrent leave/remove)
+        // or became OWNER (concurrent transfer). Re-read to answer with the
+        // same status the pre-checks above would have produced.
+        const current = await prisma.groupMember.findUnique({
+          where: { id: target.id },
+          select: { role: true },
+        });
+        if (!current) {
+          throw ApiError.notFound('User is not a member of this group');
+        }
+        throw ApiError.forbidden('You cannot remove the owner of the group');
+      }
 
       return {
         success: true,
@@ -838,10 +886,25 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('Only the owner can assign admin roles');
       }
 
-      await prisma.groupMember.update({
-        where: { id: target.id },
+      // `role: { not: 'OWNER' }` makes the owner check atomic with the
+      // write, so a concurrent ownership transfer cannot slip a promotion
+      // in between the pre-check and this update and have the new owner
+      // silently demoted to MEMBER/MODERATOR/ADMIN.
+      const updated = await prisma.groupMember.updateMany({
+        where: { id: target.id, role: { not: 'OWNER' } },
         data: { role: newRole },
       });
+
+      if (updated.count === 0) {
+        const current = await prisma.groupMember.findUnique({
+          where: { id: target.id },
+          select: { role: true },
+        });
+        if (!current) {
+          throw ApiError.notFound('User is not a member of this group');
+        }
+        throw ApiError.forbidden('You cannot change the role of the owner');
+      }
 
       return {
         success: true,
@@ -885,7 +948,15 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       if (!group.isPrivate) {
         throw ApiError.badRequest('Invites are only available for private groups');
       }
-      await assertManager(groupId, request.user!.sub);
+      const actorRole = await assertManager(groupId, request.user!.sub);
+
+      // An invitation grants its role on acceptance, so it must obey the
+      // same ceiling as a direct role change: only the OWNER may hand out
+      // ADMIN. Without this, an ADMIN could mint an ADMIN invite and
+      // escalate a peer past what PATCH /members/:userId/role allows.
+      if (actorRole === 'ADMIN' && role === 'ADMIN') {
+        throw ApiError.forbidden('Only the owner can assign admin roles');
+      }
 
       const normalizedEmail = email.toLowerCase();
 
