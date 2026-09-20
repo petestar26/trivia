@@ -58,6 +58,73 @@ describe('redactUrl', () => {
     expect(redactUrl('/api/v1/groups/invites/TOKEN%3Ffoo')).toBe('/api/v1/groups/invites/[REDACTED]');
   });
 
+  describe('encoded, malformed and unusual spellings of the token route', () => {
+    const T = 'SYNTHETICLEAKTOKEN0123456789';
+
+    // input -> exact expected output. The RAW prefix (however the client
+    // spelled it) and everything after the token region is preserved.
+    const cases: Array<[string, string, string]> = [
+      ['encoded g in "groups"', `/api/v1/%67roups/invites/${T}`, '/api/v1/%67roups/invites/[REDACTED]'],
+      ['encoded uppercase G (%47)', `/api/v1/%47roups/invites/${T}`, '/api/v1/%47roups/invites/[REDACTED]'],
+      ['encoded i in "invites"', `/api/v1/groups/%69nvites/${T}`, '/api/v1/groups/%69nvites/[REDACTED]'],
+      ['partially encoded "invites"', `/api/v1/groups/in%76ites/${T}`, '/api/v1/groups/in%76ites/[REDACTED]'],
+      ['both words encoded', `/api/v1/%67roups/%69nvites/${T}`, '/api/v1/%67roups/%69nvites/[REDACTED]'],
+      ['lowercase hex escapes', `/api/v1/%67roups/%69nvites/${T}`.toLowerCase().replace(T.toLowerCase(), T), '/api/v1/%67roups/%69nvites/[REDACTED]'],
+      ['double-encoded (%2567)', `/api/v1/%2567roups/invites/${T}`, '/api/v1/%2567roups/invites/[REDACTED]'],
+      ['triple-encoded (%252567)', `/api/v1/%252567roups/invites/${T}`, '/api/v1/%252567roups/invites/[REDACTED]'],
+      ['encoded separators, upper', `/api/v1/groups%2Finvites%2F${T}`, '/api/v1/groups%2Finvites%2F[REDACTED]'],
+      ['encoded separators, lower', `/api/v1/groups%2finvites%2f${T}`, '/api/v1/groups%2finvites%2f[REDACTED]'],
+      ['encoded letters AND separators', `/api/v1/%67roups%2F%69nvites%2F${T}`, '/api/v1/%67roups%2F%69nvites%2F[REDACTED]'],
+      ['repeated separators', `/api/v1//groups///invites//${T}`, '/api/v1//groups///invites//[REDACTED]'],
+      ['backslash separators', `/api/v1/groups\\invites\\${T}`, '/api/v1/groups\\invites\\[REDACTED]'],
+      ['a "." segment in the way', `/api/v1/groups/./invites/${T}`, '/api/v1/groups/./invites/[REDACTED]'],
+      ['an encoded "." segment', `/api/v1/groups/%2e/invites/${T}`, '/api/v1/groups/%2e/invites/[REDACTED]'],
+      ['upper-case route words', `/API/V1/GROUPS/INVITES/${T}`, '/API/V1/GROUPS/INVITES/[REDACTED]'],
+      ['trailing segments survive', `/api/v1/groups/invites/${T}/extra/more`, '/api/v1/groups/invites/[REDACTED]/extra/more'],
+      ['query string survives', `/api/v1/groups/invites/${T}?a=1&b=2`, '/api/v1/groups/invites/[REDACTED]?a=1&b=2'],
+      ['fragment survives', `/api/v1/groups/invites/${T}#frag`, '/api/v1/groups/invites/[REDACTED]#frag'],
+      ['encoded letters + query', `/api/v1/%67roups/invites/${T}?a=1`, '/api/v1/%67roups/invites/[REDACTED]?a=1'],
+      ['malformed escape after the token', `/api/v1/groups/invites/${T}%ZZ`, '/api/v1/groups/invites/[REDACTED]'],
+      ['truncated escape after the token', `/api/v1/groups/invites/${T}%`, '/api/v1/groups/invites/[REDACTED]'],
+      ['half an escape after the token', `/api/v1/groups/invites/${T}%2`, '/api/v1/groups/invites/[REDACTED]'],
+      ['non-ASCII escape after the token', `/api/v1/groups/invites/${T}%C3%A9`, '/api/v1/groups/invites/[REDACTED]'],
+      ['encoded "?" inside the token stays in the token', `/api/v1/groups/invites/${T}%3Fx=1`, '/api/v1/groups/invites/[REDACTED]'],
+      ['an encoded slash INSIDE the token redacts it whole', '/api/v1/groups/invites/HEADPART%2FTAILPART', '/api/v1/groups/invites/[REDACTED]'],
+    ];
+
+    it.each(cases)('%s', (_name, input, expected) => {
+      const out = redactUrl(input);
+      expect(out).toBe(expected);
+      expect(out).not.toContain(T);
+    });
+
+    it('never throws on malformed input, and never leaks when the route is recognizable', () => {
+      const hostile = [
+        '%', '%%', '%%%', '%2', '%ZZ', '%00', '%FF', '%C0%AF', '%E0%A4%A', '\\', '///', '?', '#', '?#',
+        `/groups/invites/${T}%`, `/groups/invites/${T}%E0%A4%A`, `/%67roups/invites/${T}%ZZ%`,
+        '/'.repeat(5000) + 'groups/invites/' + T,
+        '%67roups/'.repeat(500) + 'invites/' + T,
+      ];
+      for (const url of hostile) {
+        let out = '';
+        expect(() => { out = redactUrl(url); }).not.toThrow();
+        if (url.includes(T)) expect(out, url.slice(0, 40)).not.toContain(T);
+      }
+    });
+
+    it('leaves URLs that carry no token route BYTE-FOR-BYTE unchanged', () => {
+      const untouched = [
+        '/', '/health', '/api/v1/groups', '/api/v1/groups?query=invites',
+        '/api/v1/groups/2f1b0c64-0000-4000-8000-000000000000/invites',
+        '/api/v1/groups/2f1b0c64-0000-4000-8000-000000000000/invites/2f1b0c64-0000-4000-8000-000000000001',
+        '/api/v1/groups/invites', '/api/v1/groups/invites/', '/api/v1/groups//invites//',
+        '/api/v1/notifications?page=2&limit=20', '/api/v1/%67roups', '/api/v1/groups/%69nvites',
+        '/api/v1/groups/accept-invite',
+      ];
+      for (const url of untouched) expect(redactUrl(url), url).toBe(url);
+    });
+  });
+
   it('does not change HTTP status or behavior', () => {
     const input = '/api/v1/groups/invites/abc123';
     expect(redactUrl(input)).toBe('/api/v1/groups/invites/[REDACTED]');
@@ -228,8 +295,16 @@ describe('captured logs never contain an invite token', () => {
   });
 });
 
-// End-to-end against the real server + real route, so the assertion covers
-// the actual wiring in server.ts rather than a reconstruction of it.
+// ─── The REAL server ────────────────────────────────────────────────────────
+//
+// Everything above tests pieces in isolation. These build the actual
+// `buildServer()` — real serializer, real requestLogger hook, real not-found
+// handlers, real routes — with its logger pointed at a capture stream at
+// `trace`, so EVERY line and EVERY serialized field it writes is inspected.
+//
+// The seam is `buildServer({ logStream, logLevel })`; production calls it with
+// no arguments.
+
 let dbAvailable = true;
 try {
   await prisma.$queryRaw`SELECT 1`;
@@ -238,13 +313,67 @@ try {
 }
 const describeIf = dbAvailable ? describe : describe.skip;
 
-describeIf('real server: GET /groups/invites/:token', () => {
-  let server: Awaited<ReturnType<typeof buildServer>>;
+/** Every string anywhere in a parsed log record — keys and values, nested. */
+function allStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) value.forEach((v) => allStrings(v, out));
+  else if (value && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      out.push(k);
+      allStrings(v, out);
+    }
+  }
+  return out;
+}
+
+describeIf('real buildServer: no log field ever carries an invite token', () => {
   const EMAIL_PREFIX = 'logred-';
+  let server: Awaited<ReturnType<typeof buildServer>>;
+  const sink = captureSink();
+  let ip = 0;
+  const nextIp = () => `10.30.${(ip >> 8) & 255}.${(ip++ & 255) || 1}`;
+
+  // A REAL invite, so a matched, authenticated request actually resolves it.
+  let owner: { id: string; email: string; username: string };
+  let realToken: string;
+  let authHeader: Record<string, string>;
 
   beforeAll(async () => {
-    server = await buildServer();
+    server = await buildServer({ logStream: sink.stream, logLevel: 'trace' });
     await server.ready();
+
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 10);
+    const created = await prisma.user.create({
+      data: {
+        email: `${EMAIL_PREFIX}own-${suffix}@test.local`,
+        username: `lr_${suffix}`.slice(0, 30),
+        passwordHash: 'fixture-only-not-a-real-hash',
+        status: 'ACTIVE',
+        isVerified: true,
+      },
+    });
+    owner = { id: created.id, email: created.email!, username: created.username };
+    const group = await prisma.group.create({
+      data: { ownerId: owner.id, name: `LogRed-${suffix}`, isPrivate: true, status: 'ACTIVE' },
+    });
+    await prisma.groupMember.create({
+      data: { groupId: group.id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' },
+    });
+    realToken = `REALINVITETOKEN${randomUUID().replaceAll('-', '')}`;
+    await prisma.groupInvite.create({
+      data: {
+        groupId: group.id,
+        email: `${EMAIL_PREFIX}invitee-${suffix}@test.local`,
+        role: 'MEMBER',
+        status: 'PENDING',
+        token: realToken,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        invitedBy: owner.id,
+      },
+    });
+    authHeader = {
+      authorization: `Bearer ${server.jwt.sign({ sub: owner.id, email: owner.email, username: owner.username, roles: ['USER'] })}`,
+    };
   });
 
   afterAll(async () => {
@@ -268,72 +397,163 @@ describeIf('real server: GET /groups/invites/:token', () => {
     await prisma.$disconnect();
   });
 
-  it('never emits the token through the real route, for a valid or an invalid token', async () => {
-    const suffix = randomUUID().replaceAll('-', '').slice(0, 10);
-    const owner = await prisma.user.create({
-      data: {
-        email: `${EMAIL_PREFIX}own-${suffix}@test.local`,
-        username: `lr_own_${suffix}`.slice(0, 30),
-        passwordHash: 'fixture-only-not-a-real-hash',
-        status: 'ACTIVE',
-        isVerified: true,
-      },
-    });
-    const group = await prisma.group.create({
-      data: { ownerId: owner.id, name: `LogRed-${suffix}`, isPrivate: true, status: 'ACTIVE' },
-    });
-    await prisma.groupMember.create({
-      data: { groupId: group.id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' },
-    });
-    const realToken = `logredtok-${randomUUID().replaceAll('-', '')}`;
-    await prisma.groupInvite.create({
-      data: {
-        groupId: group.id,
-        email: `${EMAIL_PREFIX}invitee-${suffix}@test.local`,
-        role: 'MEMBER',
-        status: 'PENDING',
-        token: realToken,
-        expiresAt: new Date(Date.now() + 86_400_000),
-        invitedBy: owner.id,
-      },
-    });
-    const token = server.jwt.sign({
-      sub: owner.id,
-      email: owner.email!,
-      username: owner.username,
-      roles: ['USER'],
-    });
+  /** Fire a request and return every serialized record the server wrote so far. */
+  const records = () =>
+    sink.lines
+      .join('')
+      .split('\n')
+      .filter((l) => l.trim().startsWith('{'))
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
 
-    // Capture what the server's own logger writes for these two requests.
-    const seen: string[] = [];
-    const original = server.log.info.bind(server.log);
-    const record = (obj: unknown, msg?: string) => {
-      seen.push(JSON.stringify({ obj, msg }));
-      return original(obj as never, msg as never);
-    };
-    (server.log as unknown as { info: typeof record }).info = record;
+  const PREFIX = config.API_PREFIX; // e.g. /api/v1
 
-    const ok = await server.inject({
+  // Each request gets its OWN token so a leak is attributable to a request.
+  const shapes: Array<[string, (t: string) => string]> = [
+    ['plain', (t) => `${PREFIX}/groups/invites/${t}`],
+    ['%67roups (the reported bypass)', (t) => `${PREFIX}/%67roups/invites/${t}`],
+    ['%47roups (upper-case escape)', (t) => `${PREFIX}/%47roups/invites/${t}`],
+    ['%2567roups (double-encoded)', (t) => `${PREFIX}/%2567roups/invites/${t}`],
+    ['%69nvites', (t) => `${PREFIX}/groups/%69nvites/${t}`],
+    ['partially encoded "invites"', (t) => `${PREFIX}/groups/in%76ites/${t}`],
+    ['both words encoded', (t) => `${PREFIX}/%67roups/%69nvites/${t}`],
+    ['encoded letters with a query string', (t) => `${PREFIX}/%67roups/invites/${t}?a=1&b=2`],
+    ['encoded separators (upper)', (t) => `${PREFIX}/groups%2Finvites%2F${t}`],
+    ['encoded separators (lower)', (t) => `${PREFIX}/groups%2finvites%2f${t}`],
+    ['repeated separators', (t) => `${PREFIX}//groups///invites//${t}`],
+    ['trailing segments', (t) => `${PREFIX}/groups/invites/${t}/extra/more`],
+    ['plain with a query string', (t) => `${PREFIX}/groups/invites/${t}?x=1`],
+    ['malformed escape after the token', (t) => `${PREFIX}/groups/invites/${t}%ZZ`],
+    ['truncated escape after the token', (t) => `${PREFIX}/groups/invites/${t}%`],
+    ['malformed escape before the route words', (t) => `${PREFIX}/%ZZgroups/invites/${t}`],
+    // OUTSIDE the API prefix: these reach the top-level not-found handler in
+    // server.ts, which the prefixed routes/index.ts handler otherwise shadows.
+    ['unprefixed plain', (t) => `/groups/invites/${t}`],
+    ['unprefixed %67roups', (t) => `/%67roups/invites/${t}`],
+    ['unprefixed encoded separators', (t) => `/groups%2Finvites%2F${t}`],
+  ];
+
+  it('matrix: every spelling x {anonymous, authenticated} — the token appears in NO field of NO record', async () => {
+    const tokens: string[] = [];
+    let n = 0;
+    for (const [, build] of shapes) {
+      for (const authed of [false, true]) {
+        const t = `SYNTHTOKEN${String(n++).padStart(3, '0')}${randomUUID().replaceAll('-', '')}`;
+        tokens.push(t);
+        await server.inject({
+          method: 'GET',
+          url: build(t),
+          headers: authed ? authHeader : {},
+          remoteAddress: nextIp(),
+        });
+      }
+    }
+
+    // Records are written as requests finish; give the last completions a tick.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const recs = records();
+    expect(recs.length).toBeGreaterThan(tokens.length); // the capture really is capturing
+    const raw = sink.lines.join('');
+    for (const t of tokens) {
+      expect(raw, `raw output contains ${t}`).not.toContain(t);
+      const stringsHoldingIt = recs.filter((r) => allStrings(r).some((s) => s.includes(t)));
+      expect(stringsHoldingIt, `a serialized field carries ${t}`).toEqual([]);
+    }
+  }, 120_000);
+
+  it('a MATCHED, authenticated request for a REAL token resolves 200 and logs it redacted in all three sinks', async () => {
+    const before = sink.lines.length;
+    const resp = await server.inject({
       method: 'GET',
-      url: `${config.API_PREFIX}/groups/invites/${realToken}`,
-      headers: { authorization: `Bearer ${token}` },
+      url: `${PREFIX}/groups/invites/${realToken}`,
+      headers: authHeader,
+      remoteAddress: nextIp(),
     });
-    const bad = await server.inject({
+    expect(resp.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(realToken);
+
+    const recs = sink.lines.slice(before).join('').split('\n').filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l));
+    const byMsg = (msg: string) => recs.filter((r) => r.msg === msg);
+
+    // Fastify's automatic line, and both custom lines, all present and redacted.
+    expect(byMsg('incoming request')[0]?.req.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
+    expect(byMsg('Incoming request')[0]?.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
+    const completed = byMsg('Request completed')[0];
+    expect(completed?.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
+    // ...and the diagnostics that make the line useful survive.
+    expect(completed?.method).toBe('GET');
+    expect(completed?.statusCode).toBe(200);
+  });
+
+  it('the same REAL token spelled with an encoded letter still resolves AND is still redacted', async () => {
+    const before = sink.lines.length;
+    const resp = await server.inject({
       method: 'GET',
-      url: `${config.API_PREFIX}/groups/invites/definitely-not-a-real-token`,
-      headers: { authorization: `Bearer ${token}` },
+      url: `${PREFIX}/%67roups/invites/${realToken}`,
+      headers: authHeader,
+      remoteAddress: nextIp(),
     });
+    // The router matches on the decoded path, which is exactly why the raw
+    // string cannot be trusted to look like "groups".
+    expect(resp.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
 
-    (server.log as unknown as { info: typeof original }).info = original;
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(realToken);
+    expect(mine).toContain('%67roups/invites/[REDACTED]');
+  });
 
-    expect(ok.statusCode).toBe(200);
-    expect(bad.statusCode).toBe(404);
+  it('an UNAUTHENTICATED request to the token route (401) is redacted too', async () => {
+    const before = sink.lines.length;
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/%67roups/invites/${realToken}`,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(401);
+    await new Promise((r) => setTimeout(r, 50));
 
-    const logged = seen.join('\n');
-    expect(logged).not.toContain(realToken);
-    expect(logged).not.toContain('definitely-not-a-real-token');
-    // The response body legitimately carries the invite summary, but it
-    // must not echo the token either.
-    expect(ok.body).not.toContain(realToken);
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(realToken);
+    expect(mine).toContain('[REDACTED]');
+    expect(mine).toContain('"statusCode":401');
+  });
+
+  it("the top-level not-found handler logs a redacted URL ('Route not found') with method and route intact", async () => {
+    const t = `NOTFOUNDTOKEN${randomUUID().replaceAll('-', '')}`;
+    const before = sink.lines.length;
+    const resp = await server.inject({
+      method: 'GET',
+      url: `/%67roups/invites/${t}`,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(404);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+    const recs = mine.split('\n').filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l));
+    const notFound = recs.find((r) => r.msg === 'Route not found');
+    expect(notFound).toBeDefined();
+    expect(notFound.url).toBe('/%67roups/invites/[REDACTED]');
+  });
+
+  it('unrelated routes are logged exactly as before — nothing is over-redacted', async () => {
+    const before = sink.lines.length;
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/notifications?page=2&limit=5`,
+      headers: authHeader,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).toContain(`${PREFIX}/notifications?page=2&limit=5`);
+    expect(mine).not.toContain('[REDACTED]');
   });
 });
