@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma, GroupStatus, GroupMemberRole, GroupMemberStatus } from '@socialplay/database';
 import { config } from '@socialplay/config';
@@ -30,7 +30,6 @@ afterAll(async () => {
 });
 
 const EMAIL_PREFIX = 'ginv-';
-let fixtureCounter = 0;
 
 function uniqueSuffix() {
   return randomUUID().replaceAll('-', '').slice(0, 12);
@@ -438,7 +437,6 @@ describeIf('groups/routes — Invitation lifecycle', () => {
 
     it('rejects expired invite', async () => {
       const owner = await createUser('inv-expire');
-      const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'ExpireInv', { isPrivate: true });
 
       const invitee = await createUser('inv-expiree');
@@ -585,7 +583,6 @@ describeIf('groups/routes — Join request flow', () => {
   describe('POST /groups/:id/request — request membership', () => {
     it('creates a PENDING membership for private group', async () => {
       const owner = await createUser('jr-owner');
-      const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'JRGroup', { isPrivate: true });
 
       const requester = await createUser('jr-requester');
@@ -607,7 +604,6 @@ describeIf('groups/routes — Join request flow', () => {
 
     it('rejects if already an active member', async () => {
       const owner = await createUser('jr-already');
-      const token = await mintToken(owner);
       const group = await createGroup(owner.id, 'JRAlready', { isPrivate: true });
       const member = await createUser('jr-already-m');
       await addMember(group.id, member.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);

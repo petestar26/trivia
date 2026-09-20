@@ -3,6 +3,11 @@ import { prisma, type Prisma } from '@socialplay/database';
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
+import {
+  ADMISSION_PERMITTED_USER_STATUSES,
+  lockAccountForAdmission,
+  lockInviteSubject,
+} from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 type GroupMemberStatus = 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
@@ -11,6 +16,30 @@ const MANAGER_ROLES: GroupMemberRole[] = ['OWNER', 'ADMIN'];
 
 function hasRole(role: GroupMemberRole, allowed: GroupMemberRole[]): boolean {
   return allowed.includes(role);
+}
+
+/**
+ * Whether an account may be admitted through an invitation addressed to
+ * `inviteEmail`. Pure: it judges whatever row it is handed, so the SAME
+ * predicate runs on the unlocked fast-path read and on the authoritative read
+ * taken under the row lock (see group-locks.ts) and the two cannot drift.
+ */
+function assertAdmissionEligible(
+  account: { email: string | null; isVerified: boolean; status: string } | null,
+  inviteEmail: string
+): void {
+  if (!account || !account.email || !account.isVerified) {
+    throw ApiError.forbidden('You must have a verified email to accept invites');
+  }
+  if (account.status === 'BANNED') {
+    throw ApiError.forbidden('You are banned from this group');
+  }
+  if (!(ADMISSION_PERMITTED_USER_STATUSES as readonly string[]).includes(account.status)) {
+    throw ApiError.forbidden('Your account is not eligible to accept invitations');
+  }
+  if (account.email.toLowerCase() !== inviteEmail.toLowerCase()) {
+    throw ApiError.forbidden('This invite is not for your email address');
+  }
 }
 
 async function getGroupOrThrow(groupId: string) {
@@ -199,8 +228,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           isPrivate: group.isPrivate,
           status: group.status,
           memberCount,
-          isMember: !!membership && membership.status === 'ACTIVE',
-          memberRole: membership?.role,
+          isMember: isActiveMember,
+          // Null — never omitted, and never the role of a membership that is
+          // not ACTIVE (a LEFT admin is not acting as one).
+          memberRole: isActiveMember ? membership!.role : null,
           viewerMembershipStatus: membership?.status ?? null,
           owner,
           createdAt: group.createdAt,
@@ -764,7 +795,27 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You cannot ban the owner of the group');
       }
 
+      // The subject lock is keyed on the target's email, so it has to be read
+      // first. An unlocked read is fine here: it only selects WHICH lock to
+      // take, and everything that matters is re-checked after taking it.
+      const targetAccount = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { email: true },
+      });
+
       const alreadyBanned = await prisma.$transaction(async (tx) => {
+        // Level 2 of the protocol in group-locks.ts, taken FIRST so this ban
+        // is totally ordered against invite creation and invite acceptance
+        // for the same (group, email). Without it a concurrent invite could
+        // commit a PENDING invite AFTER this transaction revoked the pending
+        // ones, leaving a live invite for a banned user; and an accept
+        // holding the invite row while this ban held the member row would
+        // deadlock (PostgreSQL 40P01 → a 500 for the manager while the
+        // target was admitted anyway).
+        if (targetAccount?.email) {
+          await lockInviteSubject(tx, groupId, targetAccount.email);
+        }
+
         // Atomic transition — guards against two distinct races:
         //
         // 1. A concurrent duplicate ban (two managers, or a retried
@@ -799,13 +850,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           return true;
         }
 
-        const user = await tx.user.findUnique({
-          where: { id: targetUserId },
-          select: { email: true },
-        });
-        if (user?.email) {
+        if (targetAccount?.email) {
           await tx.groupInvite.updateMany({
-            where: { groupId, email: user.email.toLowerCase(), status: 'PENDING' },
+            where: { groupId, email: targetAccount.email.toLowerCase(), status: 'PENDING' },
             data: { status: 'REVOKED' },
           });
         }
@@ -978,8 +1025,11 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         }
       }
 
+      // Fast path: turn away the common duplicate without a transaction. An
+      // invite whose expiry has passed is NOT active even though its stored
+      // status is still PENDING, so it must not block a replacement.
       const existingInvite = await prisma.groupInvite.findFirst({
-        where: { groupId, email: normalizedEmail, status: 'PENDING' },
+        where: { groupId, email: normalizedEmail, status: 'PENDING', expiresAt: { gt: new Date() } },
       });
       if (existingInvite) {
         throw ApiError.conflict('An active invite already exists for this email');
@@ -988,10 +1038,12 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const token = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      // Membership eligibility and the invite create are one transaction so a
-      // ban landing between the pre-read and the insert cannot slip an invite
-      // in for a banned recipient. The unique-invite conflict is also handled
-      // here rather than relying on a later duplicate check.
+      // Everything above is a fast path on unlocked reads. The authoritative
+      // checks run below, AFTER taking the (group, email) subject lock and
+      // BEFORE the insert, all in one transaction — the same lock a ban takes
+      // first (see group-locks.ts). That is what makes "ban wins" mean no
+      // PENDING invite and no invitation notification: a re-read that is not
+      // ordered against the ban by a lock would still race it.
       let invite:
         | {
             id: string;
@@ -1007,6 +1059,8 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         | null = null;
       try {
         await prisma.$transaction(async (tx) => {
+          await lockInviteSubject(tx, groupId, normalizedEmail);
+
           if (existingUser) {
             const current = await tx.groupMember.findUnique({
               where: { groupId_userId: { groupId, userId: existingUser.id } },
@@ -1018,6 +1072,26 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             if (current?.status === 'BANNED') {
               throw ApiError.forbidden('User is banned from this group');
             }
+          }
+
+          // Replacement policy for a stale invite: a PENDING invite whose
+          // expiry has passed is closed out as EXPIRED and superseded by
+          // this one (its token stops working and resolves as EXPIRED). A
+          // PENDING invite that is still live blocks the create. This runs
+          // under the lock, so two concurrent creates cannot both conclude
+          // "nothing pending" and only one supersedes the stale invite.
+          const pending = await tx.groupInvite.findFirst({
+            where: { groupId, email: normalizedEmail, status: 'PENDING' },
+            select: { id: true, expiresAt: true },
+          });
+          if (pending) {
+            if (pending.expiresAt > new Date()) {
+              throw ApiError.conflict('An active invite already exists for this email');
+            }
+            await tx.groupInvite.updateMany({
+              where: { id: pending.id, status: 'PENDING' },
+              data: { status: 'EXPIRED' },
+            });
           }
 
           invite = await tx.groupInvite.create({
@@ -1096,9 +1170,14 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const page = request.query.page ?? 1;
       const limit = request.query.limit ?? 20;
 
+      // "Pending" here means live: PENDING and not yet past its expiry. An
+      // expired invite still carries status PENDING until something writes
+      // it, but listing it as active would offer a manager a dead link.
+      const livePending = { groupId, status: 'PENDING' as const, expiresAt: { gt: new Date() } };
+
       const [invites, total] = await Promise.all([
         prisma.groupInvite.findMany({
-          where: { groupId, status: 'PENDING' },
+          where: livePending,
           include: {
             group: { select: { id: true, name: true } },
           },
@@ -1106,7 +1185,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           skip: (page - 1) * limit,
           take: limit,
         }),
-        prisma.groupInvite.count({ where: { groupId, status: 'PENDING' } }),
+        prisma.groupInvite.count({ where: livePending }),
       ]);
 
       return {
@@ -1199,12 +1278,20 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.notFound('Invalid invite token');
       }
 
+      // The stored status only becomes EXPIRED when something WRITES it (an
+      // accept attempt, or a replacement invite), so an invite nobody has
+      // touched since its deadline still says PENDING. Report what is true
+      // now: a PENDING invite past its expiry is EXPIRED. Derived on read —
+      // no write from a GET.
+      const effectiveStatus =
+        invite.status === 'PENDING' && invite.expiresAt <= new Date() ? 'EXPIRED' : invite.status;
+
       return {
         success: true,
         data: {
           id: invite.id,
           group: invite.group,
-          status: invite.status,
+          status: effectiveStatus,
           expiresAt: invite.expiresAt,
         },
       };
@@ -1246,24 +1333,26 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('This invite has expired');
       }
 
-      const caller = await prisma.user.findUnique({
+      // FAST PATH ONLY. This read takes no lock, so its answer can be stale
+      // the instant it returns: an account suspended a moment later still
+      // passes it. It exists to turn away the ineligible cheaply, without
+      // opening a transaction. Authority is the locked re-read below.
+      const preflight = await prisma.user.findUnique({
         where: { id: userId },
         select: { email: true, isVerified: true, status: true },
       });
-      if (!caller || !caller.email || !caller.isVerified) {
-        throw ApiError.forbidden('You must have a verified email to accept invites');
-      }
-      if (caller.status === 'BANNED') {
-        throw ApiError.forbidden('You are banned from this group');
-      }
-      if (caller.status === 'SUSPENDED' || caller.status === 'INACTIVE') {
-        throw ApiError.forbidden('Your account is not eligible to accept invitations');
-      }
-      if (caller.email.toLowerCase() !== invite.email.toLowerCase()) {
-        throw ApiError.forbidden('This invite is not for your email address');
-      }
+      assertAdmissionEligible(preflight, invite.email);
 
       const result = await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECK. Lock the account row and re-read it, then hold
+        // the lock through the membership transition, the invite claim and
+        // the commit, so a status change cannot slip in between the check and
+        // the admission. Order matters — see the protocol in group-locks.ts:
+        // account row first, then the (group, email) subject.
+        const account = await lockAccountForAdmission(tx, userId);
+        await lockInviteSubject(tx, invite.groupId, invite.email);
+        assertAdmissionEligible(account, invite.email);
+
         const group = await tx.group.findUnique({ where: { id: invite.groupId } });
         if (!group || group.status !== 'ACTIVE') {
           throw ApiError.badRequest('Group is not active');
@@ -1284,6 +1373,20 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           data: { status: 'ACCEPTED', acceptedBy: userId },
         });
         if (claimed.count === 0) {
+          // The invite left PENDING between the pre-read and the claim (a
+          // ban revoked it, a replacement expired it, or a twin accepted it).
+          // Re-read so the caller learns which, instead of always being told
+          // it was "already accepted".
+          const current = await tx.groupInvite.findUnique({
+            where: { id: invite.id },
+            select: { status: true },
+          });
+          if (current?.status === 'REVOKED') {
+            throw ApiError.conflict('This invite has been revoked');
+          }
+          if (current?.status === 'EXPIRED') {
+            throw ApiError.badRequest('This invite has expired');
+          }
           throw ApiError.conflict('This invite has already been accepted');
         }
 
@@ -1727,10 +1830,10 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         }
 
         // Notify both parties.
-        const [oldOwner, newOwner] = await Promise.all([
-          tx.user.findUnique({ where: { id: actorUserId }, select: { username: true, displayName: true } }),
-          tx.user.findUnique({ where: { id: targetUserId }, select: { username: true, displayName: true } }),
-        ]);
+        const newOwner = await tx.user.findUnique({
+          where: { id: targetUserId },
+          select: { username: true, displayName: true },
+        });
 
         await tx.notification.createMany({
           data: [
