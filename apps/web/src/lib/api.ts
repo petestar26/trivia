@@ -1,6 +1,7 @@
 import { API_BASE, API_ORIGIN } from './api-config';
 import type {
   CreatedGroupInviteInfo,
+  GroupBannedMemberInfo,
   GroupDetailInfo,
   GroupInviteInfo,
   GroupInvitePreview,
@@ -330,6 +331,17 @@ class ApiClient {
 
   async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
     return this.post(`/groups/${groupId}/members/${userId}/ban`);
+  }
+
+  async unbanGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/members/${userId}/unban`);
+  }
+
+  async listBannedMembers(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupBannedMemberInfo[], PaginationMeta>> {
+    return this.get<GroupBannedMemberInfo[], PaginationMeta>(`/groups/${groupId}/banned-members`, params);
   }
 
   async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {

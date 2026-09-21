@@ -41,6 +41,8 @@ vi.mock('@/lib/api', () => ({
     revokeGroupInvite: vi.fn(),
     transferOwnership: vi.fn(),
     banGroupMember: vi.fn(),
+    listBannedMembers: vi.fn(),
+    unbanGroupMember: vi.fn(),
   },
 }));
 
@@ -71,6 +73,8 @@ const mocked = api as unknown as {
   revokeGroupInvite: ReturnType<typeof vi.fn>;
   transferOwnership: ReturnType<typeof vi.fn>;
   banGroupMember: ReturnType<typeof vi.fn>;
+  listBannedMembers: ReturnType<typeof vi.fn>;
+  unbanGroupMember: ReturnType<typeof vi.fn>;
 };
 
 const baseGroup = {
@@ -112,6 +116,12 @@ beforeEach(() => {
     meta: { total: 0, page: 1, limit: 50, totalPages: 0, hasNextPage: false, hasPrevPage: false },
   });
   mocked.listJoinRequests.mockResolvedValue({ data: [] });
+  // A manager's page also loads the banned list; nothing here is about it.
+  mocked.listBannedMembers.mockResolvedValue({
+    success: true,
+    data: [],
+    meta: { total: 0, page: 1, limit: 20, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+  });
 });
 
 describe('GroupDetailPage', () => {

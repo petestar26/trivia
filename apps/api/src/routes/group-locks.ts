@@ -2,7 +2,7 @@ import type { Prisma } from '@socialplay/database';
 
 /**
  * Locking protocol for group admission (invite acceptance), invite creation,
- * and group-level bans.
+ * and group-level bans and unbans.
  *
  * These writers race on overlapping rows and, before this protocol, could
  * both admit an account that had just been restricted and deadlock each other
@@ -26,6 +26,9 @@ import type { Prisma } from '@socialplay/database';
  *   accept-invite   1 → 2 → 3/4        holds both through commit
  *   ban             2 → 3 → 4          (level 1 is not needed: it only READS
  *                                       the target's email, without a lock)
+ *   unban           2 → 3 → 5          (ban's order without level 4: it never
+ *                                       touches invites, so the ones a ban
+ *                                       revoked stay revoked)
  *   create invite   2 → 3(read) → 4
  *   account status  1 only             any writer that changes users.status
  *   writers                            (UPDATE takes the row lock implicitly)

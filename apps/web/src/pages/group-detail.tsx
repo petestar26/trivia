@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { copyText, type CopyOutcome } from '@/lib/clipboard';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { inviteLink } from '@/lib/invite-link';
+import { bannedMembersQueryKey } from '@/lib/group-banned-members-pages';
 import { notificationsScopeKey } from '@/lib/notifications-query-keys';
 import {
   applyCreatedInvite,
@@ -19,6 +20,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { BannedMembersSection } from '@/components/groups/banned-members-section';
 import type { GroupDetailInfo, GroupInviteInfo, GroupMemberInfo } from '@socialplay/shared';
 
 const ROLE_OPTIONS = ['ADMIN', 'MODERATOR', 'MEMBER'] as const;
@@ -315,6 +317,7 @@ export function GroupDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
+      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(groupId) });
       queryClient.invalidateQueries({ queryKey: ['group', groupId] });
       // Scoped to the signed-in account: the notification cache is keyed by
       // identity, so there is no shared inbox key to invalidate.
@@ -903,6 +906,11 @@ export function GroupDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Banned members (managers of an active group). It runs its own query, so
+          for anyone else it is not merely hidden: it is never mounted, and the
+          banned list is never requested. */}
+      {isManager && group.status === 'ACTIVE' && <BannedMembersSection groupId={groupId} toast={toast} />}
 
       {/* Transfer ownership confirmation */}
       {showTransferConfirm && (

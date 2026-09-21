@@ -158,6 +158,22 @@ export interface GroupMemberInfo {
   joinedAt: string;
 }
 
+/**
+ * GET /groups/:id/banned-members — one currently banned member, as a manager
+ * (OWNER/ADMIN) sees them. The public profile and nothing else: no email, no
+ * role, no dates, and nothing about any other membership the account holds.
+ */
+export interface GroupBannedMemberInfo {
+  id: string;
+  groupId: string;
+  user: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
+}
+
 /** A live pending invite as a manager (OWNER/ADMIN) sees it. The token is
  *  bearer-equivalent and is returned to managers only. */
 export interface GroupInviteInfo {

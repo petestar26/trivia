@@ -32,13 +32,20 @@ vi.mock('@/lib/api', () => ({
     listJoinRequests: vi.fn(),
     createGroupInvite: vi.fn(),
     revokeGroupInvite: vi.fn(),
+    listBannedMembers: vi.fn(),
   },
 }));
 
 import { api } from '@/lib/api';
 
 const mocked = api as unknown as Record<
-  'getGroup' | 'getGroupMembers' | 'listGroupInvites' | 'listJoinRequests' | 'createGroupInvite' | 'revokeGroupInvite',
+  | 'getGroup'
+  | 'getGroupMembers'
+  | 'listGroupInvites'
+  | 'listJoinRequests'
+  | 'createGroupInvite'
+  | 'revokeGroupInvite'
+  | 'listBannedMembers',
   ReturnType<typeof vi.fn>
 >;
 
@@ -77,6 +84,7 @@ function installServer(initial: GroupInviteInfo[] = []) {
   mocked.getGroup.mockResolvedValue({ success: true, data: GROUP });
   mocked.getGroupMembers.mockResolvedValue({ success: true, data: [] });
   mocked.listJoinRequests.mockResolvedValue({ success: true, data: [] });
+  mocked.listBannedMembers.mockResolvedValue({ success: true, data: [] });
   mocked.listGroupInvites.mockImplementation(async () => ({ success: true, data: [...state.invites] }));
   mocked.createGroupInvite.mockImplementation(async (_groupId: string, email: string) => {
     state.creates += 1;

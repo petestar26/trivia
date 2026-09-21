@@ -878,6 +878,207 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  // List banned members (OWNER/ADMIN) — the manager's view of who is banned,
+  // so that a ban can be reversed (see unban below).
+  //
+  // A banned account's identity is moderation data. It is served to managers
+  // of THIS group only, and only as the public profile the members list
+  // already shows: no email, no role, no dates, and nothing about any other
+  // membership the account holds. `status: 'BANNED'` and `groupId` are both in
+  // the where-clause, so no other membership can reach the response.
+  //
+  // Order is most-recently-changed first with the row id as a tie-breaker.
+  // `updatedAt` alone is not a total order (a bulk write can stamp several rows
+  // with the same instant), and offset pagination over a non-total order can
+  // repeat or skip rows between two pages of the same list.
+  server.get<{ Params: { id: string }; Querystring: { page?: number; limit?: number } }>(
+    '/:id/banned-members',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', format: 'uuid' } },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            // The cap keeps `skip` inside the database's integer range; a page
+            // number past it would otherwise surface as a 500.
+            page: { type: 'integer', minimum: 1, maximum: 1_000_000, default: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      await assertManager(groupId, request.user!.sub);
+
+      const page = request.query.page ?? 1;
+      const limit = request.query.limit ?? 20;
+      const where = { groupId, status: 'BANNED' as const };
+
+      const [banned, total] = await Promise.all([
+        prisma.groupMember.findMany({
+          where,
+          select: {
+            id: true,
+            groupId: true,
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.groupMember.count({ where }),
+      ]);
+
+      return {
+        success: true,
+        data: banned.map((m) => ({ id: m.id, groupId: m.groupId, user: m.user })),
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page < Math.ceil(total / limit),
+          hasPrevPage: page > 1,
+        },
+      };
+    }
+  );
+
+  // Unban member (OWNER/ADMIN) — the inverse of ban: BANNED → LEFT, role reset
+  // to MEMBER, in one guarded write. Nothing else is restored:
+  //
+  //   • Not ACTIVE. Unbanning lifts the bar; it is not readmission. The user
+  //     asks to join again, or is sent a new invitation, like anyone who left.
+  //   • Not the pre-ban role. Ban flips the status only, so a banned
+  //     ADMIN/MODERATOR still carries that role on the BANNED row. Resetting
+  //     it here means no later path back into the group can hand it back.
+  //   • Not the invitations the ban revoked. They stay REVOKED — this route
+  //     never touches group_invites.
+  server.post<{ Params: { id: string; userId: string } }>(
+    '/:id/members/:userId/unban',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'userId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const targetUserId = request.params.userId;
+      const actorUserId = request.user!.sub;
+
+      const group = await getGroupOrThrow(groupId);
+      if (group.status !== 'ACTIVE') {
+        throw ApiError.badRequest('Group is not active');
+      }
+      await assertManager(groupId, actorUserId);
+
+      // Looked up by (groupId, userId), so a user who is banned in ANOTHER
+      // group — or who does not exist — is indistinguishable from a user who
+      // was never in this one: the same 404 as ban, and nothing to learn.
+      const target = await getGroupMembership(groupId, targetUserId);
+      if (!target) {
+        throw ApiError.notFound('User is not a member of this group');
+      }
+      if (target.role === 'OWNER') {
+        throw ApiError.forbidden('You cannot unban the owner of the group');
+      }
+
+      // Read first because the subject lock is keyed on the target's email.
+      // Unlocked is fine: it only picks WHICH lock to take, and the guarded
+      // write below re-checks everything after the lock is held.
+      const targetAccount = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { email: true },
+      });
+
+      await prisma.$transaction(async (tx) => {
+        // Level 2 of the protocol in group-locks.ts, first in the transaction
+        // exactly as ban takes it, so an unban is totally ordered against a
+        // ban, an invite creation and an invite acceptance for the same
+        // (group, email). The two orders that matter: an acceptance that
+        // started while the target was still banned is refused, never
+        // half-admitted; and one that waits behind this unban then sees LEFT
+        // and proceeds, instead of reading a stale BANNED.
+        if (targetAccount?.email) {
+          await lockInviteSubject(tx, groupId, targetAccount.email);
+        }
+
+        // Atomic guarded transition. It matches only a BANNED, non-OWNER row of
+        // THIS group and THIS user (the pair is unique, so at most one row), so
+        // whichever request gets here first is the one that transitions it; a
+        // concurrent duplicate, a target that was readmitted or promoted since
+        // the read above, or a row that is simply not banned matches zero rows
+        // and writes nothing. groupId and userId are in the guard itself, not
+        // inferred from an id read earlier: dropping either would widen the
+        // write past the one membership the manager is acting on.
+        const unbanned = await tx.groupMember.updateMany({
+          where: {
+            groupId,
+            userId: targetUserId,
+            status: 'BANNED',
+            role: { not: 'OWNER' },
+          },
+          data: { status: 'LEFT', role: 'MEMBER' },
+        });
+        if (unbanned.count === 0) {
+          // Nothing changed, so nothing is announced. Re-read to say WHY: the
+          // row as it stands after any concurrent writer has finished.
+          const current = await tx.groupMember.findUnique({
+            where: { groupId_userId: { groupId, userId: targetUserId } },
+            select: { role: true },
+          });
+          if (!current) {
+            throw ApiError.notFound('User is not a member of this group');
+          }
+          if (current.role === 'OWNER') {
+            throw ApiError.forbidden('You cannot unban the owner of the group');
+          }
+          throw ApiError.conflict('This member is not banned');
+        }
+
+        // Only the one request that made the transition gets here, so the
+        // affected user is told exactly once. It is created in the same
+        // transaction: a rollback takes it with it.
+        await tx.notification.create({
+          data: {
+            userId: targetUserId,
+            type: 'MODERATION',
+            title: 'Unbanned from group',
+            body: `You are no longer banned from "${group.name}". You may request to join again.`,
+            data: { groupId, unbannedBy: actorUserId },
+          },
+        });
+      });
+
+      return { success: true, data: { message: 'Member unbanned' } };
+    }
+  );
+
   // Change member role
   server.patch<{
     Params: { id: string; userId: string };
