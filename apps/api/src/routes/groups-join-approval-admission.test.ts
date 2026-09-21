@@ -195,13 +195,14 @@ describeIf('join approval vs the applicant\'s account status', () => {
 
         await prisma.$transaction(
           async (tx) => {
-            // Park the approval at its membership write: the member row is held, so
-            // the approval has already locked the applicant's users row and the
-            // group row by the time it waits here.
+            // Park the approval at the lock on the membership rows (the manager's
+            // and the applicant's, together): the applicant's row is held, so the
+            // approval has already locked the applicant's users row and the group
+            // row by the time it waits here.
             await tx.$queryRaw`SELECT "id" FROM "group_members" WHERE "id" = ${f.memberId} FOR UPDATE`;
             approveP = approve(f);
             approveP.catch(() => undefined);
-            await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_members"%' });
+            await waitForBlockedBackends(1, { queryLike: '%FROM "group_members"%FOR NO KEY UPDATE%' });
 
             // Now a status writer arrives. It must WAIT for the approval — which
             // proves the account lock is held all the way through the transition,
@@ -488,12 +489,12 @@ describeIf('join approval vs the GROUP\'s status — the same authoritative chec
 
     await prisma.$transaction(
       async (tx) => {
-        // Park the approval at its membership write: it already holds the account
-        // and group locks by then.
+        // Park the approval at the lock on the membership rows: it already holds
+        // the account and group locks by then.
         await tx.$queryRaw`SELECT "id" FROM "group_members" WHERE "id" = ${f.memberId} FOR UPDATE`;
         approveP = approve(f);
         approveP.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_members"%' });
+        await waitForBlockedBackends(1, { queryLike: '%FROM "group_members"%FOR NO KEY UPDATE%' });
 
         // The external status writer arrives NOW, and must wait behind the
         // approval's group lock (it is held through the transition, not dropped

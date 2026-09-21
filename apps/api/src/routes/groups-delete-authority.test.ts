@@ -139,6 +139,7 @@ const ACTOR_LOCK = '%FROM "group_members"%FOR SHARE%';
 const MEMBER_UPDATE = '%UPDATE "public"."group_members"%';
 const MEMBER_DELETE = '%DELETE FROM%group_members%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
+const LOCK_GROUP_EDIT = '%FROM "groups"%FOR NO KEY UPDATE%'; // an edit's first statement locks the group row
 
 interface World {
   group: Awaited<ReturnType<typeof groupSnapshot>>;
@@ -395,7 +396,7 @@ describeIf('group deletion — lock order: group row (2) FOR UPDATE, THEN the au
       await waitForBlockedBackends(1, { queryLike: MEMBER_DELETE });
       editP = server.inject({ method: 'PUT', url: `${PREFIX}/${f.groupId}`, headers: asUser(f.owner), payload: { name: `Renamed-${uniqueSuffix().slice(0, 6)}` }, remoteAddress: nextIp() });
       editP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: GROUP_WRITE });
+      await waitForBlockedBackends(1, { queryLike: LOCK_GROUP_EDIT });
     }, tx30);
 
     const [d, e] = [await deleteP!, await editP!];

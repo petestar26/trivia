@@ -163,6 +163,8 @@ const holdGroup = (tx: Held, id: string) => tx.$queryRaw`SELECT "id" FROM "group
 const LOCK_USERS = '%FROM "users"%FOR SHARE%';
 const LOCK_GROUP = '%FROM "groups"%FOR SHARE%';
 const MEMBER_UPDATE = '%UPDATE "public"."group_members"%';
+// A ban locks the manager's row and the target's together before it writes (group-locks.ts, level 4).
+const MEMBER_LOCK = '%FROM "group_members"%FOR NO KEY UPDATE%';
 const MEMBER_INSERT = '%INSERT INTO "public"."group_members"%';
 const USER_WRITE = '%UPDATE "public"."users"%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
@@ -516,10 +518,10 @@ describeIf('public join (LEFT -> ACTIVE) vs a ban — a successful ban is never 
       await holdMember(tx, f.memberId!);
       banP = ban(f);
       banP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // the ban is parked first...
+      await waitForBlockedBackends(1, { queryLike: MEMBER_LOCK }); // the ban is parked first (at the lock on the member rows)...
       joinP = join(f);
       joinP.catch(() => undefined);
-      await waitForBlockedBackends(2, { queryLike: MEMBER_UPDATE }); // ...and the join queues behind it
+      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // ...and the join queues behind it
     }, tx30);
 
     const [b, j] = [await banP!, await joinP!];
@@ -544,7 +546,7 @@ describeIf('public join (LEFT -> ACTIVE) vs a ban — a successful ban is never 
       await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // the join is parked first...
       banP = ban(f);
       banP.catch(() => undefined);
-      await waitForBlockedBackends(2, { queryLike: MEMBER_UPDATE }); // ...and the ban queues behind it
+      await waitForBlockedBackends(1, { queryLike: MEMBER_LOCK }); // ...and the ban queues behind it, at the lock on the member rows
     }, tx30);
 
     const [j, b] = [await joinP!, await banP!];

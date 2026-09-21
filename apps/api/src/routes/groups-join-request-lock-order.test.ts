@@ -124,6 +124,7 @@ const LOCK_GROUP_SHARE = '%FROM "groups"%FOR SHARE%';
 const LOCK_GROUP_UPDATE = '%FROM "groups"%FOR UPDATE%';
 const MEMBER_UPDATE = '%UPDATE "public"."group_members"%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
+const LOCK_GROUP_EDIT = '%FROM "groups"%FOR NO KEY UPDATE%';
 
 const ENTERED_STATUS: Record<Kind, string> = { join: 'ACTIVE', request: 'PENDING' };
 
@@ -256,7 +257,7 @@ for (const kind of ['join', 'request'] as const) {
 
         editP = editGroup(f, renamed);
         editP.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: GROUP_WRITE });
+        await waitForBlockedBackends(1, { queryLike: LOCK_GROUP_EDIT }); // the edit's first statement locks the group row
       }, tx30);
 
       const [c, e] = [await callP!, await editP!];

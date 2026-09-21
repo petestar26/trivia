@@ -7,12 +7,17 @@ import {
   ADMISSION_PERMITTED_GROUP_STATUSES,
   ADMISSION_PERMITTED_USER_STATUSES,
   lockAccountForAdmission,
+  lockActorAndTarget,
   lockActorMembership,
   lockGroupForAdmission,
   lockGroupForDeletion,
+  lockGroupForEdit,
+  lockInviteForRevocation,
   lockInviteRow,
   lockInviteSubject,
   type LockedGroup,
+  type LockedMembership,
+  type Tx,
 } from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
@@ -180,6 +185,83 @@ async function assertManager(
   allowedRoles: GroupMemberRole[] = MANAGER_ROLES
 ): Promise<GroupMemberRole> {
   return assertActorAuthority(await getGroupMembership(groupId, userId), allowedRoles);
+}
+
+interface ManagerAuthorization {
+  /** The group as the lock read it. */
+  group: LockedGroup;
+  /** The actor's role as the lock read it (the ceiling of what they may do). */
+  actorRole: GroupMemberRole;
+  /** The target's membership as the lock read it — null when it does not exist, or when the action has no target row. */
+  target: LockedMembership | null;
+}
+
+/**
+ * THE in-transaction authorization for every manager action: it locks the group
+ * and the actor's own membership — and the target's — in the order the protocol
+ * in group-locks.ts prescribes, re-reads them AFTER the locks are granted, and
+ * refuses the action unless the actor is, RIGHT NOW, an ACTIVE holder of one of
+ * `allowedRoles` in a group in the state the action needs. The locks stay held to
+ * commit, so what it saw stays true for the whole transaction.
+ *
+ * Everything the routes checked with plain reads before their transaction — the
+ * fast path (assertManager, the group's status) — was an optimization that can be
+ * stale by the time the write happens; this is the authority.
+ *
+ *   level 2  the group row: FOR SHARE (`groupLock` 'SHARE', the default), FOR NO
+ *            KEY UPDATE ('NO KEY UPDATE', an edit) or FOR UPDATE ('UPDATE', a
+ *            deletion). Gone: 404 "Group not found".
+ *            `requireActiveGroup`: not ACTIVE — or gone, which is not active
+ *            either: 400 "Group is not active".
+ *   level 3  `beforeMembers`, if given, runs here (an action that takes the
+ *            (group, email) subject lock takes it BETWEEN the group and the members).
+ *   level 4  the actor's row and, when `targetUserId` is given, the target's,
+ *            together in id order (lockActorAndTarget); otherwise the actor's row
+ *            alone, FOR SHARE. Not an ACTIVE member: 403 "You are not a member of
+ *            this group"; the wrong role: 403 "Insufficient permissions".
+ *            `mustOwn`: also groups.ownerId must be the actor (403).
+ */
+async function authorizeManagerAction(
+  tx: Tx,
+  args: {
+    groupId: string;
+    actorId: string;
+    targetUserId?: string;
+    allowedRoles?: GroupMemberRole[];
+    groupLock?: 'SHARE' | 'NO KEY UPDATE' | 'UPDATE';
+    requireActiveGroup?: boolean;
+    mustOwn?: boolean;
+    beforeMembers?: (group: LockedGroup) => Promise<void>;
+  }
+): Promise<ManagerAuthorization> {
+  const lockGroup =
+    args.groupLock === 'UPDATE'
+      ? lockGroupForDeletion
+      : args.groupLock === 'NO KEY UPDATE'
+        ? lockGroupForEdit
+        : lockGroupForAdmission;
+  const group = await lockGroup(tx, args.groupId);
+  // A group that is gone is not an ACTIVE one: for the actions that need an active
+  // group that is the answer admission has always given (400), for the others a 404.
+  if (args.requireActiveGroup) assertGroupActive(group);
+  if (!group) {
+    throw ApiError.notFound('Group not found');
+  }
+
+  if (args.beforeMembers) await args.beforeMembers(group);
+
+  let actor: LockedMembership | null;
+  let target: LockedMembership | null = null;
+  if (args.targetUserId !== undefined) {
+    ({ actor, target } = await lockActorAndTarget(tx, args.groupId, args.actorId, args.targetUserId));
+  } else {
+    actor = await lockActorMembership(tx, args.groupId, args.actorId);
+  }
+  const actorRole = assertActorAuthority(actor, args.allowedRoles);
+  if (args.mustOwn && group.ownerId !== args.actorId) {
+    throw ApiError.forbidden('Insufficient permissions');
+  }
+  return { group, actorRole, target };
 }
 
 export async function groupRoutes(server: FastifyInstance): Promise<void> {
@@ -368,7 +450,8 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const group = await getGroupOrThrow(request.params.id);
-      await assertManager(group.id, request.user!.sub, ['OWNER']);
+      const actorId = request.user!.sub;
+      await assertManager(group.id, actorId, ['OWNER']);
 
       const data: Record<string, unknown> = {};
       if (request.body.name !== undefined) data.name = request.body.name;
@@ -377,21 +460,38 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       if (request.body.imageUrl !== undefined) data.imageUrl = request.body.imageUrl;
       if (request.body.coverUrl !== undefined) data.coverUrl = request.body.coverUrl;
 
-      const updated = await prisma.group.update({
-        where: { id: group.id },
-        data,
-        select: {
-          id: true,
-          ownerId: true,
-          name: true,
-          description: true,
-          imageUrl: true,
-          coverUrl: true,
-          isPrivate: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+      const updated = await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECK. The owner check above was a plain read taken before
+        // this transaction: an owner who handed the group over meanwhile is an
+        // ADMIN by now and must not rename, re-describe or flip the privacy of a
+        // group that is no longer theirs. The group row is taken FOR NO KEY UPDATE
+        // (the lock the UPDATE below needs anyway), which no admission, manager
+        // action or transfer can be inside while it is held; then the caller's own
+        // membership row. The caller must be groups.ownerId AND an ACTIVE OWNER.
+        await authorizeManagerAction(tx, {
+          groupId: group.id,
+          actorId,
+          allowedRoles: ['OWNER'],
+          groupLock: 'NO KEY UPDATE',
+          mustOwn: true,
+        });
+
+        return tx.group.update({
+          where: { id: group.id },
+          data,
+          select: {
+            id: true,
+            ownerId: true,
+            name: true,
+            description: true,
+            imageUrl: true,
+            coverUrl: true,
+            isPrivate: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
       });
 
       return {
@@ -427,22 +527,21 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         // other group writer uses (transfer and admission take the group row,
         // then member rows), so a delete holding member rows while waiting for
         // the group row could deadlock with either (PostgreSQL 40P01 -> a 500).
-        const locked = await lockGroupForDeletion(tx, group.id);
-        if (!locked) {
-          throw ApiError.notFound('Group not found');
-        }
-
+        //
         // AUTHORITATIVE CHECK. The owner check above was a plain read taken before
         // this transaction: an owner who handed the group over meanwhile is an
         // ADMIN by now, and a deletion cannot be undone. With the group row held
         // FOR UPDATE no transfer can be mid-flight, so the owner read from it is
-        // stable; lock and re-read the caller's own membership row too (level 4,
-        // before every other member row): the caller must be groups.ownerId AND
-        // an ACTIVE OWNER member.
-        assertActorAuthority(await lockActorMembership(tx, group.id, actorId), ['OWNER']);
-        if (locked.ownerId !== actorId) {
-          throw ApiError.forbidden('Insufficient permissions');
-        }
+        // stable; the caller's own membership row is locked and re-read too
+        // (level 4, before every other member row): the caller must be
+        // groups.ownerId AND an ACTIVE OWNER member.
+        await authorizeManagerAction(tx, {
+          groupId: group.id,
+          actorId,
+          allowedRoles: ['OWNER'],
+          groupLock: 'UPDATE',
+          mustOwn: true,
+        });
 
         await tx.groupMember.deleteMany({ where: { groupId: group.id } });
         await tx.group.delete({ where: { id: group.id } });
@@ -878,29 +977,29 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.forbidden('You cannot remove the owner of the group');
       }
 
-      // `role: { not: 'OWNER' }` makes the owner check atomic with the
-      // delete. The pre-check above is only a fast path: a concurrent
-      // ownership transfer can promote this same row to OWNER in between,
-      // and an unguarded delete would then remove the group's owner, leaving
-      // group.ownerId pointing at a membership that no longer exists — a
-      // state no route can repair.
-      const removed = await prisma.groupMember.deleteMany({
-        where: { id: target.id, role: { not: 'OWNER' } },
-      });
+      await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS. The manager, the group and the target above are
+        // plain reads taken before this transaction; a manager demoted, banned,
+        // muted, removed or gone since must not remove anyone, and the target may
+        // have been promoted to OWNER. Lock the group row, then the actor's row and
+        // the target's together (group-locks.ts, "Level 4 and the actor"), and
+        // decide on what they hold now.
+        const { target: locked } = await authorizeManagerAction(tx, { groupId, actorId: actorUserId, targetUserId });
 
-      if (removed.count === 0) {
-        // Zero rows means the row either vanished (concurrent leave/remove)
-        // or became OWNER (concurrent transfer). Re-read to answer with the
-        // same status the pre-checks above would have produced.
-        const current = await prisma.groupMember.findUnique({
-          where: { id: target.id },
-          select: { role: true },
-        });
-        if (!current) {
+        if (!locked) {
           throw ApiError.notFound('User is not a member of this group');
         }
-        throw ApiError.forbidden('You cannot remove the owner of the group');
-      }
+        if (locked.role === 'OWNER') {
+          throw ApiError.forbidden('You cannot remove the owner of the group');
+        }
+
+        // The row is locked by this transaction and was just judged not to be the
+        // owner's (group.ownerId must never point at a membership that no longer
+        // exists — a state no route can repair), so this deletes exactly it.
+        await tx.groupMember.delete({
+          where: { id: locked.id },
+        });
+      });
 
       return {
         success: true,
@@ -958,51 +1057,51 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       });
 
       const alreadyBanned = await prisma.$transaction(async (tx) => {
-        // Level 3 of the protocol in group-locks.ts, taken FIRST so this ban
-        // is totally ordered against invite creation and invite acceptance
-        // for the same (group, email). Without it a concurrent invite could
-        // commit a PENDING invite AFTER this transaction revoked the pending
-        // ones, leaving a live invite for a banned user; and an accept
-        // holding the invite row while this ban held the member row would
-        // deadlock (PostgreSQL 40P01 → a 500 for the manager while the
+        // AUTHORITATIVE CHECKS. Everything read above is a fast path taken before
+        // this transaction and can be stale by the time it writes: the actor may
+        // have been demoted, banned, muted, removed or have left; the group may
+        // have stopped being ACTIVE, been renamed or deleted; the target may have
+        // been promoted to OWNER or already banned. So lock the group, the (group,
+        // email) subject, and the actor's and target's rows together — the order
+        // in group-locks.ts — and decide on what they hold NOW.
+        //
+        // The subject lock (level 3) totally orders this ban against invite
+        // creation and acceptance for the same (group, email). Without it a
+        // concurrent invite could commit a PENDING invite AFTER this transaction
+        // revoked the pending ones, leaving a live invite for a banned user; and
+        // an accept holding the invite row while this ban held the member row
+        // would deadlock (PostgreSQL 40P01 → a 500 for the manager while the
         // target was admitted anyway).
-        if (targetAccount?.email) {
-          await lockInviteSubject(tx, groupId, targetAccount.email);
-        }
-
-        // Atomic transition — guards against two distinct races:
-        //
-        // 1. A concurrent duplicate ban (two managers, or a retried
-        //    request): another request already moved this row to BANNED,
-        //    so this call is treated as an idempotent no-op.
-        // 2. A concurrent ownership transfer promoting this same target to
-        //    OWNER between the pre-transaction check above and this write.
-        //    `role: { not: 'OWNER' }` keeps that promotion and this ban
-        //    mutually exclusive at the database level — whichever request's
-        //    write lands first wins, and the loser's `updateMany` affects
-        //    zero rows instead of leaving role=OWNER, status=BANNED, which
-        //    would permanently strand the group (no route can un-ban an
-        //    OWNER or transfer ownership away from a BANNED one).
-        //
-        // If `count` is 0, re-read inside the transaction to tell those two
-        // cases apart: only the first is a legitimate idempotent replay.
-        const banned = await tx.groupMember.updateMany({
-          where: { id: target.id, status: { not: 'BANNED' }, role: { not: 'OWNER' } },
-          data: { status: 'BANNED' },
+        const { group: lockedGroup, target: locked } = await authorizeManagerAction(tx, {
+          groupId,
+          actorId: actorUserId,
+          targetUserId,
+          requireActiveGroup: true,
+          beforeMembers: async () => {
+            if (targetAccount?.email) {
+              await lockInviteSubject(tx, groupId, targetAccount.email);
+            }
+          },
         });
-        if (banned.count === 0) {
-          const current = await tx.groupMember.findUnique({
-            where: { id: target.id },
-            select: { role: true },
-          });
-          if (current?.role === 'OWNER') {
-            // A concurrent transfer won the race — this is not a replay,
-            // it's the same "cannot ban the owner" rejection the early
-            // check above would have given if it had run a moment later.
-            throw ApiError.forbidden('You cannot ban the owner of the group');
-          }
+
+        if (!locked) {
+          throw ApiError.notFound('User is not a member of this group');
+        }
+        if (locked.role === 'OWNER') {
+          // Nothing may ban the owner — and the row is locked, so a transfer that
+          // promoted this target has either committed (seen here) or waits for us.
+          throw ApiError.forbidden('You cannot ban the owner of the group');
+        }
+        if (locked.status === 'BANNED') {
+          // A concurrent duplicate ban (two managers, or a retried request) got
+          // there first: an idempotent no-op.
           return true;
         }
+
+        await tx.groupMember.update({
+          where: { id: locked.id },
+          data: { status: 'BANNED' },
+        });
 
         if (targetAccount?.email) {
           await tx.groupInvite.updateMany({
@@ -1016,7 +1115,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
             userId: targetUserId,
             type: 'MODERATION',
             title: 'Banned from group',
-            body: `You have been banned from "${group.name}"`,
+            body: `You have been banned from "${lockedGroup.name}"`,
             data: { groupId, bannedBy: actorUserId },
           },
         });
@@ -1170,59 +1269,56 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       });
 
       await prisma.$transaction(async (tx) => {
-        // Level 3 of the protocol in group-locks.ts, first in the transaction
-        // exactly as ban takes it, so an unban is totally ordered against a
-        // ban, an invite creation and an invite acceptance for the same
-        // (group, email). The two orders that matter: an acceptance that
-        // started while the target was still banned is refused, never
-        // half-admitted; and one that waits behind this unban then sees LEFT
-        // and proceeds, instead of reading a stale BANNED.
-        if (targetAccount?.email) {
-          await lockInviteSubject(tx, groupId, targetAccount.email);
-        }
-
-        // Atomic guarded transition. It matches only a BANNED, non-OWNER row of
-        // THIS group and THIS user (the pair is unique, so at most one row), so
-        // whichever request gets here first is the one that transitions it; a
-        // concurrent duplicate, a target that was readmitted or promoted since
-        // the read above, or a row that is simply not banned matches zero rows
-        // and writes nothing. groupId and userId are in the guard itself, not
-        // inferred from an id read earlier: dropping either would widen the
-        // write past the one membership the manager is acting on.
-        const unbanned = await tx.groupMember.updateMany({
-          where: {
-            groupId,
-            userId: targetUserId,
-            status: 'BANNED',
-            role: { not: 'OWNER' },
+        // AUTHORITATIVE CHECKS, exactly as ban takes them: the group (ACTIVE, and
+        // named as it is NOW), the (group, email) subject, then the actor's row
+        // and the target's together — group-locks.ts, in that order. What the
+        // plain reads above saw is a fast path that can be stale: the manager may
+        // since have been demoted, banned, removed or have left, and the target
+        // readmitted or promoted.
+        //
+        // The subject lock totally orders an unban against a ban, an invite
+        // creation and an invite acceptance for the same (group, email). The two
+        // orders that matter: an acceptance that started while the target was
+        // still banned is refused, never half-admitted; and one that waits behind
+        // this unban then sees LEFT and proceeds, instead of reading a stale BANNED.
+        const { group: lockedGroup, target: locked } = await authorizeManagerAction(tx, {
+          groupId,
+          actorId: actorUserId,
+          targetUserId,
+          requireActiveGroup: true,
+          beforeMembers: async () => {
+            if (targetAccount?.email) {
+              await lockInviteSubject(tx, groupId, targetAccount.email);
+            }
           },
-          data: { status: 'LEFT', role: 'MEMBER' },
         });
-        if (unbanned.count === 0) {
-          // Nothing changed, so nothing is announced. Re-read to say WHY: the
-          // row as it stands after any concurrent writer has finished.
-          const current = await tx.groupMember.findUnique({
-            where: { groupId_userId: { groupId, userId: targetUserId } },
-            select: { role: true },
-          });
-          if (!current) {
-            throw ApiError.notFound('User is not a member of this group');
-          }
-          if (current.role === 'OWNER') {
-            throw ApiError.forbidden('You cannot unban the owner of the group');
-          }
+
+        // Judged on the locked row, in the order the fast path answers them. Only
+        // the request that makes the transition writes anything and announces it;
+        // a target that was readmitted or promoted since the read above, or is
+        // simply not banned, is refused with nothing written.
+        if (!locked) {
+          throw ApiError.notFound('User is not a member of this group');
+        }
+        if (locked.role === 'OWNER') {
+          throw ApiError.forbidden('You cannot unban the owner of the group');
+        }
+        if (locked.status !== 'BANNED') {
           throw ApiError.conflict('This member is not banned');
         }
 
-        // Only the one request that made the transition gets here, so the
-        // affected user is told exactly once. It is created in the same
-        // transaction: a rollback takes it with it.
+        await tx.groupMember.update({
+          where: { id: locked.id },
+          data: { status: 'LEFT', role: 'MEMBER' },
+        });
+
+        // Created in the same transaction: a rollback takes it with it.
         await tx.notification.create({
           data: {
             userId: targetUserId,
             type: 'MODERATION',
             title: 'Unbanned from group',
-            body: `You are no longer banned from "${group.name}". You may request to join again.`,
+            body: `You are no longer banned from "${lockedGroup.name}". You may request to join again.`,
             data: { groupId, unbannedBy: actorUserId },
           },
         });
@@ -1264,21 +1360,17 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const actorUserId = request.user!.sub;
       const newRole = request.body.role as GroupMemberRole;
 
+      // FAST PATH: plain reads that answer the common refusals without opening a
+      // transaction. None of them is authoritative — the transaction below repeats
+      // every one of them on rows it holds locked.
       await getGroupOrThrow(groupId);
       await assertManager(groupId, actorUserId);
-
-      const actorMembership = await getGroupMembership(groupId, actorUserId);
-      if (!actorMembership) {
-        throw ApiError.forbidden('You are not a member of this group');
-      }
 
       const target = await getGroupMembership(groupId, targetUserId);
 
       if (!target) {
         throw ApiError.notFound('User is not a member of this group');
       }
-
-      const actorRole = actorMembership.role as GroupMemberRole;
 
       if (target.role === 'OWNER') {
         throw ApiError.forbidden('You cannot change the role of the owner');
@@ -1288,29 +1380,33 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('You cannot assign the owner role');
       }
 
-      if (actorRole === 'ADMIN' && newRole === 'ADMIN') {
-        throw ApiError.forbidden('Only the owner can assign admin roles');
-      }
-
-      // `role: { not: 'OWNER' }` makes the owner check atomic with the
-      // write, so a concurrent ownership transfer cannot slip a promotion
-      // in between the pre-check and this update and have the new owner
-      // silently demoted to MEMBER/MODERATOR/ADMIN.
-      const updated = await prisma.groupMember.updateMany({
-        where: { id: target.id, role: { not: 'OWNER' } },
-        data: { role: newRole },
-      });
-
-      if (updated.count === 0) {
-        const current = await prisma.groupMember.findUnique({
-          where: { id: target.id },
-          select: { role: true },
+      await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS. The ceiling below — an ADMIN may not hand out
+        // ADMIN — is decided on the actor's role AS LOCKED: an owner who handed
+        // the group over since the fast path is an ADMIN now, and a manager who
+        // was demoted, banned, removed or left is nobody's manager at all.
+        // Nothing here needs the group to be ACTIVE (it never did).
+        const { actorRole, target: locked } = await authorizeManagerAction(tx, {
+          groupId,
+          actorId: actorUserId,
+          targetUserId,
         });
-        if (!current) {
+
+        if (!locked) {
           throw ApiError.notFound('User is not a member of this group');
         }
-        throw ApiError.forbidden('You cannot change the role of the owner');
-      }
+        if (locked.role === 'OWNER') {
+          throw ApiError.forbidden('You cannot change the role of the owner');
+        }
+        if (actorRole === 'ADMIN' && newRole === 'ADMIN') {
+          throw ApiError.forbidden('Only the owner can assign admin roles');
+        }
+
+        await tx.groupMember.update({
+          where: { id: locked.id },
+          data: { role: newRole },
+        });
+      });
 
       return {
         success: true,
@@ -1414,31 +1510,39 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         | null = null;
       try {
         await prisma.$transaction(async (tx) => {
-          // Level 2 of the protocol in group-locks.ts, first in the transaction.
-          // The group is only ACTIVE for as long as this lock is held, so an
-          // archive that commits after the fast-path check above cannot leave a
-          // fresh PENDING invite (and an invitation notification) behind it. It
-          // is also what orders this transaction against a group DELETE: taking
-          // the group row first means a delete can no longer wait on the stale
-          // invite this transaction just closed out while this transaction
-          // waits on the group row for its INSERT.
-          const lockedGroup = await lockGroupForAdmission(tx, groupId);
-          assertGroupActive(lockedGroup);
-          // The privacy judged above was a plain read too: an edit that made the
-          // group PUBLIC after it must not leave a PENDING invite (and a
-          // notification) in a group that does not take invitations.
-          if (!lockedGroup.isPrivate) {
-            throw ApiError.badRequest('Invites are only available for private groups');
-          }
-          await lockInviteSubject(tx, groupId, normalizedEmail);
-
-          // AUTHORITATIVE CHECK of the ACTOR (level 4, after the subject lock —
-          // see "Level 4 and the actor" in group-locks.ts). The manager and the
-          // role they act with were read before this transaction; an owner who
-          // handed the group over meanwhile is an ADMIN by now and may not mint
-          // ADMIN invites, and a manager demoted, banned, muted, removed or gone
-          // may not create any. The ceiling below is applied to the LOCKED role.
-          const actorNow = assertActorAuthority(await lockActorMembership(tx, groupId, request.user!.sub));
+          // AUTHORITATIVE CHECKS — the group, the subject and the ACTOR, in the
+          // order of group-locks.ts, through the one shared authorizeManagerAction.
+          //
+          // Level 2: the group is only ACTIVE (and PRIVATE, and named as it is
+          // read here) for as long as this lock is held, so an archive or an edit
+          // that commits after the fast-path checks above cannot leave a fresh
+          // PENDING invite (and an invitation notification) behind it. It also
+          // orders this transaction against a group DELETE: a delete can no longer
+          // wait on the stale invite this transaction just closed out while this
+          // transaction waits on the group row for its INSERT.
+          //
+          // Level 3, after the group and before the actor's row: the (group,
+          // email) subject lock a ban takes first, so a ban that committed wins.
+          //
+          // Level 4: the manager and the role they act with were read before this
+          // transaction; an owner who handed the group over meanwhile is an ADMIN
+          // by now and may not mint ADMIN invites, and a manager demoted, banned,
+          // muted, removed or gone may not create any. The ceiling below is
+          // applied to the LOCKED role.
+          const { group: lockedGroup, actorRole: actorNow } = await authorizeManagerAction(tx, {
+            groupId,
+            actorId: request.user!.sub,
+            requireActiveGroup: true,
+            beforeMembers: async (locked) => {
+              // The privacy judged above was a plain read too: an edit that made
+              // the group PUBLIC after it must not leave a PENDING invite (and a
+              // notification) in a group that does not take invitations.
+              if (!locked.isPrivate) {
+                throw ApiError.badRequest('Invites are only available for private groups');
+              }
+              await lockInviteSubject(tx, groupId, normalizedEmail);
+            },
+          });
           if (actorNow === 'ADMIN' && role === 'ADMIN') {
             throw ApiError.forbidden('Only the owner can assign admin roles');
           }
@@ -1504,8 +1608,8 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
                 userId: existingUser.id,
                 type: 'GROUP_INVITE',
                 title: 'Group invitation',
-                body: `You have been invited to join "${group.name}"`,
-                data: { groupId, inviteId: invite.id, groupName: group.name, invitedBy: request.user!.sub },
+                body: `You have been invited to join "${lockedGroup.name}"`,
+                data: { groupId, inviteId: invite.id, groupName: lockedGroup.name, invitedBy: request.user!.sub },
               },
             });
           }
@@ -1627,9 +1731,36 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('Invite is not active');
       }
 
-      await prisma.groupInvite.update({
-        where: { id: inviteId },
-        data: { status: 'REVOKED' },
+      await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS. The manager, the invite and its status above are
+        // plain reads taken before this transaction. A manager demoted, banned,
+        // muted, removed or gone since must not revoke anything, and the invite
+        // may have been accepted, revoked or replaced meanwhile — an unguarded
+        // write here would turn an ACCEPTED invite into a REVOKED one.
+        //
+        // The same subject lock invite creation, ban, unban and acceptance take
+        // (level 3, keyed on the invite's own email, which never changes), then
+        // the actor's row FOR SHARE, then the invite row: group-locks.ts, in order.
+        await authorizeManagerAction(tx, {
+          groupId,
+          actorId: request.user!.sub,
+          beforeMembers: async () => {
+            await lockInviteSubject(tx, groupId, invite.email);
+          },
+        });
+
+        const locked = await lockInviteForRevocation(tx, groupId, inviteId);
+        if (!locked) {
+          throw ApiError.notFound('Invite not found');
+        }
+        if (locked.status !== 'PENDING') {
+          throw ApiError.badRequest('Invite is not active');
+        }
+
+        await tx.groupInvite.update({
+          where: { id: locked.id },
+          data: { status: 'REVOKED' },
+        });
       });
 
       return { success: true, data: { message: 'Invite revoked' } };
@@ -2029,32 +2160,34 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       await prisma.$transaction(async (tx) => {
         // AUTHORITATIVE CHECKS. Everything above — the group's status, the
         // manager, the membership — is a fast path on unlocked reads, each stale
-        // the moment it returns. Lock the APPLICANT's account row and the group
-        // row, re-read both, and hold the locks through the transition, the
-        // notification and the commit, so an account restriction or an archive
-        // that commits after those reads cannot be admitted past. Order — see
-        // group-locks.ts: account row (1), then group row (2). A join request
-        // carries no invitation, so nothing here binds it to an email.
+        // the moment it returns. Lock the APPLICANT's account row, the group row,
+        // and the manager's and the applicant's membership rows, re-read all of
+        // them, and hold the locks through the transition, the notification and
+        // the commit, so an account restriction, an archive, or a demotion, ban,
+        // removal or departure of the manager that commits after those reads
+        // cannot be approved past. Order — see group-locks.ts: account row (1),
+        // group row (2), member rows (4, the two together, in id order). A join
+        // request carries no invitation, so nothing here binds it to an email.
         const applicant = await lockAccountForAdmission(tx, targetUserId);
-        assertGroupActive(await lockGroupForAdmission(tx, groupId));
-
-        // The ACTOR's own authority — level 4, BEFORE the applicant's row below.
-        // The manager was judged with a plain read before this transaction; one
-        // demoted, banned, muted, removed or gone since must not approve anyone.
-        // The lock is held to commit, so a demotion or ban of the manager waits
-        // for this approval rather than slipping in behind its check.
-        assertActorAuthority(await lockActorMembership(tx, groupId, request.user!.sub));
+        const { target: locked } = await authorizeManagerAction(tx, {
+          groupId,
+          actorId: request.user!.sub,
+          targetUserId,
+          requireActiveGroup: true,
+        });
         assertApplicantAdmissible(applicant);
 
-        // Atomic transition — prevents two managers racing to approve the same
-        // pending request from double-processing it.
-        const transitioned = await tx.groupMember.updateMany({
-          where: { id: target.id, status: 'PENDING' },
-          data: { status: 'ACTIVE' },
-        });
-        if (transitioned.count === 0) {
+        // Atomic transition — two managers racing to approve the same pending
+        // request cannot both process it: the row is locked, and the second one
+        // reads what the first one left. A request that was withdrawn, rejected or
+        // banned since the fast path is "not pending" all the same.
+        if (!locked || locked.status !== 'PENDING') {
           throw ApiError.badRequest('This request is not pending');
         }
+        await tx.groupMember.update({
+          where: { id: locked.id },
+          data: { status: 'ACTIVE' },
+        });
 
         await tx.notification.create({
           data: {
@@ -2108,15 +2241,27 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       }
 
       await prisma.$transaction(async (tx) => {
-        // Atomic transition — guards against an approve racing the reject (or
-        // two managers rejecting the same request) so only one PENDING row is
-        // removed.
-        const removed = await tx.groupMember.deleteMany({
-          where: { id: target.id, status: 'PENDING' },
+        // AUTHORITATIVE CHECKS, as approve takes them but without an account row
+        // (a rejection admits nobody): the group (ACTIVE), then the manager's row
+        // and the applicant's together — group-locks.ts, in that order. A manager
+        // demoted, banned, muted, removed or gone since the fast path above must
+        // not reject anyone.
+        const { target: locked } = await authorizeManagerAction(tx, {
+          groupId,
+          actorId: request.user!.sub,
+          targetUserId,
+          requireActiveGroup: true,
         });
-        if (removed.count === 0) {
+
+        // Atomic transition — an approve racing the reject, or two managers
+        // rejecting the same request, cannot both process it: the row is locked,
+        // and the second one reads what the first one left.
+        if (!locked || locked.status !== 'PENDING') {
           throw ApiError.badRequest('This request is not pending');
         }
+        await tx.groupMember.delete({
+          where: { id: locked.id },
+        });
 
         await tx.notification.create({
           data: {
@@ -2257,20 +2402,51 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       // ownerId check preventing concurrent conflicting transfers.
 
       const result = await prisma.$transaction(async (tx) => {
-        // Optimistic lock: verify ownerId hasn't changed since we read it.
+        // AUTHORITATIVE CHECKS. Its FIRST statement is the group row's write
+        // (level 2 of group-locks.ts): it takes the row lock, waits behind every
+        // admission and manager action holding it FOR SHARE, and is guarded on
+        // BOTH things the transfer depends on — the caller is STILL the owner
+        // (ownerId), and the group is STILL ACTIVE. Optimistic lock: a transfer
+        // that already committed, or a group that was archived or deleted since
+        // the reads above, matches no row and writes nothing.
         const updatedGroup = await tx.group.updateMany({
-          where: { id: groupId, ownerId: actorUserId },
+          where: { id: groupId, ownerId: actorUserId, status: 'ACTIVE' },
           data: { ownerId: targetUserId },
         });
         if (updatedGroup.count === 0) {
+          // Nothing was written and nothing is held: say WHY with a plain read. A
+          // group that still has the caller as its owner refused on its state;
+          // anything else (another transfer, a deletion) is a concurrent
+          // ownership change.
+          const current = await tx.group.findUnique({ where: { id: groupId }, select: { ownerId: true } });
+          if (current?.ownerId === actorUserId) {
+            throw ApiError.badRequest('Group is not active');
+          }
           throw ApiError.conflict('Concurrent ownership change detected; please retry');
         }
 
-        // Demote old owner to ADMIN.
-        await tx.groupMember.update({
-          where: { id: actorMembership.id },
+        // The row is ours until commit (the write above holds it), so the name
+        // read here is the one the notifications must carry — an edit that
+        // renamed the group after the reads above waited for this transaction, or
+        // committed before it and is seen here. Never the name read before the
+        // transaction.
+        const { name: groupName } = await tx.group.findUniqueOrThrow({
+          where: { id: groupId },
+          select: { name: true },
+        });
+
+        // Demote old owner to ADMIN — guarded on being, right now, an ACTIVE
+        // OWNER: the row is the caller's authority. No route can change it while
+        // the group row is held (the ones that write member rows hold the group
+        // row FOR SHARE), so this only refuses a writer that bypassed the routes;
+        // it must then refuse, not demote whatever the row has become.
+        const demoted = await tx.groupMember.updateMany({
+          where: { id: actorMembership.id, role: 'OWNER', status: 'ACTIVE' },
           data: { role: 'ADMIN' },
         });
+        if (demoted.count === 0) {
+          throw ApiError.conflict('Concurrent ownership change detected; please retry');
+        }
 
         // Promote new owner — requiring ACTIVE status so a target that was
         // banned/removed/left between the read and this write fails atomically.
@@ -2294,14 +2470,14 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
               userId: targetUserId,
               type: 'GROUP_OWNERSHIP_TRANSFERRED',
               title: 'Ownership transferred',
-              body: `You are now the owner of "${group.name}"`,
+              body: `You are now the owner of "${groupName}"`,
               data: { groupId, previousOwnerId: actorUserId },
             },
             {
               userId: actorUserId,
               type: 'GROUP_OWNERSHIP_TRANSFERRED',
               title: 'Ownership transferred',
-              body: `Ownership of "${group.name}" has been transferred to ${newOwner?.displayName || newOwner?.username || 'a user'}`,
+              body: `Ownership of "${groupName}" has been transferred to ${newOwner?.displayName || newOwner?.username || 'a user'}`,
               data: { groupId, newOwnerId: targetUserId },
             },
           ],

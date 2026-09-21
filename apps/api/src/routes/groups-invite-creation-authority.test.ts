@@ -168,6 +168,10 @@ const LOCK_GROUP = '%FROM "groups"%FOR SHARE%';
 const SUBJECT_LOCK = '%pg_advisory_xact_lock%';
 const MEMBER_UPDATE = '%UPDATE "public"."group_members"%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
+// The edit's first statement locks the group row; a writer that locks the manager's and the target's
+// membership rows does so in one statement (group-locks.ts, levels 2 and 4).
+const LOCK_GROUP_EDIT = '%FROM "groups"%FOR NO KEY UPDATE%';
+const MEMBER_ROWS_LOCK = '%FROM "group_members"%FOR NO KEY UPDATE%';
 const NOTICE_INSERT = '%INSERT INTO "public"."notifications"%';
 
 // Everything a REFUSED creation must not have produced.
@@ -331,9 +335,11 @@ describeIf('invite creation vs an ownership transfer by the inviting owner', () 
 // ─── a manager loses authority while the creation waits ───────────────────────
 
 describeIf('invite creation — a manager whose authority ended after the fast-path read cannot complete it', () => {
-  // The creation is parked at the GROUP row (level 2), which it takes before the authority row.
-  // Its preflight has already passed — the admin was still an ADMIN then. The competing writer goes
-  // through its real route and COMMITS while the creation is parked; only then is it released.
+  // The creation is parked at the (group, email) SUBJECT lock (level 3), which it takes after the
+  // group row and before the authority row. (Not at the group row: the competing writers go through
+  // their real routes, which take the group row FOR SHARE themselves and would queue behind a test
+  // that holds it.) Its preflight has already passed — the admin was still an ADMIN then. The writer
+  // COMMITS while the creation is parked; only then is it released.
   interface Loss {
     name: string;
     happen: (f: Fixture) => Promise<{ statusCode: number; body: string }>;
@@ -348,16 +354,16 @@ describeIf('invite creation — a manager whose authority ended after the fast-p
   ];
 
   for (const loss of losses) {
-    it(`${loss.name} while the creation waits on the group row: refused under the lock, nothing created or announced`, async () => {
+    it(`${loss.name} while the creation waits on the subject lock: refused under the lock, nothing created or announced`, async () => {
       const f = await makeFixture(`lost-${loss.name.slice(0, 8).replace(/\W+/g, '')}`);
       const staleBefore = await inviteSnapshot(f.staleInviteId);
       let pending: ReturnType<typeof createInvite> | undefined;
 
       await prisma.$transaction(async (tx) => {
-        await holdRow(tx, 'groups', f.groupId);
+        await lockInviteSubject(tx, f.groupId, f.invitee.email!);
         pending = createInvite(f, f.admin, 'MEMBER');
         pending.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: LOCK_GROUP });
+        await waitForBlockedBackends(1, { queryLike: SUBJECT_LOCK });
 
         const resp = await loss.happen(f);
         expect(resp.statusCode, `${loss.name}: ${resp.body}`).toBe(200);
@@ -384,7 +390,7 @@ describeIf('invite creation — a manager whose authority ended after the fast-p
       await holdRow(tx, 'group_members', f.adminMemberId);
       writerP = demoteAdmin(f);
       writerP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // the demotion is parked first...
+      await waitForBlockedBackends(1, { queryLike: MEMBER_ROWS_LOCK }); // the demotion is parked first, at the lock on the member rows...
       pending = createInvite(f, f.admin, 'MEMBER');
       pending.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK }); // ...and the creation queues behind it, on the AUTHORITY lock
@@ -437,8 +443,9 @@ describeIf('invite creation — a manager whose authority ended after the fast-p
 
         writerP = w.go(f);
         writerP.catch(() => undefined);
-        // The writer targets the ADMIN's row, which nothing but the creation's authority lock can be holding.
-        await waitForBlockedBackends(1, { queryLike: w.name === 'removal' ? '%DELETE FROM%group_members%' : MEMBER_UPDATE });
+        // The writer targets the ADMIN's row, which nothing but the creation's authority lock can be holding:
+        // the leave waits in its UPDATE, the others at the lock on the manager's and the target's rows.
+        await waitForBlockedBackends(1, { queryLike: w.name === 'leave' ? MEMBER_UPDATE : MEMBER_ROWS_LOCK });
       }, tx30);
 
       const [c, wr] = [await createP!, await writerP!];
@@ -465,7 +472,7 @@ describeIf('invite creation vs the group turning PUBLIC', () => {
       await holdRow(tx, 'groups', f.groupId);
       editP = editGroup(f, { isPrivate: false });
       editP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: GROUP_WRITE }); // the edit is parked first...
+      await waitForBlockedBackends(1, { queryLike: LOCK_GROUP_EDIT }); // the edit is parked first, at the group lock...
       createP = createInvite(f, f.owner, 'MEMBER');
       createP.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: LOCK_GROUP }); // ...and the creation queues behind it
@@ -513,7 +520,7 @@ describeIf('invite creation vs the group turning PUBLIC', () => {
 
       editP = editGroup(f, { isPrivate: false });
       editP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: GROUP_WRITE });
+      await waitForBlockedBackends(1, { queryLike: LOCK_GROUP_EDIT });
     }, tx30);
 
     const [c, e] = [await createP!, await editP!];
@@ -560,7 +567,7 @@ describeIf('invite creation vs the group turning PUBLIC', () => {
 // ─── lock order ───────────────────────────────────────────────────────────────
 
 describeIf('invite creation — lock order: group row (2), subject (3), THEN the authority row (4)', () => {
-  it('parked on the GROUP row it holds no authority lock: a demotion of the admin goes straight through', async () => {
+  it('parked on the GROUP row it holds no authority lock: a demotion of the admin\'s row goes straight through', async () => {
     const f = await makeFixture('order-group');
     let pending: ReturnType<typeof createInvite> | undefined;
 
@@ -569,8 +576,9 @@ describeIf('invite creation — lock order: group row (2), subject (3), THEN the
       pending = createInvite(f, f.admin, 'MEMBER');
       pending.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: LOCK_GROUP });
-      const resp = await demoteAdmin(f); // were the authority row locked BEFORE the group row this would hang
-      expect(resp.statusCode, resp.body).toBe(200);
+      // A direct write (the demotion ROUTE would itself queue for the group row the test holds). Were the
+      // authority row locked BEFORE the group row this would hang until the test timed out.
+      await prisma.groupMember.update({ where: { id: f.adminMemberId }, data: { role: 'MEMBER' } });
     }, tx30);
 
     expect((await pending!).statusCode).toBe(403);
@@ -610,7 +618,7 @@ describeIf('invite creation — lock order: group row (2), subject (3), THEN the
       await holdRow(tx, 'group_members', victimRow.id);
       banP = server.inject({ method: 'POST', url: `${PREFIX}/${f.groupId}/members/${victim.id}/ban`, headers: asUser(f.owner), remoteAddress: nextIp() });
       banP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // the ban holds the subject lock
+      await waitForBlockedBackends(1, { queryLike: MEMBER_ROWS_LOCK }); // the ban holds the subject lock
       createP = createInvite(f, f.admin, 'MEMBER', victim.email!);
       createP.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: SUBJECT_LOCK });

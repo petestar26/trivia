@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma, GroupMemberRole, GroupMemberStatus } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server.js';
+import { waitForBlockedBackends } from '../test/pg-locks.js';
 
 // Deterministic coverage for the group-ownership invariant:
 //
@@ -29,6 +30,18 @@ import { buildServer } from '../server.js';
 //      (promote target to OWNER, demote old owner, move group.ownerId)
 //   4. commit — the blocked write unblocks and re-qualifies under READ
 //      COMMITTED against the new row
+//
+// Two of the three routes — DELETE /members/:userId and PATCH
+// /members/:userId/role — now lock the group row, then the actor's and the
+// target's rows, and re-read the target's role under those locks (the guarded
+// write stays as a second line). A transfer commits underneath them the way a
+// REAL one does: it takes the GROUP row first (level 2 of group-locks.ts), which
+// those two routes hold FOR SHARE from before any member row until commit. So for
+// them the helper below takes the group row first and lets the request park
+// there; the lock-the-target-row-first schedule above would be an order no real
+// transfer uses (it deadlocks against a request that already holds the group row,
+// which is exactly what the protocol is there to prevent). POST /leave takes no
+// group lock and holds nothing while it waits, so it keeps the target-row schedule.
 //
 // Own file, as with the other group suites: the API's global rate limit is
 // IP-keyed and shared per server instance.
@@ -178,6 +191,34 @@ async function withTransferCommittingUnderneath(
   return resp.statusCode;
 }
 
+/**
+ * The same, for the routes that lock the GROUP row (remove, role change): a transfer
+ * commits underneath the request THE WAY A REAL ONE DOES — group row first. The
+ * request has passed its fast-path reads (plain reads see the committed, pre-transfer
+ * rows) and is PROVEN parked at the group row before the transfer's writes are made
+ * and committed.
+ */
+async function withRealTransferCommittingUnderneath(
+  f: Fixture,
+  fire: () => Promise<{ statusCode: number }>
+): Promise<number> {
+  let pending: Promise<{ statusCode: number }> | undefined;
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.group.update({ where: { id: f.groupId }, data: { ownerId: f.target.id } });
+      pending = fire();
+      pending.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: '%FROM "groups"%FOR SHARE%' });
+      await tx.groupMember.update({ where: { id: f.targetRowId }, data: { role: GroupMemberRole.OWNER } });
+      await tx.groupMember.update({ where: { id: f.ownerRowId }, data: { role: GroupMemberRole.ADMIN } });
+    },
+    { timeout: 20_000, maxWait: 20_000 }
+  );
+  const resp = await pending!.catch(() => ({ statusCode: -1 }));
+  await sleep(150);
+  return resp.statusCode;
+}
+
 /** The invariant every one of these tests must uphold. */
 async function assertOwnershipInvariant(groupId: string, expectedOwnerUserId: string, label: string) {
   const group = await prisma.group.findUniqueOrThrow({ where: { id: groupId } });
@@ -201,7 +242,7 @@ async function assertOwnershipInvariant(groupId: string, expectedOwnerUserId: st
 describeIf('groups/routes — ownership invariant under concurrent transfer', () => {
   it('DELETE /members/:userId cannot remove a member promoted to OWNER mid-flight', async () => {
     const f = await makeFixture('rm');
-    const status = await withTransferCommittingUnderneath(f, () =>
+    const status = await withRealTransferCommittingUnderneath(f, () =>
       server.inject({
         method: 'DELETE',
         url: `${PREFIX}/${f.groupId}/members/${f.target.id}`,
@@ -209,15 +250,15 @@ describeIf('groups/routes — ownership invariant under concurrent transfer', ()
       })
     );
 
-    // The row is now OWNER, so the guarded deleteMany matches nothing and
-    // the zero-count re-read reports the same 403 the pre-check would have.
+    // The request waited for the transfer at the group row, then read the target as
+    // OWNER under its locks and refused with the same 403 the pre-check gives.
     expect(status).toBe(403);
     await assertOwnershipInvariant(f.groupId, f.target.id, 'remove vs transfer');
   }, 60_000);
 
   it('PATCH /members/:userId/role cannot demote a member promoted to OWNER mid-flight', async () => {
     const f = await makeFixture('cr');
-    const status = await withTransferCommittingUnderneath(f, () =>
+    const status = await withRealTransferCommittingUnderneath(f, () =>
       server.inject({
         method: 'PATCH',
         url: `${PREFIX}/${f.groupId}/members/${f.target.id}/role`,

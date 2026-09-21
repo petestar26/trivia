@@ -20,24 +20,40 @@ import { prisma } from '@socialplay/database';
 interface BlockedBackend {
   pid: number;
   query: string;
+  /** What kind of lock it waits for: 'transactionid' / 'tuple' (a row lock), 'advisory', 'relation', ... */
+  waitEvent: string;
 }
 
+/**
+ * The wait events of a request queued behind a ROW lock held by another transaction:
+ * 'transactionid' (waiting for the holder to finish) or 'tuple' (queued behind another
+ * waiter for the same row). Not 'advisory': a statement that stands still because a
+ * test-held ADVISORY lock (a write gate, a subject lock) has it parked is waiting for
+ * something else, and a schedule that means "it waits behind the other request's row
+ * lock" must not be satisfied by that.
+ */
+export const ROW_LOCK_WAITS: readonly string[] = ['transactionid', 'tuple'];
+
 /** Backends in THIS database currently waiting on a lock, optionally filtered by SQL text. */
-export async function blockedBackends(queryLike = '%'): Promise<BlockedBackend[]> {
-  const rows = await prisma.$queryRaw<{ pid: number; query: string }[]>`
-    SELECT pid, query
+export async function blockedBackends(queryLike = '%', waitEvents?: readonly string[]): Promise<BlockedBackend[]> {
+  const rows = await prisma.$queryRaw<{ pid: number; query: string; wait_event: string }[]>`
+    SELECT pid, query, wait_event
     FROM pg_stat_activity
     WHERE datname = current_database()
       AND pid <> pg_backend_pid()
       AND wait_event_type = 'Lock'
       AND query ILIKE ${queryLike}
   `;
-  return rows;
+  return rows
+    .map((r) => ({ pid: r.pid, query: r.query, waitEvent: r.wait_event }))
+    .filter((r) => waitEvents === undefined || waitEvents.includes(r.waitEvent));
 }
 
 export interface WaitOptions {
   /** ILIKE pattern the waiting statement's SQL must match. Default: any statement. */
   queryLike?: string;
+  /** Only count backends waiting on one of these lock kinds (see ROW_LOCK_WAITS). Default: any. */
+  waitEvents?: readonly string[];
   timeoutMs?: number;
 }
 
@@ -48,17 +64,18 @@ export interface WaitOptions {
  * passing for the wrong reason.
  */
 export async function waitForBlockedBackends(count: number, opts: WaitOptions = {}): Promise<void> {
-  const { queryLike = '%', timeoutMs = 8_000 } = opts;
+  const { queryLike = '%', waitEvents, timeoutMs = 8_000 } = opts;
   const deadline = Date.now() + timeoutMs;
   let last: BlockedBackend[] = [];
   while (Date.now() < deadline) {
-    last = await blockedBackends(queryLike);
+    last = await blockedBackends(queryLike, waitEvents);
     if (last.length >= count) return;
     await new Promise((r) => setTimeout(r, 25));
   }
-  const detail = (await blockedBackends()).map((b) => `  pid ${b.pid}: ${b.query.slice(0, 120)}`).join('\n');
+  const detail = (await blockedBackends()).map((b) => `  pid ${b.pid} (${b.waitEvent}): ${b.query.slice(0, 120)}`).join('\n');
   throw new Error(
-    `Expected >= ${count} backend(s) blocked on a lock matching ${JSON.stringify(queryLike)}, ` +
+    `Expected >= ${count} backend(s) blocked on a lock matching ${JSON.stringify(queryLike)}` +
+      `${waitEvents ? ` (wait event ${waitEvents.join('/')})` : ''}, ` +
       `saw ${last.length} within ${timeoutMs}ms. Currently blocked (any statement):\n${detail || '  (none)'}`
   );
 }

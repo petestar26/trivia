@@ -539,14 +539,16 @@ describeIf('unban vs a join request', () => {
 
     await prisma.$transaction(
       async (tx) => {
-        // Pin the target's row, so the unban gets as far as its guarded write
-        // and provably waits there — past every check, holding nothing back.
+        // Pin the target's row, so the unban gets as far as the lock on the
+        // membership rows (the manager's and the target's, together) and provably
+        // waits there — past the group and subject locks, in the middle of the
+        // transaction.
         await tx.$queryRaw`
           SELECT 1 FROM group_members WHERE "groupId" = ${f.groupId} AND "userId" = ${f.target.id} FOR UPDATE
         `;
         unbanP = unbanReq(f, f.owner);
         unbanP.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_members"%' });
+        await waitForBlockedBackends(1, { queryLike: '%FROM "group_members"%FOR NO KEY UPDATE%' });
 
         during = await joinReq(f, f.target);
       },

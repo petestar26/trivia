@@ -5,6 +5,7 @@ import { buildServer } from '../server.js';
 import { safeRecordActivity } from '../rewards/activity-service.js';
 import type * as ActivityModule from '../rewards/activity-service.js';
 import { waitForBlockedBackends } from '../test/pg-locks.js';
+import { rankedRowId } from '../test/group-authority-fixtures.js';
 import {
   cleanFixtures,
   createUser,
@@ -28,14 +29,25 @@ vi.mock('../rewards/activity-service', async (importOriginal) => {
 // approval: the applicant became an ACTIVE member and was sent GROUP_APPROVED on
 // the authority of somebody who no longer had any.
 //
-// The fix (see group-locks.ts): inside the same transaction, after the applicant's
-// account row (level 1) and the group row (level 2), lock the ACTOR's own
-// membership row FOR SHARE (level 4, the authority row, before any target row),
-// re-read role and status from it, and hold it through the transition, the
-// notification and the commit. A demotion, ban, leave or removal of the manager
-// then either commits BEFORE the lock is granted (the approval is refused, nothing
-// written) or waits for the approval to commit (it was legitimately authorized at
-// its serialization point).
+// The fix (see group-locks.ts, through the shared authorizeManagerAction in
+// groups.ts): inside the same transaction, after the applicant's account row
+// (level 1) and the group row (level 2), lock the ACTOR's own membership row and
+// the APPLICANT's together — one statement, ascending id order, FOR NO KEY UPDATE
+// (level 4) — re-read the actor's role and status and the applicant's request from
+// them, and hold the locks through the transition, the notification and the commit.
+// A demotion, ban, leave or removal of the manager then either commits BEFORE the
+// lock is granted (the approval is refused, nothing written) or waits for the
+// approval to commit (it was legitimately authorized at its serialization point).
+//
+// The manager's row is locked in the SAME mode the target's is, so two actions by
+// one manager queue on their own row for the length of one transaction; that is
+// what lets both rows be taken in one statement (two managers acting on each other
+// cannot then deadlock — see groups-moderation-lock-order.test.ts).
+//
+// The fixture gives its membership rows explicit ids, in a known order (manager,
+// then applicant, then owner): which of the two rows the statement reaches first is
+// otherwise a coin toss of two random uuids, and the REVERSE schedules below need
+// the manager's row to be the one it already holds while it waits at the applicant's.
 //
 // Every schedule is FORCED, never raced: a test-held lock parks the request at a
 // known point, and pg_stat_activity PROVES it is parked there before the competing
@@ -103,10 +115,10 @@ async function makeFixture(tag: string): Promise<Fixture> {
   const group = await prisma.group.create({
     data: { ownerId: owner.id, name: `ApprAuth-${tag}-${uniqueSuffix().slice(0, 6)}`, isPrivate: true, status: 'ACTIVE' },
   });
-  const ownerRow = await prisma.groupMember.create({ data: { groupId: group.id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' } });
-  const managerRow = await prisma.groupMember.create({ data: { groupId: group.id, userId: manager.id, role: 'ADMIN', status: 'ACTIVE' } });
-  await prisma.groupMember.create({ data: { groupId: group.id, userId: member.id, role: 'MEMBER', status: 'ACTIVE' } });
-  const applicantRow = await prisma.groupMember.create({ data: { groupId: group.id, userId: applicant.id, role: 'MEMBER', status: 'PENDING' } });
+  const ownerRow = await prisma.groupMember.create({ data: { id: rankedRowId('9'), groupId: group.id, userId: owner.id, role: 'OWNER', status: 'ACTIVE' } });
+  const managerRow = await prisma.groupMember.create({ data: { id: rankedRowId('3'), groupId: group.id, userId: manager.id, role: 'ADMIN', status: 'ACTIVE' } });
+  await prisma.groupMember.create({ data: { id: rankedRowId('5'), groupId: group.id, userId: member.id, role: 'MEMBER', status: 'ACTIVE' } });
+  const applicantRow = await prisma.groupMember.create({ data: { id: rankedRowId('7'), groupId: group.id, userId: applicant.id, role: 'MEMBER', status: 'PENDING' } });
   return {
     owner,
     manager,
@@ -154,7 +166,8 @@ const tx30 = { timeout: 30_000, maxWait: 30_000 };
 const holdRow = (tx: Held, table: 'group_members' | 'users' | 'groups', id: string) =>
   tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR UPDATE`, id);
 
-const ACTOR_LOCK = '%FROM "group_members"%FOR SHARE%';
+// The lock on the manager's row and the applicant's, in one statement (group-locks.ts, level 4).
+const ACTOR_LOCK = '%FROM "group_members"%FOR NO KEY UPDATE%';
 const LOCK_USERS = '%FROM "users"%FOR SHARE%';
 const LOCK_GROUP = '%FROM "groups"%FOR SHARE%';
 const MEMBER_UPDATE = '%UPDATE "public"."group_members"%';
@@ -285,13 +298,30 @@ describeIf('join approval — a manager whose authority ended after the fast-pat
     await expectApproved(f, await pending!);
   }, 60_000);
 
-  it('a lock-only SHARE holder on the manager\'s row does NOT block the approval: the authority lock is shared', async () => {
-    const f = await makeFixture('share-compat');
+  it('two approvals by the SAME manager queue on the manager\'s row, and both complete: no deadlock, each applicant approved once', async () => {
+    const f = await makeFixture('same-manager');
+    const second = await createUser(EMAIL_PREFIX, 'same-manager-app2');
+    await prisma.groupMember.create({ data: { id: rankedRowId('8'), groupId: f.groupId, userId: second.id, role: 'MEMBER', status: 'PENDING' } });
+    let first: ReturnType<typeof approve> | undefined;
+    let other: ReturnType<typeof approve> | undefined;
 
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "group_members" WHERE "id" = ${f.managerMemberId} FOR SHARE`;
-      await expectApproved(f, await approve(f)); // runs to completion WHILE the share lock is held
+      await holdRow(tx, 'group_members', f.managerMemberId);
+      first = approve(f);
+      first.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK });
+      other = approve(f, f.manager, second);
+      other.catch(() => undefined);
+      await waitForBlockedBackends(2, { queryLike: ACTOR_LOCK }); // the manager's row is locked FOR NO KEY UPDATE: the second queues behind the first
     }, tx30);
+
+    const [a, b] = [await first!, await other!];
+
+    expect([a.statusCode, b.statusCode], `${a.body} | ${b.body}`).toEqual([200, 200]);
+    expect((await membershipSnapshot(f.groupId, f.applicant.id))?.status).toBe('ACTIVE');
+    expect((await membershipSnapshot(f.groupId, second.id))?.status).toBe('ACTIVE');
+    expect(await approvedNotices(f)).toBe(1);
+    expect(await prisma.notification.count({ where: { userId: second.id, type: 'GROUP_APPROVED' } })).toBe(1);
   }, 60_000);
 });
 
@@ -299,10 +329,12 @@ describeIf('join approval — the authority row is held: a competing writer QUEU
   // The test holds the manager's row. The competing writer queues at it first, the
   // approval second (each PROVEN parked); on release the writer commits, and the
   // approval — whose lock request was behind it — re-reads and is refused.
-  const writers: Array<{ name: string; go: (f: Fixture) => ReturnType<typeof demote>; message: string; role: string; status: string }> = [
-    { name: 'demotion', go: (f) => demote(f), message: 'Insufficient permissions', role: 'MEMBER', status: 'ACTIVE' },
-    { name: 'ban', go: (f) => banManager(f), message: 'You are not a member of this group', role: 'ADMIN', status: 'BANNED' },
-    { name: 'leave', go: (f) => managerLeaves(f), message: 'You are not a member of this group', role: 'ADMIN', status: 'LEFT' },
+  // (The owner's demotion and ban of the manager wait in the same kind of statement as the approval — the
+  // lock on the two rows; the manager's own leave is a single UPDATE.)
+  const writers: Array<{ name: string; go: (f: Fixture) => ReturnType<typeof demote>; message: string; role: string; status: string; parkedAt: string }> = [
+    { name: 'demotion', go: (f) => demote(f), message: 'Insufficient permissions', role: 'MEMBER', status: 'ACTIVE', parkedAt: ACTOR_LOCK },
+    { name: 'ban', go: (f) => banManager(f), message: 'You are not a member of this group', role: 'ADMIN', status: 'BANNED', parkedAt: ACTOR_LOCK },
+    { name: 'leave', go: (f) => managerLeaves(f), message: 'You are not a member of this group', role: 'ADMIN', status: 'LEFT', parkedAt: MEMBER_UPDATE },
   ];
   for (const w of writers) {
     it(`${w.name} queued first: the approval is refused, nothing approved or announced`, async () => {
@@ -315,10 +347,10 @@ describeIf('join approval — the authority row is held: a competing writer QUEU
         await holdRow(tx, 'group_members', f.managerMemberId);
         writerP = w.go(f);
         writerP.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // the writer is parked first...
+        await waitForBlockedBackends(1, { queryLike: w.parkedAt }); // the writer is parked first...
         pending = approve(f);
         pending.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK }); // ...and the approval queues behind it
+        await waitForBlockedBackends(w.parkedAt === ACTOR_LOCK ? 2 : 1, { queryLike: ACTOR_LOCK }); // ...and the approval queues behind it
       }, tx30);
 
       const [wr, resp] = [await writerP!, await pending!];
@@ -336,8 +368,9 @@ describeIf('join approval — the authority row is held: a competing writer QUEU
 // ─── REVERSE order: the approval holds the authority row first ────────────────
 
 describeIf('join approval — REVERSE order: the approval holds the manager\'s row through commit, so the competing writer WAITS and applies after', () => {
-  // The approval is parked at its WRITE of the applicant's row (held by the test), so
-  // it already holds the account, group and authority locks. The writer targets the
+  // The approval is parked at the lock on the applicant's row (held by the test), which
+  // it reaches AFTER the manager's row (the fixture's ids put the manager first), so it
+  // already holds the account, group and authority locks. The writer targets the
   // MANAGER's row — which nothing but the approval's authority lock can be holding —
   // and must be observed WAITING there.
   const writers: Array<{ name: string; go: (f: Fixture) => ReturnType<typeof demote>; role: string; status: string | null }> = [
@@ -356,13 +389,14 @@ describeIf('join approval — REVERSE order: the approval holds the manager\'s r
         await holdRow(tx, 'group_members', f.applicantMemberId);
         approveP = approve(f);
         approveP.catch(() => undefined);
-        await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE }); // parked at the applicant's row
+        await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK }); // parked at the applicant's row, holding the manager's
 
         writerP = w.go(f);
         writerP.catch(() => undefined);
         // Two statements are parked now: the approval (applicant's row) and the writer
-        // (the manager's row, behind the authority lock).
-        await waitForBlockedBackends(2, { queryLike: w.name === 'removal' ? '%group_members%' : MEMBER_UPDATE });
+        // (the manager's row, behind the authority lock): both at the lock on two rows, except
+        // the manager's own leave, which is one UPDATE.
+        await waitForBlockedBackends(w.name === 'leave' ? 1 : 2, { queryLike: w.name === 'leave' ? MEMBER_UPDATE : ACTOR_LOCK });
       }, tx30);
 
       const [resp, wr] = [await approveP!, await writerP!];
@@ -378,7 +412,7 @@ describeIf('join approval — REVERSE order: the approval holds the manager\'s r
 
 // ─── lock order ───────────────────────────────────────────────────────────────
 
-describeIf('join approval — lock order: account row (1), group row (2), THEN the authority row (4)', () => {
+describeIf('join approval — lock order: account row (1), group row (2), THEN the rows (4): the manager\'s and the applicant\'s, together', () => {
   it('parked on the applicant\'s ACCOUNT row it holds no authority lock: a demotion of the manager goes straight through', async () => {
     const f = await makeFixture('order-users');
     let pending: ReturnType<typeof approve> | undefined;
@@ -405,14 +439,15 @@ describeIf('join approval — lock order: account row (1), group row (2), THEN t
       pending = approve(f);
       pending.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: LOCK_GROUP });
-      const resp = await demote(f);
-      expect(resp.statusCode, resp.body).toBe(200);
+      // A direct write (the demotion ROUTE would itself queue for the group row the test holds). Were the
+      // authority row locked BEFORE the group row this would hang until the test timed out.
+      await prisma.groupMember.update({ where: { id: f.managerMemberId }, data: { role: 'MEMBER' } });
     }, tx30);
 
     expect((await pending!).statusCode).toBe(403);
   }, 60_000);
 
-  it('the authority row (the ACTOR\'s) is locked before the target row (the applicant\'s): a ban of the applicant queued behind the approval cannot cycle with it', async () => {
+  it('the manager\'s row and the applicant\'s are locked together, in id order: a ban of the applicant queued behind the approval cannot cycle with it', async () => {
     const f = await makeFixture('order-target');
     let approveP: ReturnType<typeof approve> | undefined;
     let banP: Promise<{ statusCode: number; body: string }> | undefined;
@@ -421,7 +456,7 @@ describeIf('join approval — lock order: account row (1), group row (2), THEN t
       await holdRow(tx, 'group_members', f.applicantMemberId);
       approveP = approve(f);
       approveP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK });
       banP = server.inject({
         method: 'POST',
         url: `${PREFIX}/${f.groupId}/members/${f.applicant.id}/ban`,
@@ -429,7 +464,7 @@ describeIf('join approval — lock order: account row (1), group row (2), THEN t
         remoteAddress: nextIp(),
       });
       banP.catch(() => undefined);
-      await waitForBlockedBackends(2, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(2, { queryLike: ACTOR_LOCK });
     }, tx30);
 
     const [a, b] = [await approveP!, await banP!];
@@ -458,10 +493,10 @@ describeIf('join approval — lock order: account row (1), group row (2), THEN t
         remoteAddress: nextIp(),
       });
       banP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK });
       approveP = approve(f);
       approveP.catch(() => undefined);
-      await waitForBlockedBackends(2, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(2, { queryLike: ACTOR_LOCK });
     }, tx30);
 
     const [b, a] = [await banP!, await approveP!];
@@ -486,7 +521,7 @@ describeIf('join approval — lock order: account row (1), group row (2), THEN t
       a2 = approve(f, f.owner);
       a1.catch(() => undefined);
       a2.catch(() => undefined);
-      await waitForBlockedBackends(2, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(2, { queryLike: ACTOR_LOCK });
     }, tx30);
 
     const results = [await a1!, await a2!];
@@ -535,7 +570,7 @@ describeIf('join approval vs an ownership transfer by the approving owner', () =
       await holdRow(tx, 'group_members', f.applicantMemberId);
       approveP = approve(f, f.owner);
       approveP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: MEMBER_UPDATE });
+      await waitForBlockedBackends(1, { queryLike: ACTOR_LOCK });
       transferP = transfer(f, f.member);
       transferP.catch(() => undefined);
       await waitForBlockedBackends(1, { queryLike: GROUP_WRITE });

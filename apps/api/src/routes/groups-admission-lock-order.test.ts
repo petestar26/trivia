@@ -215,6 +215,8 @@ const acceptanceNotices = (f: Fixture) =>
 const LOCK_GROUP_SHARE = '%FROM "groups"%FOR SHARE%';
 const LOCK_GROUP_UPDATE = '%FROM "groups"%FOR UPDATE%';
 const GROUP_MEMBER_WRITE = '%UPDATE "public"."group_members"%';
+// An approval locks the manager's and the applicant's membership rows together, before it writes either.
+const MEMBER_ROWS_LOCK = '%FROM "group_members"%FOR NO KEY UPDATE%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
 const tx30 = { timeout: 30_000, maxWait: 30_000 };
 
@@ -282,10 +284,10 @@ describeIf('acceptance x ownership transfer', () => {
     let transferP: ReturnType<typeof transfer> | undefined;
 
     await prisma.$transaction(async (tx) => {
-      await holdMember(tx, f.inviteeMemberId!); // park the approval at its membership write
+      await holdMember(tx, f.inviteeMemberId!); // park the approval at the lock on the membership rows
       approveP = approve(f);
       approveP.catch(() => undefined);
-      await waitForBlockedBackends(1, { queryLike: GROUP_MEMBER_WRITE });
+      await waitForBlockedBackends(1, { queryLike: MEMBER_ROWS_LOCK });
 
       transferP = transfer(f);
       transferP.catch(() => undefined);
