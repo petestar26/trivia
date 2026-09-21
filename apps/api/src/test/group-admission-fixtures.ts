@@ -125,3 +125,45 @@ export async function inviteSnapshot(inviteId: string) {
   `;
   return rows[0] ?? null;
 }
+
+/**
+ * A scoped pause INSIDE the INSERT of a membership row, so "this request holds
+ * its locks and is about to write the row" is a state a test can observe
+ * (waitForWaitEvent('PgSleep', ...)) instead of a race it hopes to win.
+ *
+ * It sleeps only for a membership whose user's email starts with `emailPrefix`,
+ * so it cannot slow any other suite; the caller removes it in afterAll and (via
+ * this function) drops any leftover of a crashed run before creating it.
+ */
+export async function installSlowMemberInsertTrigger(name: string, emailPrefix: string, sleepMs: number): Promise<void> {
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${name} ON group_members`);
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION ${name}() RETURNS trigger AS $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM users u WHERE u.id = NEW."userId" AND u.email LIKE '${emailPrefix}%') THEN
+        PERFORM pg_sleep(${sleepMs / 1000});
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE TRIGGER ${name} BEFORE INSERT ON group_members FOR EACH ROW EXECUTE FUNCTION ${name}()`
+  );
+}
+
+export async function removeSlowMemberInsertTrigger(name: string): Promise<void> {
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${name} ON group_members`);
+  await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${name}()`);
+}
+
+/** A group row exactly as stored, plus xmin — which changes on ANY write to the row. */
+export async function groupSnapshot(groupId: string) {
+  const rows = await prisma.$queryRaw<
+    { id: string; name: string; status: string; isPrivate: boolean; updatedAt: Date; xmin: string }[]
+  >`
+    SELECT id, name, status::text AS status, "isPrivate", "updatedAt", xmin::text AS xmin
+    FROM groups
+    WHERE id = ${groupId}
+  `;
+  return rows[0] ?? null;
+}

@@ -1,10 +1,10 @@
 import type { Prisma } from '@socialplay/database';
 
 /**
- * Locking protocol for group admission (invite acceptance and join approval),
- * invite creation, group-level bans and unbans, and the group-level writers
- * that share rows with them (ownership transfer, group edit and deletion, an
- * external status change).
+ * Locking protocol for group admission (invite acceptance, join approval,
+ * public join and request to join), invite creation, group-level bans and
+ * unbans, and the group-level writers that share rows with them (ownership
+ * transfer, group edit and deletion, an external status change).
  *
  * These writers race on overlapping rows and, without a protocol, admit an
  * account that was just restricted, admit into a group that was just archived,
@@ -17,8 +17,10 @@ import type { Prisma } from '@socialplay/database';
  *
  * ── Lock order ────────────────────────────────────────────────────────────
  * Every transaction that takes more than one of these takes them in THIS
- * order, skipping the levels it does not need. Consistent ordering is what
- * rules out a wait-for cycle.
+ * order, skipping the levels it does not need, with two exceptions that are
+ * safe and explained below: the recipient's users row locked by a notification
+ * insert, and invite acceptance, which takes its invite row (5) before its
+ * member row (4). Consistent ordering is what rules out a wait-for cycle.
  *
  *   1. users row               FOR SHARE   (the account gate)
  *   2. groups row              FOR SHARE for admission; the row lock an UPDATE
@@ -28,6 +30,17 @@ import type { Prisma } from '@socialplay/database';
  *   4. group_members row(s)
  *   5. group_invites row(s)
  *   6. notifications (inserts only; nothing waits on them)
+ *
+ * One lock is taken deliberately out of this order, and is safe: the foreign key
+ * of a notification insert takes FOR KEY SHARE on the RECIPIENT's users row —
+ * a users lock, after the member rows (level 6 after level 4). FOR KEY SHARE
+ * conflicts with nothing but FOR UPDATE, which only a DELETE of that user or an
+ * UPDATE of one of its key columns takes; no writer named here does either
+ * (an account-status writer's UPDATE takes FOR NO KEY UPDATE). A writer that DID
+ * key-update a users row and then touched group rows would have to be added to
+ * this audit. The INSERT of a member row likewise takes FOR KEY SHARE on the
+ * group row and on the member's users row, which the admission routes already
+ * hold FOR SHARE — the same rows in a stronger mode, so it can never wait.
  *
  * ── Who takes what — the writer audit ─────────────────────────────────────
  * Every transaction in the API that touches a group, group_members or
@@ -39,6 +52,13 @@ import type { Prisma } from '@socialplay/database';
  *                    behind the subject lock, so no other admission, ban or
  *                    invite creation for this subject can interleave.)
  *   approve request  1 (the APPLICANT) → 2 (SHARE) → 4 → 6
+ *   join (public)    1 (the CALLER) → 2 (SHARE) → 4
+ *                    one member row: an INSERT, or a guarded UPDATE of a LEFT
+ *                    row (status LEFT, role not OWNER). No notification. The
+ *                    GROUP_JOIN activity is recorded after commit.
+ *   request to join  1 (the CALLER) → 2 (SHARE) → 4 → 6
+ *                    one member row: an INSERT, or a guarded UPDATE of a LEFT
+ *                    row; then a notification for each manager. No activity.
  *   create invite    2 (SHARE) → 3 → 4 (read only) → 5 → 6
  *   ban              3 → 4 → 5 → 6     (never level 1 or 2: it only READS the
  *                                       target's email; its writes are
@@ -67,8 +87,7 @@ import type { Prisma } from '@socialplay/database';
  *                                      the users row would invert the order
  *                                      and reintroduce the cycle.
  *   reject request   4 → 6
- *   request to join  (INSERT or UPDATE of one member row) → 6
- *   leave, remove, role change, revoke invite, public join
+ *   leave, remove, role change, revoke invite
  *                    one statement on one row; they hold nothing while waiting
  *   chat messages, competitions
  *                    INSERTs whose foreign key takes only FOR KEY SHARE on the
@@ -87,36 +106,50 @@ import type { Prisma } from '@socialplay/database';
  *     Admission is never caught holding one of those while waiting for the
  *     group row; all it can hold at that point is a users row, FOR SHARE, which
  *     no group writer takes.
- *   - Admission (accept, approve) and creating an invite hold level 2 in a
- *     compatible mode, so they never wait on each other there. Accept and
- *     create for one subject then serialize on level 3, and take the rest in
- *     the same direction.
+ *   - Admission (accept, approve, join, request) and creating an invite hold
+ *     level 2 in a compatible mode, so they never wait on each other there.
+ *     Accept and create for one subject then serialize on level 3, and take the
+ *     rest in the same direction.
+ *   - Join and request take levels 1 and 2 (SHARE) before their member row and
+ *     hold them to commit, and take NO level 3 and NO level 5: they never touch
+ *     an invite, and their membership write is one guarded UPDATE or INSERT of
+ *     one row. A ban or unban that races them meets them only on that row, where
+ *     the guard makes each order coherent — ban first, and the join is refused
+ *     and the member stays BANNED; join first, and the ban applies afterwards —
+ *     and neither waits for anything the other holds (a ban holds level 3 and
+ *     the member row and then wants invite rows and a notification; join and
+ *     request hold levels 1-2 and want only the member row — and, for a request,
+ *     the notification inserts). That is why the (group, email) advisory lock is
+ *     not needed here. Accept meets them on the member row only.
  *   - Accept takes the INVITE row (5) before the MEMBER row (4) — the clock
  *     rule below needs the invite locked before it is read — while ban and
  *     delete take member rows before invite rows (4 → 5). That inversion is safe
  *     only because every transaction holding both is excluded from running
  *     alongside an accept by a lock taken EARLIER: the subject lock (3) for ban
  *     and create, the group row (2) for delete and transfer.
- *   - Approve holds a member row and nothing after it that any other writer
- *     holds (a notification insert takes only FOR KEY SHARE on a users row,
- *     which conflicts with nothing but a DELETE of that user).
+ *   - Approve, join and request hold a member row and nothing after it that any
+ *     other writer holds (see the note on notification inserts above).
  *   - Ban and unban never wait for level 2 or level 1, and hold 3-5 in the
  *     order admission does; single-statement writers hold one lock at a time.
  *
- * ── Level 2 and a group that stops being ACTIVE ───────────────────────────
+ * ── Level 2 and a group that stops being ACTIVE (or changes privacy) ─────
  * Admission must not commit a membership into a group that is no longer
- * ACTIVE. A plain read of groups.status taken before the transaction — or
- * anywhere in it without a lock — can be stale by the time the membership is
- * written, because every later lock (subject, member, invite) can make the
- * transaction wait for as long as another one holds it. So the group row is
- * locked (lockGroupForAdmission) and its status read AFTER the lock is held,
- * and the lock is kept until commit: an external status change then either
- * commits BEFORE the lock is granted (admission reads the new status and is
- * rejected, nothing written) or waits for admission to commit (admission was
- * legitimately admitted into an ACTIVE group at its serialization point).
- * FOR SHARE is the weakest mode that blocks a status UPDATE; it does not block
- * other admissions, which take it too, so admissions to one group still run in
- * parallel.
+ * ACTIVE, and the two direct routes must not run against the wrong kind of
+ * group: join needs a PUBLIC group and request a PRIVATE one. A plain read of
+ * groups.status or groups.isPrivate taken before the transaction — or anywhere
+ * in it without a lock — can be stale by the time the membership is written,
+ * because every later lock (subject, member, invite) can make the transaction
+ * wait for as long as another one holds it. So the group row is locked
+ * (lockGroupForAdmission) and its status and privacy read AFTER the lock is
+ * held, and the lock is kept until commit: an external status or privacy change
+ * then either commits BEFORE the lock is granted (admission reads the new state
+ * and is rejected, nothing written) or waits for admission to commit (admission
+ * was legitimately admitted into an ACTIVE group of the right kind at its
+ * serialization point). The same holds for the account row (level 1): a
+ * restriction commits before the lock is granted and refuses the call, or waits
+ * for it and applies after. FOR SHARE is the weakest mode that blocks a status
+ * or privacy UPDATE; it does not block other admissions, which take it too, so
+ * admissions to one group still run in parallel.
  *
  * ── Level 5 and the clock ─────────────────────────────────────────────────
  * The invite row lock is not just ordering. Acceptance decides "is this invite
@@ -200,12 +233,13 @@ export interface LockedGroup {
   id: string;
   name: string;
   status: string;
+  isPrivate: boolean;
 }
 
 /**
  * Level 2, for admission and invite creation: lock the group row FOR SHARE and
- * return what it holds NOW — status and name, read after the lock is granted.
- * Returns null if the group is gone.
+ * return what it holds NOW — status, privacy and name, read after the lock is
+ * granted. Returns null if the group is gone.
  *
  * The lock is held to commit, so the status this returns stays true for the
  * whole transaction: an external UPDATE of the row waits behind it. Waiting for
@@ -219,7 +253,7 @@ export interface LockedGroup {
  */
 export async function lockGroupForAdmission(tx: Tx, groupId: string): Promise<LockedGroup | null> {
   const rows = await tx.$queryRaw<LockedGroup[]>`
-    SELECT "id", "name", "status"::text AS "status"
+    SELECT "id", "name", "status"::text AS "status", "isPrivate"
     FROM "groups"
     WHERE "id" = ${groupId}
     FOR SHARE

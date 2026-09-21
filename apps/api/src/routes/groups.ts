@@ -77,6 +77,50 @@ function assertGroupActive(group: LockedGroup | null): asserts group is LockedGr
   }
 }
 
+/**
+ * Whether the account making a DIRECT membership call (public join, request to
+ * join) may enter a group at all, judged on the row read UNDER the account lock:
+ * only a canonical ACTIVE account may. Nothing here binds the call to an email or
+ * a verified address — unlike an invitation, neither route has one. One generic
+ * answer for every restricted status, and for an account that no longer exists.
+ */
+function assertCallerEligible(account: { status: string } | null): void {
+  if (!account || !(ADMISSION_PERMITTED_USER_STATUSES as readonly string[]).includes(account.status)) {
+    throw ApiError.forbidden('Your account is not eligible to join groups');
+  }
+}
+
+/**
+ * The controlled refusal for a membership row that stands in the way of a PUBLIC
+ * JOIN, or null when there is nothing in the way: no row, or a LEFT one that a
+ * join may reactivate. Pure, so the unlocked fast path and the re-read under the
+ * locks judge a row by the very same rules.
+ */
+function joinRefusal(membership: { status: string; role: string } | null): ApiError | null {
+  if (!membership) return null;
+  if (membership.status === 'ACTIVE' || membership.status === 'MUTED') {
+    return ApiError.conflict('You are already a member of this group');
+  }
+  if (membership.status === 'BANNED') return ApiError.forbidden('You are banned from this group');
+  if (membership.status === 'PENDING') return ApiError.conflict('Your membership is pending approval');
+  if (membership.role === 'OWNER') return ApiError.conflict('Your membership status cannot be changed');
+  return null;
+}
+
+/** The same for a REQUEST TO JOIN. (MUTED is not refused here: it is reported by the guarded write.) */
+function requestRefusal(membership: { status: string } | null): ApiError | null {
+  if (!membership) return null;
+  if (membership.status === 'ACTIVE') return ApiError.conflict('You are already a member of this group');
+  if (membership.status === 'PENDING') return ApiError.conflict('Your membership request is already pending');
+  if (membership.status === 'BANNED') return ApiError.forbidden('You are banned from this group');
+  return null;
+}
+
+/** A Prisma unique-constraint violation: two concurrent inserts of the same (group, user) membership. */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002';
+}
+
 async function getGroupOrThrow(groupId: string) {
   const group = await prisma.group.findUnique({
     where: { id: groupId },
@@ -539,6 +583,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const groupId = request.params.id;
       const userId = request.user!.sub;
 
+      // FAST PATH ONLY. None of these reads takes a lock, so each can be stale the
+      // instant it returns; they turn away the common refusal without opening a
+      // transaction. Authority is the locked re-read below.
       const group = await getGroupOrThrow(groupId);
 
       if (group.status !== 'ACTIVE') {
@@ -549,49 +596,78 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('Group is private; you cannot join directly');
       }
 
-      const existing = await getGroupMembership(groupId, userId);
+      const refused = joinRefusal(await getGroupMembership(groupId, userId));
+      if (refused) throw refused;
 
-      if (existing) {
-        if (existing.status === 'ACTIVE') {
-          throw ApiError.conflict('You are already a member of this group');
+      const outcome = await prisma.$transaction(async (tx): Promise<'joined' | 'rejoined'> => {
+        // AUTHORITATIVE CHECKS. Lock the caller's account row and the group row
+        // and re-read both, then hold the locks through the membership write and
+        // the commit, so neither an account restriction nor an archive or a
+        // switch to private can slip in between the check and the admission.
+        // Order — see group-locks.ts: account row (1), group row (2), then the
+        // member row (4). No subject lock (3) and no invite row (5): a join
+        // touches one membership row, and the guarded write below is what orders
+        // it against a ban.
+        const account = await lockAccountForAdmission(tx, userId);
+        const locked = await lockGroupForAdmission(tx, groupId);
+        assertGroupActive(locked);
+        if (locked.isPrivate) {
+          throw ApiError.badRequest('Group is private; you cannot join directly');
         }
-        if (existing.status === 'BANNED') {
-          throw ApiError.forbidden('You are banned from this group');
+        assertCallerEligible(account);
+
+        // A fresh read, but NOT the authority: nothing locks the member row yet,
+        // so a ban can still commit between this read and the write. The guarded
+        // write is the authority.
+        const current = await tx.groupMember.findUnique({
+          where: { groupId_userId: { groupId, userId } },
+        });
+        const blocked = joinRefusal(current);
+        if (blocked) throw blocked;
+
+        if (!current) {
+          try {
+            await tx.groupMember.create({
+              data: { groupId, userId, role: 'MEMBER', status: 'ACTIVE' },
+            });
+          } catch (err) {
+            // A concurrent join of the same account inserted the row first.
+            if (isUniqueViolation(err)) throw ApiError.conflict('You are already a member of this group');
+            throw err;
+          }
+          return 'joined';
         }
-        if (existing.status === 'PENDING') {
-          throw ApiError.conflict('Your membership is pending approval');
-        }
-        if (existing.status === 'LEFT') {
-          await prisma.groupMember.update({
-            where: { id: existing.id },
-            data: { status: 'ACTIVE' },
+
+        // Atomic conditional transition — only a LEFT, non-OWNER membership may be
+        // reactivated. An unconditional update here would overwrite a ban (or a
+        // promotion, an approval, a request) that committed after the read above:
+        // the write waits for that writer's row lock, re-evaluates this WHERE, and
+        // matches nothing.
+        const reactivated = await tx.groupMember.updateMany({
+          where: { id: current.id, status: 'LEFT', role: { not: 'OWNER' } },
+          data: { status: 'ACTIVE' },
+        });
+        if (reactivated.count === 0) {
+          // Re-read inside the transaction for a specific refusal.
+          const now = await tx.groupMember.findUnique({
+            where: { id: current.id },
+            select: { status: true, role: true },
           });
-
-          // Server-verified activity: first-group achievement (post-commit).
-          safeRecordActivity(userId, { type: 'GROUP_JOIN' });
-
-          return {
-            success: true,
-            data: { message: 'You have rejoined the group' },
-          };
+          throw (
+            joinRefusal(now) ??
+            ApiError.conflict('Your membership status has changed since this request was initiated')
+          );
         }
-      }
-
-      await prisma.groupMember.create({
-        data: {
-          groupId,
-          userId,
-          role: 'MEMBER',
-          status: 'ACTIVE',
-        },
+        return 'rejoined';
       });
 
-      // Server-verified activity: first-group achievement (post-commit).
+      // Server-verified activity: first-group achievement — only for a join that
+      // has COMMITTED. A refused join returned above without reaching this line.
       safeRecordActivity(userId, { type: 'GROUP_JOIN' });
 
       return {
         success: true,
-        data: { message: 'Joined group successfully' },
+        data: { message: outcome === 'rejoined' ? 'You have rejoined the group' : 'Joined group successfully' },
       };
     }
   );
@@ -1760,6 +1836,9 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       const groupId = request.params.id;
       const userId = request.user!.sub;
 
+      // FAST PATH ONLY. None of these reads takes a lock, so each can be stale the
+      // instant it returns; they turn away the common refusal without opening a
+      // transaction. Authority is the locked re-read below.
       const group = await getGroupOrThrow(groupId);
       if (group.status !== 'ACTIVE') {
         throw ApiError.badRequest('Group is not active');
@@ -1768,28 +1847,43 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('Public groups can be joined directly; use POST /join');
       }
 
-      const existing = await getGroupMembership(groupId, userId);
-
-      if (existing) {
-        if (existing.status === 'ACTIVE') {
-          throw ApiError.conflict('You are already a member of this group');
-        }
-        if (existing.status === 'PENDING') {
-          throw ApiError.conflict('Your membership request is already pending');
-        }
-        if (existing.status === 'BANNED') {
-          throw ApiError.forbidden('You are banned from this group');
-        }
-      }
+      const refused = requestRefusal(await getGroupMembership(groupId, userId));
+      if (refused) throw refused;
 
       await prisma.$transaction(async (tx) => {
-        if (existing) {
+        // AUTHORITATIVE CHECKS. Lock the caller's account row and the group row
+        // and re-read both, then hold the locks through the membership write, the
+        // manager notifications and the commit: a restricted account creates no
+        // PENDING row and notifies nobody, and neither an archive nor a switch to
+        // public can slip in between the check and the write. Order — see
+        // group-locks.ts: account row (1), group row (2), then the member row (4)
+        // and the notifications (6). No subject lock (3) and no invite row (5): a
+        // request touches one membership row, and the guarded write below is what
+        // orders it against a ban.
+        const account = await lockAccountForAdmission(tx, userId);
+        const locked = await lockGroupForAdmission(tx, groupId);
+        assertGroupActive(locked);
+        if (!locked.isPrivate) {
+          throw ApiError.badRequest('Public groups can be joined directly; use POST /join');
+        }
+        assertCallerEligible(account);
+
+        // A fresh read, but NOT the authority: nothing locks the member row yet,
+        // so a ban can still commit between this read and the write. The guarded
+        // write is the authority.
+        const current = await tx.groupMember.findUnique({
+          where: { groupId_userId: { groupId, userId } },
+        });
+        const blocked = requestRefusal(current);
+        if (blocked) throw blocked;
+
+        if (current) {
           // Atomic conditional transition — only LEFT memberships are eligible.
           // Prevents overwriting a concurrently approved/promoted OWNER, an
           // ACTIVE member, a BANNED user, or a still-PENDING request.
           const updated = await tx.groupMember.updateMany({
             where: {
-              id: existing.id,
+              id: current.id,
               status: 'LEFT',
               role: { not: 'OWNER' },
             },
@@ -1797,28 +1891,27 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           });
           if (updated.count === 0) {
             // Re-read inside the transaction for a specific rejection.
-            const current = await tx.groupMember.findUnique({
-              where: { id: existing.id },
+            const now = await tx.groupMember.findUnique({
+              where: { id: current.id },
               select: { status: true, role: true },
             });
-            if (current?.status === 'ACTIVE') {
-              throw ApiError.conflict('You are already a member of this group');
-            }
-            if (current?.status === 'PENDING') {
-              throw ApiError.conflict('Your membership request is already pending');
-            }
-            if (current?.status === 'BANNED') {
-              throw ApiError.forbidden('You are banned from this group');
-            }
-            if (current?.role === 'OWNER') {
+            const refusal = requestRefusal(now);
+            if (refusal) throw refusal;
+            if (now?.role === 'OWNER') {
               throw ApiError.conflict('Your membership status cannot be changed');
             }
             throw ApiError.conflict('Your membership status has changed since this request was initiated');
           }
         } else {
-          await tx.groupMember.create({
-            data: { groupId, userId, role: 'MEMBER', status: 'PENDING' },
-          });
+          try {
+            await tx.groupMember.create({
+              data: { groupId, userId, role: 'MEMBER', status: 'PENDING' },
+            });
+          } catch (err) {
+            // A concurrent request of the same account inserted the row first.
+            if (isUniqueViolation(err)) throw ApiError.conflict('Your membership request is already pending');
+            throw err;
+          }
         }
 
         // Notify all managers (OWNER/ADMIN).
@@ -1830,11 +1923,13 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           select: { username: true, displayName: true },
         });
 
+        // The group's name comes from the LOCKED row: a rename that committed
+        // while this request waited is what the managers read.
         const notifications = managers.map((m) => ({
           userId: m.userId,
           type: 'GROUP_JOIN_REQUEST' as const,
           title: 'Join request',
-          body: `${requester?.displayName || requester?.username || 'A user'} requests to join "${group.name}"`,
+          body: `${requester?.displayName || requester?.username || 'A user'} requests to join "${locked.name}"`,
           data: { groupId, requesterId: userId },
         }));
         await tx.notification.createMany({ data: notifications });
