@@ -909,8 +909,13 @@ export function GroupDetailPage() {
 
       {/* Banned members (managers of an active group). It runs its own query, so
           for anyone else it is not merely hidden: it is never mounted, and the
-          banned list is never requested. */}
-      {isManager && group.status === 'ACTIVE' && <BannedMembersSection groupId={groupId} toast={toast} />}
+          banned list is never requested. Keyed by group: this page stays mounted
+          when the route moves from one group to another, and an Unban
+          confirmation (or a request in flight) opened for the first group must
+          not carry over into the second. */}
+      {isManager && group.status === 'ACTIVE' && (
+        <BannedMembersSection key={groupId} groupId={groupId} groupName={group.name} toast={toast} />
+      )}
 
       {/* Transfer ownership confirmation */}
       {showTransferConfirm && (

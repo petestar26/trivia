@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType, type MemoryRouterProps } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AuthProvider } from '@/providers/auth-provider';
 import { ProtectedRoute } from '@/components/auth/protected-route';
@@ -63,17 +63,27 @@ function renderApp(initialEntries: NonNullable<MemoryRouterProps['initialEntries
   );
 }
 
+// user-event and this repo's React Testing Library resolve DIFFERENT copies of
+// @testing-library/dom, so RTL's act() wrapper never reaches user-event's
+// events: every keystroke and click would update React state outside act().
+// Each interaction is therefore run inside an act() scope of its own, and only
+// the interaction is: the element is looked up BEFORE the call (never awaited
+// inside act), and every outcome is still waited for with findBy*/waitFor.
+type User = ReturnType<typeof userEvent.setup>;
+const click = (user: User, element: Element) => act(async () => { await user.click(element); });
+const type = (user: User, element: Element, text: string) => act(async () => { await user.type(element, text); });
+
 async function fillAndSubmitRegistration(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Username'), 'sam_player');
-  await user.type(screen.getByLabelText('Email'), 'sam@example.test');
-  await user.type(screen.getByLabelText('Password'), 'Str0ng!Passw0rd');
-  await user.click(screen.getByRole('button', { name: 'Create account' }));
+  await type(user, await screen.findByLabelText('Username'), 'sam_player');
+  await type(user, screen.getByLabelText('Email'), 'sam@example.test');
+  await type(user, screen.getByLabelText('Password'), 'Str0ng!Passw0rd');
+  await click(user, screen.getByRole('button', { name: 'Create account' }));
 }
 
 async function signIn(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(await screen.findByLabelText('Email'), 'sam@example.test');
-  await user.type(screen.getByLabelText('Password'), 'pw');
-  await user.click(screen.getByRole('button', { name: 'Sign in' }));
+  await type(user, await screen.findByLabelText('Email'), 'sam@example.test');
+  await type(user, screen.getByLabelText('Password'), 'pw');
+  await click(user, screen.getByRole('button', { name: 'Sign in' }));
 }
 
 const destination = () => screen.getByTestId('destination');
@@ -101,7 +111,7 @@ describe('invitation link -> Login -> Sign up -> Register -> the original invite
     expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
 
     // No account yet: Sign up.
-    await user.click(screen.getByRole('link', { name: 'Sign up' }));
+    await click(user, screen.getByRole('link', { name: 'Sign up' }));
     expect(await screen.findByRole('button', { name: 'Create account' })).toBeInTheDocument();
 
     await fillAndSubmitRegistration(user);
@@ -116,9 +126,9 @@ describe('invitation link -> Login -> Sign up -> Register -> the original invite
     const user = userEvent.setup();
     renderApp([INVITE_URL]);
 
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
     await screen.findByRole('button', { name: 'Create account' });
-    await user.click(screen.getByRole('link', { name: 'Sign in' })); // changed their mind: back to sign-in
+    await click(user, screen.getByRole('link', { name: 'Sign in' })); // changed their mind: back to sign-in
     await signIn(user);
 
     await waitFor(() => expect(destination().textContent).toBe(INVITE_URL));
@@ -130,9 +140,9 @@ describe('invitation link -> Login -> Sign up -> Register -> the original invite
     const user = userEvent.setup();
     renderApp([INVITE_URL]);
 
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
-    await user.click(await screen.findByRole('link', { name: 'Sign in' }));
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign in' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
     await fillAndSubmitRegistration(user);
 
     await waitFor(() => expect(destination().textContent).toBe(INVITE_URL));
@@ -142,13 +152,13 @@ describe('invitation link -> Login -> Sign up -> Register -> the original invite
     mocked.post.mockRejectedValueOnce(new Error(JSON.stringify({ status: 409, code: 'ALREADY_EXISTS', message: 'Email already registered' })));
     const user = userEvent.setup();
     renderApp([INVITE_URL]);
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
     await fillAndSubmitRegistration(user);
 
     expect(await screen.findByText('Email already registered')).toBeInTheDocument();
     expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Create account' })); // retry (values are still in the form)
+    await click(user, screen.getByRole('button', { name: 'Create account' })); // retry (values are still in the form)
     await waitFor(() => expect(destination().textContent).toBe(INVITE_URL));
   });
 });
@@ -165,7 +175,7 @@ describe('registration with no return state, or a safe internal destination', ()
   it('opening Login directly and choosing Sign up leaves nothing to return to: the home page', async () => {
     const user = userEvent.setup();
     renderApp(['/login']);
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
     await fillAndSubmitRegistration(user);
     await waitFor(() => expect(destination().textContent).toBe('/'));
   });
@@ -214,7 +224,7 @@ describe('a hostile or malformed destination is never followed — from Register
   it.each(hostile)('%s -> carried through Login "Sign up", it still lands on the home page', async (_name, from) => {
     const user = userEvent.setup();
     renderApp([{ pathname: '/login', state: { from } }]);
-    await user.click(await screen.findByRole('link', { name: 'Sign up' }));
+    await click(user, await screen.findByRole('link', { name: 'Sign up' }));
     await fillAndSubmitRegistration(user);
     await waitFor(() => expect(destination().textContent).toBe('/'));
   });

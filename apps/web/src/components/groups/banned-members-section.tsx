@@ -35,9 +35,22 @@ function errorMessage(err: unknown, fallback: string): string {
   }
 }
 
+/**
+ * What one Unban confirmation is FOR — captured when it opens, and carried
+ * unchanged through the request, its callbacks and its cache writes.
+ *
+ * The group is part of it, deliberately. This component is handed a `groupId`
+ * that changes when the user moves between groups, and a request outlives the
+ * render that started it: read the live `groupId` anywhere after the click
+ * and an Unban confirmed for group A can be sent to — or clean up the caches
+ * of — group B. The page also keys this component by group so that nothing
+ * survives the move; this is the layer that still holds if it ever does.
+ */
 interface UnbanTarget {
+  groupId: string;
+  groupName: string;
   userId: string;
-  /** Captured when the confirmation opens, so it keeps naming the same person even if the list changes under it. */
+  /** The person's name as the confirmation showed it, whatever the list does afterwards. */
   name: string;
 }
 
@@ -58,8 +71,19 @@ interface FocusRequest {
  * `toast` is the page's own. `useToast()` re-renders every component that calls
  * it on every toast, and the page already does; a second subscriber would only
  * be one more component re-rendered, for nothing, each time anything toasts.
+ *
+ * `groupId` decides which list is SHOWN. It never decides what an Unban does:
+ * that is the group captured in the confirmation (see UnbanTarget).
  */
-export function BannedMembersSection({ groupId, toast }: { groupId: string; toast: Toast }) {
+export function BannedMembersSection({
+  groupId,
+  groupName,
+  toast,
+}: {
+  groupId: string;
+  groupName: string;
+  toast: Toast;
+}) {
   const queryClient = useQueryClient();
   const headingId = useId();
   const confirmTitleId = useId();
@@ -208,13 +232,17 @@ export function BannedMembersSection({ groupId, toast }: { groupId: string; toas
     triggerRef.current = null;
   }
 
+  // Everything below reads the group from the VARIABLES the request was made
+  // with — never from `groupId`, which is whatever group the page shows by the
+  // time a response arrives. (TanStack hands an in-flight mutation the latest
+  // render's callbacks, so a closure over the prop is not protection.)
   const unbanMutation = useMutation({
-    mutationFn: ({ userId }: UnbanTarget) => api.unbanGroupMember(groupId, userId),
-    onSuccess: (_res, { userId, name }) => {
+    mutationFn: ({ groupId: targetGroupId, userId }: UnbanTarget) => api.unbanGroupMember(targetGroupId, userId),
+    onSuccess: (_res, { groupId: targetGroupId, groupName: targetGroupName, userId, name }) => {
       // Only this user leaves, from every loaded page, NOW: were it left until
       // the refetch below succeeds, a slow or failed refresh would keep offering
       // Unban for someone who is no longer banned.
-      queryClient.setQueryData<BannedMembersInbox>(bannedMembersQueryKey(groupId), (current) =>
+      queryClient.setQueryData<BannedMembersInbox>(bannedMembersQueryKey(targetGroupId), (current) =>
         applyUnbannedMember(current, userId)
       );
       // The backend is the authority on what an unban did; these bring every
@@ -222,22 +250,23 @@ export function BannedMembersSection({ groupId, toast }: { groupId: string; toas
       // the members list and the pending requests are refreshed too — an
       // unban must never look like an admission, and neither list should be
       // left showing a state that predates it.
-      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(groupId) });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
+      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(targetGroupId) });
+      queryClient.invalidateQueries({ queryKey: ['group', targetGroupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', targetGroupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-requests', targetGroupId] });
+      // Names the group: the person may have moved on to another one by now.
       toast({
         title: 'Member unbanned',
-        description: `${name} may request to join again or receive a new invitation.`,
+        description: `${name} was unbanned from ${targetGroupName}. They may request to join again or receive a new invitation.`,
       });
       // The row — and the Unban button that opened this — is gone, so focus
       // goes to the heading, a control that survives.
       closeConfirm('heading');
     },
-    onError: (err, { name }) => {
+    onError: (err, { groupId: targetGroupId, groupName: targetGroupName, name }) => {
       toast({
         title: 'Error',
-        description: errorMessage(err, `Failed to unban ${name}`),
+        description: `Couldn't unban ${name} from ${targetGroupName}. ${errorMessage(err, 'Please try again.')}`,
         variant: 'destructive',
       });
       // The unban failed, so the row and its Unban button are still there —
@@ -250,7 +279,7 @@ export function BannedMembersSection({ groupId, toast }: { groupId: string; toas
       if (trigger instanceof HTMLElement && trigger.dataset.action === 'unban') {
         focusRequestRef.current = { trigger, knownUserIds: new Set(members.map((m) => m.user.id)) };
       }
-      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(groupId) });
+      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(targetGroupId) });
     },
   });
 
@@ -260,7 +289,7 @@ export function BannedMembersSection({ groupId, toast }: { groupId: string; toas
     // With a request running the target cannot change under it.
     if (unbanInFlightRef.current) return;
     triggerRef.current = trigger;
-    setTarget({ userId: member.user.id, name: memberName(member) });
+    setTarget({ groupId, groupName, userId: member.user.id, name: memberName(member) });
   };
 
   const handleConfirm = () => {

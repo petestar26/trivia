@@ -583,7 +583,7 @@ describe('unbanning — success', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith({
         title: 'Member unbanned',
-        description: 'Banned 1 may request to join again or receive a new invitation.',
+        description: 'Banned 1 was unbanned from Test Group. They may request to join again or receive a new invitation.',
       })
     );
     await waitFor(() => expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus());
@@ -637,7 +637,7 @@ describe('unbanning — failure', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith({
         title: 'Error',
-        description: 'Insufficient permissions',
+        description: "Couldn't unban Banned 2 from Test Group. Insufficient permissions",
         variant: 'destructive',
       })
     );
@@ -661,7 +661,7 @@ describe('unbanning — failure', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith({
         title: 'Error',
-        description: 'Failed to unban Banned 1',
+        description: "Couldn't unban Banned 1 from Test Group. Please try again.",
         variant: 'destructive',
       })
     );
@@ -681,7 +681,11 @@ describe('unbanning — failure', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
 
     await waitFor(() =>
-      expect(toastMock).toHaveBeenCalledWith({ title: 'Error', description: 'This member is not banned', variant: 'destructive' })
+      expect(toastMock).toHaveBeenCalledWith({
+        title: 'Error',
+        description: "Couldn't unban Banned 2 from Test Group. This member is not banned",
+        variant: 'destructive',
+      })
     );
     await waitFor(() => expect(within(region).queryByText('Banned 2')).not.toBeInTheDocument());
     await waitFor(() => expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus());

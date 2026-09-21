@@ -47,6 +47,41 @@
  * the next canonical separator: a token spelled with an encoded slash
  * (`TOK%2FEN`) is one region and is redacted whole, not split with its tail
  * left in the clear.
+ *
+ * ── Malformed and ambiguous paths ─────────────────────────────────────────
+ * The router refuses a path holding a malformed escape (`%ZZ`, a lone `%`) as
+ * a bad URL, but only AFTER Fastify has logged the request line — and a real
+ * invite link mangled in transit (a paste, a mail client, a shortener) is
+ * exactly such a path. It carries the real token, so it gets the strictest
+ * treatment, not the loosest. The rules, in order:
+ *
+ *   1. Decoding is TOLERANT. Every well-formed escape is decoded whatever else
+ *      the path holds; a malformed escape is left where it is and RECORDED, and
+ *      does not stop the rest of the path from being understood. (Reading
+ *      "malformed" as "give up decoding" is how `%ZZ%67roups/%69nvites/TOKEN`
+ *      once slipped through: `%ZZ` and `%67` sit side by side, and the route
+ *      words are only visible if `%67` and `%69` are decoded around it.)
+ *   2. If the CANONICAL text spells the route exactly, only the token is
+ *      masked, as above. A malformed escape elsewhere in the path — before the
+ *      route, in the token, after it — does not stop that.
+ *   3. If a malformed escape COULD be hiding the route — the route appears
+ *      once each malformed escape is erased, together with up to two
+ *      characters it may have swallowed — the boundary of the token cannot be
+ *      trusted, so the WHOLE URL is omitted (`[REDACTED]`), never logged raw.
+ *      Every escape's reach is chosen independently (see couldRead), so the
+ *      outcome does not depend on how a particular typo happened to be
+ *      spelled.
+ *   4. Both representations are inspected, never just one: the RAW text
+ *      (`invites` written out) and the CANONICAL text (`invites` only after
+ *      decoding, or once a malformed escape is erased). Either one showing the
+ *      word in a path that holds an escape is enough to fail closed.
+ *   5. A URL with no such signal — no escape at all, or a malformed one in a
+ *      path that never mentions an invite — is returned byte for byte, so
+ *      ordinary logs lose nothing.
+ *
+ * Work is bounded throughout: at most MAX_DECODE_ROUNDS passes to decode, then
+ * one linear pass per segment for the tolerant reading; there is no loop that
+ * runs until the input stops changing.
  */
 
 const REDACTED = '[REDACTED]';
@@ -110,45 +145,143 @@ function canonicalize(raw: string): CanonicalResult {
 const isSeparator = (ch: string): boolean => ch === '/' || ch === '\\';
 
 /**
- * Raw index where the token of a `/groups/invites/<token>` route begins, or
- * -1 when the path is not such a route.
+ * True when `chars[i]` is a `%` that does not begin a well-formed `%XX` escape:
+ * bad hex digits, or a `%` cut short by the end of the path. (A well-formed
+ * escape for a non-ASCII byte is NOT malformed; it is left encoded on purpose.)
  */
-function findTokenStart(pathChars: CanonicalChar[]): number {
-  // Split the canonical path into non-empty segments, ignoring '.' segments.
-  interface Segment {
-    text: string;
-    firstChar: CanonicalChar;
-  }
+function isMalformedEscape(chars: readonly CanonicalChar[], i: number): boolean {
+  return (
+    chars[i].ch === '%' &&
+    !(i + 2 < chars.length && isHexDigit(chars[i + 1].ch) && isHexDigit(chars[i + 2].ch))
+  );
+}
+
+/** How many characters after its `%` a malformed escape may plausibly have swallowed. */
+const MAX_ESCAPE_TAIL = 2;
+
+interface Segment {
+  text: string;
+  firstChar: CanonicalChar;
+  /** For each character of `text`: does it begin a malformed escape? */
+  malformedAt: boolean[];
+}
+
+/** Split a canonical path into non-empty segments, ignoring '.' segments. */
+function segmentsOf(pathChars: readonly CanonicalChar[]): Segment[] {
   const segments: Segment[] = [];
-  let current: CanonicalChar[] = [];
+  let current: number[] = [];
   const flush = () => {
     if (current.length === 0) return;
-    const text = current.map((c) => c.ch).join('');
-    if (text !== '.') segments.push({ text, firstChar: current[0] });
+    const text = current.map((k) => pathChars[k].ch).join('');
+    if (text !== '.') {
+      segments.push({
+        text,
+        firstChar: pathChars[current[0]],
+        malformedAt: current.map((k) => isMalformedEscape(pathChars, k)),
+      });
+    }
     current = [];
   };
-  for (const c of pathChars) {
+  pathChars.forEach((c, k) => {
     if (isSeparator(c.ch)) flush();
-    else current.push(c);
-  }
+    else current.push(k);
+  });
   flush();
+  return segments;
+}
 
-  for (let i = 0; i + 2 < segments.length; i++) {
-    if (segments[i].text.toLowerCase() === 'groups' && segments[i + 1].text.toLowerCase() === 'invites') {
-      return segments[i + 2].firstChar.start;
+/**
+ * Whether `segment` COULD read as `word` — as the whole segment, or (`within`)
+ * as a run somewhere inside it — once each malformed escape in it is erased
+ * together with 0 to MAX_ESCAPE_TAIL characters it may have swallowed. Every
+ * escape's reach is chosen independently, so `i%ZZn%Zvites` (two escapes of
+ * different widths in one word) reads as `invites`, and no particular
+ * spelling of the mangling is what decides the outcome.
+ *
+ * A small dynamic program over the segment, one bitmask of reachable word
+ * positions per index: linear in the segment, bounded by the word's length.
+ */
+function couldRead(segment: Segment, word: string, mode: 'whole' | 'within'): boolean {
+  if (!segment.malformedAt.some(Boolean)) {
+    const text = segment.text.toLowerCase();
+    return mode === 'whole' ? text === word : text.includes(word);
+  }
+  const n = segment.text.length;
+  const goal = 1 << word.length;
+  const reach = new Array<number>(n + 1).fill(0);
+  reach[0] = 1;
+  for (let i = 0; i < n; i++) {
+    if (mode === 'within') reach[i] |= 1; // a run may begin anywhere
+    const here = reach[i];
+    if (here === 0) continue;
+    if (segment.malformedAt[i]) {
+      for (let tail = 0; tail <= MAX_ESCAPE_TAIL && i + 1 + tail <= n; tail++) reach[i + 1 + tail] |= here;
+    }
+    const ch = segment.text[i].toLowerCase();
+    for (let j = 0; j < word.length; j++) {
+      if (here & (1 << j) && ch === word[j]) reach[i + 1] |= 1 << (j + 1);
     }
   }
-  return -1;
+  return mode === 'whole' ? (reach[n] & goal) !== 0 : reach.some((mask) => (mask & goal) !== 0);
+}
+
+/**
+ * Raw index where the token of EVERY `/groups/invites/<token>` route in the
+ * path begins (empty when there is none). All of them, not just the first: a
+ * second route further along — a link pasted twice, trailing components that
+ * spell another one — is just as secret.
+ *
+ * `tolerant` reads each word the way {@link couldRead} does, and skips a
+ * segment that is nothing BUT malformed escapes (it may be erased to nothing).
+ */
+function findTokenStarts(segments: readonly Segment[], tolerant: boolean, consumed?: Set<number>): number[] {
+  const list = tolerant ? segments.filter((seg) => !couldRead(seg, '', 'whole')) : segments;
+  const isWord = (seg: Segment, word: string) =>
+    tolerant ? couldRead(seg, word, 'whole') : seg.text.toLowerCase() === word;
+  const starts: number[] = [];
+  for (let i = 0; i + 2 < list.length; i++) {
+    if (isWord(list[i], 'groups') && isWord(list[i + 1], 'invites')) {
+      starts.push(list[i + 2].firstChar.start);
+      // (Indices are into `segments` only for the exact reading, where
+      // `list` is `segments`; the tolerant reading never asks for them.)
+      consumed?.add(i).add(i + 1).add(i + 2);
+    }
+  }
+  return starts;
+}
+
+/**
+ * Replace the token region of each route with a marker. A region runs from the
+ * token's first raw character to the next LITERAL `/` (or the end of the path);
+ * overlapping regions are merged.
+ */
+function maskTokenRegions(url: string, pathEnd: number, starts: readonly number[]): string {
+  const sorted = [...starts].sort((a, b) => a - b);
+  let out = '';
+  let cursor = 0;
+  for (const start of sorted) {
+    if (start < cursor) continue; // inside a region already masked
+    const nextSlash = url.indexOf('/', start);
+    const end = nextSlash === -1 || nextSlash > pathEnd ? pathEnd : nextSlash;
+    out += url.slice(cursor, start) + REDACTED;
+    cursor = end;
+  }
+  return out + url.slice(cursor);
 }
 
 /**
  * Replace the invite token in a URL (or path) with a redaction marker.
  * Returns the input unchanged — the very same string — when it carries none.
  *
- * When the bounded decoder cannot fully resolve the path within the round
- * limit, the URL is fail-closed: the entire URL is replaced with a redaction
- * marker. This prevents leaking a token that might still be encoded under
- * multiple layers of percent-encoding.
+ * Fail-closed cases, each returning the marker for the WHOLE url:
+ *   - the bounded decoder could not fully resolve the path;
+ *   - the path holds a malformed escape and, with that escape erased, spells a
+ *     token route the exact reading did not (the token boundary is unknowable);
+ *   - the path holds a malformed escape and some segment the exact reading did
+ *     not account for could read `invites`;
+ *   - the path holds an escape and writes `invites` out, but no route was
+ *     recognized.
+ * See "Malformed and ambiguous paths" in the file header.
  */
 export function redactUrl(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -161,6 +294,7 @@ export function redactUrl(url: string): string {
   // on the RAW string, the way the router does.
   const queryStart = url.search(/[?#]/);
   const pathEnd = queryStart === -1 ? url.length : queryStart;
+  const rawPath = url.slice(0, pathEnd);
 
   const { chars: allChars, truncated } = canonicalize(url);
   const pathChars = allChars.filter((c) => c.end <= pathEnd);
@@ -173,23 +307,47 @@ export function redactUrl(url: string): string {
     return REDACTED;
   }
 
-  const tokenStart = findTokenStart(pathChars);
-  if (tokenStart === -1) {
-    // The path could not be resolved to a token route. If it still looks like
-    // an invite URL illustrated through a malformed escape (e.g. %ZZgroups
-    // never decodes to "groups"), the escape may itself hide the route — and
-    // an unredacted path could carry the token. Fail closed instead.
-    if (url.slice(0, pathEnd).includes('%') && /invites/i.test(url.slice(0, pathEnd))) {
-      return REDACTED;
-    }
-    return url;
+  const segments = segmentsOf(pathChars);
+
+  // The exact reading: the canonical text spells the route. `consumed` collects
+  // the segments a recognized route accounts for — its two words and its token.
+  const consumed = new Set<number>();
+  const starts = findTokenStarts(segments, false, consumed);
+
+  // The tolerant reading, only when a malformed escape is on the path. It runs
+  // even when the exact reading succeeded, because a malformed escape may hide
+  // a SECOND route the exact reading knows nothing about:
+  //   - a route that shows only once the escape is erased means the escape sits
+  //     in the route, so where its token starts cannot be trusted;
+  //   - any other segment that could read `invites` — `invites` written out,
+  //     decoded (`%69nvites`) or with a malformed escape erased (`in%ZZvites`,
+  //     or one standing in for a separator) — is invite-looking with nothing
+  //     to pin down its token.
+  // Both fail closed. The raw text alone cannot show either, which is the whole
+  // point: reading only the raw text is what let the reported URLs out.
+  const malformed = pathChars.some((_, k) => isMalformedEscape(pathChars, k));
+  if (malformed) {
+    if (findTokenStarts(segments, true).some((start) => !starts.includes(start))) return REDACTED;
+    if (segments.some((seg, i) => !consumed.has(i) && couldRead(seg, 'invites', 'within'))) return REDACTED;
   }
 
-  // The token region ends at the next literal '/', or at the end of the path.
-  const nextSlash = url.indexOf('/', tokenStart);
-  const tokenEnd = nextSlash === -1 || nextSlash > pathEnd ? pathEnd : nextSlash;
+  if (starts.length > 0) return maskTokenRegions(url, pathEnd, starts);
 
-  return url.slice(0, tokenStart) + REDACTED + url.slice(tokenEnd);
+  // No route recognized. RAW signal, kept as it was: the path holds an escape
+  // (of any kind) and writes `invites` out.
+  if (rawPath.includes('%') && /invites/i.test(rawPath)) return REDACTED;
+
+  return url;
+}
+
+/**
+ * Whether `text` — an error message, say — quotes a path that is, or could be,
+ * an invite-token route, in any spelling {@link redactUrl} recognizes. Sharing
+ * the one recognizer means a message and a URL are judged by the same rules:
+ * a spelling that cannot slip past the log cannot slip past the response.
+ */
+export function quotesInviteTokenRoute(text: unknown): boolean {
+  return typeof text === 'string' && redactUrl(text) !== text;
 }
 
 /**

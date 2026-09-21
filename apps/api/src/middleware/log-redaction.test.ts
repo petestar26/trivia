@@ -7,7 +7,7 @@ import { config } from '@socialplay/config';
 import { buildServer } from '../server.js';
 import { errorHandler } from './error-handler.js';
 import type { FastifyError } from 'fastify';
-import { redactUrl, redactedRequestSerializer } from './log-redaction.js';
+import { quotesInviteTokenRoute, redactUrl, redactedRequestSerializer } from './log-redaction.js';
 import { requestLogger } from './request-logger.js';
 
 // GET /groups/invites/:token carries a bearer-equivalent secret in the
@@ -147,6 +147,209 @@ describe('redactUrl', () => {
     expect(out.method).toBe('GET');
     expect(out.host).toBe('api.test');
     expect(out.remoteAddress).toBe('127.0.0.1');
+  });
+});
+
+// A malformed escape (`%ZZ`, a lone `%`) makes the router refuse the path — but
+// only after the request line was logged, and a real invite link mangled in
+// transit is exactly such a path. Two reported URLs walked straight through:
+//   /api/v1/%ZZ%67roups/%69nvites/<token>
+//   /api/v1/%67roups/%ZZ%69nvites/<token>
+// The decoder reached a fixed point that still held `%ZZ`, so it was not
+// "truncated"; the exact reading failed (`%ZZgroups` is not `groups`); and the
+// fallback looked for the literal word `invites` in the RAW text only — where
+// `%69nvites` hides it — and returned the raw, secret-bearing URL.
+describe('redactUrl — malformed and ambiguous paths', () => {
+  const T = 'SYNTHETICLEAKTOKEN0123456789';
+  const P = '/api/v1';
+  const FAIL_CLOSED = '[REDACTED]';
+
+  // input -> exact expected output. FAIL_CLOSED means the WHOLE url is omitted:
+  // a malformed escape sits where the route is, so the token boundary cannot be
+  // trusted. Anything else is the precise form, token only.
+  const cases: Array<[string, string, string]> = [
+    // ── the two reported URLs ────────────────────────────────────────────────
+    ['reported #1: bad escape, then encoded groups and invites', `${P}/%ZZ%67roups/%69nvites/${T}`, FAIL_CLOSED],
+    ['reported #2: encoded groups, then bad escape and encoded invites', `${P}/%67roups/%ZZ%69nvites/${T}`, FAIL_CLOSED],
+    // ── mixed upper/lower case ──────────────────────────────────────────────
+    ['upper-case encoded letters and words', `${P}/%ZZ%47ROUPS/%49NVITES/${T}`, FAIL_CLOSED],
+    ['lower-case escaped separators', `${P}/%67roups%2f%ZZ%69nvites%2f${T}`, FAIL_CLOSED],
+    ['upper-case escaped separators', `${P}/%67roups%2F%ZZ%69nvites%2F${T}`, FAIL_CLOSED],
+    ['mixed-case escaped separators', `${P}/%ZZ%67roups%2F%69nvites%2f${T}`, FAIL_CLOSED],
+    ['lower-case hex digits in the bad escape', `${P}/%zz%67roups/%69nvites/${T}`, FAIL_CLOSED],
+    // ── malformed BEFORE the route components ───────────────────────────────
+    ['a bad escape glued to "groups"', `${P}/%ZZgroups/invites/${T}`, FAIL_CLOSED],
+    ['a lone percent glued to "groups"', `${P}/%groups/invites/${T}`, FAIL_CLOSED],
+    ['a percent before an encoded letter', `${P}/%%67roups/invites/${T}`, FAIL_CLOSED],
+    ['a bad escape as its own segment before an EXACT route: precise', `${P}/%ZZ/groups/invites/${T}`, `${P}/%ZZ/groups/invites/[REDACTED]`],
+    ['a bad escape inside the api prefix before an EXACT route: precise', `/api/v%ZZ1/groups/invites/${T}`, '/api/v%ZZ1/groups/invites/[REDACTED]'],
+    // ── malformed INSIDE the route components ───────────────────────────────
+    ['a bad escape inside "groups"', `${P}/gro%ZZups/invites/${T}`, FAIL_CLOSED],
+    ['a bad escape inside "invites"', `${P}/groups/in%ZZvites/${T}`, FAIL_CLOSED],
+    ['a bad escape inside both, one encoded letter each', `${P}/g%ZZ%72oups/%69n%ZZvites/${T}`, FAIL_CLOSED],
+    ['a bad escape between the route words', `${P}/groups/%ZZ/invites/${T}`, FAIL_CLOSED],
+    ['a bad escape where the separator should be', `${P}/groups%ZZinvites/${T}`, FAIL_CLOSED],
+    ['a truncated escape inside "invites"', `${P}/groups/invi%2tes/${T}`, FAIL_CLOSED],
+    ['two escapes of DIFFERENT widths inside one word', `${P}/groups/i%ZZn%Zvites/${T}`, FAIL_CLOSED],
+    ['a lone percent in both words', `${P}/gr%oups/in%vites/${T}`, FAIL_CLOSED],
+    ['bad escapes standing in for BOTH separators', `${P}/groups%ZZinvites%Z${T}`, FAIL_CLOSED],
+    // ── malformed AFTER the route components ────────────────────────────────
+    ['a bad escape ending the token: the exact route is known, token only', `${P}/groups/invites/${T}%ZZ`, `${P}/groups/invites/[REDACTED]`],
+    ['a lone percent ending the token', `${P}/groups/invites/${T}%`, `${P}/groups/invites/[REDACTED]`],
+    ['a bad escape in the token then more segments', `${P}/groups/invites/${T}%ZZ/more/x`, `${P}/groups/invites/[REDACTED]/more/x`],
+    ['a bad escape in a trailing segment', `${P}/groups/invites/${T}/%ZZ`, `${P}/groups/invites/[REDACTED]/%ZZ`],
+    ['a bad escape trailing an ENCODED route', `${P}/%67roups/%69nvites/${T}/extra/%ZZ`, `${P}/%67roups/%69nvites/[REDACTED]/extra/%ZZ`],
+    // ── nested / deep encoding ──────────────────────────────────────────────
+    ['double-encoded route words and a bad escape', `${P}/%ZZ%2567roups/%2569nvites/${T}`, FAIL_CLOSED],
+    ['triple-encoded, bad escape between', `${P}/%252567roups/%ZZ%252569nvites/${T}`, FAIL_CLOSED],
+    ['depth-5 (beyond the bound) and a bad escape', `${P}/%ZZ%252525252567roups/invites/${T}`, FAIL_CLOSED],
+    ['an encoded percent turning into a bad escape', `${P}/%25ZZ%67roups/%69nvites/${T}`, FAIL_CLOSED],
+    ['double-encoded route words, well-formed: precise', `${P}/%2567roups/%2569nvites/${T}`, `${P}/%2567roups/%2569nvites/[REDACTED]`],
+    // ── repeated separators / trailing components / dot segments ────────────
+    ['repeated separators', `${P}//groups///%ZZ%69nvites//${T}`, FAIL_CLOSED],
+    ['repeated ENCODED separators', `${P}/groups%2F%2F%ZZinvites%2F%2F${T}`, FAIL_CLOSED],
+    ['trailing components', `${P}/%ZZ%67roups/%69nvites/${T}/extra/more`, FAIL_CLOSED],
+    ['trailing dot-dot components', `${P}/%ZZ%67roups/%69nvites/${T}/more/%2e%2e`, FAIL_CLOSED],
+    ['backslash separators', `${P}/groups\\%ZZ%69nvites\\${T}`, FAIL_CLOSED],
+    ['a "." segment in the way', `${P}/groups/./%ZZ%69nvites/${T}`, FAIL_CLOSED],
+    // ── query strings and fragments ─────────────────────────────────────────
+    ['a query string after a fail-closed path', `${P}/%ZZ%67roups/%69nvites/${T}?a=1&b=%ZZ`, FAIL_CLOSED],
+    ['the token in the query of a fail-closed path', `${P}/%ZZ%67roups/%69nvites?token=${T}`, FAIL_CLOSED],
+    ['a fragment after a fail-closed path', `${P}/%ZZ%67roups/%69nvites/${T}#f`, FAIL_CLOSED],
+    ['a query string after a precise path', `${P}/groups/invites/${T}%ZZ?a=1`, `${P}/groups/invites/[REDACTED]?a=1`],
+    // ── no api prefix ───────────────────────────────────────────────────────
+    ['unprefixed', `/%ZZ%67roups/%69nvites/${T}`, FAIL_CLOSED],
+  ];
+
+  it.each(cases)('%s', (_name, input, expected) => {
+    const out = redactUrl(input);
+    expect(out).toBe(expected);
+    expect(out).not.toContain(T);
+    expect(out).not.toBe(input);
+  });
+
+  it('an escape nothing can explain, beside a literal "invites", fails closed (the original safety net stays)', () => {
+    // Well-formed escapes that decode to something no route spells — a NUL, a
+    // space — leave no route to recognize. The word is written out and an
+    // escape is present, and that alone is enough to omit the URL.
+    expect(redactUrl(`${P}/groups%00/invites/${T}`)).toBe(FAIL_CLOSED);
+    expect(redactUrl(`${P}/groups%20/invites/${T}`)).toBe(FAIL_CLOSED);
+    expect(redactUrl(`${P}/%67roups/x/invites/${T}`)).toBe(FAIL_CLOSED);
+  });
+
+  it('a SECOND route hidden behind a bad escape is caught even though the first is exact', () => {
+    expect(redactUrl(`${P}/groups/invites/FIRSTTOKEN/%ZZ%67roups/%69nvites/${T}`)).toBe(FAIL_CLOSED);
+    // ...including one whose separator is the bad escape, so no two segments
+    // ever read `groups` and `invites`.
+    expect(redactUrl(`${P}/groups/invites/FIRSTTOKEN/groups%ZZinvites/${T}`)).toBe(FAIL_CLOSED);
+    expect(redactUrl(`${P}/groups/invites/FIRSTTOKEN%ZZ/%69n%Zvites/${T}`)).toBe(FAIL_CLOSED);
+  });
+
+  it('the exact route\'s own segments never trigger the fail-closed reading (a bad escape elsewhere stays precise)', () => {
+    expect(redactUrl(`${P}/groups/invites/${T}/%ZZ/tail`)).toBe(`${P}/groups/invites/[REDACTED]/%ZZ/tail`);
+    expect(redactUrl(`${P}/%ZZ/groups/invites/${T}/%`)).toBe(`${P}/%ZZ/groups/invites/[REDACTED]/%`);
+  });
+
+  it('every route in a well-formed path is masked, not just the first', () => {
+    const out = redactUrl(`${P}/groups/invites/FIRSTTOKEN/groups/invites/${T}/tail`);
+    expect(out).toBe(`${P}/groups/invites/[REDACTED]/groups/invites/[REDACTED]/tail`);
+    expect(out).not.toContain(T);
+    expect(out).not.toContain('FIRSTTOKEN');
+  });
+
+  it('decodes every WELL-FORMED escape even when a malformed one is present', () => {
+    // If a bad escape stopped decoding, `%67` and `%69` would stay opaque and
+    // the route words would be invisible to every check that follows.
+    expect(redactUrl(`${P}/groups/%ZZ/%69nvites/${T}`)).toBe(FAIL_CLOSED);
+    expect(redactUrl(`${P}/%67roups/%ZZ/invites/${T}`)).toBe(FAIL_CLOSED);
+  });
+
+  describe('controls — malformed URLs that have nothing to do with an invite are NOT over-redacted', () => {
+    const untouched = [
+      `${P}/notifications/%ZZ`,
+      `${P}/notifications/%ZZ?x=1`,
+      `${P}/groups/%ZZ/members`,
+      `${P}/groups/2f1b0c64-0000-4000-8000-000000000000/%ZZ`,
+      `${P}/%ZZgroups/${T}`,
+      `${P}/auth/%`,
+      `${P}/auth/login%2`,
+      `/%ZZ${T}`,
+      `${P}/%67roups/%69nvites`, // well-formed, and no token
+      `${P}/%67roups`,
+      `${P}/groups/%69nvites`,
+      `${P}/groups/accept-invite%ZZ`,
+    ];
+    it.each(untouched)('%s is returned byte for byte', (url) => {
+      expect(redactUrl(url)).toBe(url);
+    });
+  });
+
+  it('does bounded work: a hostile path of thousands of malformed escapes is judged in one pass', () => {
+    const hostile = `${P}/` + '%ZZ%67roups/'.repeat(1500) + `%69nvites/${T}`;
+    const started = Date.now();
+    const out = redactUrl(hostile);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(out).toBe(FAIL_CLOSED);
+    // ...and a long path with NO signal is left alone, also quickly.
+    const benign = `${P}/notifications/` + 'a%ZZ/'.repeat(3000);
+    const benignStarted = Date.now();
+    expect(redactUrl(benign)).toBe(benign);
+    expect(Date.now() - benignStarted).toBeLessThan(2_000);
+  });
+
+  it('never throws, and never lets the token out, however a route is corrupted (seeded fuzz)', () => {
+    // Deterministic generator: a real `groups` / `invites` / token route whose
+    // letters are randomly written raw, upper- or lower-case, or as an escape
+    // (upper- or lower-case hex), with malformed escapes of every width dropped
+    // in between letters, separators of every kind, and junk before and after.
+    // The fragments are chosen so they can never combine with the next letter
+    // into a WELL-FORMED escape — that would change the word, not mangle it —
+    // and none contains a separator: a slash in the middle of a word makes two
+    // words, not one mangled one.
+    let seed = 20260921;
+    const next = (n: number) => {
+      seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    const pick = <V,>(values: readonly V[]): V => values[next(values.length)];
+    const BAD = ['%', '%Z', '%ZZ', '%G1', '%%', '%Z%'] as const;
+    const spellWord = (word: string): string => {
+      let out = '';
+      for (const [i, ch] of [...word].entries()) {
+        if (i > 0 && next(3) === 0) out += pick(BAD);
+        const code = ch.charCodeAt(0);
+        const hex = code.toString(16);
+        out += pick([ch, ch.toUpperCase(), `%${hex.toUpperCase()}`, `%${hex}`, `%${code.toString(16).toUpperCase()}`]);
+      }
+      return out;
+    };
+    // Includes a malformed escape standing IN PLACE of the separator.
+    const SEPS = ['/', '//', '\\', '%2F', '%2f', '/./', '/%ZZ/', '%2F%2F', '%ZZ', '%', '%Z', '/%/'] as const;
+    for (let i = 0; i < 5_000; i++) {
+      const route = `${spellWord('groups')}${pick(SEPS)}${spellWord('invites')}${pick(SEPS)}${T}`;
+      const url = `${P}${pick(['/', '//', '/%ZZ/', '/x/'])}${route}${pick(['', '%ZZ', '/tail', '/%ZZ', '?a=1', '/t/%'])}`;
+      let out = '';
+      expect(() => { out = redactUrl(url); }, url).not.toThrow();
+      expect(out, url).not.toContain(T);
+    }
+  });
+
+  describe('quotesInviteTokenRoute — the same recognizer, for messages', () => {
+    it('recognizes a route quoted in ANY of the spellings the log path handles', () => {
+      for (const text of [
+        `Route GET:${P}/groups/invites/${T} not found`,
+        `bad ${P}/%ZZ%67roups/%69nvites/${T}`,
+        `bad ${P}/%67roups/%ZZ%69nvites/${T}`,
+      ]) {
+        expect(quotesInviteTokenRoute(text), text).toBe(true);
+      }
+    });
+
+    it('does not fire on ordinary text, or on non-strings', () => {
+      for (const text of ['Validation failed', 'Request body is too large', `${P}/notifications/%ZZ`, '', undefined, null, 42]) {
+        expect(quotesInviteTokenRoute(text), String(text)).toBe(false);
+      }
+    });
   });
 });
 
@@ -861,5 +1064,56 @@ describe('errorHandler — the malformed-URL guard', () => {
 
     expect(reply.status).toHaveBeenCalledWith(404);
     expect(JSON.stringify(reply.send.mock.calls[0][0])).not.toContain('QUOTED123');
+  });
+
+  // The same recognizer judges a message as judges a URL, so a spelling that
+  // cannot slip past the log line cannot slip past the response or the error log.
+  const QUOTING_MESSAGES: Array<[string, string]> = [
+    ['plain', 'Route GET:/api/v1/groups/invites/UNITTOKEN0123 not found'],
+    ['encoded and malformed (reported #1)', 'failed for /api/v1/%ZZ%67roups/%69nvites/UNITTOKEN0123'],
+    ['encoded and malformed (reported #2)', 'failed for /api/v1/%67roups/%ZZ%69nvites/UNITTOKEN0123'],
+  ];
+
+  it.each(QUOTING_MESSAGES)('an error whose message quotes an invite route (%s) is answered generically and NEVER logged with the route', (_name, message) => {
+    const error = Object.assign(new Error(message), { statusCode: 404, code: 'SOME_CODE' }) as FastifyError;
+    const { log, reply, request } = stubs('/x');
+
+    errorHandler(error, request as never, reply as never);
+
+    // The response: generic, and the error's own status is kept.
+    expect(reply.status).toHaveBeenCalledWith(404);
+    expect(reply.send.mock.calls[0][0].error.message).toBe('Bad request');
+    expect(JSON.stringify(reply.send.mock.calls)).not.toContain('UNITTOKEN');
+    // The log: an error entry IS written (diagnosis is not lost), but what is
+    // serialized carries neither the message nor the stack of the original.
+    expect(log.error).toHaveBeenCalledTimes(1);
+    const logged = log.error.mock.calls[0][0].err as Error & { code?: string; statusCode?: number };
+    expect(logged.message).toBe('[REDACTED]');
+    expect(`${logged.message}\n${logged.stack}`).not.toContain('UNITTOKEN');
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('UNITTOKEN');
+    // ...and it keeps what diagnosis needs.
+    expect(logged.code).toBe('SOME_CODE');
+    expect(logged.statusCode).toBe(404);
+  });
+
+  it('an error whose STACK (but not its message) quotes an invite route is not logged with it either', () => {
+    const error = Object.assign(new Error('boom'), { statusCode: 500 }) as FastifyError;
+    error.stack = 'Error: boom\n    at GET /api/v1/%ZZ%67roups/%69nvites/UNITTOKEN0123 (handler.ts:1:1)';
+    const { log, reply, request } = stubs('/x');
+
+    errorHandler(error, request as never, reply as never);
+
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('UNITTOKEN');
+    expect(reply.status).toHaveBeenCalledWith(500);
+  });
+
+  it('an ordinary error is logged exactly as before — the very same object', () => {
+    const error = Object.assign(new Error('ordinary failure'), { statusCode: 500 }) as FastifyError;
+    const { log, reply, request } = stubs('/x');
+
+    errorHandler(error, request as never, reply as never);
+
+    expect(log.error.mock.calls[0][0].err).toBe(error);
+    expect(reply.status).toHaveBeenCalledWith(500);
   });
 });
