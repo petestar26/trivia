@@ -366,6 +366,46 @@ describe('C. an Unban in flight for A that FAILS after the user moved to B', () 
   });
 });
 
+describe('F. A -> B -> A with the request still running', () => {
+  it('the member\'s Unban is inert on the re-opened A, no second confirmation is offered, and no second request starts', async () => {
+    const servers = installServers();
+    renderApp();
+    await prime();
+    const request = deferred();
+    mocked.unbanGroupMember.mockImplementation(async (groupId: string, userId: string) => {
+      await request.promise;
+      servers.rows[groupId] = servers.rows[groupId].filter((r) => r.user.id !== userId);
+      return { success: true, data: { message: 'Member unbanned' } };
+    });
+    fireEvent.click(unbanButton('Banned 2'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
+    await waitFor(() => expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1));
+
+    goTo('B');
+    await onGroup('Group B');
+    await screen.findByText('Banned 4');
+    // B is not made inert by A's request: the same person in B can be unbanned.
+    expect(unbanButton('Banned 2')).not.toHaveAttribute('aria-disabled');
+    goTo('A');
+    await onGroup('Group A');
+    await screen.findByText('Banned 1');
+
+    // A page instance that never made the request; the mutation cache did.
+    await waitFor(() => expect(unbanButton('Banned 2')).toHaveAttribute('aria-disabled', 'true'));
+    fireEvent.click(unbanButton('Banned 2'));
+    expect(anyConfirmation()).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm unban' })).not.toBeInTheDocument();
+    expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
+    // Everyone else in A is still available.
+    expect(unbanButton('Banned 1')).not.toHaveAttribute('aria-disabled');
+
+    request.resolve(undefined);
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() => expect(unbanRowNames()).toEqual(['Unban Banned 1', 'Unban Banned 3']));
+    expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('E. rapid A -> B -> A navigation with cached queries', () => {
   it('leaves no stale target behind, and a fresh confirmation sends exactly one request, for A', async () => {
     installServers();

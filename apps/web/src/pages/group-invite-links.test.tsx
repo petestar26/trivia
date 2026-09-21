@@ -138,8 +138,17 @@ afterEach(() => {
 });
 
 async function createInvite(user: ReturnType<typeof userEvent.setup>, email = 'new@test.com') {
-  await user.type(await screen.findByPlaceholderText('user@example.com'), email);
-  await user.click(screen.getByRole('button', { name: 'Invite' }));
+  // user-event's events bypass RTL's act() (two copies of @testing-library/dom),
+  // so each interaction runs in its own act() scope; the element is looked up
+  // BEFORE the call, never inside it.
+  const input = await screen.findByPlaceholderText('user@example.com');
+  await act(async () => {
+    await user.type(input, email);
+  });
+  const submit = screen.getByRole('button', { name: 'Invite' });
+  await act(async () => {
+    await user.click(submit);
+  });
 }
 
 const linkField = (email: string) => screen.getByRole('textbox', { name: `Invitation link for ${email}` }) as HTMLInputElement;

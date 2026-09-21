@@ -1176,7 +1176,7 @@ describe('GroupDetailPage', () => {
       await waitFor(() =>
         expect(toastMock).toHaveBeenCalledWith({
           title: 'Error',
-          description: 'Insufficient permissions',
+          description: "Couldn't ban Member from Test Group. Insufficient permissions",
           variant: 'destructive',
         })
       );

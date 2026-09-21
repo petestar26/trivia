@@ -4,6 +4,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { copyText, type CopyOutcome } from '@/lib/clipboard';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
+import {
+  actionErrorMessage,
+  groupActionKey,
+  hasPendingGroupAction,
+  useGroupActionPending,
+  type GroupActionIdentity,
+  type GroupActionKind,
+} from '@/lib/group-actions';
 import { inviteLink } from '@/lib/invite-link';
 import { bannedMembersQueryKey } from '@/lib/group-banned-members-pages';
 import { notificationsScopeKey } from '@/lib/notifications-query-keys';
@@ -29,6 +37,15 @@ type InvitesFailure = 'initial' | 'refresh' | 'next-page';
 
 const INVITES_PAGE_LIMIT = 50;
 
+// What each group action is FOR, captured when it is initiated (see
+// GroupActionIdentity). A member's display name rides along for wording only.
+type JoinAction = GroupActionIdentity & { isPrivate: boolean };
+type LeaveAction = GroupActionIdentity;
+type MemberAction = GroupActionIdentity & { targetId: string; name: string };
+type RoleAction = MemberAction & { role: string };
+type InviteAction = GroupActionIdentity & { targetId: string; email: string; role: string };
+type RevokeAction = GroupActionIdentity & { targetId: string; email: string };
+
 const inviteLinkFieldId = (inviteId: string) => `invite-link-${inviteId}`;
 
 const COPY_MESSAGES: Record<CopyOutcome, string> = {
@@ -51,12 +68,49 @@ function roleBadge(role: string) {
   );
 }
 
+/**
+ * The route element for `/groups/:id`. React Router renders this SAME element
+ * for every group, so moving from group A to group B inside the app does not
+ * unmount it — and everything the page holds would come along into B: an open
+ * Ban or Transfer confirmation and the member it names, an unsent invitation,
+ * a pending state, focus bookkeeping. The next click would then apply A's
+ * target to B. Keying the content by the group makes the boundary structural:
+ * another group is another instance, with nothing carried over.
+ *
+ * That is the first layer. The second is that no request, callback, cache write
+ * or toast reads the group from anywhere but the action that was initiated —
+ * see GroupActionIdentity — so a late answer from A cannot reach B even if an
+ * instance were ever reused.
+ */
 export function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const groupId = id!;
+  return <GroupDetailContent key={id} groupId={id!} />;
+}
+
+/**
+ * Everything the page does for ONE group. Exported so a test can hand a mounted
+ * instance a different `groupId` WITHOUT remounting it, which proves the second
+ * layer stands on its own; production always renders it through GroupDetailPage,
+ * keyed.
+ */
+export function GroupDetailContent({ groupId }: { groupId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // The group this instance is showing RIGHT NOW. Used only to decide whether
+  // touching the screen (focus, an open confirmation) still makes sense for a
+  // request that has just settled. It never decides what a request does or which
+  // cache it changes: those come from the action's own variables.
+  const viewedGroupIdRef = useRef(groupId);
+  useEffect(() => {
+    viewedGroupIdRef.current = groupId;
+  }, [groupId]);
+  const stillViewing = (initiatingGroupId: string) => viewedGroupIdRef.current === initiatingGroupId;
+
+  // Which group actions are running, in this instance or any other (the mutation
+  // cache outlives a page instance). For making controls inert.
+  const groupActionPending = useGroupActionPending();
 
   const groupQuery = useQuery<GroupDetailInfo>({
     queryKey: ['group', groupId],
@@ -232,142 +286,198 @@ export function GroupDetailPage() {
     member.user.id !== groupQuery.data?.owner?.id;
 
   // ─── Mutations ──────────────────────────────────────────────────
+  //
+  // Each mutation takes the group it is FOR as part of its VARIABLES (see
+  // GroupActionIdentity). The request, every callback, every cache write and
+  // every toast below reads `groupId` and `groupName` from the variables of the
+  // action that was initiated — never from `groupId` above, which is whatever
+  // group this instance shows by the time an answer arrives. (TanStack hands an
+  // in-flight mutation the LATEST render's callbacks, so a closure over the prop
+  // is not protection.) Each is registered under a static key so "is this
+  // already running?" can be answered from the mutation cache, across instances.
+  //
+  // Wording names the group and the person, so a late answer for group A can
+  // never read as being about the group now on screen.
+
+  const groupName = groupQuery.data?.name ?? '';
+
+  /**
+   * Start a group action unless the very same one — same kind, same group, same
+   * target — is already running, wherever it was started from. The answer comes
+   * from the mutation cache, so it also holds after the user left this group's
+   * page and came back while the request was still in flight; a component's own
+   * `isPending` knows nothing of a request made by an instance that is gone.
+   * `scope: 'group'` blocks any target in the group (one ownership transfer at a
+   * time); `alsoBlockedBy` names actions that contradict this one.
+   */
+  function startAction<V extends GroupActionIdentity>(
+    kind: GroupActionKind,
+    mutation: { mutate: (variables: V) => void },
+    variables: V,
+    opts: { alsoBlockedBy?: GroupActionKind[]; scope?: 'target' | 'group' } = {}
+  ): boolean {
+    const query = { groupId: variables.groupId, targetId: opts.scope === 'group' ? undefined : variables.targetId };
+    if (hasPendingGroupAction(queryClient, [kind, ...(opts.alsoBlockedBy ?? [])], query)) return false;
+    mutation.mutate(variables);
+    return true;
+  }
 
   const joinMutation = useMutation({
-    mutationFn: async () => {
-      if (groupQuery.data?.isPrivate) return api.requestJoinGroup(groupId);
-      return api.joinGroup(groupId);
-    },
-    onSuccess: () => {
+    mutationKey: groupActionKey('join'),
+    mutationFn: ({ groupId: gid, isPrivate }: JoinAction) => (isPrivate ? api.requestJoinGroup(gid) : api.joinGroup(gid)),
+    onSuccess: (_res, { groupId: gid, groupName: gname, isPrivate }) => {
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      toast({ title: groupQuery.data?.isPrivate ? 'Join request submitted' : 'Joined group' });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      toast({ title: isPrivate ? 'Join request submitted' : 'Joined group', description: gname });
     },
-    onError: (err) => {
-      let msg = 'Failed to join';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const leaveMutation = useMutation({
-    mutationFn: () => api.leaveGroup(groupId),
-    onSuccess: () => {
+    mutationKey: groupActionKey('leave'),
+    mutationFn: ({ groupId: gid }: LeaveAction) => api.leaveGroup(gid),
+    onSuccess: (_res, { groupId: gid, groupName: gname }) => {
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      toast({ title: 'Left group' });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      toast({ title: 'Left group', description: gname });
     },
-    onError: (err) => {
-      let msg = 'Failed to leave';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't leave ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const approveMutation = useMutation({
-    mutationFn: (userId: string) => api.approveJoinRequest(groupId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      toast({ title: 'Request approved' });
+    mutationKey: groupActionKey('approve'),
+    mutationFn: ({ groupId: gid, targetId }: MemberAction) => api.approveJoinRequest(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
+      queryClient.invalidateQueries({ queryKey: ['group-requests', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      toast({ title: 'Request approved', description: `${name} was approved to join ${gname}.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to approve';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't approve ${name}'s request to join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (userId: string) => api.rejectJoinRequest(groupId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      toast({ title: 'Request rejected' });
+    mutationKey: groupActionKey('reject'),
+    mutationFn: ({ groupId: gid, targetId }: MemberAction) => api.rejectJoinRequest(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
+      queryClient.invalidateQueries({ queryKey: ['group-requests', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      toast({ title: 'Request rejected', description: `${name}'s request to join ${gname} was rejected.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to reject';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't reject ${name}'s request to join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => api.removeGroupMember(groupId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      toast({ title: 'Member removed' });
+    mutationKey: groupActionKey('remove'),
+    mutationFn: ({ groupId: gid, targetId }: MemberAction) => api.removeGroupMember(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      toast({ title: 'Member removed', description: `${name} was removed from ${gname}.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to remove member';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't remove ${name} from ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const banMutation = useMutation({
-    mutationFn: (userId: string) => api.banGroupMember(groupId, userId),
-    onSuccess: () => {
+    mutationKey: groupActionKey('ban'),
+    mutationFn: ({ groupId: gid, targetId }: MemberAction) => api.banGroupMember(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
       // The backend is the sole authority on whether a ban is permitted —
       // this refresh just brings the UI in line with what it decided.
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-requests', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
-      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(groupId) });
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-requests', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-invites', gid] });
+      queryClient.invalidateQueries({ queryKey: bannedMembersQueryKey(gid) });
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
       // Scoped to the signed-in account: the notification cache is keyed by
       // identity, so there is no shared inbox key to invalidate.
       if (currentUserId) queryClient.invalidateQueries({ queryKey: notificationsScopeKey(currentUserId) });
-      toast({ title: 'Member banned' });
+      toast({ title: 'Member banned', description: `${name} was banned from ${gname}.` });
       // The banned row — and the Ban button that opened this — is about to
       // disappear from the list, so focus goes to the Members heading, a
       // control that survives the refresh. Without this, dismissing the
       // confirmation would drop focus to <body> and a keyboard or screen
       // reader user would lose their place entirely.
-      closeBanConfirm({ restoreTo: 'members-heading' });
+      closeBanConfirm({ restoreTo: 'members-heading', groupId: gid });
     },
-    onError: (err) => {
-      let msg = 'Failed to ban member';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupId: gid, groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't ban ${name} from ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
       // The ban failed, so the member row and its Ban button are still
       // there — send focus back to where the flow started.
-      closeBanConfirm({ restoreTo: 'trigger' });
+      closeBanConfirm({ restoreTo: 'trigger', groupId: gid });
     },
   });
 
   const roleMutation = useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: string }) => api.changeMemberRole(groupId, userId, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      toast({ title: 'Role updated' });
+    mutationKey: groupActionKey('role'),
+    mutationFn: ({ groupId: gid, targetId, role }: RoleAction) => api.changeMemberRole(gid, targetId, role),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name, role }) => {
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
+      toast({ title: 'Role updated', description: `${name} is now ${role} in ${gname}.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to update role';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't change ${name}'s role in ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const inviteMutation = useMutation({
-    mutationFn: ({ email, role }: { email: string; role?: string }) => api.createGroupInvite(groupId, email, role),
-    onSuccess: async (res) => {
+    mutationKey: groupActionKey('invite'),
+    mutationFn: ({ groupId: gid, email, role }: InviteAction) => api.createGroupInvite(gid, email, role),
+    onSuccess: async (res, { groupId: gid, groupName: gname }) => {
       const created = res?.data;
       if (created?.token) {
         // The invite exists now, and it must be reachable from the page no
         // matter what the clipboard, the toast or the refetch below do: put it
         // in the list straight from the response, inside the page structure so
         // a later refetch (that may return the invite on page 1) or a FAILED
-        // refresh (that keeps whatever is cached) cannot make it vanish.
-        queryClient.setQueryData<InvitesInbox>(['group-invites', groupId], (current) =>
+        // refresh (that keeps whatever is cached) cannot make it vanish. Into
+        // the list of the group it was created FOR: this response carries a
+        // bearer-equivalent link, and another group's list is not where it goes.
+        queryClient.setQueryData<InvitesInbox>(['group-invites', gid], (current) =>
           applyCreatedInvite(current, created)
         );
       }
-      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
+      queryClient.invalidateQueries({ queryKey: ['group-invites', gid] });
 
       // Copying on creation is a convenience, never the only way to get the
       // link. Whatever it does, the row's own "Copy link" stays available.
@@ -376,50 +486,59 @@ export function GroupDetailPage() {
         title: 'Invite created',
         description:
           outcome === 'copied'
-            ? 'The invite link was copied to your clipboard. It stays listed under Active invites.'
+            ? `For ${gname}: the invite link was copied to your clipboard. It stays listed under Active invites.`
             : created?.token
-              ? 'The invite link is listed under Active invites, where you can copy it whenever you need it.'
+              ? `For ${gname}: the invite link is listed under Active invites, where you can copy it whenever you need it.`
               : undefined,
       });
     },
-    onError: (err) => {
-      let msg = 'Failed to send invite';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, email }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't invite ${email} to ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (inviteId: string) => api.revokeGroupInvite(groupId, inviteId),
-    onSuccess: (_res, inviteId) => {
+    mutationKey: groupActionKey('revoke'),
+    mutationFn: ({ groupId: gid, targetId }: RevokeAction) => api.revokeGroupInvite(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, targetId, email }) => {
       // Gone from every loaded page NOW: were it left until the refetch below
       // succeeds, a failed refresh would keep showing a revoked invite — and
-      // its still-copyable link — as active.
-      queryClient.setQueryData<InvitesInbox>(['group-invites', groupId], (current) =>
-        applyRevokedInvite(current, inviteId)
+      // its still-copyable link — as active. From the list of the group it was
+      // revoked IN.
+      queryClient.setQueryData<InvitesInbox>(['group-invites', gid], (current) =>
+        applyRevokedInvite(current, targetId)
       );
-      queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
-      toast({ title: 'Invite revoked' });
+      queryClient.invalidateQueries({ queryKey: ['group-invites', gid] });
+      toast({ title: 'Invite revoked', description: `The invite for ${email} to ${gname} was revoked.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to revoke invite';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, email }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't revoke the invite for ${email} in ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
   const transferMutation = useMutation({
-    mutationFn: (targetUserId: string) => api.transferOwnership(groupId, targetUserId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['group', groupId] });
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+    mutationKey: groupActionKey('transfer'),
+    mutationFn: ({ groupId: gid, targetId }: MemberAction) => api.transferOwnership(gid, targetId),
+    onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
+      queryClient.invalidateQueries({ queryKey: ['group', gid] });
+      queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
-      toast({ title: 'Ownership transferred' });
+      toast({ title: 'Ownership transferred', description: `${name} now owns ${gname}.` });
     },
-    onError: (err) => {
-      let msg = 'Failed to transfer ownership';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    onError: (err, { groupName: gname, name }) => {
+      toast({
+        title: 'Error',
+        description: `Couldn't transfer ${gname} to ${name}. ${actionErrorMessage(err, 'Please try again.')}`,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -453,31 +572,47 @@ export function GroupDetailPage() {
     e.preventDefault();
     const email = inviteEmail.trim();
     if (!email) return;
-    inviteMutation.mutate({ email, role: inviteRole });
-    setInviteEmail('');
+    // The same invitation is not created twice while the first is still on its way.
+    const started = startAction('invite', inviteMutation, {
+      groupId,
+      groupName,
+      targetId: email.toLowerCase(),
+      email,
+      role: inviteRole,
+    });
+    if (started) setInviteEmail('');
   }
 
   // ─── Transfer confirmation ──────────────────────────────────────
+  //
+  // The target is captured WHOLE when the confirmation opens — the group, its
+  // name, the member and the member's name — and that is what Confirm sends. The
+  // list on screen, and the group this instance shows, may be different by the
+  // time it is pressed.
 
-  const [transferTarget, setTransferTarget] = useState('');
-  const [showTransferConfirm, setShowTransferConfirm] = useState(false);
-
-  const transferTargetMember = membersQuery.data?.find(
-    (m) => m.user.id === transferTarget && m.status === 'ACTIVE'
-  );
+  const [transferTarget, setTransferTarget] = useState<MemberAction | null>(null);
 
   function handleTransfer(e: FormEvent) {
     e.preventDefault();
-    if (!transferTargetMember) return;
-    transferMutation.mutate(transferTarget);
-    setShowTransferConfirm(false);
-    setTransferTarget('');
+    if (!transferTarget) return;
+    // One ownership transfer at a time in a group, whichever member it names.
+    startAction('transfer', transferMutation, transferTarget, { scope: 'group' });
+    setTransferTarget(null);
   }
 
   // ─── Ban confirmation ─────────────────────────────────────────
+  //
+  // Captured whole, like the transfer target above.
 
-  const [banTarget, setBanTarget] = useState('');
-  const [showBanConfirm, setShowBanConfirm] = useState(false);
+  const [banTarget, setBanTarget] = useState<MemberAction | null>(null);
+  // Mirrors `banTarget` for callbacks that run long after the render they were
+  // made in: they must ask "is the confirmation still THIS request's?" of the
+  // current answer, not the one they closed over.
+  const banTargetRef = useRef<MemberAction | null>(null);
+  function showBanConfirmFor(target: MemberAction | null) {
+    banTargetRef.current = target;
+    setBanTarget(target);
+  }
   // The Ban button that opened the confirmation, so Cancel (and a failed
   // ban) can put focus back exactly where the user left it.
   const banTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -490,38 +625,45 @@ export function GroupDetailPage() {
   // synchronously, so the second click is dropped.
   const banInFlightRef = useRef(false);
 
-  const banTargetMember = membersQuery.data?.find(
-    (m) => m.user.id === banTarget && m.status === 'ACTIVE'
-  );
-
   // Moving focus into the confirmation is what makes it a real confirmation
   // step: it is rendered below the member list, so without this a keyboard
   // or screen reader user gets no indication anything happened.
   useEffect(() => {
-    if (showBanConfirm) banConfirmRef.current?.focus();
-  }, [showBanConfirm]);
+    if (banTarget) banConfirmRef.current?.focus();
+  }, [banTarget]);
 
-  function closeBanConfirm({ restoreTo }: { restoreTo: 'trigger' | 'members-heading' }) {
-    setShowBanConfirm(false);
-    setBanTarget('');
+  /**
+   * Close the confirmation that belongs to the request for `groupId` — and
+   * nothing else. A late answer from group A must not dismiss a confirmation
+   * that is B's, and must not move focus while the user is looking at B.
+   */
+  function closeBanConfirm({ restoreTo, groupId: initiatingGroupId }: { restoreTo: 'trigger' | 'members-heading'; groupId: string }) {
+    if (banTargetRef.current?.groupId !== initiatingGroupId) return;
+    showBanConfirmFor(null);
     banInFlightRef.current = false;
     const trigger = banTriggerRef.current;
-    const fallback = membersHeadingRef.current;
+    banTriggerRef.current = null;
+    // Focus goes back only if the user is still looking at the group the
+    // request was for; otherwise it stays wherever they put it.
+    if (!stillViewing(initiatingGroupId)) return;
     // A trigger that was removed from the DOM can't take focus, so fall
     // back to the heading in that case too.
     const destination =
-      restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : fallback;
+      restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : membersHeadingRef.current;
     destination?.focus();
-    banTriggerRef.current = null;
   }
 
   function handleBanConfirm() {
-    if (!banTargetMember || banInFlightRef.current) return;
+    if (!banTarget || banInFlightRef.current) return;
     banInFlightRef.current = true;
     // Deliberately does NOT close the confirmation here: the card stays
     // mounted for the whole request so its "Banning…" state is actually
     // reachable, and closing is left to the mutation's settled callbacks.
-    banMutation.mutate(banTarget);
+    if (!startAction('ban', banMutation, banTarget)) {
+      // This very ban is already running — started from an earlier visit to this
+      // group. Nothing to add to it.
+      closeBanConfirm({ restoreTo: 'trigger', groupId: banTarget.groupId });
+    }
   }
 
   // ─── Loading / error ────────────────────────────────────────────
@@ -548,6 +690,13 @@ export function GroupDetailPage() {
 
   const group = groupQuery.data;
 
+  // Joining and leaving are actions on the group itself. `joinPending` reads the
+  // mutation cache, so it is true for a request started on an earlier visit.
+  const joinPending = groupActionPending('join', { groupId });
+  const leavePending = groupActionPending('leave', { groupId });
+  // Privacy is captured at the click, not read from the group when the request runs.
+  const joinAction = (isPrivate: boolean) => startAction('join', joinMutation, { groupId, groupName, isPrivate });
+
   if (!group.isMember) {
     return (
       <div className="max-w-3xl mx-auto p-4 space-y-4">
@@ -569,7 +718,10 @@ export function GroupDetailPage() {
                 You have been banned from this group.
               </p>
             ) : group.isPrivate ? (
-              <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending || group.requestStatus === 'PENDING'}>
+              <Button
+                onClick={() => joinAction(true)}
+                disabled={joinMutation.isPending || joinPending || group.requestStatus === 'PENDING'}
+              >
                 {joinMutation.isPending
                   ? 'Requesting…'
                   : group.requestStatus === 'PENDING'
@@ -577,7 +729,7 @@ export function GroupDetailPage() {
                     : 'Request to join'}
               </Button>
             ) : (
-              <Button onClick={() => joinMutation.mutate()} disabled={joinMutation.isPending}>
+              <Button onClick={() => joinAction(false)} disabled={joinMutation.isPending || joinPending}>
                 {joinMutation.isPending ? 'Joining…' : 'Join'}
               </Button>
             )}
@@ -618,7 +770,12 @@ export function GroupDetailPage() {
             {roleBadge(group.memberRole ?? 'MEMBER')}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => leaveMutation.mutate()} disabled={leaveMutation.isPending}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => startAction('leave', leaveMutation, { groupId, groupName })}
+              disabled={leaveMutation.isPending || leavePending}
+            >
               Leave
             </Button>
           </div>
@@ -632,19 +789,34 @@ export function GroupDetailPage() {
             <CardTitle className="text-sm">Pending requests ({pendingMembers.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {pendingMembers.map((m) => (
-              <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="default" disabled={approveMutation.isPending} onClick={() => approveMutation.mutate(m.user.id)}>
-                    Approve
-                  </Button>
-                  <Button size="sm" variant="destructive" disabled={rejectMutation.isPending} onClick={() => rejectMutation.mutate(m.user.id)}>
-                    Reject
-                  </Button>
+            {pendingMembers.map((m) => {
+              const target = { groupId, groupName, targetId: m.user.id, name: m.user.displayName || m.user.username };
+              // An answer to this request is already on its way — approve OR reject.
+              const answering = groupActionPending(['approve', 'reject'], { groupId, targetId: m.user.id });
+              return (
+                <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={approveMutation.isPending || answering}
+                      onClick={() => startAction('approve', approveMutation, target, { alsoBlockedBy: ['reject'] })}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={rejectMutation.isPending || answering}
+                      onClick={() => startAction('reject', rejectMutation, target, { alsoBlockedBy: ['approve'] })}
+                    >
+                      Reject
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -662,59 +834,84 @@ export function GroupDetailPage() {
           ) : activeMembers.length === 0 ? (
             <p className="text-xs text-gray-500">No members yet.</p>
           ) : (
-            activeMembers.map((m) => (
-              <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
-                  {roleBadge(m.role)}
-                </div>
-                {canShowMemberManagementControls(m) && (
-                  <div className="flex items-center gap-1">
-                    <select
-                      className="text-xs border rounded px-1.5 py-0.5"
-                      value={m.role}
-                      onChange={(e) => roleMutation.mutate({ userId: m.user.id, role: e.target.value })}
-                      disabled={roleMutation.isPending}
-                    >
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="text-xs h-6"
-                      disabled={removeMemberMutation.isPending}
-                      onClick={() => removeMemberMutation.mutate(m.user.id)}
-                    >
-                      Remove
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="text-xs h-6"
-                      onClick={(e) => {
-                        banTriggerRef.current = e.currentTarget;
-                        setBanTarget(m.user.id);
-                        setShowBanConfirm(true);
-                      }}
-                    >
-                      Ban
-                    </Button>
-                    {isOwner && m.user.id !== group.owner?.id && (
+            activeMembers.map((m) => {
+              // Captured when a control is used: the group and the person, by id
+              // and by name. Nothing below reads the group again after the click.
+              const target: MemberAction = {
+                groupId,
+                groupName,
+                targetId: m.user.id,
+                name: m.user.displayName || m.user.username,
+              };
+              const rolePending = groupActionPending('role', { groupId, targetId: m.user.id });
+              const removePending = groupActionPending('remove', { groupId, targetId: m.user.id });
+              const banPending = groupActionPending('ban', { groupId, targetId: m.user.id });
+              // One ownership transfer at a time in a group, whoever it names.
+              const transferPending = groupActionPending('transfer', { groupId });
+              return (
+                <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
+                    {roleBadge(m.role)}
+                  </div>
+                  {canShowMemberManagementControls(m) && (
+                    <div className="flex items-center gap-1">
+                      <select
+                        className="text-xs border rounded px-1.5 py-0.5"
+                        value={m.role}
+                        onChange={(e) =>
+                          startAction('role', roleMutation, { ...target, role: e.target.value } satisfies RoleAction)
+                        }
+                        disabled={roleMutation.isPending || rolePending}
+                      >
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="destructive"
                         className="text-xs h-6"
-                        onClick={() => { setTransferTarget(m.user.id); setShowTransferConfirm(true); }}
+                        disabled={removeMemberMutation.isPending || removePending}
+                        onClick={() => startAction('remove', removeMemberMutation, target)}
                       >
-                        Transfer
+                        Remove
                       </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="text-xs h-6"
+                        // Inert — not merely styled — while this very ban is running,
+                        // wherever it was started: a request begun on an earlier visit
+                        // to this group is still this member's ban.
+                        aria-disabled={banPending || undefined}
+                        onClick={(e) => {
+                          if (banPending) return;
+                          banTriggerRef.current = e.currentTarget;
+                          showBanConfirmFor(target);
+                        }}
+                      >
+                        Ban
+                      </Button>
+                      {isOwner && m.user.id !== group.owner?.id && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-6"
+                          aria-disabled={transferPending || undefined}
+                          onClick={() => {
+                            if (transferPending) return;
+                            setTransferTarget(target);
+                          }}
+                        >
+                          Transfer
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </CardContent>
       </Card>
@@ -749,7 +946,15 @@ export function GroupDetailPage() {
                   <option key={r} value={r}>{r}</option>
                 ))}
               </select>
-              <Button type="submit" size="sm" disabled={inviteMutation.isPending || !inviteEmail.trim()}>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={
+                  inviteMutation.isPending ||
+                  !inviteEmail.trim() ||
+                  groupActionPending('invite', { groupId, targetId: inviteEmail.trim().toLowerCase() })
+                }
+              >
                 {inviteMutation.isPending ? 'Sending…' : 'Invite'}
               </Button>
             </form>
@@ -803,7 +1008,14 @@ export function GroupDetailPage() {
                       <span className="text-sm font-medium">{inv.email}</span>
                       <span className="ml-2 text-xs text-gray-500">{roleBadge(inv.role)}</span>
                     </div>
-                    <Button size="sm" variant="destructive" disabled={revokeMutation.isPending} onClick={() => revokeMutation.mutate(inv.id)}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={revokeMutation.isPending || groupActionPending('revoke', { groupId, targetId: inv.id })}
+                      onClick={() =>
+                        startAction('revoke', revokeMutation, { groupId, groupName, targetId: inv.id, email: inv.email })
+                      }
+                    >
                       Revoke
                     </Button>
                   </div>
@@ -914,27 +1126,25 @@ export function GroupDetailPage() {
           confirmation (or a request in flight) opened for the first group must
           not carry over into the second. */}
       {isManager && group.status === 'ACTIVE' && (
-        <BannedMembersSection key={groupId} groupId={groupId} groupName={group.name} toast={toast} />
+        <BannedMembersSection groupId={groupId} groupName={group.name} toast={toast} />
       )}
 
       {/* Transfer ownership confirmation */}
-      {showTransferConfirm && (
+      {transferTarget && (
         <Card className="border-amber-300 dark:border-amber-600">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-amber-700 dark:text-amber-300">Confirm ownership transfer</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {transferTargetMember && (
-              <p className="text-sm">
-                Transfer ownership to <strong>{transferTargetMember.user.displayName || transferTargetMember.user.username}</strong>?
-                You will be demoted to Admin.
-              </p>
-            )}
+            <p className="text-sm">
+              Transfer ownership to <strong>{transferTarget.name}</strong>?
+              You will be demoted to Admin.
+            </p>
             <div className="flex gap-2">
               <Button size="sm" variant="destructive" disabled={transferMutation.isPending} onClick={handleTransfer}>
                 {transferMutation.isPending ? 'Transferring…' : 'Confirm transfer'}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => { setShowTransferConfirm(false); setTransferTarget(''); }}>
+              <Button size="sm" variant="outline" onClick={() => setTransferTarget(null)}>
                 Cancel
               </Button>
             </div>
@@ -943,18 +1153,16 @@ export function GroupDetailPage() {
       )}
 
       {/* Ban confirmation */}
-      {showBanConfirm && (
+      {banTarget && (
         <Card className="border-red-300 dark:border-red-600">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-red-700 dark:text-red-300">Confirm ban</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {banTargetMember && (
-              <p className="text-sm">
-                Ban <strong>{banTargetMember.user.displayName || banTargetMember.user.username}</strong> from this group?
-                They will lose access immediately and won&apos;t be able to rejoin or redeem invites.
-              </p>
-            )}
+            <p className="text-sm">
+              Ban <strong>{banTarget.name}</strong> from this group?
+              They will lose access immediately and won&apos;t be able to rejoin or redeem invites.
+            </p>
             <div className="flex gap-2">
               <Button
                 ref={banConfirmRef}
@@ -969,7 +1177,7 @@ export function GroupDetailPage() {
                 size="sm"
                 variant="outline"
                 disabled={banMutation.isPending}
-                onClick={() => closeBanConfirm({ restoreTo: 'trigger' })}
+                onClick={() => closeBanConfirm({ restoreTo: 'trigger', groupId: banTarget.groupId })}
               >
                 Cancel
               </Button>

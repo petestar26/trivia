@@ -10,6 +10,13 @@ import {
   type BannedMembersInbox,
   type BannedMembersPage,
 } from '@/lib/group-banned-members-pages';
+import {
+  actionErrorMessage,
+  groupActionKey,
+  hasPendingGroupAction,
+  useGroupActionPending,
+  type GroupActionIdentity,
+} from '@/lib/group-actions';
 import type { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,32 +34,23 @@ const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
 const memberName = (member: GroupBannedMemberInfo) => member.user.displayName || member.user.username;
 
-function errorMessage(err: unknown, fallback: string): string {
-  try {
-    return JSON.parse((err as Error).message)?.message ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 /**
  * What one Unban confirmation is FOR — captured when it opens, and carried
  * unchanged through the request, its callbacks and its cache writes.
  *
- * The group is part of it, deliberately. This component is handed a `groupId`
- * that changes when the user moves between groups, and a request outlives the
- * render that started it: read the live `groupId` anywhere after the click
- * and an Unban confirmed for group A can be sent to — or clean up the caches
- * of — group B. The page also keys this component by group so that nothing
- * survives the move; this is the layer that still holds if it ever does.
+ * The group is part of it, deliberately (see GroupActionIdentity). This
+ * component is handed a `groupId` that changes when the user moves between
+ * groups, and a request outlives the render that started it: read the live
+ * `groupId` anywhere after the click and an Unban confirmed for group A can be
+ * sent to — or clean up the caches of — group B. The page keys its content by
+ * group so that nothing survives the move; this is the layer that still holds
+ * if it ever does.
  */
-interface UnbanTarget {
-  groupId: string;
-  groupName: string;
-  userId: string;
+type UnbanTarget = GroupActionIdentity & {
+  targetId: string;
   /** The person's name as the confirmation showed it, whatever the list does afterwards. */
   name: string;
-}
+};
 
 /** Focus that has to survive a change to the list; see the layout effect below. */
 interface FocusRequest {
@@ -85,6 +83,16 @@ export function BannedMembersSection({
   toast: Toast;
 }) {
   const queryClient = useQueryClient();
+  // The group this instance shows RIGHT NOW: used only to decide whether moving
+  // focus still makes sense for a request that has just settled, never to decide
+  // what a request does (that is the target's own group).
+  const viewedGroupIdRef = useRef(groupId);
+  useEffect(() => {
+    viewedGroupIdRef.current = groupId;
+  }, [groupId]);
+  const stillViewing = (initiatingGroupId: string) => viewedGroupIdRef.current === initiatingGroupId;
+  // Whether an unban is running for a member — started here or on an earlier visit.
+  const unbanPending = useGroupActionPending();
   const headingId = useId();
   const confirmTitleId = useId();
   const confirmBodyId = useId();
@@ -222,14 +230,21 @@ export function BannedMembersSection({
     if (target) confirmRef.current?.focus();
   }, [target]);
 
-  function closeConfirm(restoreTo: 'trigger' | 'heading') {
+  /**
+   * Close the confirmation — the one request in flight is the only one there can
+   * be, since a second is not offered while one runs — and put focus back only if
+   * the user is still looking at the group the request was for: a late answer
+   * from group A must not move focus while they are in B.
+   */
+  function closeConfirm(restoreTo: 'trigger' | 'heading', initiatingGroupId: string) {
     setTarget(null);
     unbanInFlightRef.current = false;
     const trigger = triggerRef.current;
+    triggerRef.current = null;
+    if (!stillViewing(initiatingGroupId)) return;
     // A trigger that left the DOM can't take focus, so fall back to the heading.
     const destination = restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : headingRef.current;
     destination?.focus();
-    triggerRef.current = null;
   }
 
   // Everything below reads the group from the VARIABLES the request was made
@@ -237,13 +252,14 @@ export function BannedMembersSection({
   // time a response arrives. (TanStack hands an in-flight mutation the latest
   // render's callbacks, so a closure over the prop is not protection.)
   const unbanMutation = useMutation({
-    mutationFn: ({ groupId: targetGroupId, userId }: UnbanTarget) => api.unbanGroupMember(targetGroupId, userId),
-    onSuccess: (_res, { groupId: targetGroupId, groupName: targetGroupName, userId, name }) => {
+    mutationKey: groupActionKey('unban'),
+    mutationFn: ({ groupId: targetGroupId, targetId }: UnbanTarget) => api.unbanGroupMember(targetGroupId, targetId),
+    onSuccess: (_res, { groupId: targetGroupId, groupName: targetGroupName, targetId, name }) => {
       // Only this user leaves, from every loaded page, NOW: were it left until
       // the refetch below succeeds, a slow or failed refresh would keep offering
       // Unban for someone who is no longer banned.
       queryClient.setQueryData<BannedMembersInbox>(bannedMembersQueryKey(targetGroupId), (current) =>
-        applyUnbannedMember(current, userId)
+        applyUnbannedMember(current, targetId)
       );
       // The backend is the authority on what an unban did; these bring every
       // view of the group in line. The unbanned member is LEFT, not ACTIVE, so
@@ -261,17 +277,17 @@ export function BannedMembersSection({
       });
       // The row — and the Unban button that opened this — is gone, so focus
       // goes to the heading, a control that survives.
-      closeConfirm('heading');
+      closeConfirm('heading', targetGroupId);
     },
     onError: (err, { groupId: targetGroupId, groupName: targetGroupName, name }) => {
       toast({
         title: 'Error',
-        description: `Couldn't unban ${name} from ${targetGroupName}. ${errorMessage(err, 'Please try again.')}`,
+        description: `Couldn't unban ${name} from ${targetGroupName}. ${actionErrorMessage(err, 'Please try again.')}`,
         variant: 'destructive',
       });
       // The unban failed, so the row and its Unban button are still there —
       // send focus back to where the flow started...
-      closeConfirm('trigger');
+      closeConfirm('trigger', targetGroupId);
       const trigger = document.activeElement;
       // ...and reconcile with the server: the usual reason for a refusal is that
       // the list was stale (someone else already unbanned this member). If that
@@ -288,13 +304,22 @@ export function BannedMembersSection({
   const openConfirm = (member: GroupBannedMemberInfo, trigger: HTMLButtonElement) => {
     // With a request running the target cannot change under it.
     if (unbanInFlightRef.current) return;
+    // Nor is a second confirmation offered for a member whose unban is already
+    // running — started here, or on an earlier visit to this group.
+    if (unbanPending('unban', { groupId, targetId: member.user.id })) return;
     triggerRef.current = trigger;
-    setTarget({ groupId, groupName, userId: member.user.id, name: memberName(member) });
+    setTarget({ groupId, groupName, targetId: member.user.id, name: memberName(member) });
   };
 
   const handleConfirm = () => {
     if (!target || unbanInFlightRef.current) return;
     unbanInFlightRef.current = true;
+    // The same unban may already be running — started on an earlier visit, by an
+    // instance that is gone. The mutation cache knows; this component does not.
+    if (hasPendingGroupAction(queryClient, 'unban', { groupId: target.groupId, targetId: target.targetId })) {
+      closeConfirm('trigger', target.groupId);
+      return;
+    }
     // Deliberately does NOT close the confirmation here: it stays mounted for
     // the whole request so its "Unbanning…" state is actually reachable, and
     // closing is left to the mutation's settled callbacks.
@@ -303,8 +328,8 @@ export function BannedMembersSection({
   };
 
   const handleCancel = () => {
-    if (unbanInFlightRef.current) return;
-    closeConfirm('trigger');
+    if (unbanInFlightRef.current || !target) return;
+    closeConfirm('trigger', target.groupId);
   };
 
   // Native `disabled` would make Chromium drop focus from a focused control the
@@ -369,7 +394,7 @@ export function BannedMembersSection({
                   data-action="unban"
                   className={inertClass}
                   aria-label={`Unban ${memberName(m)}`}
-                  aria-disabled={pending || undefined}
+                  aria-disabled={pending || unbanPending('unban', { groupId, targetId: m.user.id }) || undefined}
                   onClick={(e) => openConfirm(m, e.currentTarget)}
                 >
                   Unban
