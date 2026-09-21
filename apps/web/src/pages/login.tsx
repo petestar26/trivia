@@ -126,7 +126,11 @@ export function LoginPage() {
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Don't have an account?{' '}
-            <Link to="/register" className="text-primary-600 hover:text-primary-500 font-medium">
+            <Link
+              to="/register"
+              state={{ from: (location.state as { from?: unknown } | null)?.from }}
+              className="text-primary-600 hover:text-primary-500 font-medium"
+            >
               Sign up
             </Link>
           </p>

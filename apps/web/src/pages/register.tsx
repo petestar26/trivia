@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/providers/auth-provider';
 import { getErrorMessage } from '@/lib/error-message';
+import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,9 +37,12 @@ type RegisterForm = z.infer<typeof registerSchema>;
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { register: registerUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
 
   const {
     register,
@@ -61,7 +65,7 @@ export function RegisterPage() {
         // the username when the field is absent.
         displayName: data.displayName || undefined,
       });
-      navigate('/');
+      navigate(returnTo, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, 'Registration failed'));
     } finally {
@@ -170,7 +174,11 @@ export function RegisterPage() {
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary-600 hover:text-primary-500 font-medium">
+            <Link
+              to="/login"
+              state={{ from: (location.state as { from?: unknown } | null)?.from }}
+              className="text-primary-600 hover:text-primary-500 font-medium"
+            >
               Sign in
             </Link>
           </p>

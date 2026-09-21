@@ -6,6 +6,7 @@ import { safeRecordActivity } from '../rewards/activity-service';
 import {
   ADMISSION_PERMITTED_USER_STATUSES,
   lockAccountForAdmission,
+  lockInviteRow,
   lockInviteSubject,
 } from './group-locks.js';
 
@@ -1343,7 +1344,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       });
       assertAdmissionEligible(preflight, invite.email);
 
-      const result = await prisma.$transaction(async (tx) => {
+      const outcome = await prisma.$transaction(async (tx): Promise<'accepted' | 'expired' | 'revoked' | 'already-accepted' | 'invalid'> => {
         // AUTHORITATIVE CHECK. Lock the account row and re-read it, then hold
         // the lock through the membership transition, the invite claim and
         // the commit, so a status change cannot slip in between the check and
@@ -1368,26 +1369,44 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           throw ApiError.forbidden('You are banned from this group');
         }
 
+        // LEVEL 4, then the clock. Lock the invite row FIRST — this can wait
+        // behind another transaction for as long as it likes — and only then
+        // read the time. The wait may outlast the invite: it was live at the
+        // pre-read, and it can be dead by the time this line returns. So the
+        // clock is read AFTER every blocking lock in this transaction is held
+        // (a fresh Date here; never the transaction-start now(), which is
+        // frozen at BEGIN), and the claim below — which no longer waits,
+        // because the row is already ours — is judged against it.
+        const lockedInvite = await lockInviteRow(tx, invite.id);
+        const claimTime = new Date();
+        if (!lockedInvite) return 'invalid';
+
+        // Atomic claim: the invite must still be PENDING AND unexpired at
+        // transition time. Either failing predicate makes this affect zero
+        // rows — expiry is enforced HERE, at the claim, not on the pre-read.
         const claimed = await tx.groupInvite.updateMany({
-          where: { id: invite.id, status: 'PENDING' },
+          where: { id: invite.id, status: 'PENDING', expiresAt: { gt: claimTime } },
           data: { status: 'ACCEPTED', acceptedBy: userId },
         });
         if (claimed.count === 0) {
-          // The invite left PENDING between the pre-read and the claim (a
-          // ban revoked it, a replacement expired it, or a twin accepted it).
-          // Re-read so the caller learns which, instead of always being told
-          // it was "already accepted".
-          const current = await tx.groupInvite.findUnique({
-            where: { id: invite.id },
-            select: { status: true },
-          });
-          if (current?.status === 'REVOKED') {
-            throw ApiError.conflict('This invite has been revoked');
+          // Tell the caller WHY, from the row as it stands under our lock —
+          // the state cannot change under us between that read and now.
+          if (lockedInvite.status === 'REVOKED') return 'revoked';
+          if (lockedInvite.status === 'ACCEPTED') return 'already-accepted';
+          if (lockedInvite.status === 'EXPIRED') return 'expired';
+          // Still PENDING, so the claim's only failing predicate was the
+          // deadline. Persist EXPIRED — and RETURN rather than throw — so the
+          // marker commits with this transaction instead of rolling back with
+          // an exception. It never marks the invite ACCEPTED, activates or
+          // changes a membership, or creates a notification.
+          if (lockedInvite.expiresAt <= claimTime) {
+            await tx.groupInvite.updateMany({
+              where: { id: invite.id, status: 'PENDING' },
+              data: { status: 'EXPIRED' },
+            });
+            return 'expired';
           }
-          if (current?.status === 'EXPIRED') {
-            throw ApiError.badRequest('This invite has expired');
-          }
-          throw ApiError.conflict('This invite has already been accepted');
+          return 'invalid';
         }
 
         if (existingMember) {
@@ -1446,12 +1465,26 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           },
         });
 
-        return { groupId: invite.groupId };
+        return 'accepted';
       });
 
-      safeRecordActivity(userId, { type: 'GROUP_JOIN' });
-
-      return { success: true, data: { message: 'Invite accepted', ...result } };
+      // The transaction commits the outcome, then — for the failures — the
+      // error is raised HERE, AFTER commit. Raising inside the callback would
+      // roll the whole transaction back, including the EXPIRED marker this
+      // path deliberately persists.
+      switch (outcome) {
+        case 'expired':
+          throw ApiError.badRequest('This invite has expired');
+        case 'revoked':
+          throw ApiError.conflict('This invite has been revoked');
+        case 'already-accepted':
+          throw ApiError.conflict('This invite has already been accepted');
+        case 'invalid':
+          throw ApiError.conflict('This invite is no longer valid');
+        case 'accepted':
+          safeRecordActivity(userId, { type: 'GROUP_JOIN' });
+          return { success: true, data: { message: 'Invite accepted', groupId: invite.groupId } };
+      }
     }
   );
 

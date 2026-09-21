@@ -21,7 +21,17 @@
  *  - resolved against this origin it stays on this origin, and the RESOLVED
  *    form — dot segments collapsed, exactly what the browser would load — is
  *    still a single-slash path;
- *  - it is not an authentication page, which would loop straight back here.
+ *  - it is not an authentication page, which would loop straight back here;
+ *  - it is not hostile once DECODED. Every check above looks at the text as
+ *    written, but a path is also read after percent-decoding, and
+ *    "/%2F%2Fhost" (or "/%5Chost", or the double-encoded "/%252F%252Fhost")
+ *    decodes to a protocol-relative host. So the path is decoded — repeatedly,
+ *    up to a bound, since encoding can be nested — and every layer is held to
+ *    the same rules: no leading "//", no backslash, no control character, and
+ *    no scheme-looking first segment ("/javascript:...", "/https:%2F%2F...").
+ *    A path whose FIRST decode is malformed ("%ZZ", a trailing "%", invalid
+ *    UTF-8) is rejected outright; a "%" that only appears after a decode is a
+ *    literal percent sign ("50%25" is "50%") and is left alone.
  *
  * What is returned is the resolved form, never the raw input.
  */
@@ -37,6 +47,38 @@ function hasControlCharacter(value: string): boolean {
   return false;
 }
 
+const MAX_DECODE_ROUNDS = 4;
+
+function hasHostileShape(path: string): boolean {
+  return (
+    path.startsWith('//') ||
+    path.includes('\\') ||
+    hasControlCharacter(path) ||
+    /^\/+[a-z][a-z0-9+.-]*:/i.test(path)
+  );
+}
+
+/** True if the path — as written or after any layer of percent-decoding — is not a plain in-app path. */
+function isHostileWhenDecoded(pathname: string): boolean {
+  let current = pathname;
+  for (let round = 0; round <= MAX_DECODE_ROUNDS; round++) {
+    if (hasHostileShape(current)) return true;
+    if (!current.includes('%')) return false;
+    let next: string;
+    try {
+      next = decodeURIComponent(current);
+    } catch {
+      // Malformed as WRITTEN: not a destination. Malformed only after an
+      // earlier decode: a literal "%", i.e. the end of the road, and safe.
+      return round === 0;
+    }
+    if (next === current) return false;
+    current = next;
+  }
+  // Still changing after the bound: it cannot be shown to be safe.
+  return true;
+}
+
 export function safeReturnTo(from: unknown, origin: string = window.location.origin): string {
   if (from === null || typeof from !== 'object') return FALLBACK;
   const { pathname, search = '', hash = '' } = from as Record<string, unknown>;
@@ -49,6 +91,7 @@ export function safeReturnTo(from: unknown, origin: string = window.location.ori
   if (hash !== '' && !hash.startsWith('#')) return FALLBACK;
   if (pathname.includes('\\')) return FALLBACK;
   if (hasControlCharacter(candidate)) return FALLBACK;
+  if (isHostileWhenDecoded(pathname)) return FALLBACK;
 
   let url: URL;
   try {

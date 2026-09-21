@@ -63,14 +63,25 @@ interface CanonicalChar {
 
 const isHexDigit = (ch: string): boolean => /^[0-9a-fA-F]$/.test(ch);
 
+interface CanonicalResult {
+  chars: CanonicalChar[];
+  /** True when the decode bound was reached while there was still work to do
+   *  (the last round changed something). In this case the canonical form may
+   *  still encode the invite route, so the caller must fail-closed. */
+  truncated: boolean;
+}
+
 /**
  * Decode ASCII percent-escapes to a fixed point, keeping a raw-span map.
  * Never throws; anything not a well-formed ASCII escape is left as it is.
+ * Returns both the decoded characters and a flag indicating whether the
+ * bounded decoder stopped before reaching a fixpoint.
  */
-function canonicalize(raw: string): CanonicalChar[] {
+function canonicalize(raw: string): CanonicalResult {
   let chars: CanonicalChar[] = [];
   for (let i = 0; i < raw.length; i++) chars.push({ ch: raw[i], start: i, end: i + 1 });
 
+  let truncated = true;
   for (let round = 0; round < MAX_DECODE_ROUNDS; round++) {
     const next: CanonicalChar[] = [];
     let changed = false;
@@ -88,9 +99,12 @@ function canonicalize(raw: string): CanonicalChar[] {
       next.push(c);
     }
     chars = next;
-    if (!changed) break;
+    if (!changed) {
+      truncated = false;
+      break;
+    }
   }
-  return chars;
+  return { chars, truncated };
 }
 
 const isSeparator = (ch: string): boolean => ch === '/' || ch === '\\';
@@ -130,6 +144,11 @@ function findTokenStart(pathChars: CanonicalChar[]): number {
 /**
  * Replace the invite token in a URL (or path) with a redaction marker.
  * Returns the input unchanged — the very same string — when it carries none.
+ *
+ * When the bounded decoder cannot fully resolve the path within the round
+ * limit, the URL is fail-closed: the entire URL is replaced with a redaction
+ * marker. This prevents leaking a token that might still be encoded under
+ * multiple layers of percent-encoding.
  */
 export function redactUrl(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -143,9 +162,28 @@ export function redactUrl(url: string): string {
   const queryStart = url.search(/[?#]/);
   const pathEnd = queryStart === -1 ? url.length : queryStart;
 
-  const pathChars = canonicalize(url).filter((c) => c.end <= pathEnd);
+  const { chars: allChars, truncated } = canonicalize(url);
+  const pathChars = allChars.filter((c) => c.end <= pathEnd);
+
+  // If the decode bound was reached before the path settled, the canonical
+  // form may still hide the invite route under another layer of encoding.
+  // A remaining '%' in the canonical path chars means an escape was not fully
+  // resolved — fail closed rather than returning the raw URL.
+  if (truncated && pathChars.some((c) => c.ch === '%')) {
+    return REDACTED;
+  }
+
   const tokenStart = findTokenStart(pathChars);
-  if (tokenStart === -1) return url;
+  if (tokenStart === -1) {
+    // The path could not be resolved to a token route. If it still looks like
+    // an invite URL illustrated through a malformed escape (e.g. %ZZgroups
+    // never decodes to "groups"), the escape may itself hide the route — and
+    // an unredacted path could carry the token. Fail closed instead.
+    if (url.slice(0, pathEnd).includes('%') && /invites/i.test(url.slice(0, pathEnd))) {
+      return REDACTED;
+    }
+    return url;
+  }
 
   // The token region ends at the next literal '/', or at the end of the path.
   const nextSlash = url.indexOf('/', tokenStart);

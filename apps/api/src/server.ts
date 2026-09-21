@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
@@ -6,7 +6,7 @@ import { registerPlugins } from './plugins';
 import { registerRoutes } from './routes';
 import { healthRoutes } from './routes/health';
 import { registerWebSocket } from './ws';
-import { errorHandler } from './middleware/error-handler';
+import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 
@@ -51,6 +51,23 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
         // scalar coercion, causing paginated endpoints to 400.
         coerceTypes: true,
       },
+    },
+    // Fastify calls this hook for exactly two routing-level failures, before
+    // any request lifecycle exists: FST_ERR_BAD_URL (a malformed percent-escape
+    // in the path) and FST_ERR_ASYNC_CONSTRAINT. Body-size (413), media-type
+    // (415) and JSON-syntax errors do NOT come through here — they are raised
+    // inside the lifecycle and reach setErrorHandler below.
+    //
+    // FST_ERR_BAD_URL is special-cased because Fastify's default body echoes
+    // the raw URL, which for the invite-resolution route is a bearer token.
+    // Anything else is delegated to the shared error handler UNCHANGED, so its
+    // native status and shape are preserved rather than flattened to a 400.
+    frameworkErrors(error, request, reply) {
+      if (error.code === 'FST_ERR_BAD_URL') {
+        sendMalformedUrlResponse(request, reply as FastifyReply);
+        return;
+      }
+      return errorHandler(error, request, reply as FastifyReply);
     },
   });
 

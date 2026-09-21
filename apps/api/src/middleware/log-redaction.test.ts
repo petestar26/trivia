@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Writable } from 'node:stream';
 import Fastify from 'fastify';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server.js';
+import { errorHandler } from './error-handler.js';
+import type { FastifyError } from 'fastify';
 import { redactUrl, redactedRequestSerializer } from './log-redaction.js';
 import { requestLogger } from './request-logger.js';
 
@@ -72,6 +74,8 @@ describe('redactUrl', () => {
       ['lowercase hex escapes', `/api/v1/%67roups/%69nvites/${T}`.toLowerCase().replace(T.toLowerCase(), T), '/api/v1/%67roups/%69nvites/[REDACTED]'],
       ['double-encoded (%2567)', `/api/v1/%2567roups/invites/${T}`, '/api/v1/%2567roups/invites/[REDACTED]'],
       ['triple-encoded (%252567)', `/api/v1/%252567roups/invites/${T}`, '/api/v1/%252567roups/invites/[REDACTED]'],
+      ['quadruple-encoded (%25252567)', `/api/v1/%25252567roups/invites/${T}`, '/api/v1/%25252567roups/invites/[REDACTED]'],
+      ['depth-5 encoded path — fail closed entirely', `/api/v1/%252525252567roups/invites/${T}`, '[REDACTED]'],
       ['encoded separators, upper', `/api/v1/groups%2Finvites%2F${T}`, '/api/v1/groups%2Finvites%2F[REDACTED]'],
       ['encoded separators, lower', `/api/v1/groups%2finvites%2f${T}`, '/api/v1/groups%2finvites%2f[REDACTED]'],
       ['encoded letters AND separators', `/api/v1/%67roups%2F%69nvites%2F${T}`, '/api/v1/%67roups%2F%69nvites%2F[REDACTED]'],
@@ -425,6 +429,22 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
     ['malformed escape after the token', (t) => `${PREFIX}/groups/invites/${t}%ZZ`],
     ['truncated escape after the token', (t) => `${PREFIX}/groups/invites/${t}%`],
     ['malformed escape before the route words', (t) => `${PREFIX}/%ZZgroups/invites/${t}`],
+    // DEPTH-5+ ENCODED: the decode bound cannot fully resolve the path,
+    // triggering fail-closed — the entire URL is redacted.
+    ['depth-5 encoded g in groups', (t) => `${PREFIX}/%252525252567roups/invites/${t}`],
+    ['depth-5 encoded i in invites', (t) => `${PREFIX}/groups/%252525252569nvites/${t}`],
+    ['depth-5 encoded separator', (t) => `${PREFIX}/groups%2525252525Finvites%2525252525F${t}`],
+    // Nested %25, mixed-case %2F/%2f, depth 4, repeated separators, trailing
+    // paths: each a different way for the raw text to stop looking like the
+    // route while the router still (or narrowly fails to) match it.
+    ['nested %25 separators (double-encoded)', (t) => `${PREFIX}/groups%252Finvites%252F${t}`],
+    ['mixed-case separators (upper then lower)', (t) => `${PREFIX}/groups%2Finvites%2f${t}`],
+    ['mixed-case separators (lower then upper)', (t) => `${PREFIX}/groups%2finvites%2F${t}`],
+    ['repeated encoded separators', (t) => `${PREFIX}/groups%2F%2Finvites%2F%2F${t}`],
+    ['depth-4 encoded g in groups', (t) => `${PREFIX}/%25252567roups/invites/${t}`],
+    ['depth-4 encoded separators', (t) => `${PREFIX}/groups%2525252Finvites%2525252F${t}`],
+    ['encoded route with a trailing path', (t) => `${PREFIX}/%67roups/%69nvites/${t}/more/%2e%2e`],
+    ['depth-5 with a trailing path and a query', (t) => `${PREFIX}/%252525252567roups/invites/${t}/x?y=1`],
     // OUTSIDE the API prefix: these reach the top-level not-found handler in
     // server.ts, which the prefixed routes/index.ts handler otherwise shadows.
     ['unprefixed plain', (t) => `/groups/invites/${t}`],
@@ -461,6 +481,40 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
     }
   }, 120_000);
 
+  it('response bodies never contain the raw token or echo the request URL — anonymous and authenticated, nonexistent and REAL tokens', async () => {
+    let n = 0;
+    let requests = 0;
+    for (const [name, build] of shapes) {
+      for (const authed of [false, true]) {
+        for (const kind of ['nonexistent', 'real'] as const) {
+          const t = kind === 'real' ? realToken : `BODYLEAK${String(n++).padStart(3, '0')}${randomUUID().replaceAll('-', '')}`;
+          const resp = await server.inject({
+            method: 'GET',
+            url: build(t),
+            headers: authed ? authHeader : {},
+            remoteAddress: nextIp(),
+          });
+          requests++;
+          const label = `${name} / ${authed ? 'authenticated' : 'anonymous'} / ${kind} token`;
+          const body = resp.body;
+          expect(body, `response body leaks the token (${label})`).not.toContain(t);
+          // No response — success or failure — may echo the request path.
+          expect(body, `response body echoes the invite route (${label})`).not.toMatch(/\/invites\//i);
+          if (resp.statusCode >= 400) {
+            const parsed = JSON.parse(body);
+            expect(parsed.success, label).toBe(false);
+            expect(parsed.error?.message, `error message echoes route (${label})`).not.toMatch(/\/invites\//i);
+            expect(parsed.error?.message, `error message echoes token (${label})`).not.toContain(t);
+          }
+        }
+      }
+    }
+    expect(requests).toBe(shapes.length * 4);
+    // Let every request's completion line reach the sink before the next test
+    // reads records; otherwise lagging writes bleed into that window.
+    await new Promise((r) => setTimeout(r, 150));
+  }, 180_000);
+
   it('a MATCHED, authenticated request for a REAL token resolves 200 and logs it redacted in all three sinks', async () => {
     const before = sink.lines.length;
     const resp = await server.inject({
@@ -481,7 +535,9 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
     // Fastify's automatic line, and both custom lines, all present and redacted.
     expect(byMsg('incoming request')[0]?.req.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
     expect(byMsg('Incoming request')[0]?.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
-    const completed = byMsg('Request completed')[0];
+    // Scope the completion line to THIS request: a lagging write from an
+    // earlier anonymous request could otherwise carry a 401 into this window.
+    const completed = byMsg('Request completed').filter((r) => r.url === `${PREFIX}/groups/invites/[REDACTED]`).at(-1);
     expect(completed?.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
     // ...and the diagnostics that make the line useful survive.
     expect(completed?.method).toBe('GET');
@@ -555,5 +611,255 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
     const mine = sink.lines.slice(before).join('');
     expect(mine).toContain(`${PREFIX}/notifications?page=2&limit=5`);
     expect(mine).not.toContain('[REDACTED]');
+  });
+
+  it('FST_ERR_BAD_URL returns a generic 400 that never reflects the URL or a token', async () => {
+    const before = sink.lines.length;
+    const t = `BADURL${randomUUID().replaceAll('-', '')}`;
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/groups/%ZZinvites/${t}`,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(400);
+    const body = JSON.parse(resp.body);
+    expect(body.success).toBe(false);
+    expect(body.error?.code).toBe('BAD_REQUEST');
+    expect(body.error?.message).toBe('Bad request');
+    expect(typeof body.meta?.requestId).toBe('string');
+    // The raw URL (with the token) must not be reflected anywhere.
+    expect(JSON.stringify(body)).not.toContain(t);
+    expect(JSON.stringify(body)).not.toContain('/invites/');
+    expect(JSON.stringify(body)).not.toContain('%ZZ');
+
+    await new Promise((r) => setTimeout(r, 50));
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+
+    // The log carries the REDACTED url on a dedicated line — and the error
+    // object, whose message quotes the raw URL, is never logged at all.
+    const recs = mine.split('\n').filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l));
+    const malformed = recs.find((r) => r.msg === 'Malformed request URL');
+    expect(malformed, 'a "Malformed request URL" line is written').toBeDefined();
+    // `%ZZinvites` never decodes to the route, so the whole URL fails closed.
+    expect(malformed.url).toBe('[REDACTED]');
+    expect(recs.some((r) => r.msg === 'Request error'), 'the raw error must not be logged').toBe(false);
+  });
+
+  it('a malformed URL on an AUTHENTICATED request gets the same generic 400 (authentication does not change what is reflected)', async () => {
+    const before = sink.lines.length;
+    const t = `BADURLAUTH${randomUUID().replaceAll('-', '')}`;
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/groups/invites/${t}%`,
+      headers: authHeader,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(400);
+    expect(JSON.parse(resp.body).error).toEqual({ code: 'BAD_REQUEST', message: 'Bad request' });
+    expect(resp.body).not.toContain(t);
+    await new Promise((r) => setTimeout(r, 50));
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+    // Here the route IS recognizable behind the trailing escape, so only the
+    // token is masked and the diagnostics survive.
+    const recs = mine.split('\n').filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l));
+    expect(recs.find((r) => r.msg === 'Malformed request URL')?.url).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
+  });
+
+  it('payload-too-large preserves its native 413 status with a safe, secret-free body', async () => {
+    const before = sink.lines.length;
+    const t = `TOOLARGE${randomUUID().replaceAll('-', '')}`;
+    const hugeBody = `${'x'.repeat(1024 * 1024 + 256)}${t}`;
+    const resp = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/auth/logout`,
+      headers: { 'content-type': 'application/json' },
+      payload: hugeBody,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(413);
+    const body = JSON.parse(resp.body);
+    expect(body.success).toBe(false);
+    // The ESTABLISHED response (identical at e68e474), not the malformed-URL 400.
+    expect(body.error?.message).toBe('Request body is too large');
+    expect(body.error?.message).not.toBe('Bad request');
+    expect(JSON.stringify(body)).not.toContain(t);
+    expect(JSON.stringify(body)).not.toContain('/invites/');
+
+    await new Promise((r) => setTimeout(r, 50));
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+  });
+
+  it('unsupported media type preserves its native 415 status with a safe body', async () => {
+    const before = sink.lines.length;
+    const t = `UNSUPPORTED${randomUUID().replaceAll('-', '')}`;
+    const resp = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/auth/logout`,
+      headers: { 'content-type': 'application/xml' },
+      payload: `<xml>${t}</xml>`,
+      remoteAddress: nextIp(),
+    });
+    // Logout demands auth, but the unsupported media type surfaces during body
+    // parsing — before auth — so 415 is expected regardless of credentials.
+    expect(resp.statusCode).toBe(415);
+    const body = JSON.parse(resp.body);
+    expect(body.error?.message).toBe('Unsupported Media Type: application/xml');
+    expect(JSON.stringify(body)).not.toContain(t);
+    expect(JSON.stringify(body)).not.toContain('/invites/');
+
+    await new Promise((r) => setTimeout(r, 50));
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+  });
+
+  it('invalid JSON preserves the established safe 400 response without reflecting the payload', async () => {
+    const before = sink.lines.length;
+    const t = `BADJSON${randomUUID().replaceAll('-', '')}`;
+    const resp = await server.inject({
+      method: 'POST',
+      url: `${PREFIX}/auth/logout`,
+      headers: { 'content-type': 'application/json' },
+      payload: `{"leak":"${t}",`,
+      remoteAddress: nextIp(),
+    });
+    // Malformed JSON is a body-parsing failure surfaced before auth. The
+    // established behavior is a 400 with a generic error shape; the parser
+    // message may echo a body fragment, so assert the invite token — which
+    // lives in the path, never the body — is absent everywhere.
+    expect(resp.statusCode).toBe(400);
+    const body = JSON.parse(resp.body);
+    expect(body.success).toBe(false);
+    // The parser's own message — established, and distinct from the generic
+    // malformed-URL response.
+    expect(body.error?.message).toMatch(/JSON/);
+    expect(body.error?.message).not.toBe('Bad request');
+    expect(JSON.stringify(body)).not.toContain(t);
+    expect(JSON.stringify(body)).not.toContain('/invites/');
+
+    await new Promise((r) => setTimeout(r, 50));
+    const mine = sink.lines.slice(before).join('');
+    expect(mine).not.toContain(t);
+  });
+
+  it('a validation failure keeps its own 400 VALIDATION_ERROR (an unrelated error family is not flattened)', async () => {
+    const resp = await server.inject({
+      method: 'GET',
+      url: `${PREFIX}/notifications?page=0`,
+      headers: authHeader,
+      remoteAddress: nextIp(),
+    });
+    expect(resp.statusCode).toBe(400);
+    const body = JSON.parse(resp.body);
+    expect(body.error?.code).toBe('VALIDATION_ERROR');
+    expect(body.error?.message).toBe('Validation failed');
+  });
+
+  it('unknown routes answer generically with a 404 — under the API prefix and at the top level — never quoting the URL', async () => {
+    for (const url of [
+      (t: string) => `${PREFIX}/nope/${t}`,
+      (t: string) => `/nope/${t}`,
+      (t: string) => `${PREFIX}/groups/invites/${t}/extra/segments/that/do/not/exist`,
+    ]) {
+      const t = `NOTFOUND${randomUUID().replaceAll('-', '')}`;
+      const resp = await server.inject({ method: 'GET', url: url(t), remoteAddress: nextIp() });
+      expect(resp.statusCode).toBe(404);
+      const body = JSON.parse(resp.body);
+      expect(body.error).toEqual({ code: 'NOT_FOUND', message: 'Route not found' });
+      expect(resp.body).not.toContain(t);
+    }
+  });
+
+  it('an UNRELATED framework error — an async routing constraint failing — is NOT flattened into the malformed-URL 400', async () => {
+    // FST_ERR_ASYNC_CONSTRAINT is the only other error Fastify routes through
+    // the frameworkErrors hook. It must reach the shared error handler and keep
+    // its own 500, rather than being answered with the malformed-URL 400.
+    const constrained = await buildServer({ logStream: sink.stream, logLevel: 'trace' });
+    constrained.addConstraintStrategy({
+      name: 'always-fails',
+      isAsync: true,
+      storage() {
+        const handlers = new Map<string, unknown>();
+        return { get: (value: string) => handlers.get(value) ?? null, set: (value: string, handler: unknown) => void handlers.set(value, handler) };
+      },
+      deriveConstraint(_req: unknown, _ctx: unknown, done: (error: Error | null, value?: string) => void) {
+        done(new Error('the constraint could not be derived'));
+      },
+    } as never);
+    constrained.get('/zz-constrained', { constraints: { 'always-fails': 'x' } } as never, async () => ({ ok: true }));
+    await constrained.ready();
+    try {
+      const resp = await constrained.inject({ method: 'GET', url: '/zz-constrained', remoteAddress: nextIp() });
+      expect(resp.statusCode).toBe(500);
+      const body = JSON.parse(resp.body);
+      expect(body.success).toBe(false);
+      expect(body.error?.code).toBe('INTERNAL_ERROR');
+      expect(body.error?.message).not.toBe('Bad request');
+    } finally {
+      await constrained.close();
+    }
+  });
+
+  it('the REAL invite token never appeared in ANY log line written across this whole suite', () => {
+    expect(sink.lines.join('')).not.toContain(realToken);
+  });
+});
+
+// The shared handler itself, without a server: a FST_ERR_BAD_URL that ever
+// reaches it (the frameworkErrors hook in server.ts is the normal route) must
+// be answered generically BEFORE anything logs the error, whose message
+// quotes the raw URL — and every other error must pass through untouched.
+describe('errorHandler — the malformed-URL guard', () => {
+  const stubs = (url: string) => {
+    const log = { error: vi.fn(), warn: vi.fn() };
+    const reply = { status: vi.fn(), send: vi.fn() };
+    reply.status.mockReturnValue(reply);
+    reply.send.mockReturnValue(reply);
+    return { log, reply, request: { url, headers: {}, log } };
+  };
+
+  it('answers FST_ERR_BAD_URL with the generic 400, logs only the redacted URL, and never logs the raw error', () => {
+    const raw = '/api/v1/groups/invites/UNITSECRET0123456789%';
+    const error = Object.assign(new URIError(`'${raw}' is not a valid url component`), {
+      code: 'FST_ERR_BAD_URL',
+      statusCode: 400,
+    }) as FastifyError;
+    const { log, reply, request } = stubs(raw);
+
+    errorHandler(error, request as never, reply as never);
+
+    expect(reply.status).toHaveBeenCalledWith(400);
+    const sent = reply.send.mock.calls[0][0];
+    expect(sent.error).toEqual({ code: 'BAD_REQUEST', message: 'Bad request' });
+    expect(JSON.stringify(sent)).not.toContain('UNITSECRET');
+    expect(log.error).not.toHaveBeenCalled();
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain('UNITSECRET');
+    expect(log.warn.mock.calls[0][0]).toEqual({ url: '/api/v1/groups/invites/[REDACTED]' });
+  });
+
+  it('leaves every other framework error alone: 413 keeps its status and message', () => {
+    const error = Object.assign(new Error('Request body is too large'), {
+      code: 'FST_ERR_CTP_BODY_TOO_LARGE',
+      statusCode: 413,
+    }) as FastifyError;
+    const { log, reply, request } = stubs('/api/v1/auth/logout');
+
+    errorHandler(error, request as never, reply as never);
+
+    expect(reply.status).toHaveBeenCalledWith(413);
+    expect(reply.send.mock.calls[0][0].error.message).toBe('Request body is too large');
+    expect(log.error).toHaveBeenCalled(); // ordinary errors are still logged
+  });
+
+  it('an error whose MESSAGE quotes an invite route is answered generically but keeps its own status', () => {
+    const error = Object.assign(new Error('Route GET:/api/v1/groups/invites/QUOTED123 not found'), { statusCode: 404 }) as FastifyError;
+    const { reply, request } = stubs('/x');
+
+    errorHandler(error, request as never, reply as never);
+
+    expect(reply.status).toHaveBeenCalledWith(404);
+    expect(JSON.stringify(reply.send.mock.calls[0][0])).not.toContain('QUOTED123');
   });
 });

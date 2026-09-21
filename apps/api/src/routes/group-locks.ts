@@ -35,6 +35,24 @@ import type { Prisma } from '@socialplay/database';
  *                                      before the users row would invert the
  *                                      order and reintroduce the cycle.
  *
+ * ── Level 4 and the clock ─────────────────────────────────────────────────
+ * The invite row lock is not just ordering. Acceptance decides "is this invite
+ * still live?" against the clock, and every lock above can make it wait — for
+ * as long as a competing transaction holds it — so an invite that was valid
+ * when acceptance started can be past its deadline by the time the last lock is
+ * held. Two rules follow, and both are needed:
+ *
+ *   - Take the invite row lock (lockInviteRow) BEFORE reading the clock. A
+ *     bare `UPDATE ... WHERE "expiresAt" > <clock>` is not enough: its WHERE
+ *     is evaluated before the row lock wait, and PostgreSQL re-evaluates it
+ *     afterwards only if the row was UPDATED meanwhile — a lock-only holder
+ *     (a SELECT ... FOR UPDATE, any explicit row lock) leaves the stale answer
+ *     in place. Locking first makes the later UPDATE wait-free.
+ *   - Read a real clock (a fresh `new Date()`, or clock_timestamp()) AFTER
+ *     that lock is held. Never the transaction-start now() / CURRENT_TIMESTAMP,
+ *     which are frozen at BEGIN and would call a long-blocked, long-expired
+ *     invite live.
+ *
  * ── Why level 1 is FOR SHARE ──────────────────────────────────────────────
  * Admission needs the account's status/email/verification to stay put until
  * it commits, but it never writes the users row. FOR SHARE blocks a
@@ -103,4 +121,30 @@ export function inviteSubjectLockKey(groupId: string, email: string): string {
 export async function lockInviteSubject(tx: Tx, groupId: string, email: string): Promise<void> {
   const key = inviteSubjectLockKey(groupId, email);
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
+}
+
+export interface LockedInvite {
+  id: string;
+  status: string;
+  expiresAt: Date;
+}
+
+/**
+ * Level 4: lock the invite row and return what it holds NOW. Waits behind any
+ * other transaction that has locked or is writing the row, so whatever it
+ * returns is authoritative for as long as the caller's transaction lasts.
+ *
+ * FOR NO KEY UPDATE is exactly the lock an UPDATE of this row would take, so
+ * the claim that follows conflicts with nothing new — and, being wait-free
+ * (the row is already ours), can safely be judged against a clock read AFTER
+ * this call returns. Returns null if the row is gone.
+ */
+export async function lockInviteRow(tx: Tx, inviteId: string): Promise<LockedInvite | null> {
+  const rows = await tx.$queryRaw<LockedInvite[]>`
+    SELECT "id", "status"::text AS "status", "expiresAt"
+    FROM "group_invites"
+    WHERE "id" = ${inviteId}
+    FOR NO KEY UPDATE
+  `;
+  return rows[0] ?? null;
 }

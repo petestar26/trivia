@@ -345,7 +345,8 @@ describe('durable invite-link recovery', () => {
       await screen.findByText('Active invites (2)');
       await user.click(copyButton('person2@test.com'));
 
-      const rows = screen.getAllByRole('status').filter((el) => el.tagName === 'P');
+      // Each ROW owns one status region; the list-level announcement regions are not rows.
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-invite-id] p[role="status"]'));
       expect(rows.map((r) => r.textContent?.replace(/\u200B/g, ''))).toEqual(['', 'Invite link copied.']);
     });
   });

@@ -20,6 +20,16 @@ describe('safeReturnTo — accepts plain in-app locations and keeps ALL of them'
     [loc('/wallet', undefined, undefined), '/wallet'],
     [{ pathname: '/rewards' }, '/rewards'],
     [loc('/games/trivia', '?category=Science%20%26%20Nature'), '/games/trivia?category=Science%20%26%20Nature'],
+    // Percent-encoding that is NOT hostile stays as written.
+    [loc('/search/50%25'), '/search/50%25'],
+    [loc('/files/a%2Fb'), '/files/a%2Fb'],
+    [loc('/caf%C3%A9'), '/caf%C3%A9'],
+    [loc('/groups/g%2D1'), '/groups/g%2D1'],
+    [loc('/groups/x:y'), '/groups/x:y'],
+    // Benign paths that are encoded more than once are still within the decode bound.
+    [loc('/a%2541b'), '/a%2541b'],
+    [loc('/a%252520b'), '/a%252520b'],
+    [loc('/groups/invite/t', '?next=https%3A%2F%2Fexample.test%2Fx'), '/groups/invite/t?next=https%3A%2F%2Fexample.test%2Fx'],
   ])('%j -> %s', (from, expected) => {
     expect(check(from)).toBe(expected);
   });
@@ -70,6 +80,28 @@ describe('safeReturnTo — falls back to "/" for anything that is not a plain in
     ['forgot-password', loc('/forgot-password')],
     ['login reached through dot segments', loc('/groups/../login')],
     ['an oversized location', loc('/' + 'a'.repeat(3000))],
+    // ── hostile only once DECODED ──
+    ['encoded protocol-relative (%2F%2F)', loc('/%2F%2Fevil.example')],
+    ['encoded protocol-relative, lower-case hex', loc('/%2f%2fevil.example')],
+    ['one encoded slash after the root slash (//)', loc('/%2Fevil.example')],
+    ['encoded backslash (%5C)', loc('/%5Cevil.example')],
+    ['encoded backslash, lower-case hex', loc('/%5cevil.example')],
+    ['double-encoded protocol-relative (%252F)', loc('/%252F%252Fevil.example')],
+    ['triple-encoded protocol-relative', loc('/%25252F%25252Fevil.example')],
+    ['encoded TAB smuggling a second slash', loc('/%09/evil.example')],
+    ['encoded CRLF', loc('/wallet%0d%0aSet-Cookie:x=1')],
+    ['encoded NUL', loc('/wallet%00')],
+    ['a scheme-looking first segment (javascript:)', loc('/javascript:alert(1)')],
+    ['a scheme-looking first segment with an encoded colon', loc('/javascript%3Aalert(1)')],
+    ['a scheme-looking first segment (data:)', loc('/data:text/html,hi')],
+    ['an encoded external URL as the first segment', loc('/https%3A%2F%2Fevil.example')],
+    ['a scheme-looking first segment behind an extra slash', loc('/.//https:evil')],
+    // ── malformed as written ──
+    ['a malformed escape (%ZZ)', loc('/%ZZ')],
+    ['a lone percent sign', loc('/%')],
+    ['a trailing percent sign', loc('/wallet%')],
+    ['a truncated multi-byte escape', loc('/%E0%A4%A')],
+    ['an overlong UTF-8 escape', loc('/%C0%AF')],
   ];
 
   it.each(hostile)('%s', (_name, from) => {
@@ -79,6 +111,14 @@ describe('safeReturnTo — falls back to "/" for anything that is not a plain in
   it('never throws, whatever it is handed', () => {
     const weird = [Symbol('x'), () => '/wallet', new Date(), /re/, { pathname: { toString: () => '/x' } }, Object.create(null)];
     for (const w of weird) expect(() => check(w)).not.toThrow();
+  });
+
+  it('a protocol-relative host is rejected however many times it is encoded — nested beyond the decode bound too', () => {
+    const encode = (text: string, layers: number) => Array.from({ length: layers }).reduce<string>((acc) => encodeURIComponent(acc), text);
+    for (let layers = 1; layers <= 9; layers++) {
+      expect(check(loc('/' + encode('//evil.example', layers))), `${layers} layer(s) of encoding`).toBe('/');
+      expect(check(loc('/' + encode('\\evil.example', layers))), `${layers} layer(s), backslash`).toBe('/');
+    }
   });
 
   it('a look-alike prefix of an auth page is a different page and is allowed', () => {

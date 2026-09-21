@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { copyText, type CopyOutcome } from '@/lib/clipboard';
 import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { inviteLink } from '@/lib/invite-link';
 import { notificationsScopeKey } from '@/lib/notifications-query-keys';
+import {
+  applyCreatedInvite,
+  applyRevokedInvite,
+  flattenInvitesPages,
+  toInvitesPage,
+  type InvitesInbox,
+  type InvitesPage,
+} from '@/lib/group-invites-pages';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -14,6 +22,10 @@ import { Input } from '@/components/ui/input';
 import type { GroupDetailInfo, GroupInviteInfo, GroupMemberInfo } from '@socialplay/shared';
 
 const ROLE_OPTIONS = ['ADMIN', 'MODERATOR', 'MEMBER'] as const;
+
+type InvitesFailure = 'initial' | 'refresh' | 'next-page';
+
+const INVITES_PAGE_LIMIT = 50;
 
 const inviteLinkFieldId = (inviteId: string) => `invite-link-${inviteId}`;
 
@@ -60,12 +72,137 @@ export function GroupDetailPage() {
     enabled: !!groupId && !!groupQuery.data?.isMember,
   });
 
-  const invitesQuery = useQuery<GroupInviteInfo[]>({
+  const invitesQuery = useInfiniteQuery({
+    // Keep the key group-scoped: create/revoke/ban mutations invalidate
+    // `['group-invites', groupId]` as an exact prefix, which must still match.
     queryKey: ['group-invites', groupId],
-    // The API's largest page: every live invite a manager is likely to have,
-    // each with its recoverable link, rather than only the first twenty.
-    queryFn: async () => (await api.listGroupInvites(groupId, { limit: 100 })).data ?? [],
+    // Pages of pending invites fetched by offset. The limit is deliberately
+    // smaller than the API maximum so a group with more invitations than one
+    // page can hold still exposes every one of them via meta/fetchNextPage —
+    // a manager must be able to copy or revoke the 101st invite, not just the
+    // first pageful.
+    queryFn: async ({ pageParam }): Promise<InvitesPage> =>
+      toInvitesPage(await api.listGroupInvites(groupId, { limit: INVITES_PAGE_LIMIT, page: pageParam }), pageParam),
+    initialPageParam: 1,
+    // The next page is derived from the successful `lastPageParam` — never
+    // trusted from `meta.page` — and only advances while the server claims a
+    // next page exists.
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.hasNextPage ? (lastPageParam as number) + 1 : undefined,
     enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '') && groupQuery.data?.isPrivate,
+  });
+
+  // Flatten every loaded page and drop duplicate ids (a new invite landing at
+  // the top between two offset page fetches can appear on both). The cache
+  // itself stores exactly what the server sent; deduplication is render-only.
+  const invites = flattenInvitesPages(invitesQuery.data?.pages);
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError } = invitesQuery;
+  const hasInvitesData = invitesQuery.data !== undefined;
+
+  // WHICH failure is on screen, remembered across the retry that follows it.
+  // React Query clears or reclassifies its own error the moment a retry starts
+  // (with no data it goes back to `pending`; after a next-page failure a
+  // refresh resets the fetch direction), so deriving the message from it alone
+  // would unmount the very Retry button the user just activated — and Chromium
+  // answers that by dropping focus onto <body> for the whole request. Kept as
+  // state adjusted during render, so there is no frame of lag.
+  const [rememberedInvitesFailure, setRememberedInvitesFailure] = useState<InvitesFailure | null>(null);
+  let invitesFailure: InvitesFailure | null = rememberedInvitesFailure;
+  if (invitesQuery.isSuccess) {
+    invitesFailure = null;
+  } else if (invitesQuery.isError && !isFetching) {
+    invitesFailure = !hasInvitesData ? 'initial' : isFetchNextPageError ? 'next-page' : 'refresh';
+  }
+  if (invitesFailure !== rememberedInvitesFailure) setRememberedInvitesFailure(invitesFailure);
+  const invitesNextPageFailed = hasInvitesData && isFetchNextPageError;
+
+  // Outcomes are announced through one live region. The nonce makes a REPEATED
+  // identical outcome a real DOM change, so it is announced again.
+  const [invitesAnnouncement, setInvitesAnnouncement] = useState({ message: '', nonce: 0 });
+  const announceInvites = (message: string) =>
+    setInvitesAnnouncement((prev) => ({ message, nonce: prev.nonce + 1 }));
+  const invitesAnnouncementText =
+    invitesAnnouncement.message === '' ? '' : `${invitesAnnouncement.message}${invitesAnnouncement.nonce % 2 ? '\u200B' : ''}`;
+
+  // A burst of "Load more" activations must produce exactly one next-page
+  // request. `isFetchingNextPage` updates a render late, so two same-tick
+  // clicks can both see it false; a ref flips synchronously, so the second
+  // click is dropped before it can reach the fetcher. Without it React Query's
+  // default behaviour would cancel the in-flight request and re-send it.
+  const nextPageInFlightRef = useRef(false);
+
+  // Where keyboard focus must land if the control that was just activated
+  // leaves the DOM (the last page removes Load more; a successful retry
+  // dismisses the banner that held it). Only recorded when the control actually
+  // had focus, so a pointer user is never moved.
+  const invitesFocusRef = useRef<{ trigger: HTMLElement; knownIds: ReadonlySet<string> } | null>(null);
+  const invitesCardRef = useRef<HTMLDivElement | null>(null);
+  const invitesHeadingRef = useRef<HTMLHeadingElement | null>(null);
+
+  const loadNextInvitesPage = (trigger: HTMLElement) => {
+    if (nextPageInFlightRef.current) return;
+    // A background refresh (from invalidation/refetch) is not a user
+    // next-page request: re-fetching page 1 right now could reorder the list
+    // under a focused control. The control is aria-disabled meanwhile, the
+    // refresh retains every loaded page and the cursor, and the user's
+    // explicit Load more works again the moment it settles.
+    if (isFetching && !isFetchingNextPage) return;
+    nextPageInFlightRef.current = true;
+    const knownIds = new Set(invites.map((inv) => inv.id));
+    const pagesBefore = invitesQuery.data?.pages.length ?? 0;
+    invitesFocusRef.current = document.activeElement === trigger ? { trigger, knownIds } : null;
+    announceInvites('Loading more invites…');
+    void fetchNextPage()
+      .then((result) => {
+        if (result.isFetchNextPageError) {
+          announceInvites('Failed to load more invites.');
+          return;
+        }
+        // "Loaded" means a NEW PAGE arrived. A request that was cancelled and
+        // superseded (a create or a revoke reconciles the list while it is in
+        // flight) resolves too — with whatever the list holds by then, which
+        // may already include rows from that reconciliation but no new page.
+        // Its outcome is not this request's to announce.
+        if ((result.data?.pages.length ?? 0) <= pagesBefore) {
+          invitesFocusRef.current = null;
+          return;
+        }
+        const added = flattenInvitesPages(result.data?.pages).filter((inv) => !knownIds.has(inv.id)).length;
+        announceInvites(added > 0 ? `Loaded ${added} more invite${added === 1 ? '' : 's'}.` : 'No more invites to load.');
+      })
+      .finally(() => {
+        nextPageInFlightRef.current = false;
+      });
+  };
+
+  // Retry after a failed first load or a failed refresh.
+  const retryInvites = (trigger: HTMLElement) => {
+    if (isFetching) return;
+    invitesFocusRef.current = document.activeElement === trigger ? { trigger, knownIds: new Set(invites.map((inv) => inv.id)) } : null;
+    void invitesQuery.refetch();
+  };
+
+  // Runs after every render while a focus request is pending, so it sees the
+  // DOM the settled state actually produced.
+  useLayoutEffect(() => {
+    const request = invitesFocusRef.current;
+    if (!request || isFetching) return;
+    invitesFocusRef.current = null;
+    // The control that was activated is still there: focus never left it.
+    if (request.trigger.isConnected) return;
+    const container = invitesCardRef.current;
+    const active = document.activeElement;
+    // Focus that already landed somewhere in the list is left alone.
+    if (active && active !== document.body && container?.contains(active)) return;
+    const rows = Array.from(container?.querySelectorAll<HTMLElement>('[data-invite-id]') ?? []);
+    const appended = rows.filter((row) => !request.knownIds.has(row.dataset.inviteId ?? ''));
+    // The first invite the user has not seen yet that they can act on, so the
+    // next Tab continues from where the new content begins; failing that the
+    // list heading; failing that the invite form.
+    const firstAction = appended
+      .map((row) => row.querySelector<HTMLElement>('[data-action="copy-link"]'))
+      .find((el): el is HTMLElement => el !== null);
+    (firstAction ?? invitesHeadingRef.current ?? inviteInputRef.current)?.focus();
   });
 
   const requestsQuery = useQuery<GroupMemberInfo[]>({
@@ -220,12 +357,12 @@ export function GroupDetailPage() {
       if (created?.token) {
         // The invite exists now, and it must be reachable from the page no
         // matter what the clipboard, the toast or the refetch below do: put it
-        // in the list straight from the response. The refetch then reconciles
-        // it with the server; if that refetch fails, the row is still here.
-        queryClient.setQueryData<GroupInviteInfo[]>(['group-invites', groupId], (current) => [
-          created,
-          ...(current ?? []).filter((inv) => inv.id !== created.id),
-        ]);
+        // in the list straight from the response, inside the page structure so
+        // a later refetch (that may return the invite on page 1) or a FAILED
+        // refresh (that keeps whatever is cached) cannot make it vanish.
+        queryClient.setQueryData<InvitesInbox>(['group-invites', groupId], (current) =>
+          applyCreatedInvite(current, created)
+        );
       }
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
 
@@ -251,7 +388,13 @@ export function GroupDetailPage() {
 
   const revokeMutation = useMutation({
     mutationFn: (inviteId: string) => api.revokeGroupInvite(groupId, inviteId),
-    onSuccess: () => {
+    onSuccess: (_res, inviteId) => {
+      // Gone from every loaded page NOW: were it left until the refetch below
+      // succeeds, a failed refresh would keep showing a revoked invite — and
+      // its still-copyable link — as active.
+      queryClient.setQueryData<InvitesInbox>(['group-invites', groupId], (current) =>
+        applyRevokedInvite(current, inviteId)
+      );
       queryClient.invalidateQueries({ queryKey: ['group-invites', groupId] });
       toast({ title: 'Invite revoked' });
     },
@@ -611,17 +754,47 @@ export function GroupDetailPage() {
         </Card>
       )}
 
+      {/* The first load of the invite list is announced — nothing else on the
+          page says the list is still coming. */}
+      {isManager && group.isPrivate && (
+        <p role="status" aria-live="polite" className="sr-only">
+          {invitesQuery.isLoading ? 'Loading invites…' : ''}
+        </p>
+      )}
+
       {/* Active invites (managers, private groups) */}
-      {isManager && group.isPrivate && invitesQuery.data && invitesQuery.data.length > 0 && (
+      {isManager && group.isPrivate && (invites.length > 0 || invitesFailure === 'initial') && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Active invites ({invitesQuery.data.length})</CardTitle>
+            <CardTitle ref={invitesHeadingRef} tabIndex={-1} className="text-sm">
+              Active invites{invites.length > 0 ? ` (${invites.length})` : ''}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {invitesQuery.data.map((inv) => {
+          <CardContent ref={invitesCardRef} className="space-y-2">
+            {/* The first load failed: say so, and offer the way out. Stays
+                mounted (aria-disabled, "Retrying…") while the retry runs. */}
+            {invitesFailure === 'initial' && invites.length === 0 && (
+              <div className="space-y-2">
+                <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                  Couldn&apos;t load invites.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-action="retry-invites"
+                  className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+                  aria-label="Retry loading invites"
+                  aria-disabled={isFetching || undefined}
+                  onClick={(e) => retryInvites(e.currentTarget)}
+                >
+                  {isFetching ? 'Retrying…' : 'Retry'}
+                </Button>
+              </div>
+            )}
+            {invites.map((inv) => {
               const feedback = copyFeedback?.inviteId === inv.id ? copyFeedback : null;
               return (
-                <div key={inv.id} className="rounded-md border p-3 space-y-2">
+                <div key={inv.id} data-invite-id={inv.id} className="rounded-md border p-3 space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <span className="text-sm font-medium">{inv.email}</span>
@@ -649,6 +822,7 @@ export function GroupDetailPage() {
                           type="button"
                           size="sm"
                           variant="outline"
+                          data-action="copy-link"
                           aria-label={`Copy link for ${inv.email}`}
                           onClick={() => void copyInviteLink(inv)}
                         >
@@ -671,6 +845,61 @@ export function GroupDetailPage() {
                 </div>
               );
             })}
+            {/* A failed background refresh (invalidation/refetch) must not
+                disturb the loaded invites — every page stays — but it needs a
+                distinct, retryable signal that is NOT a "load more" error. The
+                banner and its Retry stay mounted while the retry runs. */}
+            {invitesFailure === 'refresh' && invites.length > 0 && (
+              <div className="flex items-center gap-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200">
+                <span role="alert" className="flex-1">Couldn&apos;t refresh invites.</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-action="retry-invites"
+                  className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+                  aria-label="Retry refreshing invites"
+                  aria-disabled={isFetching || undefined}
+                  onClick={(e) => retryInvites(e.currentTarget)}
+                >
+                  {isFetching ? 'Retrying…' : 'Retry'}
+                </Button>
+              </div>
+            )}
+            {/* Load more and its Retry are ONE control: the same element in the
+                same place through every state, so a keyboard user who activates
+                it keeps their place. It is never natively disabled (Chromium
+                drops focus from a control that becomes `disabled`) — it is
+                aria-disabled and its handler refuses while a fetch is running. */}
+            {(hasNextPage || invitesNextPageFailed) && (
+              <div className="flex flex-col items-center gap-2 pt-2">
+                {invitesNextPageFailed && (
+                  <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                    Couldn&apos;t load more invites.
+                  </p>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  data-next-invites-page
+                  className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
+                  aria-label={invitesNextPageFailed ? 'Retry loading more invites' : undefined}
+                  aria-disabled={isFetching || undefined}
+                  aria-busy={isFetchingNextPage}
+                  onClick={(e) => loadNextInvitesPage(e.currentTarget)}
+                >
+                  {isFetchingNextPage
+                    ? invitesNextPageFailed
+                      ? 'Retrying…'
+                      : 'Loading…'
+                    : invitesNextPageFailed
+                      ? 'Retry'
+                      : 'Load more'}
+                </Button>
+              </div>
+            )}
+            <p role="status" aria-live="polite" className="sr-only">
+              {invitesAnnouncementText}
+            </p>
           </CardContent>
         </Card>
       )}

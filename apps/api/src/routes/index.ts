@@ -52,12 +52,12 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // this API_PREFIX-wrapped block — see the comment there. Not registered
   // here.
 
-  server.setNotFoundHandler(async (request, reply) => {
+  server.setNotFoundHandler(async (_request, reply) => {
     reply.status(404).send({
       success: false,
       error: {
         code: 'NOT_FOUND',
-        message: `Route ${request.method} ${request.url} not found`,
+        message: 'Route not found',
       },
     });
   });

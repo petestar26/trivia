@@ -271,12 +271,14 @@ describeIf('invite acceptance vs account status — deterministic PostgreSQL sch
 
         await prisma.$transaction(
           async (tx) => {
-            // Park the acceptance at its invite CLAIM. By then it has already
-            // taken the account lock (level 1) and the subject lock (level 2).
+            // Park the acceptance at its invite CLAIM — the invite-row lock it
+            // takes (lockInviteRow) before it reads the clock and claims. By
+            // then it has already taken the account lock (level 1) and the
+            // subject lock (level 2).
             await tx.$queryRaw`SELECT "id" FROM "group_invites" WHERE "id" = ${f.inviteId} FOR UPDATE`;
             acceptP = accept(f);
             acceptP.catch(() => undefined);
-            await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_invites"%' });
+            await waitForBlockedBackends(1, { queryLike: '%"group_invites"%' });
 
             // Now a status writer arrives. It must WAIT for the acceptance —
             // which proves the account lock is held all the way through the
@@ -359,7 +361,7 @@ describeIf('invite acceptance vs account status — deterministic PostgreSQL sch
           await tx.$queryRaw`SELECT "id" FROM "group_invites" WHERE "id" = ${f.inviteId} FOR UPDATE`;
           acceptP = accept(f);
           acceptP.catch(() => undefined);
-          await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_invites"%' });
+          await waitForBlockedBackends(1, { queryLike: '%"group_invites"%' });
 
           // A writer following the documented order: users row first, and
           // only afterwards the memberships it wants to evict. If it took the
@@ -403,7 +405,7 @@ describeIf('invite acceptance vs account status — deterministic PostgreSQL sch
           await tx.$queryRaw`SELECT "id" FROM "group_invites" WHERE "id" = ${f.inviteId} FOR UPDATE`;
           pending = accept(f);
           pending.catch(() => undefined);
-          await waitForBlockedBackends(1, { queryLike: '%UPDATE "public"."group_invites"%' });
+          await waitForBlockedBackends(1, { queryLike: '%"group_invites"%' });
           await tx.groupInvite.update({ where: { id: f.inviteId }, data: { status: change } });
         },
         { timeout: 30_000, maxWait: 30_000 }

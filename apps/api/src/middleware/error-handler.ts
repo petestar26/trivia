@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyError, FastifyRequest, FastifyReply } from 'fastify';
 import { config } from '@socialplay/config';
 import { ErrorCode } from '@socialplay/shared';
+import { redactUrl } from './log-redaction.js';
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -63,11 +64,43 @@ export class ApiError extends Error implements AppError {
   }
 }
 
+/**
+ * The ONE response for a request URL that Fastify's router rejects as
+ * malformed (FST_ERR_BAD_URL — an escape like %ZZ, or a trailing %).
+ *
+ * Fastify's own body for it is `'<the raw url>' is not a valid url component`,
+ * and the raw URL of `GET /groups/invites/:token` carries a bearer-equivalent
+ * secret: echoing it hands the token back in the response, and logging the
+ * error hands it to every log sink. So the response is generic, the log line
+ * carries only the REDACTED url, and the error object (whose message holds the
+ * raw one) is never logged.
+ *
+ * Used by the frameworkErrors hook in server.ts and, as defence in depth, by
+ * errorHandler below should such an error ever reach it.
+ */
+export function sendMalformedUrlResponse(request: FastifyRequest, reply: FastifyReply): void {
+  request.log.warn({ url: redactUrl(request.url) }, 'Malformed request URL');
+  reply.status(400).send({
+    success: false,
+    error: {
+      code: ErrorCode.BAD_REQUEST,
+      message: 'Bad request',
+    },
+    meta: { requestId: (request.headers['x-request-id'] as string) || crypto.randomUUID() },
+  });
+}
+
 export function errorHandler(
   error: FastifyError,
   request: FastifyRequest,
   reply: FastifyReply
 ): void {
+  // Before ANYTHING logs `error`: its message echoes the raw request URL.
+  if (error.code === 'FST_ERR_BAD_URL') {
+    sendMalformedUrlResponse(request, reply);
+    return;
+  }
+
   const requestId = request.headers['x-request-id'] as string || crypto.randomUUID();
 
   request.log.error({ err: error, requestId }, 'Request error');
@@ -157,9 +190,16 @@ export function errorHandler(
   }
 
   const statusCode = error.statusCode || 500;
-  const message = config.NODE_ENV === 'production' && statusCode === 500
-    ? 'Internal server error'
-    : error.message;
+
+  // Belt and braces for the RESPONSE: any other error whose message quotes an
+  // invite-token path is answered generically, keeping its own status. (The
+  // known source of such a message, FST_ERR_BAD_URL, never gets here.)
+  const echoesInviteRoute = typeof error.message === 'string' && /\/groups\/invites\//i.test(error.message);
+  const message = echoesInviteRoute
+    ? 'Bad request'
+    : (config.NODE_ENV === 'production' && statusCode === 500
+      ? 'Internal server error'
+      : error.message);
 
   reply.status(statusCode).send({
     success: false,
