@@ -273,8 +273,8 @@ describeIf('invite acceptance vs account status — deterministic PostgreSQL sch
           async (tx) => {
             // Park the acceptance at its invite CLAIM — the invite-row lock it
             // takes (lockInviteRow) before it reads the clock and claims. By
-            // then it has already taken the account lock (level 1) and the
-            // subject lock (level 2).
+            // then it has already taken the account lock (level 1), the group
+            // lock (level 2) and the subject lock (level 3).
             await tx.$queryRaw`SELECT "id" FROM "group_invites" WHERE "id" = ${f.inviteId} FOR UPDATE`;
             acceptP = accept(f);
             acceptP.catch(() => undefined);

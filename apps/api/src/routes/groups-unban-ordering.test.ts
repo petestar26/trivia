@@ -8,7 +8,7 @@ import { waitForBlockedBackends } from '../test/pg-locks.js';
 
 // Unban under concurrency: forced PostgreSQL schedules, not timing loops.
 //
-// Unban takes the same level-2 (group, email) subject lock as ban and as invite
+// Unban takes the same level-3 (group, email) subject lock as ban and as invite
 // acceptance (see group-locks.ts), so it is TOTALLY ORDERED against them. Each
 // schedule below holds that lock in a test transaction, parks the requests
 // behind it in a chosen order, PROVES they are all parked (pg_stat_activity),

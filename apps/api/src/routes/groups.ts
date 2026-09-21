@@ -4,10 +4,14 @@ import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
 import {
+  ADMISSION_PERMITTED_GROUP_STATUSES,
   ADMISSION_PERMITTED_USER_STATUSES,
   lockAccountForAdmission,
+  lockGroupForAdmission,
+  lockGroupForDeletion,
   lockInviteRow,
   lockInviteSubject,
+  type LockedGroup,
 } from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
@@ -40,6 +44,36 @@ function assertAdmissionEligible(
   }
   if (account.email.toLowerCase() !== inviteEmail.toLowerCase()) {
     throw ApiError.forbidden('This invite is not for your email address');
+  }
+}
+
+/**
+ * Whether the account a manager is admitting through a join request may be
+ * admitted at all. Judged on the row read UNDER the account lock. A join request
+ * carries no invitation, so — unlike acceptance — nothing here compares an
+ * email: the only question is whether the account is usable (canonical ACTIVE).
+ * The rejection is one generic answer for every restricted status, so a manager
+ * learns nothing about an applicant's platform standing beyond "not now".
+ */
+function assertApplicantAdmissible(account: { status: string } | null): void {
+  if (!account) {
+    // The applicant (and with them the request) was deleted after the manager's
+    // fast-path read.
+    throw ApiError.notFound('Join request not found');
+  }
+  if (!(ADMISSION_PERMITTED_USER_STATUSES as readonly string[]).includes(account.status)) {
+    throw ApiError.forbidden('This applicant is not eligible to be admitted');
+  }
+}
+
+/**
+ * Whether the group still admits, judged on the row read UNDER the group lock
+ * (lockGroupForAdmission) — never on a read taken before it. A group that has
+ * been archived, deactivated or banned, or deleted, admits nobody.
+ */
+function assertGroupActive(group: LockedGroup | null): asserts group is LockedGroup {
+  if (!group || !(ADMISSION_PERMITTED_GROUP_STATUSES as readonly string[]).includes(group.status)) {
+    throw ApiError.badRequest('Group is not active');
   }
 }
 
@@ -325,6 +359,14 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       await assertManager(group.id, request.user!.sub, ['OWNER']);
 
       await prisma.$transaction(async (tx) => {
+        // Level 2 of the protocol in group-locks.ts, FIRST: the group row before
+        // any member row. Deleting the members first inverted the order every
+        // other group writer uses (transfer and admission take the group row,
+        // then member rows), so a delete holding member rows while waiting for
+        // the group row could deadlock with either (PostgreSQL 40P01 -> a 500).
+        if (!(await lockGroupForDeletion(tx, group.id))) {
+          throw ApiError.notFound('Group not found');
+        }
         await tx.groupMember.deleteMany({ where: { groupId: group.id } });
         await tx.group.delete({ where: { id: group.id } });
       });
@@ -805,7 +847,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       });
 
       const alreadyBanned = await prisma.$transaction(async (tx) => {
-        // Level 2 of the protocol in group-locks.ts, taken FIRST so this ban
+        // Level 3 of the protocol in group-locks.ts, taken FIRST so this ban
         // is totally ordered against invite creation and invite acceptance
         // for the same (group, email). Without it a concurrent invite could
         // commit a PENDING invite AFTER this transaction revoked the pending
@@ -1017,7 +1059,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       });
 
       await prisma.$transaction(async (tx) => {
-        // Level 2 of the protocol in group-locks.ts, first in the transaction
+        // Level 3 of the protocol in group-locks.ts, first in the transaction
         // exactly as ban takes it, so an unban is totally ordered against a
         // ban, an invite creation and an invite acceptance for the same
         // (group, email). The two orders that matter: an acceptance that
@@ -1261,6 +1303,15 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         | null = null;
       try {
         await prisma.$transaction(async (tx) => {
+          // Level 2 of the protocol in group-locks.ts, first in the transaction.
+          // The group is only ACTIVE for as long as this lock is held, so an
+          // archive that commits after the fast-path check above cannot leave a
+          // fresh PENDING invite (and an invitation notification) behind it. It
+          // is also what orders this transaction against a group DELETE: taking
+          // the group row first means a delete can no longer wait on the stale
+          // invite this transaction just closed out while this transaction
+          // waits on the group row for its INSERT.
+          assertGroupActive(await lockGroupForAdmission(tx, groupId));
           await lockInviteSubject(tx, groupId, normalizedEmail);
 
           if (existingUser) {
@@ -1546,19 +1597,20 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       assertAdmissionEligible(preflight, invite.email);
 
       const outcome = await prisma.$transaction(async (tx): Promise<'accepted' | 'expired' | 'revoked' | 'already-accepted' | 'invalid'> => {
-        // AUTHORITATIVE CHECK. Lock the account row and re-read it, then hold
-        // the lock through the membership transition, the invite claim and
-        // the commit, so a status change cannot slip in between the check and
-        // the admission. Order matters — see the protocol in group-locks.ts:
-        // account row first, then the (group, email) subject.
+        // AUTHORITATIVE CHECKS. Lock the account row and the group row and
+        // re-read both, then hold the locks through the invite claim, the
+        // membership transition, the notification and the commit, so neither an
+        // account restriction nor a group status change can slip in between the
+        // check and the admission. Order matters — see the protocol in
+        // group-locks.ts: account row (1), group row (2), then the (group,
+        // email) subject (3). The group's status is read from the LOCKED row:
+        // a plain read here, ahead of the waits below, would go stale while this
+        // transaction sat behind the subject, member or invite lock.
         const account = await lockAccountForAdmission(tx, userId);
+        const group = await lockGroupForAdmission(tx, invite.groupId);
         await lockInviteSubject(tx, invite.groupId, invite.email);
         assertAdmissionEligible(account, invite.email);
-
-        const group = await tx.group.findUnique({ where: { id: invite.groupId } });
-        if (!group || group.status !== 'ACTIVE') {
-          throw ApiError.badRequest('Group is not active');
-        }
+        assertGroupActive(group);
 
         const existingMember = await tx.groupMember.findUnique({
           where: { groupId_userId: { groupId: invite.groupId, userId } },
@@ -1570,7 +1622,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           throw ApiError.forbidden('You are banned from this group');
         }
 
-        // LEVEL 4, then the clock. Lock the invite row FIRST — this can wait
+        // LEVEL 5, then the clock. Lock the invite row FIRST — this can wait
         // behind another transaction for as long as it likes — and only then
         // read the time. The wait may outlast the invite: it was live at the
         // pre-read, and it can be dead by the time this line returns. So the
@@ -1827,6 +1879,18 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       }
 
       await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS. Everything above — the group's status, the
+        // manager, the membership — is a fast path on unlocked reads, each stale
+        // the moment it returns. Lock the APPLICANT's account row and the group
+        // row, re-read both, and hold the locks through the transition, the
+        // notification and the commit, so an account restriction or an archive
+        // that commits after those reads cannot be admitted past. Order — see
+        // group-locks.ts: account row (1), then group row (2). A join request
+        // carries no invitation, so nothing here binds it to an email.
+        const applicant = await lockAccountForAdmission(tx, targetUserId);
+        assertGroupActive(await lockGroupForAdmission(tx, groupId));
+        assertApplicantAdmissible(applicant);
+
         // Atomic transition — prevents two managers racing to approve the same
         // pending request from double-processing it.
         const transitioned = await tx.groupMember.updateMany({

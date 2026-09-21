@@ -44,9 +44,9 @@
  * NEVER appended after a recognized invite route — a request URL that carried
  * an invite token has already proven it can carry the secret in its query too
  * (`?...token=<token>`), so nothing after the path is logged. A URL that
- * contains no token route is returned UNCHANGED, byte for byte, UNLESS a query
- * VALUE itself spells an invite-token route (raw or encoded
- * `?next=/groups/invites/<token>`), in which case the query is omitted.
+ * contains no token route is returned UNCHANGED, byte for byte, UNLESS its
+ * query or fragment carries an invite link (see "One classifier" below), in
+ * which case the whole suffix is omitted.
  *
  * The token region deliberately runs to the next LITERAL slash rather than to
  * the next canonical separator: a token spelled with an encoded slash
@@ -79,14 +79,45 @@
  *   4. Both representations are inspected, never just one: the RAW text
  *      (`invites` written out) and the CANONICAL text (`invites` only after
  *      decoding, or once a malformed escape is erased). Either one showing the
- *      word in a path that holds an escape is enough to fail closed.
+ *      word in a path that holds an escape is enough to fail closed — the
+ *      canonical one, when nothing is malformed, only if a further segment
+ *      follows the word (a would-be token: `/groups%20/%69nvites/<token>`), so
+ *      that `/groups/%69nvites` on its own, with no token to hide, is left alone.
  *   5. A URL with no such signal — no escape at all, or a malformed one in a
  *      path that never mentions an invite — is returned byte for byte, so
  *      ordinary logs lose nothing.
  *
+ * ── One classifier for every part of the URL ──────────────────────────────
+ * The rules above are a single function, classifyInvitePath, and it judges
+ * every piece of a request URL that could carry an invite link:
+ *
+ *   - the PATH;
+ *   - each query parameter NAME and each query parameter VALUE;
+ *   - the FRAGMENT.
+ *
+ * It answers `route` (the canonical text spells the route exactly, and where
+ * each token starts is known), `ambiguous` (a route may be there, mangled, and
+ * its token boundary cannot be trusted) or `clean`. A path that is `ambiguous`
+ * fails closed as the whole URL. A query or fragment part that is `route` OR
+ * `ambiguous` — any single one — omits the WHOLE suffix (every parameter, not
+ * just the guilty one), keeping the clean path.
+ *
+ * Judging a query part by the same function is what keeps a link that fails
+ * closed as a path (`/groups%20/invites/<token>`, `/groups%ZZinvites/<token>`)
+ * from being logged when the very same text is pasted into `?next=` — as a
+ * name or a value, raw or percent-encoded, nested or not. Nothing here calls
+ * redactUrl, and nothing calls itself: a query part is never re-parsed as a
+ * URL, so there is no recursion to bound.
+ *
+ * The suffix is split on the RAW `?`, `#` and `&` FIRST, and only then is each
+ * part canonicalized and judged, so an escape that decodes to a delimiter
+ * (`%26` -> `&`) cannot spawn a second parameter after this already classified
+ * the first as safe.
+ *
  * Work is bounded throughout: at most MAX_DECODE_ROUNDS passes to decode, then
  * one linear pass per segment for the tolerant reading; there is no loop that
- * runs until the input stops changing.
+ * runs until the input stops changing. A suffix is judged part by part, each
+ * part once, so the total is linear in its length.
  */
 
 const REDACTED = '[REDACTED]';
@@ -276,52 +307,119 @@ function maskTokenRegions(url: string, pathEnd: number, starts: readonly number[
   return out + url.slice(cursor, pathEnd);
 }
 
+/** The verdict of {@link classifyInvitePath} on one piece of text. */
+type InviteVerdict =
+  /** No invite signal. */
+  | { kind: 'clean' }
+  /** A route may be present, mangled: its token boundary cannot be trusted. */
+  | { kind: 'ambiguous' }
+  /** The canonical text spells the route exactly; the RAW index where each token begins. */
+  | { kind: 'route'; tokenStarts: number[] };
+
+const CLEAN: InviteVerdict = { kind: 'clean' };
+const AMBIGUOUS: InviteVerdict = { kind: 'ambiguous' };
+
 /**
- * Whether a single raw query part — a parameter NAME or VALUE — is or
- * contains an invite-token route once its escapes are decoded: a bare
- * `/groups/invites/<token>` or a full URL with one embedded. Shared
- * recognizer with the path, so the same spellings (raw, encoded,
- * double-encoded, malformed-escape-tolerant) cannot slip into a logged query.
- * Fully decode-bounded; a part whose escapes could not be fully resolved fails
- * closed, because a fully percent-encoded route may be hidden under the very
- * layers the bounded decoder had to leave alone.
+ * THE invite-path sensitivity classifier — one bounded function for a URL path,
+ * a query parameter name, a query parameter value and a fragment alike (see
+ * "One classifier for every part of the URL" in the file header). `text` is the
+ * RAW text of ONE such piece; nothing else is consulted.
+ *
+ * The rules, in order (each is a fail-closed reading, and only an ambiguity is
+ * ever resolved toward "sensitive"):
+ *   1. bounded decoding left an escape unresolved — the route may be hiding
+ *      under another layer of encoding;
+ *   2. with a malformed escape in the text: a route that shows only once the
+ *      escape is erased, or any segment the exact reading did not account for
+ *      that could read `invites`, means the token boundary is unknowable;
+ *   3. otherwise the exact reading decides: `route`;
+ *   4. with no route recognized and an escape in the text: the RAW text writes
+ *      `invites` out, or the CANONICAL text writes it (`%69nvites`) in a
+ *      segment that another segment follows — a would-be token.
  */
-function valueSpellsInviteRoute(value: string): boolean {
-  if (!value.includes('%') && !value.includes('\\') && !/invites/i.test(value)) return false;
-  const { chars, truncated } = canonicalize(value);
+function classifyInvitePath(text: string): InviteVerdict {
+  // Cheap exit for the overwhelming majority of text: with no escape, no
+  // backslash and no "invites" anywhere, there is nothing to find.
+  if (!text.includes('%') && !text.includes('\\') && !/invites/i.test(text)) return CLEAN;
+
+  const { chars, truncated } = canonicalize(text);
+
+  // If the decode bound was reached before the text settled, the canonical form
+  // may still hide the invite route under another layer of encoding. A
+  // remaining '%' means an escape was not fully resolved — the raw text need not
+  // spell "invites" at all (`%2Fgroups%2Finvites%2F<token>` decodes to it, and
+  // past MAX_DECODE_ROUNDS no longer resolves), so the unresolved escapes are
+  // the only signal there is. Fail closed rather than return the raw text.
+  if (truncated && chars.some((c) => c.ch === '%')) return AMBIGUOUS;
+
   const segments = segmentsOf(chars);
-  if (findTokenStarts(segments, true).length > 0) return true;
-  // Fail closed: bounded decoding left percent escapes unresolved, so the part
-  // may still hide a FULLY percent-encoded invite route under another layer of
-  // encoding. The raw text need not spell "invites" — `%2Fgroups%2Finvites%2F
-  // <token>` decodes to it, and past MAX_DECODE_ROUNDS no longer resolves, so
-  // the unresolved escapes are the only signal there is.
-  if (truncated && chars.some((c) => c.ch === '%')) return true;
-  return false;
+
+  // The exact reading: the canonical text spells the route. `consumed` collects
+  // the segments a recognized route accounts for — its two words and its token.
+  const consumed = new Set<number>();
+  const starts = findTokenStarts(segments, false, consumed);
+
+  // The tolerant reading, only when a malformed escape is present. It runs
+  // even when the exact reading succeeded, because a malformed escape may hide
+  // a SECOND route the exact reading knows nothing about:
+  //   - a route that shows only once the escape is erased means the escape sits
+  //     in the route, so where its token starts cannot be trusted;
+  //   - any other segment that could read `invites` — `invites` written out,
+  //     decoded (`%69nvites`) or with a malformed escape erased (`in%ZZvites`,
+  //     or one standing in for a separator, `groups%ZZinvites`) — is
+  //     invite-looking with nothing to pin down its token.
+  // Both fail closed. The raw text alone cannot show either, which is the whole
+  // point: reading only the raw text is what let the reported URLs out.
+  if (chars.some((_, k) => isMalformedEscape(chars, k))) {
+    const exact = new Set(starts);
+    if (findTokenStarts(segments, true).some((start) => !exact.has(start))) return AMBIGUOUS;
+    if (segments.some((seg, i) => !consumed.has(i) && couldRead(seg, 'invites', 'within'))) return AMBIGUOUS;
+  }
+
+  // A recognized route: the caller masks each token, so it needs where they start.
+  if (starts.length > 0) return { kind: 'route', tokenStarts: starts };
+
+  // No route recognized. With an escape somewhere in the text, an `invites` that
+  // nothing can explain is still a route-shaped secret with an unknowable
+  // boundary — `/groups%20/invites/<token>` (nothing malformed, but "groups "
+  // is not "groups"):
+  if (text.includes('%')) {
+    // RAW signal, kept as it was: the text writes `invites` out.
+    if (/invites/i.test(text)) return AMBIGUOUS;
+    // CANONICAL signal: `invites` appears only once decoded (`%69nvites`), and a
+    // further segment follows it — a would-be token. A lone trailing `invites`
+    // (`/groups/%69nvites`, no token to hide) is left alone.
+    if (segments.some((seg, i) => i + 1 < segments.length && seg.text.toLowerCase().includes('invites'))) {
+      return AMBIGUOUS;
+    }
+  }
+
+  return CLEAN;
 }
 
 /**
- * Whether a raw query+fragment suffix (`?...` or `#...`) carries an
- * invite-token route inside one of its query parameter NAMES or VALUES — a
- * parameter may smuggle the link in either (its NAME is only "harmless" if it
- * says so after decoding). Every part is judged by the same recognizer.
+ * Whether the raw suffix (`?query`, `#fragment`, or both) of a URL whose PATH is
+ * clean carries an invite link in ANY of its query parameter NAMES, its
+ * parameter VALUES or its fragment. Each is judged by {@link classifyInvitePath}
+ * — the same rules as a path — and a single `route` or `ambiguous` verdict is
+ * enough: the caller then omits the whole suffix, not just that part.
  *
- * Delimiter order matters. The suffix is split on RAW `?`, `#` and `&` FIRST,
- * and only then is each part canonicalized and judged, so an escape that
- * decodes to a delimiter (`%26` → `&`) cannot spawn a second parameter after
- * this already classified the first as safe.
+ * A parameter may smuggle the link in either its NAME or its VALUE (a name is
+ * only "harmless" if it says so after decoding), and a request line can carry a
+ * fragment (a client, proxy or hand-written request need not strip it), which
+ * Fastify then logs like any other URL.
  */
-function queryCarriesInviteLink(rawSuffix: string): boolean {
-  if (rawSuffix[0] !== '?') return false; // a bare fragment has no parameters
+function suffixCarriesInviteLink(rawSuffix: string): boolean {
   const hashAt = rawSuffix.indexOf('#');
-  const query = hashAt === -1 ? rawSuffix.slice(1) : rawSuffix.slice(1, hashAt);
-  if (query === '') return false;
+  const query = rawSuffix[0] === '?' ? rawSuffix.slice(1, hashAt === -1 ? undefined : hashAt) : '';
+  const fragment = hashAt === -1 ? '' : rawSuffix.slice(hashAt + 1);
+  const sensitive = (part: string) => part !== '' && classifyInvitePath(part).kind !== 'clean';
+
+  if (sensitive(fragment)) return true;
   for (const pair of query.split('&')) {
     const eq = pair.indexOf('=');
-    const name = eq === -1 ? pair : pair.slice(0, eq);
-    const value = eq === -1 ? pair : pair.slice(eq + 1);
-    if (name !== '' && valueSpellsInviteRoute(name)) return true;
-    if (value !== '' && valueSpellsInviteRoute(value)) return true;
+    // Without a "=", the whole pair is the NAME (and there is no value).
+    if (eq === -1 ? sensitive(pair) : sensitive(pair.slice(0, eq)) || sensitive(pair.slice(eq + 1))) return true;
   }
   return false;
 }
@@ -330,21 +428,19 @@ function queryCarriesInviteLink(rawSuffix: string): boolean {
  * Replace the invite token in a URL (or path) with a redaction marker.
  * Returns the input unchanged — the very same string — when it carries none.
  *
- * Fail-closed cases, each returning the marker for the WHOLE url:
- *   - the bounded decoder could not fully resolve the path;
- *   - the path holds a malformed escape and, with that escape erased, spells a
- *     token route the exact reading did not (the token boundary is unknowable);
- *   - the path holds a malformed escape and some segment the exact reading did
- *     not account for could read `invites`;
- *   - the path holds an escape and writes `invites` out, but no route was
- *     recognized.
- * See "Malformed and ambiguous paths" in the file header.
- *
- * Whenever an invite route IS recognized precisely, the query string and
- * fragment are omitted: the token's boundary is known, but the URL carried an
- * invite secret, so nothing after the path is returned. A non-invite path
- * keeps its query only when no query VALUE spells an invite route — retention
- * is decided by that classification, not by the text that happens to remain.
+ * The PATH is judged first, by {@link classifyInvitePath}:
+ *   - `ambiguous` returns the marker for the WHOLE url: the bounded decoder
+ *     could not fully resolve it, or a malformed escape could be hiding a route
+ *     whose token boundary is unknowable, or it holds an escape and writes
+ *     `invites` out with no route recognized. See "Malformed and ambiguous
+ *     paths" in the file header.
+ *   - `route` masks each token and omits the query string and fragment: the
+ *     token's boundary is known, but the URL carried an invite secret, so
+ *     nothing after the path is returned.
+ *   - `clean` keeps the path, and the suffix with it — unless
+ *     {@link suffixCarriesInviteLink} finds an invite link in it, in which case
+ *     the whole suffix is dropped. Retention is decided by that classification,
+ *     never by the text that happens to remain.
  */
 export function redactUrl(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
@@ -354,63 +450,23 @@ export function redactUrl(url: string): string {
   if (!url.includes('%') && !url.includes('\\') && !/invites/i.test(url)) return url;
 
   // The query string and fragment are never part of the route. Split them off
-  // on the RAW string, the way the router does.
+  // on the RAW string, the way the router does; each is judged on its own.
   const queryStart = url.search(/[?#]/);
   const pathEnd = queryStart === -1 ? url.length : queryStart;
   const rawPath = url.slice(0, pathEnd);
   const rawSuffix = url.slice(pathEnd);
 
-  const { chars: allChars, truncated } = canonicalize(url);
-  const pathChars = allChars.filter((c) => c.end <= pathEnd);
+  const path = classifyInvitePath(rawPath);
+  if (path.kind === 'ambiguous') return REDACTED;
+  // A recognized invite route: mask the token AND drop the query string and
+  // fragment. The boundary is known, so the path itself is safe to keep — but
+  // this URL carried an invite secret, so nothing after it is appended.
+  if (path.kind === 'route') return maskTokenRegions(url, pathEnd, path.tokenStarts);
 
-  // If the decode bound was reached before the path settled, the canonical
-  // form may still hide the invite route under another layer of encoding.
-  // A remaining '%' in the canonical path chars means an escape was not fully
-  // resolved — fail closed rather than returning the raw URL.
-  if (truncated && pathChars.some((c) => c.ch === '%')) {
-    return REDACTED;
-  }
-
-  const segments = segmentsOf(pathChars);
-
-  // The exact reading: the canonical text spells the route. `consumed` collects
-  // the segments a recognized route accounts for — its two words and its token.
-  const consumed = new Set<number>();
-  const starts = findTokenStarts(segments, false, consumed);
-
-  // The tolerant reading, only when a malformed escape is on the path. It runs
-  // even when the exact reading succeeded, because a malformed escape may hide
-  // a SECOND route the exact reading knows nothing about:
-  //   - a route that shows only once the escape is erased means the escape sits
-  //     in the route, so where its token starts cannot be trusted;
-  //   - any other segment that could read `invites` — `invites` written out,
-  //     decoded (`%69nvites`) or with a malformed escape erased (`in%ZZvites`,
-  //     or one standing in for a separator) — is invite-looking with nothing
-  //     to pin down its token.
-  // Both fail closed. The raw text alone cannot show either, which is the whole
-  // point: reading only the raw text is what let the reported URLs out.
-  const malformed = pathChars.some((_, k) => isMalformedEscape(pathChars, k));
-  if (malformed) {
-    if (findTokenStarts(segments, true).some((start) => !starts.includes(start))) return REDACTED;
-    if (segments.some((seg, i) => !consumed.has(i) && couldRead(seg, 'invites', 'within'))) return REDACTED;
-  }
-
-  if (starts.length > 0) {
-    // A recognized invite route: mask the token AND drop the query string and
-    // fragment. The boundary is known, so the path itself is safe to keep —
-    // but this URL carried an invite secret, so nothing after it is appended.
-    return maskTokenRegions(url, pathEnd, starts);
-  }
-
-  // No route recognized. RAW signal, kept as it was: the path holds an escape
-  // (of any kind) and writes `invites` out.
-  if (rawPath.includes('%') && /invites/i.test(rawPath)) return REDACTED;
-
-  // No invite route on the path. A query VALUE may still spell an invite-token
-  // route (raw or encoded — `/ordinary?next=/groups/invites/<token>`), and
-  // logging the query would ship the embedded secret. Surf the suffix only
-  // when the classification says it is safe.
-  if (rawSuffix !== '' && queryCarriesInviteLink(rawSuffix)) return rawPath;
+  // The path is clean. A query name or value, or the fragment, may still carry
+  // an invite link (raw or encoded — `/ordinary?next=/groups/invites/<token>`),
+  // and logging the suffix would ship the embedded secret.
+  if (rawSuffix !== '' && suffixCarriesInviteLink(rawSuffix)) return rawPath;
 
   return url;
 }
