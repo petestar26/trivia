@@ -246,12 +246,22 @@ describe('redactUrl — an embedded invite link in an ordinary query value goes 
   });
 
   it('fails closed for a value nested beyond the decode bound, however its route words are spelled', () => {
-    // encodeURIComponent applied 5 times: beyond MAX_DECODE_ROUNDS (=4), so the
-    // bounded decoder stops with unresolved '%' escapes. The RAW text contains
-    // no literal "invites" at all — a fully percent-encoded route must still
-    // be treated as sensitive, not left to leak through the query in the clear.
-    let deep = `/groups/invites/${T}`;
-    for (let i = 0; i < 5; i++) deep = encodeURIComponent(deep);
+    // Every byte of the route — route letters and token characters alike — is
+    // percent-encoded, then nested under enough %25 layers that the bounded
+    // decoder (MAX_DECODE_ROUNDS = 4) cannot resolve it. Unlike
+    // encodeURIComponent, which leaves ASCII letters and the alphanumeric
+    // token untouched, this leaves NO literal "invites" and NO raw token in
+    // the input, so only the fail-closed branch can possibly catch it.
+    const fullyEncoded = [...`/groups/invites/${T}`]
+      .map((ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`)
+      .join('');
+    let deep = fullyEncoded;
+    for (let i = 0; i < 5; i++) deep = encodeURIComponent(deep); // > MAX_DECODE_ROUNDS
+
+    // Guard the premise: the raw value carries no literal word and no token.
+    expect(deep).not.toContain('invites');
+    expect(deep).not.toContain(T);
+
     const out = redactUrl(`/ordinary?next=${deep}&keep=1`);
     expect(out).toBe('/ordinary');
     expect(out).not.toContain(T);

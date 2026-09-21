@@ -443,8 +443,20 @@ describeIf('real buildServer: malformed and ambiguous invite paths', () => {
   describe('an invite URL in a parameter NAME, or below a deep encode bound, is not logged either', () => {
     const nope = () => `NAMEDEEPLEAK${randomUUID().replaceAll('-', '')}`;
     const deep = (t: string) => {
-      let d = `/groups/invites/${t}`;
-      for (let i = 0; i < 5; i++) d = encodeURIComponent(d); // beyond MAX_DECODE_ROUNDS
+      // Percent-encode EVERY byte of the route — route letters and token
+      // characters alike — unlike encodeURIComponent, which leaves ASCII
+      // letters and the alphanumeric token untouched and so keeps a literal
+      // "invites" plus the raw token in the input. Then nest under enough
+      // %25 layers that MAX_DECODE_ROUNDS (=4) cannot resolve it: only the
+      // fail-closed branch of the recognizer can possibly catch it.
+      const fullyEncoded = [...`/groups/invites/${t}`]
+        .map((ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase()}`)
+        .join('');
+      let d = fullyEncoded;
+      for (let i = 0; i < 5; i++) d = encodeURIComponent(d); // > MAX_DECODE_ROUNDS
+      // Guard the premise before any request goes out.
+      expect(d).not.toContain('invites');
+      expect(d).not.toContain(t);
       return d;
     };
     // A fully percent-encoded route carries NO literal word "invites": only the
