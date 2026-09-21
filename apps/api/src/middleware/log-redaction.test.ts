@@ -223,9 +223,39 @@ describe('redactUrl — an embedded invite link in an ordinary query value goes 
       '/ordinary?next=/dashboard',
       '/ordinary?next=/groups',
       '/ordinary?x=a%26b&y=%3D1',
+      '/ordinary?name=1&name2=value',
     ]) {
       expect(redactUrl(url), url).toBe(url);
     }
+  });
+
+  it('omits the query when the invite URL rides in a parameter NAME', () => {
+    const T = 'SYNTHETICNAMELEAK43434343';
+    for (const url of [
+      // Fully percent-encoded route as the name.
+      `/ordinary?${`%2Fgroups%2Finvites%2F${T}`}=1`,
+      // Raw route as the name.
+      `/ordinary?/groups/invites/${T}=1&safe=2`,
+      // Encoded name alongside an unrelated parameter.
+      `/ordinary?page=2&${`%2Fgroups%2Finvites%2F${T}`}=x&limit=5`,
+    ]) {
+      const out = redactUrl(url);
+      expect(out, url).toBe('/ordinary');
+      expect(out, url).not.toContain(T);
+    }
+  });
+
+  it('fails closed for a value nested beyond the decode bound, however its route words are spelled', () => {
+    // encodeURIComponent applied 5 times: beyond MAX_DECODE_ROUNDS (=4), so the
+    // bounded decoder stops with unresolved '%' escapes. The RAW text contains
+    // no literal "invites" at all — a fully percent-encoded route must still
+    // be treated as sensitive, not left to leak through the query in the clear.
+    let deep = `/groups/invites/${T}`;
+    for (let i = 0; i < 5; i++) deep = encodeURIComponent(deep);
+    const out = redactUrl(`/ordinary?next=${deep}&keep=1`);
+    expect(out).toBe('/ordinary');
+    expect(out).not.toContain(T);
+    expect(out).not.toContain('%25');
   });
 
   it('never treats a query delimiter decoded INSIDE a value as a new parameter', () => {

@@ -440,6 +440,53 @@ describeIf('real buildServer: malformed and ambiguous invite paths', () => {
     });
   });
 
+  describe('an invite URL in a parameter NAME, or below a deep encode bound, is not logged either', () => {
+    const nope = () => `NAMEDEEPLEAK${randomUUID().replaceAll('-', '')}`;
+    const deep = (t: string) => {
+      let d = `/groups/invites/${t}`;
+      for (let i = 0; i < 5; i++) d = encodeURIComponent(d); // beyond MAX_DECODE_ROUNDS
+      return d;
+    };
+    // A fully percent-encoded route carries NO literal word "invites": only the
+    // unresolved escapes past the decode bound reveal it. Names and deep values
+    // alike must drop the whole query, for anonymous and authenticated callers.
+    it.each<[string, (t: string) => string]>([
+      ['encoded invite URL in a parameter NAME', (t) => `${PREFIX}/notifications?${encodeURIComponent(`/groups/invites/${t}`)}=1`],
+      ['raw invite URL in a parameter NAME', (t) => `${PREFIX}/notifications?/groups/invites/${t}=1&safe=2`],
+      ['invite URL nested beyond the decode bound in a VALUE', (t) => `${PREFIX}/notifications?next=${deep(t)}&keep=1`],
+    ])('%s — token never logged, query dropped, native status intact', async (_name, build) => {
+      for (const authed of [false, true] as const) {
+        const t = nope();
+        const { resp, text, records } = await fire(build(t), { authed });
+        expect(resp.statusCode, `status (${_name}, authed=${authed})`).toBe(authed ? 200 : 401);
+        expect(resp.body, `body (${_name}, authed=${authed})`).not.toContain(t);
+        expect(text, `token leaked (${_name}, authed=${authed})`).not.toContain(t);
+        expect(text, `encoded token leaked (${_name}, authed=${authed})`).not.toContain(encodeURIComponent(t));
+        for (const record of records) {
+          for (const str of allStrings(record)) {
+            expect(str, `a log field carries the token (${_name}, authed=${authed})`).not.toContain(t);
+          }
+        }
+        const fields = urlFields(records);
+        expect(fields.length, `some url field written (${_name}, authed=${authed})`).toBeGreaterThan(0);
+        for (const field of fields) {
+          expect(field, `url field retains the query (${_name}, authed=${authed})`).toBe(`${PREFIX}/notifications`);
+        }
+      }
+    }, 120_000);
+
+    it('a harmless ordinary query stays byte-for-byte in every url field', async () => {
+      for (const authed of [false, true] as const) {
+        const { resp, text, records } = await fire(`${PREFIX}/notifications?page=2&limit=5`, { authed });
+        expect(resp.statusCode, `status (authed=${authed})`).toBe(authed ? 200 : 401);
+        expect(text).not.toContain('SYNTHETIC');
+        for (const field of urlFields(records)) {
+          expect(field, `url field (authed=${authed})`).toBe(`${PREFIX}/notifications?page=2&limit=5`);
+        }
+      }
+    });
+  });
+
   it('a WELL-FORMED, MATCHED request for the real token still resolves, and is still logged redacted', async () => {
     const { resp, text, records } = await fire(`${PREFIX}/%67roups/invites/${realToken}`, { authed: true });
     expect(resp.statusCode).toBe(200);

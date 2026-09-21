@@ -277,30 +277,37 @@ function maskTokenRegions(url: string, pathEnd: number, starts: readonly number[
 }
 
 /**
- * Whether a single query VALUE is or contains an invite-token route once its
- * escapes are decoded — a bare `/groups/invites/<token>` or a full URL with
- * one embedded. Shared recognizer with the path, so the same spellings (raw,
- * encoded, double-encoded, malformed-escape-tolerant) cannot slip into a
- * logged query. Fully decode-bounded; a value that could not be resolved and
- * still signals `invites` fails closed, because the link may be hidden in the
- * very escapes the bounded decoder had to leave alone.
+ * Whether a single raw query part — a parameter NAME or VALUE — is or
+ * contains an invite-token route once its escapes are decoded: a bare
+ * `/groups/invites/<token>` or a full URL with one embedded. Shared
+ * recognizer with the path, so the same spellings (raw, encoded,
+ * double-encoded, malformed-escape-tolerant) cannot slip into a logged query.
+ * Fully decode-bounded; a part whose escapes could not be fully resolved fails
+ * closed, because a fully percent-encoded route may be hidden under the very
+ * layers the bounded decoder had to leave alone.
  */
 function valueSpellsInviteRoute(value: string): boolean {
   if (!value.includes('%') && !value.includes('\\') && !/invites/i.test(value)) return false;
   const { chars, truncated } = canonicalize(value);
   const segments = segmentsOf(chars);
   if (findTokenStarts(segments, true).length > 0) return true;
-  if (truncated && chars.some((c) => c.ch === '%') && /invites/i.test(value)) return true;
+  // Fail closed: bounded decoding left percent escapes unresolved, so the part
+  // may still hide a FULLY percent-encoded invite route under another layer of
+  // encoding. The raw text need not spell "invites" — `%2Fgroups%2Finvites%2F
+  // <token>` decodes to it, and past MAX_DECODE_ROUNDS no longer resolves, so
+  // the unresolved escapes are the only signal there is.
+  if (truncated && chars.some((c) => c.ch === '%')) return true;
   return false;
 }
 
 /**
  * Whether a raw query+fragment suffix (`?...` or `#...`) carries an
- * invite-token route inside one of its query parameter VALUES. Since a value
- * is itself a whole embedded link, its key is irrelevant — the value decides.
+ * invite-token route inside one of its query parameter NAMES or VALUES — a
+ * parameter may smuggle the link in either (its NAME is only "harmless" if it
+ * says so after decoding). Every part is judged by the same recognizer.
  *
  * Delimiter order matters. The suffix is split on RAW `?`, `#` and `&` FIRST,
- * and only then is each value canonicalized and judged, so an escape that
+ * and only then is each part canonicalized and judged, so an escape that
  * decodes to a delimiter (`%26` → `&`) cannot spawn a second parameter after
  * this already classified the first as safe.
  */
@@ -311,7 +318,9 @@ function queryCarriesInviteLink(rawSuffix: string): boolean {
   if (query === '') return false;
   for (const pair of query.split('&')) {
     const eq = pair.indexOf('=');
+    const name = eq === -1 ? pair : pair.slice(0, eq);
     const value = eq === -1 ? pair : pair.slice(eq + 1);
+    if (name !== '' && valueSpellsInviteRoute(name)) return true;
     if (value !== '' && valueSpellsInviteRoute(value)) return true;
   }
   return false;
