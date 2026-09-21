@@ -700,10 +700,16 @@ describeIf('public join — the ordinary behavior is unchanged', () => {
     expect(await prisma.groupMember.count({ where: { groupId: f.groupId, userId: f.joiner.id } })).toBe(1);
   });
 
-  it('a LEFT member rejoins: 200, ACTIVE, the role they had is kept, the activity recorded once', async () => {
-    const f = await makeFixture('rejoin', { existing: { status: 'LEFT', role: 'MODERATOR' } });
+  it('a LEFT MODERATOR rejoins: 200, ACTIVE, and the old privilege is dropped — the role is reset to MEMBER', async () => {
+    const f = await makeFixture('rejoin-mod', { existing: { status: 'LEFT', role: 'MODERATOR' } });
     await expectJoined(f, await join(f), 'You have rejoined the group');
-    expect((await membershipSnapshot(f.groupId, f.joiner.id))?.role).toBe('MODERATOR');
+    expect((await membershipSnapshot(f.groupId, f.joiner.id))?.role).toBe('MEMBER');
+  });
+
+  it('a LEFT ADMIN rejoins: 200, ACTIVE, and the old privilege is dropped — the role is reset to MEMBER', async () => {
+    const f = await makeFixture('rejoin-admin', { existing: { status: 'LEFT', role: 'ADMIN' } });
+    await expectJoined(f, await join(f), 'You have rejoined the group');
+    expect((await membershipSnapshot(f.groupId, f.joiner.id))?.role).toBe('MEMBER');
   });
 
   it('no invitation or verified-email binding: an unverified, email-less ACTIVE account joins just the same', async () => {

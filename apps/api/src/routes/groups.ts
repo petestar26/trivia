@@ -642,10 +642,12 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         // reactivated. An unconditional update here would overwrite a ban (or a
         // promotion, an approval, a request) that committed after the read above:
         // the write waits for that writer's row lock, re-evaluates this WHERE, and
-        // matches nothing.
+        // matches nothing. Rejoining is a fresh admission: the member returns as
+        // MEMBER, never with privileges (ADMIN/MODERATOR) earned under an earlier
+        // membership.
         const reactivated = await tx.groupMember.updateMany({
           where: { id: current.id, status: 'LEFT', role: { not: 'OWNER' } },
-          data: { status: 'ACTIVE' },
+          data: { status: 'ACTIVE', role: 'MEMBER' },
         });
         if (reactivated.count === 0) {
           // Re-read inside the transaction for a specific refusal.
