@@ -118,7 +118,10 @@ const malformed: Shape[] = [
   // ── query strings ─────────────────────────────────────────────────────────
   { name: 'a query string after a fail-closed path', build: (t) => `${PREFIX}/%ZZ%67roups/%69nvites/${t}?a=1&b=%ZZ`, status: 400, logged: failClosed },
   { name: 'the token in the QUERY of a fail-closed path', build: (t) => `${PREFIX}/%ZZ%67roups/%69nvites?token=${t}`, status: 400, logged: failClosed },
-  { name: 'a query string after a precise path', build: (t) => `${PREFIX}/groups/invites/${t}%ZZ?a=1`, status: 400, logged: () => `${PREFIX}/groups/invites/${REDACTED}?a=1` },
+  { name: 'a query string after a precise path', build: (t) => `${PREFIX}/groups/invites/${t}%ZZ?a=1`, status: 400, logged: () => `${PREFIX}/groups/invites/${REDACTED}` },
+  { name: 'a literal token query after a precise path', build: (t) => `${PREFIX}/groups/invites/${t}%ZZ?token=${t}&x=1`, status: 400, logged: () => `${PREFIX}/groups/invites/${REDACTED}` },
+  { name: 'a query with encoded ? and & after a fail-closed path', build: (t) => `${PREFIX}/groups/in%ZZvites/${t}?a%3Fb%26c=${t}`, status: 400, logged: failClosed },
+  { name: 'a plus/space-style value after a fail-closed path', build: (t) => `${PREFIX}/%67roups/%ZZ%69nvites/${t}?next=+${t}+`, status: 400, logged: failClosed },
   // ── outside the api prefix ────────────────────────────────────────────────
   { name: 'unprefixed', build: (t) => `/%ZZ%67roups/%69nvites/${t}`, status: 400, logged: failClosed },
 ];
@@ -131,6 +134,16 @@ const wellFormed: Shape[] = [
   { name: 'two routes in one well-formed path: BOTH tokens masked', build: (t) => `${PREFIX}/groups/invites/${t}/groups/invites/${t}/tail`, status: 404, logged: () => `${PREFIX}/groups/invites/${REDACTED}/groups/invites/${REDACTED}/tail` },
   { name: 'an escape nothing can explain beside a literal "invites" (the original safety net)', build: (t) => `${PREFIX}/groups%20/invites/${t}`, status: 404, logged: failClosed },
   { name: 'unprefixed encoded route (the top-level not-found handler)', build: (t) => `/%67roups/invites/${t}`, status: 404, logged: () => `/%67roups/invites/${REDACTED}`, notFoundLog: true },
+  // ── query strings and fragments are NEVER retained ─────────────────────────
+  // Each path uses the double-encoded spelling so it never MATCHES the invite
+  // route (404 from not-found), while the query still holds a token value.
+  { name: 'double-encoded route with the token as a query value', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}?token=${t}`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
+  { name: 'double-encoded route with an arbitrary-name query value', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}?anything=${t}`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
+  { name: 'double-encoded route with the token under a plus/space value', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}?next=+${t}+&x=1`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
+  { name: 'double-encoded route with an encoded ? and = in the query', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}?x%3Da%26b%3D${t}`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
+  { name: 'an encoded ? that stays inside the token region', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}%3Ftoken%3D${t}&x=1`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
+  { name: 'a query after two routes: both masked, no suffix', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}/groups/invites/${t}?tail=1`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}/groups/invites/${REDACTED}` },
+  { name: 'a fragment after a precise route', build: (t) => `${PREFIX}/%2567roups/%2569nvites/${t}#frag=${t}`, status: 404, logged: () => `${PREFIX}/%2567roups/%2569nvites/${REDACTED}` },
 ];
 
 // Malformed URLs that have NOTHING to do with an invite: still a safe 400, and
@@ -396,6 +409,34 @@ describeIf('real buildServer: malformed and ambiguous invite paths', () => {
       const { resp } = await fire(`${PREFIX}/notifications?page=0`, { authed: true });
       expect(resp.statusCode).toBe(400);
       expect(JSON.parse(resp.body).error?.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('an invite link EMBEDDED in an ordinary query value is not logged', () => {
+    const nope = () => `EMBEDNOPE${randomUUID().replaceAll('-', '')}`;
+    // `?next=` spells a raw or (nested-)encoded invite URL: the ordinary path
+    // is clean, but the query would ship the embedded secret, so the query is
+    // dropped from every log field while the status stays native.
+    it.each<[string, (t: string) => string]>([
+      ['raw', (t) => `${PREFIX}/notifications?next=/groups/invites/${t}`],
+      ['encoded', (t) => `${PREFIX}/notifications?next=${`%2Fgroups%2Finvites%2F${t}`}`],
+      ['nested-encoded', (t) => `${PREFIX}/notifications?next=${`%252Fgroups%252Finvites%252F${t}`}`],
+      ['encoded with a host and scheme', (t) => `${PREFIX}/notifications?next=${`https%3A%2F%2Fhost.example%2Fgroups%2Finvites%2F${t}`}`],
+    ])('%s next — token never logged, query omitted, status preserved', async (_name, build) => {
+      const t = nope();
+      const { resp, text, records } = await fire(build(t), { authed: false });
+      expect(resp.statusCode).toBe(401); // native auth answer, unchanged
+      expect(text, `token leaked (${_name})`).not.toContain(t);
+      expect(text).not.toContain('next=');
+      for (const record of records) {
+        for (const str of allStrings(record)) {
+          expect(str, `a log field carries the embedded token (${_name})`).not.toContain(t);
+        }
+      }
+      const fields = urlFields(records);
+      for (const field of fields) {
+        expect(field, `url field (${_name})`).toBe(`${PREFIX}/notifications`);
+      }
     });
   });
 

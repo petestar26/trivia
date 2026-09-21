@@ -24,10 +24,10 @@ describe('redactUrl', () => {
     expect(redactUrl('/api/v1/groups/invites/tok_abc123')).toBe('/api/v1/groups/invites/[REDACTED]');
   });
 
-  it('preserves the query string while redacting the token', () => {
-    expect(redactUrl('/api/v1/groups/invites/tok_abc?from=email&x=1')).toBe(
-      '/api/v1/groups/invites/[REDACTED]?from=email&x=1'
-    );
+  it('omits the query string and fragment after a recognized invite route', () => {
+    expect(redactUrl('/api/v1/groups/invites/tok_abc?from=email&x=1')).toBe('/api/v1/groups/invites/[REDACTED]');
+    expect(redactUrl('/api/v1/groups/invites/tok_abc#frag')).toBe('/api/v1/groups/invites/[REDACTED]');
+    expect(redactUrl('/api/v1/groups/invites/tok_abc?a=1&b=2#frag')).toBe('/api/v1/groups/invites/[REDACTED]');
   });
 
   it('leaves unrelated group URLs untouched', () => {
@@ -85,9 +85,9 @@ describe('redactUrl', () => {
       ['an encoded "." segment', `/api/v1/groups/%2e/invites/${T}`, '/api/v1/groups/%2e/invites/[REDACTED]'],
       ['upper-case route words', `/API/V1/GROUPS/INVITES/${T}`, '/API/V1/GROUPS/INVITES/[REDACTED]'],
       ['trailing segments survive', `/api/v1/groups/invites/${T}/extra/more`, '/api/v1/groups/invites/[REDACTED]/extra/more'],
-      ['query string survives', `/api/v1/groups/invites/${T}?a=1&b=2`, '/api/v1/groups/invites/[REDACTED]?a=1&b=2'],
-      ['fragment survives', `/api/v1/groups/invites/${T}#frag`, '/api/v1/groups/invites/[REDACTED]#frag'],
-      ['encoded letters + query', `/api/v1/%67roups/invites/${T}?a=1`, '/api/v1/%67roups/invites/[REDACTED]?a=1'],
+      ['query string is omitted', `/api/v1/groups/invites/${T}?a=1&b=2`, '/api/v1/groups/invites/[REDACTED]'],
+      ['fragment is omitted', `/api/v1/groups/invites/${T}#frag`, '/api/v1/groups/invites/[REDACTED]'],
+      ['query and fragment after encoded letters are omitted', `/api/v1/%67roups/invites/${T}?a=1`, '/api/v1/%67roups/invites/[REDACTED]'],
       ['malformed escape after the token', `/api/v1/groups/invites/${T}%ZZ`, '/api/v1/groups/invites/[REDACTED]'],
       ['truncated escape after the token', `/api/v1/groups/invites/${T}%`, '/api/v1/groups/invites/[REDACTED]'],
       ['half an escape after the token', `/api/v1/groups/invites/${T}%2`, '/api/v1/groups/invites/[REDACTED]'],
@@ -143,10 +143,98 @@ describe('redactUrl', () => {
       ip: '127.0.0.1',
       socket: { remotePort: 4321 },
     });
-    expect(out.url).toBe('/api/v1/groups/invites/[REDACTED]?x=1');
+    expect(out.url).toBe('/api/v1/groups/invites/[REDACTED]');
     expect(out.method).toBe('GET');
     expect(out.host).toBe('api.test');
     expect(out.remoteAddress).toBe('127.0.0.1');
+  });
+});
+
+describe('redactUrl — invite routes never retain a query string or fragment', () => {
+  const T = 'SYNTHETICQUERYLEAK41414141';
+  const P = '/api/v1';
+
+  // Literal + encoded spellings of the query on a RECOGNIZED route: whatever
+  // the query holds, nothing after the path is appended. The token may appear
+  // as a parameter value, name, or repeated across parameters — none of it may
+  // reach the log.
+  it.each<[string, string]>([
+    ['?token=<actual-token>', `${P}/groups/invites/${T}?token=${T}`],
+    ['?x=<actual-token>', `${P}/groups/invites/${T}?x=${T}`],
+    ['?anything=<nonexistent-token-shaped-value>', `${P}/groups/invites/${T}?anything=does-not-exist-12345`],
+    ['token as the parameter NAME', `${P}/groups/invites/${T}?${T}=value`],
+    ['token repeated across parameters', `${P}/groups/invites/${T}?a=${T}&b=${T}&token=${T}`],
+    ['percent-encoded token value', `${P}/groups/invites/${T}?token=${'%54HEN%2ESECRET'}`],
+    ['nested percent-encoded token value', `${P}/groups/invites/${T}?token=${'%2554HEN%252ESECRET'}`],
+    ['mixed-case escape hex', `${P}/groups/invites/${T}?token=%54HeN%2eSeCrEt`],
+    ['encoded ? (decodes to nothing after path)', `${P}/groups/invites/${T}?x=a%3Fb`],
+    ['encoded & inside a value', `${P}/groups/invites/${T}?x=a%26b=token`],
+    ['encoded = inside a value', `${P}/groups/invites/${T}?x=%3D${T}`],
+    ['plus/space-style value', `${P}/groups/invites/${T}?x=+space+/${T}`],
+    ['query then fragment', `${P}/groups/invites/${T}?token=${T}#raw-fragment`],
+  ])('%s is reduced to the masked path only', (_name, url) => {
+    expect(redactUrl(url)).toBe(`${P}/groups/invites/[REDACTED]`);
+  });
+
+  it.each<[string, string]>([
+    ['normal invite route', `/groups/invites/${T}?token=${T}`],
+    ['deeply encoded invite route', `${P}/%67roups/invites/${T}?token=${T}`],
+    ['encoded route with query', `${P}/%2567roups/invites/${T}?token=${T}`],
+    ['repeated invite routes in the path', `${P}/groups/invites/${T}/groups/invites/BOTH-${T}?y=2`],
+    ['trailing components', `${P}/groups/invites/${T}/extra?token=${T}`],
+    ['prefixed route', `${P}/v1/groups/invites/${T}?token=${T}`],
+    ['unprefixed route', `/groups/invites/${T}?token=${T}`],
+  ])('path variant — %s never leaks the token or keeps the query', (_name, url) => {
+    let out = '';
+    expect(() => { out = redactUrl(url); }, url).not.toThrow();
+    expect(out).not.toContain(T);
+    // Once the query is gone no delimiter survives, and the REDACTED markers
+    // are the only transformation: safe structure is kept, suffix is not.
+    expect(out).not.toMatch(/[?#]/);
+  });
+
+  it('fail-closed ambiguous path with a query omits the WHOLE url', () => {
+    expect(redactUrl(`${P}/%ZZ%67roups/%69nvites/${T}?a=1&b=%ZZ`)).toBe('[REDACTED]');
+    expect(redactUrl(`${P}/%67roups/%ZZ%69nvites?token=${T}`)).toBe('[REDACTED]');
+  });
+});
+
+describe('redactUrl — an embedded invite link in an ordinary query value goes unlogged', () => {
+  const T = 'SYNTHETICEMBEDLEAK42424242';
+
+  it.each<[string, string]>([
+    ['/ordinary?next=/groups/invites/<token>', `/ordinary?next=/groups/invites/${T}`],
+    ['encoded next value', `/ordinary?next=${`%2Fgroups%2Finvites%2F${T}`}`],
+    ['nested-encoded next value', `/ordinary?next=${`%252Fgroups%252Finvites%252F${T}`}`],
+    ['next as the second parameter', `/ordinary?a=1&next=/groups/invites/${T}&b=2`],
+    ['a nonexistent token-shaped value still counts', `/ordinary?next=/groups/invites/does-not-exist-99999`],
+    ['a bare relative route in the value', `/ordinary?next=groups/invites/${T}`],
+    ['a full URL with host in the value', `/ordinary?next=https%3A%2F%2Fhost%2Fgroups%2Finvites%2F${T}`],
+  ])('omits the query when %s', (_name, url) => {
+    const out = redactUrl(url);
+    expect(out).toBe('/ordinary');
+    expect(out).not.toContain(T);
+  });
+
+  it('keeps an ordinary query that carries no invite-link signal byte for byte', () => {
+    for (const url of [
+      '/ordinary?page=2&limit=20',
+      '/ordinary?q=groups+invites+join',
+      '/ordinary?next=/dashboard',
+      '/ordinary?next=/groups',
+      '/ordinary?x=a%26b&y=%3D1',
+    ]) {
+      expect(redactUrl(url), url).toBe(url);
+    }
+  });
+
+  it('never treats a query delimiter decoded INSIDE a value as a new parameter', () => {
+    // `a%26next=/groups/invites/TOKEN` is ONE parameter; the escaped "&" must
+    // not split it into two. The value still spells the route once decoded,
+    // so the query is omitted — but the SPLIT could not fabricate a separate
+    // `next` parameter, keeping the classification over the true boundaries.
+    const out = redactUrl(`/ordinary?a%26next=/groups/invites/${T}`);
+    expect(out).toBe('/ordinary');
   });
 });
 
@@ -216,7 +304,7 @@ describe('redactUrl — malformed and ambiguous paths', () => {
     ['a query string after a fail-closed path', `${P}/%ZZ%67roups/%69nvites/${T}?a=1&b=%ZZ`, FAIL_CLOSED],
     ['the token in the query of a fail-closed path', `${P}/%ZZ%67roups/%69nvites?token=${T}`, FAIL_CLOSED],
     ['a fragment after a fail-closed path', `${P}/%ZZ%67roups/%69nvites/${T}#f`, FAIL_CLOSED],
-    ['a query string after a precise path', `${P}/groups/invites/${T}%ZZ?a=1`, `${P}/groups/invites/[REDACTED]?a=1`],
+    ['a query string after a precise path', `${P}/groups/invites/${T}%ZZ?a=1`, `${P}/groups/invites/[REDACTED]`],
     // ── no api prefix ───────────────────────────────────────────────────────
     ['unprefixed', `/%ZZ%67roups/%69nvites/${T}`, FAIL_CLOSED],
   ];
@@ -683,6 +771,42 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
       expect(stringsHoldingIt, `a serialized field carries ${t}`).toEqual([]);
     }
   }, 120_000);
+
+  it('a MATCHED invite route that also carries the token in its QUERY logs the masked path with NO suffix', async () => {
+    // The reported shape: `.../groups/invites/<token>?token=<token>` — the path
+    // token was masked but the query sailed through unchanged. Both stripped.
+    for (const authed of [false, true]) {
+      const before = sink.lines.length;
+      const resp = await server.inject({
+        method: 'GET',
+        url: `${PREFIX}/groups/invites/${realToken}?token=${realToken}&x=${realToken}&anything=${realToken}`,
+        headers: authed ? authHeader : {},
+        remoteAddress: nextIp(),
+      });
+      expect(resp.statusCode, `status (authed=${authed})`).toBe(authed ? 200 : 401);
+      // Response stays generic and never echoes the token.
+      expect(resp.body, `body (authed=${authed})`).not.toContain(realToken);
+      await new Promise((r) => setTimeout(r, 60));
+
+      const text = sink.lines.slice(before).join('');
+      expect(text, `raw log (authed=${authed})`).not.toContain(realToken);
+      // Every structured URL field is the masked path alone — no `?`, no `#`.
+      const recs = text.split('\n').filter((l) => l.trim().startsWith('{')).map((l) => JSON.parse(l) as Record<string, unknown>);
+      const urlValues = recs.flatMap((r) => [
+        r.url,
+        (r as { req?: { url?: unknown } }).req?.url,
+        (r as { res?: { url?: unknown } }).res?.url,
+      ]).filter((u): u is string => typeof u === 'string');
+      expect(urlValues.length, `url fields written (authed=${authed})`).toBeGreaterThan(0);
+      for (const u of urlValues) {
+        expect(u, `url field (authed=${authed})`).toBe(`${PREFIX}/groups/invites/[REDACTED]`);
+        expect(u, `url field retains a suffix (authed=${authed})`).not.toMatch(/[?#]/);
+      }
+      // And the raw access line has no `token=` (the query is gone entirely).
+      expect(text).not.toContain('token=');
+      expect(text).not.toContain('anything=');
+    }
+  }, 60_000);
 
   it('response bodies never contain the raw token or echo the request URL — anonymous and authenticated, nonexistent and REAL tokens', async () => {
     let n = 0;
