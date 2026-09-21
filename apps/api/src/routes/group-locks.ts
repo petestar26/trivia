@@ -4,7 +4,10 @@ import type { Prisma } from '@socialplay/database';
  * Locking protocol for group admission (invite acceptance, join approval,
  * public join and request to join), invite creation, group-level bans and
  * unbans, and the group-level writers that share rows with them (ownership
- * transfer, group edit and deletion, an external status change).
+ * transfer, group edit and deletion, an external status change). Every one of
+ * them that acts on behalf of a MANAGER — approval, invite creation, deletion —
+ * also re-checks that manager's authority under a lock (see "Level 4 and the
+ * actor" below).
  *
  * These writers race on overlapping rows and, without a protocol, admit an
  * account that was just restricted, admit into a group that was just archived,
@@ -27,7 +30,8 @@ import type { Prisma } from '@socialplay/database';
  *                              takes for transfer, edit and status changes;
  *                              FOR UPDATE for deletion   (the group gate)
  *   3. (group, email) advisory lock                     (the invite subject)
- *   4. group_members row(s)
+ *   4. group_members row(s): the ACTOR's own row (FOR SHARE — the authority)
+ *      FIRST, then the TARGET row(s) it writes
  *   5. group_invites row(s)
  *   6. notifications (inserts only; nothing waits on them)
  *
@@ -51,7 +55,8 @@ import type { Prisma } from '@socialplay/database';
  *                    claimed before the membership row is written: both are
  *                    behind the subject lock, so no other admission, ban or
  *                    invite creation for this subject can interleave.)
- *   approve request  1 (the APPLICANT) → 2 (SHARE) → 4 → 6
+ *   approve request  1 (the APPLICANT) → 2 (SHARE) → 4 (the ACTOR, SHARE) →
+ *                    4 (the applicant's row, UPDATE) → 6
  *   join (public)    1 (the CALLER) → 2 (SHARE) → 4
  *                    one member row: an INSERT, or a guarded UPDATE of a LEFT
  *                    row (status LEFT, role not OWNER). No notification. The
@@ -59,7 +64,8 @@ import type { Prisma } from '@socialplay/database';
  *   request to join  1 (the CALLER) → 2 (SHARE) → 4 → 6
  *                    one member row: an INSERT, or a guarded UPDATE of a LEFT
  *                    row; then a notification for each manager. No activity.
- *   create invite    2 (SHARE) → 3 → 4 (read only) → 5 → 6
+ *   create invite    2 (SHARE) → 3 → 4 (the ACTOR, SHARE) → 4 (the invitee's row,
+ *                    read only) → 5 → 6
  *   ban              3 → 4 → 5 → 6     (never level 1 or 2: it only READS the
  *                                       target's email; its writes are
  *                                       UPDATEs that change no foreign key, so
@@ -68,8 +74,9 @@ import type { Prisma } from '@socialplay/database';
  *                                       touches invites, so the ones a ban
  *                                       revoked stay revoked)
  *   transfer         2 (UPDATE, its FIRST statement: the ownerId guard) → 4 → 6
- *   delete group     2 (FOR UPDATE, explicit and FIRST) → 4 → cascade: the
- *                    group's invites (5), messages and competitions. It used to
+ *   delete group     2 (FOR UPDATE, explicit and FIRST) → 4 (the ACTOR, SHARE) →
+ *                    4 (every member row) → cascade: the group's invites (5),
+ *                    messages and competitions. It used to
  *                    delete the members BEFORE taking the group row: the inverse
  *                    of transfer (group row, then members), so the two could
  *                    deadlock, and of admission, where a delete holding member
@@ -129,6 +136,11 @@ import type { Prisma } from '@socialplay/database';
  *     and create, the group row (2) for delete and transfer.
  *   - Approve, join and request hold a member row and nothing after it that any
  *     other writer holds (see the note on notification inserts above).
+ *   - The actor's row (see "Level 4 and the actor"): approval, creation and
+ *     deletion each hold it FOR SHARE, taken after the group row and — for
+ *     creation — after the subject lock. The writers that conflict with it
+ *     (role change, ban, leave, remove) each want that ONE row and hold nothing a
+ *     holder of it needs.
  *   - Ban and unban never wait for level 2 or level 1, and hold 3-5 in the
  *     order admission does; single-statement writers hold one lock at a time.
  *
@@ -150,6 +162,46 @@ import type { Prisma } from '@socialplay/database';
  * for it and applies after. FOR SHARE is the weakest mode that blocks a status
  * or privacy UPDATE; it does not block other admissions, which take it too, so
  * admissions to one group still run in parallel.
+ *
+ * ── Level 4 and the actor ─────────────────────────────────────────────────
+ * A manager's authority — an ADMIN or OWNER membership that is ACTIVE — is read
+ * by every one of these routes with a plain query BEFORE the transaction (the
+ * fast path, assertManager). It can be stale by the time the transaction writes:
+ * the manager can be demoted, banned, muted, removed or leave, and an owner can
+ * hand the group over (and so become an ADMIN, who may not mint ADMIN invites or
+ * delete the group), all after that read. So the transaction locks the ACTOR's
+ * own membership row (lockActorMembership: FOR SHARE), re-reads role and status
+ * from it, applies the very same rules (assertActorAuthority) and holds the lock
+ * to commit. A demotion, ban, leave or removal — each an UPDATE or DELETE of that
+ * row — then either commits BEFORE the lock is granted (the action is refused,
+ * nothing written) or waits for the action to commit (it was legitimately
+ * authorized at its serialization point). FOR SHARE is the weakest mode that
+ * blocks them, and it does not block another action by the same manager.
+ *
+ * Where it sits, and why that cannot cycle:
+ *   - AFTER level 3. Ban, unban and acceptance take the (group, email) subject
+ *     lock and only then a member row; an invite creation that held the actor's
+ *     row while waiting for that subject lock could wait for a ban that waits
+ *     for the same row. So creation takes the subject lock first, the actor's
+ *     row second.
+ *   - BEFORE any target row. Approval locks the actor's row, then the
+ *     applicant's. No transaction that holds a target row ever waits for an
+ *     actor's row: ban, unban, role change, leave, remove and reject each touch
+ *     ONE member row (a ban also holds a subject lock, taken before it), and
+ *     transfer, which writes two, takes the group row first and so cannot run
+ *     while an approval or a creation holds the group row FOR SHARE.
+ *   - Nobody UPGRADES: the actor's row is only ever read under this lock, never
+ *     written by the transaction that holds it (deletion deletes it, but holds
+ *     the group row FOR UPDATE, which excludes every other holder).
+ *
+ * Deletion also re-reads the OWNER from the locked group row (ownerId): the
+ * caller must be groups.ownerId AND an ACTIVE OWNER member. The group row lock is
+ * what makes that stable — a transfer rewrites ownerId and both owners' rows only
+ * while holding the group row.
+ *
+ * Not (yet) under this protocol: the other manager actions — ban, unban, remove,
+ * role change, reject, invite revocation, group edit — still trust their
+ * fast-path check of the actor.
  *
  * ── Level 5 and the clock ─────────────────────────────────────────────────
  * The invite row lock is not just ordering. Acceptance decides "is this invite
@@ -261,19 +313,55 @@ export async function lockGroupForAdmission(tx: Tx, groupId: string): Promise<Lo
   return rows[0] ?? null;
 }
 
+export interface LockedGroupForDeletion {
+  id: string;
+  ownerId: string;
+}
+
 /**
  * Level 2, for deletion: lock the group row FOR UPDATE — the mode a DELETE
- * takes — as a deleter's FIRST statement, before it touches a member row.
- * Returns false if the group is already gone.
+ * takes — as a deleter's FIRST statement, before it touches a member row, and
+ * return who owns the group NOW (read after the lock is granted, and stable for
+ * as long as it is held: a transfer needs this row). Returns null if the group
+ * is already gone.
  */
-export async function lockGroupForDeletion(tx: Tx, groupId: string): Promise<boolean> {
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT "id"
+export async function lockGroupForDeletion(tx: Tx, groupId: string): Promise<LockedGroupForDeletion | null> {
+  const rows = await tx.$queryRaw<LockedGroupForDeletion[]>`
+    SELECT "id", "ownerId"
     FROM "groups"
     WHERE "id" = ${groupId}
     FOR UPDATE
   `;
-  return rows.length > 0;
+  return rows[0] ?? null;
+}
+
+export interface LockedMembership {
+  id: string;
+  role: string;
+  status: string;
+}
+
+/**
+ * Level 4, for the ACTOR: lock the actor's own membership row in the group FOR
+ * SHARE and return what it holds NOW — role and status, read after the lock is
+ * granted. Returns null if the actor has no membership in the group.
+ *
+ * The lock is held to commit, so the authority this returns stays true for the
+ * whole transaction: a demotion, ban, leave or removal of the actor waits behind
+ * it. Under READ COMMITTED the statement returns the latest COMMITTED version of
+ * the row once the lock is granted, and no row if it was deleted meanwhile.
+ * FOR SHARE, not FOR UPDATE: nothing here writes the row, and two actions by the
+ * same manager must not queue behind each other. See "Level 4 and the actor" in
+ * the header for where in the order it goes.
+ */
+export async function lockActorMembership(tx: Tx, groupId: string, userId: string): Promise<LockedMembership | null> {
+  const rows = await tx.$queryRaw<LockedMembership[]>`
+    SELECT "id", "role"::text AS "role", "status"::text AS "status"
+    FROM "group_members"
+    WHERE "groupId" = ${groupId} AND "userId" = ${userId}
+    FOR SHARE
+  `;
+  return rows[0] ?? null;
 }
 
 /** The lock key for a (group, invitee email) subject. Emails are compared case-insensitively. */

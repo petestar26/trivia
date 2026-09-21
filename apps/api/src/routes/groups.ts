@@ -7,6 +7,7 @@ import {
   ADMISSION_PERMITTED_GROUP_STATUSES,
   ADMISSION_PERMITTED_USER_STATUSES,
   lockAccountForAdmission,
+  lockActorMembership,
   lockGroupForAdmission,
   lockGroupForDeletion,
   lockInviteRow,
@@ -144,13 +145,17 @@ async function getGroupMembership(groupId: string, userId: string) {
   });
 }
 
-async function assertManager(
-  groupId: string,
-  userId: string,
+/**
+ * Whether a membership grants the authority to act as one of `allowedRoles`: it
+ * must be ACTIVE and hold one of the roles. Pure, so the unlocked fast path
+ * (assertManager) and the re-read under the actor's row lock (lockActorMembership,
+ * in group-locks.ts) judge a row by the very same rules and their answers cannot
+ * drift.
+ */
+function assertActorAuthority(
+  membership: { role: string; status: string } | null,
   allowedRoles: GroupMemberRole[] = MANAGER_ROLES
-): Promise<GroupMemberRole> {
-  const membership = await getGroupMembership(groupId, userId);
-
+): GroupMemberRole {
   if (!membership || membership.status !== 'ACTIVE') {
     throw ApiError.forbidden('You are not a member of this group');
   }
@@ -162,6 +167,19 @@ async function assertManager(
   }
 
   return role;
+}
+
+/**
+ * FAST PATH: the actor's authority, from a plain read. It can be stale the
+ * instant it returns; the routes that act on it re-check under the actor's row
+ * lock (assertActorAuthority over lockActorMembership) where it matters.
+ */
+async function assertManager(
+  groupId: string,
+  userId: string,
+  allowedRoles: GroupMemberRole[] = MANAGER_ROLES
+): Promise<GroupMemberRole> {
+  return assertActorAuthority(await getGroupMembership(groupId, userId), allowedRoles);
 }
 
 export async function groupRoutes(server: FastifyInstance): Promise<void> {
@@ -400,7 +418,8 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const group = await getGroupOrThrow(request.params.id);
-      await assertManager(group.id, request.user!.sub, ['OWNER']);
+      const actorId = request.user!.sub;
+      await assertManager(group.id, actorId, ['OWNER']);
 
       await prisma.$transaction(async (tx) => {
         // Level 2 of the protocol in group-locks.ts, FIRST: the group row before
@@ -408,9 +427,23 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         // other group writer uses (transfer and admission take the group row,
         // then member rows), so a delete holding member rows while waiting for
         // the group row could deadlock with either (PostgreSQL 40P01 -> a 500).
-        if (!(await lockGroupForDeletion(tx, group.id))) {
+        const locked = await lockGroupForDeletion(tx, group.id);
+        if (!locked) {
           throw ApiError.notFound('Group not found');
         }
+
+        // AUTHORITATIVE CHECK. The owner check above was a plain read taken before
+        // this transaction: an owner who handed the group over meanwhile is an
+        // ADMIN by now, and a deletion cannot be undone. With the group row held
+        // FOR UPDATE no transfer can be mid-flight, so the owner read from it is
+        // stable; lock and re-read the caller's own membership row too (level 4,
+        // before every other member row): the caller must be groups.ownerId AND
+        // an ACTIVE OWNER member.
+        assertActorAuthority(await lockActorMembership(tx, group.id, actorId), ['OWNER']);
+        if (locked.ownerId !== actorId) {
+          throw ApiError.forbidden('Insufficient permissions');
+        }
+
         await tx.groupMember.deleteMany({ where: { groupId: group.id } });
         await tx.group.delete({ where: { id: group.id } });
       });
@@ -1389,8 +1422,26 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           // the group row first means a delete can no longer wait on the stale
           // invite this transaction just closed out while this transaction
           // waits on the group row for its INSERT.
-          assertGroupActive(await lockGroupForAdmission(tx, groupId));
+          const lockedGroup = await lockGroupForAdmission(tx, groupId);
+          assertGroupActive(lockedGroup);
+          // The privacy judged above was a plain read too: an edit that made the
+          // group PUBLIC after it must not leave a PENDING invite (and a
+          // notification) in a group that does not take invitations.
+          if (!lockedGroup.isPrivate) {
+            throw ApiError.badRequest('Invites are only available for private groups');
+          }
           await lockInviteSubject(tx, groupId, normalizedEmail);
+
+          // AUTHORITATIVE CHECK of the ACTOR (level 4, after the subject lock —
+          // see "Level 4 and the actor" in group-locks.ts). The manager and the
+          // role they act with were read before this transaction; an owner who
+          // handed the group over meanwhile is an ADMIN by now and may not mint
+          // ADMIN invites, and a manager demoted, banned, muted, removed or gone
+          // may not create any. The ceiling below is applied to the LOCKED role.
+          const actorNow = assertActorAuthority(await lockActorMembership(tx, groupId, request.user!.sub));
+          if (actorNow === 'ADMIN' && role === 'ADMIN') {
+            throw ApiError.forbidden('Only the owner can assign admin roles');
+          }
 
           if (existingUser) {
             const current = await tx.groupMember.findUnique({
@@ -1986,6 +2037,13 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         // carries no invitation, so nothing here binds it to an email.
         const applicant = await lockAccountForAdmission(tx, targetUserId);
         assertGroupActive(await lockGroupForAdmission(tx, groupId));
+
+        // The ACTOR's own authority — level 4, BEFORE the applicant's row below.
+        // The manager was judged with a plain read before this transaction; one
+        // demoted, banned, muted, removed or gone since must not approve anyone.
+        // The lock is held to commit, so a demotion or ban of the manager waits
+        // for this approval rather than slipping in behind its check.
+        assertActorAuthority(await lockActorMembership(tx, groupId, request.user!.sub));
         assertApplicantAdmissible(applicant);
 
         // Atomic transition — prevents two managers racing to approve the same
