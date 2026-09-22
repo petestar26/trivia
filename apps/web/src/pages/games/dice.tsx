@@ -1,23 +1,20 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData, GameCatalogEntry } from '@/lib/api';
+import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
+import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
+import { useCasino } from '@/components/casino/CasinoProvider';
+import { CasinoShell } from '@/components/casino/CasinoShell';
+import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
 
-interface DiceResult {
+type DiceResult = {
   die1: number;
   die2: number;
   sum: number;
   threshold: number;
-}
+};
 
-interface DicePlayResult {
-  sessionId: string;
-  gameKey: string;
-  betAmount: number;
-  rewardAmount: number;
-  isWin: boolean;
+interface DicePlayResult extends GamePlayResult {
   result: DiceResult;
-  completedAt: string;
-  newBalance: number;
 }
 
 function DiceFace({ value }: { value: number }) {
@@ -42,10 +39,25 @@ function DiceFace({ value }: { value: number }) {
   );
 }
 
+function parsePlayError(error: unknown): string {
+  if (error instanceof Error) {
+    try {
+      const parsed = JSON.parse(error.message) as { message?: string };
+      if (parsed?.message) return parsed.message;
+    } catch {
+      // not JSON
+    }
+    return error.message;
+  }
+  return 'Something went wrong';
+}
+
 export function DiceGamePage() {
+  const { phase, setPhase, refetchBalance } = useCasino();
   const [bet, setBet] = useState(50);
   const [lastResult, setLastResult] = useState<DiceResult | null>(null);
   const [serverBalance, setServerBalance] = useState<number | null>(null);
+  const [isReplay, setIsReplay] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<GameCatalogEntry[]>({
@@ -56,31 +68,38 @@ export function DiceGamePage() {
 
   const playMutation = useMutation({
     mutationFn: async (betAmount: number) => {
-      return unwrapData(await api.post<DicePlayResult>('/games/dice/play', { betAmount }), 'Dice play response');
+      const res = await playGame<DicePlayResult>('dice', { betAmount }, newIdempotencyKey());
+      return { data: unwrapData(res, 'Dice play response'), isReplay: res.meta?.isReplay === true };
     },
-    onSuccess: (data) => {
-      setLastResult(data.result);
-      setServerBalance(data.newBalance);
-      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    onMutate: () => setPhase('RUNNING'),
+    onSuccess: (round) => {
+      setLastResult(round.data.result);
+      setServerBalance(round.data.newBalance);
+      setIsReplay(round.isReplay);
+      setPhase(round.data.isWin ? 'RESULT' : 'SETTLED');
+      refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
+    onError: () => setPhase('BETTING_OPEN'),
   });
 
   const minBet = game?.minBet ?? 5;
   const maxBet = game?.maxBet ?? 1000;
 
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dice</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Roll the dice. Sum of {7} or higher doubles your bet!
-        </p>
-      </div>
+    <CasinoShell
+      gameKey="dice"
+      gameName="Dice"
+      rulesVersion={game?.currentRulesVersion}
+      phase={phase}
+    >
+      <p className="text-gray-600 dark:text-gray-400">
+        Roll the dice. Sum of {7} or higher doubles your bet!
+      </p>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          Bet amount (Game Points)
+          Bet amount (Coins)
         </label>
         <div className="flex gap-3 mt-2">
           <input
@@ -100,18 +119,18 @@ export function DiceGamePage() {
           </button>
         </div>
         <div className="mt-2 text-xs text-gray-500">
-          Min {minBet} · Max {maxBet} GP
+          Min {minBet} · Max {maxBet} Coins
         </div>
 
         {playMutation.isError && (
           <div className="mt-4 text-sm text-red-600 dark:text-red-400">
-            {(playMutation.error as Error)?.message || 'Something went wrong'}
+            {parsePlayError(playMutation.error)}
           </div>
         )}
       </div>
 
       {(lastResult || playMutation.isPending) && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
+        <CasinoRendererSlot gameKey="dice" gameName="Dice" className="text-center">
           {playMutation.isPending ? (
             <div className="text-4xl animate-spin inline-block">🎲</div>
           ) : lastResult ? (
@@ -130,20 +149,25 @@ export function DiceGamePage() {
               >
                 {lastResult.sum >= lastResult.threshold ? 'You won! 🎉' : 'Better luck next time'}
               </div>
-              {playMutation.data && playMutation.data.rewardAmount > 0 && (
+              {playMutation.data && playMutation.data.data.rewardAmount > 0 && (
                 <div className="mt-1 text-green-600 dark:text-green-400">
-                  +{playMutation.data.rewardAmount} GP
+                  +{playMutation.data.data.rewardAmount} Coins
                 </div>
               )}
               {serverBalance !== null && (
                 <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
+                  Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} Coins</span>
+                </div>
+              )}
+              {isReplay && (
+                <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                  Replayed round — no new wager.
                 </div>
               )}
             </>
           ) : null}
-        </div>
+        </CasinoRendererSlot>
       )}
-    </div>
+    </CasinoShell>
   );
 }

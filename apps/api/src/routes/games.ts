@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { authenticate } from '../middleware';
-import { listActiveGames } from '../games/game-catalog';
-import { playGame, getGameHistory } from '../games/game-play';
+import { listActiveGames } from '../games/game-catalog.js';
+import { playGame, getGameHistory } from '../games/game-play.js';
 
 export async function gameRoutes(server: FastifyInstance): Promise<void> {
   // GET /games — public catalog (READ-ONLY: no writes happen here).

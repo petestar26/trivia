@@ -4,6 +4,7 @@ import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-servic
 import { emitToUser } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
 import { getGameByKey } from '../games/game-catalog';
+import { lockUserForPlay } from '../games/game-locks';
 
 const CHALLENGE_EXPIRY_HOURS = 48;
 
@@ -365,6 +366,7 @@ export async function playChallengeTurn(
   challengeId: string,
   clientData?: Record<string, unknown>
 ) {
+  // Row-lock the user first and require an ACTIVE account (correction #4).
   const challenge = await prisma.gameChallenge.findUnique({
     where: { id: challengeId },
     include: { game: true },
@@ -396,7 +398,12 @@ export async function playChallengeTurn(
 
   try {
     output = await prisma.$transaction(async (tx) => {
-      // ── LOCK the challenge row FIRST ──────────────────────────────
+      // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+      // The user is the first row locked in every play path; the challenge
+      // row lock below is taken second (same ordering as every other op).
+      await lockUserForPlay(tx, userId);
+
+      // ── LOCK the challenge row SECOND ─────────────────────────────
       // A plain findUnique here was NOT sufficient. Under READ COMMITTED it
       // takes no row lock, so two players submitting their FINAL turns
       // concurrently could both:
@@ -436,6 +443,19 @@ export async function playChallengeTurn(
       // fails with P2002 and is handled as an idempotent retry below. A
       // normal solo game session has challengeId = NULL and is never matched
       // by the opponent lookup below.
+      // Resolve the rules schema version for the game's pinned rules version.
+      const rulesRow = challenge.game.currentRulesVersion
+        ? await tx.gameRules.findUnique({
+            where: {
+              gameId_version: {
+                gameId: challenge.gameId,
+                version: challenge.game.currentRulesVersion,
+              },
+            },
+            select: { resultSchemaVersion: true },
+          })
+        : null;
+
       const session = await tx.gameSession.create({
         data: {
           userId,
@@ -455,6 +475,24 @@ export async function playChallengeTurn(
           isWin: false,
           status: 'COMPLETED',
           completedAt: new Date(),
+          mode: challenge.game.mode,
+          family: challenge.game.family,
+          wagerCurrency: challenge.game.wagerCurrency,
+          rewardCurrency: challenge.game.rewardCurrency,
+          rulesVersion: challenge.game.currentRulesVersion,
+          resultSchemaVersion: rulesRow?.resultSchemaVersion ?? null,
+          settlementDebitCurrency: null, // challenges settle via pot escrow, not per-round wallet mutation
+          settlementCreditCurrency: null,
+          playContext: 'CHALLENGE_ROUND',
+          requestSnapshot: JSON.parse(
+            JSON.stringify({
+              gameKey: challenge.game.key,
+              rulesVersion: challenge.game.currentRulesVersion ?? null,
+              stake: 0,
+              selections: { guess: clientData?.guess ?? null },
+            })
+          ),
+          responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
         },
       });
 

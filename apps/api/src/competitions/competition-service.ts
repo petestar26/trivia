@@ -5,6 +5,7 @@ import { assertGroupRole, assertActiveMember, getGroupMembership } from '../real
 import { emitToGroup } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
 import { getGameByKey } from '../games/game-catalog';
+import { lockUserForPlay } from '../games/game-locks';
 import { competitionLifecycleInfo } from './competition-lifecycle.js';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
@@ -640,7 +641,10 @@ export async function playCompetition(
   const { score, result } = computeScore(comp.scoring as string, comp.game.type, config, clientData);
 
   const outcome = await prisma.$transaction(async (tx) => {
-    // ── LOCK the competition row FIRST ────────────────────────────
+    // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+    await lockUserForPlay(tx, userId);
+
+    // ── LOCK the competition row SECOND ───────────────────────────
     // A plain re-read of comp.status here would be a non-locking SELECT: under
     // READ COMMITTED it does not block on a concurrent finalize/cancel/update
     // claim that is mid-flight (locked but not yet committed), so it could
@@ -687,6 +691,16 @@ export async function playCompetition(
       );
     }
 
+    // Resolve the rules schema version for the game's pinned rules version.
+    const rulesRow = comp.game.currentRulesVersion
+      ? await tx.gameRules.findUnique({
+          where: {
+            gameId_version: { gameId: comp.gameId, version: comp.game.currentRulesVersion },
+          },
+          select: { resultSchemaVersion: true },
+        })
+      : null;
+
     await tx.gameSession.create({
       data: {
         userId,
@@ -697,6 +711,24 @@ export async function playCompetition(
         isWin: score > 0,
         status: 'COMPLETED',
         completedAt: new Date(),
+        mode: comp.game.mode,
+        family: comp.game.family,
+        wagerCurrency: comp.game.wagerCurrency,
+        rewardCurrency: comp.game.rewardCurrency,
+        rulesVersion: comp.game.currentRulesVersion,
+        resultSchemaVersion: rulesRow?.resultSchemaVersion ?? null,
+        settlementDebitCurrency: null, // competitions settle via escrow, not per-round wallet mutation
+        settlementCreditCurrency: null,
+        playContext: 'COMPETITION_ROUND',
+        requestSnapshot: JSON.parse(
+          JSON.stringify({
+            gameKey: comp.game.key,
+            rulesVersion: comp.game.currentRulesVersion ?? null,
+            stake: 0,
+            selections: {},
+          })
+        ),
+        responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
       },
     });
 
@@ -733,7 +765,19 @@ export async function playCompetition(
  */
 async function playTriviaCompetitionRound(
   userId: string,
-  comp: { id: string; gameId: string; entryAmount: number },
+  comp: {
+    id: string;
+    gameId: string;
+    entryAmount: number;
+    game: {
+      key: string;
+      mode: 'WAGER' | 'BONUS';
+      family: 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
+      wagerCurrency: 'COINS' | 'GAME_POINTS' | null;
+      rewardCurrency: 'COINS' | 'GAME_POINTS';
+      currentRulesVersion: number | null;
+    };
+  },
   participant: { score: number; gamesPlayed: number },
   clientData?: Record<string, unknown>
 ) {
@@ -798,7 +842,10 @@ async function playTriviaCompetitionRound(
   const result = { questionId: q.id, answerIndex, correct };
 
   await prisma.$transaction(async (tx) => {
-    // ── LOCK the competition row FIRST ────────────────────────────
+    // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+    await lockUserForPlay(tx, userId);
+
+    // ── LOCK the competition row SECOND ───────────────────────────
     // Identical discipline to playCompetition's non-trivia path above, and
     // for the identical reason. Every check performed before this
     // transaction (status, finalizedAt, startsAt/endsAt) came from a plain,
@@ -849,6 +896,16 @@ async function playTriviaCompetitionRound(
         gamesPlayed: { increment: 1 },
       },
     });
+    // Resolve the rules schema version for the game's pinned rules version.
+    const rulesRow = comp.game.currentRulesVersion
+      ? await tx.gameRules.findUnique({
+          where: {
+            gameId_version: { gameId: comp.gameId, version: comp.game.currentRulesVersion },
+          },
+          select: { resultSchemaVersion: true },
+        })
+      : null;
+
     await tx.gameSession.create({
       data: {
         userId,
@@ -859,6 +916,24 @@ async function playTriviaCompetitionRound(
         isWin: correct,
         status: 'COMPLETED',
         completedAt: new Date(),
+        mode: comp.game.mode,
+        family: comp.game.family,
+        wagerCurrency: comp.game.wagerCurrency,
+        rewardCurrency: comp.game.rewardCurrency,
+        rulesVersion: comp.game.currentRulesVersion,
+        resultSchemaVersion: rulesRow?.resultSchemaVersion ?? null,
+        settlementDebitCurrency: null, // competitions settle via escrow, not per-round wallet mutation
+        settlementCreditCurrency: null,
+        playContext: 'COMPETITION_ROUND',
+        requestSnapshot: JSON.parse(
+          JSON.stringify({
+            gameKey: comp.game.key,
+            rulesVersion: comp.game.currentRulesVersion ?? null,
+            stake: 0,
+            selections: { questionId: q.id },
+          })
+        ),
+        responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
       },
     });
   });

@@ -1,12 +1,13 @@
 import { randomUUID } from 'crypto';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
-import { applyBalanceChanges, getOrCreateWallet } from '../economy/wallet-service';
-import { getGameByKey, resolveCurrentRules } from './game-catalog';
-import { fingerprintPlay } from './game-fingerprint';
-import { lockUserForPlay } from './game-locks';
-import type { BalanceChange } from '../economy/wallet-service';
-import type { GameCurrencyValue } from './game-catalog';
+import { applyBalanceChanges, getOrCreateWallet } from '../economy/wallet-service.js';
+import { resolveJurisdictionForPlay, requirePlayableJurisdiction } from '../economy/jurisdiction-service.js';
+import { getGameByKey, resolveCurrentRules } from './game-catalog.js';
+import { fingerprintPlay } from './game-fingerprint.js';
+import { lockUserForPlay } from './game-locks.js';
+import type { BalanceChange } from '../economy/wallet-service.js';
+import type { GameCurrencyValue } from './game-catalog.js';
 import {
   pickLuckySpinOutcome,
   rollDice,
@@ -14,7 +15,7 @@ import {
   evaluateGuess,
   checkTriviaAnswer,
   calculateGameReward,
-} from './game-engine';
+} from './game-engine.js';
 
 export type PlayModeValue = 'WAGER' | 'BONUS';
 export type PlayFamilyValue = 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
@@ -174,17 +175,14 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
   const gameKey = args.gameKey.trim().toLowerCase();
   if (!gameKey) throw ApiError.badRequest('Game key is required');
 
-  // READ-ONLY resolution of game + pinned rules.
+  // READ-ONLY resolution of game definition (rules deferred until after replay check).
   const game = await getGameByKey(gameKey);
   if (!game) throw ApiError.notFound('Game not found');
   if (game.catalogStatus !== 'AVAILABLE') {
     throw ApiError.badRequest('This game is not available to play');
   }
 
-  const rules = await resolveCurrentRules(game);
-  if (!rules) throw ApiError.badRequest('This game has no active rules');
-
-  // Mode-specific bet semantics.
+  // Mode-specific bet semantics (validated before entering transaction).
   const isBonus = game.mode === 'BONUS';
   if (isBonus) {
     // PRESENCE of betAmount is forbidden for BONUS games, even 0.
@@ -196,14 +194,6 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
   }
 
   const stake = isBonus ? 0 : (betAmount as number);
-  const wagerCurrency = isBonus ? null : toCurrency(game.wagerCurrency, 'COINS');
-  const rewardCurrency = toCurrency(game.rewardCurrency, 'COINS');
-  const rulesVersion = rules.version;
-  const resultSchemaVersion = rules.resultSchemaVersion;
-  const family = (game.family as PlayFamilyValue) ?? 'INSTANT';
-  const rulesConfig = (rules.rules as Record<string, unknown>) ?? {};
-  const selections = buildSelections(game.type, clientData);
-  const playContext: PlayContextValue = isBonus ? 'BONUS' : 'SOLO_WAGER';
 
   // Ensure a wallet exists (unique-safe, done outside the tx).
   await getOrCreateWallet(userId);
@@ -211,19 +201,12 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
   // Pre-generate the session id so settlement ledger entries can reference it.
   const sessionId = randomUUID();
 
-  const fingerprint = fingerprintPlay({
-    gameKey,
-    rulesVersion,
-    stake,
-    selections,
-  });
-
   return prisma.$transaction(async (tx) => {
-    // 1. Advisory lock: serialize concurrent plays for (user, game) so
+    // 1. Advisory lock: serialize concurrent plays for (user, idempotencyKey) so
     //    replay detection and balance settlement cannot race. The outer
     //    SELECT hides the void return of pg_advisory_xact_lock, which
     //    Prisma's $queryRaw cannot deserialize.
-    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended('game_play:' || ${userId} || ':' || ${gameKey}, 0))) AS lock_wait`;
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended('game_play:' || ${userId} || ':' || ${idempotencyKey}, 0))) AS lock_wait`;
 
     // 2. Eligibility: FOR SHARE on the user, require ACTIVE status.
     await lockUserForPlay(tx, userId);
@@ -234,7 +217,17 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     });
     if (existing) {
       // Same key + same fingerprint -> replay the stored response.
-      if (existing.fingerprint === fingerprint && existing.responseSnapshot) {
+      // Use the STORED rulesVersion (the version the original session was
+      // settled under) with the CURRENT request's stake/selections to compute
+      // the comparison fingerprint.
+      const currentSelections = buildSelections(game.type, clientData);
+      const currentFingerprint = fingerprintPlay({
+        gameKey,
+        rulesVersion: existing.rulesVersion,
+        stake,
+        selections: currentSelections,
+      });
+      if (existing.fingerprint === currentFingerprint && existing.responseSnapshot) {
         const snapshot = existing.responseSnapshot as unknown as GameResult;
         return { ...snapshot, isReplay: true };
       }
@@ -244,7 +237,35 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
       );
     }
 
-    // 4. Server-authoritative outcome.
+    // 4. Jurisdiction gate (fail-closed): resolve the user's verified country
+    //    and active enabled policy. Missing, unresolved, or disabled
+    //    jurisdiction throws FORBIDDEN BEFORE any wallet/session writes.
+    const jurisdiction = requirePlayableJurisdiction(
+      await resolveJurisdictionForPlay(tx, userId)
+    );
+    const playthroughMultiplier = jurisdiction.policy.playthroughMultiplier;
+
+    // 5. Resolve current rules AFTER replay check (only for new sessions).
+    const rules = await resolveCurrentRules(game);
+    if (!rules) throw ApiError.badRequest('This game has no active rules');
+
+    const wagerCurrency = isBonus ? null : toCurrency(game.wagerCurrency, 'COINS');
+    const rewardCurrency = toCurrency(game.rewardCurrency, 'COINS');
+    const rulesVersion = rules.version;
+    const resultSchemaVersion = rules.resultSchemaVersion;
+    const family = (game.family as PlayFamilyValue) ?? 'INSTANT';
+    const rulesConfig = (rules.rules as Record<string, unknown>) ?? {};
+    const selections = buildSelections(game.type, clientData);
+    const playContext: PlayContextValue = isBonus ? 'BONUS' : 'SOLO_WAGER';
+
+    const fingerprint = fingerprintPlay({
+      gameKey,
+      rulesVersion,
+      stake,
+      selections,
+    });
+
+    // 6. Server-authoritative outcome.
     let resultData: Record<string, unknown>;
     let rewardAmount = 0;
     let isWin = false;
@@ -315,7 +336,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
         throw ApiError.badRequest('Unknown game type');
     }
 
-    // 5. Settlement currencies and wallet changes.
+    // 7. Settlement currencies and wallet changes.
     const changes: BalanceChange[] = [];
     let settlementDebitCurrency: GameCurrencyValue | null = null;
     let settlementCreditCurrency: GameCurrencyValue | null = null;
@@ -362,10 +383,50 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     }
 
     if (changes.length > 0) {
-      await applyBalanceChanges(tx, userId, changes, {
+      const walletResult = await applyBalanceChanges(tx, userId, changes, {
         idempotencyKey,
         operationName: 'game_play',
       });
+
+      // BLOCKER 3: Create CoinProvenance for reward credits
+      if (isBonus && rewardAmount > 0) {
+        // Trivia reward: restricted coins
+        const creditTx = walletResult.transactions.find(
+          (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+        );
+        if (creditTx) {
+          await tx.coinProvenance.create({
+            data: {
+              userId,
+              walletTransactionId: creditTx.id,
+              amount: rewardAmount,
+              provenanceType: 'TRIVIA_REWARD',
+              restrictionStatus: 'RESTRICTED',
+              originalSource: 'TRIVIA_REWARD',
+              countryPolicyId: jurisdiction.policy.id,
+              countryPolicyVersion: jurisdiction.policy.version,
+              requiredPlaythrough: Math.round(rewardAmount * playthroughMultiplier),
+            },
+          });
+        }
+      } else if (!isBonus && rewardAmount > 0) {
+        // Wager win: unrestricted coins (game was funded with user's own coins)
+        const creditTx = walletResult.transactions.find(
+          (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+        );
+        if (creditTx) {
+          await tx.coinProvenance.create({
+            data: {
+              userId,
+              walletTransactionId: creditTx.id,
+              amount: rewardAmount,
+              provenanceType: 'GAME_WIN',
+              restrictionStatus: 'UNRESTRICTED',
+              originalSource: 'GAME_WIN',
+            },
+          });
+        }
+      }
     }
 
     // 6. Authoritative post-play balance (COINS since every G0 game settles in COINS).

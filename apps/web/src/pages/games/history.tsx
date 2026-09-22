@@ -9,6 +9,13 @@ interface GameHistoryItem {
   rewardAmount: number;
   isWin: boolean;
   result: Record<string, unknown>;
+  mode: string;
+  family: string;
+  rulesVersion: number | null;
+  resultSchemaVersion: number | null;
+  playContext: string;
+  settlementDebitCurrency: string | null;
+  settlementCreditCurrency: string | null;
   createdAt: string;
   completedAt: string | null;
 }
@@ -20,9 +27,19 @@ interface HistoryResponse {
 
 const GAME_ICONS: Record<string, string> = {
   lucky_spin: '🎡',
+  spin_win: '🎡',
   dice: '🎲',
   number_challenge: '🔢',
   trivia: '🧠',
+  thunder_derby_3d: '⚡',
+  neon_hounds_3d: '🐕',
+  turbo_circuit_3d: '🏎️',
+  starfall_nebula: '⭐',
+  jungle_dash_3d: '🌴',
+  turbo_keno: '🔢',
+  crystal_trail: '💎',
+  heat_vault: '🔥',
+  strait_rush: '🏁',
 };
 
 function formatDate(iso: string): string {
@@ -35,6 +52,14 @@ function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function currencyLabel(code: string | null | undefined): string {
+  if (!code) return 'Coins';
+  const c = code.toLowerCase().replace(/[\s_]/g, '');
+  if (c === 'coins' || c === 'coin') return 'Coins';
+  if (c === 'gamepoints' || c === 'gamepoint' || c === 'gp') return 'GP';
+  return code;
 }
 
 export function GameHistoryPage() {
@@ -87,17 +112,24 @@ export function GameHistoryPage() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {formatDate(s.completedAt ?? s.createdAt)}
                 </div>
+                {(s.mode || s.family || s.rulesVersion != null || s.resultSchemaVersion != null) && (
+                  <div className="text-xs text-gray-400 dark:text-gray-500">
+                    {[s.mode, s.family].filter(Boolean).join(' · ')}
+                    {s.rulesVersion != null && `${s.mode || s.family ? ' · ' : ''}Rules v${s.rulesVersion}`}
+                    {s.resultSchemaVersion != null && ` · Schema v${s.resultSchemaVersion}`}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <div className="text-sm text-gray-600 dark:text-gray-300">
-                  Bet: <span className="font-medium">{s.betAmount} GP</span>
+                  Bet: <span className="font-medium">{s.betAmount} {currencyLabel(s.settlementDebitCurrency)}</span>
                 </div>
                 {s.isWin ? (
                   <div className="text-sm font-semibold text-green-600 dark:text-green-400">
-                    +{s.rewardAmount} GP
+                    +{s.rewardAmount} {currencyLabel(s.settlementCreditCurrency)}
                   </div>
                 ) : (
-                  <div className="text-sm text-red-600 dark:text-red-400">−{s.betAmount} GP</div>
+                  <div className="text-sm text-red-600 dark:text-red-400">−{s.betAmount} {currencyLabel(s.settlementDebitCurrency)}</div>
                 )}
               </div>
             </div>
