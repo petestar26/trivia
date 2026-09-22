@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
@@ -74,13 +74,23 @@ export function TriviaGamePage() {
     }
   }, [questions, current]);
 
+  // One idempotency key per logical round, generated OUTSIDE mutationFn (in
+  // submit(), before mutate() is called) and reused for every retry — see
+  // dice.tsx for the full rationale. Cleared only in onSuccess.
+  const idempotencyKeyRef = useRef<string | null>(null);
+
   const playMutation = useMutation({
-    mutationFn: async (payload: { questionId: string; answerIndex: number }) => {
-      const res = await playGame<TriviaPlayResult>('trivia', payload, newIdempotencyKey());
+    mutationFn: async (payload: { questionId: string; answerIndex: number; idempotencyKey: string }) => {
+      const res = await playGame<TriviaPlayResult>(
+        'trivia',
+        { questionId: payload.questionId, answerIndex: payload.answerIndex },
+        payload.idempotencyKey
+      );
       return { data: unwrapData(res, 'Trivia play response'), isReplay: res.meta?.isReplay === true };
     },
     onMutate: () => setPhase('RUNNING'),
     onSuccess: (round) => {
+      idempotencyKeyRef.current = null; // round conclusively finished — next play is a new round
       setLastResult(round.data.result);
       setServerBalance(round.data.newBalance);
       setIsReplay(round.isReplay);
@@ -88,14 +98,17 @@ export function TriviaGamePage() {
       refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
+    // Deliberately does NOT clear idempotencyKeyRef on error — see dice.tsx.
     onError: () => setPhase('BETTING_OPEN'),
   });
 
   const submit = () => {
     if (selected === null || !current) return;
+    const key = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = newIdempotencyKey());
     playMutation.mutate({
       questionId: current.id,
       answerIndex: selected,
+      idempotencyKey: key,
     });
   };
 

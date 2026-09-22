@@ -3,11 +3,13 @@ import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { applyBalanceChanges, getOrCreateWallet } from '../economy/wallet-service.js';
 import { resolveJurisdictionForPlay, requirePlayableJurisdiction } from '../economy/jurisdiction-service.js';
-import { getGameByKey, resolveCurrentRules } from './game-catalog.js';
+import { allocateWagerDebit, createPayoutProvenance, isQualifyingWager } from '../economy/provenance-service.js';
+import { getGameByKey } from './game-catalog.js';
 import { fingerprintPlay } from './game-fingerprint.js';
-import { lockUserForPlay } from './game-locks.js';
+import { lockUserForPlay, lockGameForPlay } from './game-locks.js';
 import type { BalanceChange } from '../economy/wallet-service.js';
 import type { GameCurrencyValue } from './game-catalog.js';
+import type { LockedGame } from './game-locks.js';
 import {
   pickLuckySpinOutcome,
   rollDice,
@@ -165,7 +167,27 @@ function toCurrency(value: unknown, fallback: GameCurrencyValue): GameCurrencyVa
 }
 
 // ─── Main Play Handler ─────────────────────────────────────────
-
+//
+// Ordering invariant (why each step is where it is):
+//   1-2. Advisory lock + user eligibility — unconditional, cheapest checks.
+//   3. Replay detection — an existing idempotency key returns the stored
+//      snapshot WITHOUT resolving current rules/availability and WITHOUT
+//      any write (no wallet touch, no provenance, no session row). Only
+//      `game.type` (immutable per key) is used, from the pre-tx fail-fast
+//      read, to recompute the comparison fingerprint.
+//   4. Jurisdiction gate — fail-closed, BEFORE any wallet/session write.
+//   5. NEW-session path only: lock the GameDefinition row (FOR SHARE) and
+//      re-validate availability/bet shape against THAT locked read, never
+//      the pre-tx snapshot — a concurrent catalogStatus/currentRulesVersion
+//      change must commit before this lock or wait behind it.
+//   6. Wallet creation — INSIDE the transaction, AFTER eligibility and
+//      jurisdiction, so a rejected play (bad account, bad jurisdiction)
+//      never creates a wallet row.
+//   7. Resolve current rules using the SAME tx client and the locked game's
+//      currentRulesVersion.
+//   8. Outcome generation, settlement (wallet debit/credit via the sole
+//      authoritative path), wager-debit provenance allocation, conservative
+//      payout-restriction provenance, session row.
 export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
   const { userId, betAmount, clientData = {} } = args;
 
@@ -175,28 +197,23 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
   const gameKey = args.gameKey.trim().toLowerCase();
   if (!gameKey) throw ApiError.badRequest('Game key is required');
 
-  // READ-ONLY resolution of game definition (rules deferred until after replay check).
-  const game = await getGameByKey(gameKey);
-  if (!game) throw ApiError.notFound('Game not found');
-  if (game.catalogStatus !== 'AVAILABLE') {
-    throw ApiError.badRequest('This game is not available to play');
-  }
-
-  // Mode-specific bet semantics (validated before entering transaction).
-  const isBonus = game.mode === 'BONUS';
-  if (isBonus) {
-    // PRESENCE of betAmount is forbidden for BONUS games, even 0.
+  // Fast, NON-AUTHORITATIVE pre-tx read: fail obviously-bad requests (unknown
+  // key, betAmount shape) before opening a transaction at all, and supply
+  // the immutable `type` field the replay path needs. Never used to decide
+  // availability, bet bounds, or rules for a NEW play — that decision is
+  // made again, authoritatively, under lock inside the transaction (step 5
+  // below), so a game that changed between this read and the transaction
+  // can never be played (or replay-fingerprinted) against stale state.
+  const preCheckGame = await getGameByKey(gameKey);
+  if (!preCheckGame) throw ApiError.notFound('Game not found');
+  const preCheckIsBonus = preCheckGame.mode === 'BONUS';
+  if (preCheckIsBonus) {
     if (betAmount !== undefined) {
       throw ApiError.badRequest('BONUS games do not accept a betAmount');
     }
   } else {
-    validateWagerBet(betAmount, game.minBet, game.maxBet);
+    validateWagerBet(betAmount, preCheckGame.minBet, preCheckGame.maxBet);
   }
-
-  const stake = isBonus ? 0 : (betAmount as number);
-
-  // Ensure a wallet exists (unique-safe, done outside the tx).
-  await getOrCreateWallet(userId);
 
   // Pre-generate the session id so settlement ledger entries can reference it.
   const sessionId = randomUUID();
@@ -211,7 +228,9 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     // 2. Eligibility: FOR SHARE on the user, require ACTIVE status.
     await lockUserForPlay(tx, userId);
 
-    // 3. Replay detection: same idempotency key.
+    // 3. Replay detection: same idempotency key. NO writes, NO rules/
+    //    availability resolution on this path — only the pre-tx snapshot's
+    //    immutable `type` is used to recompute the comparison fingerprint.
     const existing = await tx.gameSession.findFirst({
       where: { userId, idempotencyKey },
     });
@@ -220,11 +239,12 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
       // Use the STORED rulesVersion (the version the original session was
       // settled under) with the CURRENT request's stake/selections to compute
       // the comparison fingerprint.
-      const currentSelections = buildSelections(game.type, clientData);
+      const stakeForFingerprint = preCheckIsBonus ? 0 : (betAmount as number);
+      const currentSelections = buildSelections(preCheckGame.type, clientData);
       const currentFingerprint = fingerprintPlay({
         gameKey,
         rulesVersion: existing.rulesVersion,
-        stake,
+        stake: stakeForFingerprint,
         selections: currentSelections,
       });
       if (existing.fingerprint === currentFingerprint && existing.responseSnapshot) {
@@ -238,15 +258,45 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     }
 
     // 4. Jurisdiction gate (fail-closed): resolve the user's verified country
-    //    and active enabled policy. Missing, unresolved, or disabled
-    //    jurisdiction throws FORBIDDEN BEFORE any wallet/session writes.
+    //    and active enabled policy, LOCKING both rows for the rest of this
+    //    transaction. Missing, unresolved, or disabled jurisdiction throws
+    //    FORBIDDEN BEFORE any wallet/session writes.
     const jurisdiction = requirePlayableJurisdiction(
       await resolveJurisdictionForPlay(tx, userId)
     );
     const playthroughMultiplier = jurisdiction.policy.playthroughMultiplier;
 
-    // 5. Resolve current rules AFTER replay check (only for new sessions).
-    const rules = await resolveCurrentRules(game);
+    // 5. NEW SESSION — authoritative, locked read of the game row. Re-checks
+    //    availability and bet shape against the FRESH, locked state; a
+    //    concurrent update to catalogStatus/currentRulesVersion must commit
+    //    before this lock or wait behind this transaction.
+    const game: LockedGame | null = await lockGameForPlay(tx, gameKey);
+    if (!game) throw ApiError.notFound('Game not found');
+    if (game.catalogStatus !== 'AVAILABLE') {
+      throw ApiError.badRequest('This game is not available to play');
+    }
+
+    const isBonus = game.mode === 'BONUS';
+    if (isBonus) {
+      if (betAmount !== undefined) {
+        throw ApiError.badRequest('BONUS games do not accept a betAmount');
+      }
+    } else {
+      validateWagerBet(betAmount, game.minBet, game.maxBet);
+    }
+    const stake = isBonus ? 0 : (betAmount as number);
+
+    // 6. Ensure a wallet exists — INSIDE the transaction, using the SAME tx
+    //    client, and only now that eligibility and jurisdiction have both
+    //    passed. A rejected play never creates a wallet row.
+    await getOrCreateWallet(userId, tx);
+
+    // 7. Resolve current rules using the SAME transaction client and the
+    //    LOCKED game's currentRulesVersion (never the pre-tx snapshot).
+    if (!game.currentRulesVersion) throw ApiError.badRequest('This game has no active rules');
+    const rules = await tx.gameRules.findUnique({
+      where: { gameId_version: { gameId: game.id, version: game.currentRulesVersion } },
+    });
     if (!rules) throw ApiError.badRequest('This game has no active rules');
 
     const wagerCurrency = isBonus ? null : toCurrency(game.wagerCurrency, 'COINS');
@@ -265,7 +315,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
       selections,
     });
 
-    // 6. Server-authoritative outcome.
+    // 8. Server-authoritative outcome.
     let resultData: Record<string, unknown>;
     let rewardAmount = 0;
     let isWin = false;
@@ -336,7 +386,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
         throw ApiError.badRequest('Unknown game type');
     }
 
-    // 7. Settlement currencies and wallet changes.
+    // 9. Settlement currencies and wallet changes.
     const changes: BalanceChange[] = [];
     let settlementDebitCurrency: GameCurrencyValue | null = null;
     let settlementCreditCurrency: GameCurrencyValue | null = null;
@@ -382,54 +432,19 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
       }
     }
 
+    // Wallet debit/credit — the sole authoritative wallet-mutation path.
+    // Provenance (CoinAllocation.gameSessionId is a real foreign key to
+    // GameSession) is recorded further below, AFTER the GameSession row
+    // exists — see step 12.
+    let walletResult: Awaited<ReturnType<typeof applyBalanceChanges>> | null = null;
     if (changes.length > 0) {
-      const walletResult = await applyBalanceChanges(tx, userId, changes, {
+      walletResult = await applyBalanceChanges(tx, userId, changes, {
         idempotencyKey,
         operationName: 'game_play',
       });
-
-      // BLOCKER 3: Create CoinProvenance for reward credits
-      if (isBonus && rewardAmount > 0) {
-        // Trivia reward: restricted coins
-        const creditTx = walletResult.transactions.find(
-          (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-        );
-        if (creditTx) {
-          await tx.coinProvenance.create({
-            data: {
-              userId,
-              walletTransactionId: creditTx.id,
-              amount: rewardAmount,
-              provenanceType: 'TRIVIA_REWARD',
-              restrictionStatus: 'RESTRICTED',
-              originalSource: 'TRIVIA_REWARD',
-              countryPolicyId: jurisdiction.policy.id,
-              countryPolicyVersion: jurisdiction.policy.version,
-              requiredPlaythrough: Math.round(rewardAmount * playthroughMultiplier),
-            },
-          });
-        }
-      } else if (!isBonus && rewardAmount > 0) {
-        // Wager win: unrestricted coins (game was funded with user's own coins)
-        const creditTx = walletResult.transactions.find(
-          (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-        );
-        if (creditTx) {
-          await tx.coinProvenance.create({
-            data: {
-              userId,
-              walletTransactionId: creditTx.id,
-              amount: rewardAmount,
-              provenanceType: 'GAME_WIN',
-              restrictionStatus: 'UNRESTRICTED',
-              originalSource: 'GAME_WIN',
-            },
-          });
-        }
-      }
     }
 
-    // 6. Authoritative post-play balance (COINS since every G0 game settles in COINS).
+    // 10. Authoritative post-play balance (COINS since every G0 game settles in COINS).
     const walletAfter = await tx.wallet.findUnique({
       where: { userId },
       select: { coinsBalance: true, gamePointsBalance: true },
@@ -439,7 +454,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
         ? walletAfter?.coinsBalance
         : walletAfter?.gamePointsBalance) ?? 0;
 
-    // 7. Response + immutable snapshots.
+    // 11. Response + immutable snapshots.
     const responseBody: GameResult = {
       sessionId,
       gameKey,
@@ -508,6 +523,89 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
         );
       }
       throw err;
+    }
+
+    // 12. NOW that the GameSession row exists, record provenance —
+    // CoinAllocation.gameSessionId is a real foreign key to GameSession, so
+    // every allocation created here must come after the row above commits
+    // to this same transaction. If anything below throws, the WHOLE
+    // transaction (wallet changes, the session row, and any provenance
+    // already written in this block) rolls back together — there is no
+    // window where a session or wallet change persists without its
+    // provenance, or vice versa.
+    let fundedByRestricted = false;
+    if (walletResult) {
+      if (isBonus && rewardAmount > 0) {
+        // Trivia reward: always restricted coins — a fresh grant, never
+        // funded by anything, so there is no provenance to allocate.
+        const creditTx = walletResult.transactions.find(
+          (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+        );
+        if (creditTx) {
+          await tx.coinProvenance.create({
+            data: {
+              userId,
+              walletTransactionId: creditTx.id,
+              amount: rewardAmount,
+              provenanceType: 'TRIVIA_REWARD',
+              restrictionStatus: 'RESTRICTED',
+              originalSource: 'TRIVIA_REWARD',
+              countryPolicyId: jurisdiction.policy.id,
+              countryPolicyVersion: jurisdiction.policy.version,
+              requiredPlaythrough: Math.round(rewardAmount * playthroughMultiplier),
+            },
+          });
+        }
+      } else if (!isBonus) {
+        // WAGER: allocate the stake debit across the user's provenance lots
+        // (deterministic FIFO, locked) — this is what decides whether ANY
+        // restricted coin funded this wager, NOT the win/loss outcome.
+        // Must run AFTER applyBalanceChanges: the debit already proved the
+        // wallet could afford this stake; this call only explains
+        // provenance for a debit that has already happened.
+        if (wagerCurrency === 'COINS') {
+          const qualifies = isQualifyingWager(
+            {
+              qualifyingGames: jurisdiction.policy.qualifyingGames,
+              maxQualifyingStake: jurisdiction.policy.maxQualifyingStake,
+            },
+            gameKey,
+            stake
+          );
+          const allocation = await allocateWagerDebit({
+            tx,
+            userId,
+            amount: stake,
+            gameSessionId: sessionId,
+            isQualifyingWager: qualifies,
+            policy: { id: jurisdiction.policy.id, version: jurisdiction.policy.version },
+          });
+          fundedByRestricted = allocation.fundedByRestricted;
+        }
+
+        if (rewardAmount > 0 && rewardCurrency === 'COINS') {
+          // Payout provenance is CONSERVATIVE: restricted the moment any
+          // funding lot was restricted, never assumed unrestricted just
+          // because the wager won.
+          const creditTx = walletResult.transactions.find(
+            (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+          );
+          if (creditTx) {
+            await createPayoutProvenance({
+              tx,
+              userId,
+              walletTransactionId: creditTx.id,
+              amount: rewardAmount,
+              fundedByRestricted,
+              policy: {
+                id: jurisdiction.policy.id,
+                version: jurisdiction.policy.version,
+                playthroughMultiplier,
+              },
+            });
+          }
+        }
+      }
     }
 
     return { ...responseBody, isReplay: false };

@@ -8,8 +8,10 @@ import {
 } from './game-catalog.js';
 import { fingerprintPlay, normalizeSelections } from './game-fingerprint.js';
 import { playGame, getGameHistory } from './game-play.js';
-import { lockUserForPlay } from './game-locks.js';
+import { lockUserForPlay, lockGameForPlay } from './game-locks.js';
+import { resolveJurisdictionForPlay } from '../economy/jurisdiction-service.js';
 import { getOrCreateWallet, getWalletBalance, reconcileBalance } from '../economy/wallet-service.js';
+import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -105,10 +107,17 @@ async function createUser(tag: string) {
   return user;
 }
 
+// Funds `userId` with `amount` UNRESTRICTED Coins: a real wallet credit
+// PLUS a matching UNRESTRICTED CoinProvenance lot, so ordinary test wagers
+// draw from a real, tracked, already-free lot rather than tripping the
+// LEGACY_UNTRACKED fallback (which exists for genuinely untracked balance,
+// not for test fixtures that can trivially be tracked). Tests that
+// specifically want a RESTRICTED-funded wager use `primeRestrictedCoins`
+// instead.
 async function primeCoins(userId: string, amount: number) {
   await getOrCreateWallet(userId);
   const { executeBalanceChange } = await import('../economy/wallet-service.js');
-  await executeBalanceChange({
+  const result = await executeBalanceChange({
     userId,
     changes: [
       {
@@ -122,6 +131,63 @@ async function primeCoins(userId: string, amount: number) {
     ],
     operationName: 'test_fund_coins',
   });
+  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
+    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+  );
+  await prisma.coinProvenance.create({
+    data: {
+      userId,
+      walletTransactionId: creditTx?.id,
+      amount,
+      provenanceType: 'ADMIN_ADJUSTMENT',
+      restrictionStatus: 'UNRESTRICTED',
+      originalSource: 'ADMIN_ADJUSTMENT',
+    },
+  });
+}
+
+// Funds `userId` with `amount` RESTRICTED Coins under an OWN, explicit
+// requiredPlaythrough (default far beyond what a single test wager could
+// qualify for, so the lot stays RESTRICTED through the wager unless a test
+// deliberately sets a small requirement to prove it clears). Used by tests
+// proving mixed/restricted-funded wagers cannot become withdrawable
+// prematurely.
+async function primeRestrictedCoins(
+  userId: string,
+  amount: number,
+  requiredPlaythrough = 1_000_000
+) {
+  await getOrCreateWallet(userId);
+  const { executeBalanceChange } = await import('../economy/wallet-service.js');
+  const result = await executeBalanceChange({
+    userId,
+    changes: [
+      {
+        currency: 'COINS',
+        amount,
+        ledgerType: 'CREDIT',
+        transactionType: 'COIN_CREDIT',
+        referenceType: 'ADMIN',
+        description: 'Test fixture restricted coins',
+      },
+    ],
+    operationName: 'test_fund_restricted_coins',
+  });
+  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
+    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+  );
+  return prisma.coinProvenance.create({
+    data: {
+      userId,
+      walletTransactionId: creditTx?.id,
+      amount,
+      provenanceType: 'TRIVIA_REWARD',
+      restrictionStatus: 'RESTRICTED',
+      originalSource: 'TRIVIA_REWARD',
+      requiredPlaythrough,
+      completedPlaythrough: 0,
+    },
+  });
 }
 
 async function cleanFixtures() {
@@ -130,6 +196,7 @@ async function cleanFixtures() {
   });
   const userIds = users.map((u) => u.id);
   if (userIds.length) {
+    await prisma.agent.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.userPayoutAccount.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
@@ -140,9 +207,9 @@ async function cleanFixtures() {
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
-  await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: { in: ['TV', 'TV2'] } } });
-  await prisma.paymentMethodDefinition.deleteMany({ where: { country: { code: { in: ['TV', 'TV2'] } } } });
-  await prisma.country.deleteMany({ where: { code: { in: ['TV', 'TV2'] } } });
+  await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: { in: ['TV', 'TV2', 'TV3'] } } });
+  await prisma.paymentMethodDefinition.deleteMany({ where: { country: { code: { in: ['TV', 'TV2', 'TV3'] } } } });
+  await prisma.country.deleteMany({ where: { code: { in: ['TV', 'TV2', 'TV3'] } } });
   // Restore the seeded game definitions' rules pointer back to v1 so the
   // rules-bump tests never leak an advanced pointer into other describe blocks.
   await prisma.$executeRaw`
@@ -256,6 +323,48 @@ it('public catalog returns exactly 13 entries (AVAILABLE + COMING_SOON), excludi
     expect(game!.catalogStatus).toBe('RETIRED');
   });
 
+  it('the allowlist keeps lucky_spin hidden even if its catalogStatus is flipped to AVAILABLE — catalogStatus alone is not enough', async () => {
+    const lucky = await getGameByKey('lucky_spin');
+    await prisma.gameDefinition.update({ where: { id: lucky!.id }, data: { catalogStatus: 'AVAILABLE' } });
+    try {
+      const games = await listActiveGames();
+      expect(games.map((g) => g.key)).not.toContain('lucky_spin');
+      expect(games.length).toBe(13); // still exactly the 13 approved keys
+    } finally {
+      await prisma.gameDefinition.update({ where: { id: lucky!.id }, data: { catalogStatus: 'RETIRED' } });
+    }
+  });
+
+  it('an unapproved COMING_SOON row (a rogue insert, migration mistake, or future draft) never becomes public', async () => {
+    // COMING_SOON (not AVAILABLE): game_definitions_catalog_rules_check
+    // requires an AVAILABLE row to already have a currentRulesVersion,
+    // which a genuinely rogue/draft row would not have yet — COMING_SOON
+    // is the realistic shape such a row takes, and it is equally covered
+    // by PUBLIC_CATALOG_STATUSES, so it exercises the same allowlist gate.
+    const rogue = await prisma.gameDefinition.create({
+      data: {
+        key: 'rogue_unapproved_game',
+        name: 'Rogue Unapproved Game',
+        type: 'DICE',
+        minBet: 1,
+        maxBet: 100,
+        configuration: {},
+        mode: 'WAGER',
+        family: 'INSTANT',
+        catalogStatus: 'COMING_SOON',
+        wagerCurrency: 'COINS',
+        rewardCurrency: 'COINS',
+      },
+    });
+    try {
+      const games = await listActiveGames();
+      expect(games.map((g) => g.key)).not.toContain('rogue_unapproved_game');
+      expect(games.length).toBe(13);
+    } finally {
+      await prisma.gameDefinition.delete({ where: { id: rogue.id } });
+    }
+  });
+
   it('rules helpers resolve the current version for playable games', async () => {
     const game = await getGameByKey('dice');
     expect(game).not.toBeNull();
@@ -334,7 +443,7 @@ describeIf('jurisdiction gate', () => {
     await cleanFixtures();
   });
 
-  it('a user with no verified country cannot play (403, before any writes)', async () => {
+  it('a user with no verified country cannot play (403, before any writes — including no wallet row at all)', async () => {
     const bare = await createBareUser('jgate_bare');
 
     await expect(
@@ -343,11 +452,17 @@ describeIf('jurisdiction gate', () => {
 
     const sessions = await prisma.gameSession.count({ where: { userId: bare.id } });
     const txs = await prisma.walletTransaction.count({ where: { userId: bare.id } });
+    const wallets = await prisma.wallet.count({ where: { userId: bare.id } });
     expect(sessions).toBe(0);
     expect(txs).toBe(0);
+    // The pre-tx getOrCreateWallet call this fixes would have created a
+    // wallet row for this user even though the play was rejected — wallet
+    // creation now only happens inside the transaction, after eligibility
+    // and jurisdiction checks both pass.
+    expect(wallets).toBe(0);
   });
 
-  it('a user whose country has only a DISABLED policy cannot play (403, before any writes)', async () => {
+  it('a user whose country has only a DISABLED policy cannot play (403, before any writes — including no wallet row at all)', async () => {
     const user = await createBareUser('jgate_disabled');
     await provideCountryAndAccount(user.id, 'TV2', 'Testland 2', 'DISABLED');
 
@@ -357,8 +472,46 @@ describeIf('jurisdiction gate', () => {
 
     const sessions = await prisma.gameSession.count({ where: { userId: user.id } });
     const txs = await prisma.walletTransaction.count({ where: { userId: user.id } });
+    const wallets = await prisma.wallet.count({ where: { userId: user.id } });
     expect(sessions).toBe(0);
     expect(txs).toBe(0);
+    expect(wallets).toBe(0);
+  });
+
+  it('a user linked only via Agent.countryId (never a UserPayoutAccount) cannot play — Agent is not a jurisdiction source', async () => {
+    const user = await createBareUser('jgate_agent_only');
+    // Set up an ENABLED policy for a country this user is linked to ONLY
+    // through an Agent row, never through their own UserPayoutAccount.
+    const country = await prisma.country.upsert({
+      where: { code: 'TV3' },
+      update: { name: 'Testland 3', currencyCode: 'TCN', isActive: true },
+      create: { code: 'TV3', name: 'Testland 3', currencyCode: 'TCN', isActive: true },
+    });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: 'TV3' } });
+    await prisma.countryCasinoPolicy.create({
+      data: { countryCode: 'TV3', version: 1, status: 'ENABLED', enabledAt: new Date(), playthroughMultiplier: 1 },
+    });
+    await prisma.agent.deleteMany({ where: { userId: user.id } });
+    await prisma.agent.create({
+      data: {
+        userId: user.id,
+        countryId: country.id,
+        status: 'ACTIVE',
+        displayName: "Agent-linked reseller (not the player's jurisdiction)",
+        contactEmail: `games-jgate-agent-only-${user.id}@test.local`,
+      },
+    });
+
+    await expect(
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-agent-only-1' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const wallets = await prisma.wallet.count({ where: { userId: user.id } });
+    expect(wallets).toBe(0);
+
+    await prisma.agent.deleteMany({ where: { userId: user.id } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: 'TV3' } });
+    await prisma.country.deleteMany({ where: { code: 'TV3' } });
   });
 
   it('after an ENABLED policy is provided, the same user CAN play', async () => {
@@ -826,6 +979,205 @@ describeIf('Concurrency', () => {
   });
 });
 
+// ─── DETERMINISTIC LOCKING RACES ────────────────────────────────
+// Proves the ROW LOCKS themselves cause blocking (not merely that the
+// end-state behavior happens to be correct) — see test/pg-locks.ts.
+
+const tx30 = { timeout: 30_000, maxWait: 30_000 };
+
+describeIf('Deterministic locking races', () => {
+  it('a concurrent policy status change blocks behind the settlement transaction\'s jurisdiction lock', async () => {
+    const user = await createUser('race-juris');
+    await primeCoins(user.id, 1000);
+    const policy = await prisma.countryCasinoPolicy.findFirstOrThrow({
+      where: { countryCode: 'TV', status: 'ENABLED' },
+    });
+
+    let racer: Promise<{ status: string }> | undefined;
+
+    // Holder: takes the SAME row-level FOR SHARE lock resolveJurisdictionForPlay
+    // takes on this policy row. The racer is fired (not awaited) from INSIDE
+    // this still-open transaction, and we wait for it to be PROVABLY parked
+    // behind the lock before letting the callback return (which commits and
+    // releases it) — the established pattern for this suite's row-lock races.
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL resolveJurisdictionForPlay — this exercises
+      // the actual production lock, not a hand-rolled duplicate of it.
+      await resolveJurisdictionForPlay(tx, user.id);
+
+      racer = prisma.countryCasinoPolicy.update({
+        where: { id: policy.id },
+        data: { status: 'DISABLED', disabledAt: new Date() },
+      });
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%country_casino_policies%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    // Only now — after the holder committed — does the racer's UPDATE proceed.
+    const updated = await racer!;
+    expect(updated.status).toBe('DISABLED');
+
+    // Restore for other tests/fixtures sharing the 'TV' policy.
+    await prisma.countryCasinoPolicy.update({
+      where: { id: policy.id },
+      data: { status: 'ENABLED', disabledAt: null },
+    });
+  }, 60_000);
+
+  it('a concurrent catalogStatus/currentRulesVersion change blocks behind the settlement transaction\'s game lock', async () => {
+    const game = await getGameByKey('dice');
+    expect(game).not.toBeNull();
+
+    let racer: Promise<{ catalogStatus: string }> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL lockGameForPlay — exercises the actual
+      // production lock, not a hand-rolled duplicate of it.
+      await lockGameForPlay(tx, 'dice');
+
+      racer = prisma.gameDefinition.update({
+        where: { id: game!.id },
+        data: { catalogStatus: 'COMING_SOON' },
+      });
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%game_definitions%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    const updated = await racer!;
+    expect(updated.catalogStatus).toBe('COMING_SOON');
+
+    // Restore.
+    await prisma.gameDefinition.update({ where: { id: game!.id }, data: { catalogStatus: 'AVAILABLE' } });
+  }, 60_000);
+
+  it('a concurrent payout-account status change blocks behind the settlement transaction\'s jurisdiction lock (the SAME FOR SHARE JOIN also locks this row)', async () => {
+    const user = await createUser('race-account');
+    await primeCoins(user.id, 1000);
+    const account = await prisma.userPayoutAccount.findFirstOrThrow({
+      where: { userId: user.id, status: 'ACTIVE' },
+    });
+
+    let racer: Promise<{ status: string }> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL resolveJurisdictionForPlay — the SAME single
+      // joined FOR SHARE that locks both the policy and payout-account rows
+      // (no `FOR SHARE OF` restricting it to one table), exercising the
+      // actual production lock rather than a hand-rolled duplicate of it.
+      await resolveJurisdictionForPlay(tx, user.id);
+
+      racer = prisma.userPayoutAccount.update({
+        where: { id: account.id },
+        data: { status: 'DISABLED', disabledAt: new Date() },
+      });
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%user_payout_accounts%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    const updated = await racer!;
+    expect(updated.status).toBe('DISABLED');
+
+    // Restore.
+    await prisma.userPayoutAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', disabledAt: null } });
+  }, 60_000);
+});
+
+// ─── ROLLBACK LEAVES NO ORPHAN PROVENANCE ───────────────────────
+
+describeIf('Rollback leaves wallet/ledger/provenance/allocation unchanged', () => {
+  it('two concurrent plays sharing the EXACT SAME idempotency key never double-debit — the advisory lock serializes them and the second transparently replays the first, exactly one allocation set exists', async () => {
+    // The advisory lock (`pg_advisory_xact_lock` keyed by userId+idempotencyKey,
+    // acquired as literally the first statement of the transaction) fully
+    // serializes two concurrent calls sharing a key — the second is blocked
+    // until the first COMMITS, then finds the already-persisted session via
+    // the replay check and returns it, rather than racing into the
+    // GameSession unique-constraint P2002. Both calls therefore FULFILL
+    // (one 201, one 200-replay) with IDENTICAL session data — the real-world
+    // guarantee this exists to prove: a retried/duplicated request can never
+    // create a second wager, whatever transport-level race produced it.
+    const user = await createUser('race-rollback');
+    await primeCoins(user.id, 1000);
+
+    const beforeAllocations = await prisma.coinAllocation.count({ where: { userId: user.id } });
+    const beforeSessions = await prisma.gameSession.count({ where: { userId: user.id } });
+
+    const sharedKey = 'race-rollback-shared-key';
+    const results = await Promise.allSettled([
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: sharedKey }),
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: sharedKey }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<Awaited<ReturnType<typeof playGame>>>[];
+    expect(fulfilled).toHaveLength(2);
+    // Both resolved to the SAME session — one is the fresh play, the other its replay.
+    expect(fulfilled[0].value.sessionId).toBe(fulfilled[1].value.sessionId);
+    expect(fulfilled.filter((r) => r.value.isReplay === true)).toHaveLength(1);
+    expect(fulfilled.filter((r) => r.value.isReplay === false)).toHaveLength(1);
+
+    const afterSessions = await prisma.gameSession.count({ where: { userId: user.id } });
+    expect(afterSessions).toBe(beforeSessions + 1); // exactly ONE session, never two
+
+    const afterAllocations = await prisma.coinAllocation.count({ where: { userId: user.id } });
+    // Exactly ONE wager's worth of allocation rows exist — the replay did
+    // NO settlement work of its own (see playGame's replay branch, which
+    // returns the stored snapshot before any wallet/provenance write).
+    expect(afterAllocations).toBe(beforeAllocations + 1);
+
+    const rec = await reconcileBalance(user.id);
+    expect(rec.coinsMatch).toBe(true);
+  });
+
+  it('a rejected trivia re-answer (P2002 on the unique attempt) leaves no orphan wallet/provenance work from that attempt', async () => {
+    // A DIFFERENT idempotency key per call means the advisory lock does NOT
+    // serialize these two — they race on the userTriviaAttempt unique
+    // constraint instead. The loser's P2002 is caught and re-thrown as a
+    // 400 BEFORE any wallet/provenance work begins in that attempt (see
+    // game-play.ts: the attempt claim happens during outcome generation,
+    // strictly before settlement) — so this proves the loser's rejection
+    // truly leaves zero trace, via the earliest possible failure point.
+    const user = await createUser('race-trivia-rollback');
+    await primeCoins(user.id, 1000);
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'Rollback-Q', choices: ['A', 'B', 'C', 'D'], correctIndex: 0, category: 'math' },
+    });
+
+    const beforeProvenance = await prisma.coinProvenance.count({ where: { userId: user.id } });
+    const beforeTx = await prisma.walletTransaction.count({ where: { userId: user.id } });
+
+    const results = await Promise.allSettled([
+      playGame({ userId: user.id, gameKey: 'trivia', clientData: { questionId: q.id, answerIndex: 0 }, idempotencyKey: 'race-trivia-a' }),
+      playGame({ userId: user.id, gameKey: 'trivia', clientData: { questionId: q.id, answerIndex: 0 }, idempotencyKey: 'race-trivia-b' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // Exactly one attempt's worth of provenance/ledger work exists — the
+    // loser's rejected attempt left nothing behind.
+    const afterProvenance = await prisma.coinProvenance.count({ where: { userId: user.id } });
+    const afterTx = await prisma.walletTransaction.count({ where: { userId: user.id } });
+    expect(afterProvenance).toBeLessThanOrEqual(beforeProvenance + 1);
+    expect(afterTx).toBeLessThanOrEqual(beforeTx + 1);
+
+    const rec = await reconcileBalance(user.id);
+    expect(rec.coinsMatch).toBe(true);
+  });
+});
+
 // ─── CLIENT MANIPULATION ───────────────────────────────────────
 
 describeIf('Client manipulation', () => {
@@ -916,6 +1268,44 @@ describeIf('Provenance corrections', () => {
       where: { userId: a.id, provenanceType: 'GAME_WIN' },
     });
     expect(afterWins).toBeGreaterThanOrEqual(beforeWins);
+  });
+
+  it('mixed restricted+unrestricted wager funding — a win cannot become withdrawable prematurely: the payout inherits RESTRICTED', async () => {
+    const mixedUser = await createUser('prov-mixed');
+    // A tiny UNRESTRICTED lot (exhausted by the very first wager) plus a
+    // large RESTRICTED backing lot that cannot clear under the default
+    // test policy (qualifyingGames defaults to [] — nothing qualifies).
+    // From the second wager onward every stake draws PURELY from the
+    // restricted lot; the first wager draws from BOTH — either way,
+    // fundedByRestricted must be true for every wager below.
+    await primeCoins(mixedUser.id, 5);
+    await primeRestrictedCoins(mixedUser.id, 5000, 10_000);
+
+    let sawWin = false;
+    for (let i = 0; i < 40; i++) {
+      const r = await playGame({
+        userId: mixedUser.id, gameKey: 'dice', betAmount: 10, idempotencyKey: `prov-mixed-${i}`,
+      });
+      if (r.isWin) {
+        sawWin = true;
+        const p = await prisma.coinProvenance.findFirstOrThrow({
+          where: { userId: mixedUser.id, provenanceType: 'GAME_WIN', amount: r.rewardAmount },
+          orderBy: { createdAt: 'desc' },
+        });
+        expect(p.restrictionStatus).toBe('RESTRICTED');
+        expect(p.requiredPlaythrough).toBeGreaterThan(0);
+        // NOT withdrawable: getWithdrawableBalance must never count this lot.
+        const withdrawable = await prisma.$transaction(async (tx) =>
+          (await import('../economy/provenance-service.js')).getWithdrawableBalance(tx, mixedUser.id)
+        );
+        // The only UNRESTRICTED money this user could ever have is the
+        // original 5, already spent by wager #1 — so from wager #2 onward
+        // withdrawable must be exactly 0, and even on wager #1 the fresh
+        // RESTRICTED payout itself never counts.
+        expect(withdrawable).toBe(0);
+      }
+    }
+    expect(sawWin).toBe(true);
   });
 
   it('provenance row references a wallet CREDIT transaction owned by the same user', async () => {

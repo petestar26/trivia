@@ -726,6 +726,12 @@ describeIf('real buildServer: no log field ever carries an invite token', () => 
         await prisma.group.deleteMany({ where: { id: { in: groupIds } } });
       }
       await prisma.notification.deleteMany({ where: { userId: { in: ids } } });
+      // Coin provenance/allocation rows are a real foreign key to User —
+      // must be cleared before the user row itself can be deleted. Covers
+      // both rows this run created AND legacy backfill rows for any stale
+      // fixture user left behind by a prior interrupted run (same id set).
+      await prisma.coinAllocation.deleteMany({ where: { userId: { in: ids } } });
+      await prisma.coinProvenance.deleteMany({ where: { userId: { in: ids } } });
       await prisma.user.deleteMany({ where: { id: { in: ids } } });
     }
     await server.close();

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
 import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
@@ -66,13 +66,25 @@ export function DiceGamePage() {
   });
   const game = games?.find((g) => g.key === 'dice');
 
+  // One idempotency key per logical round, generated OUTSIDE mutationFn —
+  // in the click handler, before mutate() is even called — and reused for
+  // every retry (TanStack's own retry, a manual re-click, or a transport-
+  // level retry all re-invoke mutationFn with the SAME variables object).
+  // Generating the key INSIDE mutationFn was the bug: a retry re-runs that
+  // function body, so a key minted there is a fresh key on every retry,
+  // and a retried wager reads to the server as a brand new one. Cleared
+  // only in onSuccess, when the round has conclusively finished and the
+  // next click starts a genuinely new one.
+  const idempotencyKeyRef = useRef<string | null>(null);
+
   const playMutation = useMutation({
-    mutationFn: async (betAmount: number) => {
-      const res = await playGame<DicePlayResult>('dice', { betAmount }, newIdempotencyKey());
+    mutationFn: async (vars: { betAmount: number; idempotencyKey: string }) => {
+      const res = await playGame<DicePlayResult>('dice', { betAmount: vars.betAmount }, vars.idempotencyKey);
       return { data: unwrapData(res, 'Dice play response'), isReplay: res.meta?.isReplay === true };
     },
     onMutate: () => setPhase('RUNNING'),
     onSuccess: (round) => {
+      idempotencyKeyRef.current = null; // round conclusively finished — next play is a new round
       setLastResult(round.data.result);
       setServerBalance(round.data.newBalance);
       setIsReplay(round.isReplay);
@@ -80,8 +92,16 @@ export function DiceGamePage() {
       refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
+    // Deliberately does NOT clear idempotencyKeyRef — the key stays valid so
+    // a retry (manual re-click, or any transport/library retry) reuses the
+    // exact same key rather than minting a new wager.
     onError: () => setPhase('BETTING_OPEN'),
   });
+
+  const rollDice = (betAmount: number) => {
+    const key = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = newIdempotencyKey());
+    playMutation.mutate({ betAmount, idempotencyKey: key });
+  };
 
   const minBet = game?.minBet ?? 5;
   const maxBet = game?.maxBet ?? 1000;
@@ -111,7 +131,7 @@ export function DiceGamePage() {
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 p-3"
           />
           <button
-            onClick={() => playMutation.mutate(bet)}
+            onClick={() => rollDice(bet)}
             disabled={playMutation.isPending}
             className="px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50"
           >

@@ -87,12 +87,25 @@ async function createFundedAgent(tag: string, countryId: string, admin: { id: st
 
 async function createFundedUser(tag: string, coins: number) {
   const user = await createUser(`user-${tag}`);
-  await executeBalanceChange({
+  const result = await executeBalanceChange({
     userId: user.id,
     changes: [
       { currency: 'COINS', amount: coins, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT', referenceType: 'ADMIN', description: 'fixture' },
     ],
     operationName: 'fixture-credit',
+  });
+  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
+    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
+  );
+  await prisma.coinProvenance.create({
+    data: {
+      userId: user.id,
+      walletTransactionId: creditTx?.id,
+      amount: coins,
+      provenanceType: 'ADMIN_ADJUSTMENT',
+      restrictionStatus: 'UNRESTRICTED',
+      originalSource: 'ADMIN_ADJUSTMENT',
+    },
   });
   return user;
 }
@@ -185,6 +198,12 @@ async function cleanRouteFixtures() {
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
   }
+  // Coin provenance/allocation rows are a real foreign key to User —
+  // must be cleared before the user row itself can be deleted. Covers
+  // both rows this run created AND legacy backfill rows for any stale
+  // fixture user left behind by a prior interrupted run (same prefix).
+  await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+  await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'W1D3 Route Country' } } });

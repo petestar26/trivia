@@ -859,6 +859,11 @@ enum CoinProvenanceType {
   ADMIN_ADJUSTMENT
   COMPETITION_PRIZE
   TASK_REWARD
+  // Coins whose balance predates (or otherwise bypassed) provenance
+  // tracking. Minted defensively — never assumed unrestricted — by the
+  // legacy backfill migration and by the runtime allocator's gap-lot
+  // fallback in provenance-service.ts. See LEGACY_REQUIRED_PLAYTHROUGH.
+  LEGACY_UNTRACKED
   @@map("coin_provenance_type")
 }
 

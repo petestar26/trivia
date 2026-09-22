@@ -145,6 +145,11 @@ async function cleanFixtures() {
     }
 
     try {
+      // Coin provenance/allocation rows are a real foreign key to User —
+      // must be cleared before the user row itself can be deleted (covers
+      // legacy backfill rows for any stale fixture user too).
+      await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
       const res = await prisma.user.deleteMany({ where: { id: { in: userIds } } });
       if (res.count === users.length) return;
     } catch {

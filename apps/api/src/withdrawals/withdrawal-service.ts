@@ -3,6 +3,7 @@ import { prisma } from '@socialplay/database';
 import type { Withdrawal } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service';
+import { allocateWithdrawalDebit } from '../economy/provenance-service';
 import { requiresStepUp, requireStepUp } from '../security/step-up-service';
 import {
   LiquidityContentionError,
@@ -328,6 +329,16 @@ export async function createWithdrawal(
             description: `Coins withdrawn for fiat payout (quote ${quote!.id})`,
           },
         ]);
+
+        // Step 5b: the wallet debit above only proves the AGGREGATE
+        // coinsBalance could cover this amount — coinsBalance is the
+        // unified figure a player sees and spends from, and includes
+        // restricted (non-withdrawable) Coins. Withdrawals must draw
+        // EXCLUSIVELY from eligible UNRESTRICTED provenance; this call
+        // locks and allocates against ONLY those lots, in the same
+        // transaction, and throws (rolling back the debit above too) if
+        // the eligible balance can't cover it.
+        await allocateWithdrawalDebit(tx, actorUserId, quote!.coinAmount);
 
         // Step 6: the Withdrawal row itself — HELD directly (see file
         // header). withdrawalNumber via the sequence, never count/max.
