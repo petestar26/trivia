@@ -1,13 +1,13 @@
 import type { Prisma } from '@socialplay/database';
 
 /**
- * Locking protocol for the group's membership, invitation and management
- * writers: admission (invite acceptance, join approval, public join, request to
- * join), invite creation and revocation, bans and unbans, removal, role changes,
- * request rejection, ownership transfer, group edit and deletion, and an
- * external status change. Every one that acts on behalf of a MANAGER re-checks
- * that manager's authority — and the group's state — under a lock (see "Level 4
- * and the actor" below).
+ * Locking protocol for the group's membership, invitation, message and
+ * management writers: admission (invite acceptance, join approval, public join,
+ * request to join), invite creation and revocation, bans and unbans, removal,
+ * role changes, request rejection, ownership transfer, group edit and deletion,
+ * chat message deletion, and an external status change. Every one that acts on
+ * behalf of a MANAGER re-checks that manager's authority — and the group's
+ * state — under a lock (see "Level 4 and the actor" below).
  *
  * These writers race on overlapping rows and, without a protocol, admit an
  * account that was just restricted, admit into a group that was just archived,
@@ -97,6 +97,13 @@ import type { Prisma } from '@socialplay/database';
  *                    the notifications is read AFTER that UPDATE, from the row it
  *                    holds.
  *
+ *   delete message   2 (SHARE) → 4 (the ACTOR, SHARE) → 5 (the message row,
+ *   (routes/chat.ts) FOR NO KEY UPDATE). Authorized on the locked actor's row
+ *                    UNLESS the message is the actor's own, which needs no role:
+ *                    the actor row is still locked, for the same order every
+ *                    transaction at this level takes, but its value only gates
+ *                    someone deleting ANOTHER member's message.
+ *
  *   leave            4 only  one statement on the caller's OWN row; it holds
  *                            nothing while it waits and takes no group lock
  *   external group   2 only  (an UPDATE of groups.status by an operator or a
@@ -107,7 +114,7 @@ import type { Prisma } from '@socialplay/database';
  *                            — the groups row included. A writer that took a
  *                            group_members or groups lock before the users row
  *                            would invert the order and reintroduce the cycle.
- *   chat messages, competitions
+ *   chat message create, competitions
  *                    INSERTs whose foreign key takes only FOR KEY SHARE on the
  *                    groups row, which conflicts with nothing but FOR UPDATE
  *                    (deletion). Neither holds anything a deleter needs.
@@ -164,6 +171,18 @@ import type { Prisma } from '@socialplay/database';
  *   - Approve, join and request hold a member row and nothing after it that any
  *     other writer holds (see the note on notification inserts above).
  *   - Leave is one statement on one row.
+ *   - Delete message holds level 2 in the SAME compatible mode admission and the
+ *     manager actions do (FOR SHARE), so bullet two already excludes it from
+ *     waiting on any of them there, and excludes a group DELETE — level 2 in a
+ *     CONFLICTING mode — from being mid-flight while it holds the group row. It
+ *     then locks the actor's row alone, FOR SHARE, exactly like create, revoke
+ *     and edit (never upgraded, so two deletions by one member queue but cannot
+ *     deadlock), and only then wants the MESSAGE row. Nothing else locks a
+ *     message row: creating one is an INSERT whose foreign key takes FOR KEY
+ *     SHARE on the group row and nothing on any member row, and a group DELETE's
+ *     cascade removal of it is excluded by the group-row argument above. Two
+ *     deletions of the SAME message queue on that row; the second sees it
+ *     already isDeleted and no-ops.
  *
  * ── Level 2 and a group that stops being ACTIVE (or changes privacy) ─────
  * Admission must not commit a membership into a group that is no longer
@@ -201,14 +220,23 @@ import type { Prisma } from '@socialplay/database';
  * serialization point). Anything the action then decides about the actor — the
  * ADMIN ceiling on invites and role changes — is decided on the LOCKED role.
  *
+ * Deleting a chat message is the one action at this level with a SELF path: the
+ * message's own author may always delete it, so the locked actor row is taken —
+ * for the same order every transaction at this level takes, and because a stale
+ * MANAGER deleting someone else's message is exactly the same race — but its
+ * role and status only gate the non-author branch. A member banned, muted,
+ * removed or demoted mid-flight can still finish deleting their OWN message; the
+ * same race against someone ELSE's message is refused exactly like every other
+ * manager action here.
+ *
  * Modes and order at level 4:
  *   - An action that writes a target member row locks the actor's row and the
  *     target's together, FOR NO KEY UPDATE (the lock the write takes anyway), in
  *     ONE statement ordered by id. One statement, so the order cannot depend on
  *     which of the two is the actor; ascending id, so every such action agrees.
  *   - An action that writes no other member row (create and revoke an invite,
- *     edit, delete) locks the actor's row alone, FOR SHARE: two such actions by
- *     one manager do not queue behind each other.
+ *     edit, delete, delete message) locks the actor's row alone, FOR SHARE: two
+ *     such actions by one manager do not queue behind each other.
  *   - AFTER level 3. Ban, unban, accept and revoke take the (group, email)
  *     subject lock and only then a member row; an invite creation that held the
  *     actor's row while waiting for that subject lock could wait for a ban that
@@ -230,11 +258,13 @@ import type { Prisma } from '@socialplay/database';
  *
  * Not under this protocol: manager checks OUTSIDE the group routes — the
  * competition functions createCompetition, updateCompetition, cancelCompetition
- * and finalizeCompetition (competitions/competition-service.ts, assertGroupRole)
- * and the chat route that lets a manager delete another member's message
- * (routes/chat.ts, DELETE /groups/:id/messages/:messageId). They still trust a plain read of
- * the actor, and the competition transactions move wallet balances, so they need
- * their own audit before they take group locks.
+ * and finalizeCompetition (competitions/competition-service.ts, assertGroupRole).
+ * They still trust a plain read of the actor, and their transactions move wallet
+ * balances, so they need their own audit before they take group locks. Chat's
+ * DELETE /groups/:id/messages/:messageId (routes/chat.ts) is now under this
+ * protocol too (see "delete message" above and lockGroupMessageForDeletion
+ * below) — the sole exception is that its actor-row lock gates the check only
+ * when the caller is not the message's own author (see "Level 4 and the actor").
  *
  * ── Level 5 and the clock ─────────────────────────────────────────────────
  * The invite row lock is not just ordering. Acceptance decides "is this invite
@@ -506,6 +536,40 @@ export async function lockInviteForRevocation(tx: Tx, groupId: string, inviteId:
     SELECT "id", "status"::text AS "status", "expiresAt"
     FROM "group_invites"
     WHERE "id" = ${inviteId} AND "groupId" = ${groupId}
+    FOR NO KEY UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+export interface LockedGroupMessage {
+  id: string;
+  groupId: string;
+  userId: string;
+  isDeleted: boolean;
+}
+
+/**
+ * Level 5, for a chat MESSAGE DELETION (routes/chat.ts): lock the message row of
+ * THIS group and return what it holds NOW. Like lockInviteForRevocation, the group
+ * is part of the lookup, so a message that belongs to ANOTHER group is
+ * indistinguishable from a missing one (null) — cross-group access stays opaque.
+ *
+ * FOR NO KEY UPDATE is the mode the soft-delete UPDATE that follows takes anyway.
+ * It is taken AFTER the actor's own membership row (level 4): the message this
+ * action writes is not a member row, so it sits at the same tier group_invites
+ * occupies for invite actions — "the row the action's own effect writes, after the
+ * actor is authorized". Nothing else in the codebase writes a messages row under a
+ * lock, so there is no ordering hazard to resolve on this side: the only two
+ * transactions that can hold this row at once are two deletions of the SAME
+ * message (the second sees it already isDeleted and no-ops) and a group DELETE,
+ * whose cascade removes it — see "Level 2" below for why that can't cycle with
+ * this action.
+ */
+export async function lockGroupMessageForDeletion(tx: Tx, groupId: string, messageId: string): Promise<LockedGroupMessage | null> {
+  const rows = await tx.$queryRaw<LockedGroupMessage[]>`
+    SELECT "id", "groupId", "userId", "isDeleted"
+    FROM "messages"
+    WHERE "id" = ${messageId} AND "groupId" = ${groupId}
     FOR NO KEY UPDATE
   `;
   return rows[0] ?? null;

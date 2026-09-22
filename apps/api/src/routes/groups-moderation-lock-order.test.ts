@@ -162,6 +162,67 @@ describeIf('MUTUAL ACTIONS: two managers acting on each other never deadlock —
   }, 120_000);
 });
 
+// ─── ASCENDING ID, DIRECTLY ─────────────────────────────────────────────────
+
+describeIf('lockActorAndTarget locks the two rows in ASCENDING ID order — proven directly, not just by absence of deadlock', () => {
+  // "No deadlock" alone under-tests the ORDER BY: on a small table Postgres plans this query as
+  // a Seq Scan, which happens to visit rows in roughly insertion order regardless of the ORDER
+  // BY clause — so a schedule that only checks "did it deadlock" can pass even with the ORDER BY
+  // removed (equally consistent, coincidentally, for that plan). This proves the actual
+  // ACQUISITION order with a NOWAIT probe from a THIRD session, which needs no particular plan:
+  // a multi-row `FOR UPDATE` statement locks each row as its scan visits it (LockRows sits above
+  // the Sort node), so a session blocked partway through has ALREADY locked everything visited
+  // before the row it is stuck on, and has NOT locked anything after it.
+  //
+  // adminsSwapped: true makes admin2's id sort BEFORE admin's — the opposite of insertion order
+  // (owner, admin, admin2, ... are created in that sequence) — so "ascending id" and "roughly
+  // insertion order" disagree here, and only a genuine ORDER BY "id" gets the right answer.
+  const probeLockable = async (id: string): Promise<'free' | 'locked'> => {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe(`SELECT "id" FROM "group_members" WHERE "id" = $1 FOR NO KEY UPDATE NOWAIT`, id);
+      });
+      return 'free';
+    } catch {
+      return 'locked';
+    }
+  };
+
+  it('holding the LOWER-id row (admin2): the action blocks WITHOUT ever touching the higher-id row (admin) — proven free from a third session', async () => {
+    const f = await fresh('ord-lower', { adminsSwapped: true });
+    let actionP: Promise<Res> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      await holdRow(tx, 'group_members', f.rows.admin2); // the LOWER id under adminsSwapped
+      actionP = api.ban(f, f.admin, f.admin2);
+      actionP.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: MEMBER_ROWS_LOCK });
+
+      expect(await probeLockable(f.rows.admin)).toBe('free'); // the higher-id row: not yet reached
+    }, tx30);
+
+    const resp = await actionP!;
+    expect(resp.statusCode, resp.body).toBeLessThan(500);
+  }, 60_000);
+
+  it('holding the HIGHER-id row (admin): the action has ALREADY locked the lower-id row (admin2) by the time it blocks — proven locked from a third session', async () => {
+    const f = await fresh('ord-higher', { adminsSwapped: true });
+    let actionP: Promise<Res> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      await holdRow(tx, 'group_members', f.rows.admin); // the HIGHER id under adminsSwapped
+      actionP = api.ban(f, f.admin, f.admin2);
+      actionP.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: MEMBER_ROWS_LOCK });
+
+      expect(await probeLockable(f.rows.admin2)).toBe('locked'); // the lower-id row: already acquired
+    }, tx30);
+
+    const resp = await actionP!;
+    expect(resp.statusCode, resp.body).toBeLessThan(500);
+  }, 60_000);
+});
+
 // ─── SAME TARGET ──────────────────────────────────────────────────────────────
 
 describeIf('SAME TARGET: two managers acting on one member queue at its row; the second reads what the first left', () => {

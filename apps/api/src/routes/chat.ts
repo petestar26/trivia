@@ -15,6 +15,7 @@ import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
 import { emitToGroup } from '../realtime/broadcast';
+import { lockActorMembership, lockGroupForAdmission, lockGroupMessageForDeletion } from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
@@ -277,29 +278,66 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       const messageId = request.params.messageId;
       const userId = request.user!.sub;
 
-      const membership = await assertActiveMember(groupId, userId);
+      // FAST PATH ONLY. Cheap enough to skip opening a transaction for a group id
+      // that does not exist at all; the AUTHORITATIVE check below re-reads the
+      // group under its lock regardless, so a group deleted right after this
+      // still gets the right answer.
+      await getGroupOrThrow(groupId);
 
-      const message = await getMessageInGroup(groupId, messageId);
+      await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS — group-locks.ts, "delete message": the group row
+        // (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
+        // SHARE), then the message row SCOPED TO THIS GROUP (level 5, FOR NO KEY
+        // UPDATE). A plain read taken before this transaction (or anywhere in it
+        // without a lock) can be stale by the time the write happens: the caller
+        // may since have been demoted, banned, muted or removed, and the message
+        // may since have been deleted by someone else. A message that belongs to
+        // ANOTHER group is indistinguishable from a missing one (404), so a
+        // cross-group id learns nothing about what exists there.
+        const group = await lockGroupForAdmission(tx, groupId);
+        if (!group) {
+          throw ApiError.notFound('Group not found');
+        }
 
-      const isOwn = message.userId === userId;
-      const isManager = MANAGER_ROLES.includes(membership.role as GroupMemberRole);
+        const actor = await lockActorMembership(tx, groupId, userId);
 
-      if (!isOwn && !isManager) {
-        throw ApiError.forbidden('You can only delete your own messages');
-      }
+        const message = await lockGroupMessageForDeletion(tx, groupId, messageId);
+        if (!message || message.isDeleted) {
+          throw ApiError.notFound('Message not found');
+        }
 
-      // Clean up voice message storage before deleting the message
-      if (message.voiceMessage) {
-        await deleteVoiceMessageStorage(message.id);
-      }
+        // The message's own author may always delete it — no role required, and
+        // the actor row above need not even show them as a current member (see
+        // "Level 4 and the actor" in group-locks.ts): it is still locked, for the
+        // order every transaction at this level takes, but its value gates
+        // nothing on this branch. Anyone else must be, RIGHT NOW, an ACTIVE OWNER
+        // or ADMIN — a manager demoted, banned, muted or removed after the fast
+        // path a caller might have raced must not delete someone else's message
+        // on the strength of a stale read.
+        if (message.userId !== userId) {
+          if (!actor || actor.status !== 'ACTIVE') {
+            throw ApiError.forbidden('You are not a member of this group');
+          }
+          if (!MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+            throw ApiError.forbidden('Insufficient permissions');
+          }
+        }
 
-      await prisma.message.update({
-        where: { id: message.id },
-        data: { isDeleted: true },
+        await tx.message.update({
+          where: { id: message.id },
+          data: { isDeleted: true },
+        });
       });
 
-      // Broadcast the deletion to the group room after commit.
-      emitToGroup(groupId, 'message:deleted', { messageId: message.id });
+      // Everything below runs only once the soft deletion has committed — a
+      // rejected or rolled-back transaction reaches neither line. Voice storage
+      // cleanup is best-effort (deleteVoiceMessageStorage swallows its own
+      // errors and looks the voice message up itself, so it is safe to call
+      // unconditionally) and now runs AFTER the database write, not before: the
+      // old order could delete the audio for a soft deletion that then failed to
+      // commit, leaving a message that still looked live with its audio gone.
+      emitToGroup(groupId, 'message:deleted', { messageId });
+      await deleteVoiceMessageStorage(messageId);
 
       return {
         success: true,

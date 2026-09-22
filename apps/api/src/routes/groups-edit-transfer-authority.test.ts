@@ -487,6 +487,36 @@ describeIf('the transfer: state, the target, the names and the second transfer',
     expect(await prisma.notification.count({ where: { type: 'GROUP_OWNERSHIP_TRANSFERRED', userId: { in: [f.owner.id, f.peer.id] } } })).toBe(0);
   }, 60_000);
 
+  it('EXTERNAL: the groups.ownerId column is changed directly (bypassing every route) while the transfer waits at the group row: refused, the external write\'s owner stands', async () => {
+    // f.owner's OWN membership row is never touched here — only the groups.ownerId column
+    // is. That isolates the transfer's FIRST guard (its own updateMany's `ownerId:
+    // actorUserId` predicate) from its second (the old-owner row's `role: 'OWNER', status:
+    // 'ACTIVE'` guard, covered by the "t-external" test below): only the ownerId predicate
+    // can be what refuses this.
+    const f = await fresh('t-owner-column');
+    const ownerBefore = await membershipSnapshot(f.groupId, f.owner.id);
+    let transferP: Promise<Res> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      await holdRow(tx, 'groups', f.groupId);
+      transferP = api.transfer(f, f.owner, f.member); // its fast path still sees f.owner as the OWNER
+      transferP.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: SQL.groupWrite });
+      await tx.group.update({ where: { id: f.groupId }, data: { ownerId: f.peer.id } });
+    }, tx30);
+
+    const t = await transferP!;
+
+    expect(t.statusCode, t.body).toBe(409);
+    expect(errorMessage(t)).toBe('Concurrent ownership change detected; please retry');
+    // The external write's owner stands: the transfer neither overwrote ownerId nor
+    // touched either membership row.
+    expect((await prisma.group.findUniqueOrThrow({ where: { id: f.groupId } })).ownerId).toBe(f.peer.id);
+    expect(await membershipSnapshot(f.groupId, f.owner.id)).toEqual(ownerBefore);
+    expect((await membershipSnapshot(f.groupId, f.member.id))?.role).toBe('MEMBER');
+    expect(await transferNotices(f)).toBe(0);
+  }, 60_000);
+
   it('the target LEAVES while the transfer is parked (holding the group row): 409 "no longer an active member", the demotion of the owner rolled back', async () => {
     const f = await fresh('t-leaves');
     const ownerBefore = await membershipSnapshot(f.groupId, f.owner.id);

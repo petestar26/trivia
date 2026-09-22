@@ -1,9 +1,9 @@
 import { prisma, type Prisma } from '@socialplay/database';
 
 /**
- * A scoped, DETERMINISTIC pause inside the write of a group row, a membership row
- * or an invite row — the place a manager action stands AFTER it has taken all of
- * its locks and BEFORE it commits.
+ * A scoped, DETERMINISTIC pause inside the write of a group row, a membership
+ * row, an invite row or a message row — the place a manager action stands AFTER
+ * it has taken all of its locks and BEFORE it commits.
  *
  * "This request holds its locks and is about to write" is the state a reverse-order
  * schedule needs (the competing writer must be seen WAITING behind those locks),
@@ -50,15 +50,18 @@ export async function installWriteGate(name: string, groupNamePrefix: string): P
       IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
     END $$ LANGUAGE plpgsql
   `);
-  for (const table of ['group_members', 'group_invites', 'groups']) {
+  for (const table of GATED_TABLES) {
     await prisma.$executeRawUnsafe(
       `CREATE TRIGGER ${name}_${table} BEFORE UPDATE OR DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${name}()`
     );
   }
 }
 
+/** Tables the gate watches. `messages` looks up its group the same way `group_members`/`group_invites` do (a `groupId` column) — see the trigger body above. */
+const GATED_TABLES = ['group_members', 'group_invites', 'groups', 'messages'] as const;
+
 export async function removeWriteGate(name: string): Promise<void> {
-  for (const table of ['group_members', 'group_invites', 'groups']) {
+  for (const table of GATED_TABLES) {
     await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${name}_${table} ON ${table}`);
   }
   await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${name}()`);
