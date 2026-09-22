@@ -152,3 +152,23 @@ export async function removeFailingMessageUpdateTrigger(name: string): Promise<v
   await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${name} ON messages`);
   await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${name}()`);
 }
+
+/**
+ * Best-effort delete of every REAL file `addVoiceMessage` wrote to local storage.
+ * Some tests intentionally leave the file behind (a forced database failure that
+ * never reaches storage cleanup) or delete it themselves (an ordinary delete, or
+ * one whose storage.delete was mocked to reject); this sweeps whatever is left,
+ * so a test run never leaks real .ogg files into uploads/voice-messages regardless
+ * of which path each test took. Call with every key `addVoiceMessage` returned,
+ * once, in the suite's `afterAll`.
+ */
+export async function cleanupVoiceFixtureFiles(storageKeys: readonly string[]): Promise<void> {
+  for (const key of storageKeys) {
+    try {
+      await storage.delete({ bucket: STORAGE_BUCKETS.VOICE_MESSAGES, key });
+    } catch {
+      // Already gone (deleted by the route under test, or by this same sweep in a
+      // fixture that had none) — fine either way.
+    }
+  }
+}

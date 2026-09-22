@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma, type Prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server.js';
-import { waitForBlockedBackends } from '../test/pg-locks.js';
+import { probeRowLockable, waitForBlockedBackends } from '../test/pg-locks.js';
 import { cleanFixtures, inviteSnapshot, ipAllocator, membershipSnapshot, uniqueSuffix } from '../test/group-admission-fixtures.js';
 import {
   authorityApi,
@@ -177,16 +177,10 @@ describeIf('lockActorAndTarget locks the two rows in ASCENDING ID order — prov
   // adminsSwapped: true makes admin2's id sort BEFORE admin's — the opposite of insertion order
   // (owner, admin, admin2, ... are created in that sequence) — so "ascending id" and "roughly
   // insertion order" disagree here, and only a genuine ORDER BY "id" gets the right answer.
-  const probeLockable = async (id: string): Promise<'free' | 'locked'> => {
-    try {
-      await prisma.$transaction(async (tx) => {
-        await tx.$queryRawUnsafe(`SELECT "id" FROM "group_members" WHERE "id" = $1 FOR NO KEY UPDATE NOWAIT`, id);
-      });
-      return 'free';
-    } catch {
-      return 'locked';
-    }
-  };
+  // probeRowLockable (test/pg-locks.ts) is tightened to PostgreSQL's own SQLSTATE 55P03 for a
+  // NOWAIT conflict, so a bug in the probe's own query fails the test loudly instead of being
+  // silently misread as "locked".
+  const probeLockable = (id: string) => probeRowLockable('group_members', id);
 
   it('holding the LOWER-id row (admin2): the action blocks WITHOUT ever touching the higher-id row (admin) — proven free from a third session', async () => {
     const f = await fresh('ord-lower', { adminsSwapped: true });

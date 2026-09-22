@@ -11,39 +11,47 @@ import { SQL } from '../test/group-authority-fixtures.js';
 import { holdWriteGate, installWriteGate, removeWriteGate } from '../test/group-write-gate.js';
 import {
   addVoiceMessage,
+  cleanupVoiceFixtureFiles,
   installFailingMessageUpdateTrigger,
   makeChatFixture,
   messageSnapshot,
   removeFailingMessageUpdateTrigger,
   type ChatFixture,
   type ChatUser,
+  type VoiceFixture,
 } from '../test/chat-message-fixtures.js';
 
-// DELETE /groups/:id/messages/:messageId versus the ACTOR's authority and the
-// message's own state.
+// DELETE /groups/:id/messages/:messageId versus the ACTOR's authority, the
+// message's own state, and two P2s a review (Sol) found in the FIRST fix:
 //
-// The route judged everything with plain reads, then wrote unconditionally:
+//   1. A NONMEMBER EXISTENCE ORACLE. The first fix locked the actor row, then
+//      read the message, then decided: for someone else's message, ONLY THEN
+//      checking ACTIVE + role. A caller with no membership at all reached the
+//      message lookup too, so a stranger could tell a live message (403) apart
+//      from a missing or cross-group one (404) — an oracle for message
+//      existence that a non-member must never be handed. ACTIVE membership is
+//      now checked immediately after the actor row is locked, BEFORE the
+//      message is ever read: a nonmember gets the SAME 403 whichever of those
+//      three the id actually is.
+//   2. AN INCOMPLETE POST-COMMIT ERROR BOUNDARY. The first fix called
+//      deleteVoiceMessageStorage(messageId) after commit — a helper that looks
+//      the voice message up ITSELF, with that lookup query uncaught. If that
+//      query failed (a DB blip, a provider error) after the soft delete had
+//      already committed and the event had already fired, the exception would
+//      propagate out of the route handler and Fastify would answer 500 for a
+//      deletion that had, in fact, succeeded. The storage key is now captured
+//      INSIDE the transaction, while the message row is locked and the delete
+//      is already authorized, so nothing outside the transaction ever queries
+//      for it again; post-commit, the broadcast fires first and unconditionally,
+//      and storage cleanup runs inside its own complete try/catch that discards
+//      every failure — nothing after commit can turn a successful deletion into
+//      a 500 or suppress the event that already announced it.
 //
-//   const membership = await assertActiveMember(groupId, userId);  // no lock
-//   const message = await getMessageInGroup(groupId, messageId);   // no lock
-//   ... isOwn/isManager on that stale read ...
-//   if (message.voiceMessage) await deleteVoiceMessageStorage(message.id);  // BEFORE the write
-//   await prisma.message.update({ where: { id: message.id }, data: { isDeleted: true } });
-//   emitToGroup(groupId, 'message:deleted', ...);
-//
-// A manager demoted, banned, muted or removed after the membership read still
-// deleted another member's message; a soft-delete that failed to commit had
-// already deleted the voice audio out from under a message that still looked
-// live; and the event fired even when nothing was written.
-//
-// The fix (group-locks.ts, "delete message"; lockGroupMessageForDeletion): inside
-// one transaction, lock the group row (level 2, FOR SHARE), the ACTOR's own
-// membership row (level 4, FOR SHARE) and the message row SCOPED TO THIS GROUP
-// (level 5, FOR NO KEY UPDATE), and decide on what they hold NOW. The message's
-// own author may always delete it — the actor row is still locked, for the same
-// order every transaction at this level takes, but its value gates nothing on
-// that branch; anyone else must be, RIGHT NOW, an ACTIVE OWNER or ADMIN. Voice
-// storage cleanup and the broadcast now run ONLY after the transaction commits.
+// Authorization, current state (chat.ts, "AUTHORITATIVE CHECKS"): lock the group
+// row (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
+// SHARE) and require it ACTIVE, THEN lock the message row SCOPED TO THIS GROUP
+// (level 5, FOR NO KEY UPDATE). The message's own author may delete it with no
+// additional role; anyone else must be, RIGHT NOW, an ACTIVE OWNER or ADMIN.
 //
 // Because the actor row is locked and HELD (not combined with the message row
 // in one ORDER BY id statement the way ban/unban/remove/role lock the actor and
@@ -57,6 +65,11 @@ import {
 // Every schedule is FORCED, never raced: a test-held lock (or the write gate)
 // parks a request at a known point, and pg_stat_activity PROVES it is parked
 // there before the competing writer is let through.
+//
+// Every real .ogg file a voice fixture writes to local storage is swept in
+// afterAll (trackedVoiceMessage / cleanupVoiceFixtureFiles), regardless of
+// which path each test took — a route genuinely cleaning up, a mocked-rejecting
+// storage.delete, or a forced database failure that never reaches cleanup at all.
 //
 // Own file: the API's global rate limit is IP-keyed and shared per server
 // instance, and every request below carries a unique remoteAddress.
@@ -91,7 +104,21 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Every REAL .ogg file addVoiceMessage wrote to local storage, so afterAll can
+ * sweep whichever ones the test under it did not already delete (a route
+ * genuinely cleaning up, or the fixture's OWN best-effort sweep of a file a
+ * mocked-rejecting storage.delete never actually removed).
+ */
+const voiceFixtureKeys: string[] = [];
+async function trackedVoiceMessage(f: ChatFixture, author: ChatUser, tag: string): Promise<VoiceFixture> {
+  const v = await addVoiceMessage(f, author, tag);
+  voiceFixtureKeys.push(v.storageKey);
+  return v;
+}
+
 afterAll(async () => {
+  await cleanupVoiceFixtureFiles(voiceFixtureKeys);
   if (dbAvailable) {
     await removeWriteGate(GATE);
     await removeFailingMessageUpdateTrigger(FAIL_TRIGGER);
@@ -276,39 +303,61 @@ describeIf("REVERSE: the delete holds the manager's row through commit (parked i
   }
 });
 
-// ─── self-delete: the author's own current state never gates it ──────────────
+// ─── self-delete: needs ACTIVE membership like anyone else; no additional role once they have it ──
 
-describeIf('self-delete: the message author may always delete it, regardless of their current membership', () => {
-  it('a plain MEMBER deletes their own message', async () => {
+describeIf('self-delete: an author needs ACTIVE membership BEFORE the message is ever read — the same gate everyone else passes through', () => {
+  it('an ACTIVE MEMBER deletes their own message, no manager role required', async () => {
     const f = await fresh('self-member');
     spyOnSideEffects();
     await expectDeleted(f.messageId, await deleteMessage(f, f.author), f.groupId);
   });
 
-  it('a BANNED author can still delete their own message', async () => {
-    const f = await fresh('self-banned');
-    const b = await ban(f, f.owner, f.author);
-    expect(b.statusCode, b.body).toBe(200);
-    spyOnSideEffects();
-    await expectDeleted(f.messageId, await deleteMessage(f, f.author), f.groupId);
-  });
+  const nonActive: Array<{ name: string; make: (f: ChatFixture) => Promise<void> }> = [
+    {
+      name: 'BANNED',
+      make: async (f) => {
+        const b = await ban(f, f.owner, f.author);
+        expect(b.statusCode, b.body).toBe(200);
+      },
+    },
+    {
+      name: 'MUTED',
+      // No route sets MUTED directly today; an operator/future route is the only writer, so
+      // this is exercised the same way the group-moderation suites test it: a direct write.
+      make: async (f) => {
+        await prisma.groupMember.update({ where: { id: f.authorRowId }, data: { status: 'MUTED' } });
+      },
+    },
+    {
+      name: 'LEFT',
+      make: async (f) => {
+        const l = await leave(f, f.author);
+        expect(l.statusCode, l.body).toBe(200);
+      },
+    },
+    {
+      name: 'REMOVED (no membership row left at all)',
+      make: async (f) => {
+        const r = await remove(f, f.owner, f.author);
+        expect(r.statusCode, r.body).toBe(200);
+        expect(await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: f.groupId, userId: f.author.id } } })).toBeNull();
+      },
+    },
+  ];
+  for (const c of nonActive) {
+    it(`${c.name}: the author cannot delete their own message — refused before the message is even read, nothing written`, async () => {
+      const f = await fresh(`self-${c.name.slice(0, 4).toLowerCase()}`);
+      await c.make(f);
+      const before = await messageSnapshot(f.messageId);
+      const spies = spyOnSideEffects();
 
-  it('a REMOVED author (no membership row left at all) can still delete their own message', async () => {
-    const f = await fresh('self-removed');
-    const r = await remove(f, f.owner, f.author);
-    expect(r.statusCode, r.body).toBe(200);
-    expect(await prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: f.groupId, userId: f.author.id } } })).toBeNull();
-    spyOnSideEffects();
-    await expectDeleted(f.messageId, await deleteMessage(f, f.author), f.groupId);
-  });
+      const resp = await deleteMessage(f, f.author);
 
-  it('an author who LEFT can still delete their own message', async () => {
-    const f = await fresh('self-left');
-    const l = await leave(f, f.author);
-    expect(l.statusCode, l.body).toBe(200);
-    spyOnSideEffects();
-    await expectDeleted(f.messageId, await deleteMessage(f, f.author), f.groupId);
-  });
+      expect(resp.statusCode, resp.body).toBe(403);
+      expect(errorMessage(resp)).toBe('You are not a member of this group');
+      await expectNothingHappened(f.messageId, before, spies);
+    }, 60_000);
+  }
 });
 
 // ─── ordinary behavior and refusals that must not change ─────────────────────
@@ -336,18 +385,40 @@ describeIf('ordinary behavior of deleting someone ELSE\'s message is unchanged',
     await expectNothingHappened(f.messageId, before, spies);
   });
 
-  it('a caller with no membership row at all is "You are not a member of this group"', async () => {
-    const f = await fresh('stranger');
-    const stranger = await createUser(EMAIL_PREFIX, 'stranger-str');
-    const before = await messageSnapshot(f.messageId);
+  it('a nonmember gets the IDENTICAL refusal for a live message, a missing id, and a message in another group — no existence oracle', async () => {
+    // ACTIVE membership is checked BEFORE the message is ever read (chat.ts, "AUTHORITATIVE
+    // CHECKS"): a stranger's response must not depend on whether the message id is real, in
+    // THIS group, or gone — all three would otherwise let a non-member learn something about
+    // this group's messages just by comparing 403 against 404.
+    const f = await fresh('oracle-a');
+    const other = await fresh('oracle-b');
+    const stranger = await createUser(EMAIL_PREFIX, 'oracle-str');
+    const beforeLive = await messageSnapshot(f.messageId);
+    const beforeOther = await messageSnapshot(other.messageId);
     const spies = spyOnSideEffects();
 
-    const resp = await deleteMessage(f, stranger);
+    const live = await deleteMessage(f, stranger, f.messageId);
+    const missing = await deleteMessage(f, stranger, uniqueSuffixUuid());
+    const crossGroup = await deleteMessage(f, stranger, other.messageId);
 
-    expect(resp.statusCode, resp.body).toBe(403);
-    expect(errorMessage(resp)).toBe('You are not a member of this group');
-    await expectNothingHappened(f.messageId, before, spies);
-  });
+    for (const resp of [live, missing, crossGroup]) {
+      expect(resp.statusCode, resp.body).toBe(403);
+      expect(errorMessage(resp)).toBe('You are not a member of this group');
+    }
+    // Identical in everything but the per-request id Fastify's error handler stamps on every
+    // response regardless of cause: strip it and the three bodies must be byte for byte the same.
+    const withoutRequestId = (resp: Res) => {
+      const parsed = JSON.parse(resp.body);
+      delete parsed.meta?.requestId;
+      return JSON.stringify(parsed);
+    };
+    expect(withoutRequestId(live)).toBe(withoutRequestId(missing));
+    expect(withoutRequestId(missing)).toBe(withoutRequestId(crossGroup));
+    expect(await messageSnapshot(f.messageId)).toEqual(beforeLive);
+    expect(await messageSnapshot(other.messageId)).toEqual(beforeOther);
+    expect(spies.broadcastSpy).not.toHaveBeenCalled();
+    expect(spies.storageSpy).not.toHaveBeenCalled();
+  }, 60_000);
 
   it('an anonymous (unauthenticated) caller is 401, nothing written', async () => {
     const f = await fresh('anon');
@@ -372,13 +443,15 @@ describeIf('ordinary behavior of deleting someone ELSE\'s message is unchanged',
     expect(errorMessage(bad)).toBe('Group not found');
   });
 
-  it('a message that belongs to ANOTHER group is "Message not found" (cross-group IDOR): the other group\'s message is untouched', async () => {
+  it('a GENUINE member of group B gets "Message not found" (404, not 403) for a message that lives in group A: cross-group safety for a real member', async () => {
+    // Distinct from the nonmember-oracle test above: b.admin IS an ACTIVE member (of group B),
+    // so they pass the membership gate and reach the message lookup, which is scoped to THEIR
+    // group and correctly reports group A's message as not found there.
     const a = await fresh('idor-a');
     const b = await fresh('idor-b');
     const before = await messageSnapshot(a.messageId);
     const spies = spyOnSideEffects();
 
-    // b.admin is a legitimate manager of group B, attempting to delete a message that lives in group A.
     const resp = await deleteMessage(b, b.admin, a.messageId);
 
     expect(resp.statusCode, resp.body).toBe(404);
@@ -471,7 +544,7 @@ describeIf('GROUP STATE: the delete waits at the group row (level 2), not just a
 const freshFailing = (tag: string) => makeChatFixture(EMAIL_PREFIX, FAIL_MARKER, tag);
 
 describeIf('DATABASE FAILURE: a soft-delete that does not commit leaves storage and the broadcast untouched', () => {
-  it('a forced failure of the UPDATE rolls the whole delete back: 500, isDeleted still false, no broadcast', async () => {
+  it('a forced failure of the UPDATE rolls the whole delete back: 500, isDeleted still false, no event, no storage call', async () => {
     const f = await freshFailing('db-fail');
     const before = await messageSnapshot(f.messageId);
     const spies = spyOnSideEffects();
@@ -483,9 +556,10 @@ describeIf('DATABASE FAILURE: a soft-delete that does not commit leaves storage 
     expect(await messageSnapshot(f.messageId)).toEqual(before);
     expect(before?.isDeleted).toBe(false);
     expect(spies.broadcastSpy).not.toHaveBeenCalled();
+    expect(spies.storageSpy).not.toHaveBeenCalled();
   }, 60_000);
 
-  it('a forced failure on a SELF-delete rolls back the same way (the self path still writes inside the same transaction)', async () => {
+  it('a forced failure on a SELF-delete rolls back the same way (the self path still writes inside the same transaction): no event, no storage call', async () => {
     const f = await freshFailing('db-fail-self');
     const before = await messageSnapshot(f.messageId);
     const spies = spyOnSideEffects();
@@ -495,11 +569,12 @@ describeIf('DATABASE FAILURE: a soft-delete that does not commit leaves storage 
     expect(resp.statusCode).toBe(500);
     expect(await messageSnapshot(f.messageId)).toEqual(before);
     expect(spies.broadcastSpy).not.toHaveBeenCalled();
+    expect(spies.storageSpy).not.toHaveBeenCalled();
   }, 60_000);
 
   it('a forced failure on a message WITH a voice attachment leaves the audio file exactly where it was: storage.delete is never called — proves the DB commit is what gates storage cleanup, not the other way around', async () => {
     const f = await freshFailing('db-fail-voice');
-    const { messageId, storageKey } = await addVoiceMessage(f, f.author, 'db-fail-voice');
+    const { messageId, storageKey } = await trackedVoiceMessage(f, f.author, 'db-fail-voice');
     const before = await messageSnapshot(messageId);
     const spies = spyOnSideEffects();
 
@@ -519,23 +594,57 @@ describeIf('DATABASE FAILURE: a soft-delete that does not commit leaves storage 
 // ─── voice storage failure: best-effort, after commit, never fails the request ──
 
 describeIf('VOICE STORAGE FAILURE: cleanup is best-effort and runs AFTER the database commit', () => {
-  it('storage.delete rejecting does not fail the request: the message is still deleted and announced, and storage.delete was actually attempted', async () => {
-    const f = await fresh('storage-fail');
-    const { messageId, storageKey } = await addVoiceMessage(f, f.author, 'storage-fail');
+  // "Every" post-commit storage failure: a plain Error (a network/provider outage), a bare
+  // non-Error rejection value (nothing in the route may assume `instanceof Error`), and a
+  // Node-style fs error object (what a real ENOENT from the local provider looks like). All
+  // three must be swallowed by the SAME complete error boundary — 200, one event, the key
+  // storage.delete was actually called with.
+  const failureModes: Array<{ name: string; reject: unknown }> = [
+    { name: 'a generic Error (network/provider outage)', reject: new Error('simulated storage outage') },
+    { name: 'a non-Error rejection value (a bare string)', reject: 'boom' },
+    { name: 'a Node-style fs error object (ENOENT)', reject: Object.assign(new Error('no such file or directory'), { code: 'ENOENT' }) },
+  ];
+  for (const mode of failureModes) {
+    it(`storage.delete rejecting with ${mode.name} still returns 200 with exactly one event, and storage.delete was actually attempted`, async () => {
+      const f = await fresh(`storage-fail-${mode.name.slice(0, 4).replace(/\W+/g, '')}`);
+      const { messageId, storageKey } = await trackedVoiceMessage(f, f.author, 'storage-fail');
+      const spies = spyOnSideEffects();
+      spies.storageSpy.mockRejectedValueOnce(mode.reject);
+
+      const resp = await deleteMessage(f, f.admin, messageId);
+
+      expect(resp.statusCode, resp.body).toBe(200);
+      expect((await messageSnapshot(messageId))?.isDeleted).toBe(true);
+      expect(spies.broadcastSpy).toHaveBeenCalledTimes(1);
+      expect(spies.broadcastSpy).toHaveBeenCalledWith(f.groupId, 'message:deleted', { messageId });
+      expect(spies.storageSpy).toHaveBeenCalledWith(expect.objectContaining({ key: storageKey }));
+    }, 60_000);
+  }
+
+  it('a post-commit database lookup failing (the regression Finding 2 fixed: the key was looked up AGAIN, outside the transaction) must not turn a successful deletion into a 500 — the committed delete and its event stand regardless', async () => {
+    // The fixed route never queries the database again after commit: the storage key is
+    // captured inside the transaction, so `prisma.voiceMessage.findUnique` (the top-level
+    // client — distinct from the `tx` used inside the transaction) is never called here at
+    // all. Mocking it to reject pins that: this is the regression guard for CB4 in the
+    // mutation battery, which reintroduces exactly the unguarded post-commit lookup this
+    // fixes, and Finding 2's requirement that a database failure after commit — not just a
+    // storage failure — must never surface as a 500 for a deletion that already succeeded.
+    const f = await fresh('post-commit-db-fail');
+    const { messageId } = await trackedVoiceMessage(f, f.author, 'post-commit-db-fail');
     const spies = spyOnSideEffects();
-    spies.storageSpy.mockRejectedValueOnce(new Error('simulated storage outage'));
+    const dbSpy = vi.spyOn(prisma.voiceMessage, 'findUnique').mockRejectedValueOnce(new Error('simulated post-commit DB blip'));
 
     const resp = await deleteMessage(f, f.admin, messageId);
 
     expect(resp.statusCode, resp.body).toBe(200);
     expect((await messageSnapshot(messageId))?.isDeleted).toBe(true);
-    expect(spies.broadcastSpy).toHaveBeenCalledWith(f.groupId, 'message:deleted', { messageId });
-    expect(spies.storageSpy).toHaveBeenCalledWith(expect.objectContaining({ key: storageKey }));
+    expect(spies.broadcastSpy).toHaveBeenCalledTimes(1);
+    dbSpy.mockRestore();
   }, 60_000);
 
   it('an ordinary voice-message delete really does clean up storage: the file is gone afterwards', async () => {
     const f = await fresh('storage-ok');
-    const { messageId, storageKey } = await addVoiceMessage(f, f.author, 'storage-ok');
+    const { messageId, storageKey } = await trackedVoiceMessage(f, f.author, 'storage-ok');
 
     const resp = await deleteMessage(f, f.admin, messageId);
 

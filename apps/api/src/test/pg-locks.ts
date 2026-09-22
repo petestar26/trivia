@@ -110,3 +110,38 @@ export async function waitForWaitEvent(
     `No backend reached wait event ${JSON.stringify(waitEvent)} for a statement matching ${JSON.stringify(queryLike)} within ${timeoutMs}ms.`
   );
 }
+
+/**
+ * True only for PostgreSQL SQLSTATE 55P03 ("lock_not_available") — exactly what a
+ * `... FOR UPDATE NOWAIT` / `FOR NO KEY UPDATE NOWAIT` raises when the row is
+ * locked by another session. Prisma wraps every raw-query failure in the SAME
+ * `PrismaClientKnownRequestError` with `code: 'P2010'`, whatever the underlying
+ * cause (a lock conflict, a typo in the SQL, a missing column, a connection
+ * drop) — so `code === 'P2010'` alone is not a lock probe, and neither is a bare
+ * `catch { return 'locked' }`: both would silently misreport an unrelated bug in
+ * the probe's own query as "locked". The real SQLSTATE is one level deeper, on
+ * `error.meta.code`.
+ */
+export function isLockNotAvailable(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const meta = (err as { meta?: unknown }).meta;
+  return typeof meta === 'object' && meta !== null && (meta as { code?: unknown }).code === '55P03';
+}
+
+/**
+ * A NOWAIT probe from a THIRD session: whether `id` in `table` is lockable RIGHT
+ * NOW, without waiting. 'locked' only for the genuine SQLSTATE 55P03 — any other
+ * failure (a bug in the probe, a connection error) is rethrown, so a broken probe
+ * fails the test loudly instead of being silently read as "the row is locked".
+ */
+export async function probeRowLockable(table: string, id: string): Promise<'free' | 'locked'> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR NO KEY UPDATE NOWAIT`, id);
+    });
+    return 'free';
+  } catch (err) {
+    if (isLockNotAvailable(err)) return 'locked';
+    throw err;
+  }
+}

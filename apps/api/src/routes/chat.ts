@@ -5,7 +5,6 @@ import {
   assertActiveMember,
   createMessage,
   createVoiceMessage,
-  deleteVoiceMessageStorage,
   getGroupOrThrow,
   getMessageInGroup,
   MESSAGE_SENDER_SELECT,
@@ -284,6 +283,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       // still gets the right answer.
       await getGroupOrThrow(groupId);
 
+      let voiceStorageKey: string | null = null;
+
       await prisma.$transaction(async (tx) => {
         // AUTHORITATIVE CHECKS — group-locks.ts, "delete message": the group row
         // (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
@@ -300,28 +301,39 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         }
 
         const actor = await lockActorMembership(tx, groupId, userId);
+        // ACTIVE membership is required BEFORE the message is ever read — not just
+        // before deleting someone else's. A caller who is not an ACTIVE member gets
+        // this SAME refusal whether the message id is real, already deleted, or
+        // belongs to another group entirely: reading the message first would let a
+        // non-member learn which of those is true just from 403 vs 404, an
+        // existence oracle this route must not offer to someone who isn't even a
+        // member.
+        if (!actor || actor.status !== 'ACTIVE') {
+          throw ApiError.forbidden('You are not a member of this group');
+        }
 
         const message = await lockGroupMessageForDeletion(tx, groupId, messageId);
         if (!message || message.isDeleted) {
           throw ApiError.notFound('Message not found');
         }
 
-        // The message's own author may always delete it — no role required, and
-        // the actor row above need not even show them as a current member (see
-        // "Level 4 and the actor" in group-locks.ts): it is still locked, for the
-        // order every transaction at this level takes, but its value gates
-        // nothing on this branch. Anyone else must be, RIGHT NOW, an ACTIVE OWNER
-        // or ADMIN — a manager demoted, banned, muted or removed after the fast
-        // path a caller might have raced must not delete someone else's message
-        // on the strength of a stale read.
-        if (message.userId !== userId) {
-          if (!actor || actor.status !== 'ACTIVE') {
-            throw ApiError.forbidden('You are not a member of this group');
-          }
-          if (!MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
-            throw ApiError.forbidden('Insufficient permissions');
-          }
+        // The message's own author may always delete it, now that ACTIVE
+        // membership is already established above. Anyone else must be, RIGHT
+        // NOW, an ACTIVE OWNER or ADMIN — a manager demoted, banned, muted or
+        // removed after the fast path a caller might have raced must not delete
+        // someone else's message on the strength of a stale read.
+        if (message.userId !== userId && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+          throw ApiError.forbidden('Insufficient permissions');
         }
+
+        // Captured HERE, inside the transaction, while the message row is locked
+        // and the delete is already authorized — the ONLY database read that
+        // decides what storage cleanup acts on. Nothing outside this transaction
+        // ever has to look the voice message up again: a lookup that failed or
+        // errored after commit would otherwise be able to turn an already-
+        // committed deletion into an apparent failure for the caller.
+        const voiceMessage = await tx.voiceMessage.findUnique({ where: { messageId: message.id }, select: { storageKey: true } });
+        voiceStorageKey = voiceMessage?.storageKey ?? null;
 
         await tx.message.update({
           where: { id: message.id },
@@ -330,14 +342,23 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       });
 
       // Everything below runs only once the soft deletion has committed — a
-      // rejected or rolled-back transaction reaches neither line. Voice storage
-      // cleanup is best-effort (deleteVoiceMessageStorage swallows its own
-      // errors and looks the voice message up itself, so it is safe to call
-      // unconditionally) and now runs AFTER the database write, not before: the
-      // old order could delete the audio for a soft deletion that then failed to
-      // commit, leaving a message that still looked live with its audio gone.
+      // rejected or rolled-back transaction reaches neither line. The broadcast
+      // fires UNCONDITIONALLY and FIRST: nothing after it can suppress an event
+      // for a deletion that has already committed. Storage cleanup, if any, is
+      // wrapped in a COMPLETE error boundary of its own — it acts on the key
+      // captured above, not a fresh lookup, so the only thing that can still fail
+      // here is the storage call itself, and that failure must never surface as a
+      // 500 for a deletion (and event) that already succeeded.
       emitToGroup(groupId, 'message:deleted', { messageId });
-      await deleteVoiceMessageStorage(messageId);
+      if (voiceStorageKey) {
+        try {
+          await storage.delete({ bucket: STORAGE_BUCKETS.VOICE_MESSAGES, key: voiceStorageKey });
+        } catch {
+          // Best-effort: cleanup failing (storage outage, provider error, a
+          // transient DB error on some future variant of this call) must not
+          // undo a committed, already-announced deletion.
+        }
+      }
 
       return {
         success: true,

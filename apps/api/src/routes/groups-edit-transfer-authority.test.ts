@@ -608,6 +608,33 @@ describeIf('the transfer: state, the target, the names and the second transfer',
     expect(await transferNotices(f)).toBe(0);
   }, 60_000);
 
+  it("EXTERNAL, ACTIVE OWNER → ADMIN: the owner's row is demoted directly (status stays ACTIVE, groups.ownerId untouched) while the transfer's demotion waits on it: 409, isolating the ROLE half of the guard", async () => {
+    // The status half of the demotion guard (`status: 'ACTIVE'`) is already proven by the
+    // "t-external" test above (status → LEFT), and the ownerId predicate on the transfer's OWN
+    // group UPDATE by "t-owner-column" above. Neither of those changes here: this write touches
+    // ONLY the row's role, so a mutant that drops `role: 'OWNER'` from
+    // `demoted`'s WHERE — while keeping `status: 'ACTIVE'` — has nothing else to catch it on.
+    const f = await fresh('t-external-role');
+    const groupBefore = await groupSnapshot(f.groupId);
+    const peerBefore = await membershipSnapshot(f.groupId, f.peer.id);
+    let transferP: Promise<Res> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.groupMember.update({ where: { id: f.rows.owner }, data: { role: 'ADMIN' } });
+      transferP = api.transfer(f, f.owner, f.peer); // its fast path still sees f.owner as an ACTIVE OWNER
+      transferP.catch(() => undefined);
+      await waitForBlockedBackends(1, { queryLike: SQL.memberUpdate });
+    }, tx30);
+
+    const t = await transferP!;
+
+    expect(t.statusCode, t.body).toBe(409);
+    expect(errorMessage(t)).toBe('Concurrent ownership change detected; please retry');
+    expect(await groupSnapshot(f.groupId)).toEqual(groupBefore);
+    expect(await membershipSnapshot(f.groupId, f.peer.id)).toEqual(peerBefore);
+    expect(await transferNotices(f)).toBe(0);
+  }, 60_000);
+
   it('an ordinary transfer: 200, one OWNER matching groups.ownerId, the former owner an ADMIN, two notifications', async () => {
     const f = await fresh('t-normal');
 
