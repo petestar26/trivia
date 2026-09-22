@@ -54,6 +54,8 @@ model User {
   rewardClaims              RewardClaim[]
   achievements              UserAchievement[]
   gameSessions              GameSession[]
+  coinProvenances           CoinProvenance[]
+  coinAllocations           CoinAllocation[]
   triviaAttempts            UserTriviaAttempt[]
   competitionTriviaAttempts CompetitionTriviaAttempt[]
   challengesSent            GameChallenge[]            @relation("ChallengeSender")
@@ -518,6 +520,7 @@ model WalletTransaction {
   createdAt     DateTime                 @default(now())
 
   wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  coinProvenances   CoinProvenance[]
 
   @@index([walletId, createdAt])
   @@index([userId, createdAt])
@@ -795,6 +798,16 @@ enum GameType {
   DICE
   TRIVIA
   NUMBER_CHALLENGE
+  SPIN_WIN
+  THUNDER_DERBY_3D
+  NEON_HOUNDS_3D
+  TURBO_CIRCUIT_3D
+  STARFALL_NEBULA
+  JUNGLE_DASH_3D
+  TURBO_KENO
+  CRYSTAL_TRAIL
+  HEAT_VAULT
+  STRAIT_RUSH
 }
 
 enum GameSessionStatus {
@@ -805,45 +818,237 @@ enum GameSessionStatus {
   CANCELLED
 }
 
-model GameDefinition {
-  id            String   @id @default(uuid())
-  key           String   @unique
-  name          String
-  description   String?  @db.Text
-  type          GameType
-  isActive      Boolean  @default(true)
-  minBet        Int      @default(1)
-  maxBet        Int      @default(1000)
-  configuration Json // server-only: probabilities, outcomes, etc.
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+enum GameMode {
+  WAGER
+  BONUS
+  @@map("game_mode")
+}
 
-  sessions     GameSession[]
-  challenges   GameChallenge[]
-  competitions GroupCompetition[]
+enum GameFamily {
+  INSTANT
+  SCHEDULED_DRAW
+  SCHEDULED_RACE
+  @@map("game_family")
+}
+
+enum GameCatalogStatus {
+  AVAILABLE
+  COMING_SOON
+  RETIRED
+  @@map("game_catalog_status")
+}
+
+enum PlayContext {
+  SOLO_WAGER
+  COMPETITION_ROUND
+  CHALLENGE_ROUND
+  BONUS
+  @@map("play_context")
+}
+
+enum CoinProvenanceType {
+  PURCHASE
+  GAME_WIN
+  TRIVIA_REWARD
+  REFERRAL_REWARD
+  PROMOTION
+  GIFT_SENT
+  GIFT_RECEIVED
+  BONUS_UNLOCK
+  WITHDRAWAL
+  ADMIN_ADJUSTMENT
+  COMPETITION_PRIZE
+  TASK_REWARD
+  @@map("coin_provenance_type")
+}
+
+enum CoinRestrictionStatus {
+  RESTRICTED
+  UNRESTRICTED
+  PLAYING_THROUGH
+  EXPIRED
+  @@map("coin_restriction_status")
+}
+
+enum CountryCasinoStatus {
+  ENABLED
+  DISABLED
+  RESTRICTED
+  @@map("country_casino_status")
+}
+
+model GameDefinition {
+  id                   String               @id @default(uuid())
+  key                  String               @unique
+  name                 String
+  description          String?              @db.Text
+  type                 GameType
+  isActive             Boolean              @default(true)
+  minBet               Int                  @default(1)
+  maxBet               Int                  @default(1000)
+  configuration        Json                 // server-only: probabilities, outcomes, etc.
+  mode                 GameMode
+  family               GameFamily
+  catalogStatus        GameCatalogStatus
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  currentRulesVersion  Int?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  sessions             GameSession[]
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
+  rules                GameRules[]
 
   @@index([isActive])
   @@index([key])
+  @@index([catalogStatus])
   @@map("game_definitions")
 }
 
+model GameRules {
+  id                   String       @id @default(uuid())
+  gameId               String
+  version              Int
+  mode                 GameMode
+  family               GameFamily
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  rules                Json
+  resultSchemaVersion  Int
+  rulesHash            String
+  createdAt            DateTime     @default(now())
+
+  game                 GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+
+  @@unique([gameId, version])
+  @@index([gameId])
+  @@map("game_rules")
+}
+
+model CountryCasinoPolicy {
+  id                      String             @id @default(uuid())
+  countryCode             String             @db.VarChar(3)
+  version                 Int
+  status                  CountryCasinoStatus @default(DISABLED)
+  enabledAt               DateTime?
+  disabledAt              DateTime?
+  minWithdrawal           Int                @default(0)
+  maxWithdrawal           Int                @default(0)
+  dailyWithdrawalLimit    Int                @default(0)
+  monthlyWithdrawalLimit  Int                @default(0)
+  playthroughMultiplier   Decimal            @default(1.0) @db.Decimal(6, 2)
+  qualifyingGames         Json               @default("[]")
+  maxQualifyingStake      Int                @default(0)
+  holdingPeriodHours      Int                @default(0)
+  giftDailyLimit          Int                @default(0)
+  kycTierRequired         Int                @default(0)
+  supportedPaymentMethods Json               @default("[]")
+  withdrawalFeePercent    Decimal            @default(0) @db.Decimal(5, 4)
+  manualReviewThreshold   Int                @default(0)
+  notes                   String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  coinProvenances         CoinProvenance[]
+
+  @@unique([countryCode, version])
+  @@index([countryCode])
+  @@index([status])
+  @@map("country_casino_policies")
+}
+
+model CoinProvenance {
+  id                       String                  @id @default(uuid())
+  userId                   String
+  walletTransactionId      String?
+  amount                   Int
+  provenanceType           CoinProvenanceType
+  restrictionStatus        CoinRestrictionStatus   @default(RESTRICTED)
+  originalSource           CoinProvenanceType?
+  originalGrantReferenceType String?
+  originalGrantReferenceId String?
+  countryPolicyId          String?
+  countryPolicyVersion     Int?
+  requiredPlaythrough      Int                     @default(0)
+  completedPlaythrough     Int                     @default(0)
+  giftChainOriginId        String?
+  giftChainParentId        String?
+  expiresAt                DateTime?
+  unlockedAt               DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  user                     User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  walletTransaction        WalletTransaction?      @relation(fields: [walletTransactionId], references: [id], onDelete: SetNull)
+  countryPolicy            CountryCasinoPolicy?    @relation(fields: [countryPolicyId], references: [id], onDelete: SetNull)
+  allocations              CoinAllocation[]
+
+  @@index([userId])
+  @@index([userId, restrictionStatus])
+  @@index([walletTransactionId])
+  @@map("coin_provenance")
+}
+
+model CoinAllocation {
+  id              String          @id @default(uuid())
+  userId          String
+  gameSessionId   String?
+  provenanceId    String
+  allocatedAmount Int
+  provenanceType  CoinProvenanceType
+  wasRestricted   Boolean         @default(false)
+  allocationOrder Int             @default(0)
+  createdAt       DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provenance      CoinProvenance  @relation(fields: [provenanceId], references: [id], onDelete: Restrict)
+  gameSession     GameSession?    @relation(fields: [gameSessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([gameSessionId])
+  @@index([provenanceId])
+  @@map("coin_allocations")
+}
+
 model GameSession {
-  id             String            @id @default(uuid())
-  userId         String
-  gameId         String
-  challengeId    String?
-  status         GameSessionStatus @default(PENDING)
-  betAmount      Int
-  result         Json // server-generated canonical result
-  rewardAmount   Int               @default(0)
-  isWin          Boolean           @default(false)
-  idempotencyKey String?
-  createdAt      DateTime          @default(now())
-  completedAt    DateTime?
+  id                      String             @id @default(uuid())
+  userId                  String
+  gameId                  String
+  challengeId             String?
+  status                  GameSessionStatus  @default(PENDING)
+  betAmount               Int
+  result                  Json               // server-generated canonical result
+  rewardAmount            Int                @default(0)
+  isWin                   Boolean            @default(false)
+  idempotencyKey          String?
+  createdAt               DateTime           @default(now())
+  completedAt             DateTime?
+
+  // Rule snapshots (populated for every new session)
+  mode                    GameMode?
+  family                  GameFamily?
+  wagerCurrency           CurrencyType?
+  rewardCurrency          CurrencyType?
+  rulesVersion            Int?
+  resultSchemaVersion     Int?
+
+  // Actual per-session wallet settlement currencies
+  settlementDebitCurrency CurrencyType?
+  settlementCreditCurrency CurrencyType?
+
+  // Immutable snapshots
+  requestSnapshot         Json?
+  responseSnapshot        Json?
+  fingerprint             String?
+  selections              Json?
+  playContext             PlayContext?
 
   user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
   game      GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
   challenge GameChallenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+  allocations CoinAllocation[]
 
   @@unique([userId, idempotencyKey])
   @@unique([challengeId, userId])
@@ -851,6 +1056,8 @@ model GameSession {
   @@index([gameId])
   @@index([idempotencyKey])
   @@index([challengeId])
+  @@index([gameId, rulesVersion])
+  @@index([userId, fingerprint])
   @@map("game_sessions")
 }
 

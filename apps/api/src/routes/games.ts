@@ -1,11 +1,13 @@
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { authenticate } from '../middleware';
 import { listActiveGames } from '../games/game-catalog';
 import { playGame, getGameHistory } from '../games/game-play';
 
 export async function gameRoutes(server: FastifyInstance): Promise<void> {
-  // GET /games — list active games (public catalog)
+  // GET /games — public catalog (READ-ONLY: no writes happen here).
+  // Returns the full catalog (mode, family, status, currencies, versions)
+  // excluding RETIRED games.
   server.get(
     '/',
     { preHandler: [authenticate] },
@@ -15,11 +17,13 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  // POST /games/:gameKey/play — play a game (server-authoritative)
+  // POST /games/:gameKey/play — play a game (server-authoritative).
+  // Idempotency key is REQUIRED (validated 1-128 visible ASCII chars),
+  // enforced both by the AJV header schema and by the service.
   server.post<{
     Params: { gameKey: string };
-    Body: { betAmount: number; guess?: number; questionId?: string; answerIndex?: number };
-    Headers: { 'idempotency-key'?: string };
+    Body: { betAmount?: number; guess?: number; questionId?: string; answerIndex?: number };
+    Headers: { 'idempotency-key': string };
   }>(
     '/:gameKey/play',
     {
@@ -31,9 +35,20 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
           required: ['gameKey'],
           properties: { gameKey: { type: 'string' } },
         },
+        headers: {
+          type: 'object',
+          required: ['idempotency-key'],
+          properties: {
+            'idempotency-key': {
+              type: 'string',
+              minLength: 1,
+              maxLength: 128,
+              pattern: '^[\\x21-\\x7E]+$',
+            },
+          },
+        },
         body: {
           type: 'object',
-          required: ['betAmount'],
           properties: {
             betAmount: { type: 'integer', minimum: 1 },
             guess: { type: 'integer' },
@@ -46,7 +61,7 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { gameKey } = request.params;
       const { betAmount, guess, questionId, answerIndex } = request.body;
-      const idempotencyKey = (request.headers as any)['idempotency-key'] as string | undefined;
+      const idempotencyKey = request.headers['idempotency-key'];
 
       const result = await playGame({
         userId: request.user!.sub,
@@ -56,7 +71,9 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
         clientData: { guess, questionId, answerIndex },
       });
 
-      return reply.status(201).send({ success: true, data: result });
+      return reply
+        .status(result.isReplay ? 200 : 201)
+        .send({ success: true, data: result });
     }
   );
 

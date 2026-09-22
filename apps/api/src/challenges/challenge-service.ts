@@ -3,7 +3,7 @@ import { ApiError } from '../middleware';
 import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service';
 import { emitToUser } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
-import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
+import { getGameByKey } from '../games/game-catalog';
 
 const CHALLENGE_EXPIRY_HOURS = 48;
 
@@ -38,8 +38,6 @@ export async function createChallenge(
   gameKey: string,
   entryAmount: number
 ) {
-  await ensureGameDefinitions();
-
   const game = await getGameByKey(gameKey);
   if (!game) throw ApiError.notFound('Game not found');
   if (!game.isActive) throw ApiError.badRequest('This game is currently unavailable');

@@ -10,7 +10,6 @@ import {
   getChallengeById,
 } from './challenge-service';
 import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
-import { ensureGameDefinitions } from '../games/game-catalog';
 import { ApiError } from '../middleware';
 
 // ─── DB availability probe ─────────────────────────────────────
@@ -111,7 +110,7 @@ describeIf('Create challenge', () => {
     await cleanChalFixtures();
     a = await createUser('a');
     b = await createUser('b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -147,7 +146,7 @@ describeIf('Challenge authorization', () => {
     a = await createUser('auth_a');
     b = await createUser('auth_b');
     c = await createUser('auth_c');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -177,7 +176,7 @@ describeIf('Accept challenge', () => {
     await cleanChalFixtures();
     a = await createUser('acc_a');
     b = await createUser('acc_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
     await primeGamePoints(b.id, 500);
   });
@@ -210,7 +209,7 @@ describeIf('Decline challenge', () => {
     await cleanChalFixtures();
     a = await createUser('dec_a');
     b = await createUser('dec_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -236,7 +235,7 @@ describeIf('Play challenge full flow', () => {
     await cleanChalFixtures();
     a = await createUser('play_a');
     b = await createUser('play_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
     await primeGamePoints(b.id, 500);
   });
@@ -303,7 +302,7 @@ describeIf('List user challenges', () => {
     await cleanChalFixtures();
     a = await createUser('list_a');
     b = await createUser('list_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -345,7 +344,7 @@ describeIf('Challenge concurrency + winner correctness (P1/P2 regression)', () =
   beforeAll(async () => {
     a = await createUser('race_a');
     b = await createUser('race_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 100_000);
     await primeGamePoints(b.id, 100_000);
   });
@@ -521,9 +520,6 @@ describeIf('Challenge concurrency + winner correctness (P1/P2 regression)', () =
 // ═══════════════════════════════════════════════════════════════
 
 describeIf('Challenge accept/decline race hardening', () => {
-  beforeAll(async () => {
-    await ensureGameDefinitions();
-  });
 
   // ── Deterministic held-lock: decline vs an in-flight cancel ──
   it('a decline blocked on a held cancel refunds once and never overwrites CANCELLED', async () => {

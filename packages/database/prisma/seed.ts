@@ -10,9 +10,9 @@
  *   - TriviaQuestion rows.
  *
  * It deliberately does NOT seed:
- *   - GameDefinition — created on demand by `ensureGameDefinitions()`
- *     (apps/api/src/games/game-catalog.ts) on every game/challenge/
- *     competition entry point.
+ *   - GameDefinition / GameRules — created by the casino_foundation_schema
+ *     and casino_foundation_seed migrations (14 definitions, immutable rules
+ *     v1); the public catalog is READ-ONLY and never writes.
  *   - Achievement — created on demand by `ensureAchievements()`
  *     (apps/api/src/rewards/achievement-service.ts).
  *   - Users, wallets, groups, agents, countries, payment methods, exchange

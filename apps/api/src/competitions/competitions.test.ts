@@ -11,7 +11,6 @@ import {
   listCompetitionsForGroup,
 } from './competition-service';
 import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
-import { ensureGameDefinitions } from '../games/game-catalog';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -193,7 +192,7 @@ describeIf('Create competition', () => {
     group = await createGroup(owner.id, 'Comp Test Group');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, member.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
   });
 
@@ -287,7 +286,7 @@ describeIf('Update competition', () => {
     group = await createGroup(owner.id, 'Comp Test Update');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, member.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
   });
 
@@ -338,7 +337,7 @@ describeIf('Cancel competition', () => {
     group = await createGroup(owner.id, 'Comp Test Cancel');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeGamePoints(player.id, 500);
   });
 
@@ -378,7 +377,7 @@ describeIf('Join competition', () => {
     group = await createGroup(owner.id, 'Comp Test Join');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeGamePoints(player.id, 500);
   });
 
@@ -428,7 +427,7 @@ describeIf('Play competition', () => {
     group = await createGroup(owner.id, 'Comp Test Play');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeGamePoints(player.id, 500);
   });
 
@@ -483,7 +482,7 @@ describeIf('Finalize competition', () => {
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player1.id, 'MEMBER');
     await addMember(group.id, player2.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
     await primeGamePoints(player1.id, 500);
     await primeGamePoints(player2.id, 500);
@@ -634,7 +633,7 @@ describeIf('List and get competition', () => {
     group = await createGroup(owner.id, 'Comp Test List');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, member.id, 'MEMBER');
-    await ensureGameDefinitions();
+
   });
 
   it('lists competitions for group', async () => {
@@ -689,7 +688,7 @@ describeIf('Trivia competition', () => {
     group = await createGroup(owner.id, 'Comp Test Trivia');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
     await primeGamePoints(player.id, 5000);
 
@@ -992,7 +991,7 @@ describeIf('Competition entry-fee accounting (entryPaid) — P0 fix', () => {
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player1.id, 'MEMBER');
     await addMember(group.id, player2.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeGamePoints(player1.id, 5_000);
     await primeGamePoints(player2.id, 5_000);
   });
@@ -1218,7 +1217,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
     attackerGroup = await createGroup(attacker.id, 'Comp Test P0 Attacker');
     await addMember(attackerGroup.id, attacker.id, 'OWNER');
 
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
     await primeGamePoints(attacker.id, 50_000);
     await primeCoins(attacker.id, 50_000);
@@ -1875,7 +1874,7 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
     await addMember(group.id, player2.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
     // Every OTHER test in this block uses newCompetition(), which hardcodes
     // entryAmount: 0, so player's Game Points balance was never exercised —
@@ -2317,7 +2316,7 @@ describeIf('Trivia post-finalization scoring (P2 regression)', () => {
     group = await createGroup(owner.id, 'Comp Trivia Finalize Race');
     await addMember(group.id, owner.id, 'OWNER');
     await addMember(group.id, player.id, 'MEMBER');
-    await ensureGameDefinitions();
+
     await primeCreator(owner.id);
     await primeGamePoints(player.id, 100_000);
   });

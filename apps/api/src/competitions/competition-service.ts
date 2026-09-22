@@ -4,7 +4,7 @@ import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../econom
 import { assertGroupRole, assertActiveMember, getGroupMembership } from '../realtime/chat-service';
 import { emitToGroup } from '../realtime/broadcast';
 import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
-import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
+import { getGameByKey } from '../games/game-catalog';
 import { competitionLifecycleInfo } from './competition-lifecycle.js';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
@@ -173,7 +173,6 @@ function scoringForGame(gameType: string): any {
 
 export async function createCompetition(creatorId: string, args: CreateCompetitionArgs) {
   await assertGroupRole(args.groupId, creatorId, MANAGER_ROLES);
-  await ensureGameDefinitions();
 
   const game = await getGameByKey(args.gameKey);
   if (!game) throw ApiError.notFound('Game not found');

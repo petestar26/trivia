@@ -8,8 +8,8 @@ export default defineConfig({
     // performs destructive fixture cleanup (`deleteMany`) in its own
     // beforeAll. Under Vitest's default file parallelism those cleanups
     // interleave with other files' running tests, and shared reference data
-    // (GameDefinition / Achievement upserts via ensureGameDefinitions and
-    // ensureAchievements) is written concurrently by several files at once.
+    // (Achievement upserts via ensureAchievements) is written concurrently
+    // by several files at once.
     //
     // That produced order-dependent, non-reproducible failures — e.g.
     // challenge suites failing with "Insufficient Game Points for entry"

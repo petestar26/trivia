@@ -97,6 +97,62 @@ export enum GameType {
   DICE = 'dice',
   TRIVIA = 'trivia',
   NUMBER_CHALLENGE = 'number_challenge',
+  SPIN_WIN = 'spin_win',
+  THUNDER_DERBY_3D = 'thunder_derby_3d',
+  NEON_HOUNDS_3D = 'neon_hounds_3d',
+  TURBO_CIRCUIT_3D = 'turbo_circuit_3d',
+  STARFALL_NEBULA = 'starfall_nebula',
+  JUNGLE_DASH_3D = 'jungle_dash_3d',
+  TURBO_KENO = 'turbo_keno',
+  CRYSTAL_TRAIL = 'crystal_trail',
+  HEAT_VAULT = 'heat_vault',
+  STRAIT_RUSH = 'strait_rush',
+}
+
+export enum GameMode {
+  WAGER = 'WAGER',
+  BONUS = 'BONUS',
+}
+
+export enum GameFamily {
+  INSTANT = 'INSTANT',
+  SCHEDULED_DRAW = 'SCHEDULED_DRAW',
+  SCHEDULED_RACE = 'SCHEDULED_RACE',
+}
+
+export enum GameCatalogStatus {
+  AVAILABLE = 'AVAILABLE',
+  COMING_SOON = 'COMING_SOON',
+  RETIRED = 'RETIRED',
+}
+
+export enum PlayContext {
+  SOLO_WAGER = 'SOLO_WAGER',
+  COMPETITION_ROUND = 'COMPETITION_ROUND',
+  CHALLENGE_ROUND = 'CHALLENGE_ROUND',
+  BONUS = 'BONUS',
+}
+
+export enum CoinProvenanceType {
+  PURCHASE = 'PURCHASE',
+  GAME_WIN = 'GAME_WIN',
+  TRIVIA_REWARD = 'TRIVIA_REWARD',
+  REFERRAL_REWARD = 'REFERRAL_REWARD',
+  PROMOTION = 'PROMOTION',
+  GIFT_SENT = 'GIFT_SENT',
+  GIFT_RECEIVED = 'GIFT_RECEIVED',
+  BONUS_UNLOCK = 'BONUS_UNLOCK',
+  WITHDRAWAL = 'WITHDRAWAL',
+  ADMIN_ADJUSTMENT = 'ADMIN_ADJUSTMENT',
+  COMPETITION_PRIZE = 'COMPETITION_PRIZE',
+  TASK_REWARD = 'TASK_REWARD',
+}
+
+export enum CoinRestrictionStatus {
+  RESTRICTED = 'RESTRICTED',
+  UNRESTRICTED = 'UNRESTRICTED',
+  PLAYING_THROUGH = 'PLAYING_THROUGH',
+  EXPIRED = 'EXPIRED',
 }
 
 export enum GameSessionStatus {
