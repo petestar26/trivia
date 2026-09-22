@@ -17,6 +17,8 @@ import { CompetitionsPage } from '@/pages/competitions';
 import { GroupCompetitionsPage } from '@/pages/competitions/index';
 import { CompetitionDetailPage } from '@/pages/competitions/detail';
 import { GroupsPage } from '@/pages/groups';
+import { GroupDetailPage } from '@/pages/group-detail';
+import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
 import { WalletPage } from '@/pages/wallet';
 import { RewardsPage } from '@/pages/rewards';
@@ -47,6 +49,8 @@ export function App() {
       >
         <Route index element={<HomePage />} />
         <Route path="groups" element={<GroupsPage />} />
+        <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />
+        <Route path="groups/:id" element={<GroupDetailPage />} />
         <Route path="messages/:groupId" element={<MessagesPage />} />
         <Route path="wallet" element={<WalletPage />} />
         <Route path="rewards" element={<RewardsPage />} />

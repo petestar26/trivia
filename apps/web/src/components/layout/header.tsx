@@ -1,4 +1,5 @@
 import { useAuth } from '@/providers/auth-provider';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -26,7 +27,9 @@ export function Header({ onMenuClick }: HeaderProps) {
           <h1 className="text-lg font-semibold text-gray-900 dark:text-white">SocialPlay</h1>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 sm:space-x-4">
+          <NotificationBell />
+
           <div className="hidden sm:flex items-center space-x-3">
             <div className="relative">
               <div className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">

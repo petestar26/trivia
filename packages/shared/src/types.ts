@@ -1,13 +1,15 @@
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPrevPage: boolean;
-  };
+  meta: PaginationMeta;
 }
 
 export interface ApiResponse<T = null> {
@@ -83,19 +85,64 @@ export interface GroupBasicInfo {
   createdAt: string;
 }
 
-export interface GroupDetailInfo extends GroupBasicInfo {
-  owner: {
-    id: string;
-    username: string;
-    displayName: string;
-    avatarUrl?: string;
-  } | null;
-  coverUrl?: string;
-  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'BANNED';
+export type GroupMembershipStatus = 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
+export type GroupRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+export type GroupStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'BANNED';
+export type GroupInviteStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+
+export interface GroupOwnerInfo {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+/** Fields present in every GET /groups/:id response, whichever shape it takes. */
+interface GroupDetailCommon {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  coverUrl: string | null;
+  status: GroupStatus;
+  memberCount: number;
+  /** The authenticated caller's own membership status in this group, when a
+   *  membership row exists (including BANNED); null when there is no row. */
+  viewerMembershipStatus: GroupMembershipStatus | null;
+}
+
+/**
+ * GET /groups/:id for a PRIVATE group viewed by someone who is not an ACTIVE
+ * member: a deliberately thin summary. No owner identity, no dates — a fact
+ * the type states by declaring those fields `never`, so reading them from the
+ * union is allowed and always undefined here.
+ */
+export interface GroupDetailSummary extends GroupDetailCommon {
+  isPrivate: true;
+  isMember: false;
+  memberRole: null;
+  /** The caller's own join-request state (their membership status), if any. */
+  requestStatus: GroupMembershipStatus | null;
+  owner: null;
+  createdAt?: never;
+  updatedAt?: never;
+}
+
+/** GET /groups/:id for everyone else: an ACTIVE member of any group, or anyone viewing a public one. */
+export interface GroupDetailFull extends GroupDetailCommon {
+  isPrivate: boolean;
   isMember: boolean;
-  memberRole?: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+  /** The caller's role — null unless they are an ACTIVE member. Never omitted,
+   *  and never the role of a membership that is not ACTIVE. */
+  memberRole: GroupRole | null;
+  /** Null only if the owning account no longer exists. */
+  owner: GroupOwnerInfo | null;
+  requestStatus?: never;
+  createdAt: string;
   updatedAt: string;
 }
+
+export type GroupDetailInfo = GroupDetailSummary | GroupDetailFull;
 
 export interface GroupMemberInfo {
   id: string;
@@ -103,12 +150,55 @@ export interface GroupMemberInfo {
   user: {
     id: string;
     username: string;
-    displayName: string;
-    avatarUrl?: string;
+    displayName: string | null;
+    avatarUrl: string | null;
   };
-  role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
-  status: 'ACTIVE' | 'PENDING' | 'BANNED' | 'MUTED' | 'LEFT';
+  role: GroupRole;
+  status: GroupMembershipStatus;
   joinedAt: string;
+}
+
+/**
+ * GET /groups/:id/banned-members — one currently banned member, as a manager
+ * (OWNER/ADMIN) sees them. The public profile and nothing else: no email, no
+ * role, no dates, and nothing about any other membership the account holds.
+ */
+export interface GroupBannedMemberInfo {
+  id: string;
+  groupId: string;
+  user: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
+}
+
+/** A live pending invite as a manager (OWNER/ADMIN) sees it. The token is
+ *  bearer-equivalent and is returned to managers only. */
+export interface GroupInviteInfo {
+  id: string;
+  email: string;
+  role: GroupRole;
+  status: GroupInviteStatus;
+  token: string;
+  expiresAt: string;
+  invitedBy: string;
+  createdAt: string;
+}
+
+/** POST /groups/:id/invites — the created invite, including its token. */
+export interface CreatedGroupInviteInfo extends GroupInviteInfo {
+  groupId: string;
+}
+
+/** GET /groups/invites/:token — the redemption page's safe summary: no email, no token. */
+export interface GroupInvitePreview {
+  id: string;
+  group: { id: string; name: string; isPrivate: boolean };
+  /** What is true NOW: a PENDING invite past its expiry reads EXPIRED. */
+  status: GroupInviteStatus;
+  expiresAt: string;
 }
 
 export interface MessageBasicInfo {
@@ -203,6 +293,15 @@ export interface NotificationInfo {
   data?: Record<string, unknown>;
   isRead: boolean;
   createdAt: string;
+}
+
+/**
+ * `meta` of GET /notifications. `unreadCount` is the caller's TOTAL unread
+ * count across the whole inbox — not the number of unread rows on this page —
+ * so it is safe to drive a badge from any single page of the response.
+ */
+export interface NotificationListMeta extends PaginationMeta {
+  unreadCount: number;
 }
 
 export interface LeaderboardEntry {

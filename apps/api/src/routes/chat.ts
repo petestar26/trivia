@@ -5,7 +5,6 @@ import {
   assertActiveMember,
   createMessage,
   createVoiceMessage,
-  deleteVoiceMessageStorage,
   getGroupOrThrow,
   getMessageInGroup,
   MESSAGE_SENDER_SELECT,
@@ -15,6 +14,7 @@ import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
 import { emitToGroup } from '../realtime/broadcast';
+import { lockActorMembership, lockGroupForAdmission, lockGroupMessageForDeletion } from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
@@ -277,29 +277,88 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       const messageId = request.params.messageId;
       const userId = request.user!.sub;
 
-      const membership = await assertActiveMember(groupId, userId);
+      // FAST PATH ONLY. Cheap enough to skip opening a transaction for a group id
+      // that does not exist at all; the AUTHORITATIVE check below re-reads the
+      // group under its lock regardless, so a group deleted right after this
+      // still gets the right answer.
+      await getGroupOrThrow(groupId);
 
-      const message = await getMessageInGroup(groupId, messageId);
+      let voiceStorageKey: string | null = null;
 
-      const isOwn = message.userId === userId;
-      const isManager = MANAGER_ROLES.includes(membership.role as GroupMemberRole);
+      await prisma.$transaction(async (tx) => {
+        // AUTHORITATIVE CHECKS — group-locks.ts, "delete message": the group row
+        // (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
+        // SHARE), then the message row SCOPED TO THIS GROUP (level 5, FOR NO KEY
+        // UPDATE). A plain read taken before this transaction (or anywhere in it
+        // without a lock) can be stale by the time the write happens: the caller
+        // may since have been demoted, banned, muted or removed, and the message
+        // may since have been deleted by someone else. A message that belongs to
+        // ANOTHER group is indistinguishable from a missing one (404), so a
+        // cross-group id learns nothing about what exists there.
+        const group = await lockGroupForAdmission(tx, groupId);
+        if (!group) {
+          throw ApiError.notFound('Group not found');
+        }
 
-      if (!isOwn && !isManager) {
-        throw ApiError.forbidden('You can only delete your own messages');
-      }
+        const actor = await lockActorMembership(tx, groupId, userId);
+        // ACTIVE membership is required BEFORE the message is ever read — not just
+        // before deleting someone else's. A caller who is not an ACTIVE member gets
+        // this SAME refusal whether the message id is real, already deleted, or
+        // belongs to another group entirely: reading the message first would let a
+        // non-member learn which of those is true just from 403 vs 404, an
+        // existence oracle this route must not offer to someone who isn't even a
+        // member.
+        if (!actor || actor.status !== 'ACTIVE') {
+          throw ApiError.forbidden('You are not a member of this group');
+        }
 
-      // Clean up voice message storage before deleting the message
-      if (message.voiceMessage) {
-        await deleteVoiceMessageStorage(message.id);
-      }
+        const message = await lockGroupMessageForDeletion(tx, groupId, messageId);
+        if (!message || message.isDeleted) {
+          throw ApiError.notFound('Message not found');
+        }
 
-      await prisma.message.update({
-        where: { id: message.id },
-        data: { isDeleted: true },
+        // The message's own author may always delete it, now that ACTIVE
+        // membership is already established above. Anyone else must be, RIGHT
+        // NOW, an ACTIVE OWNER or ADMIN — a manager demoted, banned, muted or
+        // removed after the fast path a caller might have raced must not delete
+        // someone else's message on the strength of a stale read.
+        if (message.userId !== userId && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+          throw ApiError.forbidden('Insufficient permissions');
+        }
+
+        // Captured HERE, inside the transaction, while the message row is locked
+        // and the delete is already authorized — the ONLY database read that
+        // decides what storage cleanup acts on. Nothing outside this transaction
+        // ever has to look the voice message up again: a lookup that failed or
+        // errored after commit would otherwise be able to turn an already-
+        // committed deletion into an apparent failure for the caller.
+        const voiceMessage = await tx.voiceMessage.findUnique({ where: { messageId: message.id }, select: { storageKey: true } });
+        voiceStorageKey = voiceMessage?.storageKey ?? null;
+
+        await tx.message.update({
+          where: { id: message.id },
+          data: { isDeleted: true },
+        });
       });
 
-      // Broadcast the deletion to the group room after commit.
-      emitToGroup(groupId, 'message:deleted', { messageId: message.id });
+      // Everything below runs only once the soft deletion has committed — a
+      // rejected or rolled-back transaction reaches neither line. The broadcast
+      // fires UNCONDITIONALLY and FIRST: nothing after it can suppress an event
+      // for a deletion that has already committed. Storage cleanup, if any, is
+      // wrapped in a COMPLETE error boundary of its own — it acts on the key
+      // captured above, not a fresh lookup, so the only thing that can still fail
+      // here is the storage call itself, and that failure must never surface as a
+      // 500 for a deletion (and event) that already succeeded.
+      emitToGroup(groupId, 'message:deleted', { messageId });
+      if (voiceStorageKey) {
+        try {
+          await storage.delete({ bucket: STORAGE_BUCKETS.VOICE_MESSAGES, key: voiceStorageKey });
+        } catch {
+          // Best-effort: cleanup failing (storage outage, provider error, a
+          // transient DB error on some future variant of this call) must not
+          // undo a committed, already-announced deletion.
+        }
+      }
 
       return {
         success: true,

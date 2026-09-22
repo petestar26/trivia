@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/providers/auth-provider';
 import { getErrorMessage } from '@/lib/error-message';
+import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,9 +20,15 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Where to go after signing in: the location ProtectedRoute turned the
+  // visitor away from — path, query string and fragment — if it is a plain
+  // in-app location, otherwise the home page. See safe-return-to.ts.
+  const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
 
   const {
     register,
@@ -37,7 +44,8 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await login(data.email, data.password);
-      navigate('/');
+      // Replace, so the sign-in page does not stay behind as a Back target.
+      navigate(returnTo, { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, 'Login failed'));
     } finally {
@@ -118,7 +126,11 @@ export function LoginPage() {
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Don't have an account?{' '}
-            <Link to="/register" className="text-primary-600 hover:text-primary-500 font-medium">
+            <Link
+              to="/register"
+              state={{ from: (location.state as { from?: unknown } | null)?.from }}
+              className="text-primary-600 hover:text-primary-500 font-medium"
+            >
               Sign up
             </Link>
           </p>

@@ -1,5 +1,16 @@
 import { API_BASE, API_ORIGIN } from './api-config';
-import type { UserSearchResult } from '@socialplay/shared';
+import type {
+  CreatedGroupInviteInfo,
+  GroupBannedMemberInfo,
+  GroupDetailInfo,
+  GroupInviteInfo,
+  GroupInvitePreview,
+  GroupMemberInfo,
+  NotificationInfo,
+  NotificationListMeta,
+  PaginationMeta,
+  UserSearchResult,
+} from '@socialplay/shared';
 
 export type { UserSearchResult };
 
@@ -9,7 +20,7 @@ export async function getApiHealth(): Promise<{ status: string }> {
   return response.json();
 }
 
-export interface ApiResponse<T> {
+export interface ApiResponse<T, M = Record<string, unknown>> {
   success: boolean;
   data?: T;
   error?: {
@@ -17,7 +28,12 @@ export interface ApiResponse<T> {
     message: string;
     details?: Record<string, unknown>;
   };
-  meta?: Record<string, unknown>;
+  meta?: M;
+}
+
+/** What every mutating group endpoint answers with. */
+export interface ApiMessage {
+  message: string;
 }
 
 interface RequestOptions extends RequestInit {
@@ -71,7 +87,7 @@ class ApiClient {
     return url.toString();
   }
 
-  private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
+  private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
 
@@ -104,8 +120,12 @@ class ApiClient {
     return data;
   }
 
-  async get<T>(endpoint: string, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET', params });
+  async get<T, M = Record<string, unknown>>(
+    endpoint: string,
+    params?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<T, M>> {
+    return this.request<T, M>(endpoint, { method: 'GET', params, signal: options?.signal });
   }
 
   async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
@@ -247,7 +267,7 @@ class ApiClient {
     return this.post('/groups', body);
   }
 
-  async getGroup(groupId: string): Promise<ApiResponse<any>> {
+  async getGroup(groupId: string): Promise<ApiResponse<GroupDetailInfo>> {
     return this.get(`/groups/${groupId}`);
   }
 
@@ -261,6 +281,96 @@ class ApiClient {
 
   async getGroupMessages(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
     return this.get(`/groups/${groupId}/messages`, params);
+  }
+
+  // Group members
+  async getGroupMembers(groupId: string): Promise<ApiResponse<GroupMemberInfo[]>> {
+    return this.get(`/groups/${groupId}/members`);
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.delete(`/groups/${groupId}/members/${userId}`);
+  }
+
+  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<ApiMessage>> {
+    return this.patch(`/groups/${groupId}/members/${userId}/role`, { role });
+  }
+
+  // Group invites
+  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<CreatedGroupInviteInfo>> {
+    return this.post(`/groups/${groupId}/invites`, { email, role });
+  }
+
+  async listGroupInvites(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupInviteInfo[], PaginationMeta>> {
+    return this.get<GroupInviteInfo[], PaginationMeta>(`/groups/${groupId}/invites`, params);
+  }
+
+  async revokeGroupInvite(groupId: string, inviteId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.delete(`/groups/${groupId}/invites/${inviteId}`);
+  }
+
+  async acceptGroupInvite(token: string): Promise<ApiResponse<ApiMessage & { groupId: string }>> {
+    return this.post('/groups/accept-invite', { token });
+  }
+
+  // Join requests (private groups)
+  async requestJoinGroup(groupId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/request`);
+  }
+
+  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<GroupMemberInfo[]>> {
+    return this.get(`/groups/${groupId}/requests`, params);
+  }
+
+  async resolveGroupInvite(token: string): Promise<ApiResponse<GroupInvitePreview>> {
+    return this.get(`/groups/invites/${token}`);
+  }
+
+  async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/members/${userId}/ban`);
+  }
+
+  async unbanGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/members/${userId}/unban`);
+  }
+
+  async listBannedMembers(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupBannedMemberInfo[], PaginationMeta>> {
+    return this.get<GroupBannedMemberInfo[], PaginationMeta>(`/groups/${groupId}/banned-members`, params);
+  }
+
+  async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/approve`);
+  }
+
+  async rejectJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/reject`);
+  }
+
+  // Ownership transfer
+  async transferOwnership(groupId: string, targetUserId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/transfer`, { targetUserId });
+  }
+
+  // Notifications
+  async listNotifications(
+    params?: { page?: number; limit?: number; unreadOnly?: boolean },
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<NotificationInfo[], NotificationListMeta>> {
+    return this.get<NotificationInfo[], NotificationListMeta>('/notifications', params, options);
+  }
+
+  async markNotificationRead(id: string): Promise<ApiResponse<NotificationInfo>> {
+    return this.patch(`/notifications/${id}/read`, {});
+  }
+
+  async markAllNotificationsRead(): Promise<ApiResponse<{ updated: number }>> {
+    return this.post('/notifications/read-all');
   }
 
   // VIP

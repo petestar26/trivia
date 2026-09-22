@@ -277,21 +277,3 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
 
   return serializeMessage(stored.message);
 }
-
-// Deletes the stored audio file for a voice message.
-export async function deleteVoiceMessageStorage(messageId: string): Promise<void> {
-  const voiceMessage = await prisma.voiceMessage.findUnique({
-    where: { messageId },
-  });
-
-  if (voiceMessage) {
-    try {
-      await storage.delete({
-        bucket: STORAGE_BUCKETS.VOICE_MESSAGES,
-        key: voiceMessage.storageKey,
-      });
-    } catch {
-      // Best-effort cleanup - log but don't throw
-    }
-  }
-}

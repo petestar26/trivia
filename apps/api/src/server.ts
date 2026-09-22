@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
@@ -6,16 +6,42 @@ import { registerPlugins } from './plugins';
 import { registerRoutes } from './routes';
 import { healthRoutes } from './routes/health';
 import { registerWebSocket } from './ws';
-import { errorHandler } from './middleware/error-handler';
+import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler';
 import { requestLogger } from './middleware/request-logger';
+import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 
-async function buildServer(): Promise<FastifyInstance> {
+/**
+ * Test seams. Production always calls `buildServer()` with no arguments and
+ * gets exactly the configured logger; these exist so a test can observe what
+ * the REAL server writes to its log, rather than a reconstruction of it.
+ */
+interface BuildServerOptions {
+  /** Receive every serialized log line instead of writing to stdout. */
+  logStream?: NodeJS.WritableStream;
+  /** Override config.LOG_LEVEL (e.g. 'trace' to capture every line). */
+  logLevel?: string;
+}
+
+async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
+  // pino cannot combine `transport` with a custom `stream`, so an injected
+  // stream replaces the transport rather than sitting beside it.
+  const transport =
+    !options.logStream && config.LOG_PRETTY
+      ? { target: 'pino-pretty', options: { colorize: true } }
+      : undefined;
+
   const server = Fastify({
     logger: {
-      level: config.LOG_LEVEL,
-      transport: config.LOG_PRETTY
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
+      level: options.logLevel ?? config.LOG_LEVEL,
+      transport,
+      ...(options.logStream ? { stream: options.logStream } : {}),
+      // Fastify's built-in `req` serializer logs `req.url` verbatim on its
+      // automatic request/response lines, which would publish the invite
+      // token from GET /groups/invites/:token to every log sink. Override
+      // it with the redacting serializer — see middleware/log-redaction.ts.
+      serializers: {
+        req: redactedRequestSerializer,
+      },
     },
     ajv: {
       customOptions: {
@@ -26,10 +52,42 @@ async function buildServer(): Promise<FastifyInstance> {
         coerceTypes: true,
       },
     },
+    // Fastify calls this hook for exactly two routing-level failures, before
+    // any request lifecycle exists: FST_ERR_BAD_URL (a malformed percent-escape
+    // in the path) and FST_ERR_ASYNC_CONSTRAINT. Body-size (413), media-type
+    // (415) and JSON-syntax errors do NOT come through here — they are raised
+    // inside the lifecycle and reach setErrorHandler below.
+    //
+    // FST_ERR_BAD_URL is special-cased because Fastify's default body echoes
+    // the raw URL, which for the invite-resolution route is a bearer token.
+    // Anything else is delegated to the shared error handler UNCHANGED, so its
+    // native status and shape are preserved rather than flattened to a 400.
+    frameworkErrors(error, request, reply) {
+      if (error.code === 'FST_ERR_BAD_URL') {
+        sendMalformedUrlResponse(request, reply as FastifyReply);
+        return;
+      }
+      return errorHandler(error, request, reply as FastifyReply);
+    },
   });
 
   server.setErrorHandler(errorHandler);
   server.addHook('onRequest', requestLogger);
+
+  // Routine `Router not found` 404s carry the full request URL inside
+  // Fastify's log message. With malformed or mismatched invite paths, that
+  // URL can contain the bearer-equivalent invite token — so install a safe
+  // not-found handler that logs a redacted path and returns a generic 404.
+  // Status behavior is unchanged, and the route method/status stay
+  // diagnostic (only the URL token is masked). Registered before the route
+  // plugins so it is the global fallback.
+  server.setNotFoundHandler((request, reply) => {
+    request.log.warn({ url: redactUrl(request.url) }, 'Route not found');
+    return reply.code(404).send({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Route not found' },
+    });
+  });
 
   await registerPlugins(server);
 
@@ -92,3 +150,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 }
 
 export { buildServer, start };
+export type { BuildServerOptions };

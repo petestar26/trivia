@@ -20,6 +20,7 @@ import { agentConfigRoutes } from '../agents/config-routes';
 import { securityRoutes } from '../security/routes';
 import { withdrawalRoutes } from '../withdrawals/routes';
 import { userRoutes } from './users';
+import { notificationRoutes } from './notifications.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
@@ -45,17 +46,18 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(securityRoutes, { prefix: '/security' });
   await server.register(withdrawalRoutes, { prefix: '/withdrawals' });
   await server.register(userRoutes, { prefix: '/users' });
+  await server.register(notificationRoutes, { prefix: '/notifications' });
 
   // Root service-info handler is registered directly in server.ts, outside
   // this API_PREFIX-wrapped block — see the comment there. Not registered
   // here.
 
-  server.setNotFoundHandler(async (request, reply) => {
+  server.setNotFoundHandler(async (_request, reply) => {
     reply.status(404).send({
       success: false,
       error: {
         code: 'NOT_FOUND',
-        message: `Route ${request.method} ${request.url} not found`,
+        message: 'Route not found',
       },
     });
   });
