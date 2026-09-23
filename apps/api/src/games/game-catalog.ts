@@ -50,6 +50,10 @@ const APPROVED_CATALOG_KEYS: readonly string[] = [
   'strait_rush',
 ];
 
+export function isApprovedGameKey(key: string): boolean {
+  return APPROVED_CATALOG_KEYS.includes(key);
+}
+
 /**
  * Public catalog. READ-ONLY — a GET never writes. Returns every row that is
  * AVAILABLE or COMING_SOON AND on the approved-key allowlist (excludes

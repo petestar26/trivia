@@ -1,14 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { randomUUID } from 'node:crypto';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
-import { fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from './liquidity-service';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, getOwnWithdrawalById, listOwnWithdrawals, cancelHeldWithdrawal } from './withdrawal-service';
-import { getWalletBalance } from '../economy/wallet-service';
-import { executeBalanceChange } from '../economy/wallet-service';
-import { setOwnStepUpPolicy } from '../security/step-up-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
+import { fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from './liquidity-service.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal, getOwnWithdrawalById, listOwnWithdrawals, cancelHeldWithdrawal } from './withdrawal-service.js';
+import { getWalletBalance } from '../economy/wallet-service.js';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
+import { setOwnStepUpPolicy } from '../security/step-up-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -21,6 +20,9 @@ try {
 }
 
 afterAll(async () => {
+  await prisma.platformGate.updateMany({
+    where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false },
+  });
   await prisma.$disconnect();
 });
 
@@ -53,7 +55,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `W${randomUUID().replaceAll('-', '').slice(0, 7)}`.toUpperCase();
+  const code = await nextTestCountryCode();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -114,33 +116,7 @@ async function createFundedAgent(
 }
 
 async function creditCoins(userId: string, amount: number) {
-  const result = await executeBalanceChange({
-    userId,
-    changes: [
-      {
-        currency: 'COINS',
-        amount,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'ADMIN',
-        description: 'test fixture credit',
-      },
-    ],
-    operationName: 'test-fixture-credit',
-  });
-  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
-    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-  );
-  await prisma.coinProvenance.create({
-    data: {
-      userId,
-      walletTransactionId: creditTx?.id,
-      amount,
-      provenanceType: 'ADMIN_ADJUSTMENT',
-      restrictionStatus: 'UNRESTRICTED',
-      originalSource: 'ADMIN_ADJUSTMENT',
-    },
-  });
+  await mintTestPurchasedCoins(userId, amount);
 }
 
 async function createFundedUser(tag: string, coins: number) {
@@ -233,6 +209,8 @@ async function cleanWithdrawalFixtures() {
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'Withdrawal Create Test Country' } } });
   for (const c of countries) {
     await prisma.exchangeRateConfig.deleteMany({ where: { countryId: c.id } });
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: c.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: c.code } });
     await prisma.paymentMethodDefinition.deleteMany({ where: { countryId: c.id } });
   }
   await prisma.country.deleteMany({ where: { name: { startsWith: 'Withdrawal Create Test Country' } } });
@@ -245,6 +223,7 @@ async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
+  await activateTestWithdrawalPolicy(country.id, admin.id);
   await createExchangeRate(country.id, 'USD', opts.coinsPerUnit ?? 2, admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);
@@ -320,9 +299,10 @@ describeIf('withdrawals/withdrawal-service', () => {
       1000
     );
 
-    expect(quote.requestHash).toMatch(/^[0-9a-f]{64}$/);
+    const storedQuote = await prisma.withdrawalQuote.findUniqueOrThrow({ where: { id: quote.id } });
+    expect(storedQuote.requestHash).toMatch(/^[0-9a-f]{64}$/);
     expect((withdrawal as any).requestHash).toMatch(/^[0-9a-f]{64}$/);
-    expect((withdrawal as any).requestHash).not.toBe(quote.requestHash);
+    expect((withdrawal as any).requestHash).not.toBe(storedQuote.requestHash);
   });
 
   it('paymentSnapshot captures the immutable, unmasked payout account destination details', async () => {
@@ -740,8 +720,13 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     if (rejected[0].status === 'rejected') {
-      expect(String((rejected[0] as PromiseRejectedResult).reason)).toMatch(/[Ss]tep-up/);
+      // The new per-user creation lock rejects a distinct-key loser on the
+      // live-withdrawal check before attempting to consume the step-up.
+      expect(String((rejected[0] as PromiseRejectedResult).reason)).toMatch(/active withdrawal/i);
     }
+    expect(await prisma.stepUpVerification.count({ where: {
+      userId: user.id, purpose: 'WITHDRAWAL_CREATE', consumedAt: { not: null },
+    } })).toBe(1);
   });
 
   it('rejects creation when step-up is required but none was performed', async () => {
@@ -809,6 +794,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const superAdmin = await createSuperAdmin(`${tag}-super`);
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
+    await activateTestWithdrawalPolicy(country.id, admin.id);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
 
     // The withdrawing user is ALSO this country's only funded agent.
@@ -853,6 +839,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const superAdmin = await createSuperAdmin(`${tag}-super`);
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
+    await activateTestWithdrawalPolicy(country.id, admin.id);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
 
     // Distinct tag from `admin`'s — createUser() dedupes by email, so

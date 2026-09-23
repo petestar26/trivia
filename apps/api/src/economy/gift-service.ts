@@ -1,6 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from './wallet-service';
+import { ApiError } from '../middleware/error-handler.js';
+import { applyBalanceChanges, getOrCreateWallet } from './wallet-service.js';
+import type { BalanceChange } from './wallet-service.js';
+import { debitCoins, lockEconomicWallet, lockUserEconomicScope } from './coin-ledger-service.js';
+import { requireActiveGiftPolicy } from './jurisdiction-service.js';
 
 export interface GiftCatalogItem {
   id: string;
@@ -32,6 +36,7 @@ export interface GiftTransactionResult {
   coinPriceAtTransaction: number;
   pointValueAtTransaction: number;
   createdAt: Date;
+  isReplay?: boolean;
 }
 
 const MAX_GIFT_QUANTITY = 100;
@@ -85,201 +90,152 @@ export async function getGiftById(giftId: string): Promise<GiftCatalogItem> {
 
 export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResult> {
   const { senderId, recipientId, giftId, quantity, idempotencyKey } = args;
-
-  // 1. Validate quantity
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_GIFT_QUANTITY) {
     throw ApiError.badRequest(`Quantity must be between 1 and ${MAX_GIFT_QUANTITY}`);
   }
-
-  // 2. Prevent self-sending
-  if (senderId === recipientId) {
-    throw ApiError.badRequest('Cannot send gifts to yourself');
+  if (senderId === recipientId) throw ApiError.badRequest('Cannot send gifts to yourself');
+  if (typeof idempotencyKey !== 'string' || !/^[\x21-\x7e]{1,128}$/.test(idempotencyKey)) {
+    throw ApiError.badRequest('Gift idempotency key is required');
   }
-
-  // 3. Load gift from server
-  const gift = await prisma.gift.findUnique({ where: { id: giftId } });
-
-  if (!gift) {
-    throw ApiError.notFound('Gift not found');
-  }
-
-  if (!gift.isActive) {
-    throw ApiError.badRequest('This gift is no longer available');
-  }
-
-  if (gift.isLimited && gift.limitedQuantity !== null && gift.limitedQuantity < quantity) {
-    throw ApiError.badRequest(`Only ${gift.limitedQuantity} of this gift remaining`);
-  }
-
-  // 4. Server-calculated costs
-  const totalCoins = gift.coinPrice * quantity;
-  const totalGamePoints = gift.recipientPointValue * quantity;
-
-  // 5. Ensure both wallets exist
-  await getOrCreateWallet(senderId);
-  await getOrCreateWallet(recipientId);
-
-  // 6. Load wallets for recipient existence check
-  const recipientUser = await prisma.user.findUnique({ where: { id: recipientId } });
-  if (!recipientUser) {
-    throw ApiError.notFound('Recipient not found');
-  }
-
-  // 7. Execute atomic gift transaction
+  const giftTransactionId = randomUUID();
   return prisma.$transaction(async (tx) => {
-    // Check idempotency
-    if (idempotencyKey) {
-      const existing = await tx.idempotencyRecord.findUnique({
-        where: {
-          userId_key: { userId: senderId, key: idempotencyKey },
-        },
-      });
-
-      if (existing) {
-        if (existing.status === 'SUCCEEDED' && existing.responseKey) {
-          const gt = await tx.giftTransaction.findUnique({
-            where: { id: existing.responseKey },
-          });
-          if (gt) {
-            return {
-              giftId: gift.id,
-              giftName: gift.name,
-              quantity: gt.quantity,
-              totalCoins: gt.totalCoins,
-              totalGamePoints: gt.totalGamePoints,
-              coinPriceAtTransaction: gt.coinPriceAtTransaction,
-              pointValueAtTransaction: gt.pointValueAtTransaction,
-              createdAt: gt.createdAt,
-            };
-          }
-        }
-        throw ApiError.conflict('Operation already in progress');
+    await lockUserEconomicScope(tx, `gift:${senderId}:${idempotencyKey}`);
+    const previous = await tx.idempotencyRecord.findUnique({
+      where: { userId_key: { userId: senderId, key: idempotencyKey } },
+    });
+    if (previous) {
+      if (previous.status !== 'SUCCEEDED' || !previous.responseKey) {
+        throw ApiError.conflict('Gift operation is already in progress');
       }
+      const prior = await tx.giftTransaction.findUnique({ where: { id: previous.responseKey } });
+      if (!prior || prior.giftId !== giftId || prior.recipientId !== recipientId || prior.quantity !== quantity) {
+        throw ApiError.conflict('This idempotency key was used for another gift');
+      }
+      const priorGift = await tx.gift.findUnique({ where: { id: prior.giftId }, select: { name: true } });
+      return {
+        giftId: prior.giftId, giftName: priorGift?.name ?? 'Gift', quantity: prior.quantity,
+        totalCoins: prior.totalCoins, totalGamePoints: prior.totalGamePoints,
+        coinPriceAtTransaction: prior.coinPriceAtTransaction,
+        pointValueAtTransaction: prior.pointValueAtTransaction, createdAt: prior.createdAt,
+        isReplay: true,
+      };
     }
 
-    // Update limited gift quantity atomically and conditionally.
-    // Re-check inside the transaction so concurrent sends cannot drive
-    // the remaining quantity below zero.
-    if (gift.isLimited && gift.limitedQuantity !== null) {
-      const remaining = await tx.gift.findUnique({
-        where: { id: gift.id },
-        select: { limitedQuantity: true, isActive: true },
-      });
+    // L1: every participant locks user rows in the same order.
+    const ids = [senderId, recipientId].sort();
+    const users = (await tx.$queryRaw`
+      SELECT "id", "username", "status"::text AS "status"
+      FROM "users" WHERE "id" IN (${ids[0]}, ${ids[1]})
+      ORDER BY "id" FOR SHARE
+    `) as { id: string; username: string; status: string }[];
+    if (users.length !== 2) throw ApiError.notFound('Gift participant not found');
+    if (users.some((user) => user.status !== 'ACTIVE')) {
+      throw ApiError.forbidden('Gift participants must have active accounts');
+    }
+    const recipient = users.find((user) => user.id === recipientId)!;
 
-      const currentRemaining = remaining?.limitedQuantity ?? 0;
+    // The helper locks the sender's ACTIVE payout account at L2, then the
+    // country pointer and immutable active policy at L3.
+    const policy = await requireActiveGiftPolicy(tx, senderId);
 
-      if (currentRemaining < quantity) {
-        throw ApiError.badRequest(`Only ${currentRemaining} of this gift remaining`);
-      }
-
-      const newRemaining = currentRemaining - quantity;
-
-      const result = await tx.gift.updateMany({
-        where: {
-          id: gift.id,
-          limitedQuantity: { gte: quantity },
-        },
-        data: {
-          limitedQuantity: newRemaining,
-          isActive: newRemaining > 0,
-        },
-      });
-
-      if (result.count === 0) {
-        throw ApiError.conflict('This limited gift just sold out, please retry');
-      }
+    // L4: the catalog row is authoritative and locked before any balance.
+    const gifts = (await tx.$queryRaw`
+      SELECT "id", "name", "coinPrice", "recipientPointValue", "isActive",
+             "isLimited", "limitedQuantity"
+      FROM "gifts" WHERE "id" = ${giftId} FOR UPDATE
+    `) as { id: string; name: string; coinPrice: number; recipientPointValue: number;
+      isActive: boolean; isLimited: boolean; limitedQuantity: number | null }[];
+    const gift = gifts[0];
+    if (!gift) throw ApiError.notFound('Gift not found');
+    if (!gift.isActive) throw ApiError.badRequest('This gift is no longer available');
+    if (gift.isLimited && (gift.limitedQuantity ?? 0) < quantity) {
+      throw ApiError.badRequest(`Only ${gift.limitedQuantity ?? 0} of this gift remaining`);
+    }
+    const totalCoins = gift.coinPrice * quantity;
+    const totalGamePoints = gift.recipientPointValue * quantity;
+    if (!Number.isSafeInteger(totalCoins) || totalCoins <= 0 ||
+        !Number.isSafeInteger(totalGamePoints) || totalGamePoints <= 0) {
+      throw ApiError.badRequest('Gift price is invalid');
+    }
+    if (gift.isLimited) {
+      const remaining = gift.limitedQuantity! - quantity;
+      await tx.gift.update({ where: { id: giftId },
+        data: { limitedQuantity: remaining, isActive: remaining > 0 } });
     }
 
-    // Resolve wallet ids for the GiftTransaction record.
-    const senderWalletRow = await tx.wallet.findUnique({ where: { userId: senderId } });
-    const recipientWalletRow = await tx.wallet.findUnique({ where: { userId: recipientId } });
-    if (!senderWalletRow) throw ApiError.internal('Sender wallet not found');
-    if (!recipientWalletRow) throw ApiError.internal('Recipient wallet not found');
+    // L5: both wallets are locked ascending before L6 sender lots.
+    let senderWallet: { id: string } | undefined;
+    let recipientWallet: { id: string } | undefined;
+    for (const id of ids) {
+      if (id === senderId) {
+        senderWallet = (await lockEconomicWallet(tx, id)).wallet;
+      } else {
+        // The recipient receives only Game Points. Lock their wallet for
+        // ordered writes without requiring their unrelated legacy Coin
+        // balance to have been classified already.
+        await getOrCreateWallet(id, tx);
+        const rows = (await tx.$queryRaw`
+          SELECT "id" FROM "wallets" WHERE "userId" = ${id} FOR UPDATE
+        `) as { id: string }[];
+        recipientWallet = rows[0];
+      }
+    }
+    if (!senderWallet || !recipientWallet) throw ApiError.internal('Gift wallet lock failed');
 
-    // Create the GiftTransaction FIRST so its id can be used as the
-    // ledger referenceId, making ledger entries traceable to the gift.
+    // Daily aggregation must follow the sender wallet lock. Different gift
+    // keys from one sender serialize here, so neither can pass on a stale sum.
+    // Use the database clock once for both the UTC window and row timestamp.
+    const clockRows = (await tx.$queryRaw`SELECT clock_timestamp() AS "now"`) as { now: Date }[];
+    const giftAt = clockRows[0].now;
+    const dayStart = new Date(Date.UTC(giftAt.getUTCFullYear(), giftAt.getUTCMonth(), giftAt.getUTCDate()));
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+    const daily = await tx.giftTransaction.aggregate({
+      where: { senderId, createdAt: { gte: dayStart, lt: dayEnd } },
+      _sum: { totalCoins: true },
+    });
+    const alreadySent = daily._sum.totalCoins ?? 0;
+    if (totalCoins > policy.giftDailyLimit - alreadySent) {
+      throw ApiError.badRequest('Daily gift Coin limit exceeded');
+    }
+
+    await debitCoins(tx, senderId, totalCoins, {
+      type: 'GIFT_SPEND', scopeType: 'GIFT_TRANSACTION', scopeId: giftTransactionId,
+      idempotencyKey, referenceType: 'GIFT', referenceId: giftTransactionId,
+      description: `Sent ${quantity}x ${gift.name} to ${recipient.username}`,
+    });
+    await applyBalanceChanges(tx, recipientId, [{
+      currency: 'GAME_POINTS', amount: totalGamePoints, ledgerType: 'CREDIT',
+      transactionType: 'GAME_POINT_CREDIT', referenceType: 'GIFT',
+      referenceId: giftTransactionId,
+      description: `Received ${quantity}x ${gift.name} from ${senderId}`,
+    }]);
+
+    // L7: business, idempotency and notification inserts are atomic with the
+    // sender's economic CONSUME and recipient's GP credit.
     const giftTransaction = await tx.giftTransaction.create({
       data: {
-        senderId,
-        recipientId,
-        giftId: gift.id,
-        quantity,
-        totalCoins,
-        totalGamePoints,
+        id: giftTransactionId, senderId, recipientId, giftId, quantity,
+        createdAt: giftAt,
+        totalCoins, totalGamePoints,
         coinPriceAtTransaction: gift.coinPrice,
         pointValueAtTransaction: gift.recipientPointValue,
-        senderWalletId: senderWalletRow.id,
-        recipientWalletId: recipientWalletRow.id,
+        senderWalletId: senderWallet.id, recipientWalletId: recipientWallet.id,
       },
     });
-
-    // Create notification for recipient.
-    await tx.notification.create({
-      data: {
-        userId: recipientId,
-        type: 'GIFT_RECEIVED',
-        title: 'Gift received',
-        body: `You received ${quantity}x ${gift.name}`,
-        data: {
-          giftId: gift.id,
-          giftName: gift.name,
-          senderId,
-          quantity,
-          totalGamePoints,
-        },
-      },
-    });
-
-    // Debit sender Coins via the SINGLE authoritative balance path.
-    // Non-negativity check, version-lock, and ledger entry are all handled
-    // by applyBalanceChanges — no second balance implementation here.
-    await applyBalanceChanges(tx, senderId, [
-      {
-        currency: 'COINS',
-        amount: totalCoins,
-        ledgerType: 'DEBIT',
-        transactionType: 'COIN_DEBIT',
-        referenceType: 'GIFT',
-        referenceId: giftTransaction.id,
-        description: `Sent ${quantity}x ${gift.name} to ${recipientUser.username}`,
-      },
-    ]);
-
-    // Credit recipient Game Points via the same authoritative path.
-    await applyBalanceChanges(tx, recipientId, [
-      {
-        currency: 'GAME_POINTS',
-        amount: totalGamePoints,
-        ledgerType: 'CREDIT',
-        transactionType: 'GAME_POINT_CREDIT',
-        referenceType: 'GIFT',
-        referenceId: giftTransaction.id,
-        description: `Received ${quantity}x ${gift.name} from ${senderId}`,
-      },
-    ]);
-
-    // Record idempotency
-    if (idempotencyKey) {
-      await tx.idempotencyRecord.create({
-        data: {
-          userId: senderId,
-          key: idempotencyKey,
-          operation: 'gift_send',
-          status: 'SUCCEEDED',
-          responseKey: giftTransaction.id,
-        },
-      });
-    }
-
+    await tx.notification.create({ data: {
+      userId: recipientId, type: 'GIFT_RECEIVED', title: 'Gift received',
+      body: `You received ${quantity}x ${gift.name}`,
+      data: { giftId, giftName: gift.name, senderId, quantity, totalGamePoints },
+    } });
+    await tx.idempotencyRecord.create({ data: {
+      userId: senderId, key: idempotencyKey, operation: 'gift_send',
+      status: 'SUCCEEDED', responseKey: giftTransaction.id,
+    } });
     return {
-      giftId: gift.id,
-      giftName: gift.name,
-      quantity: giftTransaction.quantity,
-      totalCoins: giftTransaction.totalCoins,
-      totalGamePoints: giftTransaction.totalGamePoints,
-      coinPriceAtTransaction: giftTransaction.coinPriceAtTransaction,
-      pointValueAtTransaction: giftTransaction.pointValueAtTransaction,
-      createdAt: giftTransaction.createdAt,
+      giftId, giftName: gift.name, quantity, totalCoins, totalGamePoints,
+      coinPriceAtTransaction: gift.coinPrice,
+      pointValueAtTransaction: gift.recipientPointValue,
+      createdAt: giftTransaction.createdAt, isReplay: false,
     };
   });
 }

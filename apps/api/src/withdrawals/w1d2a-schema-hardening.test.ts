@@ -1,12 +1,13 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma, Prisma } from '@socialplay/database';
 import { randomUUID } from 'node:crypto';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
-import { fundAgentFiatLiquidity, consumeReservedLiquidity } from './liquidity-service';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, claimPayout, submitPayment, cancelHeldWithdrawal } from './withdrawal-service';
-import { executeBalanceChange, getWalletBalance } from '../economy/wallet-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
+import { fundAgentFiatLiquidity, consumeReservedLiquidity } from './liquidity-service.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal, claimPayout, submitPayment, cancelHeldWithdrawal } from './withdrawal-service.js';
+import { getWalletBalance } from '../economy/wallet-service.js';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 //
@@ -58,7 +59,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `W2A${randomUUID().replaceAll('-', '').slice(0, 6)}`.toUpperCase();
+  const code = await nextTestCountryCode();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -111,31 +112,7 @@ async function createFundedAgent(tag: string, countryId: string, admin: { id: st
 }
 
 async function creditCoins(userId: string, amount: number) {
-  const result = await executeBalanceChange({
-    userId,
-    changes: [{
-      currency: 'COINS',
-      amount,
-      ledgerType: 'CREDIT',
-      transactionType: 'COIN_CREDIT',
-      referenceType: 'ADMIN',
-      description: 'W1D2A test fixture credit',
-    }],
-    operationName: 'w1d2a-test-fixture-credit',
-  });
-  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
-    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-  );
-  await prisma.coinProvenance.create({
-    data: {
-      userId,
-      walletTransactionId: creditTx?.id,
-      amount,
-      provenanceType: 'ADMIN_ADJUSTMENT',
-      restrictionStatus: 'UNRESTRICTED',
-      originalSource: 'ADMIN_ADJUSTMENT',
-    },
-  });
+  await mintTestPurchasedCoins(userId, amount);
 }
 
 async function createFundedUser(tag: string, coins: number) {
@@ -156,6 +133,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
+  await activateTestWithdrawalPolicy(country.id, superAdmin.id);
   const method = await createPaymentMethod(country.id, tag);
   await createExchangeRate(country.id, 'USD', 2, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
@@ -217,6 +195,13 @@ async function cleanFixtures() {
   // fixture user left behind by a prior interrupted run (same prefix).
   await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
+  const policyCountries = await prisma.country.findMany({
+    where: { name: { startsWith: 'W1D2A Test Country' } }, select: { code: true },
+  });
+  for (const country of policyCountries) {
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: country.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: country.code } });
+  }
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'W1D2A Test Country' } } });
@@ -291,6 +276,7 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
     const admin = await createAdmin(tag);
     const superAdmin = await createSuperAdmin(`${tag}-super`);
     const country = await createCountry(tag);
+    await activateTestWithdrawalPolicy(country.id, superAdmin.id);
     const method = await createPaymentMethod(country.id, tag);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
     // W-1D2A follow-up fix: both concurrency tests below race two

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import {
@@ -8,6 +9,9 @@ import {
   reconcileBalance,
 } from '../economy/wallet-service';
 import { sendGift, getGiftById } from '../economy/gift-service';
+import { createUserPayoutAccount } from '../withdrawals/payout-account-service.js';
+import { debitCoins, lockUserEconomicScope } from './coin-ledger-service.js';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 // Integration tests require a live PostgreSQL database. When the DB is
@@ -23,6 +27,7 @@ try {
 }
 
 afterAll(async () => {
+  await prisma.platformGate.updateMany({ where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false } });
   await prisma.$disconnect();
 });
 
@@ -62,21 +67,22 @@ async function createGiftFixture() {
 }
 
 async function primeCoins(userId: string, amount: number) {
-  await getOrCreateWallet(userId);
-  await executeBalanceChange({
-    userId,
-    changes: [
-      {
-        currency: 'COINS',
-        amount,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'ADMIN',
-        description: 'Test fixture funding',
-      },
-    ],
-    operationName: 'test_fund',
-  });
+  await mintTestPurchasedCoins(userId, amount);
+}
+
+async function configureGiftSender(userId: string) {
+  const code = await nextTestCountryCode();
+  const country = await prisma.country.create({ data: {
+    code, name: `Economy Gift Country ${randomUUID()}`, currencyCode: 'USD',
+    isActive: true, agentPaymentEnabled: true,
+  } });
+  const method = await prisma.paymentMethodDefinition.create({ data: {
+    countryId: country.id, type: 'BANK_TRANSFER', name: 'Economy Gift Bank',
+    fieldSchema: { requiredFields: ['bankName', 'accountNumber'] }, isActive: true,
+  } });
+  await activateTestWithdrawalPolicy(country.id, userId);
+  await createUserPayoutAccount(userId, { countryId: country.id, methodDefId: method.id,
+    accountDetails: { bankName: 'Test Bank', accountNumber: '112233' } });
 }
 
 async function cleanFixtures() {
@@ -89,6 +95,7 @@ async function cleanFixtures() {
     await prisma.giftTransaction.deleteMany({
       where: { OR: [{ senderId: { in: userIds } }, { recipientId: { in: userIds } }] },
     });
+    await prisma.userPayoutAccount.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.walletTransaction.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.idempotencyRecord.deleteMany({ where: { userId: { in: userIds } } });
@@ -101,6 +108,13 @@ async function cleanFixtures() {
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
   await prisma.gift.deleteMany({ where: { name: 'Small Gift' } });
+  const countries = await prisma.country.findMany({ where: { name: { startsWith: 'Economy Gift Country' } } });
+  for (const country of countries) {
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: country.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: country.code } });
+    await prisma.paymentMethodDefinition.deleteMany({ where: { countryId: country.id } });
+    await prisma.country.delete({ where: { id: country.id } });
+  }
 }
 
 // ─── WALLET ────────────────────────────────────────────────────
@@ -158,20 +172,7 @@ describeIf('Ledger', () => {
   });
 
   it('credit creates a ledger entry with correct before/after', async () => {
-    await executeBalanceChange({
-      userId: a.id,
-      changes: [
-        {
-          currency: 'COINS',
-          amount: 100,
-          ledgerType: 'CREDIT',
-          transactionType: 'COIN_CREDIT',
-          referenceType: 'REWARD',
-          description: 'test credit',
-        },
-      ],
-      operationName: 'test_credit',
-    });
+    await primeCoins(a.id, 100);
 
     const tx = await prisma.walletTransaction.findFirst({
       where: { userId: a.id },
@@ -184,19 +185,15 @@ describeIf('Ledger', () => {
 
   it('debit creates a ledger entry with correct before/after', async () => {
     const before = (await getWalletBalance(a.id)).coinsBalance;
-    await executeBalanceChange({
-      userId: a.id,
-      changes: [
-        {
-          currency: 'COINS',
-          amount: 25,
-          ledgerType: 'DEBIT',
-          transactionType: 'COIN_DEBIT',
-          referenceType: 'ADMIN',
-          description: 'test debit',
-        },
-      ],
-      operationName: 'test_debit',
+    await prisma.$transaction(async (tx) => {
+      const scopeId = randomUUID();
+      await lockUserEconomicScope(tx, `test-adjust:${a.id}:${scopeId}`);
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${a.id} FOR SHARE`;
+      await debitCoins(tx, a.id, 25, { type: 'ADMIN_ADJUST', scopeType: 'TEST_ADJUST',
+        scopeId, referenceType: 'ADMIN', referenceId: scopeId,
+        description: 'test debit', createdBy: a.id,
+        evidence: { testCase: 'ledger debit before-after' },
+      });
     });
 
     const after = (await getWalletBalance(a.id)).coinsBalance;
@@ -248,6 +245,7 @@ describeIf('Gifts', () => {
     a = await createUser('ga');
     b = await createUser('gb');
     gift = await createGiftFixture();
+    await configureGiftSender(a.id);
   });
 
   it('server price is used (gift price snapshot correct)', async () => {
@@ -267,6 +265,7 @@ describeIf('Gifts', () => {
       recipientId: b.id,
       giftId: gift.id,
       quantity: 1,
+      idempotencyKey: `gift-${randomUUID()}`,
     });
 
     expect(result.totalCoins).toBe(100);
@@ -336,6 +335,25 @@ describeIf('Gifts', () => {
     });
     expect(gt).toBe(0);
   });
+
+  it('does not require the Game Point recipient’s legacy Coins to be classified', async () => {
+    const legacyRecipient = await createUser(`legacy-recipient-${randomUUID()}`);
+    await prisma.wallet.create({ data: {
+      userId: legacyRecipient.id, coinsBalance: 23, gamePointsBalance: 0,
+    } });
+    await primeCoins(a.id, 100);
+    const before = (await getWalletBalance(a.id)).coinsBalance;
+    const result = await sendGift({
+      senderId: a.id, recipientId: legacyRecipient.id, giftId: gift.id,
+      quantity: 1, idempotencyKey: `legacy-recipient-${randomUUID()}`,
+    });
+    const recipient = await getWalletBalance(legacyRecipient.id);
+    expect(result.totalCoins).toBe(100);
+    expect((await getWalletBalance(a.id)).coinsBalance).toBe(before - 100);
+    expect(recipient.coinsBalance).toBe(23);
+    expect(recipient.gamePointsBalance).toBe(50);
+    expect(await prisma.coinLedgerAccount.findUnique({ where: { userId: legacyRecipient.id } })).toBeNull();
+  });
 });
 
 // ─── IDEMPOTENCY ───────────────────────────────────────────────
@@ -350,6 +368,7 @@ describeIf('Idempotency', () => {
     a = await createUser('ia');
     b = await createUser('ib');
     gift = await createGiftFixture();
+    await configureGiftSender(a.id);
     await primeCoins(a.id, 500);
   });
 
@@ -414,6 +433,7 @@ describeIf('Concurrency / double-spend', () => {
     a = await createUser('ca');
     b = await createUser('cb');
     gift = await createGiftFixture();
+    await configureGiftSender(a.id);
     await primeCoins(a.id, 150); // enough for one 100-coin gift, not two
   });
 
@@ -421,8 +441,8 @@ describeIf('Concurrency / double-spend', () => {
     const senderBefore = (await getWalletBalance(a.id)).coinsBalance;
 
     const outcomes = await Promise.allSettled([
-      sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1 }),
-      sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1 }),
+      sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1, idempotencyKey: 'concurrent-gift-1' }),
+      sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1, idempotencyKey: 'concurrent-gift-2' }),
     ]);
 
     const fulfilled = outcomes.filter((o) => o.status === 'fulfilled').length;
@@ -453,7 +473,8 @@ describeIf('Reconciliation', () => {
     const gift = await createGiftFixture();
 
     await primeCoins(a.id, 300);
-    await sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1 });
+    await configureGiftSender(a.id);
+    await sendGift({ senderId: a.id, recipientId: b.id, giftId: gift.id, quantity: 1, idempotencyKey: `reconcile-${randomUUID()}` });
 
     const recA = await reconcileBalance(a.id);
     expect(recA.coinsMatch).toBe(true);

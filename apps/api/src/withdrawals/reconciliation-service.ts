@@ -39,6 +39,7 @@ export interface ReconciliationReport {
     completedWithoutSettlement: ReconciliationCheck;
     staleUnclaimedDispute: ReconciliationCheck;
     liveWithdrawalMissingAgent: ReconciliationCheck;
+    economicHoldMismatch: ReconciliationCheck;
   };
   totalIssues: number;
 }
@@ -52,7 +53,7 @@ async function detectActiveHoldOnTerminalWithdrawal(limit: number): Promise<Reco
   // take limit+1 so we can report whether the result was truncated,
   // without a second COUNT query.
   const rows = await prisma.withdrawalHold.findMany({
-    where: { status: 'ACTIVE', withdrawal: { status: { in: TERMINAL_STATUSES } } },
+    where: { status: 'ACTIVE', withdrawal: { status: { in: [...TERMINAL_STATUSES] } } },
     select: { id: true, withdrawalId: true, withdrawal: { select: { status: true } } },
     take: limit + 1,
   });
@@ -72,7 +73,7 @@ async function detectActiveHoldOnTerminalWithdrawal(limit: number): Promise<Reco
 
 async function detectActiveReservationOnTerminalWithdrawal(limit: number): Promise<ReconciliationCheck> {
   const rows = await prisma.withdrawalLiquidityReservation.findMany({
-    where: { status: 'ACTIVE', withdrawal: { status: { in: TERMINAL_STATUSES } } },
+    where: { status: 'ACTIVE', withdrawal: { status: { in: [...TERMINAL_STATUSES] } } },
     select: { id: true, withdrawalId: true, withdrawal: { select: { status: true } } },
     take: limit + 1,
   });
@@ -129,7 +130,7 @@ async function detectStaleUnclaimedDispute(limit: number, thresholdMs: number): 
 
 async function detectLiveWithdrawalMissingAgent(limit: number): Promise<ReconciliationCheck> {
   const rows = await prisma.withdrawal.findMany({
-    where: { status: { in: LIVE_STATUSES }, agentId: null },
+    where: { status: { in: [...LIVE_STATUSES] }, agentId: null },
     select: { id: true, status: true },
     take: limit + 1,
   });
@@ -144,6 +145,33 @@ async function detectLiveWithdrawalMissingAgent(limit: number): Promise<Reconcil
       withdrawalStatus: r.status,
     })),
   };
+}
+
+async function detectEconomicHoldMismatch(limit: number): Promise<ReconciliationCheck> {
+  const rows = (await prisma.$queryRaw`
+    WITH hold_economics AS (
+      SELECT h."id", h."withdrawalId", h."coinAmount", h."status",
+             h."holdOperationId",
+             COALESCE(SUM(e."reservedDelta") FILTER (WHERE e."entryType"='RESERVE'),0)::bigint AS reserved,
+             COALESCE(COUNT(rev."id") FILTER (WHERE e."entryType"='RESERVE'),0)::bigint AS reversed,
+             COALESCE(COUNT(e."id") FILTER (WHERE e."entryType"='RESERVE'),0)::bigint AS source_count
+      FROM "withdrawal_holds" h
+      LEFT JOIN "coin_lot_entries" e ON e."operationId"=h."holdOperationId"
+      LEFT JOIN "coin_lot_entries" rev ON rev."reversesEntryId"=e."id"
+      GROUP BY h."id", h."withdrawalId", h."coinAmount", h."status", h."holdOperationId"
+    )
+    SELECT "id", "withdrawalId", "status"::text AS "status" FROM hold_economics
+    WHERE ("status"='ACTIVE' AND ("holdOperationId" IS NULL OR reserved<>"coinAmount" OR reversed<>0))
+       OR ("status" IN ('CONSUMED','REFUNDED') AND
+           ("holdOperationId" IS NULL OR source_count=0 OR reserved<>"coinAmount" OR reversed<>source_count))
+    ORDER BY "withdrawalId" LIMIT ${limit + 1}
+  `) as { id: string; withdrawalId: string; status: string }[];
+  const truncated = rows.length > limit;
+  const page = truncated ? rows.slice(0, limit) : rows;
+  return { count: page.length, truncated, items: page.map((row) => ({
+    withdrawalId: row.withdrawalId, reasonCode: 'ECONOMIC_HOLD_MISMATCH',
+    holdId: row.id, holdStatus: row.status,
+  })) };
 }
 
 /**
@@ -166,12 +194,14 @@ export async function runWithdrawalReconciliation(
     completedWithoutSettlement,
     staleUnclaimedDispute,
     liveWithdrawalMissingAgent,
+    economicHoldMismatch,
   ] = await Promise.all([
     detectActiveHoldOnTerminalWithdrawal(limit),
     detectActiveReservationOnTerminalWithdrawal(limit),
     detectCompletedWithoutSettlement(limit),
     detectStaleUnclaimedDispute(limit, staleDisputeThresholdMs),
     detectLiveWithdrawalMissingAgent(limit),
+    detectEconomicHoldMismatch(limit),
   ]);
 
   const checks = {
@@ -180,6 +210,7 @@ export async function runWithdrawalReconciliation(
     completedWithoutSettlement,
     staleUnclaimedDispute,
     liveWithdrawalMissingAgent,
+    economicHoldMismatch,
   };
   const totalIssues = Object.values(checks).reduce((sum, check) => sum + check.count, 0);
 

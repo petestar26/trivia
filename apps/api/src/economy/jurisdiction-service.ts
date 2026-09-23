@@ -1,129 +1,153 @@
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/error-handler.js';
+
+export interface ActiveCasinoPolicy {
+  id: string;
+  version: number;
+  countryCode: string;
+  playthroughMultiplier: number;
+  qualifyingGames: unknown;
+  maxQualifyingStake: number;
+  bonusExpiryHours: number | null;
+  minWithdrawal: number;
+  maxWithdrawal: number;
+  dailyWithdrawalLimit: number;
+  monthlyWithdrawalLimit: number;
+  holdingPeriodHours: number;
+  giftDailyLimit: number;
+  kycTierRequired: number;
+  manualReviewThreshold: number;
+  supportedPaymentMethods: unknown;
+  withdrawalFeePercent: number;
+}
 
 export interface JurisdictionResolution {
   country: { id: string; code: string } | null;
-  policy: {
-    id: string;
-    version: number;
-    playthroughMultiplier: { toNumber(): number } | number;
-    qualifyingGames: unknown;
-    maxQualifyingStake: number;
-    status: string;
-  } | null;
+  policy: ActiveCasinoPolicy | null;
 }
 
 export interface PlayableJurisdiction {
   countryCode: string;
-  policy: {
-    id: string;
-    version: number;
-    playthroughMultiplier: number;
-    qualifyingGames: unknown;
-    maxQualifyingStake: number;
-  };
+  policy: ActiveCasinoPolicy;
 }
 
-/**
- * Resolve the user's verified country and the active versioned casino policy
- * inside a solo Coin-play transaction — and LOCK both rows for the
- * remainder of this transaction.
- *
- * The user's country comes from EXACTLY ONE source: the user's own ACTIVE
- * UserPayoutAccount. There is deliberately no fallback to `Agent.countryId`.
- * `Agent` is a B2B reseller/distributor identity (see the Agent model) — it
- * proves where a reseller operates, not where the player who is actually
- * playing resides, and treating it as a jurisdiction signal would let any
- * player linked to an agent in a permissive country bypass every other
- * country's restrictions. A user with no ACTIVE payout account has no
- * verified jurisdiction, full stop, and resolves to
- * `{ country: null, policy: null }` — the caller is responsible for failing
- * closed (see requirePlayableJurisdiction).
- *
- * Both the payout-account/country row and the resolved policy row are read
- * with `FOR SHARE` inside the caller's transaction: a concurrent policy
- * disable, country reassignment, or account-status change must either
- * commit BEFORE this lock is acquired (in which case this transaction reads
- * the fresh, already-committed state) or wait behind this transaction until
- * it commits or rolls back — it can never land in the middle of settlement.
- */
-export async function resolveJurisdictionForPlay(
-  tx: any,
-  userId: string
-): Promise<JurisdictionResolution> {
-  const accountRows = (await tx.$queryRaw`
+/** The gates are transactional rows. Turning one off waits for current readers. */
+export async function requirePlatformGate(tx: any, key: string): Promise<void> {
+  const rows = (await tx.$queryRaw`
+    SELECT "enabled" FROM "platform_gates" WHERE "key" = ${key} FOR SHARE
+  `) as { enabled: boolean }[];
+  if (!rows[0]?.enabled) throw ApiError.forbidden('This financial service is not enabled');
+}
+
+async function activePolicyForCountry(tx: any, countryCode: string): Promise<ActiveCasinoPolicy | null> {
+  const pointers = (await tx.$queryRaw`
+    SELECT "activePolicyId" FROM "country_jurisdictions"
+    WHERE "countryCode" = ${countryCode} FOR SHARE
+  `) as { activePolicyId: string | null }[];
+  const id = pointers[0]?.activePolicyId;
+  if (!id) return null;
+  const rows = (await tx.$queryRaw`
+    SELECT p."id", p."version", p."countryCode", p."playthroughMultiplier",
+           p."qualifyingGames", p."maxQualifyingStake", p."bonusExpiryHours",
+           p."minWithdrawal", p."maxWithdrawal", p."dailyWithdrawalLimit",
+           p."monthlyWithdrawalLimit", p."holdingPeriodHours", p."giftDailyLimit",
+           p."kycTierRequired", p."manualReviewThreshold",
+           p."supportedPaymentMethods", p."withdrawalFeePercent"
+    FROM "country_casino_policies" p
+    WHERE p."id" = ${id} AND p."countryCode" = ${countryCode}
+      AND p."state" = 'ACTIVE' AND p."status" = 'ENABLED'
+      AND p."thresholdsConfiguredAt" IS NOT NULL
+    FOR SHARE
+  `) as (Omit<ActiveCasinoPolicy, 'playthroughMultiplier' | 'withdrawalFeePercent'> & {
+    playthroughMultiplier: { toNumber(): number } | number;
+    withdrawalFeePercent: { toNumber(): number } | number;
+  })[];
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, playthroughMultiplier: typeof row.playthroughMultiplier === 'number'
+    ? row.playthroughMultiplier : row.playthroughMultiplier.toNumber(),
+    withdrawalFeePercent: typeof row.withdrawalFeePercent === 'number'
+      ? row.withdrawalFeePercent : row.withdrawalFeePercent.toNumber() };
+}
+
+/** Caller already holds L1 user; this takes L2 account then L3 pointer/policy. */
+export async function resolveJurisdictionForPlay(tx: any, userId: string): Promise<JurisdictionResolution> {
+  await requirePlatformGate(tx, 'CASINO_PLAY');
+  const accounts = (await tx.$queryRaw`
     SELECT c."id" AS "countryId", c."code" AS "countryCode"
     FROM "user_payout_accounts" upa
     JOIN "countries" c ON c."id" = upa."countryId"
     WHERE upa."userId" = ${userId} AND upa."status" = 'ACTIVE'
-    ORDER BY upa."createdAt" DESC
-    LIMIT 1
-    FOR SHARE
+    ORDER BY upa."createdAt" DESC, upa."id" DESC LIMIT 1 FOR SHARE
   `) as { countryId: string; countryCode: string }[];
-
-  const account = accountRows[0];
+  const account = accounts[0];
   if (!account) return { country: null, policy: null };
-
-  const country = { id: account.countryId, code: account.countryCode };
-
-  const policyRows = (await tx.$queryRaw`
-    SELECT "id", "version", "playthroughMultiplier", "qualifyingGames", "maxQualifyingStake",
-           "status"::text AS "status"
-    FROM "country_casino_policies"
-    WHERE "countryCode" = ${country.code} AND "status" = 'ENABLED'
-    ORDER BY "version" DESC
-    LIMIT 1
-    FOR SHARE
-  `) as {
-    id: string;
-    version: number;
-    playthroughMultiplier: unknown;
-    qualifyingGames: unknown;
-    maxQualifyingStake: number;
-    status: string;
-  }[];
-
-  const policy = policyRows[0];
-  if (!policy) return { country, policy: null };
-
   return {
-    country,
-    policy: {
-      id: policy.id,
-      version: policy.version,
-      playthroughMultiplier: policy.playthroughMultiplier as { toNumber(): number },
-      qualifyingGames: policy.qualifyingGames,
-      maxQualifyingStake: policy.maxQualifyingStake,
-      status: policy.status,
-    },
+    country: { id: account.countryId, code: account.countryCode },
+    policy: await activePolicyForCountry(tx, account.countryCode),
   };
 }
 
-/**
- * Fail-closed gate. Throws ApiError.forbidden when the jurisdiction cannot be
- * resolved or the country has no ENABLED policy. Otherwise returns the
- * numeric playthroughMultiplier plus the qualifying-wager fields for the
- * resolved policy.
- */
-export function requirePlayableJurisdiction(
-  resolution: JurisdictionResolution
-): PlayableJurisdiction {
+export function requirePlayableJurisdiction(resolution: JurisdictionResolution): PlayableJurisdiction {
   if (!resolution.country) {
     throw ApiError.forbidden('Jurisdiction could not be resolved; play is unavailable');
   }
   if (!resolution.policy) {
     throw ApiError.forbidden('Gaming is not available in your jurisdiction');
   }
-  const rawMultiplier = resolution.policy.playthroughMultiplier;
-  const playthroughMultiplier =
-    typeof rawMultiplier === 'number' ? rawMultiplier : rawMultiplier.toNumber();
-  return {
-    countryCode: resolution.country.code,
-    policy: {
-      id: resolution.policy.id,
-      version: resolution.policy.version,
-      playthroughMultiplier: Number(playthroughMultiplier),
-      qualifyingGames: resolution.policy.qualifyingGames,
-      maxQualifyingStake: resolution.policy.maxQualifyingStake,
-    },
-  };
+  return { countryCode: resolution.country.code, policy: resolution.policy };
+}
+
+/** Caller has already locked the chosen payout account at L2. Never reselect it. */
+export async function requireActiveWithdrawalPolicy(tx: any, userId: string, countryId: string) {
+  await requirePlatformGate(tx, 'WITHDRAWAL_CREATE');
+  const country = await tx.country.findUnique({ where: { id: countryId }, select: { code: true } });
+  if (!country) throw ApiError.forbidden('Payout country is unavailable');
+  const policy = await activePolicyForCountry(tx, country.code);
+  if (!policy) throw ApiError.forbidden('Withdrawals are unavailable in this country');
+  if (policy.kycTierRequired > 0) {
+    const rows = (await tx.$queryRaw`
+      SELECT "verifiedTier" FROM "user_kyc_verifications"
+      WHERE "userId" = ${userId} AND "status" = 'VERIFIED' FOR SHARE
+    `) as { verifiedTier: number }[];
+    if (!rows[0] || rows[0].verifiedTier < policy.kycTierRequired) {
+      throw ApiError.forbidden('Verified identity tier is insufficient for withdrawal');
+    }
+  }
+  return { ...policy, countryId };
+}
+
+/** COINS→GP gifts are subject to the sender country’s configured Coin limit. */
+export async function requireActiveGiftPolicy(tx: any, senderId: string): Promise<ActiveCasinoPolicy> {
+  const accounts = (await tx.$queryRaw`
+    SELECT c."code" AS "countryCode"
+    FROM "user_payout_accounts" upa
+    JOIN "countries" c ON c."id" = upa."countryId"
+    WHERE upa."userId" = ${senderId} AND upa."status" = 'ACTIVE'
+    ORDER BY upa."createdAt" DESC, upa."id" DESC LIMIT 1 FOR SHARE
+  `) as { countryCode: string }[];
+  if (!accounts[0]) throw ApiError.forbidden('Verified gift jurisdiction is unavailable');
+  const policy = await activePolicyForCountry(tx, accounts[0].countryCode);
+  if (!policy || policy.giftDailyLimit <= 0) {
+    throw ApiError.forbidden('Coin gifts are unavailable in this country');
+  }
+  return policy;
+}
+
+/** Optional bonus authority: missing gate or jurisdiction skips the Coin portion
+ * of a task/achievement reward while the GP/XP grant remains claimable. Caller
+ * holds the User row at L1 before this helper takes L2 account and L3 policy. */
+export async function tryActiveBonusGrantPolicy(tx: any, userId: string): Promise<ActiveCasinoPolicy | null> {
+  const accounts = (await tx.$queryRaw`
+    SELECT c."code" AS "countryCode"
+    FROM "user_payout_accounts" upa
+    JOIN "countries" c ON c."id" = upa."countryId"
+    WHERE upa."userId" = ${userId} AND upa."status" = 'ACTIVE'
+    ORDER BY upa."createdAt" DESC, upa."id" DESC LIMIT 1 FOR SHARE
+  `) as { countryCode: string }[];
+  if (!accounts[0]) return null;
+  const gates = (await tx.$queryRaw`
+    SELECT "enabled" FROM "platform_gates" WHERE "key" = 'BONUS_GRANT' FOR SHARE
+  `) as { enabled: boolean }[];
+  if (!gates[0]?.enabled) return null;
+  return activePolicyForCountry(tx, accounts[0].countryCode);
 }

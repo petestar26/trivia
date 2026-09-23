@@ -1,17 +1,19 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import type { Withdrawal } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service';
-import { allocateWithdrawalDebit } from '../economy/provenance-service';
-import { requiresStepUp, requireStepUp } from '../security/step-up-service';
+import { ApiError } from '../middleware/error-handler.js';
+import { lockUserEconomicScope, reserveWithdrawalCoins, releaseWithdrawalCoins } from '../economy/coin-ledger-service.js';
+import { requireActiveWithdrawalPolicy } from '../economy/jurisdiction-service.js';
+import { getOrCreateWallet } from '../economy/wallet-service.js';
+import { requireStepUp } from '../security/step-up-service.js';
+import { lockWithdrawalParticipants } from './lock-order.js';
 import {
   LiquidityContentionError,
   selectEligibleAgentLiquidity,
   incrementReservedLiquidity,
   writeReserveLedgerEntry,
   releaseReservedLiquidity,
-} from './liquidity-service';
+} from './liquidity-service.js';
 
 // W-1B Task D: withdrawal creation service.
 //
@@ -67,6 +69,44 @@ function computeWithdrawalRequestHash(quoteId: string, payoutAccountId: string):
   return createHash('sha256').update(`${quoteId}:${payoutAccountId}`).digest('hex');
 }
 
+/** Count open and finalized holds in UTC calendar windows. Cancelled holds no
+ * longer count because their Coins have been returned to the original lots. */
+async function assertWithdrawalPolicyLimits(
+  tx: any,
+  userId: string,
+  coinAmount: number,
+  policy: {
+    minWithdrawal: number;
+    maxWithdrawal: number;
+    dailyWithdrawalLimit: number;
+    monthlyWithdrawalLimit: number;
+  },
+  now: Date
+): Promise<void> {
+  if (coinAmount < policy.minWithdrawal || coinAmount > policy.maxWithdrawal) {
+    throw ApiError.badRequest('Withdrawal amount is outside the active country policy limits');
+  }
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const states = ['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED', 'DISPUTED', 'COMPLETED'] as const;
+  const [day, month] = await Promise.all([
+    tx.withdrawal.aggregate({
+      where: { userId, status: { in: [...states] }, createdAt: { gte: dayStart } },
+      _sum: { coinAmount: true },
+    }),
+    tx.withdrawal.aggregate({
+      where: { userId, status: { in: [...states] }, createdAt: { gte: monthStart } },
+      _sum: { coinAmount: true },
+    }),
+  ]);
+  if ((day._sum.coinAmount ?? 0) + coinAmount > policy.dailyWithdrawalLimit) {
+    throw ApiError.badRequest('Daily withdrawal limit exceeded');
+  }
+  if ((month._sum.coinAmount ?? 0) + coinAmount > policy.monthlyWithdrawalLimit) {
+    throw ApiError.badRequest('Monthly withdrawal limit exceeded');
+  }
+}
+
 /**
  * Withdrawal.withdrawalNumber ("WD-000123") from the dedicated
  * withdrawal_number_seq Postgres sequence (migration
@@ -119,7 +159,8 @@ async function nextWithdrawalNumber(tx: any): Promise<string> {
  *      candidates whose Agent.userId equals the withdrawing user are
  *      excluded — a user's own agent profile may never be selected to
  *      pay out their own withdrawal (see selectEligibleAgentLiquidity).
- *   5. debit coins from the wallet exactly once (applyBalanceChanges).
+ *   5. reserve withdrawable Coins in their source lots and debit the wallet
+ *      exactly once through reserveWithdrawalCoins.
  *   6. create the Withdrawal row itself, status HELD — the parent row
  *      must exist before step 7's children, since both carry a real FK
  *      to withdrawals.id.
@@ -143,50 +184,14 @@ export async function createWithdrawal(
   const args = rawArgs;
   const requestHash = computeWithdrawalRequestHash(args.quoteId, args.payoutAccountId);
 
-  const existing = await prisma.withdrawal.findUnique({
-    where: { userId_idempotencyKey: { userId: actorUserId, idempotencyKey: args.idempotencyKey } },
-  });
-  if (existing) {
-    if (existing.requestHash === requestHash) {
-      return { withdrawal: existing, idempotent: true };
-    }
-    throw ApiError.conflict('A withdrawal already exists for this idempotency key with different request data', {
-      code: 'IDEMPOTENCY_CONFLICT',
-    });
-  }
-
-  // Pre-flight reads outside the transaction — fail fast on obviously
-  // bad input rather than spend a transaction attempt on it. Every
-  // value actually used to build the Withdrawal row is re-read fresh
-  // inside the transaction below; these are user-friendly early checks
-  // only, not the source of truth.
-  const quotePreview = await prisma.withdrawalQuote.findUnique({ where: { id: args.quoteId } });
-  if (!quotePreview) throw ApiError.badRequest('Invalid quote');
-  if (quotePreview.userId !== actorUserId) throw ApiError.forbidden('This quote does not belong to you');
-
-  const payoutAccountPreview = await prisma.userPayoutAccount.findUnique({ where: { id: args.payoutAccountId } });
-  if (!payoutAccountPreview) throw ApiError.badRequest('Invalid payout account');
-  if (payoutAccountPreview.userId !== actorUserId) {
-    throw ApiError.forbidden('This payout account does not belong to you');
-  }
-  if (payoutAccountPreview.status !== 'ACTIVE') {
-    throw ApiError.badRequest('This payout account is not currently active');
-  }
-  if (payoutAccountPreview.countryId !== quotePreview.countryId) {
-    throw ApiError.badRequest('This payout account does not belong to the quote\'s country');
-  }
-
-  const needsStepUp = await requiresStepUp(actorUserId);
-  if (needsStepUp && (tokenIat === undefined || tokenIat === null)) {
-    throw ApiError.forbidden('Step-up authentication required', { code: 'STEP_UP_REQUIRED' });
-  }
-
   for (let attempt = 0; attempt < MAX_LIQUIDITY_RETRY_ATTEMPTS; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
-        const withdrawalId = randomUUID();
-        const now = new Date();
+        await lockUserEconomicScope(tx, `withdrawal_create:${actorUserId}`);
 
+        // The per-user advisory lock makes this replay lookup conclusive.
+        // Both identical and different-key creates serialize here, before
+        // checking the one-live rule or attempting liquidity selection.
         // Follow-up fix: repeat the idempotency lookup INSIDE the
         // transaction, before the one-live-withdrawal check below. The
         // pre-flight lookup above runs OUTSIDE any transaction, so it is a
@@ -210,6 +215,94 @@ export async function createWithdrawal(
             code: 'IDEMPOTENCY_CONFLICT',
           });
         }
+
+        const userRows = await tx.$queryRaw<{ status: string }[]>`
+          SELECT status::text AS status FROM users WHERE id = ${actorUserId} FOR SHARE
+        `;
+        if (userRows[0]?.status !== 'ACTIVE') {
+          throw ApiError.forbidden('Your account cannot create withdrawals in its current state');
+        }
+
+        const quotePreview = await tx.withdrawalQuote.findUnique({ where: { id: args.quoteId } });
+        if (!quotePreview) throw ApiError.badRequest('Invalid quote');
+        if (quotePreview.userId !== actorUserId) {
+          throw ApiError.forbidden('This quote does not belong to you');
+        }
+
+        // Lock the selected, verified payout destination before claiming the
+        // quote or the fiat liquidity. The policy must match this account.
+        const payoutRows = await tx.$queryRaw<Array<{
+          id: string; userId: string; countryId: string; methodDefId: string;
+          accountDetails: unknown; status: string;
+        }>>`
+          SELECT id, "userId", "countryId", "methodDefId", "accountDetails", status::text AS status
+          FROM user_payout_accounts WHERE id = ${args.payoutAccountId} FOR SHARE
+        `;
+        const payoutAccount = payoutRows[0];
+        if (!payoutAccount || payoutAccount.userId !== actorUserId) {
+          throw ApiError.forbidden('This payout account does not belong to you');
+        }
+        if (payoutAccount.status !== 'ACTIVE') {
+          throw ApiError.badRequest('This payout account is not currently active');
+        }
+        if (payoutAccount.countryId !== quotePreview.countryId) {
+          throw ApiError.badRequest('This payout account does not belong to the quote\'s country');
+        }
+        // The selected payout method is part of the verified destination at
+        // L2. Hold its definition against deactivation until commit.
+        const methodRows = await tx.$queryRaw<Array<{
+          id: string; type: string; countryId: string; isActive: boolean;
+        }>>`
+          SELECT id, type::text AS type, "countryId", "isActive"
+          FROM payment_method_definitions WHERE id = ${payoutAccount.methodDefId} FOR SHARE
+        `;
+        const method = methodRows[0];
+        if (!method || !method.isActive || method.countryId !== payoutAccount.countryId) {
+          throw ApiError.forbidden('Selected payout method is unavailable in this country');
+        }
+
+        // A quote can outlive a country-level payment disable. Serialize the
+        // final hold with that flag change before pinning the country policy.
+        const countries = await tx.$queryRaw<Array<{
+          id: string; isActive: boolean; agentPaymentEnabled: boolean;
+        }>>`
+          SELECT id, "isActive", "agentPaymentEnabled"
+          FROM countries WHERE id = ${payoutAccount.countryId} FOR SHARE
+        `;
+        if (!countries[0]?.isActive || !countries[0]?.agentPaymentEnabled) {
+          throw ApiError.forbidden('Withdrawals are not available for this country');
+        }
+
+        const policy = await requireActiveWithdrawalPolicy(tx, actorUserId, payoutAccount.countryId);
+        if (policy.countryId !== quotePreview.countryId) {
+          throw ApiError.forbidden('The selected payout country does not match your verified jurisdiction');
+        }
+        const supportedMethods = policy.supportedPaymentMethods;
+        if (!Array.isArray(supportedMethods) ||
+            !supportedMethods.every((item: unknown) => typeof item === 'string') ||
+            !supportedMethods.includes(method.type)) {
+          throw ApiError.forbidden('Selected payout method is not supported by the active country policy');
+        }
+        const configuredFee = Number(policy.withdrawalFeePercent);
+        if (!Number.isFinite(configuredFee) || configuredFee !== 0) {
+          throw ApiError.forbidden('Withdrawal fee policy requires an approved quote flow');
+        }
+        if (policy.manualReviewThreshold > 0 &&
+            quotePreview.coinAmount >= policy.manualReviewThreshold) {
+          throw ApiError.forbidden('This withdrawal requires a manual-review flow');
+        }
+
+        const securityPolicy = await tx.userSecurityPolicy.findUnique({
+          where: { userId: actorUserId },
+          select: { requiresStepUpForSensitiveOps: true },
+        });
+        const needsStepUp = securityPolicy?.requiresStepUpForSensitiveOps ?? false;
+        if (needsStepUp && (tokenIat === undefined || tokenIat === null)) {
+          throw ApiError.forbidden('Step-up authentication required', { code: 'STEP_UP_REQUIRED' });
+        }
+
+        const withdrawalId = randomUUID();
+        const now = new Date();
 
         // W-1D2A Step 0: one-live-withdrawal-per-user rule. Reject before the
         // quote is claimed / wallet is debited / liquidity is reserved if the
@@ -283,22 +376,6 @@ export async function createWithdrawal(
           await requireStepUp({ userId: actorUserId, tokenIat }, 'WITHDRAWAL_CREATE', tx);
         }
 
-        // Step 3: re-verify the payout account inside the transaction —
-        // ownership, active status, and that its country matches the
-        // quote's. A mismatch here would mean paying out at the wrong
-        // country's rate/liquidity pool, so this must reject before any
-        // liquidity lock or wallet debit is attempted.
-        const payoutAccount = await tx.userPayoutAccount.findUnique({ where: { id: args.payoutAccountId } });
-        if (!payoutAccount || payoutAccount.userId !== actorUserId) {
-          throw ApiError.forbidden('This payout account does not belong to you');
-        }
-        if (payoutAccount.status !== 'ACTIVE') {
-          throw ApiError.badRequest('This payout account is not currently active');
-        }
-        if (payoutAccount.countryId !== quote!.countryId) {
-          throw ApiError.badRequest('This payout account does not belong to the quote\'s country');
-        }
-
         // Step 4: select + lock an eligible agent fiat liquidity row and
         // reserve against it — BEFORE the wallet is touched (schema.prisma:
         // "Never Wallet first and Agent liquidity second"). The
@@ -315,30 +392,19 @@ export async function createWithdrawal(
         );
         await incrementReservedLiquidity(tx, candidate, quote!.fiatAmount);
 
-        // Step 5: debit coins exactly once — sole authoritative wallet
-        // mutation path, same as every other economy flow in this repo.
+        // L5: lock the wallet before policy-window aggregation and lot
+        // allocation. This also serializes limits against a concurrent
+        // cancellation which releases its hold under the same wallet lock.
         await getOrCreateWallet(actorUserId, tx);
-        const balanceResult = await applyBalanceChanges(tx, actorUserId, [
-          {
-            currency: 'COINS',
-            amount: quote!.coinAmount,
-            ledgerType: 'DEBIT',
-            transactionType: 'COIN_DEBIT',
-            referenceType: 'WITHDRAWAL',
-            referenceId: withdrawalId,
-            description: `Coins withdrawn for fiat payout (quote ${quote!.id})`,
-          },
-        ]);
-
-        // Step 5b: the wallet debit above only proves the AGGREGATE
-        // coinsBalance could cover this amount — coinsBalance is the
-        // unified figure a player sees and spends from, and includes
-        // restricted (non-withdrawable) Coins. Withdrawals must draw
-        // EXCLUSIVELY from eligible UNRESTRICTED provenance; this call
-        // locks and allocates against ONLY those lots, in the same
-        // transaction, and throws (rolling back the debit above too) if
-        // the eligible balance can't cover it.
-        await allocateWithdrawalDebit(tx, actorUserId, quote!.coinAmount);
+        await tx.$queryRaw`SELECT id FROM wallets WHERE "userId" = ${actorUserId} FOR UPDATE`;
+        await assertWithdrawalPolicyLimits(tx, actorUserId, quote!.coinAmount, policy, now);
+        const coinHold = await reserveWithdrawalCoins(tx, actorUserId, quote!.coinAmount, {
+          withdrawalId,
+          policyId: policy.id,
+          policyVersion: policy.version,
+          holdingPeriodHours: policy.holdingPeriodHours,
+          now,
+        });
 
         // Step 6: the Withdrawal row itself — HELD directly (see file
         // header). withdrawalNumber via the sequence, never count/max.
@@ -377,7 +443,8 @@ export async function createWithdrawal(
             withdrawalId,
             coinAmount: quote!.coinAmount,
             status: 'ACTIVE',
-            debitWalletTransactionId: balanceResult.transactions[0].id,
+            debitWalletTransactionId: coinHold.walletTransactionId,
+            holdOperationId: coinHold.holdOperationId,
           },
         });
         const reservation = await tx.withdrawalLiquidityReservation.create({
@@ -414,7 +481,7 @@ export async function createWithdrawal(
         });
 
         return { withdrawal, idempotent: false };
-      });
+      }, { timeout: 30_000 });
     } catch (err) {
       if (err instanceof LiquidityContentionError) {
         if (attempt < MAX_LIQUIDITY_RETRY_ATTEMPTS - 1) continue;
@@ -657,6 +724,8 @@ export async function claimPayout(
   const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
     // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<
       Pick<Withdrawal, 'id' | 'status' | 'agentId' | 'paymentSubmissionDeadlineAt'>[]
@@ -801,6 +870,8 @@ export async function submitPayment(
   const agent = await requireAssignedAgent(actorUserId, withdrawal.agentId);
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
     // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'agentId'>[]>`
       SELECT id, status, "agentId"
@@ -961,6 +1032,8 @@ export async function cancelHeldWithdrawal(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
     // ── 1. Lock the withdrawal row ──────────────────────────────
     const rows = await tx.$queryRaw<Pick<Withdrawal, 'id' | 'status' | 'userId'>[]>`
       SELECT id, status, "userId"
@@ -1005,9 +1078,16 @@ export async function cancelHeldWithdrawal(
     }
 
     // ── 5. Require exactly one ACTIVE liquidity reservation ────
-    const reservation = await tx.withdrawalLiquidityReservation.findUnique({
-      where: { withdrawalId },
-    });
+    const reservationRows = await tx.$queryRaw<Array<{
+      id: string; withdrawalId: string; agentId: string;
+      fiatCurrency: string; amount: bigint; status: string;
+    }>>`
+      SELECT id, "withdrawalId", "agentId", "fiatCurrency", amount, status::text AS status
+      FROM withdrawal_liquidity_reservations
+      WHERE "withdrawalId" = ${withdrawalId}
+      FOR UPDATE
+    `;
+    const reservation = reservationRows[0];
     if (!reservation) {
       throw ApiError.internal('Withdrawal liquidity reservation not found');
     }
@@ -1028,10 +1108,19 @@ export async function cancelHeldWithdrawal(
     });
 
     // ── 7. Require ACTIVE hold ─────────────────────────────────
-    const hold = await tx.withdrawalHold.findUnique({ where: { withdrawalId } });
+    const holdRows = await tx.$queryRaw<Array<{
+      id: string; coinAmount: number; status: string; holdOperationId: string | null;
+    }>>`
+      SELECT id, "coinAmount", status::text AS status, "holdOperationId"
+      FROM withdrawal_holds WHERE "withdrawalId" = ${withdrawalId} FOR UPDATE
+    `;
+    const hold = holdRows[0];
     if (!hold) throw ApiError.internal('Withdrawal hold not found');
     if (hold.status !== 'ACTIVE') {
       throw ApiError.internal(`Hold is not ACTIVE: ${hold.status}`);
+    }
+    if (!hold.holdOperationId) {
+      throw ApiError.internal('Active withdrawal hold lacks a Coin reservation operation');
     }
 
     // ── 8. Refund coins to the user from hold.coinAmount ───────
@@ -1039,24 +1128,18 @@ export async function cancelHeldWithdrawal(
     if (!freshWithdrawal) throw ApiError.notFound('Withdrawal not found');
 
     await getOrCreateWallet(freshWithdrawal.userId, tx);
-    const creditResult = await applyBalanceChanges(tx, freshWithdrawal.userId, [
-      {
-        currency: 'COINS',
-        amount: hold.coinAmount,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'WITHDRAWAL',
-        referenceId: withdrawalId,
-        description: `Withdrawal cancelled — coin refund`,
-      },
-    ]);
+    await tx.$queryRaw`SELECT id FROM wallets WHERE "userId" = ${freshWithdrawal.userId} FOR UPDATE`;
+    const coinRelease = await releaseWithdrawalCoins(tx, freshWithdrawal.userId, withdrawalId, {
+      holdOperationId: hold.holdOperationId,
+      amount: hold.coinAmount,
+    });
 
     // ── 9. Mark the hold as REFUNDED (exactly one ACTIVE hold) ─
     const holdUpdate = await tx.withdrawalHold.updateMany({
       where: { id: hold.id, status: 'ACTIVE' },
       data: {
         status: 'REFUNDED',
-        refundWalletTransactionId: creditResult.transactions[0].id,
+        refundWalletTransactionId: coinRelease.walletTransactionId,
         releasedAt: new Date(),
       },
     });
@@ -1105,7 +1188,7 @@ export async function cancelHeldWithdrawal(
           status: 'CANCELLED',
           previousStatus: locked.status,
           refundCoins: hold.coinAmount,
-          walletTransactionId: creditResult.transactions[0].id,
+          walletTransactionId: coinRelease.walletTransactionId,
           reservationReleased: reservation.id,
         },
       },

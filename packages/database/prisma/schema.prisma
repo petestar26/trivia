@@ -46,6 +46,11 @@ model User {
   messageReactions          MessageReaction[]
   notifications             Notification[]
   wallet                    Wallet?
+  economicOperations        EconomicOperation[]
+  coinLotEntries            CoinLotEntry[]
+  coinLedgerAccount         CoinLedgerAccount?
+  kycVerification           UserKycVerification?
+  legacyBalanceReviews      LegacyBalanceReview[]
   vipMembership             VipMembership?
   progress                  UserProgress?
   xpEvents                  UserXpEvent[]
@@ -847,6 +852,7 @@ enum PlayContext {
 }
 
 enum CoinProvenanceType {
+  CONVERSION
   PURCHASE
   GAME_WIN
   TRIVIA_REWARD
@@ -880,6 +886,72 @@ enum CountryCasinoStatus {
   DISABLED
   RESTRICTED
   @@map("country_casino_status")
+}
+
+enum LotClass {
+  WITHDRAWABLE
+  RESTRICTED
+  UNCLASSIFIED
+  @@map("lot_class")
+}
+
+enum LotState {
+  OPEN
+  CONVERTED
+  EXHAUSTED
+  EXPIRED
+  RECLASSIFIED
+  FORFEITED
+  @@map("lot_state")
+}
+
+enum PolicyState {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  DISABLED
+  @@map("policy_state")
+}
+
+enum OperationType {
+  PURCHASE
+  BONUS_GRANT
+  WAGER
+  PAYOUT
+  GIFT_SPEND
+  P2P_TRANSFER
+  COMPETITION_ESCROW
+  COMPETITION_RELEASE
+  COMPETITION_PAYOUT
+  WITHDRAWAL_HOLD
+  WITHDRAWAL_RELEASE
+  WITHDRAWAL_FINALIZE
+  BONUS_CONVERSION
+  BONUS_EXPIRY
+  LEGACY_OPENING
+  LEGACY_RESOLVE
+  ADMIN_ADJUST
+  ADMIN_QUALIFY
+  COMPENSATION
+  @@map("operation_type")
+}
+
+enum EntryType {
+  MINT
+  CONSUME
+  RETURN
+  RESERVE
+  RELEASE
+  FINALIZE
+  TRANSFER_OUT
+  TRANSFER_IN
+  PROGRESS
+  CONVERT_OUT
+  CONVERT_IN
+  FORFEIT
+  RECLASS_OUT
+  RECLASS_IN
+  @@map("entry_type")
 }
 
 model GameDefinition {
@@ -955,8 +1027,18 @@ model CountryCasinoPolicy {
   notes                   String?
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
+  state                   PolicyState?
+  thresholdsConfiguredAt  DateTime?
+  configurationAttestation Json?
+  configuredBy            String?
+  activatedAt             DateTime?
+  activatedBy             String?
+  maxConversionMultiple   Decimal?           @db.Decimal(10, 2)
+  bonusExpiryHours        Int?
 
   coinProvenances         CoinProvenance[]
+  economicOperations      EconomicOperation[]
+  activeJurisdiction      CountryJurisdiction? @relation("ActiveCasinoPolicy")
 
   @@unique([countryCode, version])
   @@index([countryCode])
@@ -984,16 +1066,178 @@ model CoinProvenance {
   unlockedAt               DateTime?
   createdAt                DateTime                @default(now())
   updatedAt                DateTime                @updatedAt
+  lotClass                 LotClass?
+  state                    LotState?
+  availableAmount          Int?
+  reservedAmount           Int?
+  requirementAmount        Int?
+  progressAmount           Int?
+  mintedAt                 DateTime?
+  availableAt              DateTime?
+  closedAt                 DateTime?
+  sourceOperationId        String?
+  parentLotId              String?
+  rootLotId                String?
+  reviewId                 String?
 
   user                     User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
   walletTransaction        WalletTransaction?      @relation(fields: [walletTransactionId], references: [id], onDelete: SetNull)
   countryPolicy            CountryCasinoPolicy?    @relation(fields: [countryPolicyId], references: [id], onDelete: SetNull)
   allocations              CoinAllocation[]
+  entries                  CoinLotEntry[] @relation("LotEntry")
+  counterpartyEntries      CoinLotEntry[] @relation("CounterpartyLotEntry")
+  sourceOperation          EconomicOperation? @relation("OperationSourceLot", fields: [sourceOperationId], references: [id], onDelete: Restrict, map: "coin_provenance_sourceOperation_fkey")
+  parentLot                CoinProvenance? @relation("CoinLotParent", fields: [parentLotId], references: [id], onDelete: Restrict, map: "coin_provenance_parentLot_fkey")
+  childLots                CoinProvenance[] @relation("CoinLotParent")
+  rootLot                  CoinProvenance? @relation("CoinLotRoot", fields: [rootLotId], references: [id], onDelete: Restrict, map: "coin_provenance_rootLot_fkey")
+  rootedLots               CoinProvenance[] @relation("CoinLotRoot")
+  review                   LegacyBalanceReview? @relation("LotSelectedReview", fields: [reviewId], references: [id], onDelete: Restrict, map: "coin_provenance_review_fkey")
+  reviews                  LegacyBalanceReview[] @relation("ReviewLot")
 
   @@index([userId])
   @@index([userId, restrictionStatus])
   @@index([walletTransactionId])
   @@map("coin_provenance")
+  @@index([userId, state, lotClass, id], map: "coin_provenance_funding_idx")
+  @@index([sourceOperationId], map: "coin_provenance_sourceOperation_idx")
+}
+
+model EconomicOperation {
+  id                   String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type                 OperationType
+  userId               String
+  scopeType            String
+  scopeId              String
+  idempotencyKey       String?
+  requestHash          String?
+  countryPolicyId      String?
+  countryPolicyVersion Int?
+  walletTransactionIds String[] @default([])
+  reversesOperationId  String? @unique
+  snapshot             Json?
+  createdBy            String
+  createdAt            DateTime @default(now())
+
+  user                 User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "economic_operations_user_fkey")
+  countryPolicy        CountryCasinoPolicy? @relation(fields: [countryPolicyId], references: [id], onDelete: Restrict, map: "economic_operations_policy_fkey")
+  reversesOperation    EconomicOperation? @relation("EconomicOperationReversal", fields: [reversesOperationId], references: [id], onDelete: Restrict, map: "economic_operations_reverses_fkey")
+  reversedByOperation  EconomicOperation? @relation("EconomicOperationReversal")
+  entries              CoinLotEntry[]
+  sourceLots           CoinProvenance[] @relation("OperationSourceLot")
+  reviewsResolved      LegacyBalanceReview[]
+  withdrawalHolds      WithdrawalHold[]
+
+  @@unique([type, scopeType, scopeId], map: "economic_operations_scope_key")
+  @@index([userId, createdAt], map: "economic_operations_user_created_idx")
+  @@index([countryPolicyId, countryPolicyVersion], map: "economic_operations_policy_idx")
+  @@map("economic_operations")
+}
+
+model CoinLotEntry {
+  id                String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  operationId       String
+  lotId             String
+  userId            String
+  entryType         EntryType
+  availableDelta    Int @default(0)
+  reservedDelta     Int @default(0)
+  progressDelta     Int @default(0)
+  obligationDelta   Int @default(0)
+  obligationShare   Int?
+  counterpartyLotId String?
+  reversesEntryId   String? @unique
+  sequence          Int
+  createdAt         DateTime @default(now())
+
+  operation         EconomicOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "coin_lot_entries_operation_fkey")
+  lot               CoinProvenance @relation("LotEntry", fields: [lotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_lot_fkey")
+  user              User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_lot_entries_user_fkey")
+  counterpartyLot   CoinProvenance? @relation("CounterpartyLotEntry", fields: [counterpartyLotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_counterparty_fkey")
+  reversesEntry     CoinLotEntry? @relation("CoinEntryReversal", fields: [reversesEntryId], references: [id], onDelete: Restrict, map: "coin_lot_entries_reverses_fkey")
+  reversedByEntry   CoinLotEntry? @relation("CoinEntryReversal")
+
+  @@unique([operationId, sequence], map: "coin_lot_entries_operation_sequence_key")
+  @@index([lotId, createdAt, id], map: "coin_lot_entries_lot_idx")
+  @@index([userId, createdAt], map: "coin_lot_entries_user_idx")
+  @@index([operationId], map: "coin_lot_entries_operation_idx")
+  @@map("coin_lot_entries")
+}
+
+model CountryJurisdiction {
+  countryCode    String @id @db.VarChar(3)
+  activePolicyId String? @unique
+  updatedAt      DateTime @default(now())
+
+  country        Country @relation(fields: [countryCode], references: [code], onDelete: Restrict, map: "country_jurisdictions_country_fkey")
+  activePolicy   CountryCasinoPolicy? @relation("ActiveCasinoPolicy", fields: [activePolicyId], references: [id], onDelete: Restrict, map: "country_jurisdictions_activePolicy_fkey")
+
+  @@map("country_jurisdictions")
+}
+
+model UserKycVerification {
+  userId       String @id
+  verifiedTier Int @default(0)
+  verifiedAt   DateTime?
+  verifiedBy   String?
+  status       String @default("PENDING")
+
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "user_kyc_verifications_user_fkey")
+
+  @@map("user_kyc_verifications")
+}
+
+model CoinLedgerAccount {
+  userId              String @id
+  classifiedAt        DateTime?
+  classificationRunId String?
+
+  user                User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_ledger_accounts_user_fkey")
+
+  @@map("coin_ledger_accounts")
+}
+
+model LegacyBalanceReview {
+  id                    String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                String
+  lotId                 String
+  amount                Int
+  evidence              Json @default("{}")
+  status                String @default("OPEN")
+  resolvedBy            String?
+  secondApproverId      String?
+  resolutionOperationId String? @unique
+  createdAt             DateTime @default(now())
+  resolvedAt            DateTime?
+
+  user                  User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_user_fkey")
+  lot                   CoinProvenance @relation("ReviewLot", fields: [lotId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_lot_fkey")
+  selectedByLots        CoinProvenance[] @relation("LotSelectedReview")
+  resolutionOperation   EconomicOperation? @relation(fields: [resolutionOperationId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_resolutionOperation_fkey")
+
+  @@index([userId, status], map: "legacy_balance_reviews_user_status_idx")
+  @@map("legacy_balance_reviews")
+}
+
+model InvariantCheckRun {
+  id         String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  violations Json @default("[]")
+  passed     Boolean @default(false)
+
+  platformGates PlatformGate[]
+  @@map("invariant_check_runs")
+}
+
+model PlatformGate {
+  key                String @id
+  enabled            Boolean @default(false)
+  changedBy          String?
+  changedAt          DateTime @default(now())
+  lastInvariantRunId String?
+
+  lastInvariantRun InvariantCheckRun? @relation(fields: [lastInvariantRunId], references: [id], onDelete: Restrict, map: "platform_gates_lastInvariantRun_fkey")
+  @@map("platform_gates")
 }
 
 model CoinAllocation {
@@ -1453,6 +1697,7 @@ model Country {
   agentPaymentAccounts AgentPaymentAccount[]
   withdrawalQuotes     WithdrawalQuote[]
   userPayoutAccounts   UserPayoutAccount[]
+  casinoJurisdiction   CountryJurisdiction?
 
   @@index([isActive])
   @@map("countries")
@@ -1969,11 +2214,13 @@ model WithdrawalHold {
   status                    WithdrawalHoldStatus @default(ACTIVE)
   debitWalletTransactionId  String               @unique // WalletTransaction.id from COIN_DEBIT at HELD
   refundWalletTransactionId String?              @unique // WalletTransaction.id from COIN_CREDIT at refund
+  holdOperationId           String?              @unique // economic_operations.id for WITHDRAWAL_HOLD
   createdAt                 DateTime             @default(now())
   consumedAt                DateTime?
   releasedAt                DateTime?
 
   withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+  holdOperation EconomicOperation? @relation(fields: [holdOperationId], references: [id], onDelete: Restrict, map: "withdrawal_holds_holdOperation_fkey")
 
   @@map("withdrawal_holds")
 }

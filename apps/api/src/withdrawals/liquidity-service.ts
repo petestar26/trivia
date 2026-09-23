@@ -303,23 +303,17 @@ interface LiquidityCandidateRow {
 }
 
 /**
- * Selects and locks ONE eligible AgentFiatLiquidity row: agent ACTIVE, in
- * the given country, with enough available balance (totalBalance -
- * reservedBalance) in fiatCurrency. FOR UPDATE OF afl SKIP LOCKED means a
- * concurrent withdrawal racing for the same pool skips any row another
- * in-flight transaction already holds, rather than blocking on it, and
- * tries the next-best eligible agent instead — standard practice for
- * high-contention resource selection, avoiding both deadlocks and long
- * waits. "OF afl" scopes the row lock to the liquidity table only — a
- * bare FOR UPDATE on this JOIN would also lock the matched "agents" row,
- * which is only being read here to filter, not something this operation
- * intends to hold a lock on.
+ * Ranks eligible AgentFiatLiquidity rows, then locks and rechecks each
+ * candidate's Agent FOR SHARE before taking its liquidity row FOR UPDATE
+ * SKIP LOCKED. This serializes assignment with agent suspension and keeps
+ * the Agent -> liquidity lock order used by claim/submit. A concurrent
+ * withdrawal holding one liquidity row is skipped in favor of the next
+ * eligible candidate.
  *
  * Throws LiquidityContentionError — not ApiError — when nothing matches.
  * This is a deliberately distinct signal: zero rows can mean either
  * "genuinely no agent has enough" or "the only eligible agent's row is
- * momentarily locked by another concurrent withdrawal," and a single
- * query cannot tell those apart. The caller (withdrawal-service.ts) is
+ * momentarily locked by another concurrent withdrawal." The caller is
  * expected to retry the WHOLE creation transaction a bounded number of
  * times before concluding real INSUFFICIENT_LIQUIDITY.
  *
@@ -337,8 +331,12 @@ export async function selectEligibleAgentLiquidity(
   amount: bigint,
   withdrawingUserId: string
 ): Promise<LiquidityCandidateRow> {
-  const candidates = await tx.$queryRaw<LiquidityCandidateRow[]>`
-    SELECT afl.id, afl."agentId", afl."totalBalance", afl."reservedBalance", afl.version
+  // Rank without taking a business lock, then lock the agent before its
+  // liquidity row. A concurrent status change must finish before we decide
+  // whether that agent can be assigned a new withdrawal. Locking afl first
+  // and only then checking Agent would reverse the claim/submit lock order.
+  const candidates = await tx.$queryRaw<Array<{ id: string; agentId: string }>>`
+    SELECT afl.id, afl."agentId"
     FROM "agent_fiat_liquidities" afl
     JOIN "agents" a ON a.id = afl."agentId"
     WHERE a."countryId" = ${countryId}
@@ -346,14 +344,30 @@ export async function selectEligibleAgentLiquidity(
       AND a."userId" != ${withdrawingUserId}
       AND afl."fiatCurrency" = ${fiatCurrency}
       AND (afl."totalBalance" - afl."reservedBalance") >= ${amount}
-    ORDER BY (afl."totalBalance" - afl."reservedBalance") DESC
-    LIMIT 1
-    FOR UPDATE OF afl SKIP LOCKED
+    ORDER BY (afl."totalBalance" - afl."reservedBalance") DESC, afl.id
   `;
-  if (candidates.length === 0) {
-    throw new LiquidityContentionError();
+  for (const candidate of candidates) {
+    const agents = await tx.$queryRaw<Array<{
+      id: string; userId: string; countryId: string; status: string;
+    }>>`
+      SELECT id, "userId", "countryId", status::text AS status
+      FROM agents WHERE id = ${candidate.agentId} FOR SHARE
+    `;
+    const agent = agents[0];
+    if (!agent || agent.status !== 'ACTIVE' || agent.countryId !== countryId
+        || agent.userId === withdrawingUserId) continue;
+
+    const liquidity = await tx.$queryRaw<LiquidityCandidateRow[]>`
+      SELECT id, "agentId", "totalBalance", "reservedBalance", version
+      FROM "agent_fiat_liquidities"
+      WHERE id = ${candidate.id} AND "agentId" = ${candidate.agentId}
+        AND "fiatCurrency" = ${fiatCurrency}
+        AND ("totalBalance" - "reservedBalance") >= ${amount}
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (liquidity[0]) return liquidity[0];
   }
-  return candidates[0];
+  throw new LiquidityContentionError();
 }
 
 /**

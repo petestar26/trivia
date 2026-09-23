@@ -44,6 +44,10 @@ export default defineConfig({
     env: {
       LOG_PRETTY: 'false',
     },
+    // Scratch-only bridge for legacy fixture teardown against the new
+    // append-only ledger. It refuses to run unless TEST_LEDGER_DB_NAME names
+    // the exact throwaway database under test.
+    setupFiles: ['./src/test/fixture-ledger-cleanup.ts'],
     // Seeds reference data (trivia questions) exactly once before the run,
     // so the suite never depends on a manually pre-seeded database.
     globalSetup: ['./src/test/global-setup.ts'],

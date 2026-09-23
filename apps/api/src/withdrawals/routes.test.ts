@@ -7,7 +7,7 @@ import { createWithdrawalQuote } from './quote-service';
 import { createUserPayoutAccount } from './payout-account-service';
 import { createWithdrawal } from './withdrawal-service';
 import { fundAgentFiatLiquidity } from './liquidity-service';
-import { executeBalanceChange } from '../economy/wallet-service';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
 import { setOwnStepUpPolicy } from '../security/step-up-service';
 
@@ -43,6 +43,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await server.close();
+  await prisma.platformGate.updateMany({ where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false } });
   await prisma.$disconnect();
 });
 
@@ -73,7 +74,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `R${randomUUID().replaceAll('-', '').slice(0, 7)}`.toUpperCase();
+  const code = await nextTestCountryCode();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -132,33 +133,7 @@ async function createFundedAgent(
 }
 
 async function creditCoins(userId: string, amount: number) {
-  const result = await executeBalanceChange({
-    userId,
-    changes: [
-      {
-        currency: 'COINS',
-        amount,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'ADMIN',
-        description: 'test fixture credit',
-      },
-    ],
-    operationName: 'test-fixture-credit',
-  });
-  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
-    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-  );
-  await prisma.coinProvenance.create({
-    data: {
-      userId,
-      walletTransactionId: creditTx?.id,
-      amount,
-      provenanceType: 'ADMIN_ADJUSTMENT',
-      restrictionStatus: 'UNRESTRICTED',
-      originalSource: 'ADMIN_ADJUSTMENT',
-    },
-  });
+  await mintTestPurchasedCoins(userId, amount);
 }
 
 async function createFundedUser(tag: string, coins: number) {
@@ -267,6 +242,8 @@ async function cleanRouteFixtures() {
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'Withdrawal Route Test Country' } } });
   for (const c of countries) {
     await prisma.exchangeRateConfig.deleteMany({ where: { countryId: c.id } });
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: c.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: c.code } });
     await prisma.paymentMethodDefinition.deleteMany({ where: { countryId: c.id } });
   }
   await prisma.country.deleteMany({ where: { name: { startsWith: 'Withdrawal Route Test Country' } } });
@@ -277,6 +254,7 @@ async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
+  await activateTestWithdrawalPolicy(country.id, admin.id);
   await createExchangeRate(country.id, 'USD', opts.coinsPerUnit ?? 2, admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);

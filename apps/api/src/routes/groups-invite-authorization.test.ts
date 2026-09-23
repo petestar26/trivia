@@ -61,29 +61,47 @@ async function createUser(tag: string) {
 }
 
 async function cleanFixtures() {
-  const users = await prisma.user.findMany({
-    where: { email: { startsWith: EMAIL_PREFIX } },
-    select: { id: true },
-  });
-  const userIds = users.map((u) => u.id);
-  if (!userIds.length) return;
-  const groups = await prisma.group.findMany({ where: { ownerId: { in: userIds } }, select: { id: true } });
-  const groupIds = groups.map((g) => g.id);
-  if (groupIds.length) {
-    await prisma.groupInvite.deleteMany({ where: { groupId: { in: groupIds } } });
-    await prisma.groupMember.deleteMany({ where: { groupId: { in: groupIds } } });
+  // Accepted invites start fire-and-forget GROUP_JOIN activity. Its XP,
+  // achievement and wallet writes can arrive during teardown, so retry this
+  // fixture-scoped block until those writes drain (as sibling invite suites do).
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const users = await prisma.user.findMany({
+      where: { email: { startsWith: EMAIL_PREFIX } }, select: { id: true },
+    });
+    if (!users.length) return;
+    const userIds = users.map((u) => u.id);
+    try {
+      const groups = await prisma.group.findMany({ where: { ownerId: { in: userIds } }, select: { id: true } });
+      const groupIds = groups.map((g) => g.id);
+      if (groupIds.length) {
+        await prisma.groupInvite.deleteMany({ where: { groupId: { in: groupIds } } });
+        await prisma.groupMember.deleteMany({ where: { groupId: { in: groupIds } } });
+      }
+      await prisma.groupInvite.deleteMany({ where: { email: { startsWith: EMAIL_PREFIX } } });
+      await prisma.groupMember.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
+      if (groupIds.length) await prisma.group.deleteMany({ where: { id: { in: groupIds } } });
+      await prisma.rewardClaim.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.userAchievement.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.userTask.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.userXpEvent.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.userProgress.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.dailyStreak.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.vipMembership.deleteMany({ where: { userId: { in: userIds } } });
+      // The test-only bridge removes append-only ledger rows for these users.
+      await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.walletTransaction.deleteMany({ where: { userId: { in: userIds } } });
+      await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
+      const deleted = await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+      if (deleted.count === users.length) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  await prisma.groupInvite.deleteMany({ where: { email: { startsWith: EMAIL_PREFIX } } });
-  await prisma.groupMember.deleteMany({ where: { userId: { in: userIds } } });
-  await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
-  if (groupIds.length) await prisma.group.deleteMany({ where: { id: { in: groupIds } } });
-  // Coin provenance/allocation rows are a real foreign key to User —
-  // must be cleared before the user row itself can be deleted. Covers
-  // both rows this run created AND legacy backfill rows for any stale
-  // fixture user left behind by a prior interrupted run (same id set).
-  await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
-  await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
-  await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  throw new Error(`Group invitation fixture cleanup did not drain: ${String(lastError)}`);
 }
 
 function authHeader(token: string) {

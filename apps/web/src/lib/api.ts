@@ -467,8 +467,8 @@ class ApiClient {
     return this.get('/gifts');
   }
 
-  async sendGift(body: { recipientId: string; giftId: string; quantity: number }): Promise<ApiResponse<any>> {
-    return this.post('/gifts/send', body);
+  async sendGift(body: { recipientId: string; giftId: string; quantity: number }, idempotencyKey: string): Promise<ApiResponse<any>> {
+    return this.postWithIdempotency('/gifts/send', idempotencyKey, body);
   }
 
   async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {

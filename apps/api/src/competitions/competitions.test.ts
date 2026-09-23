@@ -78,27 +78,10 @@ async function primeGamePoints(userId: string, amount: number) {
   });
 }
 
-async function primeCoins(userId: string, amount: number) {
-  await getOrCreateWallet(userId);
-  await executeBalanceChange({
-    userId,
-    changes: [{
-      currency: 'COINS',
-      amount,
-      ledgerType: 'CREDIT',
-      transactionType: 'COIN_CREDIT',
-      referenceType: 'ADMIN',
-      description: 'Test fixture coins',
-    }],
-    operationName: 'test_fund_coins',
-  });
-}
-
-// Competition prizes are creator-funded and escrowed at creation time, so any
-// fixture that creates a competition WITH a prize must fund its creator first.
-async function primeCreator(userId: string, gp = 100_000, coins = 100_000) {
+// Game Point prizes are creator-funded and escrowed at creation time.
+// Coin prizes remain disabled until provenance-preserving escrow is available.
+async function primeCreator(userId: string, gp = 100_000) {
   await primeGamePoints(userId, gp);
-  await primeCoins(userId, coins);
 }
 
 /**
@@ -213,15 +196,24 @@ describeIf('Create competition', () => {
       endsAt: new Date(now.getTime() + 3600000).toISOString(),
       entryAmount: 10,
       rewardGamePoints: 100,
-      rewardCoins: 50,
+      rewardCoins: 0,
     });
 
     expect(comp.status).toBe('SCHEDULED');
     expect(comp.title).toBe('Dice Showdown');
     expect(comp.entryAmount).toBe(10);
     expect(comp.rewardGamePoints).toBe(100);
-    expect(comp.rewardCoins).toBe(50);
+    expect(comp.rewardCoins).toBe(0);
     expect(comp.scoring).toBe('DICE_SUM');
+  });
+
+  it('rejects new Coin prizes while provenance-preserving escrow is disabled', async () => {
+    const now = new Date();
+    await expect(createCompetition(owner.id, {
+      groupId: group.id, gameKey: 'dice', title: 'Coin Prize Disabled',
+      startsAt: now.toISOString(), endsAt: new Date(now.getTime() + 3_600_000).toISOString(),
+      rewardCoins: 50,
+    })).rejects.toThrow(/Coin competition prizes are disabled/);
   });
 
   it('rejects non-manager creating competition', async () => {
@@ -593,7 +585,7 @@ describeIf('Finalize competition', () => {
       endsAt: w.endsAt,
       entryAmount: 0,
       rewardGamePoints: 200,
-      rewardCoins: 100,
+      rewardCoins: 0,
     });
 
     await joinCompetition(player1.id, comp.id);
@@ -1226,7 +1218,6 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
 
     await primeCreator(owner.id);
     await primeGamePoints(attacker.id, 50_000);
-    await primeCoins(attacker.id, 50_000);
     await primeGamePoints(player1.id, 5_000);
     await primeGamePoints(player2.id, 5_000);
   });
@@ -1244,13 +1235,13 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
       endsAt: w.endsAt,
       entryAmount: 0,
       rewardGamePoints: 10_000,
-      rewardCoins: 10_000,
+      rewardCoins: 0,
     });
 
     // Prize is escrowed immediately — the creator is already out of pocket.
     const afterCreate = await getWalletBalance(attacker.id);
     expect(afterCreate.gamePointsBalance).toBe(before.gamePointsBalance - 10_000);
-    expect(afterCreate.coinsBalance).toBe(before.coinsBalance - 10_000);
+    expect(afterCreate.coinsBalance).toBe(before.coinsBalance);
 
     // Join as the only participant, and never play.
     await joinCompetition(attacker.id, comp.id);

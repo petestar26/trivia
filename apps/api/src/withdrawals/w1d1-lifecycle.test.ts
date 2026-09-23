@@ -1,6 +1,5 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { randomUUID } from 'node:crypto';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
 import { fundAgentFiatLiquidity } from './liquidity-service';
 import { createWithdrawalQuote } from './quote-service';
@@ -13,7 +12,8 @@ import {
   submitPayment,
   cancelHeldWithdrawal,
 } from './withdrawal-service';
-import { executeBalanceChange, getWalletBalance } from '../economy/wallet-service';
+import { getWalletBalance } from '../economy/wallet-service.js';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 //
@@ -32,6 +32,9 @@ try {
 }
 
 afterAll(async () => {
+  await prisma.platformGate.updateMany({
+    where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false },
+  });
   await prisma.$disconnect();
 });
 
@@ -66,7 +69,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `W1D${randomUUID().replaceAll('-', '').slice(0, 6)}`.toUpperCase();
+  const code = await nextTestCountryCode();
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
@@ -125,31 +128,7 @@ async function createFundedAgent(
 }
 
 async function creditCoins(userId: string, amount: number) {
-  const result = await executeBalanceChange({
-    userId,
-    changes: [{
-      currency: 'COINS',
-      amount,
-      ledgerType: 'CREDIT',
-      transactionType: 'COIN_CREDIT',
-      referenceType: 'ADMIN',
-      description: 'W1D1 test fixture credit',
-    }],
-    operationName: 'w1d1-test-fixture-credit',
-  });
-  const creditTx = (result as { transactions?: { id: string; ledgerType: string; currency: string }[] }).transactions?.find(
-    (t) => t.ledgerType === 'CREDIT' && t.currency === 'COINS'
-  );
-  await prisma.coinProvenance.create({
-    data: {
-      userId,
-      walletTransactionId: creditTx?.id,
-      amount,
-      provenanceType: 'ADMIN_ADJUSTMENT',
-      restrictionStatus: 'UNRESTRICTED',
-      originalSource: 'ADMIN_ADJUSTMENT',
-    },
-  });
+  await mintTestPurchasedCoins(userId, amount);
 }
 
 async function createFundedUser(tag: string, coins: number) {
@@ -163,6 +142,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const superAdmin = await createSuperAdmin(`${tag}-super`);
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
+  await activateTestWithdrawalPolicy(country.id, admin.id);
   await createExchangeRate(country.id, 'USD', 2, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
@@ -227,6 +207,8 @@ async function cleanLifecycleFixtures() {
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'W1D1 Test Country' } } });
   for (const c of countries) {
     await prisma.exchangeRateConfig.deleteMany({ where: { countryId: c.id } });
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: c.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: c.code } });
     await prisma.paymentMethodDefinition.deleteMany({ where: { countryId: c.id } });
   }
   await prisma.country.deleteMany({ where: { name: { startsWith: 'W1D1 Test Country' } } });
@@ -800,6 +782,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     const superAdmin = await createSuperAdmin(`${tag}-super`);
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
+    await activateTestWithdrawalPolicy(country.id, admin.id);
     await createExchangeRate(country.id, 'USD', 2, admin.id);
     const { agent } = await createFundedAgent(tag, country.id, admin, superAdmin, 1_000_000n);
 

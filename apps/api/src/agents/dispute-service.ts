@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
-import { applyBalanceChanges, getOrCreateWallet } from '../economy/wallet-service';
+import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
 import { assertPlatformAdmin } from './agent-service';
 import { releaseReservedInventory, consumeReservedInventory } from './inventory-service';
 
@@ -246,7 +246,7 @@ export type DisputeResolutionValue = 'RELEASE' | 'CANCEL';
  *
  * RELEASE: the order settles exactly like Phase E's agent-release path, but
  * admin-triggered — reuses the same lower-level primitives
- * (consumeReservedInventory, applyBalanceChanges) directly rather than
+ * (consumeReservedInventory, creditCoins) directly rather than
  * modifying settleAgentOrder, per the explicit instruction not to rewrite
  * the existing settlement system. resolvedVia is ADMIN_DISPUTE_RESOLUTION,
  * releasedBy is the resolving admin's userId.
@@ -269,13 +269,43 @@ export async function resolveDispute(
     throw ApiError.badRequest('A resolution note is required');
   }
   await assertPlatformAdmin(adminId);
+  const disputeTarget = await prisma.dispute.findUnique({
+    where: { id: disputeId },
+    select: { orderId: true },
+  });
+  if (!disputeTarget) throw ApiError.notFound('Dispute not found');
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `agent_order:${disputeTarget.orderId}`);
     const before = await tx.dispute.findUnique({ where: { id: disputeId } });
     if (!before) throw ApiError.notFound('Dispute not found');
     await assertNotSelfDispute(adminId, before.orderId);
     if (before.assignedAdminId !== adminId) {
       throw ApiError.forbidden('Only the admin who claimed this dispute may resolve it');
+    }
+    // L1 before the L4 dispute/order claim and the eventual L5 Coin credit.
+    const buyerPreview = await tx.agentOrder.findUnique({
+      where: { id: before.orderId }, select: { userId: true },
+    });
+    if (!buyerPreview) throw ApiError.internal('Order missing for dispute resolution');
+    // Recheck the resolving administrator under a User row lock inside the
+    // money-moving transaction. The preflight role read can be stale when an
+    // admin is demoted or suspended just before a dispute RELEASE. Lock both
+    // users in ascending order, as for other multi-user Coin operations.
+    const participants = await tx.$queryRaw<Array<{
+      id: string; role: string; status: string;
+    }>>`
+      SELECT id, role::text AS role, status::text AS status
+      FROM users WHERE id = ${buyerPreview.userId} OR id = ${adminId}
+      ORDER BY id FOR SHARE
+    `;
+    if (!participants.some((user) => user.id === buyerPreview.userId)) {
+      throw ApiError.internal('Buyer missing for paid agent order');
+    }
+    const currentAdmin = participants.find((user) => user.id === adminId);
+    if (!currentAdmin || currentAdmin.status !== 'ACTIVE'
+        || !['ADMIN', 'SUPER_ADMIN'].includes(currentAdmin.role)) {
+      throw ApiError.forbidden('Active platform administrator required');
     }
 
     const claim = await tx.dispute.updateMany({
@@ -307,29 +337,31 @@ export async function resolveDispute(
       if (reservationClaim.count === 0) throw ApiError.conflict('Reservation already released or consumed');
 
       await consumeReservedInventory(tx, order.agentId, reservation.amount, order.id, reservation.id);
-      await getOrCreateWallet(order.userId, tx);
-      const balanceResult = await applyBalanceChanges(tx, order.userId, [
-        {
-          currency: 'COINS',
-          amount: order.coinAmount,
-          ledgerType: 'CREDIT',
-          transactionType: 'COIN_CREDIT',
-          referenceType: 'AGENT_ORDER',
-          referenceId: order.id,
-          description: `Coins purchased via agent order ${order.orderNumber} (dispute-resolved release)`,
-        },
-      ]);
-
-      await tx.agentOrderSettlement.create({
-        data: {
-          orderId: order.id,
-          reservationId: reservation.id,
-          coinAmount: order.coinAmount,
-          walletTransactionId: balanceResult.transactions[0].id,
-          resolvedVia: 'ADMIN_DISPUTE_RESOLUTION',
-          releasedBy: adminId,
+      const credit = await creditCoins(tx, order.userId, order.coinAmount, {
+        type: 'PURCHASE',
+        scopeType: 'AGENT_ORDER',
+        scopeId: order.id,
+        referenceType: 'AGENT_ORDER',
+        referenceId: order.id,
+        description: `Coins purchased via agent order ${order.orderNumber} (dispute-resolved release)`,
+        createdBy: adminId,
+        completePurchaseProof: async (purchaseTx, walletTransactionId) => {
+          const settlement = await purchaseTx.agentOrderSettlement.create({
+            data: {
+              orderId: order.id,
+              reservationId: reservation.id,
+              coinAmount: order.coinAmount,
+              walletTransactionId,
+              resolvedVia: 'ADMIN_DISPUTE_RESOLUTION',
+              releasedBy: adminId,
+            },
+          });
+          return settlement.id;
         },
       });
+      if (!credit.purchaseSettlementId) {
+        throw ApiError.internal('Dispute release lacks a purchase witness');
+      }
     } else {
       const orderClaim = await tx.agentOrder.updateMany({
         where: { id: order.id, status: 'DISPUTE' },

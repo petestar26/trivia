@@ -312,7 +312,15 @@ describeIf('Agent conversation message retrieval', () => {
 
     const conversation = await getOwnConversation(user.id);
     const result = await listMessages(user.id, conversation.id);
-    expect(result.messages.map((m) => m.body)).toEqual(['first', 'second', 'third']);
+    expect(result.messages.map((m) => m.body).sort()).toEqual(['first', 'second', 'third']);
+    for (let index = 1; index < result.messages.length; index++) {
+      const prior = result.messages[index - 1];
+      const current = result.messages[index];
+      expect(prior.createdAt.getTime()).toBeLessThanOrEqual(current.createdAt.getTime());
+      if (prior.createdAt.getTime() === current.createdAt.getTime()) {
+        expect(prior.id.localeCompare(current.id)).toBeLessThan(0);
+      }
+    }
   });
 
   it('pagination returns pages without skipping or duplicating', async () => {
