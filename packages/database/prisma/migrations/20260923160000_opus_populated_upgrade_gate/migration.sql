@@ -1,0 +1,12 @@
+-- Populated-upgrade data-integrity validation, the actual gate.
+--
+-- By this point the schema (20260923140000) and the guard updates
+-- (20260923150000) that let a dual-admin remediation actually write are
+-- already committed, so an operator whose deployment stops here can run
+-- the remediation service immediately against this same database, then
+-- retry this migration (after `prisma migrate resolve --rolled-back` for
+-- this migration name) once check_populated_upgrade_integrity() reports
+-- nothing. This statement makes no schema change; it exists purely to turn
+-- a fresh install's guaranteed-empty scan and a populated upgrade's
+-- possibly-nonempty scan into the same hard stop.
+SELECT "run_populated_upgrade_gate"();

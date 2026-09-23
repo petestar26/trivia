@@ -12,7 +12,8 @@ import { createWithdrawal, cancelHeldWithdrawal } from '../withdrawals/withdrawa
 import { sendGift } from '../economy/gift-service.js';
 import { flushCoinLedgerConstraints } from '../economy/coin-ledger-service.js';
 import type { CreditCoinsArgs, DebitCoinsArgs } from '../economy/coin-ledger-service.js';
-import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
+import { runLedgerInvariantCheckInTransaction, runPopulatedUpgradePreflight } from '../economy/ledger-invariant-checker.js';
+import { firstApproveManagedLotIntegrityRemediation, secondApproveManagedLotIntegrityRemediation } from '../economy/managed-lot-integrity-service.js';
 import { playGame } from '../games/game-play.js';
 import { waitForBlockedBackends, ROW_LOCK_WAITS, probeRowLockable } from '../test/pg-locks.js';
 import { claimPayout } from '../withdrawals/withdrawal-service.js';
@@ -733,9 +734,13 @@ describe('C3: gift replay is an immutable snapshot, never re-read from the catal
     expect(replay.isReplay).toBe(true);
     expect(replay.giftName).toBe(first.giftName);
     expect(replay.giftName).not.toBe('RENAMED-AFTER-SEND');
-    const { isReplay: _firstReplay, ...firstSnapshot } = first;
-    const { isReplay: _replayReplay, ...replaySnapshot } = replay;
-    expect(replaySnapshot).toEqual(firstSnapshot);
+    // Every stored response field must be byte-for-byte identical between
+    // the original send and its replay; only the intentional isReplay
+    // indicator differs (asserted separately above), so it is excluded here
+    // without introducing an unused destructured binding.
+    const omitIsReplay = (result: typeof first) =>
+      Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'isReplay'));
+    expect(omitIsReplay(replay)).toEqual(omitIsReplay(first));
   });
 
   it('a conflicting payload reusing the same idempotency key still returns 409, without touching the catalog', async () => {
@@ -777,5 +782,235 @@ describe('C3: gift replay is an immutable snapshot, never re-read from the catal
     expect(replay.giftName).toBeNull();
     expect(replay.totalCoins).toBe(first.totalCoins);
     expect(replay.quantity).toBe(first.quantity);
+  });
+});
+
+/** Plants a poisoned coin_provenance row inside the caller's own transaction
+ * (bypassing ORIGIN-mode triggers for that one statement, restored at
+ * COMMIT/ROLLBACK — the same mechanism the fixture-cleanup bridge and the
+ * I0 poison-probe test use) without ever touching any other table. The
+ * caller decides whether to roll back (pure detection) or commit and then
+ * remediate (a full walkthrough). */
+async function plantPoisonedLot(tx: Prisma.TransactionClient, args: {
+  id: string; userId: string; sourceOperationId: string | null; lotClass?: string;
+}) {
+  await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+  await tx.$executeRawUnsafe(
+    `INSERT INTO "coin_provenance" (id,"userId","amount","provenanceType","restrictionStatus","originalSource",
+       "lotClass","state","availableAmount","reservedAmount","requirementAmount","progressAmount",
+       "mintedAt","availableAt","sourceOperationId","createdAt","updatedAt")
+     VALUES ($1,$2,10,'ADMIN_ADJUSTMENT','UNRESTRICTED','ADMIN_ADJUSTMENT',
+       $3::"lot_class",'OPEN',10,0,0,0, now(), now(), $4, now(), now())`,
+    args.id, args.userId, args.lotClass ?? 'WITHDRAWABLE', args.sourceOperationId,
+  );
+}
+
+describe('PU: populated-upgrade data-integrity validation and remediation', () => {
+  it('PU1: a managed lot with no source operation is flagged and the gate raises', async () => {
+    const fixture = await purchasedFixture(1000);
+    const lotId = uid('pu1-missing-source');
+    await expect(prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: null });
+      const violations = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${lotId}`;
+      expect(violations.some((v) => v.category === 'MISSING_SOURCE_OPERATION')).toBe(true);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(/Populated upgrade validation failed/);
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+  });
+
+  it('PU2: a managed lot with an invalid (non-existent) source operation is flagged and the gate raises', async () => {
+    const fixture = await purchasedFixture(1000);
+    const lotId = uid('pu2-invalid-source');
+    await expect(prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: uid('pu2-nonexistent-op') });
+      const violations = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${lotId}`;
+      expect(violations.some((v) => v.category === 'INVALID_SOURCE_OPERATION')).toBe(true);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(/Populated upgrade validation failed/);
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+  });
+
+  it('PU3: a managed lot with a cross-user source operation is flagged and the gate raises', async () => {
+    const fixtureA = await purchasedFixture(1000);
+    const fixtureB = await purchasedFixture(1000);
+    const realOpBelongingToB = await prisma.economicOperation.findFirstOrThrow({ where: { userId: fixtureB.buyer.id } });
+    const lotId = uid('pu3-cross-user-source');
+    await expect(prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixtureA.buyer.id, sourceOperationId: realOpBelongingToB.id });
+      const violations = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${lotId}`;
+      expect(violations.some((v) => v.category === 'CROSS_USER_SOURCE_OPERATION')).toBe(true);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(/Populated upgrade validation failed/);
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+  });
+
+  it('PU4: a managed lot whose cache does not equal its own journal-entry sums is flagged and the gate raises', async () => {
+    const fixture = await purchasedFixture(1000);
+    const realOp = await prisma.economicOperation.findFirstOrThrow({ where: { userId: fixture.buyer.id } });
+    const lotId = uid('pu4-cache-mismatch');
+    await expect(prisma.$transaction(async (tx) => {
+      // A real, valid, same-user source operation -- but the cache (10)
+      // still does not equal the sum of this lot's own entries (0, none).
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: realOp.id });
+      const violations = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${lotId}`;
+      expect(violations.some((v) => v.category === 'CACHE_ENTRY_MISMATCH')).toBe(true);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(/Populated upgrade validation failed/);
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+  });
+
+  it('PU5: a classified wallet whose balance does not equal its summed lots is flagged and the gate raises', async () => {
+    const fixture = await purchasedFixture(1000);
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      await tx.$executeRawUnsafe(
+        'UPDATE "wallets" SET "coinsBalance" = "coinsBalance" + 1 WHERE "userId" = $1', fixture.buyer.id);
+      const violations = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${fixture.buyer.id}`;
+      expect(violations.some((v) => v.category === 'WALLET_LOT_MISMATCH')).toBe(true);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(/Populated upgrade validation failed/);
+    expect(await walletCoins(fixture.buyer.id)).toBe(1000);
+  });
+
+  it('PU6: the validation and gate are read-only -- they never repair, delete or legitimize anything themselves', async () => {
+    const fixture = await purchasedFixture(1000);
+    const lotId = uid('pu6-readonly');
+    const before = await prisma.coinProvenance.findMany({ where: { userId: fixture.buyer.id } });
+    await expect(prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: null });
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow();
+    const after = await prisma.coinProvenance.findMany({ where: { userId: fixture.buyer.id } });
+    expect(after).toEqual(before);
+  });
+
+  it('PU7: a legitimate populated lot (real purchase, matching cache, entries and wallet) is never flagged', async () => {
+    const fixture = await purchasedFixture(1000);
+    const ownLot = await prisma.coinProvenance.findFirstOrThrow({ where: { userId: fixture.buyer.id } });
+    // Scoped to this fixture's own ids -- a global gate call would be an
+    // unreliable assertion in a suite where many test files share one
+    // database concurrently.
+    const violations = await runPopulatedUpgradePreflight();
+    expect(violations.some((v) => v.id === fixture.buyer.id || v.id === ownLot.id)).toBe(false);
+  });
+
+  it('PU8: full remediation walkthrough for an unjournaled withdrawable lot -- propose, second-approve by a distinct admin, then zero violations', async () => {
+    const fixture = await purchasedFixture(1000);
+    const admin1 = await user(`pu8-admin1-${uid('x')}`, 'SUPER_ADMIN');
+    const admin2 = await user(`pu8-admin2-${uid('x')}`, 'SUPER_ADMIN');
+    const lotId = uid('pu8-lot');
+    await prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: null });
+    });
+    const preViolations = await runPopulatedUpgradePreflight();
+    expect(preViolations.some((v) => v.id === lotId)).toBe(true);
+
+    const { reviewId } = await firstApproveManagedLotIntegrityRemediation(admin1.id,
+      { userId: fixture.buyer.id, lotId }, {
+        anomalyType: 'MISSING_SOURCE_OPERATION', proposedAvailableAmount: 10,
+        rationale: 'Investigated via support ticket #4821; amount corroborated by payment provider export.',
+        supportingEvidence: ['support-ticket-4821.pdf'],
+      });
+
+    // Marking it resolved alone must never bypass validation: a distinct
+    // second admin re-runs the exact same live check before writing anything.
+    const result = await secondApproveManagedLotIntegrityRemediation(admin2.id, reviewId);
+    expect(result.idempotent).toBe(false);
+
+    const oldLot = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: lotId } });
+    expect(oldLot.state).toBe('INTEGRITY_REMEDIATED');
+    expect(oldLot.availableAmount).toBe(0);
+
+    const successor = await prisma.coinProvenance.findFirstOrThrow({ where: { parentLotId: lotId } });
+    expect(successor.availableAmount).toBe(10);
+    expect(successor.lotClass).toBe('WITHDRAWABLE');
+    expect(successor.sourceOperationId).toBe(result.operationId);
+
+    const postViolations = await runPopulatedUpgradePreflight();
+    expect(postViolations.some((v) => v.id === lotId || v.id === successor.id)).toBe(false);
+
+    // Replay is idempotent: a second call from the SAME second approver
+    // returns the same operation without writing anything new.
+    const replay = await secondApproveManagedLotIntegrityRemediation(admin2.id, reviewId);
+    expect(replay.idempotent).toBe(true);
+    expect(replay.operationId).toBe(result.operationId);
+  });
+
+  it('PU9: remediation requires two DISTINCT administrators', async () => {
+    const fixture = await purchasedFixture(1000);
+    const admin1 = await user(`pu9-admin1-${uid('x')}`, 'SUPER_ADMIN');
+    const lotId = uid('pu9-lot');
+    await prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: null });
+    });
+    const { reviewId } = await firstApproveManagedLotIntegrityRemediation(admin1.id,
+      { userId: fixture.buyer.id, lotId }, {
+        anomalyType: 'MISSING_SOURCE_OPERATION', proposedAvailableAmount: 10,
+        rationale: 'Same-admin attempt must be rejected regardless of evidence quality here.',
+        supportingEvidence: ['n/a'],
+      });
+    await expect(secondApproveManagedLotIntegrityRemediation(admin1.id, reviewId))
+      .rejects.toMatchObject({ statusCode: 409 });
+    const lot = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: lotId } });
+    expect(lot.state).toBe('OPEN');
+
+    // A genuinely distinct second admin still resolves it, leaving the
+    // shared test database in a clean, zero-violation state rather than
+    // permanently poisoned by this test.
+    const admin2 = await user(`pu9-admin2-${uid('x')}`, 'SUPER_ADMIN');
+    await secondApproveManagedLotIntegrityRemediation(admin2.id, reviewId);
+    const violations = await runPopulatedUpgradePreflight();
+    expect(violations.some((v) => v.id === lotId)).toBe(false);
+  });
+
+  it('PU10: full remediation walkthrough for a wallet/lot mismatch -- mints an UNCLASSIFIED shortfall lot funneled into the existing legacy-review workflow', async () => {
+    const fixture = await purchasedFixture(1000);
+    const admin1 = await user(`pu10-admin1-${uid('x')}`, 'SUPER_ADMIN');
+    const admin2 = await user(`pu10-admin2-${uid('x')}`, 'SUPER_ADMIN');
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      await tx.$executeRawUnsafe(
+        'UPDATE "wallets" SET "coinsBalance" = "coinsBalance" + 25 WHERE "userId" = $1', fixture.buyer.id);
+    });
+    expect(await walletCoins(fixture.buyer.id)).toBe(1025);
+
+    const { reviewId } = await firstApproveManagedLotIntegrityRemediation(admin1.id,
+      { userId: fixture.buyer.id }, {
+        anomalyType: 'WALLET_LOT_MISMATCH', proposedAvailableAmount: 25,
+        rationale: 'Wallet exceeds summed lots by exactly 25; source pending investigation.',
+        supportingEvidence: ['reconciliation-report.csv'],
+      });
+    const result = await secondApproveManagedLotIntegrityRemediation(admin2.id, reviewId);
+
+    expect(await walletCoins(fixture.buyer.id)).toBe(1025);
+    const shortfallLot = await prisma.coinProvenance.findFirstOrThrow({ where: { sourceOperationId: result.operationId } });
+    expect(shortfallLot.lotClass).toBe('UNCLASSIFIED');
+    expect(shortfallLot.availableAmount).toBe(25);
+    expect(shortfallLot.reviewId).not.toBeNull();
+
+    const followUp = await prisma.legacyBalanceReview.findUniqueOrThrow({ where: { id: shortfallLot.reviewId! } });
+    expect(followUp.status).toBe('OPEN');
+    expect(followUp.amount).toBe(25);
+
+    const postViolations = await runPopulatedUpgradePreflight();
+    expect(postViolations.some((v) => v.id === fixture.buyer.id)).toBe(false);
+  });
+
+  it('PU11: the preflight report and the migration gate agree on exactly the same set of records', async () => {
+    const fixture = await purchasedFixture(1000);
+    const lotId = uid('pu11-lot');
+    await expect(prisma.$transaction(async (tx) => {
+      await plantPoisonedLot(tx, { id: lotId, userId: fixture.buyer.id, sourceOperationId: null });
+      const preflightWithinTx = await tx.$queryRaw<{ category: string; id: string }[]>`
+        SELECT category, id FROM "check_populated_upgrade_integrity"() WHERE id = ${lotId}`;
+      expect(preflightWithinTx.length).toBeGreaterThan(0);
+      await tx.$executeRawUnsafe('SELECT run_populated_upgrade_gate()');
+    })).rejects.toThrow(new RegExp(lotId));
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
   });
 });

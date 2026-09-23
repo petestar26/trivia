@@ -51,6 +51,7 @@ model User {
   coinLedgerAccount         CoinLedgerAccount?
   kycVerification           UserKycVerification?
   legacyBalanceReviews      LegacyBalanceReview[]
+  managedLotIntegrityReviews ManagedLotIntegrityReview[]
   vipMembership             VipMembership?
   progress                  UserProgress?
   xpEvents                  UserXpEvent[]
@@ -906,6 +907,7 @@ enum LotState {
   EXPIRED
   RECLASSIFIED
   FORFEITED
+  INTEGRITY_REMEDIATED
   @@map("lot_state")
 }
 
@@ -937,6 +939,7 @@ enum OperationType {
   ADMIN_ADJUST
   ADMIN_QUALIFY
   COMPENSATION
+  LEGACY_INTEGRITY_REMEDIATION
   @@map("operation_type")
 }
 
@@ -1097,6 +1100,7 @@ model CoinProvenance {
   rootedLots               CoinProvenance[] @relation("CoinLotRoot")
   review                   LegacyBalanceReview? @relation("LotSelectedReview", fields: [reviewId], references: [id], onDelete: Restrict, map: "coin_provenance_review_fkey")
   reviews                  LegacyBalanceReview[] @relation("ReviewLot")
+  integrityReviews         ManagedLotIntegrityReview[] @relation("IntegrityReviewLot")
 
   @@index([userId])
   @@index([userId, restrictionStatus])
@@ -1129,6 +1133,7 @@ model EconomicOperation {
   entries              CoinLotEntry[]
   sourceLots           CoinProvenance[] @relation("OperationSourceLot")
   reviewsResolved      LegacyBalanceReview[]
+  integrityReviewsResolved ManagedLotIntegrityReview[]
   withdrawalHolds      WithdrawalHold[]
 
   @@unique([type, scopeType, scopeId], map: "economic_operations_scope_key")
@@ -1220,6 +1225,32 @@ model LegacyBalanceReview {
 
   @@index([userId, status], map: "legacy_balance_reviews_user_status_idx")
   @@map("legacy_balance_reviews")
+}
+
+// Dual-admin remediation for a MANAGED lot (lotClass IS NOT NULL) whose own
+// bookkeeping cannot be trusted -- legacy_balance_reviews cannot represent
+// this (it requires lotClass = 'UNCLASSIFIED'). lotId is null for a
+// wallet/lot aggregate mismatch with no single identifiably-broken lot.
+model ManagedLotIntegrityReview {
+  id                      String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                  String
+  lotId                   String?
+  anomalyType             String
+  proposedAvailableAmount Int
+  evidence                Json      @default("{}")
+  status                  String    @default("FIRST_APPROVED")
+  resolvedBy              String
+  secondApproverId        String?
+  resolutionOperationId   String?   @unique
+  createdAt               DateTime  @default(now())
+  resolvedAt              DateTime?
+
+  user                User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "managed_lot_integrity_reviews_user_fkey")
+  lot                 CoinProvenance? @relation("IntegrityReviewLot", fields: [lotId], references: [id], onDelete: Restrict, map: "managed_lot_integrity_reviews_lot_fkey")
+  resolutionOperation EconomicOperation? @relation(fields: [resolutionOperationId], references: [id], onDelete: Restrict, map: "managed_lot_integrity_reviews_resolutionOperation_fkey")
+
+  @@index([userId, status], map: "managed_lot_integrity_reviews_user_status_idx")
+  @@map("managed_lot_integrity_reviews")
 }
 
 model InvariantCheckRun {

@@ -71,7 +71,7 @@ const checks: ReadonlyArray<[string, string]> = [
                COALESCE(SUM(e."progressDelta"+e."obligationDelta"),0)::bigint AS requirement
         FROM "coin_lot_entries" e WHERE e."lotId"=p."id"
       ) j ON true
-      WHERE p."lotClass" IS NOT NULL AND (
+      WHERE p."lotClass" IS NOT NULL AND p."state" <> 'INTEGRITY_REMEDIATED' AND (
         p."availableAmount" IS NULL OR p."reservedAmount" IS NULL
         OR p."progressAmount" IS NULL OR p."requirementAmount" IS NULL
         OR p."availableAmount" < 0 OR p."reservedAmount" < 0
@@ -150,6 +150,10 @@ const checks: ReadonlyArray<[string, string]> = [
           (o."type"='LEGACY_RESOLVE' AND e."entryType"='RECLASS_IN'
             AND o."snapshot" ? 'evidence' AND o."snapshot" ? 'firstApproverId'
             AND o."snapshot" ? 'secondApproverId') OR
+          (o."type"='LEGACY_INTEGRITY_REMEDIATION' AND e."entryType"='MINT'
+            AND o."snapshot" ? 'evidence' AND o."snapshot" ? 'firstApproverId'
+            AND o."snapshot" ? 'secondApproverId'
+            AND o."snapshot"->>'firstApproverId' <> o."snapshot"->>'secondApproverId') OR
           (o."type"='COMPENSATION' AND e."reversesEntryId" IS NOT NULL)
         )
     ) SELECT COUNT(*)::int AS count,
@@ -273,6 +277,15 @@ const checks: ReadonlyArray<[string, string]> = [
              OR r."userId"<>p."userId")
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
+  // Populated-upgrade data integrity: the same definition of "malformed
+  // pre-existing ledger data" used by the deployment gate
+  // (run_populated_upgrade_gate, migration 20260923160000) and the read-only
+  // preflight report (runPopulatedUpgradePreflight below), so this ongoing
+  // scan can never drift from what a migration would have stopped on.
+  ['I15 populated-upgrade data integrity (source operation, cache/entry, wallet/lot)', `
+    SELECT COUNT(*)::int AS count,
+       COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample
+    FROM "check_populated_upgrade_integrity"()`],
 ];
 
 async function checkPayoutSplits(tx: Tx): Promise<LedgerViolation | null> {
@@ -360,4 +373,20 @@ export async function runLedgerInvariantCheckInTransaction(
 export async function runLedgerInvariantCheck(evidence: LedgerBehaviorEvidence | null = null) {
   return prisma.$transaction((tx) => runLedgerInvariantCheckInTransaction(tx, evidence, evidence !== null),
     { isolationLevel: 'Serializable', timeout: 120_000 });
+}
+
+export interface PopulatedUpgradeViolation {
+  category: string;
+  id: string;
+  detail: string;
+}
+
+/** Read-only report using the exact same definition of "malformed" the
+ * deployment migration (run_populated_upgrade_gate) would stop on — safe to
+ * run against any database at any time, including before a deployment, to
+ * discover affected records without altering anything. */
+export async function runPopulatedUpgradePreflight(): Promise<PopulatedUpgradeViolation[]> {
+  return prisma.$queryRaw<PopulatedUpgradeViolation[]>`
+    SELECT category, id, detail FROM "check_populated_upgrade_integrity"() ORDER BY category, id
+  `;
 }

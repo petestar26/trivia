@@ -33,7 +33,7 @@ async function lockScope(tx: Tx, reviewId: string) {
     (SELECT pg_advisory_xact_lock(hashtextextended(${'legacy_review:' + reviewId},0))) AS acquired`;
 }
 
-async function lockAdminAndOwner(tx: Tx, actorId: string, ownerId: string) {
+export async function lockAdminAndOwner(tx: Tx, actorId: string, ownerId: string) {
   if (actorId === ownerId) throw ApiError.forbidden('An administrator cannot approve their own Coin review');
   const users = (await tx.$queryRaw`
     SELECT "id","role"::text AS "role","status"::text AS "status"
