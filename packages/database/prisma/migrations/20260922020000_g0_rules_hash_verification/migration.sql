@@ -1,11 +1,11 @@
 -- Migration E2: G0 — Rules Hash Verification + GameDefinition↔GameRules Agreement Guard
--- Forward-only corrections (deployed 20260918* migrations are NOT modified).
+-- Corrections to the 20260918* migrations, written as a separate migration.
 --
 -- 1. Verifies the rules_hash recorded for every existing v1 rule matches the
---    deterministic hash the seed migration produced for that game:
---    - dice / number_challenge / lucky_spin: digest(game_definitions.configuration::text)
---    - trivia: digest of the fixed BONUS reward-rule JSON (the seed stores a
---      hand-written rules value for trivia, so its hash derives from that text).
+--    deterministic canonical hash (rules_hash(), defined by the seed) of:
+--    - dice / number_challenge / lucky_spin: game_definitions.configuration
+--    - trivia: the fixed BONUS reward-rule JSON (the seed stores a
+--      hand-written rules value for trivia, so its hash derives from that).
 -- 2. Adds a trigger that prevents GameDefinition metadata (mode/family/
 --    wagerCurrency/rewardCurrency) from being updated in a way that would
 --    disagree with the current active GameRules row.
@@ -19,9 +19,9 @@ BEGIN
         SELECT r."id", d."key", r."version", r."rulesHash",
                CASE d."key"
                    WHEN 'trivia' THEN
-                       encode(digest('{"correctPoints": 30, "restricted": true, "withdrawable": false}'::text, 'sha256'), 'hex')
+                       "rules_hash"('{"correctPoints": 30, "restricted": true, "withdrawable": false}'::jsonb)
                    ELSE
-                       encode(digest(d."configuration"::text, 'sha256'), 'hex')
+                       "rules_hash"(d."configuration")
                END AS expected
         FROM "game_rules" r
         JOIN "game_definitions" d ON d."id" = r."gameId"

@@ -121,7 +121,9 @@ CREATE UNIQUE INDEX "country_casino_policies_one_active_per_country"
   ON "country_casino_policies" ("countryCode") WHERE "state" = 'ACTIVE';
 
 CREATE TABLE "country_jurisdictions" (
-    "countryCode" VARCHAR(3) NOT NULL,
+    -- One row per "countries" row; TEXT like "countries"."code", which master
+    -- never limited, so every existing country gets its (fail-closed) row.
+    "countryCode" TEXT NOT NULL,
     "activePolicyId" TEXT,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "country_jurisdictions_pkey" PRIMARY KEY ("countryCode"),

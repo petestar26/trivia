@@ -13,14 +13,19 @@
 --
 -- The fix: verify the four v1 rulesHash values against FIXED literal
 -- hashes instead — copied from an already-migrated, already-verified
--- database, not derived from any column at check time. (These literals are
--- exactly what the original migration's own verification proved correct at
--- seed time. Reproducing them requires standing up a fresh database,
--- applying migrations through the seed, and reading game_rules.rulesHash
--- directly:
+-- database, not derived from any column at check time. (Reproducing them
+-- requires standing up a fresh database, applying migrations through the
+-- seed, and reading game_rules.rulesHash directly:
 --   SELECT d.key, r."rulesHash" FROM game_rules r
 --   JOIN game_definitions d ON d.id = r."gameId";
 -- which is how these literals were obtained.)
+--
+-- The literals are canonical hashes (rules_hash(), see the seed): numbers
+-- compare by value, so a database whose pre-casino API wrote lucky_spin's
+-- 0.10 as 0.1 verifies against the same literal as a fresh install, while
+-- any real rule change (0.11, a new threshold) still fails here. The
+-- pre-upgrade gate (20260917900000) refuses such a change earlier, before
+-- any schema is touched.
 --
 -- No additional immutability trigger is needed here: game_rules rows are
 -- ALREADY unconditionally immutable — see "game_rules_immutable" in
@@ -44,9 +49,9 @@ BEGIN
     LOOP
         expected := CASE bad."key"
             WHEN 'dice' THEN 'b27e863a963398aa362d5c6732c2645d103bb636ef82730b9be66ce4257aa366'
-            WHEN 'lucky_spin' THEN 'c5ee330f1e2f43ef876c958e1f741072102ce878acc7f7c4104b61fbb49f5fc9'
+            WHEN 'lucky_spin' THEN 'db0f5bcfe9109a753e6885dbb093c86b8e84d867778fda15e42ff8ab367b3645'
             WHEN 'number_challenge' THEN 'b90a3b891ac3d29fa466532ee3597aa0852c8deb8afd29c5a4b7a6a663c8117e'
-            WHEN 'trivia' THEN '1fc5cec60a93bafd4c6bd605992f5738316677ec0554f2fb5606b13665897d58'
+            WHEN 'trivia' THEN 'b0b41630cf8053cde34eebfe9aca34dee1772533a6f0629bef86d7e4c903c6f9'
         END;
 
         IF bad."rulesHash" <> expected THEN

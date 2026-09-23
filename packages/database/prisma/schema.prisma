@@ -1010,7 +1010,7 @@ model GameRules {
 
 model CountryCasinoPolicy {
   id                      String             @id @default(uuid())
-  countryCode             String             @db.VarChar(3)
+  countryCode             String
   version                 Int
   status                  CountryCasinoStatus @default(DISABLED)
   enabledAt               DateTime?
@@ -1169,7 +1169,7 @@ model CoinLotEntry {
 }
 
 model CountryJurisdiction {
-  countryCode    String @id @db.VarChar(3)
+  countryCode    String @id
   activePolicyId String? @unique
   updatedAt      DateTime @default(now())
 

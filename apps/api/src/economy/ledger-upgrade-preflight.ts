@@ -4,7 +4,8 @@
  * Works on both supported schemas:
  *   - PRE_UPGRADE (master): evaluates the ledger-integrity definitions over a
  *     projection of what the upgrade migrations will create from this data,
- *     i.e. exactly what the pre-upgrade gate (20260917900000) will decide.
+ *     plus the legacy game catalog preconditions, i.e. exactly what the
+ *     pre-upgrade gate (20260917900000) will decide.
  *   - UPGRADED: evaluates the same definitions over the ledger tables, i.e.
  *     exactly what the final gate (20260924000000) and the runtime invariant
  *     checker (I15) decide, and reports whether the installed database
@@ -15,7 +16,8 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
-  LEDGER_FUNCTION_BODY, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, buildAnomalyQuery, normalizeSql,
+  LEDGER_FUNCTION_BODY, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, LEGACY_CATALOG_PRECONDITIONS,
+  buildAnomalyQuery, normalizeSql,
 } from './ledger-integrity-definitions.js';
 
 type Queryable = Pick<Prisma.TransactionClient, '$queryRawUnsafe'>;
@@ -92,11 +94,13 @@ function classify(facts: SchemaFacts): { mode: LedgerSchemaMode; reason: string 
 export async function collectLedgerIntegrityAnomalies(
   db: Queryable, mode: 'PRE_UPGRADE' | 'UPGRADED',
 ): Promise<LedgerIntegrityAnomaly[]> {
-  const source = mode === 'UPGRADED' ? LEDGER_SOURCE_CURRENT : LEDGER_SOURCE_PROJECTED;
+  const query = mode === 'UPGRADED'
+    ? buildAnomalyQuery(LEDGER_SOURCE_CURRENT)
+    : buildAnomalyQuery(LEDGER_SOURCE_PROJECTED, LEGACY_CATALOG_PRECONDITIONS);
   return db.$queryRawUnsafe<LedgerIntegrityAnomaly[]>(`
     SELECT q.category, q.subject_type AS "subjectType", q.subject_id AS "subjectId",
            q.user_id AS "userId", q.detail
-    FROM (${buildAnomalyQuery(source)}) q
+    FROM (${query}) q
     ORDER BY q.category, q.subject_id NULLS FIRST`);
 }
 

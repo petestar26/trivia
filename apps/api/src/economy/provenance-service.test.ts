@@ -20,7 +20,7 @@ import { mintTestPurchasedCoins } from '../test/financial-policy-fixtures.js';
 
 const id = (prefix: string) => `${prefix}-${randomUUID()}`;
 
-async function makeUser() {
+async function makeUser(role?: 'SUPER_ADMIN') {
   const tag = randomUUID().replaceAll('-', '');
   return prisma.user.create({
     data: {
@@ -28,6 +28,7 @@ async function makeUser() {
       username: `lp${tag.slice(0, 14)}`,
       passwordHash: 'fixture-only',
       displayName: 'Ledger provenance fixture',
+      ...(role ? { role } : {}),
     },
   });
 }
@@ -212,10 +213,11 @@ describe('Opus coin ledger: classified balances and immutable operations', () =>
     await purchase(user.id, 100);
     const before = await economicTotals(user.id);
     const operations = await operationCount(user.id);
+    const admin = await makeUser('SUPER_ADMIN');
     await expect(prisma.$transaction(async (tx) => {
       await creditCoins(tx, user.id, 25, {
         type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId: id('rollback'),
-        referenceType: 'ADMIN', description: 'Rollback probe',
+        referenceType: 'ADMIN', description: 'Rollback probe', createdBy: admin.id,
       });
       throw new Error('forced rollback');
     })).rejects.toThrow('forced rollback');
@@ -226,9 +228,10 @@ describe('Opus coin ledger: classified balances and immutable operations', () =>
   it('I5/T11: an unexplained admin credit enters review and cannot be reserved for withdrawal', async () => {
     const user = await makeUser();
     const scopeId = id('admin-credit');
+    const admin = await makeUser('SUPER_ADMIN');
     const credit = await prisma.$transaction((tx) => creditCoins(tx, user.id, 25, {
       type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId,
-      referenceType: 'ADMIN', referenceId: scopeId, description: 'Unexplained credit',
+      referenceType: 'ADMIN', referenceId: scopeId, description: 'Unexplained credit', createdBy: admin.id,
     }));
     expect((await lot(credit.lotId)).lotClass).toBe('UNCLASSIFIED');
     const [review] = await prisma.$queryRaw<{ status: string }[]>`

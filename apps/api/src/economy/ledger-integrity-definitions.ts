@@ -25,6 +25,7 @@
  */
 
 export const LEDGER_ANOMALY_CATEGORIES = [
+  'GAME_RULES_CHANGED',
   'LOT_STATE_NULL',
   'LOT_CACHE_NULL',
   'LOT_PARTIALLY_LEGACY',
@@ -235,13 +236,37 @@ WHERE l.lot_class = 'UNCLASSIFIED'
        OR r.status IS NULL OR r.status NOT IN ('OPEN', 'FIRST_APPROVED'))
 `;
 
+// Pre-upgrade only. The upgrade hashes each legacy game's stored
+// configuration as its immutable v1 rules and verifies the hash against fixed
+// literals (20260922060000). A configuration that differs from the one this
+// release verifies would stop that migration after the casino schema already
+// exists, so the pre-upgrade gate refuses it first. jsonb equality compares
+// numbers by value, exactly like the canonical rules hash: the pre-casino
+// API's 0.1 equals the seed's 0.10, while 0.11 is a genuine rule change.
+export const LEGACY_CATALOG_PRECONDITIONS = `
+SELECT 'GAME_RULES_CHANGED'::text AS category, 'game'::text AS subject_type, d."key" AS subject_id,
+       NULL::text AS user_id,
+       format('legacy game %s is configured as %s, but this release verifies its rules as %s (numbers compare by value)',
+              d."key", COALESCE(d."configuration"::text, 'NULL'), e.expected::text) AS detail
+FROM "game_definitions" d
+JOIN (VALUES
+  ('lucky_spin', '{"outcomes": [{"name": "LOSE", "multiplier": 0, "probability": 0.45}, {"name": "SMALL_WIN", "multiplier": 1.5, "probability": 0.25}, {"name": "MEDIUM_WIN", "multiplier": 3, "probability": 0.15}, {"name": "LARGE_WIN", "multiplier": 5, "probability": 0.10}, {"name": "JACKPOT", "multiplier": 10, "probability": 0.05}]}'::jsonb),
+  ('dice', '{"winThreshold": 7, "multiplier": 2}'::jsonb),
+  ('number_challenge', '{"range": {"min": 1, "max": 100}, "rewards": {"exact": 5, "within1": 3, "within5": 2, "within10": 1.5}}'::jsonb)
+) AS e(game_key, expected) ON e.game_key = d."key"
+WHERE d."configuration" IS DISTINCT FROM e.expected
+`;
+
 /** The complete query for one source; also the exact body of the database
- * function "ledger_integrity_anomalies"() (source = LEDGER_SOURCE_CURRENT). */
-export function buildAnomalyQuery(source: string): string {
+ * function "ledger_integrity_anomalies"() (source = LEDGER_SOURCE_CURRENT).
+ * The pre-upgrade form also evaluates the legacy catalog preconditions. */
+export function buildAnomalyQuery(source: string, preconditions?: string): string {
   return `WITH
 ${source}
 , anomalies AS (
-${LEDGER_ANOMALY_PREDICATES}
+${LEDGER_ANOMALY_PREDICATES}${preconditions ? `
+UNION ALL
+${preconditions}` : ''}
 )
 SELECT a.category, a.subject_type, a.subject_id, a.user_id, a.detail
 FROM anomalies a

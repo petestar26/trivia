@@ -1,6 +1,7 @@
 // Direct-SQL attacks on the ledger's database guards. Every statement runs
 // as ordinary SQL with all triggers active (no replica mode), exactly as a
-// buggy writer or a hand-typed correction would. Each attack is shaped so
+// buggy writer or a hand-typed correction would; the one exception disables
+// a single named trigger to test the guard behind it. Each attack is shaped so
 // that only the guard under test can stop it, and asserts that guard's own
 // message, so an older, broader guard can never mask a missing one. Every
 // transaction is rolled back, whatever the verdict.
@@ -57,6 +58,27 @@ function openingLot(userId: string, available: number, reserved: number, withRev
   if (reserved > 0) statements.push(entrySql(op, lot, userId, 1, 'RESERVE', { available: -reserved, reserved }));
   return { op, lot, review, statements };
 }
+
+/** Moves an OPEN review to FIRST_APPROVED the way the lifecycle guard allows. */
+function firstApproveSql(review: string, approver: string, amount: number): Statement {
+  return [`UPDATE "legacy_balance_reviews" SET "status" = 'FIRST_APPROVED', "resolvedBy" = $2,
+      "evidence" = jsonb_build_object('proposal', jsonb_build_object('amount', $3::int, 'decision', 'WITHDRAWABLE'))
+    WHERE "id" = $1`, review, approver, amount];
+}
+
+/** Resolves a FIRST_APPROVED review the way the lifecycle guard allows, under
+ * a new resolution operation, so only the later guards can refuse it. */
+function resolveSql(review: string, userId: string, secondApprover: string): Statement[] {
+  const op = uid('guard-resolution');
+  return [operationSql(op, userId, review, 'REVIEW'),
+    [`UPDATE "legacy_balance_reviews" SET "status" = 'RESOLVED', "secondApproverId" = $2,
+        "resolutionOperationId" = $3, "resolvedAt" = now() WHERE "id" = $1`, review, secondApprover, op]];
+}
+
+/** The lifecycle guard makes a review's user immutable. Disabling it for one
+ * rolled-back transaction proves the coverage guard still holds on its own. */
+const WITHOUT_LIFECYCLE_GUARD: Statement =
+  ['ALTER TABLE "legacy_balance_reviews" DISABLE TRIGGER "legacy_review_lifecycle_guard"'];
 
 describe('ledger database guards reject malformed writes made with plain SQL', () => {
   let f: PurchasedFixture;
@@ -156,14 +178,14 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
     });
     it('refuses resolving a review while its lot still holds the value', async () => {
       const lot = openingLot(f.buyer.id, 10, 0, true);
-      expect(await verdict(() => [...lot.statements, walletDeltaSql(f.buyer.id, 10), ...FLUSH,
-        [`UPDATE "legacy_balance_reviews" SET "status" = 'RESOLVED', "resolvedBy" = $2, "secondApproverId" = $3
-          WHERE "id" = $1`, lot.review, f.superAdmin.id, other.superAdmin.id]]))
+      expect(await verdict(() => [...lot.statements, walletDeltaSql(f.buyer.id, 10),
+        firstApproveSql(lot.review, f.superAdmin.id, 10), ...FLUSH,
+        ...resolveSql(lot.review, f.buyer.id, other.superAdmin.id)]))
         .toMatch(/rejects: .*UNCLASSIFIED lot .* holds 10 Coins without an open review/);
     });
     it('refuses moving a review to another user while it covers the value', async () => {
       const lot = openingLot(f.buyer.id, 10, 0, true);
-      expect(await verdict(() => [...lot.statements, walletDeltaSql(f.buyer.id, 10), ...FLUSH,
+      expect(await verdict(() => [WITHOUT_LIFECYCLE_GUARD, ...lot.statements, walletDeltaSql(f.buyer.id, 10), ...FLUSH,
         ['UPDATE "legacy_balance_reviews" SET "userId" = $2 WHERE "id" = $1', lot.review, other.buyer.id]]))
         .toMatch(/rejects: .*UNCLASSIFIED lot .* holds 10 Coins without an open review/);
     });
@@ -180,8 +202,7 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
     it('accepts UNCLASSIFIED value of a classified user under a FIRST_APPROVED review', async () => {
       const lot = openingLot(f.buyer.id, 10, 0, true);
       expect(await verdict(() => [...lot.statements, walletDeltaSql(f.buyer.id, 10),
-        ['UPDATE "legacy_balance_reviews" SET "status" = \'FIRST_APPROVED\', "resolvedBy" = $2 WHERE "id" = $1',
-          lot.review, f.superAdmin.id]])).toBe('accepts');
+        firstApproveSql(lot.review, f.superAdmin.id, 10)])).toBe('accepts');
     });
     it('accepts a zero-value UNCLASSIFIED lot of a classified user without a review', async () => {
       const lot = openingLot(f.buyer.id, 0, 0, false);
@@ -248,9 +269,10 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
         .toMatch(/rejects: .*withdrawable lot .* has a playthrough obligation/);
     });
     it('legacy reviews need two different approvers', async () => {
-      const lot = openingLot(f.buyer.id, 0, 0, false);
+      const lot = openingLot(f.buyer.id, 0, 0, false); const review = uid('review');
       expect(await verdict(() => [lot.statements[0], lot.statements[1],
-        reviewSql(uid('review'), f.buyer.id, lot.lot, 5, 'FIRST_APPROVED', { first: f.superAdmin.id, second: f.superAdmin.id })]))
+        reviewSql(review, f.buyer.id, lot.lot, 5, 'OPEN'), firstApproveSql(review, f.superAdmin.id, 5),
+        ...resolveSql(review, f.buyer.id, f.superAdmin.id)]))
         .toMatch(/rejects: .*legacy_balance_reviews_distinct_approvers_chk/);
     });
     for (const [table, sql, key] of [

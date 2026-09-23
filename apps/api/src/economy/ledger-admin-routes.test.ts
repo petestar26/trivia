@@ -49,7 +49,7 @@ describeIf('ledger administration API', () => {
     const scopeId = `la-credit-${tag()}`;
     const credit = await prisma.$transaction((tx) => creditCoins(tx, owner.id, 27, {
       type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId,
-      referenceType: 'ADMIN', description: 'Historical balance under review',
+      referenceType: 'ADMIN', description: 'Historical balance under review', createdBy: first.id,
     }));
     const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: credit.lotId } });
     const denied = await server.inject({ method: 'GET', url: `${endpoint}/reviews`, headers: headers(regular) });
@@ -169,7 +169,7 @@ describeIf('ledger administration API', () => {
     expect(pointer.activePolicyId).toBe(activated.json().data.policyId);
     const reviewCredit = await prisma.$transaction((tx) => creditCoins(tx, owner.id, 13, {
       type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId: `la-review-${tag()}`,
-      referenceType: 'ADMIN', description: 'Legacy restricted-value review',
+      referenceType: 'ADMIN', description: 'Legacy restricted-value review', createdBy: admin.id,
     }));
     const restrictedReview = await prisma.legacyBalanceReview.findFirstOrThrow({
       where: { lotId: reviewCredit.lotId },

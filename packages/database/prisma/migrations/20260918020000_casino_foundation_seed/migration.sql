@@ -190,39 +190,71 @@ VALUES (
 -- 3. Insert immutable rules v1:
 --    dice, number_challenge, lucky_spin (legacy) -> WAGER/COINS
 --    trivia -> BONUS/NULL wager/COINS reward (restricted coins)
+--
+-- Rules are stored and hashed in canonical form. Every number is normalized
+-- by value (0.1, 0.10 and 1e-1 are one number and hash the same), object keys
+-- follow jsonb's fixed order and arrays keep theirs. Two rules documents hash
+-- equally exactly when they are equal as jsonb, so a real rule change (0.11)
+-- still changes the hash while a writer's number formatting does not: the
+-- pre-casino API stores lucky_spin's 0.10 as 0.1, and an upgraded database
+-- must end with the same rules and hash as a fresh one.
+CREATE OR REPLACE FUNCTION "canonical_rules_jsonb"(document jsonb)
+RETURNS jsonb
+LANGUAGE sql IMMUTABLE STRICT
+AS $$
+  SELECT CASE jsonb_typeof(document)
+    WHEN 'object' THEN COALESCE(
+      (SELECT jsonb_object_agg(member.key, "canonical_rules_jsonb"(member.value))
+       FROM jsonb_each(document) AS member),
+      '{}'::jsonb)
+    WHEN 'array' THEN COALESCE(
+      (SELECT jsonb_agg("canonical_rules_jsonb"(element.value) ORDER BY element.position)
+       FROM jsonb_array_elements(document) WITH ORDINALITY AS element(value, position)),
+      '[]'::jsonb)
+    WHEN 'number' THEN to_jsonb(trim_scale((document #>> '{}')::numeric))
+    ELSE document
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION "rules_hash"(document jsonb)
+RETURNS text
+LANGUAGE sql IMMUTABLE STRICT
+AS $$
+  SELECT encode(digest("canonical_rules_jsonb"(document)::text, 'sha256'), 'hex')
+$$;
 
 INSERT INTO "game_rules" ("gameId", "version", "mode", "family", "wagerCurrency", "rewardCurrency", "rules", "resultSchemaVersion", "rulesHash")
 SELECT d."id", 1, d."mode", d."family", d."wagerCurrency", d."rewardCurrency",
-       d."configuration",
+       "canonical_rules_jsonb"(d."configuration"),
        1,
-       encode(digest(d."configuration"::text, 'sha256'), 'hex')
+       "rules_hash"(d."configuration")
 FROM "game_definitions" d
 WHERE d."key" = 'lucky_spin'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO "game_rules" ("gameId", "version", "mode", "family", "wagerCurrency", "rewardCurrency", "rules", "resultSchemaVersion", "rulesHash")
 SELECT d."id", 1, d."mode", d."family", d."wagerCurrency", d."rewardCurrency",
-       d."configuration",
+       "canonical_rules_jsonb"(d."configuration"),
        1,
-       encode(digest(d."configuration"::text, 'sha256'), 'hex')
+       "rules_hash"(d."configuration")
 FROM "game_definitions" d
 WHERE d."key" = 'dice'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO "game_rules" ("gameId", "version", "mode", "family", "wagerCurrency", "rewardCurrency", "rules", "resultSchemaVersion", "rulesHash")
 SELECT d."id", 1, d."mode", d."family", d."wagerCurrency", d."rewardCurrency",
-       d."configuration",
+       "canonical_rules_jsonb"(d."configuration"),
        1,
-       encode(digest(d."configuration"::text, 'sha256'), 'hex')
+       "rules_hash"(d."configuration")
 FROM "game_definitions" d
 WHERE d."key" = 'number_challenge'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO "game_rules" ("gameId", "version", "mode", "family", "wagerCurrency", "rewardCurrency", "rules", "resultSchemaVersion", "rulesHash")
 SELECT d."id", 1, d."mode", d."family", d."wagerCurrency", d."rewardCurrency",
-       '{"correctPoints": 30, "restricted": true, "withdrawable": false}'::jsonb,
+       "canonical_rules_jsonb"('{"correctPoints": 30, "restricted": true, "withdrawable": false}'::jsonb),
        1,
-       encode(digest('{"correctPoints": 30, "restricted": true, "withdrawable": false}'::text, 'sha256'), 'hex')
+       "rules_hash"('{"correctPoints": 30, "restricted": true, "withdrawable": false}'::jsonb)
 FROM "game_definitions" d
 WHERE d."key" = 'trivia'
 ON CONFLICT DO NOTHING;

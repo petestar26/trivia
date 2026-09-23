@@ -8,7 +8,7 @@
 // It never marks a gate as applied.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ const SCHEMA = join(DATABASE_PACKAGE, 'prisma/schema.prisma');
 const MIGRATIONS = join(DATABASE_PACKAGE, 'prisma/migrations');
 const PRE_GATE = '20260917900000_ledger_preupgrade_gate';
 const FINAL_GATE = '20260924000000_ledger_integrity_gate';
+const AUTHORIZATION = '20260924010000_ledger_resolution_authorization';
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
 const MASTER = ALL.filter((name) => name < PRE_GATE);
 
@@ -103,8 +104,10 @@ INSERT INTO wallets (id, "userId", "coinsBalance", "gamePointsBalance", "updated
   ('w-${ids.bob}', '${ids.bob}', 0, 20, ${t}),
   ('w-${ids.carol}', '${ids.carol}', 100, 0, ${t}),
   ('w-${ids.dave}', '${ids.dave}', 0, 0, ${t});
-INSERT INTO countries (id, code, name, "currencyCode", "isActive", "agentPaymentEnabled", "updatedAt")
-  VALUES ('${ids.country}', 'Q${ids.tag.slice(0, 1).toUpperCase()}', 'Master era ${ids.tag}', 'USD', true, true, ${t});
+INSERT INTO countries (id, code, name, "currencyCode", "isActive", "agentPaymentEnabled", "updatedAt") VALUES
+  ('${ids.country}', 'Q${ids.tag.slice(0, 1).toUpperCase()}', 'Master era ${ids.tag}', 'USD', true, true, ${t}),
+  -- master never limited country codes (its own tests write ones like W3SFBFA4F)
+  ('${ids.longCountry}', 'LONG${ids.tag.toUpperCase()}', 'Long code ${ids.tag}', 'USD', false, false, ${t});
 INSERT INTO payment_method_definitions (id, "countryId", type, name, "fieldSchema", "updatedAt")
   VALUES ('${ids.method}', '${ids.country}', 'BANK_TRANSFER', 'Bank ${ids.tag}', '{}', ${t});
 INSERT INTO exchange_rate_configs (id, "countryId", "fiatCurrency", "coinsPerUnit", "setBy")
@@ -162,7 +165,7 @@ function masterIds() {
   const tag = randomUUID().replaceAll('-', '').slice(0, 8);
   const id = (label: string) => `${label}-${tag}`;
   return { tag, alice: id('alice'), bob: id('bob'), carol: id('carol'), dave: id('dave'), agentUser: id('agentuser'),
-    admin: id('admin'), country: id('country'), method: id('method'), rate: id('rate'), agent: id('agent'),
+    admin: id('admin'), country: id('country'), longCountry: id('country-long'), method: id('method'), rate: id('rate'), agent: id('agent'),
     application: id('application'), agentAccount: id('agentacct'), order: id('order'), gift: id('gift'),
     giftTx: id('gifttx'), heldWithdrawal: id('wd-held'), doneWithdrawal: id('wd-done'), activeHold: id('hold-active') };
 }
@@ -192,7 +195,7 @@ async function legacyFingerprint(client: PrismaClient, columns?: Record<string, 
 beforeAll(() => {
   expect(ALL).toContain(PRE_GATE);
   expect(ALL).toContain(FINAL_GATE);
-  expect(ALL[ALL.length - 1]).toBe(FINAL_GATE);
+  expect(ALL.slice(-2)).toEqual([FINAL_GATE, AUTHORIZATION]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
 });
 
@@ -254,6 +257,12 @@ describe('ledger upgrade migrations', () => {
         { userId: ids.carol, lotClass: 'UNCLASSIFIED', state: 'OPEN', available: 100, reserved: 0, reviewStatus: null },
         { userId: ids.carol, lotClass: 'UNCLASSIFIED', state: 'OPEN', available: 0, reserved: 200, reviewStatus: 'OPEN' },
       ].sort((a, b) => a.userId.localeCompare(b.userId) || a.reserved - b.reserved));
+      // Every country, whatever its code, gets a jurisdiction with no active policy.
+      const jurisdictions = await db.client.$queryRawUnsafe<{ countryCode: string; activePolicyId: string | null }[]>(
+        `SELECT j."countryCode", j."activePolicyId" FROM country_jurisdictions j
+         JOIN countries c ON c.code = j."countryCode" WHERE c.id IN ($1, $2) ORDER BY j."countryCode"`, ids.longCountry, ids.country);
+      expect(jurisdictions).toEqual([`LONG${ids.tag.toUpperCase()}`, `Q${ids.tag.slice(0, 1).toUpperCase()}`]
+        .map((countryCode) => ({ countryCode, activePolicyId: null })));
       expect(await anomalies(db.client)).toEqual([]);
       const after = await runLedgerUpgradePreflight(db.client);
       expect({ mode: after.mode, anomalies: after.anomalies.length, drift: after.definitionDrift })
@@ -345,7 +354,7 @@ INSERT INTO withdrawal_holds (id, "withdrawalId", "coinAmount", status, "debitWa
   it('final gate: a malformed upgraded ledger stops the last migration, which changes nothing, and recovers the same way', async () => {
     const db = await scratchDatabase('finalgate');
     try {
-      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name !== FINAL_GATE))).status).toBe(0);
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < FINAL_GATE))).status).toBe(0);
       const u = `orphan-${randomUUID().slice(0, 8)}`; const lot = `nullstate-${randomUUID().slice(0, 8)}`;
       const op = `op-${randomUUID().slice(0, 8)}`; const owner = `owner-${randomUUID().slice(0, 8)}`;
       execute(db.url, `
@@ -423,6 +432,184 @@ COMMIT;`);
       const preflight = await runLedgerUpgradePreflight(db.client);
       expect(preflight.mode).toBe('UNSUPPORTED');
       expect(preflight.anomalies).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+});
+
+// The pre-casino API (master 9b0c4f0, apps/api/src/games/game-catalog.ts)
+// creates these rows the first time the catalog is listed or a game is
+// played: ensureGameDefinitions() upserts each configuration through Prisma,
+// i.e. as JSON.stringify of these objects. JavaScript prints lucky_spin's
+// 0.10 as 0.1, which is exactly what made the fixed-literal rules hash
+// verification stop a real master database before canonical hashing.
+const MASTER_RUNTIME_CATALOG = [
+  { key: 'lucky_spin', name: 'Lucky Spin', type: 'LUCKY_SPIN', minBet: 10, maxBet: 500,
+    description: 'Spin the wheel and try your luck! Different segments offer different multipliers.',
+    configuration: { outcomes: [
+      { name: 'LOSE', multiplier: 0, probability: 0.45 }, { name: 'SMALL_WIN', multiplier: 1.5, probability: 0.25 },
+      { name: 'MEDIUM_WIN', multiplier: 3, probability: 0.15 }, { name: 'LARGE_WIN', multiplier: 5, probability: 0.10 },
+      { name: 'JACKPOT', multiplier: 10, probability: 0.05 }] } },
+  { key: 'dice', name: 'Dice', type: 'DICE', minBet: 5, maxBet: 1000,
+    description: 'Roll the dice! A sum of 7 or higher doubles your bet.',
+    configuration: { winThreshold: 7, multiplier: 2 } },
+  { key: 'number_challenge', name: 'Number Challenge', type: 'NUMBER_CHALLENGE', minBet: 10, maxBet: 200,
+    description: 'Guess a number between 1 and 100. The closer you are, the more you win!',
+    configuration: { range: { min: 1, max: 100 }, rewards: { exact: 5, within1: 3, within5: 2, within10: 1.5 } } },
+  { key: 'trivia', name: 'Trivia', type: 'TRIVIA', minBet: 5, maxBet: 100,
+    description: 'Answer trivia questions correctly to earn rewards!',
+    configuration: { correctMultiplier: 3 } },
+];
+
+/** The rows ensureGameDefinitions() writes; `raw` overrides a configuration's
+ * JSON text for formatting and rule-change variants. */
+function masterRuntimeCatalogSql(raw: Record<string, string> = {}): string {
+  return MASTER_RUNTIME_CATALOG.map((game) => {
+    const json = (raw[game.key] ?? JSON.stringify(game.configuration)).replaceAll("'", "''");
+    return `INSERT INTO game_definitions (id, key, name, description, type, "minBet", "maxBet", configuration, "isActive", "updatedAt")
+  VALUES (gen_random_uuid()::text, '${game.key}', '${game.name}', '${game.description.replaceAll("'", "''")}', '${game.type}',
+    ${game.minBet}, ${game.maxBet}, '${json}'::jsonb, true, now());`;
+  }).join('\n');
+}
+
+const RULES_HASH_LITERALS = Object.fromEntries([...readFileSync(
+  join(MIGRATIONS, '20260922060000_g0_rules_hash_verification_fix/migration.sql'), 'utf8',
+).matchAll(/WHEN '([a-z_]+)' THEN '([0-9a-f]{64})'/g)].map((match) => [match[1], match[2]]));
+
+async function legacyRules(client: PrismaClient) {
+  const rows = await client.$queryRawUnsafe<{ key: string; hash: string; rules: string }[]>(
+    `SELECT d.key, r."rulesHash" AS hash, r.rules::text AS rules FROM game_rules r
+     JOIN game_definitions d ON d.id = r."gameId"
+     WHERE r.version = 1 AND d.key IN ('lucky_spin', 'dice', 'number_challenge', 'trivia') ORDER BY d.key`);
+  return Object.fromEntries(rows.map((row) => [row.key, { hash: row.hash, rules: row.rules }]));
+}
+
+async function catalogFingerprint(client: PrismaClient) {
+  const [row] = await client.$queryRawUnsafe<{ definitions: string; rules: string }[]>(
+    `SELECT (SELECT md5(string_agg(t::text, E'\\n' ORDER BY t.id)) FROM game_definitions t) AS definitions,
+            (SELECT md5(string_agg(t::text, E'\\n' ORDER BY t.id)) FROM game_rules t) AS rules`);
+  return row;
+}
+
+function readCatalog(url: string): { listed: string[]; games: Record<string, { rulesHash: string | null }> } {
+  const tsx = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
+  const probe = fileURLToPath(new URL('../test/catalog-read-probe.ts', import.meta.url));
+  const run = spawnSync(tsx, [probe], { env: { PATH: process.env.PATH ?? '', DATABASE_URL: url }, encoding: 'utf8', timeout: 120_000 });
+  if (run.status !== 0) throw new Error(`catalog probe failed: ${run.stderr}`);
+  return JSON.parse(run.stdout);
+}
+
+async function freshRules() {
+  const db = await scratchDatabase('rulesfresh');
+  try {
+    expect(deploy(db.url).status).toBe(0);
+    return await legacyRules(db.client);
+  } finally { await db.client.$disconnect(); }
+}
+
+describe('legacy game rules on a master database whose catalog the pre-casino API initialized', () => {
+  it('the complete upgrade succeeds, with the same canonical rules and hashes as a fresh install', async () => {
+    const fresh = await freshRules();
+    expect(Object.fromEntries(Object.entries(fresh).map(([key, value]) => [key, value.hash]))).toEqual(RULES_HASH_LITERALS);
+    const db = await scratchDatabase('mastercatalog');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterEraSeed(masterIds(), masterRuntimeCatalogSql()));
+      expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      expect(await legacyRules(db.client)).toEqual(fresh);
+      expect(await anomalies(db.client)).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('equivalent number formatting upgrades to identical rules and hashes', async () => {
+    const fresh = await freshRules();
+    const lucky = JSON.stringify(MASTER_RUNTIME_CATALOG[0].configuration);
+    for (const [label, raw] of [
+      ['0.10', { lucky_spin: lucky.replace('"probability":0.1}', '"probability":0.10}') }],
+      ['0.100 and 1e-1', { lucky_spin: lucky.replace('"probability":0.1}', '"probability":1e-1}').replace('0.45', '0.450') }],
+      ['1.50', { number_challenge: '{"range":{"min":1,"max":100},"rewards":{"exact":5.0,"within1":3,"within5":2,"within10":1.50}}' }],
+    ] as const) {
+      const db = await scratchDatabase('rulesformat');
+      try {
+        expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+        execute(db.url, masterRuntimeCatalogSql(raw));
+        const upgrade = deploy(db.url);
+        expect(upgrade.status, `${label}: ${upgrade.output}`).toBe(0);
+        expect(await legacyRules(db.client), label).toEqual(fresh);
+      } finally { await db.client.$disconnect(); }
+    }
+  }, 300_000);
+
+  it('a genuine rules difference stops at the pre-upgrade gate, before any database change', async () => {
+    const db = await scratchDatabase('ruleschange');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      const lucky = JSON.stringify(MASTER_RUNTIME_CATALOG[0].configuration).replace('"probability":0.1}', '"probability":0.11}');
+      execute(db.url, masterEraSeed(masterIds(), masterRuntimeCatalogSql({ lucky_spin: lucky, dice: '{"winThreshold":8,"multiplier":2}' })));
+      const before = await legacyFingerprint(db.client);
+      const catalogBefore = await db.client.$queryRawUnsafe<{ digest: string }[]>(
+        `SELECT md5(string_agg(t::text, E'\\n' ORDER BY t.id)) AS digest FROM game_definitions t`);
+
+      const preflight = await runLedgerUpgradePreflight(db.client);
+      expect(preflight.anomalies.map((a) => [a.category, a.subjectId])).toEqual([['GAME_RULES_CHANGED', 'dice'], ['GAME_RULES_CHANGED', 'lucky_spin']]);
+
+      const stopped = deploy(db.url);
+      expect(stopped.status).not.toBe(0);
+      expect(stopped.output).toContain(PRE_GATE);
+      expect(stopped.output).toContain('GAME_RULES_CHANGED x2 [dice, lucky_spin]');
+      expect((await migrationRows(db.client)).filter((row) => row.migration_name >= PRE_GATE))
+        .toEqual([{ migration_name: PRE_GATE, finished: false, rolled_back: false, steps: 0 }]);
+      expect(await relationExists(db.client, 'game_rules')).toBe(false);
+      expect(await relationExists(db.client, 'coin_provenance')).toBe(false);
+      expect((await legacyFingerprint(db.client, before.columns)).digests).toEqual(before.digests);
+      expect(await db.client.$queryRawUnsafe(
+        `SELECT md5(string_agg(t::text, E'\\n' ORDER BY t.id)) AS digest FROM game_definitions t`)).toEqual(catalogBefore);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('replaying the migrations, and their hash verifications, preserves the same hashes', async () => {
+    const db = await scratchDatabase('rulesreplay');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      expect(deploy(db.url).status).toBe(0);
+      const upgraded = await legacyRules(db.client);
+      const replay = deploy(db.url);
+      expect(replay.output).toContain('No pending migrations to apply');
+      for (const verification of ['20260922020000_g0_rules_hash_verification', '20260922060000_g0_rules_hash_verification_fix']) {
+        execute(db.url, readFileSync(join(MIGRATIONS, verification, 'migration.sql'), 'utf8'));
+      }
+      expect(await legacyRules(db.client)).toEqual(upgraded);
+      const [recomputed] = await db.client.$queryRawUnsafe<{ lucky: string }[]>(
+        `SELECT "rules_hash"(configuration) AS lucky FROM game_definitions WHERE key = 'lucky_spin'`);
+      expect(recomputed.lucky).toBe(RULES_HASH_LITERALS.lucky_spin);
+      expect(upgraded.lucky_spin.hash).toBe(RULES_HASH_LITERALS.lucky_spin);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('the catalog stays read-only after upgrading: rules cannot be edited, and serving the catalog writes nothing', async () => {
+    const db = await scratchDatabase('rulesreadonly');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      expect(deploy(db.url).status).toBe(0);
+      const before = await catalogFingerprint(db.client);
+      const served = readCatalog(db.url);
+      expect(served.listed).toEqual(expect.arrayContaining(['dice', 'number_challenge', 'trivia']));
+      expect(served.listed).not.toContain('lucky_spin');
+      expect(served.games.lucky_spin.rulesHash).toBe(RULES_HASH_LITERALS.lucky_spin);
+      expect(await catalogFingerprint(db.client)).toEqual(before);
+      for (const [sql, message] of [
+        [`UPDATE game_rules SET "rulesHash" = repeat('0', 64)`, 'game_rules is immutable'],
+        [`UPDATE game_rules SET rules = '{}'::jsonb`, 'game_rules is immutable'],
+        ['DELETE FROM game_rules', 'game_rules is immutable'],
+        [`UPDATE game_definitions SET mode = 'BONUS' WHERE key = 'dice'`, 'metadata disagrees with active game_rules'],
+        [`UPDATE game_definitions SET "currentRulesVersion" = 2 WHERE key = 'dice'`, 'points to missing game_rules'],
+      ] as const) {
+        await expect(db.client.$executeRawUnsafe(sql), sql).rejects.toThrow(message);
+      }
+      expect(await catalogFingerprint(db.client)).toEqual(before);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 });

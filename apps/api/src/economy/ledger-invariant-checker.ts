@@ -91,7 +91,16 @@ const checks: ReadonlyArray<[string, string]> = [
       ('coin_allocations','coin_allocations_frozen'),
       ('agent_order_settlements','agent_order_settlements_append_only'),
       ('agent_orders','settled_agent_order_proof_immutable'),
-      ('agent_reservations','settled_agent_reservation_proof_immutable')
+      ('agent_reservations','settled_agent_reservation_proof_immutable'),
+      ('coin_provenance','coin_lot_initialization_guard'),
+      ('coin_provenance','coin_lot_owner_wallet_guard'),
+      ('coin_provenance','coin_lot_review_coverage_guard'),
+      ('coin_ledger_accounts','coin_account_owner_wallet_guard'),
+      ('coin_ledger_accounts','account_review_coverage_guard'),
+      ('wallets','wallet_ledger_owner_guard'),
+      ('legacy_balance_reviews','review_coverage_guard'),
+      ('legacy_balance_reviews','legacy_review_lifecycle_guard'),
+      ('coin_lot_entries','operation_authorization_guard')
     ), failures AS (
       SELECT trigger_name AS id FROM expected x
       WHERE NOT EXISTS (
@@ -277,6 +286,17 @@ const checks: ReadonlyArray<[string, string]> = [
   // 20260924000000_ledger_integrity_gate), evaluated by the same database
   // function the gate ran, so this scan and the gate cannot disagree. A
   // missing function makes the whole scan fail, keeping every gate closed.
+  // Every LEGACY_RESOLVE and every ADMIN_ADJUST credit is bound to the
+  // records that authorized it (migration 20260924010000), by the same
+  // database functions the write-time guard uses. Approver activity is only
+  // checked when an operation is written: an administrator may leave later.
+  ['I16 authorized legacy resolutions and admin credits', `
+    WITH failures AS (
+      SELECT o."id" AS id FROM "economic_operations" o
+      WHERE (o."type" = 'LEGACY_RESOLVE' AND "legacy_resolution_violation"(o."id", false) IS NOT NULL)
+         OR (o."type" = 'ADMIN_ADJUST' AND "admin_credit_violation"(o."id", false) IS NOT NULL)
+    ) SELECT COUNT(*)::int AS count,
+       COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I15 ledger integrity (upgrade gate definitions)', `
     WITH failures AS (
       SELECT a."category" || ':' || COALESCE(a."subjectId", 'NULL') AS id

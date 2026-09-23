@@ -29,6 +29,22 @@ copy drifts. The anomaly categories:
 | `CACHE_JOURNAL_MISMATCH` | A managed lot's caches differ from the sum of its own journal entries. |
 | `SOURCE_OPERATION_MISSING` / `_INVALID` / `_CROSS_USER` | A managed lot has no source operation, names one that does not exist, or names another user's. |
 | `UNCLASSIFIED_VALUE_UNREVIEWED` | A classified user's UNCLASSIFIED value (available or reserved) is not covered by an OPEN or FIRST_APPROVED review of that user. |
+| `GAME_RULES_CHANGED` | Pre-upgrade only. A `game_definitions` row's configuration differs in value from the rules `master` ships for that game. The upgrade freezes those rules under a fixed hash, so it stops rather than hash rules nobody reviewed. Number formatting (`0.1` vs `0.10`) and key order are not differences. |
+
+Two kinds of operation can create Coins outside a purchase, and the database
+refuses a forged one when its entries are written:
+
+- a `LEGACY_RESOLVE` must be the exact resolution of a RESOLVED legacy review
+  of the same user and amount, matching the review's frozen evidence and
+  approved proposal, approved by two distinct SUPER_ADMINs (neither of them the
+  owner), both active at that moment;
+- an `ADMIN_ADJUST` credit must mint only into UNCLASSIFIED lots, carry
+  evidence, be recorded by a SUPER_ADMIN active at that moment who is not the
+  owner, and be backed by exactly one matching successful wallet credit.
+
+The runtime checker re-verifies both as invariant **I16**. It does not
+re-check that the administrators are still active, since an administrator may
+legitimately be deactivated after acting.
 
 Supported starting points are an empty database and a database at the
 pre-upgrade `master` schema. A database that applied migrations from the

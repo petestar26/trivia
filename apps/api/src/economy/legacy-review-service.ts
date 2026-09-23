@@ -186,7 +186,7 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
   const result = await prisma.$transaction(async (tx) => {
     await lockScope(tx, reviewId); // L0
     const metadata = await tx.legacyBalanceReview.findUnique({
-      where: { id: reviewId }, select: { userId: true, evidence: true,
+      where: { id: reviewId }, select: { userId: true, evidence: true, resolvedBy: true,
         status: true, secondApproverId: true, resolutionOperationId: true },
     });
     if (!metadata) throw ApiError.notFound('Legacy balance review not found');
@@ -194,6 +194,13 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
     if (!proposed) throw ApiError.conflict('Review has no first approval');
     validateProposal(proposed);
     await lockAdminAndOwner(tx, actorId, metadata.userId); // L1
+    // Both approvals must still be held by active SUPER_ADMINs when the value
+    // moves; the database refuses the resolution otherwise.
+    const firstApprover = metadata.resolvedBy ? (await tx.$queryRaw`
+      SELECT "role"::text AS "role", "status"::text AS "status"
+      FROM "users" WHERE "id"=${metadata.resolvedBy} FOR SHARE
+    `) as { role: string; status: string }[] : [];
+    const firstApproverActive = firstApprover[0]?.role === 'SUPER_ADMIN' && firstApprover[0]?.status === 'ACTIVE';
     // An exact replay must not depend on a policy version that was
     // legitimately deactivated after the review committed.
     if (metadata.status === 'RESOLVED' && metadata.secondApproverId === actorId
@@ -209,6 +216,10 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
     if (review.status !== 'FIRST_APPROVED' || !review.resolvedBy
         || review.resolvedBy === actorId) {
       throw ApiError.conflict('A distinct second administrator must approve the pending review');
+    }
+    if (review.resolvedBy !== metadata.resolvedBy || !firstApproverActive) {
+      return reopenStaleApproval(tx, review,
+        'First approver is no longer an active SUPER_ADMIN; the review needs a new first approval');
     }
     const stored = (review.evidence as { proposal?: StoredProposal } | null)?.proposal;
     if (!stored || JSON.stringify(stored) !== JSON.stringify(proposed)) {

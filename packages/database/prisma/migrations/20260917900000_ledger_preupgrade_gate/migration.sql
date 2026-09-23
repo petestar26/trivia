@@ -5,8 +5,11 @@
 -- existing data (the 20260922050000 backfill and the 20260923030000 opening
 -- journal) and evaluates the same ledger-integrity definitions as the final
 -- gate (20260924000000), the runtime invariant checker (I15) and the
--- read-only preflight (pnpm --filter api preflight:ledger-upgrade). The
--- blocks between the ledger-integrity markers are copies of
+-- read-only preflight (pnpm --filter api preflight:ledger-upgrade). It also
+-- refuses a legacy game whose stored rules differ from the rules this
+-- release verifies (20260922060000), which would otherwise stop the upgrade
+-- only after the casino schema exists. The blocks between the
+-- ledger-integrity markers are copies of
 -- apps/api/src/economy/ledger-integrity-definitions.ts; a test fails if they
 -- ever differ.
 --
@@ -175,6 +178,20 @@ WHERE l.lot_class = 'UNCLASSIFIED'
   AND (r.id IS NULL OR r.user_id IS DISTINCT FROM l.user_id
        OR r.status IS NULL OR r.status NOT IN ('OPEN', 'FIRST_APPROVED'))
 -- ledger-integrity:predicates:end
+  UNION ALL
+-- ledger-integrity:catalog-preconditions:begin
+SELECT 'GAME_RULES_CHANGED'::text AS category, 'game'::text AS subject_type, d."key" AS subject_id,
+       NULL::text AS user_id,
+       format('legacy game %s is configured as %s, but this release verifies its rules as %s (numbers compare by value)',
+              d."key", COALESCE(d."configuration"::text, 'NULL'), e.expected::text) AS detail
+FROM "game_definitions" d
+JOIN (VALUES
+  ('lucky_spin', '{"outcomes": [{"name": "LOSE", "multiplier": 0, "probability": 0.45}, {"name": "SMALL_WIN", "multiplier": 1.5, "probability": 0.25}, {"name": "MEDIUM_WIN", "multiplier": 3, "probability": 0.15}, {"name": "LARGE_WIN", "multiplier": 5, "probability": 0.10}, {"name": "JACKPOT", "multiplier": 10, "probability": 0.05}]}'::jsonb),
+  ('dice', '{"winThreshold": 7, "multiplier": 2}'::jsonb),
+  ('number_challenge', '{"range": {"min": 1, "max": 100}, "rewards": {"exact": 5, "within1": 3, "within5": 2, "within10": 1.5}}'::jsonb)
+) AS e(game_key, expected) ON e.game_key = d."key"
+WHERE d."configuration" IS DISTINCT FROM e.expected
+-- ledger-integrity:catalog-preconditions:end
   ), by_category AS (
     SELECT a.category, count(*) AS n,
            array_to_string((array_agg(COALESCE(a.subject_id, 'NULL') ORDER BY a.subject_id))[1:10], ', ') AS sample
@@ -188,7 +205,7 @@ WHERE l.lot_class = 'UNCLASSIFIED'
 
   IF gate_total > 0 THEN
     RAISE EXCEPTION USING
-      MESSAGE = format('LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE before any ledger migration ran: upgrading this data would create %s anomalous ledger record(s): %s', gate_total, gate_summary),
+      MESSAGE = format('LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE before any ledger migration ran: upgrading this data would create %s anomalous ledger or catalog record(s): %s', gate_total, gate_summary),
       DETAIL = 'This migration changed nothing and no ledger table exists yet; the running application is unaffected.',
       HINT = 'Run the read-only preflight (pnpm --filter api preflight:ledger-upgrade) to list every record, then follow docs/deployment/ledger-upgrade-gate.md: escalate each record for a separately reviewed, case-specific correction. Never mark this migration as applied.';
   END IF;

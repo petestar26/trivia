@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import {
-  LEDGER_ANOMALY_PREDICATES, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, normalizeSql,
+  LEDGER_ANOMALY_PREDICATES, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, LEGACY_CATALOG_PRECONDITIONS, normalizeSql,
 } from './ledger-integrity-definitions.js';
 import { redactSecrets, runLedgerUpgradePreflight } from './ledger-upgrade-preflight.js';
 
@@ -120,6 +120,7 @@ describe('ledger upgrade preflight', () => {
     expect(normalizeSql(block(PRE_GATE, 'predicates'))).toBe(normalizeSql(LEDGER_ANOMALY_PREDICATES));
     expect(normalizeSql(block(FINAL_GATE, 'predicates'))).toBe(normalizeSql(LEDGER_ANOMALY_PREDICATES));
     expect(normalizeSql(block(PRE_GATE, 'source-projected'))).toBe(normalizeSql(LEDGER_SOURCE_PROJECTED));
+    expect(normalizeSql(block(PRE_GATE, 'catalog-preconditions'))).toBe(normalizeSql(LEGACY_CATALOG_PRECONDITIONS));
     expect(normalizeSql(block(FINAL_GATE, 'source-current'))).toBe(normalizeSql(LEDGER_SOURCE_CURRENT));
     const report = await runLedgerUpgradePreflight(prisma);
     expect({ mode: report.mode, drift: report.definitionDrift }).toEqual({ mode: 'UPGRADED', drift: false });

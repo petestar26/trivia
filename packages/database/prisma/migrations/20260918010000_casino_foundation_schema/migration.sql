@@ -53,7 +53,8 @@ CREATE INDEX "game_sessions_userId_fingerprint_idx" ON "game_sessions" ("userId"
 -- 4. Country casino policies (versioned, fail-closed)
 CREATE TABLE "country_casino_policies" (
     "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
-    "countryCode" VARCHAR(3) NOT NULL,
+    -- TEXT like "countries"."code": master never limited its length.
+    "countryCode" TEXT NOT NULL,
     "version" INTEGER NOT NULL,
     "status" "country_casino_status" NOT NULL DEFAULT 'DISABLED',
     "enabledAt" TIMESTAMPTZ,
