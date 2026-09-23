@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { applyBalanceChanges, getOrCreateWallet } from './wallet-service.js';
 import type { BalanceChange } from './wallet-service.js';
@@ -29,7 +30,10 @@ export interface SendGiftArgs {
 
 export interface GiftTransactionResult {
   giftId: string;
-  giftName: string;
+  // Null only for a replay of a pre-CORRECTION-3 row that has no stored
+  // snapshot: the historical name is unknown and is never fabricated from
+  // the current (possibly renamed) catalog entry.
+  giftName: string | null;
   quantity: number;
   totalCoins: number;
   totalGamePoints: number;
@@ -38,6 +42,12 @@ export interface GiftTransactionResult {
   createdAt: Date;
   isReplay?: boolean;
 }
+
+// The exact, immutable snapshot persisted to GiftTransaction.responseSnapshot
+// at send time. JSON-serializable (createdAt round-trips as an ISO string).
+type GiftResponseSnapshot = Omit<GiftTransactionResult, 'isReplay' | 'createdAt'> & {
+  createdAt: string;
+};
 
 const MAX_GIFT_QUANTITY = 100;
 
@@ -111,9 +121,19 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       if (!prior || prior.giftId !== giftId || prior.recipientId !== recipientId || prior.quantity !== quantity) {
         throw ApiError.conflict('This idempotency key was used for another gift');
       }
-      const priorGift = await tx.gift.findUnique({ where: { id: prior.giftId }, select: { name: true } });
+      // Exact replay returns the immutable snapshot taken at send time. It
+      // must never read the (mutable) gift catalog: a renamed or deleted
+      // catalog row must not change what a past response looked like.
+      if (prior.responseSnapshot) {
+        const snapshot = prior.responseSnapshot as unknown as GiftResponseSnapshot;
+        return { ...snapshot, createdAt: new Date(snapshot.createdAt), isReplay: true };
+      }
+      // Legacy row from before CORRECTION 3: no snapshot was ever taken.
+      // Return everything that was already immutably stored on the row
+      // itself; the gift's name at send time is genuinely unknown and is
+      // never fabricated from the current catalog.
       return {
-        giftId: prior.giftId, giftName: priorGift?.name ?? 'Gift', quantity: prior.quantity,
+        giftId: prior.giftId, giftName: null, quantity: prior.quantity,
         totalCoins: prior.totalCoins, totalGamePoints: prior.totalGamePoints,
         coinPriceAtTransaction: prior.coinPriceAtTransaction,
         pointValueAtTransaction: prior.pointValueAtTransaction, createdAt: prior.createdAt,
@@ -210,6 +230,14 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       description: `Received ${quantity}x ${gift.name} from ${senderId}`,
     }]);
 
+    // The stored snapshot IS the future replay response. Built once, from
+    // values already fixed in this transaction, and persisted verbatim.
+    const snapshot: Omit<GiftResponseSnapshot, 'createdAt'> = {
+      giftId, giftName: gift.name, quantity, totalCoins, totalGamePoints,
+      coinPriceAtTransaction: gift.coinPrice,
+      pointValueAtTransaction: gift.recipientPointValue,
+    };
+
     // L7: business, idempotency and notification inserts are atomic with the
     // sender's economic CONSUME and recipient's GP credit.
     const giftTransaction = await tx.giftTransaction.create({
@@ -220,6 +248,9 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
         coinPriceAtTransaction: gift.coinPrice,
         pointValueAtTransaction: gift.recipientPointValue,
         senderWalletId: senderWallet.id, recipientWalletId: recipientWallet.id,
+        responseSnapshot: {
+          ...snapshot, createdAt: giftAt.toISOString(),
+        } as unknown as Prisma.InputJsonValue,
       },
     });
     await tx.notification.create({ data: {
@@ -231,12 +262,7 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       userId: senderId, key: idempotencyKey, operation: 'gift_send',
       status: 'SUCCEEDED', responseKey: giftTransaction.id,
     } });
-    return {
-      giftId, giftName: gift.name, quantity, totalCoins, totalGamePoints,
-      coinPriceAtTransaction: gift.coinPrice,
-      pointValueAtTransaction: gift.recipientPointValue,
-      createdAt: giftTransaction.createdAt, isReplay: false,
-    };
+    return { ...snapshot, createdAt: giftTransaction.createdAt, isReplay: false };
   });
 }
 

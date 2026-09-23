@@ -1,11 +1,19 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { allocateFunding, splitPayout } from './coin-allocator.js';
 import { flushCoinLedgerConstraints } from './coin-ledger-service.js';
 import type { FundingShare, LotClass } from './coin-allocator.js';
 
-type Tx = any;
+type Tx = Prisma.TransactionClient;
+// Historical rows read via raw SQL (SELECT *): typed with only the columns
+// this module actually reads off "coin_provenance", not the full row shape.
+type RawCoinProvenanceRow = {
+  id: string; sourceOperationId: string | null; lotClass: LotClass | null;
+  state: string | null; availableAmount: number | null; reservedAmount: number | null;
+  requirementAmount: number | null; progressAmount: number | null; createdAt: Date;
+};
 type PolicyPin = { id: string; version: number; multiplier: number;
   qualifyingGames: string[]; maxQualifyingStake: number; maxConversionMultiple: number | null };
 type ReplayLot = {
@@ -78,17 +86,17 @@ async function replayLedger(
   const settlements = await tx.agentOrderSettlement.findMany({
     where: { order: { userId } }, include: { order: true },
   });
-  const purchaseByWalletRow = new Map<string, any>();
+  const purchaseByWalletRow = new Map<string, (typeof settlements)[number]>();
   for (const settlement of settlements) purchaseByWalletRow.set(settlement.walletTransactionId, settlement);
   const referenceIds = rows.map((row) => row.referenceId).filter((id): id is string => !!id);
   const sessions = await tx.gameSession.findMany({
     where: { userId, id: { in: referenceIds } }, include: { game: true },
   });
-  const sessionById = new Map<string, any>(sessions.map((session: any) => [session.id, session]));
+  const sessionById = new Map(sessions.map((session) => [session.id, session] as const));
   const originalLots = await tx.coinProvenance.findMany({
     where: { userId }, include: { countryPolicy: true },
   });
-  const bonusByWalletRow = new Map<string, any>();
+  const bonusByWalletRow = new Map<string, (typeof originalLots)[number]>();
   for (const lot of originalLots) {
     if (lot.provenanceType === 'TRIVIA_REWARD' && lot.walletTransactionId) {
       bonusByWalletRow.set(lot.walletTransactionId, lot);
@@ -97,7 +105,7 @@ async function replayLedger(
   const holds = await tx.withdrawalHold.findMany({
     where: { withdrawal: { userId } }, include: { withdrawal: true },
   });
-  const holdByWithdrawalId = new Map<string, any>(holds.map((hold: any) => [hold.withdrawalId, hold]));
+  const holdByWithdrawalId = new Map(holds.map((hold) => [hold.withdrawalId, hold] as const));
 
   const all = new Map<string, ReplayLot>();
   const wagerFunding = new Map<string, FundingShare[]>();
@@ -279,9 +287,9 @@ async function replayLedger(
     purchaseOverageAmount, conversionOverageAmount };
 }
 
-async function reverseOldOpeningLots(tx: Tx, userId: string, oldLots: any[], hash: string): Promise<void> {
+async function reverseOldOpeningLots(tx: Tx, userId: string, oldLots: RawCoinProvenanceRow[], hash: string): Promise<void> {
   for (const lot of oldLots) {
-    if (lot.availableAmount <= 0) continue;
+    if ((lot.availableAmount ?? 0) <= 0) continue;
     if (lot.lotClass !== 'UNCLASSIFIED' || lot.state !== 'OPEN' || lot.reservedAmount !== 0) {
       throw ApiError.conflict('Historical lot cannot be safely replayed');
     }
@@ -289,9 +297,9 @@ async function reverseOldOpeningLots(tx: Tx, userId: string, oldLots: any[], has
       where: { lotId: lot.id }, include: { operation: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    const opening = entries.find((e: any) => e.entryType === 'MINT'
+    const opening = entries.find((e) => e.entryType === 'MINT'
       && e.operation.type === 'LEGACY_OPENING' && e.operation.scopeType === 'LEGACY_LOT');
-    const oldAllocations = entries.filter((e: any) => e.entryType === 'CONSUME'
+    const oldAllocations = entries.filter((e) => e.entryType === 'CONSUME'
       && e.operation.type === 'LEGACY_OPENING' && e.operation.scopeType === 'LEGACY_ALLOCATION');
     if (!opening || entries.length !== oldAllocations.length + 1) {
       throw ApiError.conflict('Historical provenance has unsupported entries; manual review required');
@@ -350,7 +358,7 @@ async function createReplaySource(tx: Tx, userId: string, amount: number,
 
 /** Superseded pre-journal rows retain their historical provenance but no
  * economic value. M7 permits exactly this one-time zero initialization. */
-async function retireUnmanagedHistoricalLots(tx: Tx, oldLots: any[], operationId: string) {
+async function retireUnmanagedHistoricalLots(tx: Tx, oldLots: RawCoinProvenanceRow[], operationId: string) {
   for (const lot of oldLots) {
     if (lot.sourceOperationId !== null) continue;
     if (lot.lotClass !== null || lot.state !== null
@@ -583,7 +591,7 @@ export async function classifyLegacyCoinAccount(
     }
     const oldLots = (await tx.$queryRaw`
       SELECT * FROM "coin_provenance" WHERE "userId"=${userId} ORDER BY "id" FOR UPDATE
-    `) as any[];
+    `) as RawCoinProvenanceRow[];
     const rows = (await tx.walletTransaction.findMany({
       where: { userId, currency: 'COINS', status: 'SUCCEEDED' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

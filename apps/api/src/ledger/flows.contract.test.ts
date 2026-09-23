@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from '../agents/payment-account-service.js';
@@ -10,6 +10,9 @@ import { createAgentOrder, submitOrderPayment, settleAgentOrder } from '../agent
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
 import { createWithdrawal, cancelHeldWithdrawal } from '../withdrawals/withdrawal-service.js';
 import { sendGift } from '../economy/gift-service.js';
+import { flushCoinLedgerConstraints } from '../economy/coin-ledger-service.js';
+import type { CreditCoinsArgs, DebitCoinsArgs } from '../economy/coin-ledger-service.js';
+import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { playGame } from '../games/game-play.js';
 import { waitForBlockedBackends, ROW_LOCK_WAITS, probeRowLockable } from '../test/pg-locks.js';
 import { claimPayout } from '../withdrawals/withdrawal-service.js';
@@ -528,5 +531,251 @@ describe('Opus deterministic lock schedules', () => {
       expect(await walletCoins(fixture.buyer.id)).toBe(900);
       expect(await withdrawable(fixture.buyer.id)).toBe(900);
     }
+  });
+});
+
+describe('C1: ADMIN_QUALIFY is reserved and disabled (Correction 1)', () => {
+  it('the reserved-type guard alone rejects a bare ADMIN_QUALIFY operation insert, with no other statement in the transaction', async () => {
+    const fixture = await purchasedFixture(1000);
+    const opId = uid('c1-bare-op');
+    await expect(prisma.economicOperation.create({ data: {
+      id: opId, type: 'ADMIN_QUALIFY', userId: fixture.buyer.id,
+      scopeType: 'ADMIN_ADJUSTMENT', scopeId: uid('c1-bare-scope'),
+      walletTransactionIds: [], createdBy: 'SYSTEM',
+    } })).rejects.toThrow(/ADMIN_QUALIFY is reserved and disabled/);
+    expect(await prisma.economicOperation.count({ where: { id: opId } })).toBe(0);
+  });
+
+  it('a direct-SQL attempt to create an ADMIN_QUALIFY operation rolls back completely: no operation, entry, lot, wallet change, wallet transaction, or review row survives', async () => {
+    const fixture = await purchasedFixture(1000);
+    const before = await economicTotals(fixture.buyer.id);
+    const opId = uid('c1-attack-op');
+    const lotId = uid('c1-attack-lot');
+    const entryId = uid('c1-attack-entry');
+    const reviewId = uid('c1-attack-review');
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.economicOperation.create({ data: {
+        id: opId, type: 'ADMIN_QUALIFY', userId: fixture.buyer.id,
+        scopeType: 'ADMIN_ADJUSTMENT', scopeId: uid('c1-scope'),
+        walletTransactionIds: [], createdBy: 'SYSTEM',
+      } });
+      // These never execute — the operation insert above is rejected by
+      // economic_operation_reserved_type_guard before any of them run — but
+      // they document the full coordinated attack this proves impossible.
+      await tx.coinProvenance.create({ data: {
+        id: lotId, userId: fixture.buyer.id, amount: 1_000_000, provenanceType: 'ADMIN_ADJUSTMENT',
+        restrictionStatus: 'UNRESTRICTED', originalSource: 'ADMIN_ADJUSTMENT',
+        lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 0, reservedAmount: 0,
+        requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+        sourceOperationId: opId,
+      } });
+      await tx.coinLotEntry.create({ data: {
+        id: entryId, operationId: opId, lotId, userId: fixture.buyer.id, sequence: 0,
+        entryType: 'MINT', availableDelta: 1_000_000,
+      } });
+      await tx.wallet.update({ where: { userId: fixture.buyer.id },
+        data: { coinsBalance: { increment: 1_000_000 } } });
+      await tx.legacyBalanceReview.create({ data: {
+        id: reviewId, userId: fixture.buyer.id, lotId, amount: 1_000_000, status: 'OPEN',
+      } });
+      await flushCoinLedgerConstraints(tx);
+    })).rejects.toThrow();
+    expect(await prisma.economicOperation.count({ where: { id: opId } })).toBe(0);
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+    expect(await prisma.coinLotEntry.count({ where: { id: entryId } })).toBe(0);
+    expect(await prisma.legacyBalanceReview.count({ where: { id: reviewId } })).toBe(0);
+    expect(await economicTotals(fixture.buyer.id)).toEqual(before);
+  });
+
+  it('ADMIN_QUALIFY is not assignable to CreditCoinsArgs[\'type\'] (compile-time contract: this file fails to build if it ever becomes assignable)', () => {
+    // CreditCoinsArgs['type'] is the only application entry point that can
+    // mint Coins by named operation. Its literal union excludes
+    // 'ADMIN_QUALIFY' — the @ts-expect-error below is only satisfied while
+    // that stays true, so a future change that widens the union to include
+    // it fails `tsc`.
+    // @ts-expect-error 'ADMIN_QUALIFY' is not assignable to CreditCoinsArgs['type']
+    const badCredit: CreditCoinsArgs = { type: 'ADMIN_QUALIFY', scopeType: 'ADMIN_ADJUSTMENT', scopeId: 'x', referenceType: 'ADMIN', description: 'attack' };
+    void badCredit;
+  });
+
+  it('ADMIN_QUALIFY is not assignable to DebitCoinsArgs[\'type\'] (compile-time contract: this file fails to build if it ever becomes assignable)', () => {
+    // @ts-expect-error 'ADMIN_QUALIFY' is not assignable to DebitCoinsArgs['type']
+    const badDebit: DebitCoinsArgs = { type: 'ADMIN_QUALIFY', scopeType: 'ADMIN_ADJUSTMENT', scopeId: 'x', referenceType: 'ADMIN', description: 'attack' };
+    void badDebit;
+  });
+
+  it('the invariant checker independently flags any ADMIN_QUALIFY operation as I0, even if one existed', async () => {
+    const fixture = await purchasedFixture(1000);
+    const opId = uid('c1-poison-op');
+    await expect(prisma.$transaction(async (tx) => {
+      // session_replication_role bypasses ORIGIN-mode triggers for this one
+      // statement only (SET LOCAL, restored at COMMIT/ROLLBACK) — the same
+      // mechanism the fixture-cleanup bridge uses — so this poison row can
+      // exist just long enough to prove the SCANNER catches it independently
+      // of the INSERT-time trigger, without ever being visible outside this
+      // transaction (which we always roll back).
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "economic_operations" (id,"type","userId","scopeType","scopeId","walletTransactionIds","createdBy","createdAt")
+         VALUES ($1,'ADMIN_QUALIFY',$2,'ADMIN_ADJUSTMENT',$3,'{}','SYSTEM',now())`,
+        opId, fixture.buyer.id, uid('c1-poison-scope'),
+      );
+      const result = await runLedgerInvariantCheckInTransaction(tx, null, false);
+      expect(result.passed).toBe(false);
+      expect(result.violations.some((v) => v.invariant === 'I0 ADMIN_QUALIFY minting is disabled')).toBe(true);
+      throw new Error('c1-rollback-only-probe');
+    })).rejects.toThrow('c1-rollback-only-probe');
+    expect(await prisma.economicOperation.count({ where: { id: opId } })).toBe(0);
+  });
+});
+
+describe('C2: value-bearing lots require a valid, journaled source operation (Correction 2)', () => {
+  it('rejects a phantom lot with no source operation at all, even when the wallet is updated to match it (isolates the journal-integrity guard from the older wallet-equality guard)', async () => {
+    const fixture = await purchasedFixture(1000);
+    const before = await economicTotals(fixture.buyer.id);
+    const lotId = uid('c2-phantom-b');
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.coinProvenance.create({ data: {
+        id: lotId, userId: fixture.buyer.id, amount: 999_999, provenanceType: 'ADMIN_ADJUSTMENT',
+        restrictionStatus: 'UNRESTRICTED', originalSource: 'ADMIN_ADJUSTMENT',
+        lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 999_999, reservedAmount: 0,
+        requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+        sourceOperationId: null,
+      } });
+      // Makes the wallet agree with the phantom lot, so classified_wallet_lot_equality
+      // alone would NOT catch this — only coin_lot_journal_integrity_guard can.
+      await tx.wallet.update({ where: { userId: fixture.buyer.id },
+        data: { coinsBalance: { increment: 999_999 } } });
+      await flushCoinLedgerConstraints(tx);
+    })).rejects.toThrow();
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+    expect(await economicTotals(fixture.buyer.id)).toEqual(before);
+  });
+
+  it('rejects a phantom lot carrying a real, valid sourceOperationId but no journal entries, even when the wallet is updated to match it', async () => {
+    const fixture = await purchasedFixture(1000);
+    const before = await economicTotals(fixture.buyer.id);
+    const realOp = await prisma.economicOperation.findFirstOrThrow({ where: { userId: fixture.buyer.id } });
+    const lotId = uid('c2-phantom-c');
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.coinProvenance.create({ data: {
+        id: lotId, userId: fixture.buyer.id, amount: 999_999, provenanceType: 'ADMIN_ADJUSTMENT',
+        restrictionStatus: 'UNRESTRICTED', originalSource: 'ADMIN_ADJUSTMENT',
+        lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 999_999, reservedAmount: 0,
+        requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+        sourceOperationId: realOp.id,
+      } });
+      await tx.wallet.update({ where: { userId: fixture.buyer.id },
+        data: { coinsBalance: { increment: 999_999 } } });
+      await flushCoinLedgerConstraints(tx);
+    })).rejects.toThrow();
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+    expect(await economicTotals(fixture.buyer.id)).toEqual(before);
+  });
+
+  it('rejects the named two-transaction attack: T1 creates a phantom lot alone, T2 separately tries to make the wallet match it — both fail, and state is byte-for-byte unchanged', async () => {
+    const fixture = await purchasedFixture(1000);
+    const before = await economicTotals(fixture.buyer.id);
+    const lotId = uid('c2-phantom-d');
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.coinProvenance.create({ data: {
+        id: lotId, userId: fixture.buyer.id, amount: 500_000, provenanceType: 'ADMIN_ADJUSTMENT',
+        restrictionStatus: 'UNRESTRICTED', originalSource: 'ADMIN_ADJUSTMENT',
+        lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 500_000, reservedAmount: 0,
+        requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+        sourceOperationId: null,
+      } });
+      await flushCoinLedgerConstraints(tx);
+    })).rejects.toThrow();
+    expect(await prisma.coinProvenance.count({ where: { id: lotId } })).toBe(0);
+    // T1 never persisted, so T2 has nothing real to "match" — it fails on
+    // its own against the pre-existing classified_wallet_lot_equality guard.
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.wallet.update({ where: { userId: fixture.buyer.id },
+        data: { coinsBalance: { increment: 500_000 } } });
+      await flushCoinLedgerConstraints(tx);
+    })).rejects.toThrow();
+    expect(await economicTotals(fixture.buyer.id)).toEqual(before);
+  });
+
+  it('legitimate purchase, withdrawal hold, cancel and gift flows still reconcile end to end (regression)', async () => {
+    const fixture = await purchasedFixture(1000);
+    await assertEconomicBalance(fixture.buyer.id);
+    const { withdrawal } = await withdraw(fixture, 100);
+    await assertEconomicBalance(fixture.buyer.id);
+    await cancelHeldWithdrawal(fixture.buyer.id, (withdrawal as { id: string }).id, { idempotencyKey: uid('c2-cancel') });
+    await assertEconomicBalance(fixture.buyer.id);
+    const gift = await prisma.gift.create({
+      data: { name: uid('c2-gift'), coinPrice: 100, recipientPointValue: 10, isActive: true },
+    });
+    await sendGift({ senderId: fixture.buyer.id, recipientId: fixture.recipient.id, giftId: gift.id, quantity: 1, idempotencyKey: uid('c2-gift-send') });
+    await assertEconomicBalance(fixture.buyer.id);
+  });
+});
+
+describe('C3: gift replay is an immutable snapshot, never re-read from the catalog (Correction 3)', () => {
+  it('an exact replay returns the original response even after the catalog item is renamed', async () => {
+    const fixture = await purchasedFixture(1000);
+    const gift = await prisma.gift.create({
+      data: { name: uid('c3-original-name'), coinPrice: 100, recipientPointValue: 10, isActive: true },
+    });
+    const idempotencyKey = uid('c3-replay');
+    const first = await sendGift({
+      senderId: fixture.buyer.id, recipientId: fixture.recipient.id,
+      giftId: gift.id, quantity: 1, idempotencyKey,
+    });
+    await prisma.gift.update({ where: { id: gift.id }, data: { name: 'RENAMED-AFTER-SEND' } });
+    const replay = await sendGift({
+      senderId: fixture.buyer.id, recipientId: fixture.recipient.id,
+      giftId: gift.id, quantity: 1, idempotencyKey,
+    });
+    expect(first.isReplay).toBe(false);
+    expect(replay.isReplay).toBe(true);
+    expect(replay.giftName).toBe(first.giftName);
+    expect(replay.giftName).not.toBe('RENAMED-AFTER-SEND');
+    const { isReplay: _firstReplay, ...firstSnapshot } = first;
+    const { isReplay: _replayReplay, ...replaySnapshot } = replay;
+    expect(replaySnapshot).toEqual(firstSnapshot);
+  });
+
+  it('a conflicting payload reusing the same idempotency key still returns 409, without touching the catalog', async () => {
+    const fixture = await purchasedFixture(1000);
+    const giftA = await prisma.gift.create({
+      data: { name: uid('c3-gift-a'), coinPrice: 100, recipientPointValue: 10, isActive: true },
+    });
+    const giftB = await prisma.gift.create({
+      data: { name: uid('c3-gift-b'), coinPrice: 100, recipientPointValue: 10, isActive: true },
+    });
+    const idempotencyKey = uid('c3-conflict');
+    await sendGift({ senderId: fixture.buyer.id, recipientId: fixture.recipient.id, giftId: giftA.id, quantity: 1, idempotencyKey });
+    await expect(sendGift({
+      senderId: fixture.buyer.id, recipientId: fixture.recipient.id, giftId: giftB.id, quantity: 1, idempotencyKey,
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('a legacy pre-Correction-3 record (no stored snapshot) replays safely with giftName null, never fabricated from the current catalog', async () => {
+    const fixture = await purchasedFixture(1000);
+    const gift = await prisma.gift.create({
+      data: { name: uid('c3-legacy-name'), coinPrice: 100, recipientPointValue: 10, isActive: true },
+    });
+    const idempotencyKey = uid('c3-legacy');
+    const first = await sendGift({
+      senderId: fixture.buyer.id, recipientId: fixture.recipient.id,
+      giftId: gift.id, quantity: 1, idempotencyKey,
+    });
+    // Simulate a row created before this column existed.
+    await prisma.giftTransaction.updateMany({
+      where: { senderId: fixture.buyer.id, giftId: gift.id },
+      data: { responseSnapshot: Prisma.DbNull },
+    });
+    await prisma.gift.update({ where: { id: gift.id }, data: { name: 'RENAMED-LEGACY' } });
+    const replay = await sendGift({
+      senderId: fixture.buyer.id, recipientId: fixture.recipient.id,
+      giftId: gift.id, quantity: 1, idempotencyKey,
+    });
+    expect(replay.isReplay).toBe(true);
+    expect(replay.giftName).toBeNull();
+    expect(replay.totalCoins).toBe(first.totalCoins);
+    expect(replay.quantity).toBe(first.quantity);
   });
 });

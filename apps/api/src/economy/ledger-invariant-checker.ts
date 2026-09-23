@@ -1,4 +1,5 @@
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { splitPayout } from './coin-allocator.js';
 
 // Release evidence is supplied by the internal release runner, never by an
@@ -19,7 +20,7 @@ export interface LedgerViolation {
   detail?: string;
 }
 
-type Tx = any;
+type Tx = Prisma.TransactionClient;
 
 type CountRow = { count: number; sample: string[] | null };
 
@@ -33,6 +34,19 @@ async function collectCount(tx: Tx, invariant: string, sql: string): Promise<Led
 }
 
 const checks: ReadonlyArray<[string, string]> = [
+  // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
+  // type, and no lot entry attributed to one, may ever exist. This is a
+  // second, independent line of defense behind the INSERT-time trigger in
+  // migration 20260923110000_opus_reserve_admin_qualify.
+  ['I0 ADMIN_QUALIFY minting is disabled', `
+    WITH failures AS (
+      SELECT o."id" AS id FROM "economic_operations" o WHERE o."type"='ADMIN_QUALIFY'
+      UNION
+      SELECT e."id" AS id FROM "coin_lot_entries" e
+      JOIN "economic_operations" o ON o."id"=e."operationId"
+      WHERE o."type"='ADMIN_QUALIFY'
+    ) SELECT COUNT(*)::int AS count,
+       COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I1 wallet = available lots', `
     WITH balances AS (
       SELECT a."userId" AS id, w."coinsBalance" AS wallet,
@@ -127,7 +141,6 @@ const checks: ReadonlyArray<[string, string]> = [
               AND (SELECT COUNT(*) FROM "coin_lot_entries" minted
                    WHERE minted."operationId"=o."id" AND minted."entryType"='MINT')=1
           )) OR
-          (o."type"='ADMIN_QUALIFY' AND e."entryType"='MINT') OR
           (o."type"='BONUS_CONVERSION' AND e."entryType"='CONVERT_IN') OR
           (o."type"='PAYOUT' AND e."entryType"='RETURN') OR
           (o."type"='WITHDRAWAL_RELEASE' AND e."entryType"='RELEASE') OR
@@ -293,15 +306,18 @@ async function checkPayoutSplits(tx: Tx): Promise<LedgerViolation | null> {
       select: { lotId: true, availableDelta: true },
     });
     try {
-      const expected = splitPayout(stakeEntries.map((entry: any) => ({
-        lotId: entry.lotId,
-        lotClass: entry.lot.lotClass,
-        amount: -entry.availableDelta,
-        expiresAt: entry.lot.expiresAt,
-      })), amount);
+      const expected = splitPayout(stakeEntries.map((entry) => {
+        if (!entry.lot.lotClass) throw new Error('stake entry lot has no lotClass');
+        return {
+          lotId: entry.lotId,
+          lotClass: entry.lot.lotClass,
+          amount: -entry.availableDelta,
+          expiresAt: entry.lot.expiresAt,
+        };
+      }), amount);
       const byLot = new Map<string, number>();
       for (const entry of actual) byLot.set(entry.lotId, (byLot.get(entry.lotId) ?? 0) + entry.availableDelta);
-      if (actual.reduce((sum: number, entry: any) => sum + entry.availableDelta, 0) !== amount
+      if (actual.reduce((sum, entry) => sum + entry.availableDelta, 0) !== amount
           || expected.some((share) => (byLot.get(share.lotId) ?? 0) !== share.amount)
           || byLot.size !== expected.filter((share) => share.amount > 0).length) {
         failures.push(payout.id);
@@ -334,7 +350,8 @@ export async function runLedgerInvariantCheckInTransaction(
   }
   const passed = violations.length === 0;
   await tx.invariantCheckRun.update({
-    where: { id: run.id }, data: { finishedAt: new Date(), passed, violations: violations as any },
+    where: { id: run.id },
+    data: { finishedAt: new Date(), passed, violations: violations as unknown as Prisma.InputJsonValue },
   });
   return { runId: run.id, passed, violations };
 }

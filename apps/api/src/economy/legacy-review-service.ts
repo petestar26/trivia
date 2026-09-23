@@ -1,9 +1,10 @@
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service.js';
 import { flushCoinLedgerConstraints } from './coin-ledger-service.js';
 
-type Tx = any;
+type Tx = Prisma.TransactionClient;
 type Decision = 'WITHDRAWABLE' | 'RESTRICTED' | 'FORFEIT';
 export interface LegacyResolutionProposal {
   decision: Decision;
@@ -17,10 +18,15 @@ type StoredProposal = LegacyResolutionProposal & {
 };
 type ReviewRow = { id: string; userId: string; lotId: string; status: string;
   resolvedBy: string | null; secondApproverId: string | null;
-  resolutionOperationId: string | null; evidence: any };
+  resolutionOperationId: string | null; evidence: Prisma.JsonValue };
 type LotRow = { id: string; userId: string; lotClass: string; state: string;
   reviewId: string | null; availableAmount: number; reservedAmount: number;
   rootLotId: string | null };
+
+function asEvidenceObject(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+}
 
 async function lockScope(tx: Tx, reviewId: string) {
   await tx.$queryRaw`SELECT 1 FROM
@@ -120,8 +126,7 @@ async function lockWalletAndLot(tx: Tx, review: ReviewRow): Promise<{ walletBala
 /** A changed lot or policy voids only the pending approval, never Coin history. */
 async function reopenStaleApproval(tx: Tx, review: ReviewRow, reason: string,
   observedAvailableAmount?: number) {
-  const evidence = review.evidence && typeof review.evidence === 'object'
-    && !Array.isArray(review.evidence) ? review.evidence as Record<string, unknown> : {};
+  const evidence = asEvidenceObject(review.evidence);
   const prior = Array.isArray(evidence.invalidatedApprovals)
     ? evidence.invalidatedApprovals : [];
   await tx.legacyBalanceReview.update({ where: { id: review.id }, data: {
@@ -170,8 +175,8 @@ export async function firstApproveLegacyReview(
       requirementAmount };
     return tx.legacyBalanceReview.update({ where: { id: reviewId }, data: {
       status: 'FIRST_APPROVED', resolvedBy: actorId,
-      evidence: { ...(review.evidence ?? {}), proposal: stored,
-        firstApprovedAt: new Date().toISOString() },
+      evidence: { ...asEvidenceObject(review.evidence), proposal: stored,
+        firstApprovedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
     } });
   });
 }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import type { WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
+import type { Prisma, WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { finalizeWithdrawalCoins, lockUserEconomicScope, releaseWithdrawalCoins } from '../economy/coin-ledger-service.js';
 import { consumeReservedLiquidity, releaseReservedLiquidity } from './liquidity-service';
@@ -345,7 +345,7 @@ function validateReservation(withdrawal: LockedWithdrawal, reservation: LockedRe
   }
 }
 
-async function validateHold(tx: any, withdrawal: LockedWithdrawal, hold: LockedHold): Promise<string> {
+async function validateHold(tx: Prisma.TransactionClient, withdrawal: LockedWithdrawal, hold: LockedHold): Promise<string> {
   if (hold.coinAmount !== withdrawal.coinAmount) {
     throw ApiError.internal('Withdrawal hold amount does not match the withdrawal');
   }

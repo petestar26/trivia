@@ -13,12 +13,17 @@ export type PolicyPin = { id: string; version: number };
  * these deferred triggers at COMMIT. Evaluate them before callback return,
  * then restore deferral for another operation in the same outer transaction. */
 export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> {
-  await tx.$executeRawUnsafe(
-    'SET CONSTRAINTS "wallet_coin_lot_equality", "entry_coin_lot_equality", "classification_coin_lot_equality", "coin_operation_obligation_guard" IMMEDIATE',
-  );
-  await tx.$executeRawUnsafe(
-    'SET CONSTRAINTS "wallet_coin_lot_equality", "entry_coin_lot_equality", "classification_coin_lot_equality", "coin_operation_obligation_guard" DEFERRED',
-  );
+  // CORRECTION 2: lot_coin_lot_equality and coin_lot_journal_integrity_guard
+  // (20260923120000_opus_lot_journal_integrity) are deferred constraints on
+  // "coin_provenance" itself; every function in this module writes a lot and
+  // must flush them at the same point as the pre-existing four, for the same
+  // reason documented above (Prisma 5 can resolve this callback before
+  // PostgreSQL's real COMMIT rejects a still-deferred violation).
+  const names = '"wallet_coin_lot_equality", "entry_coin_lot_equality", ' +
+    '"classification_coin_lot_equality", "coin_operation_obligation_guard", ' +
+    '"lot_coin_lot_equality", "coin_lot_journal_integrity_guard"';
+  await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} IMMEDIATE`);
+  await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
 export type OperationName =
   | 'PURCHASE' | 'BONUS_GRANT' | 'WAGER' | 'PAYOUT' | 'GIFT_SPEND'
@@ -379,7 +384,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
       convertAmount, forfeitAmount: availableAfter - convertAmount });
   }
 
-  const changes: any[] = [{
+  const changes: BalanceChange[] = [{
     currency: 'COINS', amount: args.stake, ledgerType: 'DEBIT', transactionType: 'COIN_DEBIT',
     referenceType: 'GAME', referenceId: args.sessionId, description: `Game bet: ${args.gameKey}`,
   }];
@@ -491,7 +496,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
   await closeEmptyLots(tx, userId);
   await flushCoinLedgerConstraints(tx);
   return { coinsBalance: finalCoinsBalance,
-    walletTransactionIds: [...balanceResult.transactions.map((t: any) => t.id),
+    walletTransactionIds: [...balanceResult.transactions.map((t) => t.id),
       ...forfeitureTransactions.values()],
     wagerOperationId: wager.id, payoutOperationId, funding, payoutShares };
 }
@@ -576,7 +581,7 @@ export async function releaseWithdrawalCoins(tx: EconomicTx, userId: string, wit
   const source = await withdrawalSourceEntries(tx, args.holdOperationId, userId, withdrawalId);
   const lots = await lockLots(tx, userId);
   assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
-  const total = source.reduce((n: number, row: any) => n + row.reservedDelta, 0);
+  const total = source.reduce((n: number, row: { reservedDelta: number }) => n + row.reservedDelta, 0);
   if (total !== args.amount) throw ApiError.internal('Withdrawal source amount mismatch');
   const balanceResult = await applyBalanceChanges(tx, userId, [{
     currency: 'COINS', amount: args.amount, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
@@ -603,7 +608,7 @@ export async function finalizeWithdrawalCoins(tx: EconomicTx, userId: string, wi
   const source = await withdrawalSourceEntries(tx, args.holdOperationId, userId, withdrawalId);
   const lots = await lockLots(tx, userId);
   assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
-  const total = source.reduce((n: number, row: any) => n + row.reservedDelta, 0);
+  const total = source.reduce((n: number, row: { reservedDelta: number }) => n + row.reservedDelta, 0);
   if (total !== args.amount) throw ApiError.internal('Withdrawal source amount mismatch');
   const operation = await createOperation(tx, {
     type: 'WITHDRAWAL_FINALIZE', userId, scopeType: 'WITHDRAWAL', scopeId: withdrawalId,

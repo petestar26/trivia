@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import type { Withdrawal } from '@socialplay/database';
+import type { Prisma, Withdrawal } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { lockUserEconomicScope, reserveWithdrawalCoins, releaseWithdrawalCoins } from '../economy/coin-ledger-service.js';
 import { requireActiveWithdrawalPolicy } from '../economy/jurisdiction-service.js';
@@ -72,7 +72,7 @@ function computeWithdrawalRequestHash(quoteId: string, payoutAccountId: string):
 /** Count open and finalized holds in UTC calendar windows. Cancelled holds no
  * longer count because their Coins have been returned to the original lots. */
 async function assertWithdrawalPolicyLimits(
-  tx: any,
+  tx: Prisma.TransactionClient,
   userId: string,
   coinAmount: number,
   policy: {

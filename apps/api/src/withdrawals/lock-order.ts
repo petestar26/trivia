@@ -1,10 +1,11 @@
+import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 
 /** Lock both parties' User rows before taking any withdrawal business lock.
  * The initial withdrawal read is only used to discover its immutable userId;
  * every caller re-reads and validates the withdrawal under FOR UPDATE. */
 export async function lockWithdrawalParticipants(
-  tx: any,
+  tx: Prisma.TransactionClient,
   withdrawalId: string,
   actorUserId: string
 ): Promise<void> {

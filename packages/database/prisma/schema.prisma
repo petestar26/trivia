@@ -566,6 +566,10 @@ model GiftTransaction {
   senderWalletId          String
   recipientWalletId       String
   createdAt               DateTime @default(now())
+  // Immutable copy of the exact success response returned at send time
+  // (CORRECTION 3). Null on rows created before this column existed; those
+  // replay through a safe legacy path that never reads the live catalog.
+  responseSnapshot        Json?
 
   sender    Wallet @relation("GiftSender", fields: [senderWalletId], references: [id], onDelete: Restrict)
   recipient Wallet @relation("GiftRecipient", fields: [recipientWalletId], references: [id], onDelete: Restrict)

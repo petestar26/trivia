@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from './wallet-service';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service';
 import { lockUserEconomicScope, reserveWithdrawalCoins, releaseWithdrawalCoins } from './coin-ledger-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
@@ -202,5 +202,103 @@ describeIf('economy/wallet-service — MAX_BALANCE withdrawal-refund exemption (
         ])
       )
     ).rejects.toThrow(/exceeds maximum/);
+  });
+});
+
+// CORRECTION 4a: independent application-level coverage of the
+// COIN_LEDGER_INTENT capability guard in applyBalanceChanges. Nothing above
+// this point exercises the guard directly (W-1D0 above hits the MAX_BALANCE
+// check, which sits after it).
+describeIf('economy/wallet-service — COIN_LEDGER_INTENT guard (review correction #4a)', () => {
+  // A same-shaped but different Symbol. `unique symbol` typing forbids this
+  // at the type level (by design) — the double cast simulates a caller that
+  // got hold of a look-alike value, so the test proves the runtime `!==`
+  // check itself, not just the compiler.
+  const FOREIGN_INTENT = Symbol('not-the-real-intent') as unknown as typeof COIN_LEDGER_INTENT;
+
+  it('rejects a pure-COINS change with no coinLedgerIntent', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-coins-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'unguarded coins credit' },
+        ])
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(0);
+  });
+
+  it('rejects a MIXED GAME_POINTS + COINS change with no coinLedgerIntent (kills a some->every mutant)', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-mixed-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'GAME_POINTS', amount: 1, ledgerType: 'CREDIT', transactionType: 'GAME_POINT_CREDIT',
+            referenceType: 'ADMIN', description: 'game points half of a mixed batch' },
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'coins half of a mixed batch' },
+        ])
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(0);
+    expect(balance.gamePointsBalance).toBe(0);
+  });
+
+  it('rejects a COINS change carrying a foreign symbol as coinLedgerIntent', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-foreign-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'coins credit with a look-alike intent' },
+        ], { coinLedgerIntent: FOREIGN_INTENT })
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+  });
+
+  it('allows a COINS change carrying the real COIN_LEDGER_INTENT symbol', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-real-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await prisma.$transaction((tx) =>
+      applyBalanceChanges(tx, user.id, [
+        { currency: 'COINS', amount: 7, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+          referenceType: 'ADMIN', description: 'coins credit under the real ledger intent' },
+      ], { coinLedgerIntent: COIN_LEDGER_INTENT })
+    );
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(7);
+  });
+
+  it('allows a GAME_POINTS-only change with no coinLedgerIntent (guard does not overreach)', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-gp-only-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await prisma.$transaction((tx) =>
+      applyBalanceChanges(tx, user.id, [
+        { currency: 'GAME_POINTS', amount: 5, ledgerType: 'CREDIT', transactionType: 'GAME_POINT_CREDIT',
+          referenceType: 'ADMIN', description: 'game points credit needs no coin ledger intent' },
+      ])
+    );
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.gamePointsBalance).toBe(5);
   });
 });
