@@ -417,10 +417,19 @@ This intentionally does **not** repeat `pnpm install`/`build` — Railway's
 CLI needs nothing further. The worker does NOT run migrations — it expects the schema
 to already be up-to-date by the time it starts.
 
+Before the first deployment of the ledger release, run the read-only ledger
+preflight against the target database and deploy only if it exits 0; see
+[ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+
 If migration fails:
 1. Check Railway API logs for migration errors
-2. Manually run `railway run pnpm --filter database exec prisma migrate deploy`
-3. Fix migration file if needed, commit, and redeploy
+2. If the error names `20260917900000_ledger_preupgrade_gate` or
+   `20260924000000_ledger_integrity_gate`, stop: follow
+   [ledger-upgrade-gate.md](ledger-upgrade-gate.md). Do not retry, edit
+   migrations, touch ledger rows, or mark the migration as applied.
+3. For any other failure, manually run `railway run pnpm --filter database exec prisma migrate deploy`
+   to see the full error, then fix the cause in a new, reviewed commit and
+   redeploy. Never edit a migration that any environment has already applied.
 
 ### 5. CORS Updates
 

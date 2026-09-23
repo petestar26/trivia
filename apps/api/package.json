@@ -12,6 +12,7 @@
     "start:worker:once": "node dist/worker.js --once",
     "worker:dev": "pnpm -w run build:packages && tsx --env-file=../../.env src/worker.ts --once",
     "worker:dev:loop": "pnpm -w run build:packages && tsx --env-file=../../.env src/worker.ts",
+    "preflight:ledger-upgrade": "tsx src/scripts/ledger-upgrade-preflight.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",

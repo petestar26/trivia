@@ -1104,6 +1104,7 @@ model CoinProvenance {
   @@map("coin_provenance")
   @@index([userId, state, lotClass, id], map: "coin_provenance_funding_idx")
   @@index([sourceOperationId], map: "coin_provenance_sourceOperation_idx")
+  @@index([reviewId], map: "coin_provenance_review_idx")
 }
 
 model EconomicOperation {

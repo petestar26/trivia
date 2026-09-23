@@ -733,9 +733,11 @@ describe('C3: gift replay is an immutable snapshot, never re-read from the catal
     expect(replay.isReplay).toBe(true);
     expect(replay.giftName).toBe(first.giftName);
     expect(replay.giftName).not.toBe('RENAMED-AFTER-SEND');
-    const { isReplay: _firstReplay, ...firstSnapshot } = first;
-    const { isReplay: _replayReplay, ...replaySnapshot } = replay;
-    expect(replaySnapshot).toEqual(firstSnapshot);
+    // Every stored response field is identical between the send and its
+    // replay; only the isReplay indicator (asserted above) differs.
+    const omitIsReplay = (result: typeof first) =>
+      Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'isReplay'));
+    expect(omitIsReplay(replay)).toEqual(omitIsReplay(first));
   });
 
   it('a conflicting payload reusing the same idempotency key still returns 409, without touching the catalog', async () => {

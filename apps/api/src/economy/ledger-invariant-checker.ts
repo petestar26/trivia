@@ -273,6 +273,16 @@ const checks: ReadonlyArray<[string, string]> = [
              OR r."userId"<>p."userId")
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
+  // The ledger upgrade gate's own definitions (migration
+  // 20260924000000_ledger_integrity_gate), evaluated by the same database
+  // function the gate ran, so this scan and the gate cannot disagree. A
+  // missing function makes the whole scan fail, keeping every gate closed.
+  ['I15 ledger integrity (upgrade gate definitions)', `
+    WITH failures AS (
+      SELECT a."category" || ':' || COALESCE(a."subjectId", 'NULL') AS id
+      FROM "ledger_integrity_anomalies"() a
+    ) SELECT COUNT(*)::int AS count,
+       COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
 ];
 
 async function checkPayoutSplits(tx: Tx): Promise<LedgerViolation | null> {

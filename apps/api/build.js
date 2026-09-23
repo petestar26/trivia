@@ -17,7 +17,13 @@ async function buildApi() {
 
   // Bundle with esbuild
   await build({
-    entryPoints: [join(__dirname, 'src/server.ts'), join(__dirname, 'src/worker.ts')],
+    entryPoints: [
+      join(__dirname, 'src/server.ts'),
+      join(__dirname, 'src/worker.ts'),
+      // Read-only ledger upgrade preflight, runnable where tsx is not installed.
+      join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),
+    ],
+    outbase: join(__dirname, 'src'),
     bundle: true,
     platform: 'node',
     format: 'esm',
