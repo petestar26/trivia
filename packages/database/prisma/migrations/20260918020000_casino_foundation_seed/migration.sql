@@ -3,6 +3,11 @@
 -- activates current_rules_version pointers. Uses ON CONFLICT DO NOTHING for
 -- immutable rules.
 
+-- The catalog and rules are read and verified below: lock them against
+-- writers first, so a concurrent edit is either committed before this
+-- migration reads them or waits until it has finished.
+LOCK TABLE "game_definitions", "game_rules" IN SHARE ROW EXCLUSIVE MODE;
+
 -- 0. Insert the 4 original game definitions if absent (they are normally
 --    seeded at API runtime; a migration-fresh DB must be self-contained).
 INSERT INTO "game_definitions" ("id", "key", "name", "description", "type", "mode", "family", "catalogStatus", "isActive", "minBet", "maxBet", "wagerCurrency", "rewardCurrency", "configuration", "updatedAt")

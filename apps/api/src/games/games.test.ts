@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import {
   listActiveGames,
   getGameByKey,
@@ -644,11 +645,11 @@ describeIf('Dice', () => {
     expect(session.settlementDebitCurrency).toBe('COINS');
     expect(session.settlementCreditCurrency).toBe(result.rewardAmount > 0 ? 'COINS' : null);
     expect(session.fingerprint).toMatch(/^[0-9a-f]{64}$/);
-    const requestSnapshot = session.requestSnapshot as any;
+    const requestSnapshot = session.requestSnapshot as Record<string, unknown>;
     expect(requestSnapshot.gameKey).toBe('dice');
     expect(requestSnapshot.rulesVersion).toBe(1);
     expect(requestSnapshot.stake).toBe(10);
-    const responseSnapshot = session.responseSnapshot as any;
+    const responseSnapshot = session.responseSnapshot as Record<string, unknown>;
     expect(responseSnapshot.sessionId).toBe(result.sessionId);
     expect(responseSnapshot.newBalance).toBe(result.newBalance);
     expect(responseSnapshot.isReplay).toBeUndefined();
@@ -863,6 +864,72 @@ describeIf('Idempotency and replay', () => {
       userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'idem-dice-4',
     });
     expect(r2.sessionId).not.toBe(r1.sessionId);
+  });
+});
+
+// ─── COMMITTED SESSIONS ARE IMMUTABLE ──────────────────────────
+
+describeIf('Committed game sessions are immutable replay records', () => {
+  let a: { id: string };
+  let first: Awaited<ReturnType<typeof playGame>>;
+  const key = 'immutable-dice-1';
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    a = await createUser('immutable');
+    await primeCoins(a.id, 1000);
+    first = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key });
+  });
+
+  async function directSql(sql: string, ...params: unknown[]): Promise<string> {
+    try {
+      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe(sql, ...params); });
+      return 'accepted';
+    } catch (error) {
+      return String((error as Error).message);
+    }
+  }
+
+  it('refuses a direct-SQL update of every replay, identity, rules and settlement column', async () => {
+    const other = await createBareUser('immutable-other');
+    const otherGame = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'number_challenge' } });
+    const changes: [string, unknown][] = [
+      ['"userId" = $2', other.id], ['"gameId" = $2', otherGame.id], ['"idempotencyKey" = $2', 'forged-key'],
+      ['"fingerprint" = $2', 'forged'], ['"requestSnapshot" = $2::jsonb', '{"stake":1}'],
+      ['"responseSnapshot" = $2::jsonb', '{"rewardAmount":999999}'], ['"result" = $2::jsonb', '{"sum":12}'],
+      ['"selections" = $2::jsonb', '{}'], ['"betAmount" = $2', 1], ['"rewardAmount" = $2', 999_999],
+      ['"isWin" = ($2::boolean <> "isWin")', true], ['"rulesVersion" = NULLIF($2::int, $2::int)', 1],
+      ['"resultSchemaVersion" = $2', 99], ['"mode" = $2::game_mode', 'BONUS'], ['"family" = $2::game_family', 'SCHEDULED_DRAW'],
+      ['"wagerCurrency" = $2::"CurrencyType"', 'GAME_POINTS'], ['"rewardCurrency" = $2::"CurrencyType"', 'GAME_POINTS'],
+      ['"settlementDebitCurrency" = NULLIF($2::text, $2::text)::"CurrencyType"', 'COINS'],
+      ['"settlementCreditCurrency" = $2::"CurrencyType"', 'GAME_POINTS'], ['"playContext" = $2::play_context', 'BONUS'],
+      ['"status" = $2::"GameSessionStatus"', 'FAILED'], ['"completedAt" = $2::timestamp', '2020-01-01T00:00:00Z'],
+    ];
+    for (const [set, value] of changes) {
+      expect(await directSql(`UPDATE "game_sessions" SET ${set} WHERE "id" = $1`, first.sessionId, value), set)
+        .toMatch(/game_sessions is append-only: session .* cannot change/);
+    }
+  });
+
+  it('refuses deleting a committed session, directly or through the client', async () => {
+    expect(await directSql('DELETE FROM "game_sessions" WHERE "id" = $1', first.sessionId))
+      .toMatch(/game_sessions is append-only: session .* cannot be deleted/);
+    await expect(prisma.gameSession.update({ where: { id: first.sessionId }, data: { rewardAmount: 5 } }))
+      .rejects.toThrow(/append-only/);
+  });
+
+  it('an exact replay still returns the original stored response, unchanged', async () => {
+    const stored = await prisma.gameSession.findUniqueOrThrow({ where: { id: first.sessionId } });
+    const balance = await getWalletBalance(a.id);
+    const replay = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key });
+    const { isReplay: firstFlag, ...original } = first;
+    expect(firstFlag).toBe(false);
+    const { isReplay, ...replayed } = replay;
+    expect(isReplay).toBe(true);
+    expect(replayed).toEqual(original);
+    expect(replayed).toEqual(stored.responseSnapshot);
+    expect(await getWalletBalance(a.id)).toEqual(balance);
+    expect(await prisma.gameSession.count({ where: { userId: a.id } })).toBe(1);
   });
 });
 
@@ -1144,7 +1211,7 @@ describeIf('Client manipulation', () => {
       userId: a.id, gameKey: 'dice', betAmount: 10,
       clientData: { die1: 6, die2: 6, sum: 12 }, idempotencyKey: 'manip-dice-1',
     });
-    const { die1, sum } = result.result as any;
+    const { die1, sum } = result.result as { die1: number; sum: number };
     expect(typeof die1).toBe('number');
     expect(die1).toBeGreaterThanOrEqual(1);
     expect(die1).toBeLessThanOrEqual(6);
@@ -1296,10 +1363,10 @@ describeIf('Replay after a rules bump', () => {
         family: rules.family,
         wagerCurrency: rules.wagerCurrency,
         rewardCurrency: rules.rewardCurrency,
-        rules: { ...rules.rules as object, multiplier: 2 },
+        rules: { ...(rules.rules as Prisma.JsonObject), multiplier: 2 },
         resultSchemaVersion: rules.resultSchemaVersion,
         rulesHash: '0'.repeat(64),
-      } as any,
+      },
     });
     await prisma.gameDefinition.update({
       where: { id: def.id },

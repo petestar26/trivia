@@ -1,4 +1,5 @@
-import { ApiError } from '../middleware';
+import type { Prisma } from '@socialplay/database';
+import { ApiError } from '../middleware/error-handler.js';
 
 // ─── User Eligibility Lock ─────────────────────────────────────
 // Prisma has no `FOR SHARE` support, so the row lock is done with raw
@@ -10,7 +11,7 @@ export interface LockedUser {
   status: string;
 }
 
-export async function lockUserForPlay(tx: any, userId: string): Promise<LockedUser> {
+export async function lockUserForPlay(tx: Prisma.TransactionClient, userId: string): Promise<LockedUser> {
   const rows = (await tx.$queryRaw`SELECT "id", "status" FROM "users" WHERE "id" = ${userId} FOR SHARE`) as LockedUser[];
   const user = rows[0];
   if (!user || user.status !== 'ACTIVE') {
@@ -31,10 +32,12 @@ export async function lockUserForPlay(tx: any, userId: string): Promise<LockedUs
 export interface LockedGame {
   id: string;
   key: string;
+  name: string;
   type: string;
   mode: string;
   family: string;
   catalogStatus: string;
+  isActive: boolean;
   minBet: number;
   maxBet: number;
   wagerCurrency: string | null;
@@ -42,10 +45,10 @@ export interface LockedGame {
   currentRulesVersion: number | null;
 }
 
-export async function lockGameForPlay(tx: any, gameKey: string): Promise<LockedGame | null> {
+export async function lockGameForPlay(tx: Prisma.TransactionClient, gameKey: string): Promise<LockedGame | null> {
   const rows = (await tx.$queryRaw`
-    SELECT "id", "key", "type"::text AS "type", "mode"::text AS "mode", "family"::text AS "family",
-           "catalogStatus"::text AS "catalogStatus", "minBet", "maxBet",
+    SELECT "id", "key", "name", "type"::text AS "type", "mode"::text AS "mode", "family"::text AS "family",
+           "catalogStatus"::text AS "catalogStatus", "isActive", "minBet", "maxBet",
            "wagerCurrency"::text AS "wagerCurrency", "rewardCurrency"::text AS "rewardCurrency",
            "currentRulesVersion"
     FROM "game_definitions" WHERE "key" = ${gameKey} FOR SHARE

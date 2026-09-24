@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, unwrapData } from '@/lib/api';
 import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
+import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { CasinoShell } from '@/components/casino/CasinoShell';
 import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
@@ -45,41 +46,26 @@ export function NumberChallengePage() {
   });
   const game = games?.find((g) => g.key === 'number_challenge');
 
-  // One idempotency key per logical round, generated OUTSIDE mutationFn (in
-  // submit(), before mutate() is called) and reused for every retry — see
-  // dice.tsx for the full rationale. Cleared only in onSuccess.
-  const idempotencyKeyRef = useRef<string | null>(null);
-
-  const playMutation = useMutation({
-    mutationFn: async (payload: { betAmount: number; guess: number; idempotencyKey: string }) => {
-      const res = await playGame<NumPlayResult>(
-        'number_challenge',
-        { betAmount: payload.betAmount, guess: payload.guess },
-        payload.idempotencyKey
-      );
-      return { data: unwrapData(res, 'Number challenge play response'), isReplay: res.meta?.isReplay === true };
-    },
-    onMutate: () => setPhase('RUNNING'),
-    onSuccess: (round) => {
-      idempotencyKeyRef.current = null; // round conclusively finished — next play is a new round
-      setLastResult(round.data.result);
-      setServerBalance(round.data.newBalance);
-      setIsReplay(round.isReplay);
-      setPhase(round.data.isWin ? 'RESULT' : 'SETTLED');
+  // One idempotency key per round, stored with the exact request before the
+  // first send; see useDurablePlay and dice.tsx.
+  const { play, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<NumPlayResult>('number_challenge', {
+    onStart: () => setPhase('RUNNING'),
+    onSettled: (round, replayed) => {
+      setLastResult(round.result);
+      setServerBalance(round.newBalance);
+      setIsReplay(replayed);
+      setPhase(round.isWin ? 'RESULT' : 'SETTLED');
       refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
-    // Deliberately does NOT clear idempotencyKeyRef on error — see dice.tsx.
-    onError: () => setPhase('BETTING_OPEN'),
+    onFailed: () => setPhase('BETTING_OPEN'),
   });
 
   const minBet = game?.minBet ?? 10;
   const maxBet = game?.maxBet ?? 200;
 
-  const submit = () => {
-    const key = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = newIdempotencyKey());
-    playMutation.mutate({ betAmount: bet, guess, idempotencyKey: key });
-  };
+  const submit = () => play({ betAmount: bet, guess });
+  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: bet, guess });
 
   return (
     <CasinoShell
@@ -121,6 +107,12 @@ export function NumberChallengePage() {
           {playMutation.isPending ? 'Checking…' : 'Submit Guess'}
         </button>
         <div className="text-xs text-gray-500">Min {minBet} · Max {maxBet} Coins</div>
+
+        {confirmingEarlierRound && (
+          <div className="text-sm text-amber-700 dark:text-amber-400">
+            Your previous guess has not been confirmed yet. Submitting confirms that guess first; your new bet and guess apply to the next round.
+          </div>
+        )}
 
         {playMutation.isError && (
           <div className="text-sm text-red-600 dark:text-red-400">

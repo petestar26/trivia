@@ -7,7 +7,7 @@
 //   `prisma migrate resolve --rolled-back <gate>`, then an ordinary redeploy.
 // It never marks a gate as applied.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,8 @@ const MIGRATIONS = join(DATABASE_PACKAGE, 'prisma/migrations');
 const PRE_GATE = '20260917900000_ledger_preupgrade_gate';
 const FINAL_GATE = '20260924000000_ledger_integrity_gate';
 const AUTHORIZATION = '20260924010000_ledger_resolution_authorization';
+const OPENING_JOURNAL = '20260923030000_opus_freeze_legacy_allocations';
+const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
 const MASTER = ALL.filter((name) => name < PRE_GATE);
 
@@ -68,6 +70,57 @@ function execute(url: string, sql: string): void {
   writeFileSync(join(root, 'script.sql'), sql);
   const run = prismaCli(url, ['db', 'execute', '--url', url, '--file', join(root, 'script.sql')]);
   if (run.status !== 0) throw new Error(`SQL script failed: ${run.output}`);
+}
+
+/** `prisma migrate deploy` running in the background, so a test can observe it waiting. */
+function deployInBackground(url: string, schema = SCHEMA) {
+  const child = spawn(PRISMA, ['migrate', 'deploy', '--schema', schema],
+    { env: { PATH: process.env.PATH ?? '', DATABASE_URL: url } });
+  let output = '';
+  let exited = false;
+  child.stdout.on('data', (chunk) => { output += chunk; });
+  child.stderr.on('data', (chunk) => { output += chunk; });
+  const done = new Promise<{ status: number; output: string }>((resolve) => {
+    child.on('close', (code) => { exited = true; resolve({ status: code ?? -1, output }); });
+  });
+  return { done, hasExited: () => exited };
+}
+
+/** Resolves once some backend of `database` waits on a lock; throws if none does in time. */
+async function waitForLockWaitIn(database: string, timeoutMs = 60_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = $1 AND wait_event_type = 'Lock'`, database);
+    if (row.n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`no backend of ${database} waited on a lock within ${timeoutMs}ms`);
+}
+
+class WriterRolledBack extends Error {}
+
+/** A writer transaction on `url` that has run `statements` and is still open,
+ * until the test commits or rolls it back. */
+async function openWriter(url: string, statements: [string, ...unknown[]][]) {
+  const client = new PrismaClient({ datasourceUrl: url, log: [] });
+  let decide!: (commit: boolean) => void;
+  const decision = new Promise<boolean>((resolve) => { decide = resolve; });
+  let written!: () => void;
+  const ready = new Promise<void>((resolve) => { written = resolve; });
+  const finished = client.$transaction(async (tx) => {
+    for (const [sql, ...params] of statements) await tx.$executeRawUnsafe(sql, ...params);
+    written();
+    if (!(await decision)) throw new WriterRolledBack();
+  }, { timeout: 240_000, maxWait: 10_000 }).then(() => 'committed' as const, (error) => {
+    if (error instanceof WriterRolledBack) return 'rolled back' as const;
+    throw error;
+  }).finally(() => client.$disconnect());
+  await Promise.race([ready, finished.then(() => { throw new Error('writer finished before the test decided'); })]);
+  return {
+    commit: () => { decide(true); return finished; },
+    rollback: () => { decide(false); return finished; },
+  };
 }
 
 async function migrationRows(client: PrismaClient) {
@@ -195,7 +248,8 @@ async function legacyFingerprint(client: PrismaClient, columns?: Record<string, 
 beforeAll(() => {
   expect(ALL).toContain(PRE_GATE);
   expect(ALL).toContain(FINAL_GATE);
-  expect(ALL.slice(-2)).toEqual([FINAL_GATE, AUTHORIZATION]);
+  expect(ALL.indexOf(FINAL_GATE)).toBeLessThan(ALL.indexOf(AUTHORIZATION));
+  expect(ALL.at(-1)).toBe(WINDOW_CHECK);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
 });
 
@@ -351,9 +405,14 @@ INSERT INTO withdrawal_holds (id, "withdrawalId", "coinAmount", status, "debitWa
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
-  it('final gate: a malformed upgraded ledger stops the last migration, which changes nothing, and recovers the same way', async () => {
+  it('final gate: a malformed upgraded ledger stops the upgrade, which changes nothing, and the backup restore recovers', async () => {
     const db = await scratchDatabase('finalgate');
+    const backup = `${db.name.replace('_throwaway', '')}_bak_throwaway`;
     try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      // Runbook step: a restorable backup of the pre-upgrade database.
+      await prisma.$executeRawUnsafe(`CREATE DATABASE "${backup}" TEMPLATE "${db.name}"`);
+      created.push(backup);
       expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < FINAL_GATE))).status).toBe(0);
       const u = `orphan-${randomUUID().slice(0, 8)}`; const lot = `nullstate-${randomUUID().slice(0, 8)}`;
       const op = `op-${randomUUID().slice(0, 8)}`; const owner = `owner-${randomUUID().slice(0, 8)}`;
@@ -388,19 +447,39 @@ COMMIT;`);
                 EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'coin_lot_initialization_guard') AS guard`);
       expect(installed).toEqual([{ fn: false, guard: false }]);
 
-      // Stand-in for the separately reviewed, case-specific correction.
-      execute(db.url, `
-BEGIN;
-SET LOCAL session_replication_role = replica;
-INSERT INTO wallets (id, "userId", "coinsBalance", "gamePointsBalance", "updatedAt") VALUES ('w-${u}', '${u}', 0, 0, now());
-UPDATE coin_provenance SET state = 'OPEN' WHERE id = '${lot}';
-COMMIT;`);
-      expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
-      const resolved = prismaCli(db.url, ['migrate', 'resolve', '--rolled-back', FINAL_GATE, '--schema', SCHEMA]);
-      expect(resolved.status, resolved.output).toBe(0);
+      // Runbook response to a stop after the pre-upgrade gate: restore the
+      // pre-upgrade backup (never correct the partly upgraded ledger in
+      // place), run the preflight, deploy again with writers stopped.
+      await db.client.$disconnect();
+      await prisma.$executeRawUnsafe(`DROP DATABASE "${db.name}" WITH (FORCE)`);
+      await prisma.$executeRawUnsafe(`CREATE DATABASE "${db.name}" TEMPLATE "${backup}"`);
+      const restored = await runLedgerUpgradePreflight(db.client);
+      expect({ mode: restored.mode, anomalies: restored.anomalies }).toEqual({ mode: 'PRE_UPGRADE', anomalies: [] });
       const retried = deploy(db.url);
       expect(retried.status, retried.output).toBe(0);
       expect(await anomalies(db.client)).toEqual([]);
+      expect(await relationExists(db.client, 'ledger_upgrade_window')).toBe(false);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('authorization: an ADMIN_ADJUST recorded before the rules exist stops the upgrade, which changes nothing', async () => {
+    const db = await scratchDatabase('authorization');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      const ids = masterIds();
+      execute(db.url, masterEraSeed(ids));
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < AUTHORIZATION))).status).toBe(0);
+      const forged = `op-forged-${ids.tag}`;
+      execute(db.url, `INSERT INTO economic_operations (id, type, "userId", "scopeType", "scopeId", "walletTransactionIds", "createdBy")
+        VALUES ('${forged}', 'ADMIN_ADJUST', '${ids.alice}', 'ADMIN_ADJUSTMENT', 'case-${ids.tag}', '{}', 'SYSTEM');`);
+      const result = deploy(db.url);
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain(AUTHORIZATION);
+      expect(result.output).toContain('LEDGER AUTHORIZATION CHECK STOPPED THE UPGRADE: 1 recorded operation(s)');
+      expect(result.output).toContain(`ADMIN_ADJUST ${forged}: admin adjustment ${forged} is not the execution of any adjustment approval`);
+      expect(result.output).not.toMatch(/--applied/);
+      expect((await migrationRows(db.client)).at(-1)).toMatchObject({ migration_name: AUTHORIZATION, finished: false });
+      expect(await relationExists(db.client, 'admin_adjustment_approvals')).toBe(false);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
@@ -432,6 +511,22 @@ COMMIT;`);
       const preflight = await runLedgerUpgradePreflight(db.client);
       expect(preflight.mode).toBe('UNSUPPORTED');
       expect(preflight.anomalies).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('the preflight answers UNSUPPORTED for ledger tables without a lot class, instead of failing in the anomaly query', async () => {
+    const db = await scratchDatabase('nolotclass');
+    try {
+      execute(db.url, `
+        CREATE TABLE "wallets" ("userId" TEXT PRIMARY KEY, "coinsBalance" INTEGER NOT NULL);
+        CREATE TABLE "coin_provenance" ("id" TEXT PRIMARY KEY, "userId" TEXT NOT NULL);
+        CREATE TABLE "coin_ledger_accounts" ("userId" TEXT PRIMARY KEY, "classifiedAt" TIMESTAMP(3));
+        CREATE TABLE "coin_lot_entries" ("operationId" TEXT, "lotId" TEXT);
+        CREATE TABLE "economic_operations" ("id" TEXT PRIMARY KEY, "userId" TEXT);
+        CREATE TABLE "legacy_balance_reviews" ("id" TEXT PRIMARY KEY, "userId" TEXT, "status" TEXT);`);
+      const preflight = await runLedgerUpgradePreflight(db.client);
+      expect({ mode: preflight.mode, anomalies: preflight.anomalies }).toEqual({ mode: 'UNSUPPORTED', anomalies: [] });
+      expect(preflight.reason).not.toContain('coin_provenance.lotClass');
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 });
@@ -610,6 +705,231 @@ describe('legacy game rules on a master database whose catalog the pre-casino AP
         await expect(db.client.$executeRawUnsafe(sql), sql).rejects.toThrow(message);
       }
       expect(await catalogFingerprint(db.client)).toEqual(before);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+});
+
+// The supported upgrade runs with every application writer stopped. These
+// schedules prove what happens when one is not: every race either waits and
+// then evaluates the committed result, or stops the upgrade. None completes
+// around a write it did not see.
+describe('ledger upgrade with a concurrent writer', () => {
+  const orphanStatements = (orphan: string): [string, ...unknown[]][] => [
+    [`INSERT INTO users (id, email, username, "passwordHash", "displayName", "updatedAt")
+      VALUES ($1, $1 || '@m.test', $1, 'x', 'Orphan', now())`, orphan],
+    ['INSERT INTO coin_ledger_accounts ("userId", "classifiedAt") VALUES ($1, NULL)', orphan],
+  ];
+
+  async function beforeFinalGate(label: string) {
+    const db = await scratchDatabase(label);
+    expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+    const ids = masterIds();
+    execute(db.url, masterEraSeed(ids));
+    expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < FINAL_GATE))).status).toBe(0);
+    return { db, ids };
+  }
+
+  it('final gate: an uncommitted ledger write makes the gate wait; once committed, the gate stops on it', async () => {
+    const { db, ids } = await beforeFinalGate('racecommit');
+    try {
+      const orphan = `orphan-${ids.tag}`;
+      const writer = await openWriter(db.url, orphanStatements(orphan)); // a ledger account without a wallet
+      const migration = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(migration.hasExited()).toBe(false);
+      expect(await writer.commit()).toBe('committed');
+      const result = await migration.done;
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain('LEDGER INTEGRITY GATE STOPPED THE UPGRADE');
+      expect(result.output).toContain(`WALLET_MISSING x1 [${orphan}]`);
+      expect((await migrationRows(db.client)).at(-1)).toMatchObject({ migration_name: FINAL_GATE, finished: false });
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('final gate: the same write rolled back lets the gate complete, with no anomaly afterwards', async () => {
+    const { db, ids } = await beforeFinalGate('racerollback');
+    try {
+      const writer = await openWriter(db.url, orphanStatements(`orphan-${ids.tag}`));
+      const migration = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(migration.hasExited()).toBe(false);
+      expect(await writer.rollback()).toBe('rolled back');
+      const result = await migration.done;
+      expect(result.status, result.output).toBe(0);
+      expect(await anomalies(db.client)).toEqual([]);
+      expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('an old-version wallet credit between migration stages stops the upgrade at the window check', async () => {
+    const db = await scratchDatabase('windowwrite');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      const ids = masterIds();
+      execute(db.url, masterEraSeed(ids));
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name <= OPENING_JOURNAL))).status).toBe(0);
+      // Exactly what the pre-ledger API writes for a Coin credit, after the
+      // opening journal has already turned alice's balance into a lot.
+      execute(db.url, `
+UPDATE wallets SET "coinsBalance" = "coinsBalance" + 500, "updatedAt" = now() WHERE "userId" = '${ids.alice}';
+INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", currency, amount, "balanceBefore",
+    "balanceAfter", "referenceType", "referenceId", description, status, "createdAt")
+  VALUES ('tx-late-${ids.tag}', 'w-${ids.alice}', '${ids.alice}', 'COIN_CREDIT', 'CREDIT', 'COINS', 500, 1000, 1500,
+    'REWARD', 'late-${ids.tag}', 'late credit', 'SUCCEEDED', now());`);
+      const result = deploy(db.url);
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain(WINDOW_CHECK);
+      expect(result.output).toContain('LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE');
+      expect(result.output).toContain(`wallet:${ids.alice}`);
+      expect(result.output).toContain('wallet_transactions');
+      // The ledger's own definitions cannot see this write (alice's account
+      // is unclassified): only the window check catches it.
+      expect(await anomalies(db.client)).toEqual([]);
+      expect(await relationExists(db.client, 'ledger_upgrade_window')).toBe(true);
+      expect((await migrationRows(db.client)).at(-1)).toMatchObject({ migration_name: WINDOW_CHECK, finished: false });
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('a legacy catalog edit committed between migration stages stops the upgrade at the window check', async () => {
+    const db = await scratchDatabase('windowgame');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name <= PRE_GATE))).status).toBe(0);
+      // Trivia's rules are fixed by the release, so no rules hash check sees
+      // this edit; only the window check does.
+      execute(db.url, `UPDATE game_definitions SET configuration = '{"correctMultiplier": 4}'::jsonb WHERE key = 'trivia';`);
+      const result = deploy(db.url);
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain(WINDOW_CHECK);
+      expect(result.output).toContain('LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE');
+      expect(result.output).toContain('game:trivia');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('a missing upgrade-window snapshot stops the upgrade with an explanation, never a silent pass', async () => {
+    const db = await scratchDatabase('windowmissing');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < WINDOW_CHECK))).status).toBe(0);
+      execute(db.url, 'DROP TABLE ledger_upgrade_window;');
+      const result = deploy(db.url);
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain(WINDOW_CHECK);
+      expect(result.output).toContain('the snapshot recorded by 20260917900000_ledger_preupgrade_gate is missing');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('pre-upgrade gate: an uncommitted rules edit makes it wait; once committed, it stops before any schema change', async () => {
+    const db = await scratchDatabase('rulesrace');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      const edited = JSON.stringify(MASTER_RUNTIME_CATALOG[0].configuration).replace('"probability":0.1}', '"probability":0.11}');
+      const writer = await openWriter(db.url, [
+        ['UPDATE game_definitions SET configuration = $1::jsonb WHERE key = \'lucky_spin\'', edited]]);
+      // The read-only preflight cannot see an uncommitted edit; the gate
+      // itself waits for it.
+      expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
+      const migration = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(migration.hasExited()).toBe(false);
+      expect(await writer.commit()).toBe('committed');
+      const result = await migration.done;
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain(PRE_GATE);
+      expect(result.output).toContain('GAME_RULES_CHANGED x1 [lucky_spin]');
+      expect(await relationExists(db.client, 'game_rules')).toBe(false);
+      expect(await relationExists(db.client, 'ledger_upgrade_window')).toBe(false);
+      expect((await runLedgerUpgradePreflight(db.client)).anomalies.map((a) => a.category)).toEqual(['GAME_RULES_CHANGED']);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('pre-upgrade gate: the same edit rolled back lets the upgrade complete with the verified hashes', async () => {
+    const db = await scratchDatabase('rulesrollback');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      const edited = JSON.stringify(MASTER_RUNTIME_CATALOG[0].configuration).replace('"probability":0.1}', '"probability":0.11}');
+      const writer = await openWriter(db.url, [
+        ['UPDATE game_definitions SET configuration = $1::jsonb WHERE key = \'lucky_spin\'', edited]]);
+      const migration = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(migration.hasExited()).toBe(false);
+      expect(await writer.rollback()).toBe('rolled back');
+      const result = await migration.done;
+      expect(result.status, result.output).toBe(0);
+      expect((await legacyRules(db.client)).lucky_spin.hash).toBe(RULES_HASH_LITERALS.lucky_spin);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+  /** The migration rows started but not finished: the one that is running. */
+  async function runningMigrations(client: PrismaClient): Promise<string[]> {
+    const rows = await client.$queryRawUnsafe<{ migration_name: string }[]>(
+      'SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL');
+    return rows.map((row) => row.migration_name);
+  }
+
+  // Each catalog migration locks the catalog and the rules itself, so a
+  // write that began after the pre-upgrade gate is waited for, not read
+  // around. The writer holds only game_rules: the trigger that
+  // 20260922020000 creates on game_definitions would make it wait anyway.
+  for (const migration of ['20260918020000_casino_foundation_seed', '20260922020000_g0_rules_hash_verification',
+    '20260922060000_g0_rules_hash_verification_fix']) {
+    it(`${migration} waits for an uncommitted rules write`, async () => {
+      const db = await scratchDatabase('catalock');
+      try {
+        expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+        execute(db.url, masterRuntimeCatalogSql());
+        expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < migration))).status).toBe(0);
+        const writer = await openWriter(db.url, [['LOCK TABLE game_rules IN ROW EXCLUSIVE MODE']]);
+        const background = deployInBackground(db.url);
+        await waitForLockWaitIn(db.name);
+        expect(await runningMigrations(db.client)).toEqual([migration]);
+        expect(await writer.rollback()).toBe('rolled back');
+        const result = await background.done;
+        expect(result.status, result.output).toBe(0);
+      } finally { await db.client.$disconnect(); }
+    }, 300_000);
+  }
+
+  it('authorization rules: an uncommitted coin lot write makes the migration wait instead of checking around it', async () => {
+    const db = await scratchDatabase('authlock');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterEraSeed(masterIds()));
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < AUTHORIZATION))).status).toBe(0);
+      const writer = await openWriter(db.url, [['UPDATE "coin_provenance" SET "updatedAt" = "updatedAt" WHERE false']]);
+      const background = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(await runningMigrations(db.client)).toEqual([AUTHORIZATION]);
+      expect(await writer.rollback()).toBe('rolled back');
+      const result = await background.done;
+      expect(result.status, result.output).toBe(0);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('window check: an uncommitted legacy wallet write makes it wait; once committed, it stops the upgrade', async () => {
+    const db = await scratchDatabase('windowrace');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      const ids = masterIds();
+      execute(db.url, masterEraSeed(ids));
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < WINDOW_CHECK))).status).toBe(0);
+      // What the pre-ledger API writes when it records a Game Points reward.
+      const writer = await openWriter(db.url, [[
+        `INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", currency, amount, "balanceBefore",
+           "balanceAfter", "referenceType", "referenceId", description, status, "createdAt")
+         VALUES ($1, 'w-' || $2, $2, 'GAME_POINT_CREDIT', 'CREDIT', 'GAME_POINTS', 5, 0, 5, 'REWARD', $1, 'late reward', 'SUCCEEDED', now())`,
+        `tx-late-${ids.tag}`, ids.alice]]);
+      const background = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      expect(await runningMigrations(db.client)).toEqual([WINDOW_CHECK]);
+      expect(await writer.commit()).toBe('committed');
+      const result = await background.done;
+      expect(result.status).not.toBe(0);
+      expect(result.output).toContain('LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE');
+      expect(result.output).toContain('wallet_transactions');
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 });

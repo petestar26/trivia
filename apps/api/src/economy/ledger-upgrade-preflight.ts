@@ -9,7 +9,10 @@
  *   - UPGRADED: evaluates the same definitions over the ledger tables, i.e.
  *     exactly what the final gate (20260924000000) and the runtime invariant
  *     checker (I15) decide, and reports whether the installed database
- *     function has drifted from these definitions.
+ *     function has drifted from these definitions. Once the authorization
+ *     rules (20260924010000) are installed it also reports every
+ *     LEGACY_RESOLVE / ADMIN_ADJUST operation they reject, with the same
+ *     query as that migration's closing check and invariant I16.
  * Any other (intermediate) schema is reported as UNSUPPORTED; it is never
  * guessed at. Everything runs in one READ ONLY, REPEATABLE READ transaction,
  * so the report is a consistent snapshot and nothing can be written.
@@ -17,7 +20,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   LEDGER_FUNCTION_BODY, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, LEGACY_CATALOG_PRECONDITIONS,
-  buildAnomalyQuery, normalizeSql,
+  UNAUTHORIZED_OPERATIONS_QUERY, buildAnomalyQuery, normalizeSql,
 } from './ledger-integrity-definitions.js';
 
 type Queryable = Pick<Prisma.TransactionClient, '$queryRawUnsafe'>;
@@ -41,6 +44,7 @@ export interface LedgerUpgradePreflightReport {
   snapshot: { readOnly: boolean; isolation: string };
   gateFunctionInstalled: boolean;
   definitionDrift: boolean;
+  authorizationRulesInstalled: boolean;
   anomalies: LedgerIntegrityAnomaly[];
 }
 
@@ -50,7 +54,7 @@ interface SchemaFacts {
   database: string; server_version: string;
   has_lots: boolean; has_lot_class: boolean; has_accounts: boolean; has_entries: boolean;
   has_operations: boolean; has_reviews: boolean; has_wallets: boolean; has_holds: boolean;
-  has_withdrawals: boolean; has_function: boolean; has_migrations: boolean;
+  has_withdrawals: boolean; has_function: boolean; has_migrations: boolean; has_authorization: boolean;
 }
 
 async function schemaFacts(db: Queryable): Promise<SchemaFacts> {
@@ -69,7 +73,9 @@ async function schemaFacts(db: Queryable): Promise<SchemaFacts> {
            to_regclass('withdrawal_holds') IS NOT NULL AS has_holds,
            to_regclass('withdrawals') IS NOT NULL AS has_withdrawals,
            to_regprocedure('ledger_integrity_anomalies()') IS NOT NULL AS has_function,
-           to_regclass('_prisma_migrations') IS NOT NULL AS has_migrations`);
+           to_regclass('_prisma_migrations') IS NOT NULL AS has_migrations,
+           to_regprocedure('legacy_resolution_violation(text,boolean)') IS NOT NULL
+             AND to_regprocedure('admin_adjustment_violation(text,boolean)') IS NOT NULL AS has_authorization`);
   return rows[0];
 }
 
@@ -104,6 +110,15 @@ export async function collectLedgerIntegrityAnomalies(
     ORDER BY q.category, q.subject_id NULLS FIRST`);
 }
 
+/** LEGACY_RESOLVE / ADMIN_ADJUST operations the authorization rules reject. */
+export async function collectUnauthorizedOperations(db: Queryable): Promise<LedgerIntegrityAnomaly[]> {
+  return db.$queryRawUnsafe<LedgerIntegrityAnomaly[]>(`
+    SELECT 'UNAUTHORIZED_OPERATION' AS category, 'economic_operation:' || u."kind" AS "subjectType",
+           u."id" AS "subjectId", u."userId", u."detail"
+    FROM (${UNAUTHORIZED_OPERATIONS_QUERY}) u
+    ORDER BY u."id"`);
+}
+
 async function migrationState(db: Queryable, present: boolean) {
   if (!present) return { lastApplied: null, failed: [] as string[] };
   const rows = await db.$queryRawUnsafe<{ migration_name: string; finished: boolean; rolled_back: boolean }[]>(`
@@ -134,10 +149,14 @@ export async function runLedgerUpgradePreflight(client: PrismaClient): Promise<L
     const migrations = await migrationState(tx, facts.has_migrations);
     const gateFunctionInstalled = mode === 'UPGRADED' && facts.has_function;
     const definitionDrift = gateFunctionInstalled ? await installedDefinitionDrifts(tx) : false;
-    const anomalies = mode === 'UNSUPPORTED' ? [] : await collectLedgerIntegrityAnomalies(tx, mode);
+    const authorizationRulesInstalled = mode === 'UPGRADED' && facts.has_authorization;
+    const anomalies = mode === 'UNSUPPORTED' ? [] : [
+      ...await collectLedgerIntegrityAnomalies(tx, mode),
+      ...authorizationRulesInstalled ? await collectUnauthorizedOperations(tx) : [],
+    ];
     return {
       database: facts.database, serverVersion: facts.server_version, mode, reason, migrations, snapshot,
-      gateFunctionInstalled, definitionDrift, anomalies,
+      gateFunctionInstalled, definitionDrift, authorizationRulesInstalled, anomalies,
     };
   }, { timeout: 600_000, maxWait: 30_000 });
 }
@@ -190,6 +209,9 @@ export function formatPreflightReport(report: LedgerUpgradePreflightReport, limi
     lines.push(report.gateFunctionInstalled
       ? `Gate definitions installed in the database: ${report.definitionDrift ? 'DIFFER from this release (drift)' : 'identical to this release'}`
       : 'Gate definitions installed in the database: not yet (the final gate migration has not been applied)');
+    lines.push(report.authorizationRulesInstalled
+      ? 'Operation authorization rules: installed; every LEGACY_RESOLVE and ADMIN_ADJUST was checked'
+      : 'Operation authorization rules: not yet installed (20260924010000 has not been applied)');
   }
   lines.push('');
   if (report.mode === 'UNSUPPORTED') {

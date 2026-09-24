@@ -80,6 +80,9 @@ export interface GamePlayResult {
   playContext: string;
   settlementDebitCurrency?: string | null;
   settlementCreditCurrency?: string | null;
+  /** True when the server answered from the stored result of this exact
+   * request (same idempotency key) instead of playing a new round. */
+  isReplay?: boolean;
 }
 
 /**
@@ -109,9 +112,9 @@ export function newIdempotencyKey(): string {
 }
 
 /**
- * Play a round with a required idempotency key. Returns the server's response
- * (the raw RT so we can distinguish a fresh 201 response object from a replay;
- * callers check `response.meta?.isReplay` or the data payload accordingly).
+ * Play a round with a required idempotency key. The server answers
+ * `{ success, data }`, where `data.isReplay` tells a stored result (an exact
+ * retry of an already settled request) from a newly played round.
  */
 export async function playGame<T extends GamePlayResult>(gameKey: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<ApiResponse<T>> {
   return api.postWithIdempotency<T>(`/games/${gameKey}/play`, idempotencyKey ?? newIdempotencyKey(), body);

@@ -22,6 +22,8 @@ async function buildApi() {
       join(__dirname, 'src/worker.ts'),
       // Read-only ledger upgrade preflight, runnable where tsx is not installed.
       join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),
+      // Rolled-back ledger invariant scan for the upgrade runbook.
+      join(__dirname, 'src/scripts/ledger-invariant-scan.ts'),
     ],
     outbase: join(__dirname, 'src'),
     bundle: true,

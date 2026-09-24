@@ -41,11 +41,13 @@ vi.mock('@/providers/auth-provider', () => ({
 
 import { NumberChallengePage } from './number-challenge';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
+import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
 
 afterEach(() => {
   cleanup();
   playGameMock.mockReset();
   newIdempotencyKeySpy.mockReset();
+  window.sessionStorage.clear();
 });
 
 function createClient() {
@@ -82,8 +84,8 @@ const successResponse = {
     rulesVersion: 1,
     resultSchemaVersion: 1,
     playContext: 'SOLO_WAGER',
+    isReplay: false,
   },
-  meta: { isReplay: false },
 };
 
 describe('NumberChallengePage', () => {
@@ -124,5 +126,46 @@ describe('NumberChallengePage', () => {
     const secondKey = playGameMock.mock.calls[1][2];
     expect(secondKey).not.toBe(firstKey);
     expect(newIdempotencyKeySpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the replay notice from the real API response shape (data.isReplay)', async () => {
+    playGameMock.mockResolvedValue({ ...successResponse, data: { ...successResponse.data, isReplay: true } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Submit Guess/i }));
+    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+  });
+
+  it('an edited guess never reuses the key of an unconfirmed round', async () => {
+    playGameMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Submit Guess/i }));
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
+    const [, firstBody, firstKey] = playGameMock.mock.calls[0];
+
+    fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '77' } });
+    expect(await screen.findByText(/previous guess has not been confirmed yet/i)).toBeInTheDocument();
+    playGameMock.mockResolvedValue(successResponse);
+    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
+    expect(playGameMock.mock.calls[1].slice(1)).toEqual([firstBody, firstKey]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(3));
+    const [, editedBody, editedKey] = playGameMock.mock.calls[2];
+    expect(editedBody).toEqual({ betAmount: 50, guess: 77 });
+    expect(editedKey).not.toBe(firstKey);
+  });
+
+  it('a reload resumes exactly the stored unconfirmed request', async () => {
+    window.sessionStorage.setItem(pendingPlayStorageKey('me-uuid', 'number_challenge'),
+      JSON.stringify({ key: 'stored-key', body: { betAmount: 20, guess: 7 } }));
+    playGameMock.mockResolvedValue({ ...successResponse, data: { ...successResponse.data, isReplay: true } });
+    renderPage();
+    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+    expect(playGameMock).toHaveBeenCalledTimes(1);
+    expect(playGameMock.mock.calls[0]).toEqual(['number_challenge', { betAmount: 20, guess: 7 }, 'stored-key']);
+    expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'number_challenge'))).toBeNull();
   });
 });

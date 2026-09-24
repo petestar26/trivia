@@ -49,11 +49,13 @@ vi.mock('@/providers/auth-provider', () => ({
 
 import { TriviaGamePage } from './trivia';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
+import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
 
 afterEach(() => {
   cleanup();
   playGameMock.mockReset();
   newIdempotencyKeySpy.mockReset();
+  window.sessionStorage.clear();
 });
 
 function createClient() {
@@ -90,8 +92,8 @@ const successResponse = {
     rulesVersion: 1,
     resultSchemaVersion: 1,
     playContext: 'BONUS',
+    isReplay: false,
   },
-  meta: { isReplay: false },
 };
 
 describe('TriviaGamePage', () => {
@@ -129,5 +131,40 @@ describe('TriviaGamePage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
     await waitFor(() => expect(screen.getByText(/\+30 Coins/i)).toBeInTheDocument());
     expect(playGameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the replay notice from the real API response shape (data.isReplay)', async () => {
+    playGameMock.mockResolvedValue({ ...successResponse, data: { ...successResponse.data, isReplay: true } });
+    renderPage();
+    await screen.findByText(QUESTION.question);
+    fireEvent.click(screen.getByText('4'));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
+    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+  });
+
+  it('an answer whose response was lost after the server settled it is resumed after a reload and credited once', async () => {
+    const settled = new Map<string, unknown>();
+    let loseResponse = true;
+    playGameMock.mockImplementation(async (_game: string, body: unknown, key: string) => {
+      if (settled.has(key)) return { success: true, data: { ...successResponse.data, isReplay: true } };
+      settled.set(key, body);
+      if (loseResponse) { loseResponse = false; throw new TypeError('Failed to fetch'); }
+      return successResponse;
+    });
+    renderPage();
+    await screen.findByText(QUESTION.question);
+    fireEvent.click(screen.getByText('4'));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Answer/i })).not.toBeDisabled());
+
+    cleanup(); // reload
+    renderPage();
+    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+    expect(screen.getByText(/\+30 Coins/i)).toBeInTheDocument();
+    expect(playGameMock).toHaveBeenCalledTimes(2);
+    expect(playGameMock.mock.calls[1].slice(1)).toEqual(playGameMock.mock.calls[0].slice(1));
+    expect(settled.size).toBe(1);
+    expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'trivia'))).toBeNull();
   });
 });

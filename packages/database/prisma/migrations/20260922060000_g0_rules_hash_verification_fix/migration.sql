@@ -1,6 +1,6 @@
 -- Migration E6: G0 — Fixed-Literal Rules Hash Verification
--- Forward-only correction of 20260922020000_g0_rules_hash_verification
--- (deployed migration is NOT edited/replaced in place).
+-- Correction of 20260922020000_g0_rules_hash_verification, written as a
+-- separate migration.
 --
 -- The problem: the original migration's verification re-derived "expected"
 -- by hashing game_definitions.configuration AT MIGRATION-RUN TIME:
@@ -35,6 +35,11 @@
 -- describes can never change under it. A future correction to a game's
 -- rules ships as a NEW version row (a new gameId+version, with its own
 -- fresh hash), never a mutation of an existing one.
+-- The catalog and rules are read and verified below: lock them against
+-- writers first, so a concurrent edit is either committed before this
+-- migration reads them or waits until it has finished.
+LOCK TABLE "game_definitions", "game_rules" IN SHARE ROW EXCLUSIVE MODE;
+
 DO $$
 DECLARE
     bad RECORD;

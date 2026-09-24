@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, unwrapData } from '@/lib/api';
 import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
+import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { CasinoShell } from '@/components/casino/CasinoShell';
 import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
@@ -66,42 +67,25 @@ export function DiceGamePage() {
   });
   const game = games?.find((g) => g.key === 'dice');
 
-  // One idempotency key per logical round, generated OUTSIDE mutationFn —
-  // in the click handler, before mutate() is even called — and reused for
-  // every retry (TanStack's own retry, a manual re-click, or a transport-
-  // level retry all re-invoke mutationFn with the SAME variables object).
-  // Generating the key INSIDE mutationFn was the bug: a retry re-runs that
-  // function body, so a key minted there is a fresh key on every retry,
-  // and a retried wager reads to the server as a brand new one. Cleared
-  // only in onSuccess, when the round has conclusively finished and the
-  // next click starts a genuinely new one.
-  const idempotencyKeyRef = useRef<string | null>(null);
-
-  const playMutation = useMutation({
-    mutationFn: async (vars: { betAmount: number; idempotencyKey: string }) => {
-      const res = await playGame<DicePlayResult>('dice', { betAmount: vars.betAmount }, vars.idempotencyKey);
-      return { data: unwrapData(res, 'Dice play response'), isReplay: res.meta?.isReplay === true };
-    },
-    onMutate: () => setPhase('RUNNING'),
-    onSuccess: (round) => {
-      idempotencyKeyRef.current = null; // round conclusively finished — next play is a new round
-      setLastResult(round.data.result);
-      setServerBalance(round.data.newBalance);
-      setIsReplay(round.isReplay);
-      setPhase(round.data.isWin ? 'RESULT' : 'SETTLED');
+  // One idempotency key per round, created once and stored with the exact
+  // request before the first send (see useDurablePlay): a lost response, a
+  // retry or a reload resends only that request, so the server replays the
+  // settled round instead of taking a second wager.
+  const { play, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<DicePlayResult>('dice', {
+    onStart: () => setPhase('RUNNING'),
+    onSettled: (round, replayed) => {
+      setLastResult(round.result);
+      setServerBalance(round.newBalance);
+      setIsReplay(replayed);
+      setPhase(round.isWin ? 'RESULT' : 'SETTLED');
       refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
-    // Deliberately does NOT clear idempotencyKeyRef — the key stays valid so
-    // a retry (manual re-click, or any transport/library retry) reuses the
-    // exact same key rather than minting a new wager.
-    onError: () => setPhase('BETTING_OPEN'),
+    onFailed: () => setPhase('BETTING_OPEN'),
   });
 
-  const rollDice = (betAmount: number) => {
-    const key = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = newIdempotencyKey());
-    playMutation.mutate({ betAmount, idempotencyKey: key });
-  };
+  const rollDice = (betAmount: number) => play({ betAmount });
+  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: bet });
 
   const minBet = game?.minBet ?? 5;
   const maxBet = game?.maxBet ?? 1000;
@@ -141,6 +125,12 @@ export function DiceGamePage() {
         <div className="mt-2 text-xs text-gray-500">
           Min {minBet} · Max {maxBet} Coins
         </div>
+
+        {confirmingEarlierRound && (
+          <div className="mt-4 text-sm text-amber-700 dark:text-amber-400">
+            Your previous roll has not been confirmed yet. Rolling again confirms that roll first; your new bet applies to the next round.
+          </div>
+        )}
 
         {playMutation.isError && (
           <div className="mt-4 text-sm text-red-600 dark:text-red-400">

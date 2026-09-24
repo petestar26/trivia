@@ -1,6 +1,7 @@
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@socialplay/database';
 import { splitPayout } from './coin-allocator.js';
+import { UNAUTHORIZED_OPERATIONS_QUERY } from './ledger-integrity-definitions.js';
 
 // Release evidence is supplied by the internal release runner, never by an
 // HTTP request. The SQL scan cannot prove replay-first behavior on its own.
@@ -81,7 +82,7 @@ const checks: ReadonlyArray<[string, string]> = [
       )
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
-  ['I3 financial history triggers present', `
+  ['I3 financial history triggers present, guard functions pinned', `
     WITH expected(tab, trigger_name) AS (VALUES
       ('economic_operations','economic_operations_append_only'),
       ('coin_lot_entries','coin_lot_entries_append_only'),
@@ -100,7 +101,13 @@ const checks: ReadonlyArray<[string, string]> = [
       ('wallets','wallet_ledger_owner_guard'),
       ('legacy_balance_reviews','review_coverage_guard'),
       ('legacy_balance_reviews','legacy_review_lifecycle_guard'),
-      ('coin_lot_entries','operation_authorization_guard')
+      ('coin_lot_entries','operation_authorization_guard'),
+      ('economic_operations','authorized_operation_guard'),
+      ('admin_adjustment_approvals','admin_adjustment_approval_lifecycle_guard'),
+      ('admin_adjustment_approvals','adjustment_execution_guard'),
+      ('game_sessions','game_session_immutability_guard'),
+      ('game_challenges','game_challenges_rules_pin_guard'),
+      ('group_competitions','group_competitions_rules_pin_guard')
     ), failures AS (
       SELECT trigger_name AS id FROM expected x
       WHERE NOT EXISTS (
@@ -108,6 +115,17 @@ const checks: ReadonlyArray<[string, string]> = [
         WHERE c.relname=x.tab AND t.tgname=x.trigger_name
           AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')
       )
+      UNION ALL
+      -- Every function of the schema (extensions aside) resolves table names
+      -- in this schema before pg_temp (migration 20260924040000), so a
+      -- session's TEMP tables cannot stand in for ledger rows.
+      SELECT 'search_path:' || p.oid::regprocedure::text AS id
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname=current_schema() AND p.prokind='f'
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d
+          WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')
+        AND NOT (COALESCE(p.proconfig, ARRAY[]::text[])
+          @> ARRAY['search_path=' || quote_ident(current_schema()) || ', pg_temp'])
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I4 operation identity indexes present', `
@@ -286,17 +304,15 @@ const checks: ReadonlyArray<[string, string]> = [
   // 20260924000000_ledger_integrity_gate), evaluated by the same database
   // function the gate ran, so this scan and the gate cannot disagree. A
   // missing function makes the whole scan fail, keeping every gate closed.
-  // Every LEGACY_RESOLVE and every ADMIN_ADJUST credit is bound to the
-  // records that authorized it (migration 20260924010000), by the same
-  // database functions the write-time guard uses. Approver activity is only
-  // checked when an operation is written: an administrator may leave later.
-  ['I16 authorized legacy resolutions and admin credits', `
-    WITH failures AS (
-      SELECT o."id" AS id FROM "economic_operations" o
-      WHERE (o."type" = 'LEGACY_RESOLVE' AND "legacy_resolution_violation"(o."id", false) IS NOT NULL)
-         OR (o."type" = 'ADMIN_ADJUST' AND "admin_credit_violation"(o."id", false) IS NOT NULL)
-    ) SELECT COUNT(*)::int AS count,
-       COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
+  // Every LEGACY_RESOLVE and every ADMIN_ADJUST (credit or debit) is bound
+  // to the records that authorized it (migration 20260924010000), by the
+  // shared UNAUTHORIZED_OPERATIONS_QUERY: the same database functions the
+  // write-time guard uses, in history mode (approver activity is only
+  // checked when an operation is written: an administrator may leave later).
+  ['I16 authorized legacy resolutions and admin adjustments', `
+    WITH failures AS (${UNAUTHORIZED_OPERATIONS_QUERY})
+    SELECT COUNT(*)::int AS count,
+       COALESCE((array_agg("id" ORDER BY "id"))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I15 ledger integrity (upgrade gate definitions)', `
     WITH failures AS (
       SELECT a."category" || ':' || COALESCE(a."subjectId", 'NULL') AS id

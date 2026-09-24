@@ -8,7 +8,9 @@
 --    are copies of apps/api/src/economy/ledger-integrity-definitions.ts.
 -- 2. The gate stops the upgrade on any anomaly. Everything in this migration
 --    runs in one transaction, so a stop leaves no function, trigger or index
---    behind. Follow docs/deployment/ledger-upgrade-gate.md.
+--    behind. It first locks every table the scan or the guards read against
+--    writers, so no write can land between the scan and the guards. Follow
+--    docs/deployment/ledger-upgrade-gate.md.
 -- 3. Only after the gate passes, guards are installed for the anomaly kinds
 --    the earlier ledger guards did not reject on write: half-initialized
 --    lots, ledger rows without a wallet, and UNCLASSIFIED value of a
@@ -156,6 +158,17 @@ SELECT a.category, a.subject_type, a.subject_id, a.user_id, a.detail
 FROM anomalies a
 ORDER BY a.category, a.subject_id NULLS FIRST
 $ledger$;
+
+-- The scan and the guard installation must see one stable state. An
+-- uncommitted write that the scan cannot see would otherwise commit after it
+-- and slip under guards installed a moment later. These locks conflict with
+-- every writer (and allow plain reads) on each table the scan or the guards
+-- read, and are held until this migration's transaction ends: a writer that
+-- is mid-transaction makes the gate wait, and the gate then evaluates its
+-- committed result.
+LOCK TABLE "wallets", "wallet_transactions", "coin_ledger_accounts", "coin_provenance",
+  "coin_lot_entries", "economic_operations", "legacy_balance_reviews", "withdrawal_holds",
+  "withdrawals" IN SHARE ROW EXCLUSIVE MODE;
 
 DO $gate$
 DECLARE

@@ -10,7 +10,7 @@ import {
 } from '../economy/wallet-service';
 import { sendGift, getGiftById } from '../economy/gift-service';
 import { createUserPayoutAccount } from '../withdrawals/payout-account-service.js';
-import { debitCoins, lockUserEconomicScope } from './coin-ledger-service.js';
+import { executeTestAdjustment } from '../test/adjustment-fixtures.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
@@ -185,16 +185,8 @@ describeIf('Ledger', () => {
 
   it('debit creates a ledger entry with correct before/after', async () => {
     const before = (await getWalletBalance(a.id)).coinsBalance;
-    await prisma.$transaction(async (tx) => {
-      const scopeId = randomUUID();
-      await lockUserEconomicScope(tx, `test-adjust:${a.id}:${scopeId}`);
-      await tx.$queryRaw`SELECT id FROM users WHERE id = ${a.id} FOR SHARE`;
-      await debitCoins(tx, a.id, 25, { type: 'ADMIN_ADJUST', scopeType: 'TEST_ADJUST',
-        scopeId, referenceType: 'ADMIN', referenceId: scopeId,
-        description: 'test debit', createdBy: a.id,
-        evidence: { testCase: 'ledger debit before-after' },
-      });
-    });
+    // An approved administrative debit: the only way an ADMIN_ADJUST can settle.
+    await executeTestAdjustment(a.id, -25);
 
     const after = (await getWalletBalance(a.id)).coinsBalance;
     expect(after).toBe(before - 25);

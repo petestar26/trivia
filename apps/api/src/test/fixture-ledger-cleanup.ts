@@ -86,6 +86,8 @@ async function purgeFixtureFinancialHistory(userIds: string[]): Promise<void> {
       await tx.$executeRaw`DELETE FROM "agents" WHERE "id" IN (${agentIds})`;
       await tx.$executeRaw`DELETE FROM "users" WHERE "id" IN (${agentUserIds})`;
     }
+    // Coin adjustment approvals are append-only and name the adjusted user.
+    await tx.$executeRaw`DELETE FROM "admin_adjustment_approvals" WHERE "userId" IN (${ids})`;
     await tx.$executeRaw`DELETE FROM "coin_lot_entries" WHERE "userId" IN (${ids})`;
     await tx.$executeRaw`DELETE FROM "coin_allocations" WHERE "userId" IN (${ids})`;
     await tx.$executeRaw`DELETE FROM "legacy_balance_reviews" WHERE "userId" IN (${ids})`;
@@ -94,6 +96,23 @@ async function purgeFixtureFinancialHistory(userIds: string[]): Promise<void> {
     await tx.$executeRaw`DELETE FROM "coin_ledger_accounts" WHERE "userId" IN (${ids})`;
     await tx.$executeRaw`DELETE FROM "user_kyc_verifications" WHERE "userId" IN (${ids})`;
     await tx.$executeRaw`DELETE FROM "wallet_transactions" WHERE "userId" IN (${ids})`;
+    // Committed game sessions are append-only replay records too.
+    await tx.$executeRaw`DELETE FROM "game_sessions" WHERE "userId" IN (${ids})`;
+  });
+}
+
+/** Deleting a challenge would SET NULL its sessions' challengeId, an update
+ * the session immutability guard refuses: remove those sessions first. */
+async function purgeFixtureChallengeSessions(where: unknown): Promise<void> {
+  const challenges = await prisma.gameChallenge.findMany({
+    where: where as Prisma.GameChallengeWhereInput, select: { id: true, challengerId: true, challengedId: true },
+  });
+  if (!challenges.length) return;
+  await assertThrowawayDatabase();
+  const challengeIds = Prisma.join(challenges.map((challenge) => challenge.id));
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+    await tx.$executeRaw`DELETE FROM "game_sessions" WHERE "challengeId" IN (${challengeIds})`;
   });
 }
 
@@ -116,8 +135,11 @@ prisma.$use(async (params, next) => {
       ` };
     });
   }
+  if (params.action === 'deleteMany' && params.model === 'GameChallenge') {
+    await purgeFixtureChallengeSessions(params.args?.where);
+  }
   if (params.action === 'deleteMany' &&
-      ['WalletTransaction', 'CoinAllocation', 'CoinProvenance', 'User'].includes(params.model ?? '')) {
+      ['WalletTransaction', 'CoinAllocation', 'CoinProvenance', 'User', 'GameSession'].includes(params.model ?? '')) {
     const userIds = await affectedUserIds(params.model!, params.args?.where);
     await purgeFixtureFinancialHistory(userIds);
   }

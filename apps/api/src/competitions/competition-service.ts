@@ -1,11 +1,12 @@
 import { prisma, Prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../economy/wallet-service';
-import { assertGroupRole, assertActiveMember, getGroupMembership } from '../realtime/chat-service';
-import { emitToGroup } from '../realtime/broadcast';
-import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
-import { getGameByKey } from '../games/game-catalog';
-import { lockUserForPlay } from '../games/game-locks';
+import { ApiError } from '../middleware/error-handler.js';
+import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../economy/wallet-service.js';
+import { assertGroupRole, assertActiveMember, getGroupMembership } from '../realtime/chat-service.js';
+import { emitToGroup } from '../realtime/broadcast.js';
+import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine.js';
+import { lockUserForPlay } from '../games/game-locks.js';
+import { contestRoundSnapshot, pinContestRules, pinnedContestRules } from '../games/contest-rules.js';
+import type { GameRules } from '@socialplay/database';
 import { competitionLifecycleInfo } from './competition-lifecycle.js';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
@@ -181,9 +182,8 @@ function scoringForGame(gameType: string): any {
 export async function createCompetition(creatorId: string, args: CreateCompetitionArgs) {
   await assertGroupRole(args.groupId, creatorId, MANAGER_ROLES);
 
-  const game = await getGameByKey(args.gameKey);
-  if (!game) throw ApiError.notFound('Game not found');
-  if (!game.isActive) throw ApiError.badRequest('This game is currently unavailable');
+  // Fail fast, before any wallet is touched; re-checked under lock below.
+  const { game } = await pinContestRules(prisma, args.gameKey, 'COMPETITION');
 
   const { startsAt, endsAt, entry, maxParticipants, rGP, rCoins } = validateCompetitionInput(args);
   const scoring = scoringForGame(game.type);
@@ -197,10 +197,14 @@ export async function createCompetition(creatorId: string, args: CreateCompetiti
   // finalizer from minting unbacked currency. If the creator cannot cover the
   // prize, applyBalanceChanges throws and the competition is never created.
   const competition = await prisma.$transaction(async (tx) => {
+    // The authoritative game and rules read, locked until this commits: the
+    // competition is pinned to exactly this immutable rules version.
+    const { game: locked, rules } = await pinContestRules(tx, args.gameKey, 'COMPETITION');
     const created = await tx.groupCompetition.create({
       data: {
         groupId: args.groupId,
-        gameId: game.id,
+        gameId: locked.id,
+        rulesVersion: rules.version,
         title: args.title.trim(),
         description: args.description?.trim() ?? null,
         status: 'SCHEDULED',
@@ -650,11 +654,14 @@ export async function playCompetition(
   });
   if (!participant) throw ApiError.forbidden('Join the competition before playing');
 
-  const config = (comp.game.configuration as Record<string, unknown>) ?? {};
+  // Every round plays the rules the competition was created under, never the
+  // game's current rules or its mutable configuration.
+  const rules = await pinnedContestRules(prisma, comp.gameId, comp.rulesVersion);
+  const config = (rules.rules as Record<string, unknown>) ?? {};
 
   if (comp.game.type === 'TRIVIA') {
     if (comp.scoring !== 'TRIVIA_CORRECT') throw ApiError.badRequest('Invalid scoring');
-    return playTriviaCompetitionRound(userId, comp, participant, clientData);
+    return playTriviaCompetitionRound(userId, comp, rules, participant, clientData);
   }
 
   // Server-computed BEFORE the transaction, from CSPRNG game logic — clientData
@@ -713,39 +720,21 @@ export async function playCompetition(
       );
     }
 
-    // Resolve the rules schema version for the game's pinned rules version.
-    const rulesRow = comp.game.currentRulesVersion
-      ? await tx.gameRules.findUnique({
-          where: {
-            gameId_version: { gameId: comp.gameId, version: comp.game.currentRulesVersion },
-          },
-          select: { resultSchemaVersion: true },
-        })
-      : null;
-
     await tx.gameSession.create({
       data: {
         userId,
         gameId: comp.gameId,
-        betAmount: comp.entryAmount,
+        // A competition round moves no wallet value: the Game Points entry
+        // was escrowed once, at join, on the competition itself.
+        ...contestRoundSnapshot(rules, 'COMPETITION_ROUND'),
         result: result as any,
-        rewardAmount: 0,
         isWin: score > 0,
         status: 'COMPLETED',
         completedAt: new Date(),
-        mode: comp.game.mode,
-        family: comp.game.family,
-        wagerCurrency: comp.game.wagerCurrency,
-        rewardCurrency: comp.game.rewardCurrency,
-        rulesVersion: comp.game.currentRulesVersion,
-        resultSchemaVersion: rulesRow?.resultSchemaVersion ?? null,
-        settlementDebitCurrency: null, // competitions settle via escrow, not per-round wallet mutation
-        settlementCreditCurrency: null,
-        playContext: 'COMPETITION_ROUND',
         requestSnapshot: JSON.parse(
           JSON.stringify({
             gameKey: comp.game.key,
-            rulesVersion: comp.game.currentRulesVersion ?? null,
+            rulesVersion: rules.version,
             stake: 0,
             selections: {},
           })
@@ -787,19 +776,8 @@ export async function playCompetition(
  */
 async function playTriviaCompetitionRound(
   userId: string,
-  comp: {
-    id: string;
-    gameId: string;
-    entryAmount: number;
-    game: {
-      key: string;
-      mode: 'WAGER' | 'BONUS';
-      family: 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
-      wagerCurrency: 'COINS' | 'GAME_POINTS' | null;
-      rewardCurrency: 'COINS' | 'GAME_POINTS';
-      currentRulesVersion: number | null;
-    };
-  },
+  comp: { id: string; gameId: string; game: { key: string } },
+  rules: GameRules,
   participant: { score: number; gamesPlayed: number },
   clientData?: Record<string, unknown>
 ) {
@@ -918,39 +896,19 @@ async function playTriviaCompetitionRound(
         gamesPlayed: { increment: 1 },
       },
     });
-    // Resolve the rules schema version for the game's pinned rules version.
-    const rulesRow = comp.game.currentRulesVersion
-      ? await tx.gameRules.findUnique({
-          where: {
-            gameId_version: { gameId: comp.gameId, version: comp.game.currentRulesVersion },
-          },
-          select: { resultSchemaVersion: true },
-        })
-      : null;
-
     await tx.gameSession.create({
       data: {
         userId,
         gameId: comp.gameId,
-        betAmount: comp.entryAmount,
+        ...contestRoundSnapshot(rules, 'COMPETITION_ROUND'),
         result,
-        rewardAmount: 0,
         isWin: correct,
         status: 'COMPLETED',
         completedAt: new Date(),
-        mode: comp.game.mode,
-        family: comp.game.family,
-        wagerCurrency: comp.game.wagerCurrency,
-        rewardCurrency: comp.game.rewardCurrency,
-        rulesVersion: comp.game.currentRulesVersion,
-        resultSchemaVersion: rulesRow?.resultSchemaVersion ?? null,
-        settlementDebitCurrency: null, // competitions settle via escrow, not per-round wallet mutation
-        settlementCreditCurrency: null,
-        playContext: 'COMPETITION_ROUND',
         requestSnapshot: JSON.parse(
           JSON.stringify({
             gameKey: comp.game.key,
-            rulesVersion: comp.game.currentRulesVersion ?? null,
+            rulesVersion: rules.version,
             stake: 0,
             selections: { questionId: q.id },
           })

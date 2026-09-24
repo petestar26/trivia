@@ -279,3 +279,23 @@ export const LEDGER_FUNCTION_BODY = buildAnomalyQuery(LEDGER_SOURCE_CURRENT);
 export function normalizeSql(sql: string): string {
   return sql.replace(/--[^\n]*/g, ' ').replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * Every LEGACY_RESOLVE and ADMIN_ADJUST operation that is not backed, exactly,
+ * by the records that authorize it (migration 20260924010000), in history
+ * mode: approver activity counts only when an operation is written, since an
+ * administrator may legitimately leave later. The same predicate, verbatim,
+ * closes that migration (between its ledger-authorization-check markers),
+ * backs invariant I16 and is reported by the UPGRADED preflight.
+ */
+export const UNAUTHORIZED_OPERATIONS_QUERY = `
+SELECT v."id", v."userId", v."kind", v."detail"
+FROM (
+  SELECT o."id", o."userId", o."type"::text AS "kind",
+         COALESCE("legacy_resolution_violation"(o."id", false),
+                  "admin_adjustment_violation"(o."id", false)) AS "detail"
+  FROM "economic_operations" o
+  WHERE o."type"::text IN ('LEGACY_RESOLVE', 'ADMIN_ADJUST')
+) v
+WHERE v."detail" IS NOT NULL
+`;

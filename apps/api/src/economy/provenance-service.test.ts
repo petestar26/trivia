@@ -12,6 +12,7 @@ import {
 } from './coin-ledger-service.js';
 import { activateTestPolicy, disableTestPolicy } from '../ledger/test-policy-fixture.js';
 import { mintTestPurchasedCoins } from '../test/financial-policy-fixtures.js';
+import { executeTestAdjustment } from '../test/adjustment-fixtures.js';
 
 // The old provenance-service tests manufactured lots without wallet entries,
 // then asserted FIFO funding, fresh requirements on wins, and diluted gift
@@ -215,9 +216,12 @@ describe('Opus coin ledger: classified balances and immutable operations', () =>
     const operations = await operationCount(user.id);
     const admin = await makeUser('SUPER_ADMIN');
     await expect(prisma.$transaction(async (tx) => {
+      // Settles as far as a real adjustment would; the rollback discards it
+      // before any deferred guard could even check its approval.
       await creditCoins(tx, user.id, 25, {
         type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId: id('rollback'),
         referenceType: 'ADMIN', description: 'Rollback probe', createdBy: admin.id,
+        evidence: { caseId: 'rollback-probe' }, adjustmentApproval: { id: id('rollback-approval'), amount: 25 },
       });
       throw new Error('forced rollback');
     })).rejects.toThrow('forced rollback');
@@ -227,15 +231,10 @@ describe('Opus coin ledger: classified balances and immutable operations', () =>
 
   it('I5/T11: an unexplained admin credit enters review and cannot be reserved for withdrawal', async () => {
     const user = await makeUser();
-    const scopeId = id('admin-credit');
-    const admin = await makeUser('SUPER_ADMIN');
-    const credit = await prisma.$transaction((tx) => creditCoins(tx, user.id, 25, {
-      type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId,
-      referenceType: 'ADMIN', referenceId: scopeId, description: 'Unexplained credit', createdBy: admin.id,
-    }));
-    expect((await lot(credit.lotId)).lotClass).toBe('UNCLASSIFIED');
+    const credit = await executeTestAdjustment(user.id, 25);
+    expect((await lot(credit.reviewLotId!)).lotClass).toBe('UNCLASSIFIED');
     const [review] = await prisma.$queryRaw<{ status: string }[]>`
-      SELECT "status" FROM legacy_balance_reviews WHERE "lotId" = ${credit.lotId}
+      SELECT "status" FROM legacy_balance_reviews WHERE "lotId" = ${credit.reviewLotId}
     `;
     expect(review?.status).toBe('OPEN');
     await expectBalanced(user.id, 25);

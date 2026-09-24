@@ -1,5 +1,6 @@
 -- Ledger upgrade, pre-upgrade gate. Runs before any ledger migration, on the
--- supported pre-upgrade (master) schema, and changes nothing.
+-- supported pre-upgrade (master) schema. It changes no existing data; when
+-- it passes it only records the upgrade-window snapshot described below.
 --
 -- It projects exactly what the following migrations will create from the
 -- existing data (the 20260922050000 backfill and the 20260923030000 opening
@@ -15,6 +16,16 @@
 --
 -- If this gate stops the upgrade, nothing has been changed and the running
 -- application is unaffected. Follow docs/deployment/ledger-upgrade-gate.md.
+--
+-- The upgrade is supported only with every application writer stopped (see
+-- the runbook). This gate first locks the tables it reads against writers,
+-- so an uncommitted write makes it wait and it then evaluates the committed
+-- result. When it passes, it records the legacy financial state it verified
+-- in "ledger_upgrade_window"; the last migration of the release
+-- (20260924090000) stops the upgrade if that state changed meanwhile.
+LOCK TABLE "wallets", "wallet_transactions", "withdrawal_holds", "withdrawals", "game_definitions"
+  IN SHARE MODE;
+
 DO $gate$
 DECLARE
   gate_total integer;
@@ -211,3 +222,37 @@ WHERE d."configuration" IS DISTINCT FROM e.expected
   END IF;
 END
 $gate$;
+
+-- The legacy financial state this gate verified, compared again by
+-- 20260924090000_ledger_upgrade_window_check. Master-era columns only: no
+-- migration of this release changes them, so any difference is a write made
+-- by a still-running application or worker. The block between the markers is
+-- repeated there; a test fails if the copies differ.
+CREATE TABLE "ledger_upgrade_window" (
+  "subject" TEXT NOT NULL,
+  "fingerprint" TEXT NOT NULL,
+  "capturedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ledger_upgrade_window_pkey" PRIMARY KEY ("subject")
+);
+INSERT INTO "ledger_upgrade_window" ("subject", "fingerprint")
+-- ledger-upgrade-window:begin
+SELECT 'wallet:' || w."userId", w."coinsBalance" || '/' || w."gamePointsBalance"
+FROM "wallets" w
+UNION ALL
+SELECT 'wallet_transactions', count(*) || '/' || COALESCE(sum(hashtextextended(
+         t."id" || ':' || t."userId" || ':' || t."amount" || ':' || t."currency" || ':' || t."ledgerType" || ':' || t."status", 0)), 0)
+FROM "wallet_transactions" t
+UNION ALL
+SELECT 'withdrawal_holds', count(*) || '/' || COALESCE(sum(hashtextextended(
+         h."id" || ':' || h."status" || ':' || h."coinAmount" || ':' || COALESCE(h."refundWalletTransactionId", '-'), 0)), 0)
+FROM "withdrawal_holds" h
+UNION ALL
+SELECT 'withdrawals', count(*) || '/' || COALESCE(sum(hashtextextended(
+         d."id" || ':' || d."status" || ':' || d."coinAmount", 0)), 0)
+FROM "withdrawals" d
+UNION ALL
+SELECT 'game:' || g."key", COALESCE(g."configuration"::text, 'NULL')
+FROM "game_definitions" g
+WHERE g."key" IN ('lucky_spin', 'dice', 'number_challenge', 'trivia')
+-- ledger-upgrade-window:end
+;

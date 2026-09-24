@@ -15,15 +15,19 @@ import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import {
   LEDGER_ANOMALY_PREDICATES, LEDGER_SOURCE_CURRENT, LEDGER_SOURCE_PROJECTED, LEGACY_CATALOG_PRECONDITIONS, normalizeSql,
+  UNAUTHORIZED_OPERATIONS_QUERY,
 } from './ledger-integrity-definitions.js';
 import { redactSecrets, runLedgerUpgradePreflight } from './ledger-upgrade-preflight.js';
 
 const API_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const TSX = join(API_ROOT, 'node_modules/.bin/tsx');
 const SCRIPT = join(API_ROOT, 'src/scripts/ledger-upgrade-preflight.ts');
+const SCAN_SCRIPT = join(API_ROOT, 'src/scripts/ledger-invariant-scan.ts');
 const MIGRATIONS = fileURLToPath(new URL('../../../../packages/database/prisma/migrations/', import.meta.url));
 const PRE_GATE = join(MIGRATIONS, '20260917900000_ledger_preupgrade_gate/migration.sql');
 const FINAL_GATE = join(MIGRATIONS, '20260924000000_ledger_integrity_gate/migration.sql');
+const WINDOW_CHECK = join(MIGRATIONS, '20260924090000_ledger_upgrade_window_check/migration.sql');
+const AUTHORIZATION = join(MIGRATIONS, '20260924010000_ledger_resolution_authorization/migration.sql');
 
 const emptyDirs: string[] = [];
 afterAll(async () => {
@@ -31,10 +35,10 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-function runCli(env: Record<string, string>, args: string[] = []) {
+function runCli(env: Record<string, string>, args: string[] = [], script = SCRIPT) {
   const cwd = mkdtempSync(join(tmpdir(), 'preflight-cwd-'));
   emptyDirs.push(cwd);
-  const run = spawnSync(TSX, [SCRIPT, ...args], {
+  const run = spawnSync(TSX, [script, ...args], {
     cwd, env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8', timeout: 120_000,
   });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', all: `${run.stdout ?? ''}${run.stderr ?? ''}` };
@@ -126,6 +130,62 @@ describe('ledger upgrade preflight', () => {
     expect({ mode: report.mode, drift: report.definitionDrift }).toEqual({ mode: 'UPGRADED', drift: false });
   });
 
+  it('the authorization migration closes with the query invariant I16 and the preflight evaluate', async () => {
+    const match = /-- ledger-authorization-check:begin\n([\s\S]*?)-- ledger-authorization-check:end/
+      .exec(readFileSync(AUTHORIZATION, 'utf8'));
+    expect(match, 'the authorization migration lacks its closing check').not.toBeNull();
+    expect(normalizeSql(match![1])).toBe(normalizeSql(UNAUTHORIZED_OPERATIONS_QUERY));
+    const report = await runLedgerUpgradePreflight(prisma);
+    expect(report.authorizationRulesInstalled).toBe(true);
+    expect(report.anomalies.filter((a) => a.category === 'UNAUTHORIZED_OPERATION')).toEqual([]);
+  });
+
+  it('the upgrade-window snapshot and its check use one definition', () => {
+    const windowBlock = (file: string) => {
+      const match = /-- ledger-upgrade-window:begin\n([\s\S]*?)-- ledger-upgrade-window:end/.exec(readFileSync(file, 'utf8'));
+      if (!match) throw new Error(`${file} lacks the ledger-upgrade-window block`);
+      return normalizeSql(match[1]);
+    };
+    expect(windowBlock(WINDOW_CHECK)).toBe(windowBlock(PRE_GATE));
+  });
+
+  it('the invariant scan CLI runs every invariant, records nothing, and exits 1 on a violation', async () => {
+    const name = `playqube_prefl_${randomUUID().replaceAll('-', '').slice(0, 8)}_throwaway`;
+    await prisma.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
+    try {
+      const url = new URL(process.env.DATABASE_URL!); url.pathname = `/${name}`;
+      const prismaBin = fileURLToPath(new URL('../../../../packages/database/node_modules/.bin/prisma', import.meta.url));
+      const schema = fileURLToPath(new URL('../../../../packages/database/prisma/schema.prisma', import.meta.url));
+      const migrated = spawnSync(prismaBin, ['migrate', 'deploy', '--schema', schema],
+        { env: { PATH: process.env.PATH ?? '', DATABASE_URL: url.toString() }, encoding: 'utf8', timeout: 240_000 });
+      expect(migrated.status, migrated.stdout + migrated.stderr).toBe(0);
+      const clean = runCli({ DATABASE_URL: url.toString() }, [], SCAN_SCRIPT);
+      expect(clean.status, clean.all).toBe(0);
+      expect(clean.stdout).toContain('every invariant holds');
+      expect(clean.all).not.toContain(url.toString());
+
+      const orphan = `orphan-${randomUUID().slice(0, 8)}`;
+      const scratch = new PrismaClient({ datasourceUrl: url.toString(), log: [] });
+      try {
+        await scratch.$transaction([
+          scratch.$executeRawUnsafe('SET LOCAL session_replication_role = replica'),
+          scratch.$executeRawUnsafe(`INSERT INTO users (id, email, username, "passwordHash", "displayName", "updatedAt")
+            VALUES ($1, $1 || '@m.test', $1, 'x', 'Orphan', now())`, orphan),
+          scratch.$executeRawUnsafe('INSERT INTO coin_ledger_accounts ("userId", "classifiedAt") VALUES ($1, now())', orphan),
+        ]);
+        const flagged = runCli({ DATABASE_URL: url.toString() }, ['--json'], SCAN_SCRIPT);
+        expect(flagged.status, flagged.all).toBe(1);
+        const report = JSON.parse(flagged.stdout) as { passed: boolean; violations: { invariant: string; sample: string[] }[] };
+        expect(report.passed).toBe(false);
+        expect(report.violations.find((v) => v.invariant.startsWith('I15'))?.sample).toContain(`WALLET_MISSING:${orphan}`);
+        const [runs] = await scratch.$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM invariant_check_runs');
+        expect(runs.n).toBe(0);
+      } finally { await scratch.$disconnect(); }
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    }
+  }, 300_000);
+
   it('reports each anomaly with exit code 1 and an escalation instruction, never a bypass', async () => {
     const name = `playqube_prefl_${randomUUID().replaceAll('-', '').slice(0, 8)}_throwaway`;
     await prisma.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
@@ -144,12 +204,18 @@ describe('ledger upgrade preflight', () => {
           scratch.$executeRawUnsafe(`INSERT INTO users (id, email, username, "passwordHash", "displayName", "updatedAt")
             VALUES ($1, $1 || '@m.test', $1, 'x', 'Orphan', now())`, orphan),
           scratch.$executeRawUnsafe('INSERT INTO coin_ledger_accounts ("userId", "classifiedAt") VALUES ($1, now())', orphan),
+          // An ADMIN_ADJUST that no approval executed, as a writer with
+          // triggers disabled would leave it.
+          scratch.$executeRawUnsafe(`INSERT INTO economic_operations (id, type, "userId", "scopeType", "scopeId", "walletTransactionIds", "createdBy")
+            VALUES ($1, 'ADMIN_ADJUST', $2, 'ADMIN_ADJUSTMENT', $1, '{}', 'SYSTEM')`, `forged-${orphan}`, orphan),
         ]);
       } finally { await scratch.$disconnect(); }
       const run = runCli({ DATABASE_URL: url.toString() });
       expect(run.status, run.all).toBe(1);
       expect(run.stdout).toContain('WALLET_MISSING (1)');
       expect(run.stdout).toContain(orphan);
+      expect(run.stdout).toContain('UNAUTHORIZED_OPERATION (1)');
+      expect(run.stdout).toContain(`economic_operation:ADMIN_ADJUST forged-${orphan} (user ${orphan}): admin adjustment forged-${orphan} is not the execution of any adjustment approval`);
       expect(run.stdout).toContain('docs/deployment/ledger-upgrade-gate.md');
       expect(run.all).not.toMatch(/--applied/);
 

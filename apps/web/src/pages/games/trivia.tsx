@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
-import { useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData, newIdempotencyKey, playGame } from '@/lib/api';
+import { useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, unwrapData } from '@/lib/api';
 import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
+import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { CasinoShell } from '@/components/casino/CasinoShell';
 import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
@@ -65,7 +66,7 @@ export function TriviaGamePage() {
     refetchQuestion();
   }, [refetchQuestion]);
 
-  const questions = questionData ?? [];
+  const questions = useMemo(() => questionData ?? [], [questionData]);
   const [current, setCurrent] = useState<TriviaQuestion | null>(null);
 
   useEffect(() => {
@@ -74,43 +75,36 @@ export function TriviaGamePage() {
     }
   }, [questions, current]);
 
-  // One idempotency key per logical round, generated OUTSIDE mutationFn (in
-  // submit(), before mutate() is called) and reused for every retry — see
-  // dice.tsx for the full rationale. Cleared only in onSuccess.
-  const idempotencyKeyRef = useRef<string | null>(null);
-
-  const playMutation = useMutation({
-    mutationFn: async (payload: { questionId: string; answerIndex: number; idempotencyKey: string }) => {
-      const res = await playGame<TriviaPlayResult>(
-        'trivia',
-        { questionId: payload.questionId, answerIndex: payload.answerIndex },
-        payload.idempotencyKey
-      );
-      return { data: unwrapData(res, 'Trivia play response'), isReplay: res.meta?.isReplay === true };
-    },
-    onMutate: () => setPhase('RUNNING'),
-    onSuccess: (round) => {
-      idempotencyKeyRef.current = null; // round conclusively finished — next play is a new round
-      setLastResult(round.data.result);
-      setServerBalance(round.data.newBalance);
-      setIsReplay(round.isReplay);
-      setPhase(round.data.isWin ? 'RESULT' : 'SETTLED');
+  // One idempotency key per round, stored with the exact request before the
+  // first send; see useDurablePlay and dice.tsx.
+  const { play, pending, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<TriviaPlayResult>('trivia', {
+    onStart: () => setPhase('RUNNING'),
+    onSettled: (round, replayed) => {
+      setLastResult(round.result);
+      setServerBalance(round.newBalance);
+      setIsReplay(replayed);
+      setPhase(round.isWin ? 'RESULT' : 'SETTLED');
       refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
-    // Deliberately does NOT clear idempotencyKeyRef on error — see dice.tsx.
-    onError: () => setPhase('BETTING_OPEN'),
+    onFailed: () => setPhase('BETTING_OPEN'),
   });
+
+  // An unconfirmed answer (a lost response, a reload) is the question on
+  // screen until the server confirms it.
+  useEffect(() => {
+    if (!pending) return;
+    const question = questions.find((q) => q.id === pending.body.questionId);
+    if (question && current?.id !== question.id) setCurrent(question);
+    if (typeof pending.body.answerIndex === 'number') setSelected(pending.body.answerIndex);
+  }, [pending, questions, current]);
 
   const submit = () => {
     if (selected === null || !current) return;
-    const key = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = newIdempotencyKey());
-    playMutation.mutate({
-      questionId: current.id,
-      answerIndex: selected,
-      idempotencyKey: key,
-    });
+    play({ questionId: current.id, answerIndex: selected });
   };
+  const confirmingEarlierRound = selected !== null && current !== null
+    && pendingDiffersFrom({ questionId: current.id, answerIndex: selected });
 
   return (
     <CasinoShell
@@ -163,6 +157,12 @@ export function TriviaGamePage() {
             >
               {playMutation.isPending ? 'Checking…' : 'Submit Answer'}
             </button>
+
+            {confirmingEarlierRound && (
+              <div className="text-sm text-amber-700 dark:text-amber-400">
+                Your previous answer has not been confirmed yet. Submitting confirms that answer first.
+              </div>
+            )}
 
             {playMutation.isError && (
               <div className="text-sm text-red-600 dark:text-red-400">

@@ -3,7 +3,9 @@
 // actor or wallet credit, then reclassified it into a WITHDRAWABLE lot with a
 // LEGACY_RESOLVE operation whose snapshot only carried the right keys.
 // Migration 20260924010000 binds both operation types to the records that
-// authorize them. This file proves:
+// authorize them. The ADMIN_ADJUST half is proved in
+// ledger-adjustment-authorization.contract.test.ts; this file proves, for
+// LEGACY_RESOLVE:
 //   1. both forged steps, run as ordinary SQL, are refused;
 //   2. every authorization condition is enforced on its own (variants are
 //      planted with triggers bypassed and judged by the same functions the
@@ -16,7 +18,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
-import { adjustUserCoins } from '../economy/admin-adjustment-service.js';
+import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
+import type { Approvers } from '../test/adjustment-fixtures.js';
 import { firstApproveLegacyReview, secondApproveLegacyReview } from '../economy/legacy-review-service.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { asLegacy, inRolledBackTransaction, purchasedFixture, uid, user } from '../test/ledger-integrity-fixtures.js';
@@ -40,10 +43,10 @@ async function verdict(statements: (tx: Tx) => Promise<Statement[]> | Statement[
 const terms = { decision: 'WITHDRAWABLE' as const, rationale: 'Two administrators verified the source',
   supportingEvidence: ['case-authorization-001'] };
 
-/** A classified buyer with a real admin credit under a real first approval. */
-async function firstApprovedReview(f: PurchasedFixture, creditor: { id: string }, approver: { id: string }, amount = 40) {
-  const credit = await adjustUserCoins(creditor.id, { targetUserId: f.buyer.id, caseId: uid('auth-case'), delta: amount,
-    rationale: 'Documented historical balance correction', supportingEvidence: ['case-authorization-credit'] });
+/** A classified buyer with a real, two-administrator approved credit (which
+ * opens a legacy review) under a real first review approval. */
+async function firstApprovedReview(f: PurchasedFixture, creditor: Approvers, approver: { id: string }, amount = 40) {
+  const credit = await executeTestAdjustment(f.buyer.id, amount, creditor);
   const lotId = credit.reviewLotId!;
   const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId } });
   await firstApproveLegacyReview(approver.id, review.id, terms);
@@ -100,33 +103,16 @@ function resolutionSql(r: Resolution): { op: string; statements: Statement[] } {
 
 describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
   let f: PurchasedFixture; let other: PurchasedFixture;
-  let first: { id: string }; let second: { id: string }; let creditor: { id: string };
+  let first: { id: string }; let second: { id: string }; let creditor: Approvers;
   beforeAll(async () => {
     f = await purchasedFixture(1000);
     other = await purchasedFixture(500);
     first = await user(uid('first'), 'SUPER_ADMIN');
     second = await user(uid('second'), 'SUPER_ADMIN');
-    creditor = await user(uid('creditor'), 'SUPER_ADMIN');
+    creditor = await makeApprovers('auth-creditor');
   });
 
   describe('1. the two forged steps, as ordinary SQL', () => {
-    it('refuses the forged ADMIN_ADJUST credit (no real actor, no wallet credit)', async () => {
-      const op = uid('op-adj'); const lot = uid('lot-u'); const review = uid('rev-u');
-      expect(await verdict(() => [
-        [`INSERT INTO "economic_operations" ("id","type","userId","scopeType","scopeId","walletTransactionIds","createdBy","snapshot")
-          VALUES ($1,'ADMIN_ADJUST',$2,'ADMIN_ADJUSTMENT',$1,'{}','attacker','{"evidence":"x"}')`, op, f.buyer.id],
-        [`INSERT INTO "coin_provenance" ("id","userId","amount","provenanceType","restrictionStatus","originalSource","lotClass","state",
-            "availableAmount","reservedAmount","requirementAmount","progressAmount","mintedAt","availableAt","sourceOperationId","createdAt","updatedAt")
-          VALUES ($1,$2,1000000,'ADMIN_ADJUSTMENT','UNRESTRICTED','ADMIN_ADJUSTMENT','UNCLASSIFIED','OPEN',0,0,0,0,now(),now(),$3,now(),now())`,
-          lot, f.buyer.id, op],
-        ['INSERT INTO "legacy_balance_reviews" ("id","userId","lotId","amount","status") VALUES ($1,$2,$3,1000000,\'OPEN\')', review, f.buyer.id, lot],
-        ['UPDATE "coin_provenance" SET "reviewId" = $2 WHERE "id" = $1', lot, review],
-        [`INSERT INTO "coin_lot_entries" ("operationId","lotId","userId","sequence","entryType","availableDelta")
-          VALUES ($1,$2,$3,0,'MINT',1000000)`, op, lot, f.buyer.id],
-        ['UPDATE "wallets" SET "coinsBalance" = "coinsBalance" + 1000000 WHERE "userId" = $1', f.buyer.id],
-      ])).toMatch(/rejects: .*admin credit .* was not recorded by a currently active SUPER_ADMIN/);
-    });
-
     it('refuses the forged LEGACY_RESOLVE (a review nobody resolved, invented approvers)', async () => {
       const r = await firstApprovedReview(f, creditor, first);
       const forged = resolutionSql({ ...r, owner: f.buyer.id, first: 'a', second: 'b', createdBy: 'attacker', reviewStatus: 'FIRST_APPROVED' });
@@ -155,7 +141,7 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
       it(`refuses a resolution with ${name}`, async () => {
         const r = await firstApprovedReview(f, creditor, first);
         const plain = await user(uid('plain'));
-        const actors: Record<string, string> = { creditor: creditor.id, owner: f.buyer.id, plain: plain.id };
+        const actors: Record<string, string> = { creditor: creditor.first.id, owner: f.buyer.id, plain: plain.id };
         const spec: Resolution = { ...r, owner: f.buyer.id, first: first.id, second: second.id };
         for (const [key, value] of Object.entries(change)) {
           (spec as unknown as Record<string, unknown>)[key] = typeof value === 'string' && value in actors ? actors[value] : value;
@@ -285,72 +271,7 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
       expect(i16).toBe(0);
     });
 
-    async function judgeCredit(change: Record<string, unknown>) {
-      return inRolledBackTransaction(async (tx) => {
-        const op = await plantCredit(tx, change);
-        const [row] = await tx.$queryRawUnsafe<{ message: string | null }[]>('SELECT "admin_credit_violation"($1, true) AS message', op);
-        return row.message ?? 'valid';
-      });
-    }
-    /** Plants an admin credit (one deviation at a time) with all triggers bypassed. */
-    async function plantCredit(tx: Tx, change: Record<string, unknown>) {
-      const op = uid('adj-op'); const lot = uid('adj-lot'); const wt = uid('adj-wt'); const review = uid('adj-rev');
-      const c = { actor: creditor.id, evidence: true, lotClass: 'UNCLASSIFIED', walletAmount: 25, walletUser: f.buyer.id,
-        walletTxs: 'one', walletCurrency: 'COINS', walletDirection: 'CREDIT', walletStatus: 'SUCCEEDED', ...change };
-      const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } });
-      await asLegacy(tx, [
-        [`INSERT INTO "wallet_transactions" ("id","walletId","userId","type","ledgerType","currency","amount","balanceBefore",
-            "balanceAfter","referenceType","referenceId","description","status","createdAt")
-          VALUES ($1,$2,$3,'COIN_CREDIT',$6::"LedgerType",$5::"CurrencyType",$4,0,$4,'ADMIN',$1,'credit',
-            $7::"WalletTransactionStatus",now())`,
-          wt, wallet.id, c.walletUser, c.walletAmount, c.walletCurrency, c.walletDirection, c.walletStatus],
-        [`INSERT INTO "economic_operations" ("id","type","userId","scopeType","scopeId","walletTransactionIds","createdBy","snapshot")
-          VALUES ($1,'ADMIN_ADJUST',$2,'ADMIN_ADJUSTMENT',$1,
-            CASE $5 WHEN 'none' THEN '{}'::text[] WHEN 'two' THEN ARRAY[$3::text,$3::text] ELSE ARRAY[$3::text] END,
-            $4, CASE WHEN $6::boolean THEN '{"evidence":{"caseId":"x"}}'::jsonb ELSE '{}'::jsonb END)`,
-          op, f.buyer.id, wt, c.actor, c.walletTxs, c.evidence],
-        [`INSERT INTO "coin_provenance" ("id","userId","amount","provenanceType","restrictionStatus","originalSource","lotClass","state",
-            "availableAmount","reservedAmount","requirementAmount","progressAmount","mintedAt","availableAt","sourceOperationId",
-            "reviewId","createdAt","updatedAt")
-          VALUES ($1,$2,25,'ADMIN_ADJUSTMENT','UNRESTRICTED','ADMIN_ADJUSTMENT',$3::"lot_class",'OPEN',25,0,0,0,now(),now(),$4,$5,now(),now())`,
-          lot, f.buyer.id, c.lotClass, op, review],
-        ['INSERT INTO "legacy_balance_reviews" ("id","userId","lotId","amount","status") VALUES ($1,$2,$3,25,\'OPEN\')', review, f.buyer.id, lot],
-        [`INSERT INTO "coin_lot_entries" ("operationId","lotId","userId","sequence","entryType","availableDelta")
-          VALUES ($1,$2,$3,0,'MINT',25)`, op, lot, f.buyer.id],
-      ]);
-      return op;
-    }
-    it('a genuine admin credit is valid', async () => { expect(await judgeCredit({})).toBe('valid'); });
-    it('an admin credit needs evidence', async () => { expect(await judgeCredit({ evidence: false })).toMatch(/has no evidence/); });
-    it('an admin credit needs an independent actor', async () => {
-      expect(await judgeCredit({ actor: f.buyer.id })).toMatch(/has no independent actor/);
-    });
-    it('an admin credit needs a currently active SUPER_ADMIN actor', async () => {
-      const admin = await user(uid('plain-admin'), 'ADMIN');
-      expect(await judgeCredit({ actor: admin.id })).toMatch(/not recorded by a currently active SUPER_ADMIN/);
-    });
-    it('an admin credit by a suspended SUPER_ADMIN is refused', async () => {
-      const suspended = await user(uid('suspended-admin'), 'SUPER_ADMIN');
-      await prisma.user.update({ where: { id: suspended.id }, data: { status: 'SUSPENDED' } });
-      expect(await judgeCredit({ actor: suspended.id })).toMatch(/not recorded by a currently active SUPER_ADMIN/);
-    });
-    it('an admin credit may only mint UNCLASSIFIED value', async () => {
-      expect(await judgeCredit({ lotClass: 'RESTRICTED' })).toMatch(/may only mint UNCLASSIFIED value/);
-    });
-    for (const [name, change] of [
-      ['no wallet credit', { walletTxs: 'none' }], ['two wallet credits', { walletTxs: 'two' }],
-      ['a wallet credit of another amount', { walletAmount: 26 }],
-      ['a wallet credit of another user', { walletUser: 'other' }],
-      ['a Game Points credit', { walletCurrency: 'GAME_POINTS' }], ['a wallet debit', { walletDirection: 'DEBIT' }],
-      ['a wallet credit that did not succeed', { walletStatus: 'PENDING' }],
-    ] as const) {
-      it(`an admin credit backed by ${name} is refused`, async () => {
-        const resolved = { ...change } as Record<string, unknown>;
-        if (resolved.walletUser === 'other') resolved.walletUser = other.buyer.id;
-        expect(await judgeCredit(resolved)).toMatch(/is not backed by one succeeded Coin credit/);
-      });
-    }
-    it('invariant I16 reports planted forged operations; a debit is not a credit', async () => {
+    it('invariant I16 reports a planted forged resolution', async () => {
       const flagged = await inRolledBackTransaction(async (tx) => {
         const r = await firstApprovedReview(f, creditor, first);
         await asLegacy(tx, resolutionSql({ ...r, owner: f.buyer.id, first: first.id, second: second.id, forgedEvidence: true }).statements);
@@ -358,20 +279,13 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
         return scan.violations.find((v) => v.invariant.startsWith('I16'))?.count ?? 0;
       });
       expect(flagged).toBe(1);
-      const flaggedCredit = await inRolledBackTransaction(async (tx) => {
-        await plantCredit(tx, { evidence: false });
-        const scan = await runLedgerInvariantCheckInTransaction(tx, null, false);
-        return scan.violations.find((v) => v.invariant.startsWith('I16'))?.count ?? 0;
-      });
-      expect(flaggedCredit).toBe(1);
     });
   });
 
   describe('3. legacy review lifecycle', () => {
     /** An OPEN review over a real admin credit. */
     async function openReview(): Promise<string> {
-      const credit = await adjustUserCoins(creditor.id, { targetUserId: f.buyer.id, caseId: uid('auth-case'), delta: 7,
-        rationale: 'Documented historical balance correction', supportingEvidence: ['case-authorization-credit'] });
+      const credit = await executeTestAdjustment(f.buyer.id, 7, creditor);
       return (await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: credit.reviewLotId! } })).id;
     }
     it('a review must be created OPEN, without any approval field', async () => {

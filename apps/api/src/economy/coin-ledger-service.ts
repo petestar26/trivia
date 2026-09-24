@@ -1,3 +1,4 @@
+import type { CoinProvenanceType, EntryType, Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { applyBalanceChanges, COIN_LEDGER_INTENT, getOrCreateWallet } from './wallet-service.js';
 import type { BalanceChange } from './wallet-service.js';
@@ -6,7 +7,7 @@ import type { FundingShare, LotClass } from './coin-allocator.js';
 
 // Every caller takes its L0/L1/L2/L3/L4 locks before entering this module.
 // This module always takes L5 wallet before L6 lots, and writes L7 records last.
-export type EconomicTx = any;
+export type EconomicTx = Prisma.TransactionClient;
 export type PolicyPin = { id: string; version: number };
 
 /** Prisma 5 can resolve a callback transaction even when PostgreSQL rejects
@@ -44,7 +45,7 @@ type OperationArgs = {
   type: OperationName; userId: string; scopeType: string; scopeId: string;
   idempotencyKey?: string; requestHash?: string; policy?: PolicyPin | null;
   walletTransactionIds?: string[]; reversesOperationId?: string;
-  snapshot?: Record<string, unknown>; createdBy?: string;
+  snapshot?: Prisma.InputJsonObject; createdBy?: string;
 };
 
 function safePositive(value: number, name: string): void {
@@ -151,7 +152,7 @@ async function createOperation(tx: EconomicTx, args: OperationArgs) {
 
 async function entry(tx: EconomicTx, args: {
   operationId: string; userId: string; lotId: string; sequence: number;
-  entryType: string; availableDelta?: number; reservedDelta?: number;
+  entryType: EntryType; availableDelta?: number; reservedDelta?: number;
   progressDelta?: number; obligationDelta?: number; obligationShare?: number;
   counterpartyLotId?: string; reversesEntryId?: string;
 }) {
@@ -173,15 +174,29 @@ async function entry(tx: EconomicTx, args: {
   });
 }
 
+export interface AdjustmentApprovalPin { id: string; amount: number }
+
+/** An ADMIN_ADJUST operation snapshot: the approval's id, signed amount and
+ * evidence, which the database compares with the approval it executes. */
+function adjustmentSnapshot(args: { evidence?: Record<string, unknown>; adjustmentApproval?: AdjustmentApprovalPin }): Prisma.InputJsonObject {
+  if (!args.adjustmentApproval || !args.evidence) {
+    throw ApiError.forbidden('A Coin adjustment requires an executed two-administrator approval');
+  }
+  return { evidence: args.evidence as Prisma.InputJsonObject, approvalId: args.adjustmentApproval.id, amount: args.adjustmentApproval.amount };
+}
+
 export type CreditCoinsArgs = {
   type: 'PURCHASE' | 'BONUS_GRANT' | 'ADMIN_ADJUST';
   scopeType: string; scopeId: string; referenceType: BalanceChange['referenceType']; referenceId?: string;
   description: string; createdBy?: string; idempotencyKey?: string;
   requestHash?: string;
-  lotClass?: LotClass; provenanceType?: string; policy?: PolicyPin | null;
+  lotClass?: LotClass; provenanceType?: CoinProvenanceType; policy?: PolicyPin | null;
   requirementAmount?: number; expiresAt?: Date | null; availableAt?: Date | null;
   originalGrantReferenceType?: string; originalGrantReferenceId?: string;
   evidence?: Record<string, unknown>;
+  /** ADMIN_ADJUST only: the approval this operation executes (see
+   * admin-adjustment-service). The database binds the two exactly. */
+  adjustmentApproval?: AdjustmentApprovalPin;
   /** PURCHASE callers must write the matching settled Agent-order witness
    * before the ledger helper can return. The deferred DB guard verifies it. */
   completePurchaseProof?: (tx: EconomicTx, walletTransactionId: string) => Promise<string>;
@@ -219,10 +234,7 @@ export async function creditCoins(tx: EconomicTx, userId: string, amount: number
     type: args.type, userId, scopeType: args.scopeType, scopeId: args.scopeId,
     idempotencyKey: args.idempotencyKey, requestHash: args.requestHash, policy: args.policy,
     walletTransactionIds: [walletTransactionId], createdBy: args.createdBy,
-    snapshot: args.type === 'ADMIN_ADJUST' ? { evidence: args.evidence ?? {
-      description: args.description, referenceType: args.referenceType,
-      referenceId: args.referenceId ?? args.scopeId, recordedBy: args.createdBy ?? userId,
-    } } : undefined,
+    snapshot: args.type === 'ADMIN_ADJUST' ? adjustmentSnapshot(args) : undefined,
   });
   const provenanceType = args.provenanceType ?? (
     args.type === 'PURCHASE' ? 'PURCHASE' : args.type === 'BONUS_GRANT' ? 'TRIVIA_REWARD' : 'ADMIN_ADJUSTMENT'
@@ -275,6 +287,8 @@ export type DebitCoinsArgs = {
   description: string; idempotencyKey?: string; createdBy?: string;
   requestHash?: string;
   evidence?: Record<string, unknown>;
+  /** ADMIN_ADJUST only: the approval this operation executes. */
+  adjustmentApproval?: AdjustmentApprovalPin;
 };
 
 /** Spend all Coin classes by the contract's restricted-first order. */
@@ -302,10 +316,7 @@ export async function debitCoins(tx: EconomicTx, userId: string, amount: number,
     idempotencyKey: args.idempotencyKey, requestHash: args.requestHash,
     walletTransactionIds: [walletTransactionId],
     createdBy: args.createdBy,
-    snapshot: args.type === 'ADMIN_ADJUST' ? { evidence: args.evidence ?? {
-      description: args.description, referenceType: args.referenceType,
-      referenceId: args.referenceId ?? args.scopeId, recordedBy: args.createdBy ?? userId,
-    } } : undefined,
+    snapshot: args.type === 'ADMIN_ADJUST' ? adjustmentSnapshot(args) : undefined,
   });
   const sourceById = new Map(lots.map((lot) => [lot.id, lot]));
   for (const [index, share] of funding.entries()) {
@@ -413,7 +424,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
     type: 'WAGER', userId, scopeType: 'GAME_SESSION', scopeId: args.sessionId,
     idempotencyKey: args.idempotencyKey, policy: args.policy,
     walletTransactionIds: [balanceResult.transactions[0].id], createdBy: args.createdBy,
-    snapshot: args.responseSnapshot(finalCoinsBalance),
+    snapshot: args.responseSnapshot(finalCoinsBalance) as Prisma.InputJsonObject,
   });
   let sequence = 0;
   for (const share of funding) {

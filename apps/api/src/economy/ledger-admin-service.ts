@@ -1,9 +1,10 @@
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { runLedgerInvariantCheckInTransaction } from './ledger-invariant-checker.js';
 import type { LedgerBehaviorEvidence } from './ledger-invariant-checker.js';
 
-type Tx = any;
+type Tx = Prisma.TransactionClient;
 export type ReleasableGate = 'CASINO_PLAY' | 'BONUS_GRANT' | 'WITHDRAWAL_CREATE';
 export type LedgerGate = ReleasableGate | 'COINS_COMPETITION_PRIZES';
 

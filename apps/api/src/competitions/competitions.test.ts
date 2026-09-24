@@ -11,6 +11,8 @@ import {
   listCompetitionsForGroup,
 } from './competition-service';
 import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
+import { getGameHistory } from '../games/game-play.js';
+import { publishNextRulesVersion } from '../test/contest-rules-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -1850,14 +1852,28 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
 
   async function newCompetition(gameKey: string, title: string) {
     const w = futureWindow();
-    const comp = await createCompetition(owner.id, {
-      groupId: group.id,
-      gameKey,
-      title,
-      startsAt: w.startsAt,
-      endsAt: w.endsAt,
-      entryAmount: 0,
-    });
+    // lucky_spin is RETIRED: no new competition may use it. One the pre-casino
+    // API created before the upgrade still plays out under the rules the
+    // upgrade pinned it to, so it is built here exactly as that row exists.
+    const comp = gameKey === 'lucky_spin'
+      ? await (async () => {
+        const spin = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'lucky_spin' } });
+        return prisma.groupCompetition.create({
+          data: {
+            groupId: group.id, gameId: spin.id, rulesVersion: spin.currentRulesVersion!, title,
+            status: 'SCHEDULED', scoring: 'SPIN_MULTIPLIER', entryAmount: 0, participantCount: 0,
+            startsAt: new Date(w.startsAt), endsAt: new Date(w.endsAt), createdBy: owner.id,
+          },
+        });
+      })()
+      : await createCompetition(owner.id, {
+        groupId: group.id,
+        gameKey,
+        title,
+        startsAt: w.startsAt,
+        endsAt: w.endsAt,
+        entryAmount: 0,
+      });
     await joinCompetition(player.id, comp.id);
     return comp;
   }
@@ -2436,5 +2452,153 @@ describeIf('Trivia post-finalization scoring (P2 regression)', () => {
     // Escrow debited at creation must be exactly offset by the payout or the
     // unawarded-prize refund — net zero, never minted, never stranded.
     expect(await prizeLedgerNet(competitionId)).toEqual({ gp: 0, coins: 0 });
+  });
+});
+
+// ─── CONTEST GAMES AND PINNED RULES ────────────────────────────
+
+describeIf('Competition games and pinned rules', () => {
+  let owner: { id: string };
+  let p1: { id: string };
+  let p2: { id: string };
+  let group: { id: string };
+  const window = () => {
+    const now = Date.now();
+    return { startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 3_600_000).toISOString() };
+  };
+
+  beforeAll(async () => {
+    await cleanCompFixtures();
+    owner = await createUser('pinowner');
+    p1 = await createUser('pinp1');
+    p2 = await createUser('pinp2');
+    group = await createGroup(owner.id, 'Comp Test Pinned Rules');
+    await addMember(group.id, owner.id, 'OWNER');
+    await addMember(group.id, p1.id);
+    await addMember(group.id, p2.id);
+    await primeGamePoints(p1.id, 500);
+    await primeGamePoints(p2.id, 500);
+  });
+
+  it('rejects the retired lucky_spin, although it is still isActive', async () => {
+    await expect(createCompetition(owner.id, { groupId: group.id, gameKey: 'lucky_spin', title: 'Retired', ...window() }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects every COMING_SOON game', async () => {
+    const soon = await prisma.gameDefinition.findMany({ where: { catalogStatus: 'COMING_SOON' }, select: { key: true } });
+    expect(soon.length).toBeGreaterThan(0);
+    for (const { key } of soon) {
+      await expect(createCompetition(owner.id, { groupId: group.id, gameKey: key, title: `Soon ${key}`, ...window() }), key)
+        .rejects.toMatchObject({ statusCode: 400 });
+    }
+  });
+
+  it('rejects an approved, still active game that is no longer AVAILABLE in the catalog', async () => {
+    for (const catalogStatus of ['RETIRED', 'COMING_SOON'] as const) {
+      await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { catalogStatus } });
+      try {
+        await expect(createCompetition(owner.id, { groupId: group.id, gameKey: 'number_challenge', title: 'Retired', ...window() })).rejects.toThrow('currently unavailable');
+      } finally {
+        await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { catalogStatus: 'AVAILABLE' } });
+      }
+    }
+  });
+
+  it('rejects an AVAILABLE game that is inactive', async () => {
+    await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { isActive: false } });
+    try {
+      await expect(createCompetition(owner.id, { groupId: group.id, gameKey: 'number_challenge', title: 'Inactive', ...window() }))
+        .rejects.toThrow('currently unavailable');
+    } finally {
+      await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { isActive: true } });
+    }
+  });
+
+  it('accepts approved AVAILABLE games (including trivia) and pins their current rules version', async () => {
+    for (const key of ['dice', 'number_challenge', 'trivia']) {
+      const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key } });
+      const comp = await createCompetition(owner.id, { groupId: group.id, gameKey: key, title: `Approved ${key}`, ...window() });
+      expect(comp.rulesVersion).toBe(game.currentRulesVersion);
+    }
+  });
+
+  it('every round records the result schema version of the pinned rules, not a default', async () => {
+    const current = await prisma.gameRules.findFirstOrThrow({
+      where: { game: { key: 'number_challenge' } }, orderBy: { version: 'desc' } });
+    const next = await publishNextRulesVersion('number_challenge', {}, { resultSchemaVersion: current.resultSchemaVersion + 1 });
+    let comp: Awaited<ReturnType<typeof createCompetition>>;
+    try {
+      comp = await createCompetition(owner.id, {
+        groupId: group.id, gameKey: 'number_challenge', title: 'Pinned schema', entryAmount: 10, ...window(),
+      });
+    } finally {
+      await next.restore();
+    }
+    expect(comp.rulesVersion).toBe(next.version);
+    await joinCompetition(p1.id, comp.id);
+    await playCompetition(p1.id, comp.id, { guess: 50 });
+    const rounds = await prisma.gameSession.findMany({
+      where: { userId: p1.id, playContext: 'COMPETITION_ROUND', rulesVersion: next.version, gameId: comp.gameId } });
+    expect(rounds.map((round) => round.resultSchemaVersion)).toEqual([current.resultSchemaVersion + 1]);
+  });
+
+  it('every round of every player plays the pinned rules, even when the current rules and configuration change between rounds', async () => {
+    const comp = await createCompetition(owner.id, {
+      groupId: group.id, gameKey: 'number_challenge', title: 'Pinned rounds', entryAmount: 25, ...window(),
+    });
+    const pinned = comp.rulesVersion;
+    await joinCompetition(p1.id, comp.id);
+    await joinCompetition(p2.id, comp.id);
+    await playCompetition(p1.id, comp.id, { guess: 50 });
+    const next = await publishNextRulesVersion('number_challenge', { range: { min: 500, max: 600 } });
+    try {
+      expect(next.version).not.toBe(pinned);
+      await playCompetition(p2.id, comp.id, { guess: 50 });
+      await playCompetition(p1.id, comp.id, { guess: 50 });
+    } finally {
+      await next.restore();
+    }
+    const rules = await prisma.gameRules.findUniqueOrThrow({ where: { gameId_version: { gameId: comp.gameId, version: pinned } } });
+    const rounds = await prisma.gameSession.findMany({
+      where: { userId: { in: [p1.id, p2.id] }, playContext: 'COMPETITION_ROUND', gameId: comp.gameId, rulesVersion: pinned },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(rounds).toHaveLength(3);
+    for (const round of rounds) {
+      expect((round.result as { target: number }).target).toBeLessThanOrEqual(100);
+      expect(round).toMatchObject({
+        rulesVersion: pinned, resultSchemaVersion: rules.resultSchemaVersion,
+        mode: rules.mode, family: rules.family, wagerCurrency: rules.wagerCurrency, rewardCurrency: rules.rewardCurrency,
+        betAmount: 0, rewardAmount: 0, settlementDebitCurrency: null, settlementCreditCurrency: null,
+      });
+    }
+    expect((await prisma.groupCompetition.findUniqueOrThrow({ where: { id: comp.id } })).rulesVersion).toBe(pinned);
+    // The Game Points entry was escrowed once per player, not per round.
+    for (const player of [p1, p2]) {
+      expect(await prisma.walletTransaction.count({
+        where: { userId: player.id, description: 'Competition entry: Pinned rounds' },
+      })).toBe(1);
+    }
+  });
+
+  it("a competition's pinned game and rules version cannot change after creation", async () => {
+    const comp = await createCompetition(owner.id, { groupId: group.id, gameKey: 'dice', title: 'Pin guard', ...window() });
+    await expect(prisma.$executeRawUnsafe(
+      'UPDATE "group_competitions" SET "rulesVersion" = "rulesVersion" + 1 WHERE "id" = $1', comp.id,
+    )).rejects.toThrow(/pinned to game .* rules version/);
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE "group_competitions" SET "gameId" = (SELECT "id" FROM "game_definitions" WHERE "key" = 'number_challenge') WHERE "id" = $1`, comp.id,
+    )).rejects.toThrow(/pinned to game .* rules version/);
+  });
+
+  it('history shows each round as a competition round with no stake and no settlement', async () => {
+    const history = await getGameHistory(p1.id, { limit: 100 });
+    const rounds = history.data.filter((row) => row.playContext === 'COMPETITION_ROUND');
+    expect(rounds.length).toBeGreaterThan(0);
+    for (const round of rounds) {
+      expect(round).toMatchObject({ betAmount: 0, settlementDebitCurrency: null, settlementCreditCurrency: null });
+      expect(round.resultSchemaVersion).toEqual(expect.any(Number));
+    }
   });
 });

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { buildServer } from '../server.js';
-import { creditCoins } from './coin-ledger-service.js';
+import { executeTestAdjustment } from '../test/adjustment-fixtures.js';
 
 let dbAvailable = true;
 try { await prisma.$queryRaw`SELECT 1`; } catch { dbAvailable = false; }
@@ -23,6 +23,24 @@ function headers(user: { id: string; role: string; username: string; email: stri
     username: user.username, ...(user.email ? { email: user.email } : {}) });
   return { authorization: `Bearer ${token}` };
 }
+/** A Coin adjustment through the administration API: request, first
+ * approval, then the second approval that settles it. */
+async function adjustViaApi(targetUserId: string, delta: number, evidence: string,
+  first: Parameters<typeof headers>[0], second: Parameters<typeof headers>[0]) {
+  const requested = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`, headers: headers(first),
+    payload: { targetUserId, caseId: `la-adjust-${tag()}`, delta,
+      rationale: 'Documented historical balance correction', supportingEvidence: [evidence] } });
+  expect(requested.statusCode, requested.body).toBe(201);
+  const approvalId = requested.json().data.approvalId as string;
+  const approved = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/first-approval`,
+    headers: headers(first) });
+  expect(approved.statusCode, approved.body).toBe(200);
+  const executed = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/second-approval`,
+    headers: headers(second) });
+  expect(executed.statusCode, executed.body).toBe(201);
+  return executed.json().data as { approvalId: string; operationId: string; reviewLotId: string | null };
+}
+
 async function expectCoinBalance(userId: string, expected: number) {
   const wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId } });
   const lots = await prisma.coinProvenance.findMany({ where: { userId } });
@@ -46,12 +64,8 @@ describeIf('ledger administration API', () => {
     const regular = await makeUser('USER');
     const first = await makeUser('SUPER_ADMIN');
     const second = await makeUser('SUPER_ADMIN');
-    const scopeId = `la-credit-${tag()}`;
-    const credit = await prisma.$transaction((tx) => creditCoins(tx, owner.id, 27, {
-      type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId,
-      referenceType: 'ADMIN', description: 'Historical balance under review', createdBy: first.id,
-    }));
-    const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: credit.lotId } });
+    const credit = await executeTestAdjustment(owner.id, 27, { first, second });
+    const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: credit.reviewLotId! } });
     const denied = await server.inject({ method: 'GET', url: `${endpoint}/reviews`, headers: headers(regular) });
     expect(denied.statusCode).toBe(403);
     const queue = await server.inject({ method: 'GET', url: `${endpoint}/reviews`, headers: headers(first) });
@@ -83,14 +97,10 @@ describeIf('ledger administration API', () => {
     const owner = await makeUser('USER');
     const first = await makeUser('SUPER_ADMIN');
     const second = await makeUser('SUPER_ADMIN');
-    const credit = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
-      headers: headers(first), payload: { targetUserId: owner.id, caseId: `review-credit-${tag()}`,
-        delta: 27, rationale: 'Documented historical balance correction',
-        supportingEvidence: ['case-review-stale-001'] } });
-    expect(credit.statusCode).toBe(201);
+    const credit = await adjustViaApi(owner.id, 27, 'case-review-stale-001', first, second);
     await expectCoinBalance(owner.id, 27);
     const review = await prisma.legacyBalanceReview.findFirstOrThrow({
-      where: { lotId: credit.json().data.reviewLotId },
+      where: { lotId: credit.reviewLotId! },
     });
     const terms = { decision: 'WITHDRAWABLE',
       rationale: 'Independent administrators verified this balance',
@@ -104,11 +114,7 @@ describeIf('ledger administration API', () => {
 
     // A real negative admin adjustment consumes seven Coins from the U lot.
     // The two requests are ordered by completion, without timing sleeps.
-    const spend = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
-      headers: headers(first), payload: { targetUserId: owner.id, caseId: `review-spend-${tag()}`,
-        delta: -7, rationale: 'Documented correction reducing legacy balance',
-        supportingEvidence: ['case-review-stale-002'] } });
-    expect(spend.statusCode).toBe(201);
+    await adjustViaApi(owner.id, -7, 'case-review-stale-002', first, second);
     await expectCoinBalance(owner.id, 20);
     const stale = await server.inject({ method: 'POST',
       url: `${endpoint}/reviews/${review.id}/second-approval`, headers: headers(second) });
@@ -167,12 +173,9 @@ describeIf('ledger administration API', () => {
     expect(activated.statusCode).toBe(200);
     const pointer = await prisma.countryJurisdiction.findUniqueOrThrow({ where: { countryCode: code } });
     expect(pointer.activePolicyId).toBe(activated.json().data.policyId);
-    const reviewCredit = await prisma.$transaction((tx) => creditCoins(tx, owner.id, 13, {
-      type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId: `la-review-${tag()}`,
-      referenceType: 'ADMIN', description: 'Legacy restricted-value review', createdBy: admin.id,
-    }));
+    const reviewCredit = await executeTestAdjustment(owner.id, 13, { first: admin, second: await makeUser('SUPER_ADMIN') });
     const restrictedReview = await prisma.legacyBalanceReview.findFirstOrThrow({
-      where: { lotId: reviewCredit.lotId },
+      where: { lotId: reviewCredit.reviewLotId! },
     });
     const restrictedTerms = { decision: 'RESTRICTED', countryCode: code,
       rationale: 'Independent administrators verified restricted origin',
@@ -216,19 +219,70 @@ describeIf('ledger administration API', () => {
       operationId: resolvedRestricted.json().data.operationId, idempotent: true,
     });
     const adjustmentCase = `la-adjust-${tag()}`;
+    const adjustmentsBefore = await prisma.economicOperation.count({ where: { userId: owner.id, type: 'ADMIN_ADJUST' } });
+    const terms = { targetUserId: owner.id, caseId: adjustmentCase, delta: 9,
+      rationale: 'Documented historical credit correction', supportingEvidence: ['case-ledger-002'] };
     const adjust = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
-      headers: headers(admin), payload: { targetUserId: owner.id,
-        caseId: adjustmentCase, delta: 9, rationale: 'Documented historical credit correction',
-        supportingEvidence: ['case-ledger-002'] } });
-    expect(adjust.statusCode).toBe(201);
+      headers: headers(admin), payload: terms });
+    expect(adjust.statusCode, adjust.body).toBe(201);
+    expect(adjust.json().data).toMatchObject({ status: 'PENDING', idempotent: false });
+    const approvalId = adjust.json().data.approvalId as string;
     const replay = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
-      headers: headers(admin), payload: { targetUserId: owner.id,
-        caseId: adjustmentCase, delta: 9, rationale: 'Documented historical credit correction',
-        supportingEvidence: ['case-ledger-002'] } });
+      headers: headers(admin), payload: terms });
     expect(replay.statusCode).toBe(200);
-    expect(replay.json().data).toMatchObject({ operationId: adjust.json().data.operationId, idempotent: true });
-    const review = await prisma.legacyBalanceReview.findFirst({ where: { lotId: adjust.json().data.reviewLotId } });
+    expect(replay.json().data).toMatchObject({ approvalId, idempotent: true });
+    const changedTerms = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
+      headers: headers(admin), payload: { ...terms, delta: 10 } });
+    expect(changedTerms.statusCode).toBe(409);
+    const queue = await server.inject({ method: 'GET', url: `${endpoint}/adjustments`, headers: headers(independentAdmin) });
+    expect(queue.json().data.map((row: { id: string }) => row.id)).toContain(approvalId);
+    const first = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/first-approval`,
+      headers: headers(admin) });
+    expect(first.statusCode, first.body).toBe(200);
+    const sameAdmin = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/second-approval`,
+      headers: headers(admin) });
+    expect(sameAdmin.statusCode).toBe(409);
+    expect(await prisma.economicOperation.count({ where: { userId: owner.id, type: 'ADMIN_ADJUST' } })).toBe(adjustmentsBefore);
+    const executed = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/second-approval`,
+      headers: headers(independentAdmin) });
+    expect(executed.statusCode, executed.body).toBe(201);
+    const executedReplay = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${approvalId}/second-approval`,
+      headers: headers(independentAdmin) });
+    expect(executedReplay.statusCode).toBe(200);
+    expect(executedReplay.json().data).toMatchObject({ operationId: executed.json().data.operationId, idempotent: true });
+    expect(await prisma.economicOperation.count({ where: { userId: owner.id, type: 'ADMIN_ADJUST' } })).toBe(adjustmentsBefore + 1);
+    const review = await prisma.legacyBalanceReview.findFirst({ where: { lotId: executed.json().data.reviewLotId } });
     expect(review?.status).toBe('OPEN');
+  });
+
+  it('refuses malformed adjustment requests before anything is recorded', async () => {
+    const admin = await makeUser('SUPER_ADMIN');
+    const owner = await makeUser('USER');
+    const valid = { targetUserId: owner.id, caseId: `la-adjust-${tag()}`, delta: 5,
+      rationale: 'Documented historical credit correction', supportingEvidence: ['case-ledger-003'] };
+    for (const change of [
+      { delta: 1.5 }, { delta: '5' }, { delta: 0 }, { delta: -0.25 }, { delta: 1_000_000_001 },
+      { delta: -1_000_000_001 }, { delta: 2 ** 53 }, { delta: null }, { delta: undefined },
+      { rationale: '' }, { rationale: '          ' }, { rationale: 'too short' },
+      { supportingEvidence: [] }, { supportingEvidence: [''] }, { supportingEvidence: ['   '] },
+      { supportingEvidence: [7] }, { supportingEvidence: 'case-ledger-003' }, { supportingEvidence: {} },
+      { caseId: '' }, { targetUserId: '' }, { extra: true },
+    ]) {
+      const response = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
+        headers: headers(admin), payload: { ...valid, ...change } });
+      expect(response.statusCode, JSON.stringify(change)).toBe(400);
+    }
+    const selfAdjust = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
+      headers: headers(admin), payload: { ...valid, targetUserId: admin.id } });
+    expect(selfAdjust.statusCode).toBe(403);
+    const regular = await makeUser('USER');
+    const notAdmin = await server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
+      headers: headers(regular), payload: valid });
+    expect(notAdmin.statusCode).toBe(403);
+    const noReason = await server.inject({ method: 'POST', url: `${endpoint}/adjustments/${tag()}/reject`,
+      headers: headers(admin), payload: { reason: '   ' } });
+    expect(noReason.statusCode).toBe(400);
+    expect(await prisma.adminAdjustmentApproval.count({ where: { userId: { in: [owner.id, admin.id] } } })).toBe(0);
   });
 
   it('rejects a stale SUPER_ADMIN token after the database role is removed', async () => {

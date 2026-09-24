@@ -272,7 +272,8 @@ describe('M7 historical COINS replay', () => {
       displayName: 'M7 fixture agent',
     } });
     const country = await prisma.country.create({ data: {
-      code: `Z${tag.slice(0, 2).toUpperCase()}`, name: `M7 ${tag}`,
+      // 256 two-character suffixes collided across runs; codes are unbounded text.
+      code: `Z${tag.slice(0, 8).toUpperCase()}`, name: `M7 ${tag}`,
       currencyCode: 'USD', isActive: true,
     } });
     const agent = await prisma.agent.create({ data: {

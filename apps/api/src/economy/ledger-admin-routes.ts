@@ -6,7 +6,9 @@ import { ApiError } from '../middleware/error-handler.js';
 import { configureCountryPolicyDraft, activateCountryPolicy, deactivateCountryPolicy } from './ledger-admin-service.js';
 import { classifyLegacyCoinAccount } from './legacy-ledger-classifier.js';
 import { firstApproveLegacyReview, secondApproveLegacyReview } from './legacy-review-service.js';
-import { adjustUserCoins } from './admin-adjustment-service.js';
+import {
+  closeCoinAdjustment, executeCoinAdjustment, firstApproveCoinAdjustment, listOpenCoinAdjustments, requestCoinAdjustment,
+} from './admin-adjustment-service.js';
 
 const countryCode = z.string().regex(/^[A-Z]{2}$/);
 const id = z.string().min(1).max(128);
@@ -34,10 +36,11 @@ const proposal = z.object({
 }).strict();
 const adjustment = z.object({
   targetUserId: id, caseId: id,
-  delta: z.number().int().refine((n) => n !== 0 && Math.abs(n) <= 1_000_000_000),
+  delta: z.number().int().refine((n) => n !== 0 && Math.abs(n) <= 1_000_000_000, 'delta must be a nonzero whole number of at most 1,000,000,000 Coins'),
   rationale: z.string().trim().min(10),
   supportingEvidence: z.array(z.string().trim().min(1)).min(1),
 }).strict();
+const closure = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw ApiError.badRequest(parsed.error.errors[0]?.message ?? 'Invalid request');
@@ -117,9 +120,37 @@ export async function ledgerAdminRoutes(server: FastifyInstance): Promise<void> 
       return reply.send({ success: true, data: result });
     });
 
+  // A Coin adjustment is a request, a first approval and a second approval
+  // by a distinct SUPER_ADMIN, which settles it. Nothing moves before that.
+  server.get('/adjustments', { preHandler: admin }, async (request, reply) => {
+    return reply.send({ success: true, data: await listOpenCoinAdjustments(request.user!.sub) });
+  });
   server.post('/adjustments', { preHandler: admin }, async (request, reply) => {
     const body = parse(adjustment, request.body);
-    const result = await adjustUserCoins(request.user!.sub, body);
+    const result = await requestCoinAdjustment(request.user!.sub, body);
     return reply.status(result.idempotent ? 200 : 201).send({ success: true, data: result });
   });
+  server.post<{ Params: { approvalId: string } }>(
+    '/adjustments/:approvalId/first-approval', { preHandler: admin }, async (request, reply) => {
+      const approvalId = parse(id, request.params.approvalId);
+      return reply.send({ success: true, data: await firstApproveCoinAdjustment(request.user!.sub, approvalId) });
+    });
+  server.post<{ Params: { approvalId: string } }>(
+    '/adjustments/:approvalId/second-approval', { preHandler: admin }, async (request, reply) => {
+      const approvalId = parse(id, request.params.approvalId);
+      const result = await executeCoinAdjustment(request.user!.sub, approvalId);
+      return reply.status(result.idempotent ? 200 : 201).send({ success: true, data: result });
+    });
+  server.post<{ Params: { approvalId: string } }>(
+    '/adjustments/:approvalId/reject', { preHandler: admin }, async (request, reply) => {
+      const approvalId = parse(id, request.params.approvalId);
+      const { reason } = parse(closure, request.body);
+      return reply.send({ success: true, data: await closeCoinAdjustment(request.user!.sub, approvalId, 'REJECTED', reason) });
+    });
+  server.post<{ Params: { approvalId: string } }>(
+    '/adjustments/:approvalId/cancel', { preHandler: admin }, async (request, reply) => {
+      const approvalId = parse(id, request.params.approvalId);
+      const { reason } = parse(closure, request.body);
+      return reply.send({ success: true, data: await closeCoinAdjustment(request.user!.sub, approvalId, 'CANCELLED', reason) });
+    });
 }

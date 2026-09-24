@@ -11,6 +11,11 @@
 --    disagree with the current active GameRules row.
 
 -- 1. HASH VERIFICATION: existing v1 rows must match the expected seed hash.
+-- The catalog and rules are read and verified below: lock them against
+-- writers first, so a concurrent edit is either committed before this
+-- migration reads them or waits until it has finished.
+LOCK TABLE "game_definitions", "game_rules" IN SHARE ROW EXCLUSIVE MODE;
+
 DO $$
 DECLARE
     bad RECORD;

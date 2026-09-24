@@ -1,0 +1,56 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": "session-solo-loss",
+      "game": { "key": "dice", "name": "Dice" },
+      "betAmount": 50, "rewardAmount": 0, "isWin": false,
+      "result": { "die1": 1, "die2": 2, "sum": 3, "threshold": 7 },
+      "mode": "WAGER", "family": "INSTANT", "wagerCurrency": "COINS", "rewardCurrency": "COINS",
+      "rulesVersion": 1, "resultSchemaVersion": 1, "playContext": "SOLO_WAGER",
+      "settlementDebitCurrency": "COINS", "settlementCreditCurrency": null,
+      "createdAt": "2026-09-24T10:00:00.000Z", "completedAt": "2026-09-24T10:00:00.000Z"
+    },
+    {
+      "id": "session-solo-win",
+      "game": { "key": "number_challenge", "name": "Number Challenge" },
+      "betAmount": 40, "rewardAmount": 120, "isWin": true,
+      "result": { "guess": 50, "target": 51, "away": 1, "correct": false },
+      "mode": "WAGER", "family": "INSTANT", "wagerCurrency": "COINS", "rewardCurrency": "COINS",
+      "rulesVersion": 1, "resultSchemaVersion": 1, "playContext": "SOLO_WAGER",
+      "settlementDebitCurrency": "COINS", "settlementCreditCurrency": "COINS",
+      "createdAt": "2026-09-24T10:01:00.000Z", "completedAt": "2026-09-24T10:01:00.000Z"
+    },
+    {
+      "id": "session-bonus-win",
+      "game": { "key": "trivia", "name": "Trivia" },
+      "betAmount": 0, "rewardAmount": 30, "isWin": true,
+      "result": { "questionId": "q1", "submittedAnswer": 2, "correct": true },
+      "mode": "BONUS", "family": "INSTANT", "wagerCurrency": null, "rewardCurrency": "COINS",
+      "rulesVersion": 1, "resultSchemaVersion": 1, "playContext": "BONUS",
+      "settlementDebitCurrency": null, "settlementCreditCurrency": "COINS",
+      "createdAt": "2026-09-24T10:02:00.000Z", "completedAt": "2026-09-24T10:02:00.000Z"
+    },
+    {
+      "id": "session-challenge-round",
+      "game": { "key": "dice", "name": "Dice" },
+      "betAmount": 0, "rewardAmount": 0, "isWin": false,
+      "result": { "die1": 4, "die2": 5, "sum": 9, "score": 9 },
+      "mode": "WAGER", "family": "INSTANT", "wagerCurrency": "COINS", "rewardCurrency": "COINS",
+      "rulesVersion": 1, "resultSchemaVersion": 1, "playContext": "CHALLENGE_ROUND",
+      "settlementDebitCurrency": null, "settlementCreditCurrency": null,
+      "createdAt": "2026-09-24T10:03:00.000Z", "completedAt": "2026-09-24T10:03:00.000Z"
+    },
+    {
+      "id": "session-competition-round",
+      "game": { "key": "number_challenge", "name": "Number Challenge" },
+      "betAmount": 0, "rewardAmount": 0, "isWin": true,
+      "result": { "guess": 50, "target": 47, "away": 3, "correct": false },
+      "mode": "WAGER", "family": "INSTANT", "wagerCurrency": "COINS", "rewardCurrency": "COINS",
+      "rulesVersion": 1, "resultSchemaVersion": 1, "playContext": "COMPETITION_ROUND",
+      "settlementDebitCurrency": null, "settlementCreditCurrency": null,
+      "createdAt": "2026-09-24T10:04:00.000Z", "completedAt": "2026-09-24T10:04:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "total": 5, "totalPages": 1 }
+}

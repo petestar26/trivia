@@ -204,6 +204,14 @@ describe('ledger database guards reject malformed writes made with plain SQL', (
       expect(await verdict(() => [...lot.statements, walletDeltaSql(f.buyer.id, 10),
         firstApproveSql(lot.review, f.superAdmin.id, 10)])).toBe('accepts');
     });
+    it('accepts closing a review that is also linked to a WITHDRAWABLE lot holding value', async () => {
+      // review_coverage_guard walks every lot linked to the review, whatever
+      // its class: only UNCLASSIFIED value may block the review's change.
+      const lot = openingLot(f.buyer.id, 0, 0, false); const review = uid('guard-review');
+      expect(await verdict(() => [...lot.statements, reviewSql(review, f.buyer.id, lot.lot, 1, 'OPEN'),
+        ['UPDATE "coin_provenance" SET "reviewId" = $2 WHERE "id" IN ($1, $3)', lot.lot, review, f.purchaseLot.id], ...FLUSH,
+        ['UPDATE "legacy_balance_reviews" SET "status" = \'REJECTED\' WHERE "id" = $1', review]])).toBe('accepts');
+    });
     it('accepts a zero-value UNCLASSIFIED lot of a classified user without a review', async () => {
       const lot = openingLot(f.buyer.id, 0, 0, false);
       expect(await verdict(() => lot.statements)).toBe('accepts');

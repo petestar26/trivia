@@ -417,16 +417,22 @@ This intentionally does **not** repeat `pnpm install`/`build` — Railway's
 CLI needs nothing further. The worker does NOT run migrations — it expects the schema
 to already be up-to-date by the time it starts.
 
-Before the first deployment of the ledger release, run the read-only ledger
-preflight against the target database and deploy only if it exits 0; see
-[ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+The first deployment of the ledger release (migrations `20260917900000` to
+`20260924090000`) is **not** a normal deploy: the `preDeployCommand` would run
+the migrations while the previous API deployment keeps serving. Follow the
+maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md)
+instead: stop the API and the worker, verify that nothing is connected, take
+and test a backup, run the read-only preflight, apply the migrations by hand,
+re-run the preflight and the invariant scan, and only then deploy the new
+release.
 
 If migration fails:
 1. Check Railway API logs for migration errors
-2. If the error names `20260917900000_ledger_preupgrade_gate` or
-   `20260924000000_ledger_integrity_gate`, stop: follow
-   [ledger-upgrade-gate.md](ledger-upgrade-gate.md). Do not retry, edit
-   migrations, touch ledger rows, or mark the migration as applied.
+2. If the error names any migration of the ledger release (`20260917900000`
+   to `20260924090000`), stop and keep every writer stopped: follow
+   "If a migration fails" in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+   Do not retry, edit migrations, touch ledger rows, or mark any migration as
+   applied.
 3. For any other failure, manually run `railway run pnpm --filter database exec prisma migrate deploy`
    to see the full error, then fix the cause in a new, reviewed commit and
    redeploy. Never edit a migration that any environment has already applied.

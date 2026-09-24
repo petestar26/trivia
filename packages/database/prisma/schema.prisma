@@ -51,6 +51,7 @@ model User {
   coinLedgerAccount         CoinLedgerAccount?
   kycVerification           UserKycVerification?
   legacyBalanceReviews      LegacyBalanceReview[]
+  adminAdjustmentApprovals  AdminAdjustmentApproval[]
   vipMembership             VipMembership?
   progress                  UserProgress?
   xpEvents                  UserXpEvent[]
@@ -526,6 +527,7 @@ model WalletTransaction {
 
   wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
   coinProvenances   CoinProvenance[]
+  adjustmentApproval AdminAdjustmentApproval?
 
   @@index([walletId, createdAt])
   @@index([userId, createdAt])
@@ -1002,6 +1004,8 @@ model GameRules {
   createdAt            DateTime     @default(now())
 
   game                 GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
 
   @@unique([gameId, version])
   @@index([gameId])
@@ -1130,6 +1134,7 @@ model EconomicOperation {
   entries              CoinLotEntry[]
   sourceLots           CoinProvenance[] @relation("OperationSourceLot")
   reviewsResolved      LegacyBalanceReview[]
+  adjustmentApproval   AdminAdjustmentApproval?
   withdrawalHolds      WithdrawalHold[]
 
   @@unique([type, scopeType, scopeId], map: "economic_operations_scope_key")
@@ -1221,6 +1226,39 @@ model LegacyBalanceReview {
 
   @@index([userId, status], map: "legacy_balance_reviews_user_status_idx")
   @@map("legacy_balance_reviews")
+}
+
+/// A signed Coin adjustment of one user, approved by two distinct SUPER_ADMINs
+/// before exactly one ADMIN_ADJUST operation executes it. Its lifecycle and the
+/// operation it authorizes are enforced by the database (migration
+/// 20260924010000_ledger_resolution_authorization).
+model AdminAdjustmentApproval {
+  id                  String    @id @default(uuid())
+  userId              String
+  /// Signed Coins: positive mints UNCLASSIFIED value, negative consumes lots.
+  amount              Int
+  caseId              String    @unique
+  evidence            Json
+  status              String    @default("PENDING")
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  firstApproverId     String?
+  firstApprovedAt     DateTime?
+  secondApproverId    String?
+  secondApprovedAt    DateTime?
+  operationId         String?   @unique
+  walletTransactionId String?   @unique
+  executedAt          DateTime?
+  closedBy            String?
+  closedAt            DateTime?
+  closeReason         String?
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_user_fkey")
+  operation         EconomicOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_operation_fkey")
+  walletTransaction WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_walletTransaction_fkey")
+
+  @@index([userId, status])
+  @@map("admin_adjustment_approvals")
 }
 
 model InvariantCheckRun {
@@ -1385,6 +1423,8 @@ model GameChallenge {
   challengerId String
   challengedId String
   gameId       String
+  /// The immutable game_rules version this challenge was created under.
+  rulesVersion Int
   entryAmount  Int
   status       ChallengeStatus @default(PENDING)
   winnerId     String?
@@ -1399,6 +1439,7 @@ model GameChallenge {
   challenged   User           @relation("ChallengeReceiver", fields: [challengedId], references: [id], onDelete: Cascade)
   winner       User?          @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
   game         GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules        GameRules      @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "game_challenges_rules_fkey")
   gameSessions GameSession[]
 
   @@index([challengerId, createdAt])
@@ -1428,6 +1469,8 @@ model GroupCompetition {
   id               String             @id @default(uuid())
   groupId          String
   gameId           String
+  /// The immutable game_rules version this competition was created under.
+  rulesVersion     Int
   title            String
   description      String?            @db.Text
   status           CompetitionStatus  @default(SCHEDULED)
@@ -1448,6 +1491,7 @@ model GroupCompetition {
 
   group                     Group                      @relation(fields: [groupId], references: [id], onDelete: Cascade)
   game                      GameDefinition             @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules                     GameRules                  @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "group_competitions_rules_fkey")
   creator                   User                       @relation("CompetitionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
   finalizer                 User?                      @relation("CompetitionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
   participants              CompetitionParticipant[]

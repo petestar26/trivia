@@ -461,7 +461,12 @@ export async function getGameHistory(
         wagerCurrency: true,
         rewardCurrency: true,
         rulesVersion: true,
+        resultSchemaVersion: true,
         playContext: true,
+        // What the round actually moved: null for a contest round, whose
+        // entry fee was escrowed once on the contest, not per round.
+        settlementDebitCurrency: true,
+        settlementCreditCurrency: true,
         createdAt: true,
         completedAt: true,
       },
