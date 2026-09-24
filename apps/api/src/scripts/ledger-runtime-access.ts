@@ -14,8 +14,10 @@
  *   LEDGER_APPROVAL_KEY_ID       its ID (default "primary")
  * In one transaction it installs the approval key (idempotent; a different
  * secret under an installed key ID is refused), applies
- * ledger_apply_runtime_grants() and verifies the result. It never prints a
- * connection string, a password or the key.
+ * ledger_apply_runtime_grants() (which also removes, or refuses, any way for
+ * the runtime role to create objects in the schemas the approval functions
+ * resolve names in) and verifies the result. It never prints a connection
+ * string, a password or the key.
  * Exit codes: 0 applied and verified, 1 refused or not verified, 2 could not run.
  */
 import { PrismaClient } from '@prisma/client';
@@ -55,6 +57,13 @@ class NotVerified extends Error {
   constructor(readonly failures: string[]) { super('runtime access not verified'); }
 }
 
+/** A refusal ledger_apply_runtime_grants raises (SQLSTATE 42501); its transaction changed nothing. */
+function grantsRefusal(error: unknown): string | null {
+  const e = error as { code?: unknown; meta?: { code?: unknown; message?: unknown } } | null;
+  if (e?.code !== 'P2010' || e.meta?.code !== '42501') return null;
+  return String(e.meta.message ?? '').replace(/^ERROR:\s*/, '');
+}
+
 async function apply(client: PrismaClient, role: string, keyId: string, keyHex: string): Promise<string[]> {
   try {
     await client.$transaction(async (tx) => {
@@ -80,6 +89,12 @@ async function apply(client: PrismaClient, role: string, keyId: string, keyHex: 
           SELECT has_column_privilege(${role}, 'users', ${column}, 'UPDATE') AS "granted"`;
         if (row?.granted) failures.push(`${role} can still change users.${column}`);
       }
+      // The approval functions run as the owner and resolve names in this
+      // schema: the runtime role must not be able to create anything there
+      // (the grants function refuses when it cannot remove such a privilege).
+      const [schema] = await tx.$queryRaw<{ create: boolean }[]>`
+        SELECT has_schema_privilege(${role}, 'public', 'CREATE') AS "create"`;
+      if (schema?.create) failures.push(`${role} can still create objects in schema public`);
       for (const [table, privilege] of REQUIRED) {
         const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
           SELECT has_table_privilege(${role}, to_regclass(${table}), ${privilege}) AS "granted"`;
@@ -92,6 +107,8 @@ async function apply(client: PrismaClient, role: string, keyId: string, keyHex: 
     }, { timeout: 60_000, maxWait: 30_000 });
   } catch (error) {
     if (error instanceof NotVerified) return error.failures;
+    const refusal = grantsRefusal(error);
+    if (refusal) return [refusal];
     throw error;
   }
   return [];

@@ -34,6 +34,23 @@ async function collectCount(tx: Tx, invariant: string, sql: string): Promise<Led
   return { invariant, count: row.count, sample: row.sample ?? [] };
 }
 
+/**
+ * The ledger approval functions (migration 20260924010000). They run as the
+ * owner (SECURITY DEFINER, what those call and fire, and the owner-run key and
+ * grants functions), so each keeps the fixed search path pg_catalog, pg_temp
+ * and names everything else by schema: an object another role creates can
+ * never be picked in their place. Invariant I3 checks the pin.
+ */
+export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
+  'ledger_evidence_digest', 'ledger_approval_payload', 'ledger_approval_signature_valid', 'ledger_assertion_valid',
+  'ledger_install_approval_key', 'ledger_retire_approval_key', 'ledger_record_assertion', 'ledger_is_active_super_admin',
+  'ledger_require_whole_coin_amount', 'ledger_adjustment_request', 'ledger_adjustment_first_approval',
+  'ledger_adjustment_execute', 'ledger_adjustment_close', 'ledger_review_first_approval', 'ledger_review_reopen',
+  'ledger_review_resolve', 'ledger_lock_economy_for_invariant_check', 'ledger_apply_runtime_grants',
+  'admin_adjustment_evidence_valid', 'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard',
+];
+const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
+
 const checks: ReadonlyArray<[string, string]> = [
   // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
   // type, and no lot entry attributed to one, may ever exist. This is a
@@ -120,14 +137,26 @@ const checks: ReadonlyArray<[string, string]> = [
       UNION ALL
       -- Every function of the schema (extensions aside) resolves table names
       -- in this schema before pg_temp (migration 20260924040000), so a
-      -- session's TEMP tables cannot stand in for ledger rows.
+      -- session's TEMP tables cannot stand in for ledger rows; the approval
+      -- functions, which run as the owner, keep the fixed pg_catalog, pg_temp
+      -- (a function by one of their names without that pin is reported).
       SELECT 'search_path:' || p.oid::regprocedure::text AS id
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname=current_schema() AND p.prokind='f'
         AND NOT EXISTS (SELECT 1 FROM pg_depend d
           WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')
-        AND NOT (COALESCE(p.proconfig, ARRAY[]::text[])
-          @> ARRAY['search_path=' || quote_ident(current_schema()) || ', pg_temp'])
+        AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY[CASE
+          WHEN p.proname = ANY(${privilegedApprovalFunctionsSql}) THEN 'search_path=pg_catalog, pg_temp'
+          ELSE 'search_path=' || quote_ident(current_schema()) || ', pg_temp' END])
+      UNION ALL
+      -- A role other than the tables' owner (the runtime role) may create
+      -- nothing in this schema, where functions that run as the owner resolve
+      -- names. The setup removes that privilege; a grant made after it is
+      -- reported here.
+      SELECT 'create:' || current_schema() AS id
+      WHERE has_schema_privilege(current_user, current_schema(), 'CREATE')
+        AND NOT pg_has_role(current_user,
+          (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass('economic_operations')), 'MEMBER')
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I4 operation identity indexes present', `

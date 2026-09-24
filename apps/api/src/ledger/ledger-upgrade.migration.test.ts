@@ -809,6 +809,49 @@ INSERT INTO game_sessions (id, "userId", "gameId", status, "betAmount", result, 
     }, 300_000);
   }
 
+  it('the row count still catches an intervening FAILED wallet transaction whose row hash cancels out', async () => {
+    // The hash half of the fingerprint is a sum of row hashes, so a row whose
+    // hash contributes nothing would pass it unseen. With the inserted row's
+    // real PostgreSQL row hash (the window check's own expression, read from
+    // the migration) folded into the snapshot, the hash halves match exactly;
+    // only the count differs, and the closing migration must still stop.
+    const text = readFileSync(join(MIGRATIONS, WINDOW_CHECK, 'migration.sql'), 'utf8');
+    const block = text.slice(text.indexOf('-- ledger-upgrade-window:begin'), text.indexOf('-- ledger-upgrade-window:end'));
+    const { db, ids } = await snapshotted('windowcount');
+    try {
+      const current = async () => (await db.client.$queryRawUnsafe<{ fingerprint: string }[]>(
+        `WITH current_window ("subject", "fingerprint") AS (\n${block}\n)
+         SELECT "fingerprint" FROM current_window WHERE "subject" = 'wallet_transactions'`))[0].fingerprint;
+      const snapshot = async () => (await db.client.$queryRawUnsafe<{ fingerprint: string }[]>(
+        `SELECT "fingerprint" FROM "ledger_upgrade_window" WHERE "subject" = 'wallet_transactions'`))[0].fingerprint;
+      const rows = async () => (await db.client.$queryRawUnsafe<{ n: number }[]>(
+        'SELECT count(*)::int AS n FROM "wallet_transactions"'))[0].n;
+      const before = await snapshot();
+      expect(await current()).toBe(before);
+      const [snapshotCount, sumBefore] = before.split('/');
+      const rowsBefore = await rows();
+      execute(db.url, `INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", currency, amount,
+          "balanceBefore", "balanceAfter", "referenceType", "referenceId", description, status, "createdAt")
+        VALUES ('tx-failed-${ids.tag}', 'w-${ids.alice}', '${ids.alice}', 'COIN_CREDIT', 'CREDIT', 'COINS', 300, 1000, 1000,
+          'AGENT_ORDER', '${ids.order}', 'failed purchase', 'FAILED', TIMESTAMP '2026-09-10 11:00:00');`);
+      expect(await rows()).toBe(rowsBefore + 1);
+      const sumAfter = (await current()).split('/')[1];
+      const rowHash = BigInt(sumAfter) - BigInt(sumBefore);
+      expect(rowHash).not.toBe(0n);
+      await db.client.$executeRawUnsafe(`UPDATE "ledger_upgrade_window" SET "fingerprint" = $1 WHERE "subject" = 'wallet_transactions'`,
+        `${snapshotCount}/${sumAfter}`);
+      expect((await snapshot()).split('/')[1]).toBe((await current()).split('/')[1]);
+      const result = deploy(db.url);
+      expect(result.status, result.output).not.toBe(0);
+      expect(result.output).toMatch(/LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE: 1 legacy financial record\(s\) changed while the release migrations ran: wallet_transactions/);
+      expect((await migrationRows(db.client)).find((row) => row.migration_name === WINDOW_CHECK)?.finished ?? false).toBe(false);
+      // What the check compared: the same hash sum, one more row.
+      const [countSeen, sumSeen] = (await current()).split('/');
+      expect(sumSeen).toBe((await snapshot()).split('/')[1]);
+      expect(Number(countSeen)).toBe(Number(snapshotCount) + 1);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
   it('the check compares every column master defines on every table it fingerprints', async () => {
     // The window check's own comparison, read from the migration, evaluated
     // after changing one column of one row (rolled back each time). The

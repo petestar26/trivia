@@ -13,7 +13,9 @@
 //   5. the API and the worker work under it;
 // and that the owner-run setup script (ledger:runtime-access) installs the
 // key and the grants, verifies them, refuses a shared or wrong credential
-// and prints no secret.
+// and prints no secret; and (6.) that the runtime role cannot plant a
+// function or operator that runs with the owner's privileges inside the
+// approval functions.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -684,4 +686,202 @@ describe('4. the API and the worker work under the runtime role', () => {
     const worker = spawnSync(TSX, [join(API_ROOT, 'src/worker.ts'), '--once'], { cwd: API_ROOT, env, encoding: 'utf8', timeout: 240_000 });
     expect(worker.status, `${worker.stdout}\n${worker.stderr}`).toBe(0);
   }, 300_000);
+});
+
+describe('6. nothing the runtime role could plant runs in the privileged approval context', () => {
+  // The approval functions run as the owner (SECURITY DEFINER, and what they
+  // call and fire). A role that could create objects in a schema their code
+  // resolves names in could plant an operator or an overload that PostgreSQL
+  // prefers to the owner's own (a better match than one needing an implicit
+  // cast) and have it run with the owner's privileges. These are exactly two
+  // such plants: `numeric > integer` (the amount check) and an integer-amount
+  // overload of ledger_record_assertion (the procedures pass an INTEGER).
+  const plant = (tag: string): Statement[] => [
+    [`CREATE TABLE public."rr_hijack_${tag}" ("who" text, "via" text)`],
+    [`CREATE FUNCTION public."rr_hijack_gt_${tag}"(numeric, integer) RETURNS boolean LANGUAGE plpgsql AS $f$
+       BEGIN INSERT INTO public."rr_hijack_${tag}" VALUES (current_user, 'operator >'); RETURN $1 > $2::numeric; END $f$`],
+    [`CREATE OPERATOR public.> (LEFTARG = numeric, RIGHTARG = integer, FUNCTION = public."rr_hijack_gt_${tag}")`],
+    [`CREATE FUNCTION public."ledger_record_assertion"(text, text, text, text, text, integer, text, jsonb, text, text, text)
+       RETURNS void LANGUAGE plpgsql AS $f$
+       BEGIN INSERT INTO public."rr_hijack_${tag}" VALUES (current_user, 'ledger_record_assertion overload'); END $f$`],
+  ];
+  const noHijack = (tag: string): Statement => [`DO $d$ BEGIN
+      IF EXISTS (SELECT 1 FROM public."rr_hijack_${tag}") THEN
+        RAISE EXCEPTION 'hijacked: %', (SELECT string_agg("who" || ' via ' || "via", ', ') FROM public."rr_hijack_${tag}");
+      END IF;
+    END $d$`];
+  /** A Coin adjustment request, signed with the API's key or with a random signature. */
+  const request = async (signature: 'valid' | 'random'): Promise<Statement> => {
+    const approvalId = uid('rr-plant'); const caseId = uid('rr-case'); const evidence = evidenceFor(caseId);
+    const signed = signature === 'valid'
+      ? await apiSignature(app, { subjectType: 'ADMIN_ADJUSTMENT', subjectId: approvalId, action: 'REQUEST',
+        actorId: approvers.first.id, userId: f.buyer.id, amount: '5', caseId, evidence })
+      : { keyId: process.env.LEDGER_APPROVAL_KEY_ID ?? 'primary', nonce: randomBytes(24).toString('hex'),
+        signature: randomBytes(32).toString('hex') };
+    return ['SELECT "ledger_adjustment_request"($1, $2, 5::numeric, $3, $4::jsonb, $5, $6, $7, $8)', approvalId, f.buyer.id,
+      caseId, JSON.stringify(evidence), approvers.first.id, signed.keyId, signed.nonce, signed.signature];
+  };
+  const tag = () => randomUUID().replaceAll('-', '').slice(0, 10);
+  const canCreate = async () => {
+    const [row] = await prisma.$queryRawUnsafe<{ can: boolean }[]>(
+      `SELECT has_schema_privilege($1, 'public', 'CREATE') AS can`, role);
+    return row.can;
+  };
+  /** Invariant I3's findings when the runtime role itself runs the check. */
+  const i3AsApp = async (): Promise<string[]> => {
+    try {
+      await app.$transaction(async (tx) => {
+        const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
+        throw new RolledBack(run.violations.find((v) => v.invariant.startsWith('I3'))?.sample ?? []);
+      }, { timeout: 120_000 });
+    } catch (error) {
+      if (error instanceof RolledBack) return error.value as string[];
+      throw error;
+    }
+    return [];
+  };
+  const publicCanCreate = async () => {
+    const [row] = await prisma.$queryRawUnsafe<{ can: boolean }[]>(`
+      SELECT EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+                     WHERE n.nspname = 'public' AND a.grantee = 0 AND a.privilege_type = 'CREATE') AS can`);
+    return row.can;
+  };
+
+  it('setup removes CREATE granted to PUBLIC; the runtime role then cannot create anything there', async () => {
+    await prisma.$executeRawUnsafe('GRANT CREATE ON SCHEMA public TO PUBLIC');
+    try {
+      expect(await canCreate()).toBe(true);
+      expect(await asApp(plant(tag())), 'the PUBLIC grant is effective before setup').toBe('accepts');
+      expect(await i3AsApp(), 'invariant I3, run by the runtime role, reports the grant').toContain('create:public');
+      await prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+      expect(await publicCanCreate()).toBe(false);
+      expect(await canCreate()).toBe(false);
+      expect(await asApp(plant(tag()))).toMatch(/rejects: .*permission denied for schema public/);
+      expect(await i3AsApp()).not.toContain('create:public');
+    } finally {
+      await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+    }
+  });
+
+  it('setup refuses a runtime role that can create there through a role it belongs to', async () => {
+    // Inherited, and usable only by SET ROLE (the member made NOINHERIT for the grant).
+    for (const inherit of [true, false]) {
+      const via = `playqube_via_${tag()}`;
+      await prisma.$executeRawUnsafe(`CREATE ROLE "${via}" NOLOGIN NOSUPERUSER`);
+      try {
+        await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${via}"`);
+        if (!inherit) await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" NOINHERIT`);
+        await prisma.$executeRawUnsafe(`GRANT "${via}" TO "${role}"`);
+        await expect(prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role), `inherit=${inherit}`)
+          .rejects.toThrow(new RegExp(`can still create objects in schema public, through ${via}`));
+        if (inherit) {
+          const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
+          expect(refused.status, refused.output).toBe(1);
+          expect(refused.output).toMatch(/NOT verified; nothing was changed:\n.*can still create objects in schema public, through/);
+        }
+      } finally {
+        await prisma.$executeRawUnsafe(`REVOKE "${via}" FROM "${role}"`);
+        await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" INHERIT`);
+        await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${via}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${via}"`);
+      }
+    }
+    await prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+    expect(await canCreate()).toBe(false);
+    expect(await asApp(plant(tag()))).toMatch(/rejects: .*permission denied for schema public/);
+  });
+
+  it('setup refuses a runtime role that can become the schema\'s owner, even with no CREATE in the schema\'s ACL', async () => {
+    const [before] = await prisma.$queryRawUnsafe<{ owner: string; acl: string[] }[]>(
+      `SELECT n.nspowner::regrole::text AS owner, (SELECT array_agg(item::text ORDER BY item::text) FROM unnest(n.nspacl) AS item) AS acl
+       FROM pg_namespace n WHERE n.nspname = 'public'`);
+    const via = `playqube_via_${tag()}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${via}" NOLOGIN NOSUPERUSER`);
+    try {
+      // The owner's CREATE needs no ACL entry (an owner can always grant it to
+      // itself), and SET ROLE is not seen by has_schema_privilege.
+      await prisma.$executeRawUnsafe(`ALTER SCHEMA public OWNER TO "${via}"`);
+      await prisma.$executeRawUnsafe(`REVOKE ALL ON SCHEMA public FROM "${via}"`);
+      await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" NOINHERIT`);
+      await prisma.$executeRawUnsafe(`GRANT "${via}" TO "${role}"`);
+      await expect(prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role))
+        .rejects.toThrow(new RegExp(`can still create objects in schema public, through ${via}`));
+    } finally {
+      await prisma.$executeRawUnsafe(`REVOKE "${via}" FROM "${role}"`);
+      await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" INHERIT`);
+      await prisma.$executeRawUnsafe(`ALTER SCHEMA public OWNER TO ${before.owner}`);
+      await prisma.$executeRawUnsafe(`GRANT USAGE, CREATE ON SCHEMA public TO ${before.owner}`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${via}"`);
+    }
+    const [after] = await prisma.$queryRawUnsafe<{ owner: string; acl: string[] }[]>(
+      `SELECT n.nspowner::regrole::text AS owner, (SELECT array_agg(item::text ORDER BY item::text) FROM unnest(n.nspacl) AS item) AS acl
+       FROM pg_namespace n WHERE n.nspname = 'public'`);
+    expect(after).toEqual(before);
+    await prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+  });
+
+  it('setup refuses a runtime role that still owns what it planted before its CREATE was removed', async () => {
+    const t = tag();
+    await prisma.$executeRawUnsafe('GRANT CREATE ON SCHEMA public TO PUBLIC');
+    try {
+      // A function and an operator (a table it owned would be refused by the
+      // older check on the schema's relations).
+      expect(await commitAsApp(plant(t).slice(1, 3))).toBe('committed');
+      await expect(prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role))
+        .rejects.toThrow(new RegExp(`owns objects in schema public: function public\\.rr_hijack_gt_${t}\\(numeric,integer\\), operator public\\.>\\(numeric,integer\\)`));
+      // The refusal changed nothing, not even the revoke that preceded it.
+      expect(await publicCanCreate()).toBe(true);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP OPERATOR IF EXISTS public.> (numeric, integer)');
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public."rr_hijack_gt_${t}"(numeric, integer)`);
+      await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+    }
+    await prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+    expect(await canCreate()).toBe(false);
+  });
+
+  it('even a role that can create there cannot make the approval functions run what it planted', async () => {
+    // As if setup had never run: CREATE inherited through another role.
+    const via = `playqube_via_${tag()}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${via}" NOLOGIN NOSUPERUSER`);
+    try {
+      await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${via}"`);
+      await prisma.$executeRawUnsafe(`GRANT "${via}" TO "${role}"`);
+      expect(await canCreate()).toBe(true);
+      // Each attempt first drops the session's cached plans, so the procedures
+      // resolve names afresh whatever the pooled connection ran before.
+      // An unsigned request is still refused: the planted overload never replaces the signature check.
+      const unsigned = tag();
+      expect(await asApp([['DISCARD PLANS'], ...plant(unsigned), await request('random'), noHijack(unsigned)]))
+        .toMatch(/rejects: .*is not signed by an active approval key/);
+      // A genuine request succeeds, and neither the planted operator nor the overload ran.
+      const signed = tag();
+      expect(await asApp([['DISCARD PLANS'], ...plant(signed), await request('valid'), noHijack(signed)])).toBe('accepts');
+    } finally {
+      await prisma.$executeRawUnsafe(`REVOKE "${via}" FROM "${role}"`);
+      await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${via}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${via}"`);
+    }
+  });
+
+  it('the approval functions run with a fixed search path, and invariant I3 reports one that loses it', async () => {
+    const privileged = ['ledger_evidence_digest', 'ledger_approval_payload', 'ledger_approval_signature_valid',
+      'ledger_assertion_valid', 'ledger_install_approval_key', 'ledger_retire_approval_key', 'ledger_record_assertion',
+      'ledger_is_active_super_admin', 'ledger_require_whole_coin_amount', 'ledger_adjustment_request',
+      'ledger_adjustment_first_approval', 'ledger_adjustment_execute', 'ledger_adjustment_close',
+      'ledger_review_first_approval', 'ledger_review_reopen', 'ledger_review_resolve',
+      'ledger_lock_economy_for_invariant_check', 'ledger_apply_runtime_grants', 'admin_adjustment_evidence_valid',
+      'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard'];
+    const functions = await prisma.$queryRawUnsafe<{ name: string; config: string[] | null }[]>(`
+      SELECT p.proname::text AS name, p.proconfig AS config FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.proname = ANY($1::text[]) ORDER BY 1`, privileged);
+    expect(functions.map((fn) => fn.name).sort()).toEqual([...privileged].sort());
+    for (const fn of functions) expect(fn.config, fn.name).toEqual(['search_path=pg_catalog, pg_temp']);
+    const i3 = await inRolledBackTransaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER FUNCTION public."ledger_require_whole_coin_amount"(numeric) SET search_path = public, pg_temp');
+      const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
+      return run.violations.find((v) => v.invariant.startsWith('I3'));
+    });
+    expect(i3?.sample).toContain('search_path:ledger_require_whole_coin_amount(numeric)');
+  });
 });

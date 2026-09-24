@@ -126,7 +126,27 @@ It reads only these variables (no `.env` file), and in one transaction:
 - applies `ledger_apply_runtime_grants('<runtime role>')`, which first
   revokes everything and then grants only data access, so it is idempotent and
   also covers tables added by the migrations just applied;
+- makes sure the runtime role cannot create objects in the schemas where
+  functions that run as the owner resolve names (`pg_catalog`, `public`,
+  pgcrypto's): a function or operator the runtime role could create there
+  would run with the owner's privileges. The setup revokes `CREATE` there
+  from `PUBLIC` and from the role. It refuses (exit 1, nothing changed) if
+  the role could still create there through a grant the owner cannot revoke
+  or through a role it belongs to (inherited or by `SET ROLE`, the schema's
+  owner included), or if it already owns anything there that it could have
+  planted while it had that privilege. Revoke that grant or membership as
+  its grantor, or check and drop what it owns, then run the setup again. On
+  PostgreSQL 13 and 14, `PUBLIC` holds `CREATE` on `public` by default,
+  granted by the superuser that owns the schema, so revoke it as that
+  superuser first;
 - verifies every denied and every required privilege.
+
+The approval functions themselves run with the fixed search path
+`pg_catalog, pg_temp` and name every table and non-catalog function by
+schema, with exact argument types, so no object another role creates is
+picked in their place; invariant I3 reports any of them without that pin,
+and reports `CREATE` on the schema held by the runtime role (any role other
+than the tables' owner) if it is granted after the setup ran.
 
 It never prints a connection string, a password or the key. Exit codes:
 **0** applied and verified; **1** refused or not verified (nothing changed);

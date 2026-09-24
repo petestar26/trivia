@@ -8,9 +8,12 @@
 -- With pg_temp listed last, table and type names resolve to this schema
 -- first; function names are never looked up in pg_temp at all.
 --
--- Extension functions (pgcrypto) are left as installed. Invariant I3 checks
--- that every other function in the schema keeps this setting, so a later
--- migration that creates a function without it is reported.
+-- Extension functions (pgcrypto) are left as installed, and so are the
+-- ledger approval functions, which already run with the stricter fixed path
+-- pg_catalog, pg_temp and schema-qualified names (migration 20260924010000).
+-- Invariant I3 checks that every other function in the schema keeps this
+-- setting, so a later migration that creates a function without it is
+-- reported.
 DO $pin$
 DECLARE
   fn RECORD;
@@ -24,6 +27,7 @@ BEGIN
       AND NOT EXISTS (
         SELECT 1 FROM pg_depend d
         WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+      AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog, pg_temp'])
   LOOP
     EXECUTE format('ALTER FUNCTION %s SET search_path = %I, pg_temp', fn.signature, current_schema());
   END LOOP;
