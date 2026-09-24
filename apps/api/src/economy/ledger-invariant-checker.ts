@@ -105,6 +105,8 @@ const checks: ReadonlyArray<[string, string]> = [
       ('economic_operations','authorized_operation_guard'),
       ('admin_adjustment_approvals','admin_adjustment_approval_lifecycle_guard'),
       ('admin_adjustment_approvals','adjustment_execution_guard'),
+      ('ledger_approval_assertions','ledger_approval_assertions_append_only'),
+      ('users','users_privilege_guard'),
       ('game_sessions','game_session_immutability_guard'),
       ('game_challenges','game_challenges_rules_pin_guard'),
       ('group_competitions','group_competitions_rules_pin_guard')

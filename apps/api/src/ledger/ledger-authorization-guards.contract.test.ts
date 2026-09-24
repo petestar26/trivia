@@ -22,8 +22,9 @@ import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixture
 import type { Approvers } from '../test/adjustment-fixtures.js';
 import { firstApproveLegacyReview, secondApproveLegacyReview } from '../economy/legacy-review-service.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
-import { asLegacy, inRolledBackTransaction, purchasedFixture, uid, user } from '../test/ledger-integrity-fixtures.js';
+import { asLegacy, inRolledBackTransaction, purchasedFixture, signedAssertionSql, uid, user } from '../test/ledger-integrity-fixtures.js';
 import type { PurchasedFixture, Statement, Tx } from '../test/ledger-integrity-fixtures.js';
+import { ROW_LOCK_WAITS, waitForBlockedBackends } from '../test/pg-locks.js';
 
 beforeAll(async () => { await bootstrapLedgerTestGates(); });
 afterAll(async () => { await prisma.$disconnect(); });
@@ -59,6 +60,8 @@ interface Resolution {
   snapshotFirst?: string; snapshotSecond?: string; snapshotAmount?: number; snapshotDecision?: string;
   outLot?: string; outAmount?: number; inAmount?: number; inParent?: string | null; inClass?: string;
   extraMint?: boolean; reviewStatus?: string; closeLot?: boolean;
+  /** The second approver's signed assertion (default valid; the first one is the service's). */
+  secondSignature?: 'valid' | 'none' | 'forged'; signedAmount?: number; signedBy?: string;
 }
 
 /** The exact writes secondApproveLegacyReview makes, as ordinary SQL, with
@@ -93,6 +96,14 @@ function resolutionSql(r: Resolution): { op: string; statements: Statement[] } {
   }
   if (r.closeLot ?? true) {
     statements.push([`UPDATE "coin_provenance" SET "state" = 'RECLASSIFIED', "closedAt" = now() WHERE "id" = $1`, r.outLot ?? r.lotId]);
+  }
+  if ((r.secondSignature ?? 'valid') !== 'none') {
+    statements.push(signedAssertionSql({
+      subjectType: 'LEGACY_REVIEW', subjectId: r.reviewId, action: 'SECOND_APPROVAL', actorId: r.signedBy ?? r.second,
+      userId: r.owner, amount: r.signedAmount ?? r.amount, caseId: r.reviewId,
+      evidence: `(SELECT "evidence" -> 'proposal' FROM "legacy_balance_reviews" WHERE "id" = $9)`, evidenceParams: [r.reviewId],
+      signature: r.secondSignature === 'forged' ? 'forged' : 'valid',
+    }));
   }
   statements.push([`UPDATE "legacy_balance_reviews" SET "status" = $2, "secondApproverId" = $3,
       "resolutionOperationId" = CASE WHEN $2 = 'RESOLVED' THEN $4 ELSE NULL END,
@@ -235,6 +246,41 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
           .toMatch(/does not own an UNCLASSIFIED lot linked back to it/);
       }
     });
+    it('both approvals must be signed assertions for exactly these terms', async () => {
+      const unsigned = /is not backed by signed first and second approvals of review/;
+      expect(await judge((b) => ({ ...b, secondSignature: 'none' }))).toMatch(unsigned);
+      expect(await judge((b) => ({ ...b, secondSignature: 'forged' }))).toMatch(unsigned);
+      expect(await judge((b) => ({ ...b, signedBy: b.first }))).toMatch(unsigned);
+      expect(await judge((b) => ({ ...b, signedAmount: b.amount + 1 }))).toMatch(unsigned);
+      // The first approval's assertion (recorded by the service) must exist too.
+      expect(await judge((b) => b, true, (b) => [['DELETE FROM "ledger_approval_assertions" WHERE "subjectId" = $1 AND "action" = \'FIRST_APPROVAL\'',
+        b.reviewId]])).toMatch(unsigned);
+      expect(await judge((b) => b, true, (b) => [[`UPDATE "legacy_balance_reviews"
+        SET "evidence" = jsonb_set("evidence", '{proposal,amount}', '40.5') WHERE "id" = $1`, b.reviewId]]))
+        .toMatch(/approved a fractional amount/);
+    });
+
+    it('each approval\'s assertion must be validly signed, for the approved amount and the approved proposal', async () => {
+      const unsigned = /is not backed by signed first and second approvals of review/;
+      const proposal = `(SELECT "evidence" -> 'proposal' FROM "legacy_balance_reviews" WHERE "id" = $9)`;
+      // Re-records one approval's assertion with one term changed.
+      const resign = (action: 'FIRST_APPROVAL' | 'SECOND_APPROVAL', change: { amount?: number; evidence?: string; forged?: boolean }) =>
+        (b: Resolution): Statement[] => [
+          ['DELETE FROM "ledger_approval_assertions" WHERE "subjectId" = $1 AND "action" = $2', b.reviewId, action],
+          signedAssertionSql({ subjectType: 'LEGACY_REVIEW', subjectId: b.reviewId, action,
+            actorId: action === 'FIRST_APPROVAL' ? b.first : b.second, userId: b.owner, amount: change.amount ?? b.amount,
+            caseId: b.reviewId, evidence: change.evidence === undefined ? proposal : '$9::jsonb',
+            evidenceParams: [change.evidence ?? b.reviewId], signature: change.forged ? 'forged' : 'valid' }),
+        ];
+      for (const action of ['FIRST_APPROVAL', 'SECOND_APPROVAL'] as const) {
+        expect(await judge((b) => b, true, resign(action, {})), action).toBe('valid');
+        expect(await judge((b) => b, true, (b) => resign(action, { amount: b.amount + 1 })(b)), action).toMatch(unsigned);
+        expect(await judge((b) => b, true, resign(action, { evidence: '{"decision": "WITHDRAWABLE", "amount": 1}' })), action)
+          .toMatch(unsigned);
+        expect(await judge((b) => b, true, resign(action, { forged: true })), action).toMatch(unsigned);
+      }
+    });
+
     it('the snapshot amount must be the approved amount', async () => {
       expect(await judge((b) => ({ ...b, snapshotAmount: b.amount + 1 }))).toMatch(/does not repeat the approved evidence/);
     });
@@ -367,6 +413,37 @@ describe('the forged LEGACY_RESOLVE / ADMIN_ADJUST mint path is closed', () => {
       const review = await openReview();
       expect(await verdict(() => [[`UPDATE "legacy_balance_reviews" SET "status" = 'FIRST_APPROVED', "resolvedBy" = $2
         WHERE "id" = $1`, review, first.id]])).toMatch(/rejects: .*first approval needs its approver and approved proposal/);
+    });
+    it('two identical concurrent second approvals resolve once; both succeed with the same resolution', async () => {
+      const r = await firstApprovedReview(f, creditor, first);
+      const operationsBefore = await prisma.economicOperation.count({ where: { userId: f.buyer.id, type: 'LEGACY_RESOLVE' } });
+      // Barrier: a third session holds the second approver's user row, so the
+      // first request parks right after the review's scope lock; the second
+      // then queues behind that lock with its snapshot already taken.
+      let held!: () => void; let release!: () => void;
+      const holding = new Promise<void>((resolve) => { held = resolve; });
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const blocker = prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "users" WHERE "id" = ${second.id} FOR UPDATE`;
+        held();
+        await released;
+      }, { timeout: 60_000 });
+      await holding;
+      const resolve = () => secondApproveLegacyReview(second.id, r.reviewId)
+        .then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error: String(error) }));
+      const firstRequest = resolve();
+      await waitForBlockedBackends(1, { waitEvents: ROW_LOCK_WAITS, queryLike: '%FOR SHARE%' });
+      const secondRequest = resolve();
+      await waitForBlockedBackends(1, { waitEvents: ['advisory'] });
+      release();
+      await blocker;
+      const results = await Promise.all([firstRequest, secondRequest]);
+      expect(results.map((result) => result.ok), JSON.stringify(results)).toEqual([true, true]);
+      const resolved = results.map((result) => (result as { value: { operationId: string; idempotent: boolean } }).value);
+      expect(resolved.map((value) => value.idempotent).sort()).toEqual([false, true]);
+      expect(resolved[1].operationId).toBe(resolved[0].operationId);
+      expect(await prisma.economicOperation.count({ where: { userId: f.buyer.id, type: 'LEGACY_RESOLVE' } }))
+        .toBe(operationsBefore + 1);
     });
     it('a resolved review never changes and no review is deleted', async () => {
       const r = await firstApprovedReview(f, creditor, first);

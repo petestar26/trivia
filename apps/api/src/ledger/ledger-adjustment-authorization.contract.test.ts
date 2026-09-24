@@ -2,24 +2,23 @@
 // Every Coin adjustment, credit or debit, executes exactly one immutable
 // admin_adjustment_approvals record: requested with its user, signed amount
 // and evidence, first-approved and then second-approved (which settles it) by
-// two distinct active SUPER_ADMINs, neither of them the user. This file proves:
+// two distinct active SUPER_ADMINs, neither of them the user. Each decision is
+// also an assertion signed by the API (see ledger_approval_assertions). This
+// file proves:
 //   1. the service refuses malformed terms before any write, and the workflow
 //      (request, first approval, settling second approval, reject, cancel)
 //      moves value exactly once and conserves it;
-//   2. ordinary SQL with every trigger active cannot record an ADMIN_ADJUST
-//      that an executed approval does not match exactly;
-//   3. every binding condition is enforced on its own, judged by the function
+//   2. SQL with every trigger active cannot record an ADMIN_ADJUST that an
+//      executed, signed approval does not match exactly; the rows here are
+//      written as the owner, who can sign (the runtime role cannot: see
+//      runtime-role.contract.test.ts);
+//   3. every binding condition, signatures and the backing wallet
+//      transaction included, is enforced on its own, judged by the function
 //      that the write-time guard, the migration's closing check, the UPGRADED
 //      preflight and invariant I16 share;
-//   4. the approval record's CHECKs, immutable terms and lifecycle;
-//   5. the ordinary application role (neither superuser nor owner, DML grants
-//      only) cannot bypass, replace or shadow any of it - and, explicitly, the
-//      limitation: the database cannot authenticate people, so a writer who
-//      fabricates the whole two-administrator lifecycle naming two real,
-//      active SUPER_ADMINs is accepted.
+//   4. the approval record's CHECKs, immutable terms and lifecycle.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import {
@@ -29,9 +28,10 @@ import {
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { collectUnauthorizedOperations } from '../economy/ledger-upgrade-preflight.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
+import { ROW_LOCK_WAITS, waitForBlockedBackends } from '../test/pg-locks.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
 import {
-  RolledBack, asLegacy, inRolledBackTransaction, legacyLotSql, purchasedFixture, uid, user,
+  asLegacy, inRolledBackTransaction, legacyLotSql, purchasedFixture, signedAssertionSql, uid, user,
 } from '../test/ledger-integrity-fixtures.js';
 import type { PurchasedFixture, Statement, Tx } from '../test/ledger-integrity-fixtures.js';
 
@@ -81,25 +81,35 @@ interface Plan {
   snapshotAmount?: number;
   snapshotEvidence?: Record<string, unknown>;
   entries?: EntrySpec[];
-  wallet?: Partial<{ amount: number; ledgerType: 'CREDIT' | 'DEBIT'; currency: string; status: string; userId: string }>;
+  wallet?: Partial<{ amount: number; ledgerType: 'CREDIT' | 'DEBIT'; currency: string; status: string; userId: string;
+    referenceType: string; referenceId: string; type: string }>;
   walletIds?: 'one' | 'none' | 'two' | 'other';
   moveWallet?: boolean;
+  /** Back the adjustment with this existing wallet transaction instead of a new one. */
+  reuseWalletTransaction?: string;
+  /** The signed assertions each recorded decision carries (default valid). */
+  signatures?: 'valid' | 'none' | 'forged';
+  unsigned?: 'REQUEST' | 'FIRST_APPROVAL' | 'SECOND_APPROVAL';
+  signedTerms?: Partial<{ actorId: string; userId: string; amount: number; caseId: string; evidence: unknown }>;
 }
 
 interface Planted { approval: string; op: string; wtx: string; caseId: string; lots: string[]; statements: Statement[] }
 
-function walletTxSql(id: string, userId: string, ledgerType: string, currency: string, amount: number, status: string, caseId: string): Statement {
+function walletTxSql(id: string, userId: string, ledgerType: string, currency: string, amount: number, status: string,
+  referenceId: string, referenceType = 'ADMIN', type?: string): Statement {
   return [`INSERT INTO "wallet_transactions" ("id","walletId","userId","type","ledgerType","currency","amount",
       "balanceBefore","balanceAfter","referenceType","referenceId","description","status","createdAt")
     SELECT $1, w."id", w."userId", $2::"EconomyTransactionType", $3::"LedgerType", $4::"CurrencyType", $5,
       w."coinsBalance", w."coinsBalance" + (CASE WHEN $3 = 'CREDIT' THEN $5 ELSE -$5 END),
-      'ADMIN'::"TransactionReferenceType", $6, 'Coin adjustment', $7::"WalletTransactionStatus", now()
+      $9::"TransactionReferenceType", $6, 'Coin adjustment', $7::"WalletTransactionStatus", now()
     FROM "wallets" w WHERE w."userId" = $8`,
-    id, ledgerType === 'CREDIT' ? 'COIN_CREDIT' : 'COIN_DEBIT', ledgerType, currency, amount, caseId, status, userId];
+    id, type ?? (ledgerType === 'CREDIT' ? 'COIN_CREDIT' : 'COIN_DEBIT'), ledgerType, currency, amount, referenceId, status,
+    userId, referenceType];
 }
 
 function planSql(p: Plan): Planted {
-  const approval = uid('adj-approval'); const op = uid('adj-op'); const wtx = uid('adj-wtx'); const wtx2 = uid('adj-wtx2');
+  const approval = uid('adj-approval'); const op = uid('adj-op'); const wtx2 = uid('adj-wtx2');
+  const wtx = p.reuseWalletTransaction ?? uid('adj-wtx');
   const caseId = uid('adj-case'); const evidence = evidenceFor(caseId);
   const opUser = p.opUser ?? p.userId; const mode = p.approval ?? 'executed';
   const statements: Statement[] = []; const lots: string[] = [];
@@ -112,8 +122,11 @@ function planSql(p: Plan): Planted {
     }
   }
   const w = { amount: Math.abs(p.amount), ledgerType: p.amount > 0 ? 'CREDIT' : 'DEBIT', currency: 'COINS',
-    status: 'SUCCEEDED', userId: opUser, ...p.wallet };
-  statements.push(walletTxSql(wtx, w.userId, w.ledgerType, w.currency, w.amount, w.status, caseId));
+    status: 'SUCCEEDED', userId: opUser, referenceType: 'ADMIN', referenceId: caseId, type: undefined as string | undefined,
+    ...p.wallet };
+  if (!p.reuseWalletTransaction) {
+    statements.push(walletTxSql(wtx, w.userId, w.ledgerType, w.currency, w.amount, w.status, w.referenceId, w.referenceType, w.type));
+  }
   if (p.moveWallet ?? true) {
     statements.push(['UPDATE "wallets" SET "coinsBalance" = "coinsBalance" + $2, "updatedAt" = now() WHERE "userId" = $1',
       w.userId, w.ledgerType === 'CREDIT' ? w.amount : -w.amount]);
@@ -156,6 +169,22 @@ function planSql(p: Plan): Planted {
     statements.push([`UPDATE "admin_adjustment_approvals" SET "status" = 'EXECUTED', "secondApproverId" = $2,
       "secondApprovedAt" = now(), "operationId" = $3, "walletTransactionId" = $4, "executedAt" = now()
       WHERE "id" = $1`, approval, p.second, op, wtx]);
+  }
+  const decisions: [NonNullable<Plan['unsigned']>, string][] = mode === 'none' ? [] : [
+    ['REQUEST', p.creator ?? p.first],
+    ...(mode === 'executed' || mode === 'first-approved' ? [['FIRST_APPROVAL', p.first] as [NonNullable<Plan['unsigned']>, string]] : []),
+    ...(mode === 'executed' || mode === 'pending-to-executed' ? [['SECOND_APPROVAL', p.second] as [NonNullable<Plan['unsigned']>, string]] : []),
+  ];
+  if ((p.signatures ?? 'valid') !== 'none') {
+    for (const [action, actor] of decisions.filter(([action]) => action !== p.unsigned)) {
+      statements.push(signedAssertionSql({
+        subjectType: 'ADMIN_ADJUSTMENT', subjectId: approval, action,
+        actorId: p.signedTerms?.actorId ?? actor, userId: p.signedTerms?.userId ?? p.approvalUser ?? p.userId,
+        amount: p.signedTerms?.amount ?? p.amount, caseId: p.signedTerms?.caseId ?? caseId,
+        evidence: '$9::jsonb', evidenceParams: [JSON.stringify(p.signedTerms?.evidence ?? evidence)],
+        signature: p.signatures === 'forged' ? 'forged' : 'valid',
+      }));
+    }
   }
   return { approval, op, wtx, caseId, lots, statements };
 }
@@ -247,6 +276,41 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
       expect(review.status).toBe('OPEN');
       const walletTx = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: approval.walletTransactionId! } });
       expect(walletTx).toMatchObject({ userId: f.buyer.id, currency: 'COINS', ledgerType: 'CREDIT', amount: 25, status: 'SUCCEEDED' });
+    });
+
+    it('two identical concurrent second approvals settle once; both succeed and return the same settlement', async () => {
+      const requested = await requestCoinAdjustment(A, valid());
+      await firstApproveCoinAdjustment(A, requested.approvalId);
+      const operationsBefore = await prisma.economicOperation.count({ where: { userId: f.buyer.id, type: 'ADMIN_ADJUST' } });
+      // Barrier: a third session holds the second approver's user row, so the
+      // first request parks right after taking the approval's lock; the second
+      // then queues behind that lock with its snapshot already taken.
+      let held!: () => void; let release!: () => void;
+      const holding = new Promise<void>((resolve) => { held = resolve; });
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const blocker = prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1 FROM "users" WHERE "id" = ${B} FOR UPDATE`;
+        held();
+        await released;
+      }, { timeout: 60_000 });
+      await holding;
+      const settle = () => executeCoinAdjustment(B, requested.approvalId)
+        .then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error: String(error) }));
+      const first = settle();
+      await waitForBlockedBackends(1, { waitEvents: ROW_LOCK_WAITS, queryLike: '%FOR SHARE%' });
+      const second = settle();
+      await waitForBlockedBackends(1, { waitEvents: ['advisory'] });
+      release();
+      await blocker;
+      const results = await Promise.all([first, second]);
+      expect(results.map((r) => r.ok), JSON.stringify(results)).toEqual([true, true]);
+      const settled = results.map((r) => (r as { value: Awaited<ReturnType<typeof executeCoinAdjustment>> }).value);
+      expect(settled.map((r) => r.idempotent).sort()).toEqual([false, true]);
+      // Apart from which request settled it, both answers are the same settled operation.
+      const withoutFlag = (r: (typeof settled)[number]) => ({ ...r, idempotent: undefined });
+      expect(withoutFlag(settled[1])).toEqual(withoutFlag(settled[0]));
+      expect(await prisma.economicOperation.count({ where: { userId: f.buyer.id, type: 'ADMIN_ADJUST' } }))
+        .toBe(operationsBefore + 1);
     });
 
     it('a debit consumes exactly the approved amount from the user\'s own lots and conserves value', async () => {
@@ -368,6 +432,30 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
         .toMatch(/rejects: .*is not the execution of any adjustment approval/);
     });
 
+    it('refuses an adjustment backed by a wallet transaction that is not its own Coin adjustment', async () => {
+      const purchase = await prisma.economicOperation.findUniqueOrThrow({ where: { id: f.purchaseLot.sourceOperationId! } });
+      const purchaseTx = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: purchase.walletTransactionIds[0] } });
+      // The buyer's purchase credit, already the backing of its PURCHASE
+      // operation, cannot also back an adjustment of the same amount.
+      expect(await verdict(() => planSql(credit({ amount: purchaseTx.amount, reuseWalletTransaction: purchaseTx.id })).statements))
+        .toMatch(/rejects: .*is not backed by the approval's own Coin adjustment wallet transaction/);
+      for (const wallet of [{ referenceType: 'REWARD' }, { referenceType: 'AGENT_ORDER' }, { referenceId: uid('another-case') },
+        { type: 'GIFT_RECEIVE' }]) {
+        expect(await verdict(() => planSql(credit({ wallet })).statements), JSON.stringify(wallet))
+          .toMatch(/rejects: .*is not backed by the approval's own Coin adjustment wallet transaction/);
+      }
+    });
+
+    it('refuses an adjustment whose wallet transaction another operation already names', async () => {
+      const executed = await executeTestAdjustment(f.buyer.id, 5, approvers);
+      const settled = await prisma.adminAdjustmentApproval.findUniqueOrThrow({ where: { id: executed.approvalId } });
+      const reuse = planSql(credit({ amount: 5, approval: 'none', reuseWalletTransaction: settled.walletTransactionId! }));
+      expect(await verdict(() => reuse.statements)).toMatch(/^rejects: /);
+      const wager = planSql(credit({ amount: 5, reuseWalletTransaction: settled.walletTransactionId! }));
+      expect(await verdict(() => wager.statements))
+        .toMatch(/rejects: .*(admin_adjustment_approvals_walletTransactionId_key|Key \("walletTransactionId"\)|is not backed by the approval's own)/);
+    });
+
     it('refuses an approval created already executed', async () => {
       const planted = planSql(credit());
       expect(await verdict(() => [[`INSERT INTO "admin_adjustment_approvals" ("id","userId","amount","caseId","evidence",
@@ -472,6 +560,20 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
       expect(await judge(credit(), true, (p) => [['UPDATE "economic_operations" SET "snapshot" = NULL WHERE "id" = $1', p.op]]))
         .toMatch(/does not repeat the terms/);
     });
+    it('the request and both approvals must be signed assertions for exactly these terms', async () => {
+      const unsigned = /is not backed by a signed request, first approval and second approval/;
+      expect(await judge(credit({ signatures: 'none' }))).toMatch(unsigned);
+      expect(await judge(credit({ signatures: 'forged' }))).toMatch(unsigned);
+      for (const action of ['REQUEST', 'FIRST_APPROVAL', 'SECOND_APPROVAL'] as const) {
+        expect(await judge(credit({ unsigned: action })), action).toMatch(unsigned);
+      }
+      for (const signedTerms of [{ actorId: 'someone-else' }, { userId: 'another-user' }, { amount: 31 }, { amount: -30 },
+        { caseId: 'another-case' }, { evidence: { forged: true } }]) {
+        expect(await judge(credit({ signedTerms })), JSON.stringify(signedTerms)).toMatch(unsigned);
+      }
+      expect(await judge(debit({ signatures: 'forged' }))).toMatch(unsigned);
+    });
+
     it('the entries must match the approval\'s polarity', async () => {
       expect(await judge(credit({ entries: [{ type: 'CONSUME', delta: -30, lot: f.purchaseLot.id }], wallet: { ledgerType: 'DEBIT' } })))
         .toMatch(/must mint exactly the approved 30 Coins into the user's own UNCLASSIFIED lots/);
@@ -534,13 +636,40 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
         { walletIds: 'none' }, { walletIds: 'two' }, { walletIds: 'other' },
         { wallet: { ledgerType: 'DEBIT' } }, { wallet: { amount: 31 } }, { wallet: { currency: 'GAME_POINTS' } },
         { wallet: { status: 'PENDING' } }, { wallet: { status: 'REVERSED' } }, { wallet: { userId: 'other' } },
+        { wallet: { referenceType: 'REWARD' } }, { wallet: { referenceId: 'another-case' } }, { wallet: { type: 'GIFT_RECEIVE' } },
       ] as const) {
         const plan = credit(change as Partial<Plan>);
         if (plan.wallet?.userId === 'other') plan.wallet = { ...plan.wallet, userId: other.buyer.id };
-        expect(await judge(plan), JSON.stringify(change)).toMatch(/is not backed by the approval's one succeeded Coin wallet transaction/);
+        expect(await judge(plan), JSON.stringify(change)).toMatch(/is not backed by the approval's own Coin adjustment wallet transaction/);
       }
       expect(await judge(debit({ wallet: { ledgerType: 'CREDIT' } }))).toMatch(/is not backed by/);
+      // The ledger direction is checked on its own, not only through the type.
+      expect(await judge(credit({ wallet: { ledgerType: 'DEBIT', type: 'COIN_CREDIT' } }))).toMatch(/is not backed by/);
+      expect(await judge(debit({ wallet: { ledgerType: 'CREDIT', type: 'COIN_DEBIT' } }))).toMatch(/is not backed by/);
+      const purchase = await prisma.economicOperation.findUniqueOrThrow({ where: { id: f.purchaseLot.sourceOperationId! } });
+      const purchaseTx = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: purchase.walletTransactionIds[0] } });
+      expect(await judge(credit({ amount: purchaseTx.amount, reuseWalletTransaction: purchaseTx.id })))
+        .toMatch(/is not backed by the approval's own Coin adjustment wallet transaction/);
     });
+    it('its wallet transaction backs nothing else: no other operation, purchase settlement or other operation\'s lot', async () => {
+      const notOwn = /is not backed by the approval's own Coin adjustment wallet transaction/;
+      // Each case keeps every other condition on the wallet transaction true.
+      expect(await judge(credit(), true, (p) => [[`INSERT INTO "economic_operations" ("id","type","userId","scopeType","scopeId",
+          "walletTransactionIds","createdBy","snapshot") VALUES ($1,'PURCHASE',$2,'AGENT_ORDER',$3,ARRAY[$4],$5,'{}'::jsonb)`,
+        uid('adj-other-op'), f.buyer.id, uid('adj-order'), p.wtx, A]])).toMatch(notOwn);
+      expect(await judge(credit(), true, (p) => [[`INSERT INTO "agent_order_settlements" ("id","orderId","reservationId",
+          "coinAmount","walletTransactionId","resolvedVia","releasedBy","settledAt")
+        VALUES ($1,$2,$3,30,$4,'AGENT_RELEASE',$5,now())`, uid('adj-settlement'), uid('adj-order'), uid('adj-res'), p.wtx, A]]))
+        .toMatch(notOwn);
+      expect(await judge(credit(), true, (p) => [[`INSERT INTO "coin_provenance" ("id","userId","walletTransactionId","amount",
+          "provenanceType","restrictionStatus","originalSource","lotClass","state","availableAmount","reservedAmount",
+          "requirementAmount","progressAmount","mintedAt","availableAt","sourceOperationId","createdAt","updatedAt")
+        VALUES ($1,$2,$3,30,'PURCHASE','UNRESTRICTED','PURCHASE','WITHDRAWABLE','OPEN',0,0,0,0,now(),now(),$4,now(),now())`,
+        uid('adj-other-lot'), f.buyer.id, p.wtx, uid('adj-other-op')]])).toMatch(notOwn);
+      // Its own mint lot naming it is expected.
+      expect(await judge(credit())).toBe('valid');
+    });
+
     it('invariant I16 and the UPGRADED preflight report a planted forged adjustment', async () => {
       const found = await inRolledBackTransaction(async (tx) => {
         const planted = planSql(credit({ approval: 'none' }));
@@ -553,6 +682,24 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
       expect(found.i16).toMatchObject({ count: 1, sample: [found.op] });
       expect(found.preflight).toEqual([{ category: 'UNAUTHORIZED_OPERATION', subjectType: 'economic_operation:ADMIN_ADJUST',
         subjectId: found.op, userId: f.buyer.id, detail: `admin adjustment ${found.op} is not the execution of any adjustment approval` }]);
+    });
+
+    it('invariant I16 and the UPGRADED preflight report a historical adjustment backed by a purchase credit', async () => {
+      const purchase = await prisma.economicOperation.findUniqueOrThrow({ where: { id: f.purchaseLot.sourceOperationId! } });
+      const purchaseTx = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: purchase.walletTransactionIds[0] } });
+      const found = await inRolledBackTransaction(async (tx) => {
+        // Recorded with every guard bypassed, as history written before them.
+        const planted = planSql(credit({ amount: purchaseTx.amount, reuseWalletTransaction: purchaseTx.id }));
+        await asLegacy(tx, planted.statements);
+        const scan = await runLedgerInvariantCheckInTransaction(tx, null, false);
+        const preflight = await collectUnauthorizedOperations(tx);
+        return { op: planted.op, i16: scan.violations.find((v) => v.invariant.startsWith('I16')),
+          preflight: preflight.filter((a) => a.subjectId === planted.op) };
+      });
+      expect(found.i16).toMatchObject({ count: 1, sample: [found.op] });
+      expect(found.preflight).toEqual([{ category: 'UNAUTHORIZED_OPERATION', subjectType: 'economic_operation:ADMIN_ADJUST',
+        subjectId: found.op, userId: f.buyer.id,
+        detail: `admin adjustment ${found.op} is not backed by the approval's own Coin adjustment wallet transaction` }]);
     });
   });
 
@@ -772,152 +919,6 @@ describe('Coin adjustments execute exactly one two-administrator approval', () =
       }
     });
   });
-
-  describe('5. the ordinary application role', () => {
-    const role = `playqube_app_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    const password = randomUUID();
-    let app: PrismaClient;
-
-    beforeAll(async () => {
-      const database = new URL(process.env.DATABASE_URL!).pathname.slice(1);
-      await prisma.$executeRawUnsafe(
-        `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
-      await prisma.$executeRawUnsafe(`GRANT CONNECT, TEMPORARY ON DATABASE "${database}" TO "${role}"`);
-      await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`);
-      await prisma.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${role}"`);
-      await prisma.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${role}"`);
-      const url = new URL(process.env.DATABASE_URL!);
-      url.username = role; url.password = password;
-      app = new PrismaClient({ datasourceUrl: url.toString(), log: [] });
-    });
-    afterAll(async () => {
-      await app?.$disconnect();
-      await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
-      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS "${role}"`);
-    });
-
-    /** Runs statements as the application role, checks every deferred
-     * constraint, and always rolls back. */
-    async function asApp(statements: Statement[]): Promise<string> {
-      try {
-        await app.$transaction(async (tx) => {
-          for (const [sql, ...params] of statements) await tx.$executeRawUnsafe(sql, ...params);
-          await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
-          throw new RolledBack('accepts');
-        }, { timeout: 120_000 });
-      } catch (error) {
-        if (error instanceof RolledBack) return error.value as string;
-        return `rejects: ${oneLine(error)}`;
-      }
-      return 'committed';
-    }
-
-    it('is an ordinary role: no superuser, no RLS bypass, owns nothing', async () => {
-      const [facts] = await app.$queryRawUnsafe<{ superuser: boolean; bypass: boolean; owned: number; replication: string }[]>(`
-        SELECT r."rolsuper" AS superuser, r."rolbypassrls" AS bypass,
-               (SELECT count(*)::int FROM pg_class c WHERE c."relowner" = r."oid") AS owned,
-               current_setting('session_replication_role') AS replication
-        FROM pg_roles r WHERE r."rolname" = current_user`);
-      expect(facts).toEqual({ superuser: false, bypass: false, owned: 0, replication: 'origin' });
-    });
-
-    it('cannot switch off, drop or replace any guard', async () => {
-      for (const sql of [
-        'SET session_replication_role = replica',
-        'SET LOCAL session_replication_role = replica',
-        'ALTER TABLE "economic_operations" DISABLE TRIGGER ALL',
-        'ALTER TABLE "coin_lot_entries" DISABLE TRIGGER "operation_authorization_guard"',
-        'ALTER TABLE "admin_adjustment_approvals" DISABLE TRIGGER "admin_adjustment_approval_lifecycle_guard"',
-        'DROP TRIGGER "authorized_operation_guard" ON "economic_operations"',
-        'ALTER TABLE "admin_adjustment_approvals" DROP CONSTRAINT "admin_adjustment_approvals_independent_chk"',
-        `CREATE OR REPLACE FUNCTION "admin_adjustment_violation"(operation_id TEXT, check_approvers_active BOOLEAN)
-           RETURNS TEXT LANGUAGE sql AS $$ SELECT NULL::text $$`,
-        `CREATE OR REPLACE FUNCTION "operation_authorization_guard"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$`,
-        'ALTER FUNCTION "admin_adjustment_violation"(text, boolean) RESET search_path',
-        'CREATE TRIGGER "bypass" BEFORE INSERT ON "economic_operations" FOR EACH ROW EXECUTE FUNCTION "operation_authorization_guard"()',
-      ]) {
-        expect(await asApp([[sql]]), sql).toMatch(/rejects: .*(permission denied|must be owner)/);
-      }
-    });
-
-    it('cannot record an ADMIN_ADJUST without an executed approval, even when the deferred check is left to COMMIT', async () => {
-      for (const plan of [credit({ approval: 'none' }), credit({ approval: 'pending' }), credit({ approval: 'first-approved' }),
-        debit({ approval: 'none' })]) {
-        expect(await asApp(planSql(plan).statements)).toMatch(/rejects: .*is not the execution of any adjustment approval/);
-      }
-      const planted = planSql(credit({ approval: 'none' }));
-      await expect(app.$transaction(planted.statements.map(([sql, ...params]) => app.$executeRawUnsafe(sql, ...params))))
-        .rejects.toThrow(/is not the execution of any adjustment approval/);
-      expect(await prisma.economicOperation.count({ where: { id: planted.op } })).toBe(0);
-    });
-
-    it('cannot create an approval already executed, skip a step, or approve with one or a self-interested administrator', async () => {
-      expect(await asApp(planSql(credit({ approval: 'pending-to-executed' })).statements))
-        .toMatch(/rejects: .*cannot move from PENDING to EXECUTED/);
-      for (const [first, second] of [[A, A], [f.buyer.id, B], [A, f.buyer.id]]) {
-        expect(await asApp(planSql(credit({ first, second })).statements)).toMatch(/rejects: .*admin_adjustment_approvals_independent_chk/);
-      }
-      const plain = await user(uid('app-plain'));
-      expect(await asApp(planSql(credit({ second: plain.id })).statements))
-        .toMatch(/rejects: .*needs two currently active SUPER_ADMIN approvers/);
-    });
-
-    it('cannot make the guards read TEMP tables instead of the real rows', async () => {
-      const planted = planSql(credit({ approval: 'none' }));
-      const shadow: Statement[] = [
-        ['CREATE TEMP TABLE "admin_adjustment_approvals" (LIKE public."admin_adjustment_approvals") ON COMMIT DROP'],
-        ['CREATE TEMP TABLE "users" ("id" text, "role" text, "status" text) ON COMMIT DROP'],
-        [`INSERT INTO pg_temp."users" VALUES ('ghost-1', 'SUPER_ADMIN', 'ACTIVE'), ('ghost-2', 'SUPER_ADMIN', 'ACTIVE')`],
-        [`INSERT INTO pg_temp."admin_adjustment_approvals" ("id","userId","amount","caseId","evidence","status","createdBy",
-            "createdAt","firstApproverId","secondApproverId","operationId","walletTransactionId")
-          VALUES ($1,$2,30,$3,$4::jsonb,'EXECUTED','ghost-1',now(),'ghost-1','ghost-2',$5,$6)`,
-          uid('ghost-approval'), f.buyer.id, planted.caseId, JSON.stringify(evidenceFor(planted.caseId)), planted.op, planted.wtx],
-      ];
-      const forged = planted.statements.map(([sql, ...params]) => [sql.replaceAll('"admin_adjustment_approvals"',
-        'public."admin_adjustment_approvals"'), ...params] as Statement);
-      expect(await asApp([...shadow, ...forged])).toMatch(/rejects: .*is not the execution of any adjustment approval/);
-      const [pins] = await app.$queryRawUnsafe<{ unpinned: number }[]>(`
-        SELECT count(*)::int AS unpinned FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = current_schema() AND p.prokind = 'f'
-          AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
-          AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=' || quote_ident(current_schema()) || ', pg_temp'])`);
-      expect(pins.unpinned).toBe(0);
-    });
-
-    it('cannot forge a LEGACY_RESOLVE of a review nobody resolved', async () => {
-      const opened = await executeTestAdjustment(f.buyer.id, 6, approvers);
-      const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: opened.reviewLotId! } });
-      const op = uid('app-resolve'); const child = uid('app-child');
-      expect(await asApp([
-        [`INSERT INTO "economic_operations" ("id","type","userId","scopeType","scopeId","walletTransactionIds","createdBy","snapshot")
-          VALUES ($1,'LEGACY_RESOLVE',$2,'REVIEW',$3,'{}',$4, jsonb_build_object('evidence', '{}'::jsonb,
-            'firstApproverId', $5::text, 'secondApproverId', $4::text, 'decision', 'WITHDRAWABLE', 'amount', 6))`,
-          op, f.buyer.id, review.id, B, A],
-        [`INSERT INTO "coin_lot_entries" ("operationId","lotId","userId","sequence","entryType","availableDelta")
-          VALUES ($1,$2,$3,0,'RECLASS_OUT',-6)`, op, review.lotId, f.buyer.id],
-        [`INSERT INTO "coin_provenance" ("id","userId","amount","provenanceType","restrictionStatus","originalSource",
-            "lotClass","state","availableAmount","reservedAmount","requirementAmount","progressAmount",
-            "mintedAt","availableAt","sourceOperationId","parentLotId","rootLotId","createdAt","updatedAt")
-          VALUES ($1,$2,6,'ADMIN_ADJUSTMENT','UNRESTRICTED','ADMIN_ADJUSTMENT','WITHDRAWABLE','OPEN',0,0,0,0,
-            now(),now(),$3,$4,$4,now(),now())`, child, f.buyer.id, op, review.lotId],
-        [`INSERT INTO "coin_lot_entries" ("operationId","lotId","userId","sequence","entryType","availableDelta")
-          VALUES ($1,$2,$3,1,'RECLASS_IN',6)`, op, child, f.buyer.id],
-        ['UPDATE "coin_provenance" SET "state" = \'RECLASSIFIED\', "closedAt" = now() WHERE "id" = $1', review.lotId],
-      ])).toMatch(/rejects: .*is not the resolution of any legacy review/);
-    });
-
-    it('LIMITATION: a fabricated but complete two-administrator lifecycle naming real active SUPER_ADMINs is accepted', async () => {
-      // The database cannot authenticate the people behind the records: a
-      // writer who can issue arbitrary DML as the application role can record
-      // the request, both approvals and the execution itself. What it still
-      // enforces is everything above: two distinct, currently active
-      // SUPER_ADMINs other than the user, immutable terms, one operation per
-      // approval, exact amounts, UNCLASSIFIED-only credits (which stay under
-      // a legacy review before they can become withdrawable) and conservation.
-      expect(await asApp(planSql(credit()).statements)).toBe('accepts');
-      expect(await asApp(planSql(debit()).statements)).toBe('accepts');
-    });
-  });
 });
 
 describe('invariant I3 reports each guard added by this release when it is disabled', () => {
@@ -929,6 +930,8 @@ describe('invariant I3 reports each guard added by this release when it is disab
     ['game_sessions', 'game_session_immutability_guard'],
     ['game_challenges', 'game_challenges_rules_pin_guard'],
     ['group_competitions', 'group_competitions_rules_pin_guard'],
+    ['ledger_approval_assertions', 'ledger_approval_assertions_append_only'],
+    ['users', 'users_privilege_guard'],
   ]) {
     it(`${trigger} on ${table}`, async () => {
       const sample = await inRolledBackTransaction(async (tx) => {

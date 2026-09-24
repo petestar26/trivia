@@ -35,19 +35,22 @@ vi.mock('@/lib/api', async () => {
   };
 });
 
+let currentUser: { id: string; username: string; displayName: string } | null = { id: 'me-uuid', username: 'me', displayName: 'Me' };
 vi.mock('@/providers/auth-provider', () => ({
-  useAuth: () => ({ user: { id: 'me-uuid', username: 'me', displayName: 'Me' } }),
+  useAuth: () => ({ user: currentUser }),
 }));
 
 import { NumberChallengePage } from './number-challenge';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
+import { durablePlayContract } from '@/test/durable-play-contract';
 
 afterEach(() => {
   cleanup();
   playGameMock.mockReset();
   newIdempotencyKeySpy.mockReset();
   window.sessionStorage.clear();
+  currentUser = { id: 'me-uuid', username: 'me', displayName: 'Me' };
 });
 
 function createClient() {
@@ -167,5 +170,31 @@ describe('NumberChallengePage', () => {
     expect(playGameMock).toHaveBeenCalledTimes(1);
     expect(playGameMock.mock.calls[0]).toEqual(['number_challenge', { betAmount: 20, guess: 7 }, 'stored-key']);
     expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'number_challenge'))).toBeNull();
+  });
+});
+
+describe('NumberChallengePage — durable play', () => {
+  const submitEnabled = () => {
+    const submit = screen.queryByRole('button', { name: /^Submit Guess$/ });
+    return !!submit && !(submit as HTMLButtonElement).disabled;
+  };
+  durablePlayContract({
+    gameKey: 'number_challenge',
+    userId: 'me-uuid',
+    playGameMock,
+    newIdempotencyKeySpy,
+    renderPage: () => { renderPage(); },
+    ready: async () => { await screen.findByRole('button', { name: /Submit Guess/i }); },
+    play: () => fireEvent.click(screen.getByRole('button', { name: /Submit Guess|Checking/i })),
+    playEnabled: submitEnabled,
+    firstBody: { betAmount: 50, guess: 50 },
+    edit: () => {
+      fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '77' } });
+      return { betAmount: 50, guess: 77 };
+    },
+    nextRound: () => waitFor(() => expect(submitEnabled()).toBe(true)),
+    response: (body, isReplay) => ({ success: true, data: { ...successResponse.data, betAmount: body.betAmount,
+      result: { ...successResponse.data.result, guess: body.guess }, isReplay } }),
+    setUser: (user) => { currentUser = user; },
   });
 });

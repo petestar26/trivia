@@ -77,7 +77,7 @@ export function TriviaGamePage() {
 
   // One idempotency key per round, stored with the exact request before the
   // first send; see useDurablePlay and dice.tsx.
-  const { play, pending, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<TriviaPlayResult>('trivia', {
+  const { play, pending, pendingDiffersFrom, storageError, mutation: playMutation } = useDurablePlay<TriviaPlayResult>('trivia', {
     onStart: () => setPhase('RUNNING'),
     onSettled: (round, replayed) => {
       setLastResult(round.result);
@@ -161,6 +161,12 @@ export function TriviaGamePage() {
             {confirmingEarlierRound && (
               <div className="text-sm text-amber-700 dark:text-amber-400">
                 Your previous answer has not been confirmed yet. Submitting confirms that answer first.
+              </div>
+            )}
+
+            {storageError && (
+              <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+                {storageError}
               </div>
             )}
 

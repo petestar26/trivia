@@ -71,7 +71,7 @@ export function DiceGamePage() {
   // request before the first send (see useDurablePlay): a lost response, a
   // retry or a reload resends only that request, so the server replays the
   // settled round instead of taking a second wager.
-  const { play, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<DicePlayResult>('dice', {
+  const { play, pendingDiffersFrom, storageError, mutation: playMutation } = useDurablePlay<DicePlayResult>('dice', {
     onStart: () => setPhase('RUNNING'),
     onSettled: (round, replayed) => {
       setLastResult(round.result);
@@ -129,6 +129,12 @@ export function DiceGamePage() {
         {confirmingEarlierRound && (
           <div className="mt-4 text-sm text-amber-700 dark:text-amber-400">
             Your previous roll has not been confirmed yet. Rolling again confirms that roll first; your new bet applies to the next round.
+          </div>
+        )}
+
+        {storageError && (
+          <div role="alert" className="mt-4 text-sm text-red-600 dark:text-red-400">
+            {storageError}
           </div>
         )}
 

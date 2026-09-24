@@ -43,19 +43,22 @@ vi.mock('@/lib/api', async () => {
   };
 });
 
+let currentUser: { id: string; username: string; displayName: string } | null = { id: 'me-uuid', username: 'me', displayName: 'Me' };
 vi.mock('@/providers/auth-provider', () => ({
-  useAuth: () => ({ user: { id: 'me-uuid', username: 'me', displayName: 'Me' } }),
+  useAuth: () => ({ user: currentUser }),
 }));
 
 import { TriviaGamePage } from './trivia';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
+import { durablePlayContract } from '@/test/durable-play-contract';
 
 afterEach(() => {
   cleanup();
   playGameMock.mockReset();
   newIdempotencyKeySpy.mockReset();
   window.sessionStorage.clear();
+  currentUser = { id: 'me-uuid', username: 'me', displayName: 'Me' };
 });
 
 function createClient() {
@@ -166,5 +169,32 @@ describe('TriviaGamePage', () => {
     expect(playGameMock.mock.calls[1].slice(1)).toEqual(playGameMock.mock.calls[0].slice(1));
     expect(settled.size).toBe(1);
     expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'trivia'))).toBeNull();
+  });
+});
+
+describe('TriviaGamePage — durable play', () => {
+  const submitButton = () => screen.queryByRole('button', { name: /^Submit Answer$/ }) as HTMLButtonElement | null;
+  durablePlayContract({
+    gameKey: 'trivia',
+    userId: 'me-uuid',
+    playGameMock,
+    newIdempotencyKeySpy,
+    renderPage: () => { renderPage(); },
+    ready: async () => { await screen.findByText(QUESTION.question); },
+    // Chooses the default answer only when none is chosen yet.
+    play: () => {
+      if (submitButton()?.disabled) fireEvent.click(screen.getByRole('button', { name: '4' }));
+      fireEvent.click(screen.getByRole('button', { name: /Submit Answer|Checking/i }));
+    },
+    playEnabled: () => !!submitButton() && !submitButton()!.disabled,
+    firstBody: { questionId: 'q1', answerIndex: 1 },
+    edit: () => {
+      fireEvent.click(screen.getByRole('button', { name: '5' }));
+      return { questionId: 'q1', answerIndex: 2 };
+    },
+    nextRound: async () => { fireEvent.click(await screen.findByRole('button', { name: /Next Question/i })); },
+    response: (body, isReplay) => ({ success: true, data: { ...successResponse.data,
+      result: { ...successResponse.data.result, submittedAnswer: body.answerIndex }, isReplay } }),
+    setUser: (user) => { currentUser = user; },
   });
 });

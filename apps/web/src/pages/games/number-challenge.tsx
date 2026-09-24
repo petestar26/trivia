@@ -48,7 +48,7 @@ export function NumberChallengePage() {
 
   // One idempotency key per round, stored with the exact request before the
   // first send; see useDurablePlay and dice.tsx.
-  const { play, pendingDiffersFrom, mutation: playMutation } = useDurablePlay<NumPlayResult>('number_challenge', {
+  const { play, pendingDiffersFrom, storageError, mutation: playMutation } = useDurablePlay<NumPlayResult>('number_challenge', {
     onStart: () => setPhase('RUNNING'),
     onSettled: (round, replayed) => {
       setLastResult(round.result);
@@ -111,6 +111,12 @@ export function NumberChallengePage() {
         {confirmingEarlierRound && (
           <div className="text-sm text-amber-700 dark:text-amber-400">
             Your previous guess has not been confirmed yet. Submitting confirms that guess first; your new bet and guess apply to the next round.
+          </div>
+        )}
+
+        {storageError && (
+          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {storageError}
           </div>
         )}
 

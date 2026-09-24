@@ -123,6 +123,37 @@ async function openWriter(url: string, statements: [string, ...unknown[]][]) {
   };
 }
 
+/** A writer transaction driven one statement at a time, so a test can
+ * interleave it with a migration. A statement that fails ends it. */
+function stepWriter(url: string) {
+  const client = new PrismaClient({ datasourceUrl: url, log: [] });
+  const steps: { sql: string; params: unknown[]; resolve: (outcome: string) => void }[] = [];
+  let notify: () => void = () => undefined;
+  let ended = false;
+  let commit = false;
+  const finished = client.$transaction(async (tx) => {
+    for (;;) {
+      while (!steps.length && !ended) await new Promise<void>((resolve) => { notify = resolve; });
+      const step = steps.shift();
+      if (!step) break;
+      try {
+        await tx.$executeRawUnsafe(step.sql, ...step.params);
+        step.resolve('ok');
+      } catch (error) {
+        step.resolve(`error: ${String((error as Error).message)}`);
+        throw error;
+      }
+    }
+    if (!commit) throw new WriterRolledBack();
+  }, { timeout: 240_000, maxWait: 10_000 }).then(() => 'committed', (error) => (
+    error instanceof WriterRolledBack ? 'rolled back' : `aborted: ${String((error as Error).message).slice(0, 300)}`))
+    .finally(() => client.$disconnect());
+  return {
+    run: (sql: string, ...params: unknown[]) => new Promise<string>((resolve) => { steps.push({ sql, params, resolve }); notify(); }),
+    end: (commitIt: boolean) => { commit = commitIt; ended = true; notify(); return finished; },
+  };
+}
+
 async function migrationRows(client: PrismaClient) {
   return client.$queryRawUnsafe<{ migration_name: string; finished: boolean; rolled_back: boolean; steps: number }[]>(
     `SELECT migration_name, finished_at IS NOT NULL AS finished, rolled_back_at IS NOT NULL AS rolled_back,
@@ -253,11 +284,13 @@ beforeAll(() => {
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
 });
 
+// Dropping every scratch database (dozens of them) can outlast the default
+// hook timeout on a loaded machine.
 afterAll(async () => {
   for (const name of created) await prisma.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
   for (const root of scratchRoots) rmSync(root, { recursive: true, force: true });
   await prisma.$disconnect();
-});
+}, 300_000);
 
 describe('ledger upgrade migrations', () => {
   it('fresh install: every migration applies, both gates pass, and a replay is a no-op', async () => {
@@ -713,6 +746,139 @@ describe('legacy game rules on a master database whose catalog the pre-casino AP
 // schedules prove what happens when one is not: every race either waits and
 // then evaluates the committed result, or stops the upgrade. None completes
 // around a write it did not see.
+describe('the upgrade window covers every field reconciliation and classification read', () => {
+  const t = "TIMESTAMP '2026-09-10 10:00:00'";
+  // Purchase evidence and a game session, as master records them.
+  const evidenceSeed = (ids: ReturnType<typeof masterIds>) => `
+INSERT INTO agent_reservations (id, "orderId", "agentId", amount, status, "createdAt", "consumedAt")
+  VALUES ('res-${ids.tag}', '${ids.order}', '${ids.agent}', 1200, 'CONSUMED', ${t}, ${t});
+INSERT INTO agent_order_settlements (id, "orderId", "reservationId", "coinAmount", "walletTransactionId", "resolvedVia", "releasedBy", "settledAt")
+  VALUES ('set-${ids.tag}', '${ids.order}', 'res-${ids.tag}', 1200, 'tx-a1-${ids.tag}', 'AGENT_RELEASE', '${ids.agentUser}', ${t});
+INSERT INTO game_sessions (id, "userId", "gameId", status, "betAmount", result, "rewardAmount", "isWin", "createdAt", "completedAt")
+  SELECT 'gs-${ids.tag}', '${ids.alice}', g.id, 'COMPLETED', 10, '{"sum": 4}', 0, false, ${t}, ${t}
+  FROM game_definitions g WHERE g.key = 'dice';`;
+
+  async function snapshotted(label: string) {
+    const db = await scratchDatabase(label);
+    expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+    const ids = masterIds();
+    execute(db.url, masterRuntimeCatalogSql());
+    execute(db.url, masterEraSeed(ids, evidenceSeed(ids)));
+    const staged = deploy(db.url, migrationSubset(ALL.filter((name) => name <= PRE_GATE)));
+    expect(staged.status, staged.output).toBe(0);
+    return { db, ids };
+  }
+
+  it('the same data, unchanged, upgrades completely', async () => {
+    const { db } = await snapshotted('windowbase');
+    try {
+      const result = deploy(db.url);
+      expect(result.status, result.output).toBe(0);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  // Each keeps every row count and every credited amount.
+  const changes: [string, (ids: ReturnType<typeof masterIds>) => string][] = [
+    ['wallet_transactions.balanceBefore', (ids) => `UPDATE wallet_transactions SET "balanceBefore" = "balanceBefore" + 1 WHERE id = 'tx-a2-${ids.tag}'`],
+    ['wallet_transactions.balanceAfter', (ids) => `UPDATE wallet_transactions SET "balanceAfter" = "balanceAfter" - 1 WHERE id = 'tx-a2-${ids.tag}'`],
+    ['wallet_transactions.createdAt (chronology)', (ids) => `UPDATE wallet_transactions SET "createdAt" = "createdAt" - interval '1 day' WHERE id = 'tx-a2-${ids.tag}'`],
+    ['wallet_transactions.type', (ids) => `UPDATE wallet_transactions SET type = 'GIFT_RECEIVE' WHERE id = 'tx-c1-${ids.tag}'`],
+    ['wallet_transactions.referenceType', (ids) => `UPDATE wallet_transactions SET "referenceType" = 'GAME' WHERE id = 'tx-c1-${ids.tag}'`],
+    ['wallet_transactions.referenceId', (ids) => `UPDATE wallet_transactions SET "referenceId" = 'another-order' WHERE id = 'tx-a1-${ids.tag}'`],
+    ['wallet_transactions.walletId', (ids) => `UPDATE wallet_transactions SET "walletId" = 'w-${ids.bob}' WHERE id = 'tx-c1-${ids.tag}'`],
+    ['agent_order_settlements.walletTransactionId', (ids) => `UPDATE agent_order_settlements SET "walletTransactionId" = 'tx-c1-${ids.tag}' WHERE id = 'set-${ids.tag}'`],
+    ['agent_order_settlements.resolvedVia', (ids) => `UPDATE agent_order_settlements SET "resolvedVia" = 'ADMIN_DISPUTE_RESOLUTION' WHERE id = 'set-${ids.tag}'`],
+    ['agent_orders.status', (ids) => `UPDATE agent_orders SET status = 'DISPUTE' WHERE id = '${ids.order}'`],
+    ['agent_orders.userId', (ids) => `UPDATE agent_orders SET "userId" = '${ids.bob}' WHERE id = '${ids.order}'`],
+    ['agent_reservations.status', (ids) => `UPDATE agent_reservations SET status = 'RELEASED' WHERE id = 'res-${ids.tag}'`],
+    ['withdrawal_holds.debitWalletTransactionId', (ids) => `UPDATE withdrawal_holds SET "debitWalletTransactionId" = 'tx-c1-${ids.tag}' WHERE id = '${ids.activeHold}'`],
+    ['withdrawals.userId', (ids) => `UPDATE withdrawals SET "userId" = '${ids.dave}' WHERE id = '${ids.heldWithdrawal}'`],
+    ['gift_transactions.recipientId', (ids) => `UPDATE gift_transactions SET "recipientId" = '${ids.carol}' WHERE id = '${ids.giftTx}'`],
+    ['game_sessions.status', (ids) => `UPDATE game_sessions SET status = 'FAILED' WHERE id = 'gs-${ids.tag}'`],
+  ];
+  for (const [field, change] of changes) {
+    it(`a change to ${field} between migration stages stops the upgrade`, async () => {
+      const { db, ids } = await snapshotted('windowfield');
+      try {
+        execute(db.url, `${change(ids)};`);
+        const result = deploy(db.url);
+        expect(result.status, result.output).not.toBe(0);
+        expect(result.output).toMatch(/LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE|LEDGER INTEGRITY GATE STOPPED THE UPGRADE/);
+        expect((await migrationRows(db.client)).every((row) => row.migration_name !== WINDOW_CHECK || !row.finished)).toBe(true);
+      } finally { await db.client.$disconnect(); }
+    }, 300_000);
+  }
+
+  it('the check compares every column master defines on every table it fingerprints', async () => {
+    // The window check's own comparison, read from the migration, evaluated
+    // after changing one column of one row (rolled back each time). The
+    // snapshot migration must fingerprint with exactly the same text.
+    const windowBlock = (migration: string) => {
+      const text = readFileSync(join(MIGRATIONS, migration, 'migration.sql'), 'utf8');
+      return text.slice(text.indexOf('-- ledger-upgrade-window:begin'), text.indexOf('-- ledger-upgrade-window:end'));
+    };
+    const block = windowBlock(WINDOW_CHECK);
+    expect(block.length).toBeGreaterThan(100);
+    expect(windowBlock(PRE_GATE)).toBe(block);
+    const differing = `WITH current_window ("subject", "fingerprint") AS (\n${block}\n)
+      SELECT COALESCE(c."subject", s."subject") AS subject FROM current_window c
+      FULL OUTER JOIN "ledger_upgrade_window" s ON s."subject" = c."subject"
+      WHERE c."fingerprint" IS DISTINCT FROM s."fingerprint"`;
+    const tables = ['wallets', 'wallet_transactions', 'withdrawal_holds', 'withdrawals', 'agent_orders',
+      'agent_order_settlements', 'agent_reservations', 'gift_transactions', 'game_sessions'];
+    const changed = (column: string, type: string, udt: string): string | null => {
+      const c = `"${column}"`;
+      if (type === 'USER-DEFINED') {
+        return `(SELECT e.enumlabel::"${udt}" FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+                 WHERE t.typname = '${udt}' AND e.enumlabel IS DISTINCT FROM ${c}::text ORDER BY e.enumsortorder LIMIT 1)`;
+      }
+      if (['integer', 'bigint', 'smallint', 'numeric', 'double precision', 'real'].includes(type)) return `COALESCE(${c}, 0) + 1`;
+      if (type === 'boolean') return `NOT COALESCE(${c}, false)`;
+      if (['text', 'character varying'].includes(type)) return `COALESCE(${c}, '') || 'x'`;
+      if (type.startsWith('timestamp') || type === 'date') return `COALESCE(${c}, TIMESTAMP '2026-01-01') + interval '1 day'`;
+      if (type === 'jsonb') return `COALESCE(${c}, '{}'::jsonb) || '{"windowProbe": 1}'::jsonb`;
+      if (type === 'json') return `(COALESCE(${c}::jsonb, '{}'::jsonb) || '{"windowProbe": 1}'::jsonb)::json`;
+      return null;
+    };
+    class Probed extends Error { constructor(readonly subjects: string[]) { super('probed'); } }
+    const { db } = await snapshotted('windowcolumns');
+    try {
+      expect(await db.client.$queryRawUnsafe(differing)).toEqual([]);
+      const columns = await db.client.$queryRawUnsafe<{ table: string; column: string; type: string; udt: string }[]>(
+        `SELECT table_name::text AS "table", column_name::text AS "column", data_type::text AS "type", udt_name::text AS "udt"
+         FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1::text[])
+         ORDER BY table_name, ordinal_position`, tables);
+      expect(new Set(columns.map((c) => c.table))).toEqual(new Set(tables));
+      expect(columns).toHaveLength(121); // every column master defines on these tables
+      const missed: string[] = [];
+      for (const { table, column, type, udt } of columns) {
+        const value = changed(column, type, udt);
+        if (!value) { missed.push(`${table}.${column}: no probe for type ${type}`); continue; }
+        try {
+          await db.client.$transaction(async (tx) => {
+            // Only the fingerprint is under test: keys, guards and CHECKs
+            // (all restored by the rollback) stay out of the way.
+            await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+            const checks = await tx.$queryRawUnsafe<{ name: string }[]>(
+              `SELECT conname::text AS name FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'c'`, table);
+            for (const { name } of checks) await tx.$executeRawUnsafe(`ALTER TABLE "${table}" DROP CONSTRAINT "${name}"`);
+            const updated = await tx.$executeRawUnsafe(
+              `UPDATE "${table}" SET "${column}" = ${value} WHERE ctid = (SELECT ctid FROM "${table}" LIMIT 1)`);
+            if (updated !== 1) throw new Error(`no ${table} row to change`);
+            const rows = await tx.$queryRawUnsafe<{ subject: string }[]>(differing);
+            throw new Probed(rows.map((r) => r.subject));
+          });
+        } catch (error) {
+          if (!(error instanceof Probed)) missed.push(`${table}.${column}: ${String((error as Error).message).split('\n').pop()}`);
+          else if (error.subjects.length === 0) missed.push(`${table}.${column}: not fingerprinted`);
+        }
+      }
+      expect(missed).toEqual([]);
+      expect(await db.client.$queryRawUnsafe(differing)).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+});
+
 describe('ledger upgrade with a concurrent writer', () => {
   const orphanStatements = (orphan: string): [string, ...unknown[]][] => [
     [`INSERT INTO users (id, email, username, "passwordHash", "displayName", "updatedAt")
@@ -820,6 +986,163 @@ INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", c
       expect(result.output).toContain('the snapshot recorded by 20260917900000_ledger_preupgrade_gate is missing');
     } finally { await db.client.$disconnect(); }
   }, 300_000);
+
+  it('pre-upgrade gate: a noncompliant writer that deadlocks with its locks leaves no partial change', async () => {
+    const db = await scratchDatabase('deadlock');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      const ids = masterIds();
+      execute(db.url, masterRuntimeCatalogSql());
+      execute(db.url, masterEraSeed(ids));
+      const before = await legacyFingerprint(db.client);
+      // The writer holds a catalog row; the gate takes the wallets and then
+      // waits for the catalog; the writer then needs a wallet: a cycle.
+      const writer = stepWriter(db.url);
+      expect(await writer.run(`UPDATE game_definitions SET "updatedAt" = "updatedAt" WHERE key = 'dice'`)).toBe('ok');
+      const migration = deployInBackground(db.url);
+      await waitForLockWaitIn(db.name);
+      const walletStep = writer.run('UPDATE wallets SET "coinsBalance" = "coinsBalance" WHERE "userId" = $1', ids.alice);
+      const [step, result] = await Promise.all([walletStep, migration.done.then(async (done) => {
+        await writer.end(true);
+        return done;
+      })]);
+      const writerOutcome = await writer.end(true);
+      const migrationDeadlocked = result.status !== 0;
+      // PostgreSQL aborts exactly one side, and that side changed nothing.
+      expect([migrationDeadlocked, step.startsWith('error')].filter(Boolean)).toHaveLength(1);
+      if (migrationDeadlocked) {
+        expect(result.output).toMatch(/deadlock detected|lock timeout/);
+        expect(result.output).toContain(PRE_GATE);
+        expect(writerOutcome).toBe('committed');
+        for (const table of ['ledger_upgrade_window', 'game_rules', 'coin_provenance']) {
+          expect(await relationExists(db.client, table), table).toBe(false);
+        }
+        expect(await legacyFingerprint(db.client)).toEqual(before);
+        // Once the writer is gone, the documented recovery completes the upgrade.
+        expect(prismaCli(db.url, ['migrate', 'resolve', '--rolled-back', PRE_GATE, '--schema', SCHEMA]).status).toBe(0);
+        const retried = deploy(db.url);
+        expect(retried.status, retried.output).toBe(0);
+      } else {
+        expect(step).toMatch(/deadlock detected/);
+        expect(writerOutcome).toMatch(/aborted/);
+        expect(result.status, result.output).toBe(0);
+      }
+      expect(await anomalies(db.client)).toEqual([]);
+      expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('pre-upgrade gate: gives up after its lock timeout instead of waiting forever, and changes nothing', async () => {
+    const db = await scratchDatabase('locktimeout');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterRuntimeCatalogSql());
+      execute(db.url, masterEraSeed(masterIds()));
+      const writer = stepWriter(db.url);
+      expect(await writer.run(`UPDATE game_definitions SET "updatedAt" = "updatedAt" WHERE key = 'dice'`)).toBe('ok');
+      const started = Date.now();
+      const migration = deployInBackground(db.url);
+      const result = await Promise.race([migration.done,
+        new Promise<null>((resolve) => { setTimeout(() => resolve(null), 60_000); })]);
+      await writer.end(false);
+      expect(result, 'the gate was still waiting after 60s').not.toBeNull();
+      expect(result!.status).not.toBe(0);
+      expect(result!.output).toMatch(/lock timeout/);
+      expect(result!.output).toContain(PRE_GATE);
+      expect(Date.now() - started).toBeLessThan(60_000);
+      expect(await relationExists(db.client, 'ledger_upgrade_window')).toBe(false);
+      expect(await relationExists(db.client, 'game_rules')).toBe(false);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('the pre-upgrade gate and the window check lock every table the window fingerprints', async () => {
+    const WINDOW_TABLES = ['wallets', 'wallet_transactions', 'withdrawal_holds', 'withdrawals', 'game_definitions',
+      'agent_orders', 'agent_order_settlements', 'agent_reservations', 'gift_transactions', 'game_sessions'];
+    for (const migration of [PRE_GATE, WINDOW_CHECK]) {
+      const db = await scratchDatabase('windowlocks');
+      try {
+        const before = deploy(db.url, migrationSubset(ALL.filter((name) => name < migration)));
+        expect(before.status, before.output).toBe(0);
+        // A missed writer on every table at once; each is released only once
+        // the migration waits for exactly its table.
+        const writers = new Map<string, ReturnType<typeof stepWriter>>();
+        for (const table of WINDOW_TABLES) {
+          const writer = stepWriter(db.url);
+          expect(await writer.run(`LOCK TABLE "${table}" IN ROW EXCLUSIVE MODE`)).toBe('ok');
+          writers.set(table, writer);
+        }
+        const deployment = deployInBackground(db.url, migrationSubset(ALL.filter((name) => name <= migration)));
+        const waitedFor: string[] = [];
+        while (!deployment.hasExited()) {
+          // Read in the scratch database itself, where its relation OIDs resolve.
+          const waiting = await db.client.$queryRawUnsafe<{ relation: string }[]>(
+            `SELECT l.relation::regclass::text AS relation FROM pg_locks l
+             WHERE l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+               AND l.locktype = 'relation' AND NOT l.granted`);
+          const table = waiting.map((w) => w.relation.replaceAll('"', '')).find((name) => writers.has(name));
+          if (table) {
+            waitedFor.push(table);
+            await writers.get(table)!.end(false);
+            writers.delete(table);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        }
+        for (const writer of writers.values()) await writer.end(false);
+        const result = await deployment.done;
+        expect(result.status, result.output).toBe(0);
+        expect([...waitedFor].sort(), migration).toEqual([...WINDOW_TABLES].sort());
+      } finally { await db.client.$disconnect(); }
+    }
+  }, 300_000);
+
+  it('every later locking migration also gives up after its lock timeout, and stays unapplied', async () => {
+    // Each migration of the release that locks tables, and one table it
+    // locks. A missed writer holding ROW EXCLUSIVE on it (as any INSERT,
+    // UPDATE or DELETE does) conflicts with the migration's lock.
+    const locking: [migration: string, table: string][] = [
+      ['20260918020000_casino_foundation_seed', 'game_definitions'],
+      ['20260922020000_g0_rules_hash_verification', 'game_rules'],
+      ['20260922060000_g0_rules_hash_verification_fix', 'game_rules'],
+      [FINAL_GATE, 'wallets'],
+      [AUTHORIZATION, 'economic_operations'],
+      [WINDOW_CHECK, 'wallets'],
+    ];
+    const prepared: { migration: string; table: string; db: Awaited<ReturnType<typeof scratchDatabase>> }[] = [];
+    try {
+      // Migrate each database up to the migration under test, one at a time.
+      for (const [index, [migration, table]] of locking.entries()) {
+        const db = await scratchDatabase(`locktimeout${index}`);
+        prepared.push({ migration, table, db });
+        const before = deploy(db.url, migrationSubset(ALL.filter((name) => name < migration)));
+        expect(before.status, before.output).toBe(0);
+      }
+      // Then run all of them against their writers at once.
+      const outcomes = await Promise.all(prepared.map(async ({ migration, table, db }) => {
+        const writer = stepWriter(db.url);
+        expect(await writer.run(`LOCK TABLE "${table}" IN ROW EXCLUSIVE MODE`)).toBe('ok');
+        const started = Date.now();
+        const deployment = deployInBackground(db.url, migrationSubset(ALL.filter((name) => name <= migration)));
+        const result = await Promise.race([deployment.done,
+          new Promise<null>((resolve) => { setTimeout(() => resolve(null), 60_000); })]);
+        const elapsed = Date.now() - started;
+        await writer.end(false);
+        if (!result) await deployment.done;
+        const row = (await migrationRows(db.client)).find((r) => r.migration_name === migration);
+        return { migration, result, elapsed, finished: row?.finished ?? false };
+      }));
+      for (const { migration, result, elapsed, finished } of outcomes) {
+        expect(result, `${migration} was still waiting after 60s`).not.toBeNull();
+        expect(result!.status, migration).not.toBe(0);
+        expect(result!.output, migration).toMatch(/lock timeout/);
+        expect(result!.output, migration).toContain(migration);
+        expect(elapsed, migration).toBeLessThan(60_000);
+        expect(finished, `${migration} must stay unapplied`).toBe(false);
+      }
+    } finally {
+      for (const { db } of prepared) await db.client.$disconnect();
+    }
+  }, 600_000);
 
   it('pre-upgrade gate: an uncommitted rules edit makes it wait; once committed, it stops before any schema change', async () => {
     const db = await scratchDatabase('rulesrace');

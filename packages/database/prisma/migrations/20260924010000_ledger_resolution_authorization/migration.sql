@@ -43,8 +43,468 @@
 -- No ledger write may interleave with installing these rules or with the
 -- closing check below (writers are stopped for the upgrade; this makes any
 -- that were missed wait instead of racing).
+-- With every writer stopped these locks are free. If a writer is still
+-- running, the gate waits at most lock_timeout and then fails, changing
+-- nothing, instead of hanging the deploy; a deadlock with such a writer ends
+-- the same way for whichever side PostgreSQL aborts. See
+-- docs/deployment/ledger-upgrade-gate.md ("If a migration fails").
+SET LOCAL lock_timeout = '20s';
 LOCK TABLE "economic_operations", "coin_lot_entries", "coin_provenance", "legacy_balance_reviews",
   "wallet_transactions" IN SHARE ROW EXCLUSIVE MODE;
+
+-- ===========================================================================
+-- Signed approval assertions: the trust boundary for human approvals.
+--
+-- An approval row naming two SUPER_ADMINs proves nothing if the application's
+-- database role can write that row. So every approval decision - the request,
+-- each approval, a close, a reopen - is also an ASSERTION signed by the API
+-- (HMAC-SHA256) once it has authenticated the acting SUPER_ADMIN. The API
+-- holds the signing key; the database holds the same key in
+-- ledger_approval_keys, which the runtime role can neither read nor write
+-- (see ledger_apply_runtime_grants). The runtime role writes approvals only
+-- through the SECURITY DEFINER procedures below, which refuse any assertion
+-- whose signature does not verify, and the settlement guards re-verify every
+-- stored assertion. A caller that can only run SQL as the runtime role cannot
+-- produce a valid signature, so it cannot approve anything. The table owner
+-- and superusers remain outside this boundary: they can read the key.
+--
+-- Each assertion binds: subject (approval or review) and its ID, action,
+-- actor, affected user, signed amount, case ID, a SHA-256 digest of the exact
+-- evidence, and a single-use nonce.
+-- ===========================================================================
+CREATE TABLE "ledger_approval_keys" (
+    "keyId" TEXT NOT NULL,
+    "secret" BYTEA NOT NULL,
+    "installedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "retiredAt" TIMESTAMP(3),
+    CONSTRAINT "ledger_approval_keys_pkey" PRIMARY KEY ("keyId"),
+    CONSTRAINT "ledger_approval_keys_secret_chk" CHECK (octet_length("secret") >= 32)
+);
+REVOKE ALL ON "ledger_approval_keys" FROM PUBLIC;
+
+CREATE TABLE "ledger_approval_assertions" (
+    "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
+    "subjectType" TEXT NOT NULL,
+    "subjectId" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "actorId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "amount" NUMERIC NOT NULL,
+    "caseId" TEXT NOT NULL,
+    "evidenceDigest" TEXT NOT NULL,
+    "nonce" TEXT NOT NULL,
+    "keyId" TEXT NOT NULL,
+    "signature" TEXT NOT NULL,
+    "recordedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ledger_approval_assertions_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "ledger_approval_assertions_subject_chk" CHECK ("subjectType" IN ('ADMIN_ADJUSTMENT', 'LEGACY_REVIEW')),
+    CONSTRAINT "ledger_approval_assertions_action_chk"
+      CHECK ("action" IN ('REQUEST', 'FIRST_APPROVAL', 'SECOND_APPROVAL', 'REJECT', 'CANCEL', 'REOPEN')),
+    CONSTRAINT "ledger_approval_assertions_nonce_chk" CHECK (length("nonce") BETWEEN 32 AND 128)
+);
+CREATE UNIQUE INDEX "ledger_approval_assertions_nonce_key" ON "ledger_approval_assertions" ("nonce");
+CREATE INDEX "ledger_approval_assertions_subject_idx"
+  ON "ledger_approval_assertions" ("subjectType", "subjectId", "action");
+ALTER TABLE "ledger_approval_assertions" ADD CONSTRAINT "ledger_approval_assertions_key_fkey"
+  FOREIGN KEY ("keyId") REFERENCES "ledger_approval_keys"("keyId") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
+CREATE OR REPLACE FUNCTION "ledger_approval_assertions_append_only"()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'ledger_approval_assertions is append-only';
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER "ledger_approval_assertions_append_only"
+BEFORE UPDATE OR DELETE ON "ledger_approval_assertions"
+FOR EACH ROW EXECUTE FUNCTION "ledger_approval_assertions_append_only"();
+
+-- The digest of evidence is taken over its canonical jsonb text, so the API
+-- and the database agree on it whatever the key order or formatting.
+CREATE OR REPLACE FUNCTION "ledger_evidence_digest"(evidence JSONB)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+  SELECT encode(digest(COALESCE(evidence, 'null'::jsonb)::text, 'sha256'), 'hex')
+$$;
+
+-- The exact text the API signs. The API asks for it rather than rebuilding
+-- it, so both sides always sign and verify the same bytes.
+CREATE OR REPLACE FUNCTION "ledger_approval_payload"(subject_type TEXT, subject_id TEXT, action TEXT, actor_id TEXT,
+  user_id TEXT, amount NUMERIC, case_id TEXT, evidence_digest TEXT, nonce TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+  SELECT 'playqube-ledger-approval/v1 ' || jsonb_build_array(subject_type, subject_id, action, actor_id, user_id,
+           trim_scale(amount)::text, case_id, evidence_digest, nonce)::text
+$$;
+
+-- Verifies a signature with the named key (for a new assertion, only an
+-- unretired key). SECURITY DEFINER: it reads the key the caller cannot. It
+-- answers only true or false.
+CREATE OR REPLACE FUNCTION "ledger_approval_signature_valid"(key_id TEXT, payload TEXT, signature TEXT,
+  for_new_assertion BOOLEAN)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT COALESCE(bool_or(encode(hmac(convert_to(payload, 'UTF8'), k."secret", 'sha256'), 'hex') = lower(signature)), false)
+  FROM "ledger_approval_keys" k
+  WHERE k."keyId" = key_id AND (NOT for_new_assertion OR k."retiredAt" IS NULL)
+$$;
+
+CREATE OR REPLACE FUNCTION "ledger_assertion_valid"(a "ledger_approval_assertions")
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+  SELECT "ledger_approval_signature_valid"(a."keyId",
+    "ledger_approval_payload"(a."subjectType", a."subjectId", a."action", a."actorId", a."userId", a."amount",
+                              a."caseId", a."evidenceDigest", a."nonce"),
+    a."signature", false)
+$$;
+
+-- Installs (idempotently) a signing key; owner only.
+CREATE OR REPLACE FUNCTION "ledger_install_approval_key"(key_id TEXT, secret BYTEA)
+RETURNS void AS $$
+BEGIN
+  IF key_id IS NULL OR key_id !~ '^[A-Za-z0-9._-]{1,64}$' THEN
+    RAISE EXCEPTION 'approval key id must be 1-64 characters of [A-Za-z0-9._-]';
+  END IF;
+  INSERT INTO "ledger_approval_keys" ("keyId", "secret") VALUES (key_id, secret)
+  ON CONFLICT ("keyId") DO UPDATE SET "keyId" = EXCLUDED."keyId"
+    WHERE "ledger_approval_keys"."secret" = EXCLUDED."secret";
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'approval key % is already installed with a different secret', key_id;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION "ledger_retire_approval_key"(key_id TEXT)
+RETURNS void AS $$
+BEGIN
+  UPDATE "ledger_approval_keys" SET "retiredAt" = COALESCE("retiredAt", CURRENT_TIMESTAMP) WHERE "keyId" = key_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'approval key % is not installed', key_id; END IF;
+END;
+$$ LANGUAGE plpgsql;
+REVOKE EXECUTE ON FUNCTION "ledger_install_approval_key"(TEXT, BYTEA) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION "ledger_retire_approval_key"(TEXT) FROM PUBLIC;
+
+-- Records one verified assertion; used only by the procedures below.
+CREATE OR REPLACE FUNCTION "ledger_record_assertion"(subject_type TEXT, subject_id TEXT, action TEXT, actor_id TEXT,
+  user_id TEXT, assertion_amount NUMERIC, case_id TEXT, evidence JSONB, key_id TEXT, nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  digest_hex TEXT := "ledger_evidence_digest"(evidence);
+BEGIN
+  IF key_id IS NULL OR nonce IS NULL OR signature IS NULL OR length(nonce) NOT BETWEEN 32 AND 128 THEN
+    RAISE EXCEPTION 'ledger approval assertion for % % % needs a key, a 32-128 character nonce and a signature',
+      subject_type, subject_id, action;
+  END IF;
+  IF NOT "ledger_approval_signature_valid"(key_id,
+       "ledger_approval_payload"(subject_type, subject_id, action, actor_id, user_id, assertion_amount, case_id, digest_hex, nonce),
+       signature, true) THEN
+    RAISE EXCEPTION 'ledger approval assertion for % % % by % is not signed by an active approval key',
+      subject_type, subject_id, action, actor_id;
+  END IF;
+  INSERT INTO "ledger_approval_assertions" ("subjectType", "subjectId", "action", "actorId", "userId", "amount",
+    "caseId", "evidenceDigest", "nonce", "keyId", "signature")
+  VALUES (subject_type, subject_id, action, actor_id, user_id, assertion_amount, case_id, digest_hex, nonce, key_id, lower(signature));
+END;
+$$ LANGUAGE plpgsql;
+REVOKE EXECUTE ON FUNCTION "ledger_record_assertion"(TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION "ledger_is_active_super_admin"(user_id TEXT)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $$
+  SELECT EXISTS (SELECT 1 FROM "users" u
+                 WHERE u."id" = user_id AND u."role"::text = 'SUPER_ADMIN' AND u."status"::text = 'ACTIVE')
+$$;
+
+-- Who is a SUPER_ADMIN is itself part of the trust boundary: only the table
+-- owner (migrations, operators) may create a user with any role but USER or
+-- change anyone's role or status. The runtime role creates plain users only.
+CREATE OR REPLACE FUNCTION "users_privilege_guard"()
+RETURNS trigger AS $$
+BEGIN
+  IF pg_has_role(current_user, (SELECT c."relowner" FROM pg_class c WHERE c."oid" = TG_RELID), 'MEMBER') THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' AND NEW."role"::text <> 'USER' THEN
+    RAISE EXCEPTION 'only the database owner creates a user with role %', NEW."role";
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW."role" IS DISTINCT FROM OLD."role" OR NEW."status" IS DISTINCT FROM OLD."status") THEN
+    RAISE EXCEPTION 'only the database owner changes a user''s role or status';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER "users_privilege_guard"
+BEFORE INSERT OR UPDATE ON "users"
+FOR EACH ROW EXECUTE FUNCTION "users_privilege_guard"();
+
+-- A whole, nonzero number of Coins within +-1,000,000,000. Checked on the
+-- NUMERIC the caller passed, before anything could round it.
+CREATE OR REPLACE FUNCTION "ledger_require_whole_coin_amount"(requested NUMERIC)
+RETURNS INTEGER AS $$
+BEGIN
+  IF requested IS NULL OR requested = 'NaN'::numeric OR abs(requested) > 1000000000 OR requested <> trunc(requested)
+     OR requested = 0 THEN
+    RAISE EXCEPTION 'admin adjustment amount % must be a nonzero whole number of Coins within +-1000000000', requested;
+  END IF;
+  RETURN requested::integer;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- ---- Coin adjustment procedures (the only way the runtime role writes an
+-- ---- admin_adjustment_approvals row) ----
+CREATE OR REPLACE FUNCTION "ledger_adjustment_request"(approval_id TEXT, user_id TEXT, requested_amount NUMERIC,
+  case_id TEXT, evidence JSONB, actor_id TEXT, key_id TEXT, nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  whole INTEGER := "ledger_require_whole_coin_amount"(requested_amount);
+BEGIN
+  IF actor_id IS NULL OR actor_id = user_id THEN
+    RAISE EXCEPTION 'an administrator cannot request an adjustment of their own Coins';
+  END IF;
+  IF NOT "ledger_is_active_super_admin"(actor_id) THEN
+    RAISE EXCEPTION 'admin adjustment % must be requested by an active SUPER_ADMIN', approval_id;
+  END IF;
+  PERFORM "ledger_record_assertion"('ADMIN_ADJUSTMENT', approval_id, 'REQUEST', actor_id, user_id, whole, case_id,
+                                    evidence, key_id, nonce, signature);
+  INSERT INTO "admin_adjustment_approvals" ("id", "userId", "amount", "caseId", "evidence", "createdBy")
+  VALUES (approval_id, user_id, whole, case_id, evidence, actor_id);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION "ledger_adjustment_first_approval"(approval_id TEXT, actor_id TEXT, key_id TEXT,
+  nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  a RECORD;
+BEGIN
+  SELECT * INTO a FROM "admin_adjustment_approvals" WHERE "id" = approval_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'admin adjustment approval % does not exist', approval_id; END IF;
+  IF a."status" <> 'PENDING' THEN
+    RAISE EXCEPTION 'admin adjustment approval % is %, not awaiting a first approval', approval_id, a."status";
+  END IF;
+  IF actor_id IS NULL OR actor_id = a."userId" OR NOT "ledger_is_active_super_admin"(actor_id) THEN
+    RAISE EXCEPTION 'admin adjustment approval % needs an active SUPER_ADMIN other than the user', approval_id;
+  END IF;
+  PERFORM "ledger_record_assertion"('ADMIN_ADJUSTMENT', a."id", 'FIRST_APPROVAL', actor_id, a."userId", a."amount",
+                                    a."caseId", a."evidence", key_id, nonce, signature);
+  UPDATE "admin_adjustment_approvals"
+  SET "status" = 'FIRST_APPROVED', "firstApproverId" = actor_id, "firstApprovedAt" = CURRENT_TIMESTAMP
+  WHERE "id" = a."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION "ledger_adjustment_execute"(approval_id TEXT, actor_id TEXT, operation_id TEXT,
+  wallet_transaction_id TEXT, key_id TEXT, nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  a RECORD;
+BEGIN
+  SELECT * INTO a FROM "admin_adjustment_approvals" WHERE "id" = approval_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'admin adjustment approval % does not exist', approval_id; END IF;
+  IF a."status" <> 'FIRST_APPROVED' THEN
+    RAISE EXCEPTION 'admin adjustment approval % is %, not awaiting its second approval', approval_id, a."status";
+  END IF;
+  IF actor_id IS NULL OR actor_id = a."userId" OR actor_id = a."firstApproverId"
+     OR NOT "ledger_is_active_super_admin"(actor_id) OR NOT "ledger_is_active_super_admin"(a."firstApproverId") THEN
+    RAISE EXCEPTION 'admin adjustment approval % needs a second, distinct active SUPER_ADMIN and an active first approver', approval_id;
+  END IF;
+  PERFORM "ledger_record_assertion"('ADMIN_ADJUSTMENT', a."id", 'SECOND_APPROVAL', actor_id, a."userId", a."amount",
+                                    a."caseId", a."evidence", key_id, nonce, signature);
+  UPDATE "admin_adjustment_approvals"
+  SET "status" = 'EXECUTED', "secondApproverId" = actor_id, "secondApprovedAt" = CURRENT_TIMESTAMP,
+      "operationId" = operation_id, "walletTransactionId" = wallet_transaction_id, "executedAt" = CURRENT_TIMESTAMP
+  WHERE "id" = a."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION "ledger_adjustment_close"(approval_id TEXT, actor_id TEXT, outcome TEXT, reason TEXT,
+  key_id TEXT, nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  a RECORD;
+BEGIN
+  SELECT * INTO a FROM "admin_adjustment_approvals" WHERE "id" = approval_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'admin adjustment approval % does not exist', approval_id; END IF;
+  IF outcome NOT IN ('REJECTED', 'CANCELLED') OR a."status" NOT IN ('PENDING', 'FIRST_APPROVED') THEN
+    RAISE EXCEPTION 'admin adjustment approval % is % and cannot be %', approval_id, a."status", outcome;
+  END IF;
+  IF actor_id IS NULL OR NOT "ledger_is_active_super_admin"(actor_id)
+     OR (outcome = 'CANCELLED' AND actor_id IS DISTINCT FROM a."createdBy") THEN
+    RAISE EXCEPTION 'admin adjustment approval % can be rejected by an active SUPER_ADMIN and cancelled only by its requester', approval_id;
+  END IF;
+  PERFORM "ledger_record_assertion"('ADMIN_ADJUSTMENT', a."id", CASE outcome WHEN 'REJECTED' THEN 'REJECT' ELSE 'CANCEL' END,
+    actor_id, a."userId", a."amount", a."caseId", jsonb_build_object('evidence', a."evidence", 'closeReason', reason),
+    key_id, nonce, signature);
+  UPDATE "admin_adjustment_approvals"
+  SET "status" = outcome, "closedBy" = actor_id, "closedAt" = CURRENT_TIMESTAMP, "closeReason" = reason
+  WHERE "id" = a."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ---- Legacy review procedures (the only way the runtime role changes a
+-- ---- legacy_balance_reviews row) ----
+CREATE OR REPLACE FUNCTION "ledger_review_first_approval"(review_id TEXT, actor_id TEXT, proposal JSONB, key_id TEXT,
+  nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+  proposed NUMERIC;
+BEGIN
+  SELECT * INTO r FROM "legacy_balance_reviews" WHERE "id" = review_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'legacy review % does not exist', review_id; END IF;
+  IF r."status" <> 'OPEN' THEN RAISE EXCEPTION 'legacy review % is %, not OPEN', review_id, r."status"; END IF;
+  IF actor_id IS NULL OR actor_id = r."userId" OR NOT "ledger_is_active_super_admin"(actor_id) THEN
+    RAISE EXCEPTION 'legacy review % needs an active SUPER_ADMIN other than its owner', review_id;
+  END IF;
+  IF jsonb_typeof(proposal) IS DISTINCT FROM 'object' OR jsonb_typeof(proposal -> 'amount') IS DISTINCT FROM 'number'
+     OR (proposal ->> 'decision') IS NULL OR (proposal ->> 'decision') NOT IN ('WITHDRAWABLE', 'RESTRICTED') THEN
+    RAISE EXCEPTION 'legacy review % needs a proposal with a numeric amount and a WITHDRAWABLE or RESTRICTED decision', review_id;
+  END IF;
+  proposed := (proposal ->> 'amount')::numeric;
+  IF proposed <= 0 OR proposed <> trunc(proposed) OR proposed > 2000000000 THEN
+    RAISE EXCEPTION 'legacy review % proposal amount % must be a positive whole number of Coins', review_id, proposed;
+  END IF;
+  PERFORM "ledger_record_assertion"('LEGACY_REVIEW', r."id", 'FIRST_APPROVAL', actor_id, r."userId", proposed, r."id",
+                                    proposal, key_id, nonce, signature);
+  UPDATE "legacy_balance_reviews"
+  SET "status" = 'FIRST_APPROVED', "resolvedBy" = actor_id,
+      "evidence" = COALESCE(r."evidence", '{}'::jsonb) || jsonb_build_object('proposal', proposal,
+        'firstApprovedAt', to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+  WHERE "id" = r."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION "ledger_review_reopen"(review_id TEXT, actor_id TEXT, reason TEXT,
+  observed_available_amount INTEGER, key_id TEXT, nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+  proposed NUMERIC;
+BEGIN
+  SELECT * INTO r FROM "legacy_balance_reviews" WHERE "id" = review_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'legacy review % does not exist', review_id; END IF;
+  IF r."status" <> 'FIRST_APPROVED' THEN RAISE EXCEPTION 'legacy review % is %, not FIRST_APPROVED', review_id, r."status"; END IF;
+  IF actor_id IS NULL OR actor_id = r."userId" OR NOT "ledger_is_active_super_admin"(actor_id) THEN
+    RAISE EXCEPTION 'legacy review % can be reopened only by an active SUPER_ADMIN other than its owner', review_id;
+  END IF;
+  proposed := COALESCE((r."evidence" -> 'proposal' ->> 'amount')::numeric, 0);
+  PERFORM "ledger_record_assertion"('LEGACY_REVIEW', r."id", 'REOPEN', actor_id, r."userId", proposed, r."id",
+    jsonb_build_object('reason', reason, 'observedAvailableAmount', observed_available_amount), key_id, nonce, signature);
+  UPDATE "legacy_balance_reviews"
+  SET "status" = 'OPEN', "resolvedBy" = NULL,
+      "evidence" = COALESCE(r."evidence", '{}'::jsonb) || jsonb_build_object(
+        'proposal', NULL, 'firstApprovedAt', NULL,
+        'invalidatedApprovals', COALESCE(r."evidence" -> 'invalidatedApprovals', '[]'::jsonb) || jsonb_build_array(
+          jsonb_strip_nulls(jsonb_build_object(
+            'firstApproverId', r."resolvedBy", 'proposal', COALESCE(r."evidence" -> 'proposal', 'null'::jsonb),
+            'invalidatedAt', to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+            'reason', reason, 'observedAvailableAmount', observed_available_amount))))
+  WHERE "id" = r."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION "ledger_review_resolve"(review_id TEXT, actor_id TEXT, operation_id TEXT, key_id TEXT,
+  nonce TEXT, signature TEXT)
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+BEGIN
+  SELECT * INTO r FROM "legacy_balance_reviews" WHERE "id" = review_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'legacy review % does not exist', review_id; END IF;
+  IF r."status" <> 'FIRST_APPROVED' THEN RAISE EXCEPTION 'legacy review % is %, not FIRST_APPROVED', review_id, r."status"; END IF;
+  IF actor_id IS NULL OR actor_id = r."userId" OR actor_id = r."resolvedBy"
+     OR NOT "ledger_is_active_super_admin"(actor_id) OR NOT "ledger_is_active_super_admin"(r."resolvedBy") THEN
+    RAISE EXCEPTION 'legacy review % needs a second, distinct active SUPER_ADMIN and an active first approver', review_id;
+  END IF;
+  PERFORM "ledger_record_assertion"('LEGACY_REVIEW', r."id", 'SECOND_APPROVAL', actor_id, r."userId",
+    (r."evidence" -> 'proposal' ->> 'amount')::numeric, r."id", r."evidence" -> 'proposal', key_id, nonce, signature);
+  UPDATE "legacy_balance_reviews"
+  SET "status" = 'RESOLVED', "secondApproverId" = actor_id, "resolutionOperationId" = operation_id,
+      "resolvedAt" = CURRENT_TIMESTAMP
+  WHERE "id" = r."id";
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- The invariant check of a gate release locks the economy in SHARE mode.
+-- The runtime role holds no UPDATE or DELETE on append-only history, which
+-- LOCK ... SHARE requires, so the lock is taken here, as the owner, for the
+-- caller's transaction.
+CREATE OR REPLACE FUNCTION "ledger_lock_economy_for_invariant_check"()
+RETURNS void AS $$
+BEGIN
+  LOCK TABLE "wallets", "wallet_transactions", "coin_provenance", "coin_lot_entries",
+    "economic_operations", "coin_ledger_accounts", "legacy_balance_reviews",
+    "withdrawal_holds", "country_jurisdictions", "country_casino_policies",
+    "game_sessions" IN SHARE MODE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- The documented runtime role of the API and the worker: data access only,
+-- separate from the owner that runs migrations. Run as the owner after every
+-- deploy (idempotent):  SELECT "ledger_apply_runtime_grants"('<runtime role>');
+-- It gives ordinary data access to every table, then takes back what the
+-- runtime never needs: rewriting or deleting financial history, deleting
+-- financial state, writing approvals or their assertions directly, changing
+-- legacy reviews other than through the signed procedures, writing immutable
+-- rules, the signing key, migration history, and any user's role or status.
+CREATE OR REPLACE FUNCTION "ledger_apply_runtime_grants"(runtime_role TEXT)
+RETURNS void AS $$
+DECLARE
+  schema_name TEXT := current_schema();
+  t TEXT;
+  updatable_user_columns TEXT;
+BEGIN
+  IF runtime_role IS NULL OR NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = runtime_role) THEN
+    RAISE EXCEPTION 'runtime role % does not exist', runtime_role;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = runtime_role AND (r.rolsuper OR r.rolbypassrls)) THEN
+    RAISE EXCEPTION 'runtime role % must be neither a superuser nor exempt from row security', runtime_role;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles r ON r.oid = c.relowner
+             WHERE n.nspname = schema_name AND r.rolname = runtime_role)
+     OR pg_has_role(runtime_role, (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', schema_name, 'economic_operations'))), 'MEMBER') THEN
+    RAISE EXCEPTION 'runtime role % must neither own nor be a member of the owner of the schema''s tables', runtime_role;
+  END IF;
+
+  EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', schema_name, runtime_role);
+  EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', schema_name, runtime_role);
+  EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, runtime_role);
+  EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', schema_name, runtime_role);
+  EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', schema_name, runtime_role);
+
+  -- Append-only financial history and committed records: insert and read.
+  FOREACH t IN ARRAY ARRAY['economic_operations', 'coin_lot_entries', 'wallet_transactions',
+                           'agent_order_settlements', 'game_sessions'] LOOP
+    IF to_regclass(format('%I.%I', schema_name, t)) IS NOT NULL THEN
+      EXECUTE format('REVOKE UPDATE, DELETE ON %I.%I FROM %I', schema_name, t, runtime_role);
+    END IF;
+  END LOOP;
+  -- Financial state is never deleted.
+  FOREACH t IN ARRAY ARRAY['wallets', 'coin_provenance', 'coin_ledger_accounts'] LOOP
+    IF to_regclass(format('%I.%I', schema_name, t)) IS NOT NULL THEN
+      EXECUTE format('REVOKE DELETE ON %I.%I FROM %I', schema_name, t, runtime_role);
+    END IF;
+  END LOOP;
+  -- Approvals and their signed assertions: only through the procedures.
+  FOREACH t IN ARRAY ARRAY['admin_adjustment_approvals', 'ledger_approval_assertions'] LOOP
+    EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON %I.%I FROM %I', schema_name, t, runtime_role);
+  END LOOP;
+  -- Legacy reviews: the ledger opens them; they change only through the
+  -- signed procedures.
+  EXECUTE format('REVOKE UPDATE, DELETE ON %I.%I FROM %I', schema_name, 'legacy_balance_reviews', runtime_role);
+  -- Immutable rules versions.
+  EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON %I.%I FROM %I', schema_name, 'game_rules', runtime_role);
+  -- The signing key, and the migration history (which the preflight reads).
+  EXECUTE format('REVOKE ALL ON %I.%I FROM %I', schema_name, 'ledger_approval_keys', runtime_role);
+  IF to_regclass(format('%I.%I', schema_name, '_prisma_migrations')) IS NOT NULL THEN
+    EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON %I.%I FROM %I', schema_name, '_prisma_migrations', runtime_role);
+  END IF;
+  -- Users: inserted (users_privilege_guard admits only plain USER accounts
+  -- from anyone but the owner), updated in every column but the id, the
+  -- role and the status, never deleted.
+  SELECT string_agg(quote_ident(c.column_name), ', ' ORDER BY c.ordinal_position)
+    INTO updatable_user_columns
+  FROM information_schema.columns c
+  WHERE c.table_schema = schema_name AND c.table_name = 'users' AND c.column_name NOT IN ('id', 'role', 'status');
+  EXECUTE format('REVOKE UPDATE, DELETE ON %I.%I FROM %I', schema_name, 'users', runtime_role);
+  EXECUTE format('GRANT UPDATE (%s) ON %I.%I TO %I', updatable_user_columns, schema_name, 'users', runtime_role);
+END;
+$$ LANGUAGE plpgsql;
+REVOKE EXECUTE ON FUNCTION "ledger_apply_runtime_grants"(TEXT) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION "legacy_resolution_violation"(operation_id TEXT, check_approvers_active BOOLEAN)
 RETURNS TEXT AS $$
@@ -53,7 +513,7 @@ DECLARE
   review RECORD;
   lot RECORD;
   proposal JSONB;
-  approved BIGINT;
+  approved NUMERIC;
   entries RECORD;
 BEGIN
   SELECT o."id", o."type"::text AS kind, o."userId", o."scopeType", o."scopeId", o."snapshot", o."createdBy"
@@ -102,6 +562,25 @@ BEGIN
   approved := (proposal ->> 'amount')::numeric;
   IF approved IS NULL OR approved <= 0 THEN
     RETURN format('legacy review %s approved a non-positive amount', review."id");
+  END IF;
+  IF approved <> trunc(approved) THEN
+    RETURN format('legacy review %s approved a fractional amount', review."id");
+  END IF;
+  -- Both approvals are signed assertions of the API for exactly these terms
+  -- (see ledger_approval_assertions): the runtime role cannot forge them.
+  IF NOT EXISTS (
+       SELECT 1 FROM "ledger_approval_assertions" a
+       WHERE a."subjectType" = 'LEGACY_REVIEW' AND a."subjectId" = review."id" AND a."action" = 'FIRST_APPROVAL'
+         AND a."actorId" = review."resolvedBy" AND a."userId" = review."userId" AND a."amount" = approved
+         AND a."caseId" = review."id" AND a."evidenceDigest" = "ledger_evidence_digest"(proposal)
+         AND "ledger_assertion_valid"(a))
+     OR NOT EXISTS (
+       SELECT 1 FROM "ledger_approval_assertions" a
+       WHERE a."subjectType" = 'LEGACY_REVIEW' AND a."subjectId" = review."id" AND a."action" = 'SECOND_APPROVAL'
+         AND a."actorId" = review."secondApproverId" AND a."userId" = review."userId" AND a."amount" = approved
+         AND a."caseId" = review."id" AND a."evidenceDigest" = "ledger_evidence_digest"(proposal)
+         AND "ledger_assertion_valid"(a)) THEN
+    RETURN format('legacy resolution %s is not backed by signed first and second approvals of review %s', op."id", review."id");
   END IF;
   IF op."snapshot" IS NULL
      OR (op."snapshot" -> 'evidence') IS DISTINCT FROM review."evidence"
@@ -298,6 +777,18 @@ BEGIN
          AND u."role"::text = 'SUPER_ADMIN' AND u."status"::text = 'ACTIVE') <> 2 THEN
     RETURN format('admin adjustment %s needs two currently active SUPER_ADMIN approvers', op."id");
   END IF;
+  -- The request and both approvals are signed assertions of the API for
+  -- exactly these terms (see ledger_approval_assertions).
+  IF (SELECT count(DISTINCT a."action") FROM "ledger_approval_assertions" a
+      WHERE a."subjectType" = 'ADMIN_ADJUSTMENT' AND a."subjectId" = approval."id"
+        AND a."userId" = approval."userId" AND a."amount" = approval."amount" AND a."caseId" = approval."caseId"
+        AND a."evidenceDigest" = "ledger_evidence_digest"(approval."evidence")
+        AND ((a."action" = 'REQUEST' AND a."actorId" = approval."createdBy")
+          OR (a."action" = 'FIRST_APPROVAL' AND a."actorId" = approval."firstApproverId")
+          OR (a."action" = 'SECOND_APPROVAL' AND a."actorId" = approval."secondApproverId"))
+        AND "ledger_assertion_valid"(a)) <> 3 THEN
+    RETURN format('admin adjustment %s is not backed by a signed request, first approval and second approval', op."id");
+  END IF;
   IF op."snapshot" IS NULL
      OR (op."snapshot" ->> 'approvalId') IS DISTINCT FROM approval."id"
      OR (op."snapshot" -> 'evidence') IS DISTINCT FROM approval."evidence"
@@ -326,15 +817,31 @@ BEGIN
                   CASE WHEN approval."amount" > 0 THEN 'UNCLASSIFIED' ELSE 'managed' END);
   END IF;
 
+  -- The backing wallet transaction is this adjustment's own: a succeeded
+  -- Coin credit or debit of the user, of exactly the amount, recorded for
+  -- this case (reference ADMIN / the case ID), and named by no other
+  -- operation, purchase settlement or lot. An existing purchase credit, a
+  -- reward or a transaction of another case can never back it.
   IF cardinality(op."walletTransactionIds") IS DISTINCT FROM 1
      OR op."walletTransactionIds"[1] IS DISTINCT FROM approval."walletTransactionId"
      OR NOT EXISTS (
        SELECT 1 FROM "wallet_transactions" w
        WHERE w."id" = approval."walletTransactionId" AND w."userId" = op."userId"
          AND w."currency"::text = 'COINS'
+         AND w."type"::text = CASE WHEN approval."amount" > 0 THEN 'COIN_CREDIT' ELSE 'COIN_DEBIT' END
          AND w."ledgerType"::text = CASE WHEN approval."amount" > 0 THEN 'CREDIT' ELSE 'DEBIT' END
-         AND w."status"::text = 'SUCCEEDED' AND w."amount" = abs(approval."amount")) THEN
-    RETURN format('admin adjustment %s is not backed by the approval''s one succeeded Coin wallet transaction', op."id");
+         AND w."referenceType"::text = 'ADMIN' AND w."referenceId" = approval."caseId"
+         AND w."status"::text = 'SUCCEEDED' AND w."amount" = abs(approval."amount"))
+     OR EXISTS (
+       SELECT 1 FROM "economic_operations" other
+       WHERE other."id" <> op."id" AND approval."walletTransactionId" = ANY (other."walletTransactionIds"))
+     OR EXISTS (
+       SELECT 1 FROM "agent_order_settlements" s WHERE s."walletTransactionId" = approval."walletTransactionId")
+     OR EXISTS (
+       SELECT 1 FROM "coin_provenance" l
+       WHERE l."walletTransactionId" = approval."walletTransactionId"
+         AND l."sourceOperationId" IS DISTINCT FROM op."id") THEN
+    RETURN format('admin adjustment %s is not backed by the approval''s own Coin adjustment wallet transaction', op."id");
   END IF;
   RETURN NULL;
 END;

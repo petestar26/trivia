@@ -215,3 +215,37 @@ export async function inRolledBackTransaction<T>(fn: (tx: Tx) => Promise<T>): Pr
   }
   throw new Error('unreachable: fixture transaction committed');
 }
+
+export interface AssertionTerms {
+  subjectType: 'ADMIN_ADJUSTMENT' | 'LEGACY_REVIEW';
+  subjectId: string;
+  action: 'REQUEST' | 'FIRST_APPROVAL' | 'SECOND_APPROVAL' | 'REJECT' | 'CANCEL' | 'REOPEN';
+  actorId: string;
+  userId: string;
+  amount: number;
+  caseId: string;
+  /** SQL expression of type jsonb; extra parameters are numbered from $9. */
+  evidence: string;
+  evidenceParams?: unknown[];
+  /** 'forged': a well-formed digest that no approval key produced. */
+  signature?: 'valid' | 'forged';
+}
+
+/**
+ * One approval assertion as the API records it, signed inside SQL with the
+ * installed test key. Only the owner can do this: it reads
+ * ledger_approval_keys, which the runtime role can neither read nor write.
+ */
+export function signedAssertionSql(a: AssertionTerms): Statement {
+  const nonce = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+  const signature = a.signature === 'forged'
+    ? `encode(sha256(convert_to($8::text, 'UTF8')), 'hex')`
+    : `encode(hmac(convert_to("ledger_approval_payload"($1::text, $2::text, $3::text, $4::text, $5::text, $6::numeric,
+        $7::text, d."digest", $8::text), 'UTF8'), k."secret", 'sha256'), 'hex')`;
+  return [`INSERT INTO "ledger_approval_assertions" ("subjectType","subjectId","action","actorId","userId","amount",
+      "caseId","evidenceDigest","nonce","keyId","signature")
+    SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::numeric, $7::text, d."digest", $8::text, k."keyId", ${signature}
+    FROM (SELECT "ledger_evidence_digest"(${a.evidence}) AS "digest") d
+    CROSS JOIN LATERAL (SELECT * FROM "ledger_approval_keys" WHERE "retiredAt" IS NULL ORDER BY "installedAt" LIMIT 1) k`,
+  a.subjectType, a.subjectId, a.action, a.actorId, a.userId, a.amount, a.caseId, nonce, ...(a.evidenceParams ?? [])];
+}

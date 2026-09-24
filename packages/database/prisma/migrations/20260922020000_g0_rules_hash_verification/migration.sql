@@ -14,6 +14,12 @@
 -- The catalog and rules are read and verified below: lock them against
 -- writers first, so a concurrent edit is either committed before this
 -- migration reads them or waits until it has finished.
+-- With every writer stopped these locks are free. If a writer is still
+-- running, the gate waits at most lock_timeout and then fails, changing
+-- nothing, instead of hanging the deploy; a deadlock with such a writer ends
+-- the same way for whichever side PostgreSQL aborts. See
+-- docs/deployment/ledger-upgrade-gate.md ("If a migration fails").
+SET LOCAL lock_timeout = '20s';
 LOCK TABLE "game_definitions", "game_rules" IN SHARE ROW EXCLUSIVE MODE;
 
 DO $$

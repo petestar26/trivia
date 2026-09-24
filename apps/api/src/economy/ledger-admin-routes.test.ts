@@ -285,6 +285,28 @@ describeIf('ledger administration API', () => {
     expect(await prisma.adminAdjustmentApproval.count({ where: { userId: { in: [owner.id, admin.id] } } })).toBe(0);
   });
 
+  it('stores whole amounts exactly, in any JSON number form and at the bounds, and refuses every fraction', async () => {
+    const admin = await makeUser('SUPER_ADMIN');
+    const owner = await makeUser('USER');
+    const request = (delta: string) => server.inject({ method: 'POST', url: `${endpoint}/adjustments`,
+      headers: { ...headers(admin), 'content-type': 'application/json' },
+      payload: `{"targetUserId": ${JSON.stringify(owner.id)}, "caseId": "la-amount-${tag()}", "delta": ${delta},
+        "rationale": "Documented historical credit correction", "supportingEvidence": ["case-ledger-004"]}` });
+    for (const delta of ['0.1', '0.5', '1.5', '-0.5', '-1.5', '1000000000.5', '-1000000000.5', '0.0000001',
+      '1000000001', '-1000000001', '1e20', '"1.5"', '"1e3"', '0', '-0']) {
+      const response = await request(delta);
+      expect(response.statusCode, delta).toBe(400);
+    }
+    expect(await prisma.adminAdjustmentApproval.count({ where: { userId: owner.id } })).toBe(0);
+    for (const [delta, stored] of [['1000000000', 1_000_000_000], ['-1000000000', -1_000_000_000], ['1e3', 1000],
+      ['1.0', 1], ['25.000', 25], ['-3E0', -3]] as const) {
+      const response = await request(delta);
+      expect(response.statusCode, delta).toBe(201);
+      const approval = await prisma.adminAdjustmentApproval.findUniqueOrThrow({ where: { id: response.json().data.approvalId } });
+      expect(approval.amount, delta).toBe(stored);
+    }
+  });
+
   it('rejects a stale SUPER_ADMIN token after the database role is removed', async () => {
     const admin = await makeUser('SUPER_ADMIN');
     const owner = await makeUser('USER');

@@ -251,6 +251,14 @@ railway variables set FRONTEND_URL="https://<YOUR-VERCEL-DOMAIN>.vercel.app"
 | `STORAGE_PROVIDER` | `local` | Ephemeral on Railway |
 | `EMAIL_PROVIDER` | `console` | Logs only |
 | `FRONTEND_URL` | `https://<VERCEL-DOMAIN>` | Update after Vercel deploy |
+| `LEDGER_APPROVAL_SIGNING_KEY` | `openssl rand -hex 32` output | Signs ledger approval decisions; without it every Coin adjustment and legacy review approval is refused (503). Install the same key in the database with `ledger:runtime-access` — see [ledger-upgrade-gate.md](ledger-upgrade-gate.md), "Database roles and the approval key" |
+| `LEDGER_APPROVAL_KEY_ID` | e.g. `primary` | The installed key's ID |
+
+`DATABASE_URL` above is the database owner's credential in the current
+setup. The ledger release documents a separate runtime role for the API and
+the worker, with the owner credential kept out of both services; that split
+is **not** configured here yet. See "Database roles and the approval key" in
+[ledger-upgrade-gate.md](ledger-upgrade-gate.md).
 
 ### Railway Worker Service
 

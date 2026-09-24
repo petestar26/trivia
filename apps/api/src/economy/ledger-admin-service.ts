@@ -214,11 +214,9 @@ export async function enableLedgerGate(
     if (rows.length !== 1) throw ApiError.notFound('Ledger gate not found');
     // A single table-lock statement gives the checker a stable economic
     // snapshot while this gate's readers are excluded by FOR UPDATE above.
-    await tx.$executeRawUnsafe(`LOCK TABLE
-      "wallets", "wallet_transactions", "coin_provenance", "coin_lot_entries",
-      "economic_operations", "coin_ledger_accounts", "legacy_balance_reviews",
-      "withdrawal_holds", "country_jurisdictions", "country_casino_policies",
-      "game_sessions" IN SHARE MODE`);
+    // The runtime role may not lock append-only history in SHARE mode
+    // itself, so the owner-run function takes the lock for this transaction.
+    await tx.$executeRaw`SELECT "ledger_lock_economy_for_invariant_check"()`;
     const run = await runLedgerInvariantCheckInTransaction(tx, evidence, true);
     if (!run.passed) return { enabled: false, runId: run.runId, violations: run.violations };
     await tx.platformGate.update({ where: { key }, data: {

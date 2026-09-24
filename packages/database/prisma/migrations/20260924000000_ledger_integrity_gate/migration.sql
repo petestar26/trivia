@@ -166,6 +166,12 @@ $ledger$;
 -- read, and are held until this migration's transaction ends: a writer that
 -- is mid-transaction makes the gate wait, and the gate then evaluates its
 -- committed result.
+-- With every writer stopped these locks are free. If a writer is still
+-- running, the gate waits at most lock_timeout and then fails, changing
+-- nothing, instead of hanging the deploy; a deadlock with such a writer ends
+-- the same way for whichever side PostgreSQL aborts. See
+-- docs/deployment/ledger-upgrade-gate.md ("If a migration fails").
+SET LOCAL lock_timeout = '20s';
 LOCK TABLE "wallets", "wallet_transactions", "coin_ledger_accounts", "coin_provenance",
   "coin_lot_entries", "economic_operations", "legacy_balance_reviews", "withdrawal_holds",
   "withdrawals" IN SHARE ROW EXCLUSIVE MODE;

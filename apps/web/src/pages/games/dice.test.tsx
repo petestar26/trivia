@@ -47,6 +47,7 @@ vi.mock('@/providers/auth-provider', () => ({
 import { DiceGamePage } from './dice';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
+import { durablePlayContract } from '@/test/durable-play-contract';
 
 afterEach(() => {
   cleanup();
@@ -285,5 +286,30 @@ describe('DiceGamePage', () => {
     await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
     const stored = JSON.parse(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'dice'))!);
     expect(stored).toEqual({ key: playGameMock.mock.calls[0][2], body: { betAmount: 50 } });
+  });
+});
+
+describe('DiceGamePage — durable play', () => {
+  const rollEnabled = () => {
+    const roll = screen.queryByRole('button', { name: /^Roll$/ });
+    return !!roll && !(roll as HTMLButtonElement).disabled;
+  };
+  durablePlayContract({
+    gameKey: 'dice',
+    userId: 'me-uuid',
+    playGameMock,
+    newIdempotencyKeySpy,
+    renderPage: () => { renderPage(); },
+    ready: async () => { await rollButton(); },
+    play: () => fireEvent.click(screen.getByRole('button', { name: /Roll/i })),
+    playEnabled: rollEnabled,
+    firstBody: { betAmount: 50 },
+    edit: () => {
+      fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '70' } });
+      return { betAmount: 70 };
+    },
+    nextRound: () => waitFor(() => expect(rollEnabled()).toBe(true)),
+    response: (body, isReplay) => ({ success: true, data: { ...roundFor(body.betAmount as number), isReplay } }),
+    setUser: (user) => { currentUser = user; },
   });
 });

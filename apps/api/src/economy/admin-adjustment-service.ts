@@ -1,7 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import type { AdminAdjustmentApproval } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
+import { signApprovalAssertion } from './approval-signing.js';
+import type { ApprovalAction } from './approval-signing.js';
 import { creditCoins, debitCoins, lockUserEconomicScope } from './coin-ledger-service.js';
+import { withSerializableRetry } from './serializable-retry.js';
 
 /** The largest adjustment either way, in Coins (also a database CHECK). */
 export const MAX_COIN_ADJUSTMENT = 1_000_000_000;
@@ -82,6 +86,15 @@ async function lockApproval(tx: Tx, approvalId: string): Promise<AdminAdjustment
   return approval;
 }
 
+/** Signs one decision on `approval` for its exact terms (see approval-signing). */
+function signDecision(tx: Tx, approval: Pick<AdminAdjustmentApproval, 'id' | 'userId' | 'amount' | 'caseId' | 'evidence'>,
+  action: ApprovalAction, actorId: string, evidence: unknown = approval.evidence) {
+  return signApprovalAssertion(tx, {
+    subjectType: 'ADMIN_ADJUSTMENT', subjectId: approval.id, action, actorId,
+    userId: approval.userId, amount: approval.amount, caseId: approval.caseId, evidence,
+  });
+}
+
 function sameTerms(approval: AdminAdjustmentApproval, terms: AdjustmentTerms): boolean {
   return approval.userId === terms.userId && approval.amount === terms.amount
     && JSON.stringify(approval.evidence) === JSON.stringify(terms.evidence);
@@ -101,10 +114,13 @@ export async function requestCoinAdjustment(actorId: string, input: unknown) {
       if (!sameTerms(prior, terms)) throw ApiError.conflict('Coin adjustment case ID was used with different terms');
       return { approvalId: prior.id, status: prior.status, idempotent: true };
     }
-    const approval = await tx.adminAdjustmentApproval.create({
-      data: { userId: terms.userId, amount: terms.amount, caseId: terms.caseId, evidence: terms.evidence, createdBy: actorId },
-    });
-    return { approvalId: approval.id, status: approval.status, idempotent: false };
+    // The runtime database role cannot write approvals; the signed request
+    // is recorded by the ledger_adjustment_request procedure.
+    const approvalId = randomUUID();
+    const signed = await signDecision(tx, { id: approvalId, ...terms }, 'REQUEST', actorId);
+    await tx.$executeRaw`SELECT "ledger_adjustment_request"(${approvalId}, ${terms.userId}, ${String(terms.amount)}::numeric,
+      ${terms.caseId}, ${JSON.stringify(terms.evidence)}::jsonb, ${actorId}, ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
+    return { approvalId, status: 'PENDING', idempotent: false };
   });
 }
 
@@ -118,12 +134,26 @@ export async function firstApproveCoinAdjustment(actorId: string, approvalId: st
       return { approvalId, status: approval.status, idempotent: true };
     }
     if (approval.status !== 'PENDING') throw ApiError.conflict(`This adjustment is ${approval.status}, not awaiting a first approval`);
-    const updated = await tx.adminAdjustmentApproval.update({
-      where: { id: approvalId },
-      data: { status: 'FIRST_APPROVED', firstApproverId: actorId, firstApprovedAt: new Date() },
-    });
-    return { approvalId, status: updated.status, idempotent: false };
+    const signed = await signDecision(tx, approval, 'FIRST_APPROVAL', actorId);
+    await tx.$executeRaw`SELECT "ledger_adjustment_first_approval"(${approvalId}, ${actorId},
+      ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
+    return { approvalId, status: 'FIRST_APPROVED', idempotent: false };
   });
+}
+
+/** What a settled adjustment returns, rebuilt from the records it wrote, so
+ * an exact retry gets the same answer as the request that settled it. */
+async function settledResponse(tx: Tx, approval: AdminAdjustmentApproval) {
+  const walletTransaction = await tx.walletTransaction.findUnique({
+    where: { id: approval.walletTransactionId! }, select: { balanceAfter: true },
+  });
+  const lot = approval.amount > 0 ? await tx.coinProvenance.findFirst({
+    where: { sourceOperationId: approval.operationId! }, orderBy: { createdAt: 'asc' }, select: { id: true },
+  }) : null;
+  return {
+    approvalId: approval.id, operationId: approval.operationId!, idempotent: true,
+    coinsBalance: walletTransaction?.balanceAfter ?? null, reviewLotId: lot?.id ?? null,
+  };
 }
 
 /**
@@ -134,11 +164,14 @@ export async function firstApproveCoinAdjustment(actorId: string, approvalId: st
  * this one ADMIN_ADJUST operation; the database verifies the binding.
  */
 export async function executeCoinAdjustment(actorId: string, approvalId: string) {
-  return prisma.$transaction(async (tx) => {
+  // An identical request racing this one loses with a serialization failure
+  // and changes nothing; retried, it finds the adjustment settled and
+  // returns the same settlement.
+  return withSerializableRetry(() => prisma.$transaction(async (tx) => {
     const approval = await lockApproval(tx, approvalId);
     await requireActiveSuperAdmin(tx, actorId);
     if (approval.status === 'EXECUTED' && approval.secondApproverId === actorId && approval.operationId) {
-      return { approvalId, operationId: approval.operationId, idempotent: true };
+      return settledResponse(tx, approval);
     }
     if (approval.status !== 'FIRST_APPROVED') {
       throw ApiError.conflict(`This adjustment is ${approval.status}, not awaiting its second approval`);
@@ -160,24 +193,19 @@ export async function executeCoinAdjustment(actorId: string, approvalId: string)
       ? await creditCoins(tx, approval.userId, approval.amount, common)
       : await debitCoins(tx, approval.userId, -approval.amount, common);
     if (!result.walletTransactionId) throw ApiError.internal('Coin adjustment has no wallet transaction');
-    const now = new Date();
-    await tx.adminAdjustmentApproval.update({
-      where: { id: approvalId },
-      data: {
-        status: 'EXECUTED', secondApproverId: actorId, secondApprovedAt: now,
-        operationId: result.operationId, walletTransactionId: result.walletTransactionId, executedAt: now,
-      },
-    });
+    const signed = await signDecision(tx, approval, 'SECOND_APPROVAL', actorId);
+    await tx.$executeRaw`SELECT "ledger_adjustment_execute"(${approvalId}, ${actorId}, ${result.operationId},
+      ${result.walletTransactionId}, ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
     // Surface the database's verdict on the approval binding inside this
     // callback (Prisma can resolve before a deferred COMMIT rejects).
     const guards = '"operation_authorization_guard", "authorized_operation_guard", "adjustment_execution_guard"';
     await tx.$executeRawUnsafe(`SET CONSTRAINTS ${guards} IMMEDIATE`);
     await tx.$executeRawUnsafe(`SET CONSTRAINTS ${guards} DEFERRED`);
     return {
-      approvalId, operationId: result.operationId, idempotent: false, coinsBalance: result.coinsBalance,
+      approvalId, operationId: result.operationId, idempotent: false, coinsBalance: result.coinsBalance as number | null,
       reviewLotId: 'lotId' in result ? result.lotId : null,
     };
-  }, { isolationLevel: 'Serializable', timeout: 120_000 });
+  }, { isolationLevel: 'Serializable', timeout: 120_000 }));
 }
 
 /** Ends a pending adjustment: REJECTED by any other SUPER_ADMIN, CANCELLED by its creator. */
@@ -197,10 +225,11 @@ export async function closeCoinAdjustment(
     if (approval.status !== 'PENDING' && approval.status !== 'FIRST_APPROVED') {
       throw ApiError.conflict(`This adjustment is ${approval.status} and can no longer be closed`);
     }
-    await tx.adminAdjustmentApproval.update({
-      where: { id: approvalId },
-      data: { status: outcome, closedBy: actorId, closedAt: new Date(), closeReason: reason.trim() },
-    });
+    const closeReason = reason.trim();
+    const signed = await signDecision(tx, approval, outcome === 'REJECTED' ? 'REJECT' : 'CANCEL', actorId,
+      { evidence: approval.evidence, closeReason });
+    await tx.$executeRaw`SELECT "ledger_adjustment_close"(${approvalId}, ${actorId}, ${outcome}, ${closeReason},
+      ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
     return { approvalId, status: outcome, idempotent: false };
   });
 }

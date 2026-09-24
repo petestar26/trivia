@@ -3,6 +3,8 @@ import type { Prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/error-handler.js';
 import { applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service.js';
 import { flushCoinLedgerConstraints } from './coin-ledger-service.js';
+import { signApprovalAssertion } from './approval-signing.js';
+import { withSerializableRetry } from './serializable-retry.js';
 
 type Tx = Prisma.TransactionClient;
 type Decision = 'WITHDRAWABLE' | 'RESTRICTED' | 'FORFEIT';
@@ -93,11 +95,14 @@ async function activePolicyForProposal(tx: Tx, proposal: LegacyResolutionProposa
       ? policy.playthroughMultiplier : policy.playthroughMultiplier.toNumber() };
 }
 
+/** Reads the review under the caller's advisory scope lock (L0). The
+ * runtime role holds no UPDATE on reviews, so the row lock itself is taken
+ * by the signed ledger_review_* procedure that changes it. */
 async function lockReview(tx: Tx, reviewId: string): Promise<ReviewRow> {
   const reviews = (await tx.$queryRaw`
     SELECT "id","userId","lotId","status","resolvedBy",
            "secondApproverId","resolutionOperationId","evidence"
-    FROM "legacy_balance_reviews" WHERE "id"=${reviewId} FOR UPDATE
+    FROM "legacy_balance_reviews" WHERE "id"=${reviewId}
   `) as ReviewRow[];
   if (!reviews[0]) throw ApiError.notFound('Legacy balance review not found');
   return reviews[0];
@@ -123,27 +128,24 @@ async function lockWalletAndLot(tx: Tx, review: ReviewRow): Promise<{ walletBala
   return { walletBalance: wallets[0].coinsBalance, lot };
 }
 
+/** A signed decision on `review`, for its exact terms (see approval-signing). */
+function signReviewDecision(tx: Tx, review: ReviewRow, action: 'FIRST_APPROVAL' | 'SECOND_APPROVAL' | 'REOPEN',
+  actorId: string, amount: number, evidence: unknown) {
+  return signApprovalAssertion(tx, {
+    subjectType: 'LEGACY_REVIEW', subjectId: review.id, action, actorId,
+    userId: review.userId, amount, caseId: review.id, evidence,
+  });
+}
+
 /** A changed lot or policy voids only the pending approval, never Coin history. */
-async function reopenStaleApproval(tx: Tx, review: ReviewRow, reason: string,
+async function reopenStaleApproval(tx: Tx, review: ReviewRow, actorId: string, reason: string,
   observedAvailableAmount?: number) {
-  const evidence = asEvidenceObject(review.evidence);
-  const prior = Array.isArray(evidence.invalidatedApprovals)
-    ? evidence.invalidatedApprovals : [];
-  await tx.legacyBalanceReview.update({ where: { id: review.id }, data: {
-    status: 'OPEN', resolvedBy: null,
-    evidence: {
-      ...evidence,
-      proposal: null,
-      firstApprovedAt: null,
-      invalidatedApprovals: [...prior, {
-        firstApproverId: review.resolvedBy,
-        proposal: evidence.proposal ?? null,
-        invalidatedAt: new Date().toISOString(),
-        reason,
-        ...(observedAvailableAmount === undefined ? {} : { observedAvailableAmount }),
-      }],
-    },
-  } });
+  const proposal = (asEvidenceObject(review.evidence).proposal ?? null) as StoredProposal | null;
+  const observed = observedAvailableAmount ?? null;
+  const signed = await signReviewDecision(tx, review, 'REOPEN', actorId, proposal?.amount ?? 0,
+    { reason, observedAvailableAmount: observed });
+  await tx.$executeRaw`SELECT "ledger_review_reopen"(${review.id}, ${actorId}, ${reason}, ${observed}::integer,
+    ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
   return { stale: true as const, reason };
 }
 
@@ -173,17 +175,18 @@ export async function firstApproveLegacyReview(
     const stored: StoredProposal = { ...proposal, amount: lot.availableAmount,
       policyId: policy?.id ?? null, policyVersion: policy?.version ?? null,
       requirementAmount };
-    return tx.legacyBalanceReview.update({ where: { id: reviewId }, data: {
-      status: 'FIRST_APPROVED', resolvedBy: actorId,
-      evidence: { ...asEvidenceObject(review.evidence), proposal: stored,
-        firstApprovedAt: new Date().toISOString() } as unknown as Prisma.InputJsonValue,
-    } });
+    const signed = await signReviewDecision(tx, review, 'FIRST_APPROVAL', actorId, stored.amount, stored);
+    await tx.$executeRaw`SELECT "ledger_review_first_approval"(${reviewId}, ${actorId}, ${JSON.stringify(stored)}::jsonb,
+      ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
+    return tx.legacyBalanceReview.findUniqueOrThrow({ where: { id: reviewId } });
   });
 }
 
 /** Second, distinct administrator commits one immutable LEGACY_RESOLVE operation. */
 export async function secondApproveLegacyReview(actorId: string, reviewId: string) {
-  const result = await prisma.$transaction(async (tx) => {
+  // A racing identical request that loses on serialization is retried and
+  // then replays the resolution.
+  const result = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
     await lockScope(tx, reviewId); // L0
     const metadata = await tx.legacyBalanceReview.findUnique({
       where: { id: reviewId }, select: { userId: true, evidence: true, resolvedBy: true,
@@ -218,7 +221,7 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
       throw ApiError.conflict('A distinct second administrator must approve the pending review');
     }
     if (review.resolvedBy !== metadata.resolvedBy || !firstApproverActive) {
-      return reopenStaleApproval(tx, review,
+      return reopenStaleApproval(tx, review, actorId,
         'First approver is no longer an active SUPER_ADMIN; the review needs a new first approval');
     }
     const stored = (review.evidence as { proposal?: StoredProposal } | null)?.proposal;
@@ -227,12 +230,12 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
     }
     if (stored.decision === 'RESTRICTED' &&
         (policy?.id !== stored.policyId || policy?.version !== stored.policyVersion)) {
-      return reopenStaleApproval(tx, review,
+      return reopenStaleApproval(tx, review, actorId,
         'Country policy changed; the review needs a new first approval');
     }
     const { walletBalance, lot } = await lockWalletAndLot(tx, review); // L5, L6
     if (lot.availableAmount !== stored.amount) {
-      return reopenStaleApproval(tx, review,
+      return reopenStaleApproval(tx, review, actorId,
         'Reviewed Coin amount changed; first approval must be renewed', lot.availableAmount);
     }
     if (stored.amount <= 0 || walletBalance < stored.amount) {
@@ -284,13 +287,12 @@ export async function secondApproveLegacyReview(actorId: string, reviewId: strin
       state: stored.decision === 'FORFEIT' ? 'FORFEITED' : 'RECLASSIFIED',
       closedAt: new Date(),
     } });
-    await tx.legacyBalanceReview.update({ where: { id: reviewId }, data: {
-      status: 'RESOLVED', secondApproverId: actorId,
-      resolutionOperationId: operation.id, resolvedAt: new Date(),
-    } });
+    const signed = await signReviewDecision(tx, review, 'SECOND_APPROVAL', actorId, stored.amount, stored);
+    await tx.$executeRaw`SELECT "ledger_review_resolve"(${reviewId}, ${actorId}, ${operation.id},
+      ${signed.keyId}, ${signed.nonce}, ${signed.signature})`;
     await flushCoinLedgerConstraints(tx);
     return { reviewId, operationId: operation.id, idempotent: false };
-  }, { isolationLevel: 'Serializable', timeout: 120_000 });
+  }, { isolationLevel: 'Serializable', timeout: 120_000 }));
   // Throw only after the stale approval has been invalidated and committed.
   // Throwing inside the transaction would roll the OPEN transition back.
   if ('stale' in result) throw ApiError.conflict(result.reason);

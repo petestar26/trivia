@@ -8,8 +8,11 @@ procedure for the upgrade and for every way it can stop.
 The upgrade is supported **only with every writer stopped** (the maintenance
 procedure below). The previous release writes wallets without the ledger, so
 it must not run while the migrations do. The release detects a legacy
-financial write made during the upgrade and stops (the window check), but
-that is a safety net, not support for live writers.
+financial write made during the upgrade and stops (the window check), and a
+migration that meets a writer's lock gives up after a bounded wait instead
+of hanging (see "Lock waits and deadlocks"), but both are safety nets, not
+support for live writers. **Upgrading with a writer running is not
+supported.** Maintenance mode is mandatory.
 
 ## Prerequisites
 
@@ -41,43 +44,135 @@ Check each before scheduling the upgrade.
    a newer major version than the server, or the platform's volume backup with
    a tested restore.
 
-4. **Database roles.** The database's guards bind every writer that is
-   neither the owner of the tables nor a superuser. Migrations must run as the
-   owner. For the guards to bind the application as well, the API and the
-   worker should connect with a separate role that only has DML grants:
+4. **Two database credentials and an approval key.** See "Database roles
+   and the approval key" below. Create the runtime role and generate the key
+   before the upgrade; the setup runs in step 6.
 
-   ```sql
-   CREATE ROLE playqube_app LOGIN PASSWORD '<from the secret store>'
-     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-   GRANT CONNECT, TEMPORARY ON DATABASE <database> TO playqube_app;
-   GRANT USAGE ON SCHEMA public TO playqube_app;
-   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO playqube_app;
-   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO playqube_app;
-   ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
-     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO playqube_app;
-   ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN SCHEMA public
-     GRANT USAGE, SELECT ON SEQUENCES TO playqube_app;
-   ```
+## Database roles and the approval key
 
-   Such a role cannot set `session_replication_role`, disable, drop or
-   replace a trigger, a constraint or a guard function, or make a guard read
-   its own TEMP tables (every function pins its `search_path`, migration
-   `20260924040000`); the tests prove each of these. A process that connects
-   as the owner or a superuser can do all of that. Today the Railway services
-   share one `DATABASE_URL`: until the runtime role is split, the database
-   guards constrain every ordinary SQL path of the application but not
-   someone holding the owner credential.
+The database's guards bind every writer that is neither the owner of the
+tables nor a superuser, and the approval trust boundary (signed approval
+assertions, below) holds only against such a writer. So the release expects
+two separate credentials:
+
+| Credential | Used by | Can |
+|---|---|---|
+| **Owner** (the role that owns the tables) | `prisma migrate deploy`, `ledger:runtime-access`, reviewed escalation scripts | Everything, including reading the approval key and disabling guards. |
+| **Runtime role** | The API and the worker (their `DATABASE_URL`) | Data access only (`ledger_apply_runtime_grants`): no writing approvals, assertions, the signing key or migration history, no changing any user's role or status, no rewriting or deleting financial history, and no switching off, replacing or shadowing a guard. |
+
+Keep the owner credential out of the API and worker services' variables, so
+neither process can read it: keep it in the secret store (or on a separate
+service that never deploys) and supply it only to the owner-run commands.
+
+**This repository does not configure Railway this way.** Today the Railway
+API and worker share one `DATABASE_URL`, the owner's. Until an operator
+creates the runtime role, installs the key and switches the services'
+`DATABASE_URL` to it, the boundary described here is **not** in effect in that
+environment: the guards and the approval binding still constrain the
+application's ordinary code paths, but not arbitrary SQL issued with the
+owner credential it holds.
+
+### Create the runtime role (once, as the owner)
+
+```sql
+CREATE ROLE playqube_app LOGIN PASSWORD '<from the secret store>'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT CONNECT, TEMPORARY ON DATABASE <database> TO playqube_app;
+```
+
+Give it no other grants by hand; `ledger:runtime-access` applies them. Do not
+use `ALTER DEFAULT PRIVILEGES` for it: that would give new tables full access
+until the next setup run.
+
+### Generate the approval key (once per key)
+
+Every approval decision (a Coin adjustment request, each approval, a close;
+a legacy review approval, reopen and resolution) is recorded with an
+HMAC-SHA256 assertion that the API signs after authenticating the acting
+SUPER_ADMIN. The assertion binds the approval or review ID, the action, the
+actor, the user, the signed amount, the case ID, a digest of the exact
+evidence and a single-use nonce. The database verifies it with its own copy of
+the key, in the owner-only `ledger_approval_keys` table, and refuses any
+approval without a valid one.
+
+```bash
+openssl rand -hex 32
+```
+
+Store the output as `LEDGER_APPROVAL_SIGNING_KEY` (32 to 64 bytes as hex, 64 to 128 characters)
+and choose a `LEDGER_APPROVAL_KEY_ID` (1 to 64 characters of
+`[A-Za-z0-9._-]`, default `primary`). Set both on the API service and supply
+both to the setup command. The worker does not need them. Without the key
+the API refuses every approval step (503) and nothing else changes.
+
+### Apply the setup after every deploy that applied migrations (as the owner)
+
+```bash
+LEDGER_OWNER_DATABASE_URL=... LEDGER_RUNTIME_ROLE=playqube_app \
+LEDGER_APPROVAL_SIGNING_KEY=... LEDGER_APPROVAL_KEY_ID=primary \
+  pnpm --filter api ledger:runtime-access
+```
+
+Supply the values from the secret store rather than typing them (for example
+`railway run --service <ops service> pnpm --filter api ledger:runtime-access`).
+In a built image use `node apps/api/dist/scripts/ledger-runtime-access.js`.
+It reads only these variables (no `.env` file), and in one transaction:
+
+- refuses if `LEDGER_OWNER_DATABASE_URL` does not connect as the tables'
+  owner, if the runtime role is that same role, or if its own
+  `DATABASE_URL` is the owner credential (the services would still hold it);
+- installs the key (`ledger_install_approval_key`; idempotent, and a
+  different secret under an installed key ID is refused);
+- applies `ledger_apply_runtime_grants('<runtime role>')`, which first
+  revokes everything and then grants only data access, so it is idempotent and
+  also covers tables added by the migrations just applied;
+- verifies every denied and every required privilege.
+
+It never prints a connection string, a password or the key. Exit codes:
+**0** applied and verified; **1** refused or not verified (nothing changed);
+**2** could not run (nothing changed). Do not start the API or the worker
+until it exits 0.
+
+With the runtime role in place, the API's `preDeployCommand`
+(`prisma migrate deploy`) runs as that role: with nothing pending it reports
+"No pending migrations to apply"; with a pending migration it fails with
+`permission denied for table _prisma_migrations` before applying anything.
+Migrations are then applied by hand as the owner, followed by this setup.
+
+### Rotating the key
+
+Install the new key under a **new** key ID with the setup command, switch
+the API's `LEDGER_APPROVAL_SIGNING_KEY` and `LEDGER_APPROVAL_KEY_ID`, redeploy
+the API, then retire the old key as the owner:
+`SELECT "ledger_retire_approval_key"('<old key id>');`. A retired key signs
+nothing new; assertions it signed stay verifiable. Never delete a key.
+
+### What the boundary does and does not cover
+
+It covers SQL issued as the runtime role, however that SQL is reached: such a
+caller cannot write an approval or review decision except through the signed
+procedures, cannot produce a valid signature, and cannot replay one for
+another approval, action, actor or amount. A fabricated `ADMIN_ADJUST` or
+`LEGACY_RESOLVE` rolls back at commit and changes nothing.
+
+It does not cover the owner or a superuser (they can read the key and
+disable guards), or anyone who holds both the API's signing key and SQL
+access, for example a fully compromised API host. The key must therefore stay
+in the secret store and the API process only. The runtime role can still
+perform every other write the application performs (game play, agent,
+withdrawal and gift flows, platform gates and policies); those are
+constrained by the ledger's guards and invariants, not by signed approvals.
 
 ## What checks the upgrade
 
 | Where | What it evaluates |
 |---|---|
-| `20260917900000_ledger_preupgrade_gate` (first migration of the release) | What the upgrade *will* create from the current data, and that the legacy game catalog holds exactly the rules `master` ships. Locks the legacy financial tables and the game catalog while it reads; changes no existing data. It also records a fingerprint of every legacy financial record in `ledger_upgrade_window`. |
+| `20260917900000_ledger_preupgrade_gate` (first migration of the release) | What the upgrade *will* create from the current data, and that the legacy game catalog holds exactly the rules `master` ships. Locks the legacy financial tables and the game catalog while it reads; changes no existing data. It also records a fingerprint of every legacy financial and provenance record in `ledger_upgrade_window`: every column `master` defines of each wallet, and of the wallet transactions (including the chronological `balanceBefore`/`balanceAfter` and the purchase evidence `referenceType`/`referenceId`/`description`), withdrawal holds, withdrawals, agent orders, settlements and reservations, gift transactions and game sessions, plus the game catalog. No migration of the release changes those columns. |
 | `20260918020000`, `20260922020000`, `20260922060000` (catalog seed and rules-hash checks) | Stop if the frozen rules or their hashes differ from the expected ones. Each locks the catalog while it runs. |
 | `20260924000000_ledger_integrity_gate` | The upgraded ledger itself, via `ledger_integrity_anomalies()`, with every ledger table locked. Only if it passes does it install the write guards that keep these rules true afterwards. |
 | `20260924010000_ledger_resolution_authorization` | Installs the binding of `LEGACY_RESOLVE` and `ADMIN_ADJUST` to the records that authorize them, then stops if any operation already recorded breaks it. |
 | `20260924040000_ledger_function_search_path` | Pins every schema function's `search_path` (schema first, `pg_temp` last). |
-| `20260924090000_ledger_upgrade_window_check` (last migration) | Compares every legacy financial record with the fingerprint taken by the first migration and stops if anything changed while the release migrated. Drops `ledger_upgrade_window` when it passes. |
+| `20260924090000_ledger_upgrade_window_check` (last migration) | Locks the same tables and compares every one of those records, field by field, with the fingerprint taken by the first migration; stops if anything changed while the release migrated, even when row counts and credited totals are unchanged. Drops `ledger_upgrade_window` when it passes. |
 | Read-only preflight (`preflight:ledger-upgrade`) | Before: what the first gate will decide. After: what the final gate and invariant I15 decide, plus every operation the authorization rules reject. |
 | Invariant scan (`scan:ledger-invariants`) | Every runtime invariant (I1 to I16) in a rolled-back transaction; records nothing. |
 | Runtime invariant checker | The same invariants. A failing run keeps every platform gate (casino play, bonus grants, withdrawals, prizes) closed. |
@@ -137,7 +232,7 @@ SELECT gid, prepared, owner FROM pg_prepared_xacts WHERE database = current_data
 
 Both must return no rows other than sessions you can name as read-only (for
 example your own `psql`). Run them again a minute later with the same result.
-If the application uses its own role (prerequisite 4), you may also
+If the application already uses the runtime role, you may also
 `REVOKE CONNECT ON DATABASE <database> FROM playqube_app` for the duration and
 grant it back in step 7.
 
@@ -173,14 +268,23 @@ machine-readable report and `--limit N` to list more records per category.
   schema, or installed definitions that differ from this release. Do not
   continue. Escalate.
 
-### 5. Apply the migrations
+### 5. Apply the migrations (as the owner)
 
 ```bash
 railway run --service api pnpm --filter database exec prisma migrate deploy
 ```
 
-It must end with "All migrations have been successfully applied". Anything
-else: see "If a migration fails".
+This uses the service's `DATABASE_URL`, which is the owner credential until
+the runtime role is introduced. Once the services use the runtime role, run it
+with the owner credential instead (from the secret store or the ops service;
+see "Database roles and the approval key"). It must end with "All migrations
+have been successfully applied". Anything else: see "If a migration fails".
+
+Then, before any check or writer, set up the runtime role and the approval
+key as the owner (`ledger:runtime-access`, same section). It must exit 0. If
+the services still use the owner credential and no runtime role exists yet,
+this step cannot run; the release still works, without the runtime trust
+boundary (see that section).
 
 ### 6. Check the upgraded database
 
@@ -198,8 +302,9 @@ drops it only when the whole upgrade passed.
 
 ### 7. Restart the writers
 
-Only after every check above passed: deploy the new release of the API and
-the worker (their `preDeployCommand` now reports no pending migrations),
+Only after every check above passed: deploy the new release of the API
+(with `LEDGER_APPROVAL_SIGNING_KEY` and `LEDGER_APPROVAL_KEY_ID` set) and the
+worker (their `preDeployCommand` now reports no pending migrations),
 restore any revoked `CONNECT`, and leave maintenance.
 
 ## If a migration fails
@@ -215,6 +320,32 @@ stopped.
 | `20260917900000_ledger_preupgrade_gate` (`LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE`) | Anomalies in the current data, or a game's rules differ from `master` (`GAME_RULES_CHANGED`). Nothing of the release is applied. | 1. Save the preflight's `--json` report in the incident. 2. Escalate each record (below) and wait for its reviewed correction. 3. Re-run the preflight until it exits 0. 4. Record the gate as rolled back, which is accurate since it changed nothing: `railway run --service api pnpm --filter database exec prisma migrate resolve --rolled-back 20260917900000_ledger_preupgrade_gate`. 5. Continue from step 4 of the procedure. |
 | `20260918010000_casino_foundation_schema` failing on `CREATE EXTENSION` | Prerequisite 2 is not met. Only the pre-upgrade gate is applied; it changed no data. | Restore the backup (below), fix the privilege or install `pgcrypto`, then start again from step 2. |
 | Any later migration, including `LEDGER INTEGRITY GATE STOPPED THE UPGRADE`, `LEDGER AUTHORIZATION CHECK STOPPED THE UPGRADE`, `LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE`, a rules hash mismatch, or any other error | The database is at an intermediate schema no release was built for. The window check means something wrote while the release migrated: steps 1 and 2 missed a writer. | Restore the backup (below). Do **not** correct this database in place or mark anything resolved. Investigate on a copy, escalate with the error and the preflight report, and start again from step 1 only once the cause is understood and fixed. If the same stop repeats, the release itself is at fault: escalate to the ledger owner before any further attempt. |
+
+### Lock waits and deadlocks
+
+Every migration of the release that locks tables (`20260917900000`,
+`20260918020000`, `20260922020000`, `20260922060000`, `20260924000000`,
+`20260924010000`, `20260924090000`) first sets `lock_timeout = '20s'` for its
+own transaction. With every writer stopped the locks are free and this
+changes nothing. If a writer was missed and holds a conflicting lock:
+
+- the migration waits at most 20 seconds and fails with
+  `canceling statement due to lock timeout` (SQLSTATE `55P03`); or
+- if the writer and the migration wait for each other, PostgreSQL's deadlock
+  detector (after `deadlock_timeout`, 1 second by default) aborts one of them
+  with `deadlock detected` (`40P01`). If it aborts the migration, the writer's
+  transaction completes; if it aborts the writer, the migration continues and
+  the window check at the end detects any legacy financial write the writer
+  made earlier.
+
+Either way the failed migration's transaction rolls back completely: none of
+its changes is applied, and the tests prove that no partial change and no
+ledger corruption remains. It always means steps 1 and 2 missed a writer.
+Respond as the table above says for that migration (for the pre-upgrade
+gate: find and stop the writer, repeat steps 2 to 4, record the gate as
+rolled back and continue; for any later migration: restore the backup). A
+lock timeout is not a retry signal, and it does not make a live-writer
+upgrade supported.
 
 ### Restoring the backup
 
@@ -260,20 +391,31 @@ ledger administration API, each by an active SUPER_ADMIN:
    a new legacy review (it can only become withdrawable through that
    two-administrator review); a debit consumes the user's existing lots.
 
+The amount reaches the database as an exact number and is checked before
+any conversion: a fractional value (`0.5`, `1.5`, `1e-3`) is refused, never
+rounded. Two identical second approvals racing each other settle once; the
+losing request is retried and returns the same settled operation.
+
 Neither approver may be the adjusted user. `/reject` (any other SUPER_ADMIN)
 and `/cancel` (the requester) close an open request with a reason. Executed,
 rejected and cancelled requests never change and are never deleted, and each
 executed request is consumed by exactly one `ADMIN_ADJUST` operation. The
-database enforces all of this for every writer bound by it (prerequisite 4),
+database enforces all of this for every writer bound by it (the runtime role),
 at commit, and invariant I16 re-checks it for all history.
 
-The database cannot authenticate people. A writer who holds the owner or a
-superuser credential can bypass any of it, and a writer who can issue
-arbitrary SQL as the application role can fabricate a complete request with
-both approvals if it names two real, currently active SUPER_ADMINs other than
-the user. The binding makes such a fabrication visible (who, when, which
-evidence) and still exact: the amount, the conservation and the
-UNCLASSIFIED-only credit hold.
+Every one of these steps is also a signed approval assertion (see "Database
+roles and the approval key"), and the executing `ADMIN_ADJUST` operation must
+be backed by exactly one wallet transaction of its own: a succeeded Coin
+credit or debit of that user for exactly the approval's amount, referenced to
+the approval's case (`ADMIN` / case ID), and named by no other operation,
+purchase settlement or lot. A purchase credit, a transaction of another case
+or scope, or one another operation already used is refused, and invariant
+I16 reports any historical mismatch. A writer limited to the runtime role therefore cannot fabricate a
+request or an approval, even one naming two real, active SUPER_ADMINs: the
+fabrication rolls back at commit and changes no operation, journal entry,
+lot, review or wallet. The owner, a superuser, or anyone holding both the
+API's signing key and SQL access remain outside this boundary; the binding
+still makes what they record visible (who, when, which evidence) and exact.
 
 ## Never
 

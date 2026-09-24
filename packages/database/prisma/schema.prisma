@@ -1261,6 +1261,43 @@ model AdminAdjustmentApproval {
   @@map("admin_adjustment_approvals")
 }
 
+/// A key that verifies signed ledger approval assertions. Owner only: the
+/// runtime role can neither read nor write it (ledger_apply_runtime_grants).
+model LedgerApprovalKey {
+  keyId       String    @id
+  secret      Bytes
+  installedAt DateTime  @default(now())
+  retiredAt   DateTime?
+
+  assertions LedgerApprovalAssertion[]
+
+  @@map("ledger_approval_keys")
+  @@ignore
+}
+
+/// One approval decision, signed by the API for exactly these terms; append
+/// only, written only by the ledger_* approval procedures.
+model LedgerApprovalAssertion {
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  subjectType    String
+  subjectId      String
+  action         String
+  actorId        String
+  userId         String
+  amount         Decimal  @db.Decimal
+  caseId         String
+  evidenceDigest String
+  nonce          String   @unique
+  keyId          String
+  signature      String
+  recordedAt     DateTime @default(now())
+
+  key LedgerApprovalKey @relation(fields: [keyId], references: [keyId], onDelete: Restrict, onUpdate: Restrict, map: "ledger_approval_assertions_key_fkey") @ignore
+
+  @@index([subjectType, subjectId, action], map: "ledger_approval_assertions_subject_idx")
+  @@map("ledger_approval_assertions")
+}
+
 model InvariantCheckRun {
   id         String @id @default(dbgenerated("(gen_random_uuid())::text"))
   startedAt  DateTime @default(now())
