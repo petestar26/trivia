@@ -15,18 +15,23 @@
 // key and the grants, verifies them, refuses a shared or wrong credential
 // and prints no secret; (6.) that the runtime role cannot plant a
 // function or operator that runs with the owner's privileges inside the
-// approval functions; and (7.) that neither can any other role, such as a
-// retired one, whose objects the setup then refuses.
+// approval functions; (7.) that neither can any other role, such as a
+// retired one, whose objects the setup then refuses; (8.) that the older
+// SECURITY DEFINER guards a wager, a catalog update or a rules or
+// allocation write reaches never run such an object either; and (9.) that
+// the setup refuses any role outside the owner's trust that could still
+// create where functions running as the owner resolve names.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
+import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
 import { RolledBack, inRolledBackTransaction, purchasedFixture, uid } from '../test/ledger-integrity-fixtures.js';
@@ -184,6 +189,86 @@ function fabricatedCredit(userId: string, amount: number, first: string, second:
     approval, second, op, wtx]);
   }
   return { approval, op, caseId, statements };
+}
+
+/** Invariant I3's findings when the runtime role itself runs the check. */
+async function i3AsApp(): Promise<string[]> {
+  try {
+    await app.$transaction(async (tx) => {
+      const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
+      throw new RolledBack(run.violations.find((v) => v.invariant.startsWith('I3'))?.sample ?? []);
+    }, { timeout: 120_000 });
+  } catch (error) {
+    if (error instanceof RolledBack) return error.value as string[];
+    throw error;
+  }
+  return [];
+}
+
+interface OperatorPlant { op: '=' | '<>'; type: string }
+
+/**
+ * A role that once could create objects in public (PostgreSQL 14 and earlier
+ * grant that to PUBLIC by default) and has since been retired: it no longer
+ * logs in or creates anything, and it is unrelated to the runtime role. It
+ * left behind an exact-type public.to_jsonb(integer) and the given exact-type
+ * operators, each of which PostgreSQL prefers to the polymorphic built-in
+ * (to_jsonb(anyelement), anyenum = anyenum) wherever public is on the search
+ * path, whatever the order. Each plant returns the genuine result, records
+ * whom it ran as (in a table, seen once its transaction commits) and counts
+ * every run under privileges other than the session's own in a sequence,
+ * which no rollback undoes.
+ */
+async function retiredRoleWithPlants(operators: OperatorPlant[]) {
+  const t = randomUUID().replaceAll('-', '').slice(0, 10);
+  const retired = `playqube_retired_${t}`;
+  const log = `rr_retired_log_${t}`;
+  const elevated = `rr_retired_elevated_${t}`;
+  const record = (via: string) => `
+    INSERT INTO public."${log}" VALUES ('${via}', current_user, session_user);
+    IF current_user OPERATOR(pg_catalog.<>) session_user THEN
+      PERFORM pg_catalog.nextval('public."${elevated}"');
+    END IF;`;
+  await prisma.$executeRawUnsafe(`CREATE ROLE "${retired}" LOGIN NOSUPERUSER`);
+  await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${retired}"`);
+  await prisma.$transaction([
+    prisma.$executeRawUnsafe(`SET LOCAL ROLE "${retired}"`),
+    prisma.$executeRawUnsafe(`CREATE TABLE public."${log}" ("via" text NOT NULL, "ranAs" text NOT NULL, "sessionUser" text NOT NULL)`),
+    prisma.$executeRawUnsafe(`GRANT INSERT ON public."${log}" TO PUBLIC`),
+    prisma.$executeRawUnsafe(`CREATE SEQUENCE public."${elevated}"`),
+    prisma.$executeRawUnsafe(`GRANT USAGE ON SEQUENCE public."${elevated}" TO PUBLIC`),
+    prisma.$executeRawUnsafe(`CREATE FUNCTION public.to_jsonb(integer) RETURNS jsonb LANGUAGE plpgsql AS $f$
+      BEGIN ${record('to_jsonb(integer)')}
+        RETURN pg_catalog.to_jsonb($1);
+      END $f$`),
+    ...operators.flatMap(({ op, type }, i) => [
+      prisma.$executeRawUnsafe(`CREATE FUNCTION public."rr_retired_op_${i}_${t}"(${type}, ${type}) RETURNS boolean
+        LANGUAGE plpgsql AS $f$
+        BEGIN ${record(`${op} on ${type.replaceAll('"', '')}`)}
+          RETURN $1::text OPERATOR(pg_catalog.${op}) $2::text;
+        END $f$`),
+      prisma.$executeRawUnsafe(`CREATE OPERATOR public.${op} (LEFTARG = ${type}, RIGHTARG = ${type},
+        FUNCTION = public."rr_retired_op_${i}_${t}")`),
+    ]),
+  ]);
+  // Retired: it can no longer log in or create anything; what it owns stays.
+  await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${retired}"`);
+  await prisma.$executeRawUnsafe(`ALTER ROLE "${retired}" NOLOGIN`);
+  return {
+    retired,
+    runs: () => prisma.$queryRawUnsafe<{ via: string; ranAs: string; sessionUser: string }[]>(
+      `SELECT "via", "ranAs", "sessionUser" FROM public."${log}"`),
+    /** Runs under privileges other than the session's own, committed or not. */
+    elevatedRuns: async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ n: number }[]>(
+        `SELECT (CASE WHEN is_called THEN last_value ELSE 0 END)::int AS n FROM public."${elevated}"`);
+      return row.n;
+    },
+    drop: async () => {
+      await prisma.$executeRawUnsafe(`DROP OWNED BY "${retired}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${retired}"`);
+    },
+  };
 }
 
 describe('0. the owner-run setup script', () => {
@@ -729,19 +814,6 @@ describe('6. nothing the runtime role could plant runs in the privileged approva
       `SELECT has_schema_privilege($1, 'public', 'CREATE') AS can`, role);
     return row.can;
   };
-  /** Invariant I3's findings when the runtime role itself runs the check. */
-  const i3AsApp = async (): Promise<string[]> => {
-    try {
-      await app.$transaction(async (tx) => {
-        const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
-        throw new RolledBack(run.violations.find((v) => v.invariant.startsWith('I3'))?.sample ?? []);
-      }, { timeout: 120_000 });
-    } catch (error) {
-      if (error instanceof RolledBack) return error.value as string[];
-      throw error;
-    }
-    return [];
-  };
   const publicCanCreate = async () => {
     const [row] = await prisma.$queryRawUnsafe<{ can: boolean }[]>(`
       SELECT EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
@@ -892,55 +964,14 @@ describe('6. nothing the runtime role could plant runs in the privileged approva
 });
 
 describe('7. a retired role\'s overload of a built-in never runs in the privileged approval context', () => {
-  // A role that once could create objects in public (PostgreSQL 14 and
-  // earlier grant that to PUBLIC by default) and has since been retired: it
-  // no longer logs in or creates anything, and it is unrelated to the runtime
-  // role, so the runtime role's own checks never see it. What it left behind
-  // is an exact-type public.to_jsonb(integer), which PostgreSQL prefers to
-  // the polymorphic pg_catalog.to_jsonb(anyelement) wherever public is on the
-  // search path, whatever the order (admin_adjustment_violation calls
-  // to_jsonb on the approval's INTEGER amount), and an exact-type `=` on the
-  // lots' restriction status, preferred the same way to anyenum = anyenum
-  // (coin_provenance_guard, SECURITY DEFINER, compares it on every lot
-  // update). Each records whom it ran as and returns the genuine result, so
-  // the adjustment still succeeds and nothing but that record shows it ran.
-  const retire = async () => {
-    const t = randomUUID().replaceAll('-', '').slice(0, 10);
-    const retired = `playqube_retired_${t}`;
-    const log = `rr_retired_log_${t}`;
-    await prisma.$executeRawUnsafe(`CREATE ROLE "${retired}" LOGIN NOSUPERUSER`);
-    await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${retired}"`);
-    await prisma.$transaction([
-      prisma.$executeRawUnsafe(`SET LOCAL ROLE "${retired}"`),
-      prisma.$executeRawUnsafe(`CREATE TABLE public."${log}" ("via" text NOT NULL, "ranAs" text NOT NULL, "sessionUser" text NOT NULL)`),
-      prisma.$executeRawUnsafe(`GRANT INSERT ON public."${log}" TO PUBLIC`),
-      prisma.$executeRawUnsafe(`CREATE FUNCTION public.to_jsonb(integer) RETURNS jsonb LANGUAGE plpgsql AS $f$
-        BEGIN
-          INSERT INTO public."${log}" VALUES ('to_jsonb(integer)', current_user, session_user);
-          RETURN pg_catalog.to_jsonb($1);
-        END $f$`),
-      prisma.$executeRawUnsafe(`CREATE FUNCTION public."rr_retired_eq_${t}"(public.coin_restriction_status,
-          public.coin_restriction_status) RETURNS boolean LANGUAGE plpgsql AS $f$
-        BEGIN
-          INSERT INTO public."${log}" VALUES ('= on coin_restriction_status', current_user, session_user);
-          RETURN $1::text OPERATOR(pg_catalog.=) $2::text;
-        END $f$`),
-      prisma.$executeRawUnsafe(`CREATE OPERATOR public.= (LEFTARG = public.coin_restriction_status,
-          RIGHTARG = public.coin_restriction_status, FUNCTION = public."rr_retired_eq_${t}")`),
-    ]);
-    // Retired: it can no longer log in or create anything; what it owns stays.
-    await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${retired}"`);
-    await prisma.$executeRawUnsafe(`ALTER ROLE "${retired}" NOLOGIN`);
-    return {
-      retired,
-      runs: () => prisma.$queryRawUnsafe<{ via: string; ranAs: string; sessionUser: string }[]>(
-        `SELECT "via", "ranAs", "sessionUser" FROM public."${log}"`),
-      drop: async () => {
-        await prisma.$executeRawUnsafe(`DROP OWNED BY "${retired}"`);
-        await prisma.$executeRawUnsafe(`DROP ROLE "${retired}"`);
-      },
-    };
-  };
+  // The retired role (retiredRoleWithPlants) is unrelated to the runtime
+  // role, so the runtime role's own checks never see it. Its
+  // public.to_jsonb(integer) is what admin_adjustment_violation would call on
+  // the approval's INTEGER amount, and its `=` on the lots' restriction
+  // status what coin_provenance_guard (SECURITY DEFINER) would use on every
+  // lot update. The adjustment still succeeds either way; only the plants'
+  // own records show whether they ran.
+  const retire = () => retiredRoleWithPlants([{ op: '=', type: 'public.coin_restriction_status' }]);
 
   /**
    * A valid Coin adjustment, run by the runtime role as the API runs it: the
@@ -1010,9 +1041,197 @@ describe('7. a retired role\'s overload of a built-in never runs in the privileg
         // what a SECURITY DEFINER context (the owner's) would show.
         const runs = await plant.runs();
         expect(runs.filter((run) => run.ranAs !== run.sessionUser), JSON.stringify(runs)).toEqual([]);
+        expect(await plant.elevatedRuns()).toBe(0);
       } finally {
         await plant.drop();
       }
     });
   }
+});
+
+describe('8. the older SECURITY DEFINER guards never run a planted operator with elevated privileges', () => {
+  // Five older guards run as the owner (SECURITY DEFINER) whenever they fire:
+  // game_sessions_validate_rules_snapshot on every wager's session row,
+  // game_definitions_prevent_metadata_drift on a catalog update (which the
+  // runtime role may make), game_rules_validate_parent and
+  // game_rules_immutable on rules writes, and coin_allocations_guard on the
+  // frozen allocations. The game guards compare enum columns with = and <>
+  // (IS DISTINCT FROM is =), where an exact-type operator in public would
+  // beat anyenum = anyenum: the retired role leaves exactly those.
+  const gamePlants: OperatorPlant[] = ['public.game_mode', 'public.game_family', 'public."CurrencyType"']
+    .flatMap((type) => (['=', '<>'] as const).map((op) => ({ op, type })));
+
+  /**
+   * A Dice wager through the game service, its transaction on the runtime
+   * role's connection. `immediate` runs every deferred check as soon as the
+   * wager's writes are done, inside the transaction (a wager balances only
+   * once all of them are written); `deferred` leaves them to COMMIT.
+   */
+  const wagerAsRuntimeRole = async (timing: 'immediate' | 'deferred') => {
+    const spy = vi.spyOn(prisma, '$transaction').mockImplementation(((
+      run: (tx: unknown) => Promise<unknown>, options?: Parameters<PrismaClient['$transaction']>[1],
+    ) => app.$transaction(async (tx) => {
+      // Names resolve afresh, whatever this pooled connection planned before.
+      await tx.$executeRawUnsafe('DISCARD PLANS');
+      const played = await run(tx);
+      if (timing === 'immediate') await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+      return played;
+    }, { ...options, timeout: 120_000 })) as never);
+    try {
+      return await playGame({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  const timingStatements = (timing: 'immediate' | 'deferred'): Statement[] =>
+    [['DISCARD PLANS'], ...(timing === 'immediate' ? [['SET CONSTRAINTS ALL IMMEDIATE'] as Statement] : [])];
+
+  beforeAll(async () => {
+    // Play resolves the player's jurisdiction from a payout account (as in section 4).
+    if (!await prisma.userPayoutAccount.findFirst({ where: { userId: f.buyer.id } })) {
+      const method = await prisma.paymentMethodDefinition.findFirstOrThrow({ where: { countryId: f.country.id } });
+      await prisma.userPayoutAccount.create({ data: { userId: f.buyer.id, countryId: f.country.id, methodDefId: method.id,
+        accountDetails: { label: 'runtime-role' }, status: 'ACTIVE' } });
+    }
+  });
+
+  for (const timing of ['immediate', 'deferred'] as const) {
+    it(`a Coin wager's session row (${timing} checks)`, async () => {
+      const plant = await retiredRoleWithPlants(gamePlants);
+      try {
+        const played = await wagerAsRuntimeRole(timing);
+        expect(played.isReplay).toBe(false);
+        const session = await prisma.gameSession.findUniqueOrThrow({ where: { id: played.sessionId } });
+        // The guard compared the session with its rules version.
+        expect(session.rulesVersion).not.toBeNull();
+        expect(await plant.elevatedRuns(), JSON.stringify(await plant.runs())).toBe(0);
+      } finally {
+        await plant.drop();
+      }
+    });
+
+    it(`a catalog update the runtime role can make (${timing} checks)`, async () => {
+      const plant = await retiredRoleWithPlants(gamePlants);
+      try {
+        expect(await commitAsApp([...timingStatements(timing),
+          ['UPDATE "game_definitions" SET "mode" = "mode", "currentRulesVersion" = "currentRulesVersion" WHERE "key" = \'dice\''],
+        ])).toBe('committed');
+        expect(await plant.elevatedRuns(), JSON.stringify(await plant.runs())).toBe(0);
+      } finally {
+        await plant.drop();
+      }
+    });
+  }
+
+  it('the rules and allocation guards: the runtime role reaches them only to be refused, never running a plant', async () => {
+    const plant = await retiredRoleWithPlants(gamePlants);
+    try {
+      // game_rules_validate_parent fires on INSERT: the runtime role may not
+      // write game_rules at all, no cascade inserts, and no procedure writes it.
+      expect(await asApp([['INSERT INTO "game_rules" DEFAULT VALUES']])).toMatch(/rejects: .*permission denied for table game_rules/);
+      expect(await asApp([['UPDATE "game_rules" SET "version" = "version"']])).toMatch(/rejects: .*permission denied for table game_rules/);
+      // game_rules_immutable is reached only through the ON UPDATE CASCADE of
+      // a game's id, which runs as the owner and is refused.
+      const dice = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
+      expect(await asApp([['DISCARD PLANS'], ['UPDATE "game_definitions" SET "id" = "id" || \'-renamed\' WHERE "id" = $1', dice.id]]))
+        .toMatch(/rejects: .*(game_rules is immutable|game_sessions is append-only|pinned to game)/);
+      // coin_allocations_guard fires after coin_allocations_frozen (trigger
+      // name order), which refuses every write; the runtime role can switch
+      // neither the trigger nor replication mode off.
+      expect(await asApp([['INSERT INTO "coin_allocations" DEFAULT VALUES']])).toMatch(/rejects: .*coin_allocations is frozen/);
+      expect(await asApp([['ALTER TABLE "coin_allocations" DISABLE TRIGGER "coin_allocations_frozen"']]))
+        .toMatch(/rejects: .*must be owner of table coin_allocations/);
+      expect(await asApp([['SET LOCAL session_replication_role = replica']])).toMatch(/rejects: .*permission denied to set parameter/);
+      expect(await plant.elevatedRuns(), JSON.stringify(await plant.runs())).toBe(0);
+    } finally {
+      await plant.drop();
+    }
+  });
+
+  it('every SECURITY DEFINER function of the schema runs with the fixed search path, and invariant I3 reports one that loses it', async () => {
+    const unpinned = await prisma.$queryRawUnsafe<{ name: string }[]>(`
+      SELECT p.oid::regprocedure::text AS name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.prosecdef
+        AND NOT COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog, pg_temp']`);
+    expect(unpinned).toEqual([]);
+    const i3 = await inRolledBackTransaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER FUNCTION public."game_rules_immutable"() SET search_path = public, pg_temp');
+      const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
+      return run.violations.find((v) => v.invariant.startsWith('I3'));
+    });
+    expect(i3?.sample).toEqual(['search_path:game_rules_immutable()']);
+  });
+});
+
+describe('9. the setup refuses any role outside the owner\'s trust that could still create where the owner resolves names', () => {
+  // Migrations, the preflight, the invariant scan and every function the
+  // owner runs resolve names in public (and pg_catalog): an object a role
+  // outside the owner's trust creates there after the setup ran would be
+  // picked like one it left before. So no such role may hold CREATE there,
+  // by grant or through a role it can become; one that can act as the
+  // tables' owner or a superuser is already inside the boundary.
+  const t9 = () => randomUUID().replaceAll('-', '').slice(0, 10);
+  const grants = () => prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+  const refusal = (who: string, through: string) =>
+    new RegExp(`roles outside the owner's trust can still create objects in schema public: .*${who} \\(through ${through}\\)`);
+
+  it('a direct grant to an unrelated role: refused and named, the script prints no key, and I3 reports it', async () => {
+    const other = `playqube_other_${t9()}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${other}" NOLOGIN`);
+    try {
+      await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${other}"`);
+      await expect(grants()).rejects.toThrow(refusal(other, other));
+      const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toMatch(/NOT verified; nothing was changed:\n.*roles outside the owner's trust can still create objects in schema public/);
+      expect(refused.output).not.toContain(process.env.LEDGER_APPROVAL_SIGNING_KEY!);
+      expect(refused.output).not.toContain(password);
+      // A grant made after the setup ran is reported by the invariant scan.
+      expect(await i3AsApp()).toContain('create:public');
+    } finally {
+      await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${other}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${other}"`);
+    }
+    expect(await i3AsApp()).not.toContain('create:public');
+    const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+    expect(applied.status, applied.output).toBe(0);
+  });
+
+  it('a membership usable only by SET ROLE in a role holding CREATE: refused, naming the path', async () => {
+    const holder = `playqube_holder_${t9()}`;
+    const other = `playqube_other_${t9()}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${holder}" NOLOGIN`);
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${other}" LOGIN NOINHERIT`);
+    try {
+      await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${holder}"`);
+      await prisma.$executeRawUnsafe(`GRANT "${holder}" TO "${other}"`);
+      const [row] = await prisma.$queryRawUnsafe<{ direct: boolean }[]>(
+        `SELECT has_schema_privilege($1, 'public', 'CREATE') AS direct`, other);
+      expect(row.direct, 'has_schema_privilege does not see a SET ROLE path').toBe(false);
+      await expect(grants()).rejects.toThrow(refusal(other, holder));
+    } finally {
+      await prisma.$executeRawUnsafe(`REVOKE "${holder}" FROM "${other}"`);
+      await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${holder}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${other}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${holder}"`);
+    }
+    await grants();
+  });
+
+  it('a role that can act as the tables\' owner may hold CREATE: accepted', async () => {
+    const [{ owner }] = await prisma.$queryRawUnsafe<{ owner: string }[]>(
+      `SELECT c.relowner::regrole::text AS owner FROM pg_class c WHERE c.oid = 'public.economic_operations'::regclass`);
+    const deputy = `playqube_deputy_${t9()}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${deputy}" NOLOGIN`);
+    try {
+      await prisma.$executeRawUnsafe(`GRANT ${owner} TO "${deputy}"`);
+      await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${deputy}"`);
+      await grants();
+      expect(await i3AsApp()).not.toContain('create:public');
+    } finally {
+      await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${deputy}"`);
+      await prisma.$executeRawUnsafe(`REVOKE ${owner} FROM "${deputy}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${deputy}"`);
+    }
+  });
 });

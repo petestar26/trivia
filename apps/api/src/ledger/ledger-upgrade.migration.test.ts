@@ -12,7 +12,7 @@ import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { runLedgerUpgradePreflight } from '../economy/ledger-upgrade-preflight.js';
@@ -26,6 +26,8 @@ const FINAL_GATE = '20260924000000_ledger_integrity_gate';
 const AUTHORIZATION = '20260924010000_ledger_resolution_authorization';
 const OPENING_JOURNAL = '20260923030000_opus_freeze_legacy_allocations';
 const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
+const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
+const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
 const MASTER = ALL.filter((name) => name < PRE_GATE);
 
@@ -163,6 +165,32 @@ async function migrationRows(client: PrismaClient) {
 async function relationExists(client: PrismaClient, name: string): Promise<boolean> {
   const rows = await client.$queryRawUnsafe<{ found: boolean }[]>('SELECT to_regclass($1) IS NOT NULL AS found', name);
   return rows[0].found;
+}
+
+/**
+ * The owner-run setup (ledger:runtime-access) for a fresh runtime role on an
+ * upgraded database: it installs a disposable approval key, applies the
+ * runtime grants and verifies them, refusing (exit 1) a database where a role
+ * outside the owner's trust owns objects in, or can still create in, the
+ * schemas where code running as the owner resolves names.
+ */
+async function runtimeSetup(db: { url: string; client: PrismaClient }) {
+  const role = `playqube_upg_runtime_${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+  await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN`);
+  try {
+    const run = spawnSync(TSX, [RUNTIME_ACCESS], {
+      env: { PATH: process.env.PATH ?? '', LEDGER_OWNER_DATABASE_URL: db.url, LEDGER_RUNTIME_ROLE: role,
+        LEDGER_APPROVAL_SIGNING_KEY: randomBytes(32).toString('hex') },
+      encoding: 'utf8', timeout: 120_000 });
+    const [row] = await db.client.$queryRawUnsafe<{ runtime: boolean; public: boolean }[]>(`
+      SELECT has_schema_privilege($1, 'public', 'CREATE') AS runtime,
+             EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+                     WHERE n.nspname = 'public' AND a.grantee = 0 AND a.privilege_type = 'CREATE') AS public`, role);
+    return { status: run.status, output: `${run.stdout}${run.stderr}`, runtimeCanCreate: row.runtime, publicCanCreate: row.public };
+  } finally {
+    await db.client.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+    await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+  }
 }
 
 async function anomalies(client: PrismaClient) {
@@ -318,7 +346,9 @@ describe('ledger upgrade migrations', () => {
     try {
       expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
       const ids = masterIds();
-      execute(db.url, masterEraSeed(ids));
+      // As on a master database created by PostgreSQL 13 or 14, where PUBLIC
+      // may create in schema public by default.
+      execute(db.url, `GRANT CREATE ON SCHEMA public TO PUBLIC;\n${masterEraSeed(ids)}`);
       const before = await legacyFingerprint(db.client);
 
       const preflight = await runLedgerUpgradePreflight(db.client);
@@ -354,6 +384,17 @@ describe('ledger upgrade migrations', () => {
       const after = await runLedgerUpgradePreflight(db.client);
       expect({ mode: after.mode, anomalies: after.anomalies.length, drift: after.definitionDrift })
         .toEqual({ mode: 'UPGRADED', anomalies: 0, drift: false });
+      // The owner-run setup accepts the upgraded master database: nothing in
+      // it belongs to a role outside the owner's trust, and PUBLIC's CREATE,
+      // which the upgrade kept, is the setup's own to revoke.
+      const [kept] = await db.client.$queryRawUnsafe<{ public: boolean }[]>(`
+        SELECT EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+                       WHERE n.nspname = 'public' AND a.grantee = 0 AND a.privilege_type = 'CREATE') AS public`);
+      expect(kept.public).toBe(true);
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('Verified');
+      expect({ runtime: setup.runtimeCanCreate, public: setup.publicCanCreate }).toEqual({ runtime: false, public: false });
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
@@ -647,6 +688,9 @@ describe('legacy game rules on a master database whose catalog the pre-casino AP
       expect(upgrade.status, upgrade.output).toBe(0);
       expect(await legacyRules(db.client)).toEqual(fresh);
       expect(await anomalies(db.client)).toEqual([]);
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('Verified');
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 

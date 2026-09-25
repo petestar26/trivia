@@ -478,6 +478,7 @@ DECLARE
   holders TEXT;
   planted TEXT;
   foreign_owned TEXT;
+  creators TEXT;
   tables_owner OID := (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', schema_name, 'economic_operations')));
 BEGIN
   IF runtime_role IS NULL OR NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = runtime_role) THEN
@@ -528,15 +529,51 @@ BEGIN
         MESSAGE = format('runtime role %s can still create objects in schema %s, through %s: functions that run as the owner resolve names there. Revoke that CREATE privilege (or that membership) as its grantor, then run this again',
           runtime_role, trusted, COALESCE(holders, runtime_role));
     END IF;
-    -- Nor may anything there belong to any other role outside the owner's
-    -- trust: one that is neither a superuser nor able to act as the tables'
-    -- owner, such as a retired account or another application's role. What
-    -- it created while it could (an exact-type overload of a built-in, an
-    -- operator on the ledger's types) would sit where the owner's migrations,
-    -- scans and functions pinned to this schema resolve names.
+    -- Nor may any other role outside the owner's trust still create there.
+    -- A role is inside it when it can act as a superuser or as the tables'
+    -- owner: nothing it creates gives it more than it has. Any other role -
+    -- another application's, an operator's, a retired account - could create
+    -- after this setup what a retired role left before it: an exact-type
+    -- overload or operator that code running as the owner (migrations, the
+    -- preflight and scans, every function pinned to this schema, a cascade
+    -- from a key the runtime role changes) would pick. CREATE comes from the
+    -- schema's ACL (PUBLIC included) or its ownership, and reaches every role
+    -- that can become its holder, inherited or by SET ROLE. The setup
+    -- revokes only its own grants (PUBLIC's and the runtime role's, above):
+    -- anyone else's it names, and stops.
+    WITH trust AS (
+      SELECT r.oid, r.rolname, EXISTS (
+               SELECT 1 FROM pg_roles t
+               WHERE (t.rolsuper OR t.oid = tables_owner) AND pg_has_role(r.oid, t.oid, 'MEMBER')) AS is_trusted
+      FROM pg_roles r)
+    SELECT left(string_agg(DISTINCT u.rolname::text || ' (through '
+             || CASE WHEN src.holder = 0 THEN 'PUBLIC' ELSE src.holder::regrole::text END || ')', ', '), 2000)
+      INTO creators
+    FROM pg_namespace n
+    CROSS JOIN LATERAL (
+      SELECT a.grantee AS holder FROM aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
+      WHERE a.privilege_type = 'CREATE'
+      UNION SELECT n.nspowner) src
+    JOIN trust u ON NOT u.is_trusted AND u.rolname !~ '^pg_'
+      AND CASE WHEN src.holder = 0 THEN true ELSE pg_has_role(u.oid, src.holder, 'MEMBER') END
+    WHERE n.nspname = trusted;
+    IF creators IS NOT NULL THEN
+      RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
+        MESSAGE = format('roles outside the owner''s trust can still create objects in schema %s: %s. Code that runs as the owner resolves names there; revoke that CREATE privilege (or that membership) as its grantor, or make the role one that can act as the tables'' owner %s, then run this again',
+          trusted, creators, tables_owner::regrole::text);
+    END IF;
+    -- Nor may anything there belong to such a role, or to the runtime role:
+    -- what it created while it could (an exact-type overload of a built-in,
+    -- an operator on the ledger's types) sits where the same code resolves
+    -- names.
+    WITH trust AS (
+      SELECT r.oid, r.rolname, EXISTS (
+               SELECT 1 FROM pg_roles t
+               WHERE (t.rolsuper OR t.oid = tables_owner) AND pg_has_role(r.oid, t.oid, 'MEMBER')) AS is_trusted
+      FROM pg_roles r)
     SELECT string_agg(DISTINCT o.kind || ' ' || o.name, ', ') FILTER (WHERE pg_has_role(runtime_role, o.owner, 'MEMBER')),
-           left(string_agg(DISTINCT o.kind || ' ' || o.name || ' (owner ' || r.rolname::text || ')', ', ')
-                  FILTER (WHERE NOT r.rolsuper AND NOT pg_has_role(o.owner, tables_owner, 'MEMBER')), 2000)
+           left(string_agg(DISTINCT o.kind || ' ' || o.name || ' (owner ' || u.rolname::text || ')', ', ')
+                  FILTER (WHERE NOT u.is_trusted), 2000)
       INTO planted, foreign_owned
     FROM (
       SELECT 'function' AS kind, p.oid::regprocedure::text AS name, p.proowner AS owner, p.pronamespace AS ns FROM pg_proc p
@@ -549,7 +586,7 @@ BEGIN
       UNION ALL SELECT 'operator family', fam.opfname::text, fam.opfowner, fam.opfnamespace FROM pg_opfamily fam
       UNION ALL SELECT 'text search configuration', tc.cfgname::text, tc.cfgowner, tc.cfgnamespace FROM pg_ts_config tc
       UNION ALL SELECT 'text search dictionary', td.dictname::text, td.dictowner, td.dictnamespace FROM pg_ts_dict td
-    ) o JOIN pg_namespace n ON n.oid = o.ns JOIN pg_roles r ON r.oid = o.owner
+    ) o JOIN pg_namespace n ON n.oid = o.ns JOIN trust u ON u.oid = o.owner
     WHERE n.nspname = trusted;
     IF planted IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
@@ -558,7 +595,7 @@ BEGIN
     END IF;
     IF foreign_owned IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
-        MESSAGE = format('schema %s holds objects owned by roles that are neither superusers nor able to act as the tables'' owner %s: %s. Code that runs as the owner and resolves names there could pick them up; check what they are, drop them (or reassign them to the owner), then run this again',
+        MESSAGE = format('schema %s holds objects owned by roles that can act neither as a superuser nor as the tables'' owner %s: %s. Code that runs as the owner and resolves names there could pick them up; check what they are, drop them (or reassign them to the owner), then run this again',
           trusted, tables_owner::regrole::text, foreign_owned);
     END IF;
   END LOOP;

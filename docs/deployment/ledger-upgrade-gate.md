@@ -139,29 +139,42 @@ It reads only these variables (no `.env` file), and in one transaction:
   PostgreSQL 13 and 14, `PUBLIC` holds `CREATE` on `public` by default,
   granted by the superuser that owns the schema, so revoke it as that
   superuser first;
+- refuses (exit 1, nothing changed) while any role outside the owner's
+  trust can still create in those schemas. A role is inside it when it can
+  act as a superuser or as the tables' owner; any other role (another
+  application's, an operator's, a retired account) counts, however it gets
+  `CREATE`: a grant, `PUBLIC`, a role it can become (inherited or by
+  `SET ROLE`), or the schema's ownership. Whatever such a role created after
+  the setup would be picked by code that runs as the owner: migrations, the
+  preflight and the invariant scan, every function pinned to `public`, and
+  the triggers a cascade from a key the runtime role changes runs as the
+  owner. The setup revokes only its own grants (`PUBLIC`'s and the runtime
+  role's); the refusal names every other role and the grant or role it
+  creates through. Revoke that grant or membership as its grantor, or make
+  the role one that can act as the tables' owner, then run the setup again;
 - refuses (exit 1, nothing changed) while those schemas hold any object owned
-  by a role outside the owner's trust: one that is neither a superuser nor
-  able to act as the tables' owner, such as a retired account that could
-  create in `public` in the past (the PostgreSQL 13 and 14 default) or
-  another application's role. An exact-type overload it left behind, such as
-  `public.to_jsonb(integer)`, would be picked over the built-in by anything
-  that runs as the owner and resolves names in `public`. The refusal names
-  each object and its owner: check what they are, then drop them or reassign
-  them to the owner (`ALTER ... OWNER TO`, or `REASSIGN OWNED BY`), and run
-  the setup again;
+  by such a role, such as a retired account that could create in `public` in
+  the past (the PostgreSQL 13 and 14 default). An exact-type overload it left
+  behind, such as `public.to_jsonb(integer)`, would be picked over the
+  built-in by anything that runs as the owner and resolves names in
+  `public`. The refusal names each object and its owner: check what they
+  are, then drop them or reassign them to the owner (`ALTER ... OWNER TO`, or
+  `REASSIGN OWNED BY`), and run the setup again;
 - verifies every denied and every required privilege.
 
-The approval functions themselves, and the older guards and validators a
+The approval functions themselves, the older guards and validators a
 signed decision fires (`operation_authorization_guard`,
 `admin_adjustment_violation`, `legacy_resolution_violation`,
-`review_coverage_guard`, `unclassified_lot_review_violation`, and the
-SECURITY DEFINER `coin_provenance_guard`), run with the fixed search path
-`pg_catalog, pg_temp` and name every table and non-catalog function by
-schema, with exact argument types, so no object another role creates is
-picked in their place, even one the setup has not yet seen; invariant I3
-reports any of them without that pin, and reports `CREATE` on the schema held
-by the runtime role (any role other than the tables' owner) if it is granted
-after the setup ran.
+`review_coverage_guard`, `unclassified_lot_review_violation`), and every
+SECURITY DEFINER function (`coin_provenance_guard`, `coin_allocations_guard`,
+`game_sessions_validate_rules_snapshot`,
+`game_definitions_prevent_metadata_drift`, `game_rules_validate_parent`,
+`game_rules_immutable`) run with the fixed search path `pg_catalog, pg_temp`
+and name every table and non-catalog function by schema, with exact argument
+types, so no object another role creates is picked in their place, even one
+the setup has not yet seen. Invariant I3 reports any of them without that
+pin, and reports `CREATE` in `public` or `pg_catalog` held by any role
+outside the owner's trust if it is granted after the setup ran.
 
 It never prints a connection string, a password or the key. Exit codes:
 **0** applied and verified; **1** refused or not verified (nothing changed);
