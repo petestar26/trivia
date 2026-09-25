@@ -20,9 +20,11 @@
 // SECURITY DEFINER guards a wager, a catalog update or a rules or
 // allocation write reaches never run such an object either; (9.) that
 // the setup refuses any role outside the owner's trust that could still
-// create where functions running as the owner resolve names; and (10.) that
+// create where functions running as the owner resolve names; (10.) that
 // no cascade the runtime role can start runs such an object as the owner,
-// even one created after the setup ran.
+// even one created after the setup ran; and (11.) that the setup checks
+// every role the runtime role can become, even by SET ROLE alone, and every
+// column grant, and that a refusal changes no grant, ACL, membership or key.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -33,6 +35,7 @@ import { prisma } from '@socialplay/database';
 import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
+import { applyRuntimeAccess } from '../scripts/ledger-runtime-access.js';
 import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
@@ -1494,7 +1497,9 @@ describe('10. no cascade the runtime role can start runs a planted object with t
           await expect(grants(), path).rejects.toThrow(refusal);
           const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
           expect(refused.status, `${path}: ${refused.output}`).toBe(1);
-          expect(refused.output).toMatch(new RegExp(`NOT verified; nothing was changed:\\n.*public\\.agents\\.id through ${holder}`));
+          // The script refuses before it changes anything, naming the role it can become.
+          expect(refused.output).toMatch(new RegExp(
+            `NOT verified; nothing was changed:\\n[\\s\\S]*can still change agents\\.id as ${holder}, a role it can become, a key other tables follow by cascade`));
           expect(refused.output).not.toContain(process.env.LEDGER_APPROVAL_SIGNING_KEY!);
           expect(refused.output).not.toContain(password);
         } finally {
@@ -1546,5 +1551,329 @@ describe('10. no cascade the runtime role can start runs a planted object with t
       return run.violations.find((v) => v.invariant.startsWith('I3'));
     });
     expect(i3?.sample).toEqual(['search_path:settled_agent_order_proof_immutable()']);
+  });
+});
+
+describe('11. the setup checks every role the runtime role can become, and a refusal changes nothing', () => {
+  // The setup changes only the runtime role's own grants (and PUBLIC's
+  // CREATE on the schema). A role the runtime role can become by SET ROLE,
+  // directly or through other roles, keeps whatever it holds, and
+  // has_*_privilege sees none of it when the membership is NOINHERIT; nor
+  // does has_table_privilege see a grant on some columns only. So every
+  // check applies to each such role too, and to PUBLIC, before anything
+  // changes. Here the runtime role, and the role in the middle of a
+  // transitive path, are NOINHERIT: only SET ROLE reaches the holder.
+  const t11 = () => randomUUID().replaceAll('-', '').slice(0, 10);
+  const key = () => process.env.LEDGER_APPROVAL_SIGNING_KEY!;
+  const paths = ['direct', 'transitive'] as const;
+  type Path = typeof paths[number];
+  type Expected = string | ReturnType<typeof expect.stringContaining>;
+
+  /** Every grant, ACL, ownership and membership the setup reads or could change, and the installed key IDs, as one text. */
+  const accessSnapshot = async () => {
+    const [row] = await prisma.$queryRawUnsafe<{ snapshot: string }[]>(`
+      SELECT jsonb_build_object(
+        'relations', (SELECT jsonb_object_agg(c.oid::regclass::text, jsonb_build_array(c.relowner::regrole::text,
+                        (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(c.relacl) AS x)))
+                      FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace),
+        'columns', (SELECT jsonb_object_agg(a.attrelid::regclass::text || '.' || a.attname::text,
+                      (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(a.attacl) AS x))
+                    FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+                    WHERE c.relnamespace = 'public'::regnamespace AND cardinality(a.attacl) > 0),
+        'functions', (SELECT jsonb_object_agg(p.oid::regprocedure::text, jsonb_build_array(p.proowner::regrole::text,
+                        (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(p.proacl) AS x)))
+                      FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace),
+        'schemas', (SELECT jsonb_object_agg(n.nspname::text, jsonb_build_array(n.nspowner::regrole::text,
+                      (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(n.nspacl) AS x)))
+                    FROM pg_namespace n),
+        'database', (SELECT jsonb_build_array(d.datdba::regrole::text,
+                       (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(d.datacl) AS x))
+                     FROM pg_database d WHERE d.datname = current_database()),
+        'defaults', (SELECT jsonb_agg(da.defaclacl::text[] ORDER BY da.oid) FROM pg_default_acl da),
+        'memberships', (SELECT jsonb_agg(m.roleid::regrole::text || ' to ' || m.member::regrole::text
+                          || CASE WHEN m.admin_option THEN ' with admin' ELSE '' END
+                          ORDER BY m.roleid::regrole::text, m.member::regrole::text) FROM pg_auth_members m),
+        'runtimeRole', (SELECT jsonb_build_array(r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
+                          r.rolbypassrls) FROM pg_roles r WHERE r.rolname = $1),
+        'keys', (SELECT jsonb_agg(k."keyId" || CASE WHEN k."retiredAt" IS NULL THEN '' ELSE ' (retired)' END ORDER BY k."keyId")
+                 FROM "ledger_approval_keys" k)
+      )::text AS snapshot`, role);
+    return row.snapshot;
+  };
+
+  /** Neither the signing key (hex in either case, or base64) nor the runtime role's password appears. */
+  const expectNoSecrets = (text: string) => {
+    expect(text.toLowerCase()).not.toContain(key().toLowerCase());
+    expect(text).not.toContain(Buffer.from(key(), 'hex').toString('base64'));
+    expect(text).not.toContain(password);
+  };
+
+  /**
+   * Makes the runtime role able to become a new role, the holder, by a
+   * NOINHERIT membership, directly or through a NOINHERIT role in the
+   * middle; `prepare` gives the holder what the case needs and `restore`
+   * puts back what it moved. Afterwards every grant, ACL, membership and
+   * key is as it was.
+   */
+  async function withAssumableRole(path: Path, options: { attributes?: string; prepare: (holder: string) => Promise<string[]>;
+    restore?: (holder: string) => string[] }, body: (holder: string) => Promise<void>) {
+    const initial = await accessSnapshot();
+    const t = t11();
+    const holder = `playqube_holder_${t}`;
+    const middle = `playqube_middle_${t}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${holder}" NOLOGIN ${options.attributes ?? ''}`);
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${middle}" NOLOGIN NOINHERIT`);
+    await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" NOINHERIT`);
+    try {
+      const memberships = path === 'direct' ? [`GRANT "${holder}" TO "${role}"`]
+        : [`GRANT "${holder}" TO "${middle}"`, `GRANT "${middle}" TO "${role}"`];
+      for (const sql of [...memberships, ...await options.prepare(holder)]) await prisma.$executeRawUnsafe(sql);
+      await body(holder);
+    } finally {
+      for (const sql of options.restore?.(holder) ?? []) await prisma.$executeRawUnsafe(sql);
+      await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" INHERIT`);
+      await prisma.$executeRawUnsafe(`DROP OWNED BY "${holder}", "${middle}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${middle}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${holder}"`);
+    }
+    expect(await accessSnapshot(), 'the case leaves nothing behind').toBe(initial);
+  }
+
+  /**
+   * Runs a setup that must be refused while it has something to change: a
+   * key ID not yet installed, a stray grant to the runtime role (which its
+   * grants function revokes) and CREATE for PUBLIC (which it revokes too).
+   * It must report `expected` and leave every grant, ACL, membership and
+   * key exactly as they were.
+   */
+  async function refusedChangingNothing(expected: Expected[],
+    run: (keyId: string) => Promise<string[]> = (keyId) => applyRuntimeAccess(prisma, role, keyId, key().toLowerCase())) {
+    const keyId = `k11-${t11()}`;
+    await prisma.$executeRawUnsafe(`GRANT DELETE ON "wallets" TO "${role}"`);
+    await prisma.$executeRawUnsafe('GRANT CREATE ON SCHEMA public TO PUBLIC');
+    try {
+      const before = await accessSnapshot();
+      const failures = await run(keyId);
+      expect(failures).toEqual(expect.arrayContaining(expected));
+      expectNoSecrets(failures.join('\n'));
+      expect(await accessSnapshot(), 'a refused setup changes nothing').toBe(before);
+      const [installed] = await prisma.$queryRawUnsafe<{ n: number }[]>(
+        'SELECT count(*)::int AS n FROM "ledger_approval_keys" WHERE "keyId" = $1', keyId);
+      expect(installed.n).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+      await prisma.$executeRawUnsafe(`REVOKE DELETE ON "wallets" FROM "${role}"`);
+    }
+  }
+
+  /** The owner-run script itself, JSON and text, refused: its failures, having checked its output for secrets. */
+  const scriptRefused = async (keyId: string) => {
+    const json = runtimeAccess({ DATABASE_URL: runtimeUrl, LEDGER_APPROVAL_KEY_ID: keyId }, ['--json']);
+    expect(json.status, json.output).toBe(1);
+    expectNoSecrets(json.output);
+    const report = JSON.parse(json.output) as { applied: boolean; failures: string[] };
+    expect(report.applied).toBe(false);
+    const text = runtimeAccess({ DATABASE_URL: runtimeUrl, LEDGER_APPROVAL_KEY_ID: keyId });
+    expect(text.status, text.output).toBe(1);
+    expectNoSecrets(text.output);
+    expect(text.output).toMatch(/Ledger runtime access NOT verified; nothing was changed:\n/);
+    for (const failure of report.failures) expect(text.output).toContain(`  ${failure}\n`);
+    return report.failures;
+  };
+
+  const keyTable = {
+    'SELECT on the key table': {
+      grant: (holder: string) => `GRANT SELECT ON "ledger_approval_keys" TO "${holder}"`,
+      failure: (holder: string) => `${role} still holds SELECT on ledger_approval_keys as ${holder}, a role it can become`,
+    },
+    'column-only SELECT on ledger_approval_keys.secret': {
+      grant: (holder: string) => `GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`,
+      failure: (holder: string) => `${role} still holds SELECT on ledger_approval_keys.secret as ${holder}, a role it can become`,
+    },
+  };
+  for (const [what, grant] of Object.entries(keyTable)) {
+    for (const path of paths) {
+      it(`${what}, through a ${path} NOINHERIT membership: the setup refuses it by name before changing anything, and prints no key`, async () => {
+        await withAssumableRole(path, { prepare: async (holder) => [grant.grant(holder)] }, async (holder) => {
+          const [seen] = await prisma.$queryRawUnsafe<{ inherited: boolean; tableLevel: boolean }[]>(
+            `SELECT has_column_privilege($1, 'ledger_approval_keys', 'secret', 'SELECT') AS inherited,
+                    has_table_privilege($2, 'ledger_approval_keys', 'SELECT') AS "tableLevel"`, role, holder);
+          expect(seen.inherited, 'the runtime role inherits nothing').toBe(false);
+          expect(seen.tableLevel, 'has_table_privilege sees a table grant only').toBe(what === 'SELECT on the key table');
+          // Yet the path is real: as the holder, the runtime role reads the secret column (no row is fetched here).
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`], ['SELECT length("secret") FROM "ledger_approval_keys" LIMIT 0']]))
+            .toBe('accepts');
+          expect(await asApp([['SELECT length("secret") FROM "ledger_approval_keys" LIMIT 0']]))
+            .toMatch(/rejects: .*permission denied for table ledger_approval_keys/);
+          await refusedChangingNothing([grant.failure(holder)], scriptRefused);
+        });
+        const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+        expect(applied.status, applied.output).toBe(0);
+      });
+    }
+  }
+
+  // Every other denied privilege, the same way: held by a role the runtime
+  // role can become, as a table grant and, where PostgreSQL has one, as a
+  // grant on one column only.
+  const deniedTables: [table: string, privilege: string][] = [
+    ['ledger_approval_keys', 'INSERT'], ['ledger_approval_keys', 'UPDATE'], ['ledger_approval_keys', 'DELETE'],
+    ['admin_adjustment_approvals', 'INSERT'], ['admin_adjustment_approvals', 'UPDATE'], ['admin_adjustment_approvals', 'DELETE'],
+    ['ledger_approval_assertions', 'INSERT'], ['ledger_approval_assertions', 'UPDATE'], ['ledger_approval_assertions', 'DELETE'],
+    ['economic_operations', 'UPDATE'], ['economic_operations', 'DELETE'],
+    ['coin_lot_entries', 'UPDATE'], ['coin_lot_entries', 'DELETE'],
+    ['wallet_transactions', 'UPDATE'], ['wallet_transactions', 'DELETE'],
+    ['agent_order_settlements', 'UPDATE'], ['agent_order_settlements', 'DELETE'],
+    ['game_sessions', 'UPDATE'], ['game_sessions', 'DELETE'],
+    ['legacy_balance_reviews', 'UPDATE'], ['legacy_balance_reviews', 'DELETE'],
+    ['wallets', 'DELETE'], ['coin_provenance', 'DELETE'], ['coin_ledger_accounts', 'DELETE'], ['users', 'DELETE'],
+    ['game_rules', 'INSERT'], ['game_rules', 'UPDATE'], ['game_rules', 'DELETE'],
+    ['_prisma_migrations', 'INSERT'], ['_prisma_migrations', 'UPDATE'], ['_prisma_migrations', 'DELETE'],
+    ['wallets', 'TRUNCATE'], ['economic_operations', 'TRUNCATE'], ['ledger_approval_keys', 'TRUNCATE'],
+    ['economic_operations', 'TRIGGER'], ['users', 'TRIGGER'], ['ledger_approval_keys', 'TRIGGER'],
+  ];
+  const firstColumn = async (table: string) => (await prisma.$queryRawUnsafe<{ name: string }[]>(
+    `SELECT a.attname::text AS name FROM pg_attribute a
+     WHERE a.attrelid = to_regclass($1) AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum LIMIT 1`, table))[0].name;
+  const ownerFunctions: [name: string, signature: string][] = [
+    ['ledger_install_approval_key', '(text, bytea)'], ['ledger_retire_approval_key', '(text)'],
+    ['ledger_apply_runtime_grants', '(text)'],
+    ['ledger_record_assertion', '(text, text, text, text, text, numeric, text, jsonb, text, text, text)'],
+  ];
+  const denials: { name: string; grant: (holder: string) => Promise<string>; expected: (holder: string) => Promise<Expected[]> }[] = [
+    ...deniedTables.flatMap(([table, privilege]) => [
+      { name: `${privilege} on ${table}`, grant: async (holder: string) => `GRANT ${privilege} ON "${table}" TO "${holder}"`,
+        expected: async (holder: string) => [`${role} still holds ${privilege} on ${table} as ${holder}, a role it can become`] },
+      ...(['SELECT', 'INSERT', 'UPDATE'].includes(privilege) ? [{
+        name: `${privilege} on one column of ${table}`,
+        grant: async (holder: string) => `GRANT ${privilege} ("${await firstColumn(table)}") ON "${table}" TO "${holder}"`,
+        expected: async (holder: string) =>
+          [`${role} still holds ${privilege} on ${table}.${await firstColumn(table)} as ${holder}, a role it can become`] }] : []),
+    ]),
+    ...['role', 'status'].map((column) => ({ name: `UPDATE on users.${column}`,
+      grant: async (holder: string) => `GRANT UPDATE ("${column}") ON "users" TO "${holder}"`,
+      expected: async (holder: string) => [`${role} can still change users.${column} as ${holder}, a role it can become`] })),
+    { name: 'UPDATE on users', grant: async (holder: string) => `GRANT UPDATE ON "users" TO "${holder}"`,
+      expected: async (holder: string) => ['role', 'status'].map((column) =>
+        `${role} can still change users.${column} as ${holder}, a role it can become`) },
+    ...ownerFunctions.map(([name, signature]) => ({ name: `EXECUTE on ${name}`,
+      grant: async (holder: string) => `GRANT EXECUTE ON FUNCTION "${name}"${signature} TO "${holder}"`,
+      expected: async (holder: string) => [`${role} can still run ${name} as ${holder}, a role it can become`] })),
+    { name: 'UPDATE on agents.id, a key other tables follow by cascade',
+      grant: async (holder: string) => `GRANT UPDATE ("id") ON "agents" TO "${holder}"`,
+      expected: async (holder: string) =>
+        [`${role} can still change agents.id as ${holder}, a role it can become, a key other tables follow by cascade`] },
+    // Refused by the grants function, after the key was installed and
+    // PUBLIC's CREATE revoked: the refusal rolls both back.
+    { name: 'CREATE on schema public', grant: async (holder: string) => `GRANT CREATE ON SCHEMA public TO "${holder}"`,
+      expected: async (holder: string) => [expect.stringContaining(
+        `runtime role ${role} can still create objects in schema public, through ${holder}:`)] },
+  ];
+  for (const denial of denials) {
+    it(`${denial.name}, held by a role the runtime role can become (direct and transitive NOINHERIT): refused, changing nothing`, async () => {
+      for (const path of paths) {
+        await withAssumableRole(path, { prepare: async (holder) => [await denial.grant(holder)] }, async (holder) => {
+          await refusedChangingNothing(await denial.expected(holder));
+        });
+      }
+    });
+  }
+
+  it('a denied privilege held by PUBLIC reaches the runtime role too: refused, naming PUBLIC, changing nothing', async () => {
+    const initial = await accessSnapshot();
+    await prisma.$executeRawUnsafe('GRANT SELECT ("secret") ON "ledger_approval_keys" TO PUBLIC');
+    await prisma.$executeRawUnsafe('GRANT EXECUTE ON FUNCTION "ledger_install_approval_key"(text, bytea) TO PUBLIC');
+    try {
+      await refusedChangingNothing([`${role} still holds SELECT on ledger_approval_keys.secret through PUBLIC`,
+        `${role} can still run ledger_install_approval_key through PUBLIC`]);
+    } finally {
+      await prisma.$executeRawUnsafe('REVOKE EXECUTE ON FUNCTION "ledger_install_approval_key"(text, bytea) FROM PUBLIC');
+      await prisma.$executeRawUnsafe('REVOKE SELECT ("secret") ON "ledger_approval_keys" FROM PUBLIC');
+    }
+    expect(await accessSnapshot()).toBe(initial);
+  });
+
+  // Roles no runtime role may be or become, whatever their grants: refused
+  // before anything changes.
+  /** The database, and the owners a case moves or names, read before any case moves them. */
+  const originals = async () => (await prisma.$queryRawUnsafe<{ database: string; databaseOwner: string; schemaOwner: string;
+    tablesOwner: string }[]>(`
+    SELECT current_database()::text AS database,
+           (SELECT d.datdba::regrole::text FROM pg_database d WHERE d.datname = current_database()) AS "databaseOwner",
+           (SELECT n.nspowner::regrole::text FROM pg_namespace n WHERE n.nspname = 'public') AS "schemaOwner",
+           (SELECT c.relowner::regrole::text FROM pg_class c WHERE c.oid = 'public.economic_operations'::regclass) AS "tablesOwner"`))[0];
+  type Originals = Awaited<ReturnType<typeof originals>>;
+  const unsafe: { name: string; attributes?: string; prepare?: (holder: string, o: Originals) => string[];
+    restore?: (o: Originals) => string[]; expected: (holder: string, o: Originals) => string }[] = [
+    { name: 'a superuser', attributes: 'SUPERUSER', expected: (holder) => `${role} can become ${holder}, which is a superuser` },
+    { name: 'a role exempt from row security', attributes: 'BYPASSRLS',
+      expected: (holder) => `${role} can become ${holder}, which is exempt from row security` },
+    { name: 'a role that can create roles', attributes: 'CREATEROLE',
+      expected: (holder) => `${role} can become ${holder}, which is allowed to create roles (before PostgreSQL 16, `
+        + 'to grant itself any role but a superuser, the tables\' owner included)' },
+    { name: 'a replication role', attributes: 'REPLICATION',
+      expected: (holder) => `${role} can become ${holder}, which is allowed to replicate, and so to copy every row, `
+        + 'the signing key included' },
+    { name: 'a role that reads the server\'s files', prepare: (holder) => [`GRANT pg_read_server_files TO "${holder}"`],
+      expected: () => `${role} can become pg_read_server_files, which is allowed to run programs or read or write files `
+        + 'on the database server' },
+    { name: 'the database\'s owner', prepare: (holder, o) => [`ALTER DATABASE "${o.database}" OWNER TO "${holder}"`],
+      restore: (o) => [`ALTER DATABASE "${o.database}" OWNER TO ${o.databaseOwner}`],
+      expected: (holder, o) => `${role} can become ${holder}, which is the owner of database ${o.database}` },
+    { name: 'the schema\'s owner', prepare: (holder) => [`ALTER SCHEMA public OWNER TO "${holder}"`],
+      restore: (o) => [`ALTER SCHEMA public OWNER TO ${o.schemaOwner}`],
+      expected: (holder) => `${role} can become ${holder}, which is the owner of schema public` },
+    { name: 'the ledger tables\' owner', prepare: (holder, o) => [`GRANT ${o.tablesOwner} TO "${holder}"`],
+      expected: (holder, o) => `${role} can become ${o.tablesOwner}, which is the owner of the ledger tables` },
+    { name: 'the owner of a table in the schema',
+      prepare: (holder) => [`CREATE TABLE public."rr11_${holder}" ("x" int)`, `ALTER TABLE public."rr11_${holder}" OWNER TO "${holder}"`],
+      expected: (holder) => `${role} can become ${holder}, which is the owner of relation rr11_${holder} in schema public` },
+    { name: 'the owner of a function in the schema',
+      prepare: (holder) => [`CREATE FUNCTION public."rr11_${holder}"() RETURNS int LANGUAGE sql AS 'SELECT 1'`,
+        `ALTER FUNCTION public."rr11_${holder}"() OWNER TO "${holder}"`],
+      expected: (holder) => `${role} can become ${holder}, which is the owner of function rr11_${holder}() in schema public` },
+  ];
+  for (const unsafeCase of unsafe) {
+    it(`a runtime role that can become ${unsafeCase.name} (direct and transitive NOINHERIT): refused before anything changes`, async () => {
+      const o = await originals();
+      for (const path of paths) {
+        await withAssumableRole(path, { attributes: unsafeCase.attributes,
+          prepare: async (holder) => unsafeCase.prepare?.(holder, o) ?? [], restore: () => unsafeCase.restore?.(o) ?? [] },
+        async (holder) => { await refusedChangingNothing([unsafeCase.expected(holder, o)]); });
+      }
+    });
+  }
+
+  it('a runtime role that can become a superuser, through the script: refused by name, nothing changed, no key printed', async () => {
+    await withAssumableRole('transitive', { attributes: 'SUPERUSER', prepare: async () => [] }, async (holder) => {
+      await refusedChangingNothing([`${role} can become ${holder}, which is a superuser`], scriptRefused);
+    });
+    const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+    expect(applied.status, applied.output).toBe(0);
+  });
+
+  it('a runtime role that can itself create roles: refused before anything changes', async () => {
+    const initial = await accessSnapshot();
+    await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" CREATEROLE`);
+    try {
+      await refusedChangingNothing([`${role} is allowed to create roles (before PostgreSQL 16, to grant itself any role but `
+        + 'a superuser, the tables\' owner included)']);
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" NOCREATEROLE`);
+    }
+    expect(await accessSnapshot()).toBe(initial);
+  });
+
+  it('a role it can become that holds only what the runtime role may hold: the setup applies and verifies', async () => {
+    expect(await applyRuntimeAccess(prisma, role, process.env.LEDGER_APPROVAL_KEY_ID!, key().toLowerCase())).toEqual([]);
+    for (const path of paths) {
+      await withAssumableRole(path, { prepare: async (holder) => [`GRANT SELECT ON "wallets" TO "${holder}"`,
+        `GRANT UPDATE ("displayName") ON "users" TO "${holder}"`] }, async () => {
+        expect(await applyRuntimeAccess(prisma, role, process.env.LEDGER_APPROVAL_KEY_ID!, key().toLowerCase())).toEqual([]);
+        const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+        expect(applied.status, applied.output).toBe(0);
+        expectNoSecrets(applied.output);
+      });
+    }
   });
 });

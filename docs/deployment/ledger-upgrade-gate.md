@@ -116,11 +116,35 @@ LEDGER_APPROVAL_SIGNING_KEY=... LEDGER_APPROVAL_KEY_ID=primary \
 Supply the values from the secret store rather than typing them (for example
 `railway run --service <ops service> pnpm --filter api ledger:runtime-access`).
 In a built image use `node apps/api/dist/scripts/ledger-runtime-access.js`.
-It reads only these variables (no `.env` file), and in one transaction:
+It reads only these variables (no `.env` file), and in one transaction, which
+any refusal rolls back (every grant, ACL, membership and key stays as it was):
 
 - refuses if `LEDGER_OWNER_DATABASE_URL` does not connect as the tables'
   owner, if the runtime role is that same role, or if its own
   `DATABASE_URL` is the owner credential (the services would still hold it);
+- before it changes anything, refuses (exit 1) a runtime role that is, or
+  can become by `SET ROLE` (directly or through other roles, inherited or
+  not: `NOINHERIT` memberships included), a superuser, a role exempt from
+  row security, one that can create roles (before PostgreSQL 16 that is
+  enough to make itself a member of the tables' owner), a replication role,
+  `pg_execute_server_program`, `pg_read_server_files` or
+  `pg_write_server_files`, or the owner of the database, of `public`, of the
+  ledger tables or of anything else in `public`. It then refuses (exit 1,
+  still before any change) while any role the runtime role can become, or
+  `PUBLIC`, holds a privilege the runtime role must not have: the setup
+  changes only the runtime role's own grants, so the runtime role would
+  keep it by `SET ROLE`, or through `PUBLIC`. Column grants count like table
+  grants (`SELECT ("secret") ON ledger_approval_keys` is a read of the
+  signing key). The denied privileges are writing approvals, assertions or
+  the migration history; reading or writing `ledger_approval_keys`;
+  updating or deleting financial history; deleting wallets, provenance,
+  ledger accounts or users; writing the rules; `TRUNCATE` or `TRIGGER` on
+  any table; updating `users.role` or `users.status`; running the owner's
+  procedures (`ledger_install_approval_key`, `ledger_retire_approval_key`,
+  `ledger_record_assertion`, `ledger_apply_runtime_grants`); and updating a
+  key other tables follow by cascade. The refusal names each role and
+  privilege: revoke that membership, or that role's (or `PUBLIC`'s)
+  privilege, as its grantor, then run the setup again;
 - installs the key (`ledger_install_approval_key`; idempotent, and a
   different secret under an installed key ID is refused);
 - applies `ledger_apply_runtime_grants('<runtime role>')`, which first
@@ -170,7 +194,9 @@ It reads only these variables (no `.env` file), and in one transaction:
   `public`. The refusal names each object and its owner: check what they
   are, then drop them or reassign them to the owner (`ALTER ... OWNER TO`, or
   `REASSIGN OWNED BY`), and run the setup again;
-- verifies every denied and every required privilege.
+- verifies every denied privilege again, for the runtime role and for every
+  role it can become, and every privilege the API needs, for the runtime
+  role.
 
 The approval functions themselves, the older guards and validators a
 signed decision fires (`operation_authorization_guard`,
