@@ -130,7 +130,12 @@ It reads only these variables (no `.env` file), and in one transaction:
   a cascading foreign key (an `id`, `countries.code`), keeping it on every
   other column. A cascade runs as the owner of the referencing table, and so
   do that table's triggers; the application never changes these keys. The
-  setup verifies that none of them is left updatable;
+  setup verifies that none of them is left updatable, and refuses (exit 1,
+  nothing changed) while any role the runtime role can become can change one:
+  a membership usable by `SET ROLE` alone (the runtime role `NOINHERIT`),
+  direct or through other roles, would let it start the cascade as that role.
+  The refusal names each key and role; revoke that membership, or that role's
+  `UPDATE` on the key, as its grantor, then run the setup again;
 - makes sure the runtime role cannot create objects in the schemas where
   functions that run as the owner resolve names (`pg_catalog`, `public`,
   pgcrypto's): a function or operator the runtime role could create there
@@ -233,6 +238,7 @@ constrained by the ledger's guards and invariants, not by signed approvals.
 | `20260924010000_ledger_resolution_authorization` | Installs the binding of `LEGACY_RESOLVE` and `ADMIN_ADJUST` to the records that authorize them, then stops if any operation already recorded breaks it. |
 | `20260924040000_ledger_function_search_path` | Pins every schema function's `search_path` (schema first, `pg_temp` last); the functions that run as the owner get the stricter `pg_catalog, pg_temp`. |
 | `20260924050000_ledger_cascade_trigger_search_path` | Gives every trigger function a cascade can fire the same strict `pg_catalog, pg_temp`, rules unchanged. |
+| `20260924060000_ledger_runtime_grants_cascade_keys` | Installs the current `ledger_apply_runtime_grants` (cascade keys taken from the runtime role, and from every role it can become), also on a database that applied the earlier version with `20260924010000`. |
 | `20260924090000_ledger_upgrade_window_check` (last migration) | Locks the same tables and compares every one of those records, field by field, with the fingerprint taken by the first migration; stops if anything changed while the release migrated, even when row counts and credited totals are unchanged. Drops `ledger_upgrade_window` when it passes. |
 | Read-only preflight (`preflight:ledger-upgrade`) | Before: what the first gate will decide. After: what the final gate and invariant I15 decide, plus every operation the authorization rules reject. |
 | Invariant scan (`scan:ledger-invariants`) | Every runtime invariant (I1 to I16) in a rolled-back transaction; records nothing. |

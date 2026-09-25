@@ -103,14 +103,22 @@ async function apply(client: PrismaClient, role: string, keyId: string, keyHex: 
         SELECT has_schema_privilege(${role}, 'public', 'CREATE') AS "create"`;
       if (schema?.create) failures.push(`${role} can still create objects in schema public`);
       // No key another table follows by cascade: a cascade, and the triggers
-      // it fires, run as the owner of the referencing table.
-      const cascadeKeys = await tx.$queryRaw<{ key: string }[]>`
-        SELECT DISTINCT c.confrelid::regclass::text || '.' || a.attname::text AS "key"
+      // it fires, run as the owner of the referencing table. Checked for the
+      // runtime role and for every role it can become: has_column_privilege
+      // sees only inherited privileges, and a membership usable by SET ROLE
+      // alone (NOINHERIT), direct or transitive, is one pg_has_role MEMBER
+      // still reports (PostgreSQL 13 and later).
+      const cascadeKeys = await tx.$queryRaw<{ key: string; via: string }[]>`
+        SELECT DISTINCT c.confrelid::regclass::text || '.' || a.attname::text AS "key", m.rolname::text AS "via"
         FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = ANY (c.confkey)
+        JOIN pg_roles m ON pg_has_role(${role}, m.oid, 'MEMBER')
         WHERE c.contype = 'f' AND c.confupdtype IN ('c', 'n', 'd')
-          AND has_column_privilege(${role}, c.confrelid, a.attname::text, 'UPDATE')
-        ORDER BY 1`;
-      for (const { key } of cascadeKeys) failures.push(`${role} can still change ${key}, a key other tables follow by cascade`);
+          AND has_column_privilege(m.oid, c.confrelid, a.attname::text, 'UPDATE')
+        ORDER BY 1, 2`;
+      for (const { key, via } of cascadeKeys) {
+        failures.push(via === role ? `${role} can still change ${key}, a key other tables follow by cascade`
+          : `${role} can still change ${key} as ${via}, a role it can become, a key other tables follow by cascade`);
+      }
       for (const [table, column] of REQUIRED_UPDATE_COLUMNS) {
         const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
           SELECT has_column_privilege(${role}, to_regclass(${table}), ${column}, 'UPDATE') AS "granted"`;

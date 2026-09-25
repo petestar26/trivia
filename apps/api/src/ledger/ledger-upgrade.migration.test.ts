@@ -30,6 +30,12 @@ const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
 const MASTER = ALL.filter((name) => name < PRE_GATE);
+// The migrations added after the parent release (bfe2263). Every other one is
+// the parent's, byte for byte: a migration a database has applied is never
+// edited, so what corrects it comes forward.
+const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
+  '20260924060000_ledger_runtime_grants_cascade_keys'];
+const PARENT = ALL.filter((name) => !ADDED_AFTER_PARENT.includes(name));
 
 const created: string[] = [];
 const scratchRoots: string[] = [];
@@ -180,7 +186,7 @@ async function runtimeSetup(db: { url: string; client: PrismaClient }) {
   try {
     const run = spawnSync(TSX, [RUNTIME_ACCESS], {
       env: { PATH: process.env.PATH ?? '', LEDGER_OWNER_DATABASE_URL: db.url, LEDGER_RUNTIME_ROLE: role,
-        LEDGER_APPROVAL_SIGNING_KEY: randomBytes(32).toString('hex') },
+        LEDGER_APPROVAL_SIGNING_KEY: randomBytes(32).toString('hex'), LEDGER_APPROVAL_KEY_ID: `upg-${role.slice(-8)}` },
       encoding: 'utf8', timeout: 120_000 });
     const [row] = await db.client.$queryRawUnsafe<{ runtime: boolean; public: boolean }[]>(`
       SELECT has_schema_privilege($1, 'public', 'CREATE') AS runtime,
@@ -310,6 +316,7 @@ beforeAll(() => {
   expect(ALL.indexOf(FINAL_GATE)).toBeLessThan(ALL.indexOf(AUTHORIZATION));
   expect(ALL.at(-1)).toBe(WINDOW_CHECK);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
+  expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
 });
 
 // Dropping every scratch database (dozens of them) can outlast the default
@@ -333,6 +340,37 @@ describe('ledger upgrade migrations', () => {
       const preflight = await runLedgerUpgradePreflight(db.client);
       expect({ mode: preflight.mode, anomalies: preflight.anomalies.length, drift: preflight.definitionDrift })
         .toEqual({ mode: 'UPGRADED', anomalies: 0, drift: false });
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+      const status = prismaCli(db.url, ['migrate', 'status', '--schema', SCHEMA]);
+      expect(status.output).toContain('Database schema is up to date');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('a database at the parent release upgrades: the candidate migrations apply, the candidate setup verifies, and a replay has nothing pending', async () => {
+    const db = await scratchDatabase('parent');
+    try {
+      const parent = deploy(db.url, migrationSubset(PARENT));
+      expect(parent.status, parent.output).toBe(0);
+      // The parent's grants function predates the cascade-key rules, and a
+      // correction to the migration that installed it would never run here:
+      // the candidate setup does not verify it.
+      const early = await runtimeSetup(db);
+      expect(early.status, early.output).toBe(1);
+      expect(early.output).toMatch(/can still change agents\.id, a key other tables follow by cascade/);
+
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      for (const name of ADDED_AFTER_PARENT) expect(upgrade.output).toContain(`Applying migration \`${name}\``);
+      const rows = await migrationRows(db.client);
+      expect(rows.map((row) => row.migration_name).sort()).toEqual(ALL);
+      expect(rows.every((row) => row.finished && !row.rolled_back)).toBe(true);
+
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('Verified');
+
       const replay = deploy(db.url);
       expect(replay.status, replay.output).toBe(0);
       expect(replay.output).toContain('No pending migrations to apply');

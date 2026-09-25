@@ -1466,6 +1466,54 @@ describe('10. no cascade the runtime role can start runs a planted object with t
     }
   }, 300_000);
 
+  it('a role the runtime role can become, NOINHERIT and directly or through another role, that can change an Agent id: the setup refuses it', async () => {
+    const t = randomUUID().replaceAll('-', '').slice(0, 10);
+    const holder = `playqube_keyholder_${t}`;
+    const middle = `playqube_middle_${t}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${holder}" NOLOGIN`);
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${middle}" NOLOGIN`);
+    // An agents editor: it may read and change agents, their id included.
+    await prisma.$executeRawUnsafe(`GRANT SELECT, UPDATE ON "agents" TO "${holder}"`);
+    await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" NOINHERIT`);
+    const memberships = {
+      direct: [`GRANT "${holder}" TO "${role}"`],
+      transitive: [`GRANT "${holder}" TO "${middle}"`, `GRANT "${middle}" TO "${role}"`],
+    };
+    try {
+      for (const [path, grantsFor] of Object.entries(memberships)) {
+        for (const sql of grantsFor) await prisma.$executeRawUnsafe(sql);
+        try {
+          // The runtime role inherits nothing from it, yet can become it and change the key.
+          const [row] = await prisma.$queryRawUnsafe<{ inherited: boolean }[]>(
+            `SELECT has_column_privilege($1, 'agents', 'id', 'UPDATE') AS inherited`, role);
+          expect(row.inherited, path).toBe(false);
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`], ['UPDATE "agents" SET "id" = "id" || \'-moved\' WHERE false']]), path)
+            .toBe('accepts');
+          // The setup refuses it, naming the key and the role, and changes nothing.
+          const refusal = new RegExp(`can still change keys other tables follow by cascade, as a role it can become: .*public\\.agents\\.id through ${holder}`);
+          await expect(grants(), path).rejects.toThrow(refusal);
+          const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
+          expect(refused.status, `${path}: ${refused.output}`).toBe(1);
+          expect(refused.output).toMatch(new RegExp(`NOT verified; nothing was changed:\\n.*public\\.agents\\.id through ${holder}`));
+          expect(refused.output).not.toContain(process.env.LEDGER_APPROVAL_SIGNING_KEY!);
+          expect(refused.output).not.toContain(password);
+        } finally {
+          await prisma.$executeRawUnsafe(`REVOKE "${holder}" FROM "${role}"`);
+          await prisma.$executeRawUnsafe(`REVOKE "${middle}" FROM "${role}"`);
+          await prisma.$executeRawUnsafe(`REVOKE "${holder}" FROM "${middle}"`);
+        }
+      }
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER ROLE "${role}" INHERIT`);
+      await prisma.$executeRawUnsafe(`DROP OWNED BY "${holder}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${middle}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${holder}"`);
+    }
+    // Without those memberships, the setup applies and verifies again.
+    const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+    expect(applied.status, applied.output).toBe(0);
+  });
+
   it('the setup leaves no key other tables follow by cascade updatable by the runtime role, while it can still update what the API does', async () => {
     await grants();
     const keys = await prisma.$queryRawUnsafe<{ key: string }[]>(`
