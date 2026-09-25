@@ -18,9 +18,11 @@
 // approval functions; (7.) that neither can any other role, such as a
 // retired one, whose objects the setup then refuses; (8.) that the older
 // SECURITY DEFINER guards a wager, a catalog update or a rules or
-// allocation write reaches never run such an object either; and (9.) that
+// allocation write reaches never run such an object either; (9.) that
 // the setup refuses any role outside the owner's trust that could still
-// create where functions running as the owner resolve names.
+// create where functions running as the owner resolve names; and (10.) that
+// no cascade the runtime role can start runs such an object as the owner,
+// even one created after the setup ran.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -1131,10 +1133,11 @@ describe('8. the older SECURITY DEFINER guards never run a planted operator with
       expect(await asApp([['INSERT INTO "game_rules" DEFAULT VALUES']])).toMatch(/rejects: .*permission denied for table game_rules/);
       expect(await asApp([['UPDATE "game_rules" SET "version" = "version"']])).toMatch(/rejects: .*permission denied for table game_rules/);
       // game_rules_immutable is reached only through the ON UPDATE CASCADE of
-      // a game's id, which runs as the owner and is refused.
+      // a game's id, and the setup took UPDATE on that key from the runtime
+      // role (section 10 covers the cascade itself, granted back).
       const dice = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
       expect(await asApp([['DISCARD PLANS'], ['UPDATE "game_definitions" SET "id" = "id" || \'-renamed\' WHERE "id" = $1', dice.id]]))
-        .toMatch(/rejects: .*(game_rules is immutable|game_sessions is append-only|pinned to game)/);
+        .toMatch(/rejects: .*permission denied for table game_definitions/);
       // coin_allocations_guard fires after coin_allocations_frozen (trigger
       // name order), which refuses every write; the runtime role can switch
       // neither the trigger nor replication mode off.
@@ -1233,5 +1236,267 @@ describe('9. the setup refuses any role outside the owner\'s trust that could st
       await prisma.$executeRawUnsafe(`REVOKE ${owner} FROM "${deputy}"`);
       await prisma.$executeRawUnsafe(`DROP ROLE "${deputy}"`);
     }
+  });
+});
+
+describe('10. no cascade the runtime role can start runs a planted object with the owner\'s privileges', () => {
+  // A foreign key's ON UPDATE / ON DELETE action writes the referencing
+  // table as its owner, and that table's triggers then run with the owner's
+  // privileges. The runtime role starts such a cascade by changing a key (an
+  // Agent's id cascades to its orders and reservations) or by deleting a row
+  // (a policy's lots lose their policy). The setup takes the key changes away
+  // and refuses objects in public that are not the owner's, but only when it
+  // runs: here an unrelated role is given CREATE on public after it ran,
+  // and the triggers must still never pick what it creates.
+  type OwnerOnlyPlant = { toJsonb: string } | { op: '=' | '<>'; type: string };
+  const grants = () => prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+
+  /**
+   * After the setup ran, an unrelated role is given CREATE on public (as a
+   * later grant might) and creates the given exact-type plants there. Each
+   * returns the genuine result and tries to advance its own owner-only
+   * sequence, which only a run with the owner's privileges can (anyone
+   * else's attempt is refused, and the plant swallows the refusal). A
+   * sequence is not transactional: an advance outlives a rejected or
+   * rolled-back transaction.
+   */
+  async function unrelatedCreatorPlants(plants: OwnerOnlyPlant[]) {
+    const t = randomUUID().replaceAll('-', '').slice(0, 10);
+    const creator = `playqube_creator_${t}`;
+    const sequence = (i: number) => `public."rr_owner_only_${i}_${t}"`;
+    const label = (plant: OwnerOnlyPlant) => ('toJsonb' in plant
+      ? `to_jsonb(${plant.toJsonb})` : `${plant.op} on ${plant.type.replaceAll('"', '')}`);
+    const advance = (i: number) => `
+      BEGIN
+        PERFORM pg_catalog.nextval('${sequence(i)}'::regclass);
+      EXCEPTION WHEN insufficient_privilege THEN NULL;
+      END;`;
+    // Owner-only: created by the owner, with no privilege for anyone else.
+    await prisma.$transaction(plants.map((_, i) => prisma.$executeRawUnsafe(`CREATE SEQUENCE ${sequence(i)}`)));
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${creator}" NOLOGIN NOSUPERUSER`);
+    await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${creator}"`);
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET LOCAL ROLE "${creator}"`),
+      ...plants.flatMap((plant, i) => ('toJsonb' in plant ? [
+        prisma.$executeRawUnsafe(`CREATE FUNCTION public.to_jsonb(${plant.toJsonb}) RETURNS jsonb LANGUAGE plpgsql AS $f$
+          BEGIN ${advance(i)}
+            RETURN pg_catalog.to_jsonb($1);
+          END $f$`),
+      ] : [
+        prisma.$executeRawUnsafe(`CREATE FUNCTION public."rr_creator_op_${i}_${t}"(${plant.type}, ${plant.type}) RETURNS boolean
+          LANGUAGE plpgsql AS $f$
+          BEGIN ${advance(i)}
+            RETURN $1::text OPERATOR(pg_catalog.${plant.op}) $2::text;
+          END $f$`),
+        prisma.$executeRawUnsafe(`CREATE OPERATOR public.${plant.op} (LEFTARG = ${plant.type}, RIGHTARG = ${plant.type},
+          FUNCTION = public."rr_creator_op_${i}_${t}")`),
+      ])),
+    ]);
+    return {
+      /** The plants that ran with the owner's privileges, whatever became of their transaction. */
+      advanced: async () => {
+        const [row] = await prisma.$queryRawUnsafe<Record<string, boolean>[]>(
+          `SELECT ${plants.map((_, i) => `(SELECT is_called FROM ${sequence(i)}) AS "s${i}"`).join(', ')}`);
+        return plants.filter((_, i) => row[`s${i}`]).map(label);
+      },
+      drop: async () => {
+        await prisma.$executeRawUnsafe(`DROP OWNED BY "${creator}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${creator}"`);
+        await prisma.$transaction(plants.map((_, i) => prisma.$executeRawUnsafe(`DROP SEQUENCE ${sequence(i)}`)));
+      },
+    };
+  }
+
+  /**
+   * Runs `statement` with the runtime role's privileges (SET LOCAL ROLE)
+   * inside an owner transaction that is always rolled back, after the
+   * owner's `prepare` (grants given back, a recreated foreign key), with
+   * every check immediate from the start or left until the end.
+   */
+  async function asRuntimeRoleRolledBack(prepare: Statement[], statement: Statement, immediate: boolean): Promise<string> {
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const [sql, ...params] of prepare) await tx.$executeRawUnsafe(sql, ...params);
+        // Names resolve afresh, whatever this pooled connection planned before.
+        await tx.$executeRawUnsafe('DISCARD PLANS');
+        if (immediate) await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+        const [sql, ...params] = statement;
+        await tx.$executeRawUnsafe(sql, ...params);
+        await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+        throw new RolledBack('accepts');
+      }, { timeout: 120_000 });
+    } catch (error) {
+      if (error instanceof RolledBack) return error.value as string;
+      return `rejects: ${oneLine(error)}`;
+    }
+    return 'committed';
+  }
+
+  /** The buyer's Agent, with its settled order and settled reservation. */
+  const settledAgent = async () => {
+    const [row] = await prisma.$queryRawUnsafe<{ agentId: string; orderId: string; reservationId: string }[]>(`
+      SELECT o."agentId", o."id" AS "orderId", r."id" AS "reservationId"
+      FROM "agent_order_settlements" s
+      JOIN "agent_orders" o ON o."id" = s."orderId"
+      JOIN "agent_reservations" r ON r."id" = s."reservationId" AND r."agentId" = o."agentId"
+      WHERE o."userId" = $1 LIMIT 1`, f.buyer.id);
+    expect(row, 'the purchase fixture settled an order through a reservation').toBeTruthy();
+    return row;
+  };
+  const moveAgent = (agentId: string): Statement => ['UPDATE "agents" SET "id" = "id" || \'-moved\' WHERE "id" = $1', agentId];
+
+  it('an Agent id change: the setup took it away; granted back later, the settled order\'s proof guard runs as the owner but never the planted to_jsonb(agent_orders)', async () => {
+    // 1. The setup runs.
+    const setup = runtimeAccess({ DATABASE_URL: runtimeUrl });
+    expect(setup.status, setup.output).toBe(0);
+    const agent = await settledAgent();
+    // 2-3. After it, an unrelated role may create in public, and plants an
+    // exact-type to_jsonb(public.agent_orders): the order proof guard calls
+    // to_jsonb(NEW) on the order row a cascade rewrites.
+    const plant = await unrelatedCreatorPlants([{ toJsonb: 'public.agent_orders' }]);
+    try {
+      // 4. The runtime role changes the Agent's id: as the setup left it,
+      // it may not change that key at all.
+      const refused = await asApp([['DISCARD PLANS'], moveAgent(agent.agentId)]);
+      // With UPDATE on agents granted back after the setup (a later
+      // GRANT ... ON ALL TABLES), the cascade runs, as the owner, and the
+      // proof guard refuses to rewrite the settled order, whether the
+      // transaction would roll back or commit.
+      await prisma.$executeRawUnsafe(`GRANT UPDATE ON "agents" TO "${role}"`);
+      const rolledBack = await asApp([['DISCARD PLANS'], moveAgent(agent.agentId)]);
+      const committed = await commitAsApp([['DISCARD PLANS'], moveAgent(agent.agentId)]);
+      // 5. The owner-only sequence never advanced.
+      expect({ refused, rolledBack, committed, advanced: await plant.advanced() }).toEqual({
+        refused: expect.stringMatching(/rejects: .*permission denied for table agents/),
+        rolledBack: expect.stringMatching(/rejects: .*settled Agent order purchase proof is immutable/),
+        committed: expect.stringMatching(/rejects: .*settled Agent order purchase proof is immutable/),
+        advanced: [],
+      });
+    } finally {
+      await plant.drop();
+      await grants();
+    }
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: agent.agentId } })).id).toBe(agent.agentId);
+  });
+
+  it('an Agent id change reaching the settled reservation first (its foreign keys recreated in another order): the reservation proof guard never runs the planted to_jsonb(agent_reservations)', async () => {
+    const agent = await settledAgent();
+    // Cascades fire in the order their foreign keys were created: the
+    // orders' before the reservations', so today the order guard refuses
+    // first. Recreating the orders' foreign key (as a later migration
+    // might) puts the reservations first.
+    const [fk] = await prisma.$queryRawUnsafe<{ name: string; definition: string }[]>(`
+      SELECT c.conname::text AS name, pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c
+      WHERE c.contype = 'f' AND c.conrelid = 'agent_orders'::regclass AND c.confrelid = 'agents'::regclass`);
+    const plant = await unrelatedCreatorPlants([{ toJsonb: 'public.agent_reservations' }, { toJsonb: 'public.agent_orders' }]);
+    try {
+      const outcomes: string[] = [];
+      for (const immediate of [true, false]) {
+        outcomes.push(await asRuntimeRoleRolledBack([
+          [`GRANT UPDATE ON "agents" TO "${role}"`],
+          [`ALTER TABLE "agent_orders" DROP CONSTRAINT "${fk.name}"`],
+          [`ALTER TABLE "agent_orders" ADD CONSTRAINT "${fk.name}" ${fk.definition}`],
+        ], moveAgent(agent.agentId), immediate));
+      }
+      expect({ outcomes, advanced: await plant.advanced() }).toEqual({
+        outcomes: [0, 1].map(() => expect.stringMatching(/rejects: .*settled Agent reservation purchase proof is immutable/)),
+        advanced: [],
+      });
+    } finally {
+      await plant.drop();
+    }
+  });
+
+  it('every other cascade the runtime role can start, by a key change granted back after setup or a delete it may make, never runs a plant as the owner (immediate and deferred checks)', async () => {
+    // Every single-column foreign key that cascades (or nulls) on UPDATE of
+    // a text key the runtime role may otherwise update, or on DELETE of a
+    // row it may delete, with a live row to cascade from.
+    const cascades = await prisma.$queryRawUnsafe<{ parent: string; key: string; child: string; column: string; action: string }[]>(`
+      SELECT p.relname::text AS parent, pa.attname::text AS key, ch.relname::text AS child, ca.attname::text AS "column",
+             a.action
+      FROM pg_constraint c
+      JOIN pg_class p ON p.oid = c.confrelid JOIN pg_class ch ON ch.oid = c.conrelid
+      JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
+      JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
+      CROSS JOIN LATERAL (VALUES
+        (CASE WHEN c.confupdtype IN ('c', 'n', 'd') AND pa.atttypid IN ('text'::regtype, 'varchar'::regtype)
+                AND has_any_column_privilege($1, c.confrelid, 'UPDATE') THEN 'UPDATE' END),
+        (CASE WHEN c.confdeltype IN ('c', 'n', 'd') AND has_table_privilege($1, c.confrelid, 'DELETE') THEN 'DELETE' END)) a(action)
+      WHERE c.contype = 'f' AND cardinality(c.confkey) = 1 AND a.action IS NOT NULL
+        AND p.relnamespace = 'public'::regnamespace
+      ORDER BY 1, 3`, role);
+    const paths = new Map<string, { parent: string; key: string; value: string; action: string }>();
+    for (const cascade of cascades) {
+      const [row] = await prisma.$queryRawUnsafe<{ value: string }[]>(
+        `SELECT "${cascade.column}"::text AS value FROM "${cascade.child}" WHERE "${cascade.column}" IS NOT NULL LIMIT 1`);
+      if (!row) continue;
+      paths.set(`${cascade.action} ${cascade.parent}.${cascade.key}=${row.value}`,
+        { parent: cascade.parent, key: cascade.key, value: row.value, action: cascade.action });
+    }
+    // The paths the review named are among them.
+    const names = [...paths.values()].map((path) => `${path.action} ${path.parent}`);
+    expect(names).toEqual(expect.arrayContaining(['UPDATE agents', 'UPDATE agent_orders', 'UPDATE coin_provenance',
+      'UPDATE country_casino_policies', 'UPDATE wallets', 'UPDATE game_definitions', 'DELETE agents']));
+    const children = await prisma.$queryRawUnsafe<{ type: string }[]>(`
+      SELECT DISTINCT format('public.%I', ch.relname) AS type FROM pg_constraint c JOIN pg_class ch ON ch.oid = c.conrelid
+      WHERE c.contype = 'f' AND (c.confupdtype IN ('c', 'n', 'd') OR c.confdeltype IN ('c', 'n', 'd'))`);
+    const enums = await prisma.$queryRawUnsafe<{ type: string }[]>(`
+      SELECT format('public.%I', t.typname) AS type FROM pg_type t
+      WHERE t.typtype = 'e' AND t.typnamespace = 'public'::regnamespace ORDER BY 1`);
+    const plant = await unrelatedCreatorPlants([
+      ...children.map(({ type }) => ({ toJsonb: type })),
+      ...enums.flatMap(({ type }) => (['=', '<>'] as const).map((op) => ({ op, type }))),
+    ]);
+    try {
+      const outcomes: string[] = [];
+      for (const path of paths.values()) {
+        for (const immediate of [true, false]) {
+          const statement: Statement = path.action === 'UPDATE'
+            ? [`UPDATE "${path.parent}" SET "${path.key}" = "${path.key}" || '-moved' WHERE "${path.key}" = $1`, path.value]
+            : [`DELETE FROM "${path.parent}" WHERE "${path.key}" = $1`, path.value];
+          const prepare: Statement[] = path.action === 'UPDATE' ? [[`GRANT UPDATE ON "${path.parent}" TO "${role}"`]] : [];
+          const outcome = await asRuntimeRoleRolledBack(prepare, statement, immediate);
+          outcomes.push(`${path.action} ${path.parent}.${path.key} (${immediate ? 'immediate' : 'deferred'}): ${outcome.slice(0, 160)}`);
+        }
+      }
+      expect(await plant.advanced(), outcomes.join('\n')).toEqual([]);
+    } finally {
+      await plant.drop();
+    }
+  }, 300_000);
+
+  it('the setup leaves no key other tables follow by cascade updatable by the runtime role, while it can still update what the API does', async () => {
+    await grants();
+    const keys = await prisma.$queryRawUnsafe<{ key: string }[]>(`
+      SELECT DISTINCT c.confrelid::regclass::text || '.' || a.attname::text AS key
+      FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = ANY (c.confkey)
+      WHERE c.contype = 'f' AND c.confupdtype IN ('c', 'n', 'd') AND has_column_privilege($1, c.confrelid, a.attname::text, 'UPDATE')`,
+    role);
+    expect(keys).toEqual([]);
+    const [kept] = await prisma.$queryRawUnsafe<Record<string, boolean>[]>(`
+      SELECT has_column_privilege($1, 'wallets', 'coinsBalance', 'UPDATE') AS "walletBalance",
+             has_column_privilege($1, 'agent_orders', 'status', 'UPDATE') AS "orderStatus",
+             has_column_privilege($1, 'agents', 'displayName', 'UPDATE') AS "agentName",
+             has_column_privilege($1, 'game_definitions', 'catalogStatus', 'UPDATE') AS "catalogStatus"`, role);
+    expect(kept).toEqual({ walletBalance: true, orderStatus: true, agentName: true, catalogStatus: true });
+  });
+
+  it('every trigger a cascade can fire runs with the fixed search path, and invariant I3 reports one that loses it', async () => {
+    const unpinned = await prisma.$queryRawUnsafe<{ name: string }[]>(`
+      SELECT DISTINCT p.proname::text AS name
+      FROM pg_trigger t JOIN pg_constraint c ON c.contype = 'f' AND c.conrelid = t.tgrelid JOIN pg_proc p ON p.oid = t.tgfoid
+      WHERE NOT t.tgisinternal
+        AND (((c.confupdtype IN ('c','n','d') OR c.confdeltype IN ('n','d')) AND t.tgtype & 16 = 16
+              AND (cardinality(t.tgattr::int2[]) = 0 OR t.tgattr::int2[] && c.conkey))
+          OR (c.confdeltype = 'c' AND t.tgtype & 8 = 8))
+        AND NOT COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog, pg_temp']`);
+    expect(unpinned).toEqual([]);
+    const i3 = await inRolledBackTransaction(async (tx) => {
+      await tx.$executeRawUnsafe('ALTER FUNCTION public."settled_agent_order_proof_immutable"() SET search_path = public, pg_temp');
+      const run = await runLedgerInvariantCheckInTransaction(tx, null, false);
+      return run.violations.find((v) => v.invariant.startsWith('I3'));
+    });
+    expect(i3?.sample).toEqual(['search_path:settled_agent_order_proof_immutable()']);
   });
 });

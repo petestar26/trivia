@@ -141,17 +141,26 @@ const checks: ReadonlyArray<[string, string]> = [
       UNION ALL
       -- Every function of the schema (extensions aside) resolves table names
       -- in this schema before pg_temp (migration 20260924040000), so a
-      -- session's TEMP tables cannot stand in for ledger rows; the approval
-      -- functions and every SECURITY DEFINER function, which run as the
-      -- owner, keep the fixed pg_catalog, pg_temp (one without that pin is
-      -- reported).
+      -- session's TEMP tables cannot stand in for ledger rows. The functions
+      -- that run as the owner keep the fixed pg_catalog, pg_temp (one without
+      -- that pin is reported): the approval functions, every SECURITY
+      -- DEFINER function, and every trigger function a cascade can fire (a
+      -- foreign key's ON UPDATE or ON DELETE action writes the referencing
+      -- table as its owner; migration 20260924050000), derived here from the
+      -- catalog so that a trigger added to such a table is covered too.
       SELECT 'search_path:' || p.oid::regprocedure::text AS id
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname=current_schema() AND p.prokind='f'
         AND NOT EXISTS (SELECT 1 FROM pg_depend d
           WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')
         AND NOT (COALESCE(p.proconfig, ARRAY[]::text[]) @> ARRAY[CASE
-          WHEN p.prosecdef OR p.proname = ANY(${privilegedApprovalFunctionsSql}) THEN 'search_path=pg_catalog, pg_temp'
+          WHEN p.prosecdef OR p.proname = ANY(${privilegedApprovalFunctionsSql}) OR EXISTS (
+            SELECT 1 FROM pg_trigger t JOIN pg_constraint c ON c.contype = 'f' AND c.conrelid = t.tgrelid
+            WHERE t.tgfoid = p.oid AND NOT t.tgisinternal
+              AND (((c.confupdtype IN ('c','n','d') OR c.confdeltype IN ('n','d')) AND t.tgtype & 16 = 16
+                    AND (cardinality(t.tgattr::int2[]) = 0 OR t.tgattr::int2[] && c.conkey))
+                OR (c.confdeltype = 'c' AND t.tgtype & 8 = 8)))
+          THEN 'search_path=pg_catalog, pg_temp'
           ELSE 'search_path=' || quote_ident(current_schema()) || ', pg_temp' END])
       UNION ALL
       -- No role outside the owner's trust (one that can act neither as a

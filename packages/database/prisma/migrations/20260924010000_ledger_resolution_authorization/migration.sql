@@ -474,6 +474,7 @@ DECLARE
   schema_name TEXT := 'public';
   t TEXT;
   updatable_user_columns TEXT;
+  updatable_columns TEXT;
   trusted TEXT;
   holders TEXT;
   planted TEXT;
@@ -605,6 +606,31 @@ BEGIN
   EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', schema_name, runtime_role);
   EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', schema_name, runtime_role);
   EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', schema_name, runtime_role);
+
+  -- Keys other tables follow by cascade: never changed by the runtime role.
+  -- A cascade runs as the owner of the referencing table, and so do that
+  -- table's triggers; the application never changes these keys (an id, a
+  -- country code). So wherever a foreign key cascades or nulls on UPDATE,
+  -- the runtime role may update every column of the referenced table but
+  -- the referenced ones. (The table-level revokes below also remove these
+  -- column grants where the runtime role updates nothing.)
+  FOR t IN
+    SELECT DISTINCT r.relname::text
+    FROM pg_constraint c JOIN pg_class r ON r.oid = c.confrelid JOIN pg_namespace n ON n.oid = r.relnamespace
+    WHERE c.contype = 'f' AND c.confupdtype IN ('c', 'n', 'd') AND n.nspname = schema_name
+    ORDER BY 1
+  LOOP
+    SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) INTO updatable_columns
+    FROM pg_attribute a
+    WHERE a.attrelid = to_regclass(format('%I.%I', schema_name, t)) AND a.attnum > 0 AND NOT a.attisdropped
+      AND NOT EXISTS (SELECT 1 FROM pg_constraint c
+                      WHERE c.contype = 'f' AND c.confupdtype IN ('c', 'n', 'd')
+                        AND c.confrelid = a.attrelid AND a.attnum = ANY (c.confkey));
+    EXECUTE format('REVOKE UPDATE ON %I.%I FROM %I', schema_name, t, runtime_role);
+    IF updatable_columns IS NOT NULL THEN
+      EXECUTE format('GRANT UPDATE (%s) ON %I.%I TO %I', updatable_columns, schema_name, t, runtime_role);
+    END IF;
+  END LOOP;
 
   -- Append-only financial history and committed records: insert and read.
   FOREACH t IN ARRAY ARRAY['economic_operations', 'coin_lot_entries', 'wallet_transactions',

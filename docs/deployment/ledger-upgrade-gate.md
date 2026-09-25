@@ -126,6 +126,11 @@ It reads only these variables (no `.env` file), and in one transaction:
 - applies `ledger_apply_runtime_grants('<runtime role>')`, which first
   revokes everything and then grants only data access, so it is idempotent and
   also covers tables added by the migrations just applied;
+- takes from the runtime role `UPDATE` on every key another table follows by
+  a cascading foreign key (an `id`, `countries.code`), keeping it on every
+  other column. A cascade runs as the owner of the referencing table, and so
+  do that table's triggers; the application never changes these keys. The
+  setup verifies that none of them is left updatable;
 - makes sure the runtime role cannot create objects in the schemas where
   functions that run as the owner resolve names (`pg_catalog`, `public`,
   pgcrypto's): a function or operator the runtime role could create there
@@ -169,12 +174,19 @@ signed decision fires (`operation_authorization_guard`,
 SECURITY DEFINER function (`coin_provenance_guard`, `coin_allocations_guard`,
 `game_sessions_validate_rules_snapshot`,
 `game_definitions_prevent_metadata_drift`, `game_rules_validate_parent`,
-`game_rules_immutable`) run with the fixed search path `pg_catalog, pg_temp`
+`game_rules_immutable`), and every trigger function a cascade can fire
+(migration `20260924050000`: the Agent order and reservation proof guards,
+the append-only guards, the coin lot, account and wallet guards, the policy
+pointer, contest pin, game session and platform gate guards, and
+`users_privilege_guard`) run with the fixed search path `pg_catalog, pg_temp`
 and name every table and non-catalog function by schema, with exact argument
 types, so no object another role creates is picked in their place, even one
-the setup has not yet seen. Invariant I3 reports any of them without that
-pin, and reports `CREATE` in `public` or `pg_catalog` held by any role
-outside the owner's trust if it is granted after the setup ran.
+created after the setup ran (the setup's checks hold only when it runs).
+Invariant I3 reports any of them without that pin - it derives the cascade
+triggers from the catalog, so a trigger added later to a table a cascade
+writes is reported too - and reports `CREATE` in `public` or `pg_catalog`
+held by any role outside the owner's trust if it is granted after the setup
+ran.
 
 It never prints a connection string, a password or the key. Exit codes:
 **0** applied and verified; **1** refused or not verified (nothing changed);
@@ -219,7 +231,8 @@ constrained by the ledger's guards and invariants, not by signed approvals.
 | `20260918020000`, `20260922020000`, `20260922060000` (catalog seed and rules-hash checks) | Stop if the frozen rules or their hashes differ from the expected ones. Each locks the catalog while it runs. |
 | `20260924000000_ledger_integrity_gate` | The upgraded ledger itself, via `ledger_integrity_anomalies()`, with every ledger table locked. Only if it passes does it install the write guards that keep these rules true afterwards. |
 | `20260924010000_ledger_resolution_authorization` | Installs the binding of `LEGACY_RESOLVE` and `ADMIN_ADJUST` to the records that authorize them, then stops if any operation already recorded breaks it. |
-| `20260924040000_ledger_function_search_path` | Pins every schema function's `search_path` (schema first, `pg_temp` last). |
+| `20260924040000_ledger_function_search_path` | Pins every schema function's `search_path` (schema first, `pg_temp` last); the functions that run as the owner get the stricter `pg_catalog, pg_temp`. |
+| `20260924050000_ledger_cascade_trigger_search_path` | Gives every trigger function a cascade can fire the same strict `pg_catalog, pg_temp`, rules unchanged. |
 | `20260924090000_ledger_upgrade_window_check` (last migration) | Locks the same tables and compares every one of those records, field by field, with the fingerprint taken by the first migration; stops if anything changed while the release migrated, even when row counts and credited totals are unchanged. Drops `ledger_upgrade_window` when it passes. |
 | Read-only preflight (`preflight:ledger-upgrade`) | Before: what the first gate will decide. After: what the final gate and invariant I15 decide, plus every operation the authorization rules reject. |
 | Invariant scan (`scan:ledger-invariants`) | Every runtime invariant (I1 to I16) in a rolled-back transaction; records nothing. |

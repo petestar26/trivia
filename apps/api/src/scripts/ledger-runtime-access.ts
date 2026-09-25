@@ -17,8 +17,10 @@
  * ledger_apply_runtime_grants() (which also removes, or refuses, any way for
  * the runtime role to create objects in the schemas where code running as
  * the owner resolves names, and refuses while any other role outside the
- * owner's trust can create there or owns objects there) and verifies the
- * result. It never prints a connection string, a password or the key.
+ * owner's trust can create there or owns objects there; the runtime role
+ * also loses UPDATE on every key other tables follow by cascade) and
+ * verifies the result. It never prints a connection string, a password or
+ * the key.
  * Exit codes: 0 applied and verified, 1 refused or not verified, 2 could not run.
  */
 import { PrismaClient } from '@prisma/client';
@@ -43,8 +45,12 @@ const DENIED: [table: string, privilege: string][] = [
 ];
 const DENIED_USER_COLUMNS = ['role', 'status'];
 const REQUIRED: [table: string, privilege: string][] = [
-  ['users', 'INSERT'], ['wallets', 'UPDATE'], ['economic_operations', 'INSERT'], ['coin_lot_entries', 'INSERT'],
+  ['users', 'INSERT'], ['economic_operations', 'INSERT'], ['coin_lot_entries', 'INSERT'],
   ['wallet_transactions', 'INSERT'], ['game_sessions', 'INSERT'], ['admin_adjustment_approvals', 'SELECT'],
+];
+/** Columns the API updates on tables whose key other tables follow by cascade (so UPDATE is column-level there). */
+const REQUIRED_UPDATE_COLUMNS: [table: string, column: string][] = [
+  ['wallets', 'coinsBalance'], ['wallets', 'gamePointsBalance'], ['agent_orders', 'status'], ['coin_provenance', 'state'],
 ];
 
 interface Report {
@@ -96,6 +102,20 @@ async function apply(client: PrismaClient, role: string, keyId: string, keyHex: 
       const [schema] = await tx.$queryRaw<{ create: boolean }[]>`
         SELECT has_schema_privilege(${role}, 'public', 'CREATE') AS "create"`;
       if (schema?.create) failures.push(`${role} can still create objects in schema public`);
+      // No key another table follows by cascade: a cascade, and the triggers
+      // it fires, run as the owner of the referencing table.
+      const cascadeKeys = await tx.$queryRaw<{ key: string }[]>`
+        SELECT DISTINCT c.confrelid::regclass::text || '.' || a.attname::text AS "key"
+        FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = ANY (c.confkey)
+        WHERE c.contype = 'f' AND c.confupdtype IN ('c', 'n', 'd')
+          AND has_column_privilege(${role}, c.confrelid, a.attname::text, 'UPDATE')
+        ORDER BY 1`;
+      for (const { key } of cascadeKeys) failures.push(`${role} can still change ${key}, a key other tables follow by cascade`);
+      for (const [table, column] of REQUIRED_UPDATE_COLUMNS) {
+        const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
+          SELECT has_column_privilege(${role}, to_regclass(${table}), ${column}, 'UPDATE') AS "granted"`;
+        if (!row?.granted) failures.push(`${role} cannot update ${table}.${column}, which the API needs`);
+      }
       for (const [table, privilege] of REQUIRED) {
         const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
           SELECT has_table_privilege(${role}, to_regclass(${table}), ${privilege}) AS "granted"`;
