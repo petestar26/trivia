@@ -97,6 +97,12 @@ async function cleanLiquidityFixtures() {
   }
 
   await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
+  // Coin provenance/allocation rows are a real foreign key to User —
+  // must be cleared before the user row itself can be deleted. Covers
+  // both rows this run created AND legacy backfill rows for any stale
+  // fixture user left behind by a prior interrupted run (same prefix).
+  await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+  await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   await prisma.country.deleteMany({ where: { code: { startsWith: 'L' }, name: { startsWith: 'Liquidity Test Country' } } });
 }

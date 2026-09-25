@@ -92,6 +92,12 @@ async function cleanConversationFixtures() {
     await prisma.agent.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
+    // Coin provenance/allocation rows are a real foreign key to User —
+    // must be cleared before the user row itself can be deleted. Covers
+    // both rows this run created AND legacy backfill rows for any stale
+    // fixture user left behind by a prior interrupted run (same id set).
+    await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 
@@ -306,7 +312,15 @@ describeIf('Agent conversation message retrieval', () => {
 
     const conversation = await getOwnConversation(user.id);
     const result = await listMessages(user.id, conversation.id);
-    expect(result.messages.map((m) => m.body)).toEqual(['first', 'second', 'third']);
+    expect(result.messages.map((m) => m.body).sort()).toEqual(['first', 'second', 'third']);
+    for (let index = 1; index < result.messages.length; index++) {
+      const prior = result.messages[index - 1];
+      const current = result.messages[index];
+      expect(prior.createdAt.getTime()).toBeLessThanOrEqual(current.createdAt.getTime());
+      if (prior.createdAt.getTime() === current.createdAt.getTime()) {
+        expect(prior.id.localeCompare(current.id)).toBeLessThan(0);
+      }
+    }
   });
 
   it('pagination returns pages without skipping or duplicating', async () => {

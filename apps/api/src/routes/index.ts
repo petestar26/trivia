@@ -21,6 +21,7 @@ import { securityRoutes } from '../security/routes';
 import { withdrawalRoutes } from '../withdrawals/routes';
 import { userRoutes } from './users';
 import { notificationRoutes } from './notifications.js';
+import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
@@ -47,6 +48,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(withdrawalRoutes, { prefix: '/withdrawals' });
   await server.register(userRoutes, { prefix: '/users' });
   await server.register(notificationRoutes, { prefix: '/notifications' });
+  await server.register(ledgerAdminRoutes, { prefix: '/ledger-admin' });
 
   // Root service-info handler is registered directly in server.ts, outside
   // this API_PREFIX-wrapped block — see the comment there. Not registered

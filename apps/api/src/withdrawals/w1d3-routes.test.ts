@@ -7,7 +7,7 @@ import { createWithdrawalQuote } from './quote-service';
 import { createUserPayoutAccount } from './payout-account-service';
 import { createWithdrawal, claimPayout } from './withdrawal-service';
 import { fundAgentFiatLiquidity } from './liquidity-service';
-import { executeBalanceChange } from '../economy/wallet-service';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
 
 // W-1D3 route-level tests.
@@ -34,6 +34,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (server) await server.close();
+  await prisma.platformGate.updateMany({ where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false } });
   await prisma.$disconnect();
 });
 
@@ -66,7 +67,7 @@ async function createSuperAdmin(tag: string) {
 }
 
 async function createCountry(tag: string) {
-  const code = `W3R${randomUUID().replaceAll('-', '').slice(0, 6)}`.toUpperCase();
+  const code = await nextTestCountryCode();
   return prisma.country.create({
     data: { code, name: `W1D3 Route Country ${tag}`, currencyCode: 'USD', isActive: true, agentPaymentEnabled: true },
   });
@@ -87,13 +88,7 @@ async function createFundedAgent(tag: string, countryId: string, admin: { id: st
 
 async function createFundedUser(tag: string, coins: number) {
   const user = await createUser(`user-${tag}`);
-  await executeBalanceChange({
-    userId: user.id,
-    changes: [
-      { currency: 'COINS', amount: coins, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT', referenceType: 'ADMIN', description: 'fixture' },
-    ],
-    operationName: 'fixture-credit',
-  });
+  await mintTestPurchasedCoins(user.id, coins);
   return user;
 }
 
@@ -103,6 +98,7 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
   const admin = await createAdmin(tag);
   const superAdmin = await createSuperAdmin(`${tag}-s`);
   const country = await createCountry(tag);
+  await activateTestWithdrawalPolicy(country.id, admin.id);
   const pm = await prisma.paymentMethodDefinition.create({
     data: {
       countryId: country.id,
@@ -185,11 +181,19 @@ async function cleanRouteFixtures() {
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
   }
+  // Coin provenance/allocation rows are a real foreign key to User —
+  // must be cleared before the user row itself can be deleted. Covers
+  // both rows this run created AND legacy backfill rows for any stale
+  // fixture user left behind by a prior interrupted run (same prefix).
+  await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+  await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 
   const countries = await prisma.country.findMany({ where: { name: { startsWith: 'W1D3 Route Country' } } });
   for (const c of countries) {
     await prisma.exchangeRateConfig.deleteMany({ where: { countryId: c.id } });
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: c.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: c.code } });
     await prisma.paymentMethodDefinition.deleteMany({ where: { countryId: c.id } });
   }
   await prisma.country.deleteMany({ where: { name: { startsWith: 'W1D3 Route Country' } } });

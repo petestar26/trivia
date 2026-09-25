@@ -23,6 +23,12 @@ describeIf('auth identity foundation slice 4a — multi-provider identity model'
   async function cleanupFixtures() {
     if (createdUserIds.length) {
       // Cascade deletes identities via the FK (also exercised in test 6).
+      // Coin provenance/allocation rows are a real foreign key to User —
+      // must be cleared before the user row itself can be deleted. Covers
+      // both rows this run created AND legacy backfill rows for any stale
+      // fixture user left behind by a prior interrupted run (same id set).
+      await prisma.coinAllocation.deleteMany({ where: { userId: { in: createdUserIds } } });
+      await prisma.coinProvenance.deleteMany({ where: { userId: { in: createdUserIds } } });
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
       createdUserIds.length = 0;
     }

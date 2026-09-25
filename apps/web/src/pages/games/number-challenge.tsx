@@ -1,26 +1,43 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData, GameCatalogEntry } from '@/lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, unwrapData } from '@/lib/api';
+import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
+import { useDurablePlay } from '@/hooks/use-durable-play';
+import { useCasino } from '@/components/casino/CasinoProvider';
+import { CasinoShell } from '@/components/casino/CasinoShell';
+import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
 
-interface NumResult {
+type NumResult = {
   guess: number;
   target: number;
   away: number;
   correct: boolean;
+};
+
+interface NumPlayResult extends GamePlayResult {
+  result: NumResult;
 }
 
-interface NumPlayResult {
-  rewardAmount: number;
-  isWin: boolean;
-  result: NumResult;
-  newBalance: number;
+function parsePlayError(error: unknown): string {
+  if (error instanceof Error) {
+    try {
+      const parsed = JSON.parse(error.message) as { message?: string };
+      if (parsed?.message) return parsed.message;
+    } catch {
+      // not JSON
+    }
+    return error.message;
+  }
+  return 'Something went wrong';
 }
 
 export function NumberChallengePage() {
+  const { phase, setPhase, refetchBalance } = useCasino();
   const [bet, setBet] = useState(50);
   const [guess, setGuess] = useState(50);
   const [lastResult, setLastResult] = useState<NumResult | null>(null);
   const [serverBalance, setServerBalance] = useState<number | null>(null);
+  const [isReplay, setIsReplay] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: games } = useQuery<GameCatalogEntry[]>({
@@ -29,35 +46,37 @@ export function NumberChallengePage() {
   });
   const game = games?.find((g) => g.key === 'number_challenge');
 
-  const playMutation = useMutation({
-    mutationFn: async (payload: { betAmount: number; guess: number }) => {
-      return unwrapData(await api.post<NumPlayResult>('/games/number_challenge/play', payload), 'Number challenge play response');
-    },
-    onSuccess: (data) => {
-      setLastResult(data.result);
-      setServerBalance(data.newBalance);
-      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+  // One idempotency key per round, stored with the exact request before the
+  // first send; see useDurablePlay and dice.tsx.
+  const { play, pendingDiffersFrom, storageError, mutation: playMutation } = useDurablePlay<NumPlayResult>('number_challenge', {
+    onStart: () => setPhase('RUNNING'),
+    onSettled: (round, replayed) => {
+      setLastResult(round.result);
+      setServerBalance(round.newBalance);
+      setIsReplay(replayed);
+      setPhase(round.isWin ? 'RESULT' : 'SETTLED');
+      refetchBalance();
       queryClient.invalidateQueries({ queryKey: ['game-history'] });
     },
+    onFailed: () => setPhase('BETTING_OPEN'),
   });
 
   const minBet = game?.minBet ?? 10;
   const maxBet = game?.maxBet ?? 200;
 
-  const submit = () => {
-    playMutation.mutate({ betAmount: bet, guess });
-  };
+  const submit = () => play({ betAmount: bet, guess });
+  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: bet, guess });
 
   return (
-    <div className="max-w-md mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Number Challenge</h1>
-        <p className="text-gray-600 dark:text-gray-400">Guess a number between 1 and 100.</p>
-      </div>
-
+    <CasinoShell
+      gameKey="number_challenge"
+      gameName="Number Challenge"
+      rulesVersion={game?.currentRulesVersion}
+      phase={phase}
+    >
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Bet amount</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Bet amount (Coins)</label>
           <input
             type="number"
             min={minBet}
@@ -87,17 +106,29 @@ export function NumberChallengePage() {
         >
           {playMutation.isPending ? 'Checking…' : 'Submit Guess'}
         </button>
-        <div className="text-xs text-gray-500">Min {minBet} · Max {maxBet} GP</div>
+        <div className="text-xs text-gray-500">Min {minBet} · Max {maxBet} Coins</div>
+
+        {confirmingEarlierRound && (
+          <div className="text-sm text-amber-700 dark:text-amber-400">
+            Your previous guess has not been confirmed yet. Submitting confirms that guess first; your new bet and guess apply to the next round.
+          </div>
+        )}
+
+        {storageError && (
+          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {storageError}
+          </div>
+        )}
 
         {playMutation.isError && (
           <div className="text-sm text-red-600 dark:text-red-400">
-            {(playMutation.error as Error)?.message || 'Something went wrong'}
+            {parsePlayError(playMutation.error)}
           </div>
         )}
       </div>
 
       {lastResult && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
+        <CasinoRendererSlot gameKey="number_challenge" gameName="Number Challenge" className="text-center">
           {lastResult.correct ? (
             <div className="text-2xl font-bold text-green-600 dark:text-green-400">🎯 Exact hit!</div>
           ) : lastResult.away <= 5 ? (
@@ -112,18 +143,23 @@ export function NumberChallengePage() {
           <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
             The number was {lastResult.target}
           </div>
-          {playMutation.data?.rewardAmount ? (
+          {playMutation.data?.data.rewardAmount ? (
             <div className="mt-2 text-green-600 dark:text-green-400 font-semibold">
-              +{playMutation.data.rewardAmount} GP
+              +{playMutation.data.data.rewardAmount} Coins
             </div>
           ) : null}
           {serverBalance !== null && (
             <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} GP</span>
+              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} Coins</span>
             </div>
           )}
-        </div>
+          {isReplay && (
+            <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+              Replayed round — no new wager.
+            </div>
+          )}
+        </CasinoRendererSlot>
       )}
-    </div>
+    </CasinoShell>
   );
 }

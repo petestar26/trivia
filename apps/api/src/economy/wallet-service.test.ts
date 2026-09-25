@@ -1,6 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from './wallet-service';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service';
+import { lockUserEconomicScope, reserveWithdrawalCoins, releaseWithdrawalCoins } from './coin-ledger-service.js';
+import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
 // W-1D0: regression coverage for the withdrawal-refund exemption to
 // applyBalanceChanges's MAX_BALANCE overflow guard. No withdrawal
@@ -19,6 +22,7 @@ try {
 }
 
 afterAll(async () => {
+  await prisma.platformGate.updateMany({ where: { key: 'WITHDRAWAL_CREATE' }, data: { enabled: false } });
   await prisma.$disconnect();
 });
 
@@ -50,26 +54,56 @@ async function cleanFixtures() {
     await prisma.walletTransaction.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
   }
+  // Coin provenance/allocation rows are a real foreign key to User —
+  // must be cleared before the user row itself can be deleted. Covers
+  // both rows this run created AND legacy backfill rows for any stale
+  // fixture user left behind by a prior interrupted run (same id set).
+  await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+  await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+  const countries = await prisma.country.findMany({ where: { name: { startsWith: 'Wallet Cap Country' } } });
+  for (const country of countries) {
+    await prisma.countryJurisdiction.deleteMany({ where: { countryCode: country.code } });
+    await prisma.countryCasinoPolicy.deleteMany({ where: { countryCode: country.code } });
+    await prisma.country.delete({ where: { id: country.id } });
+  }
 }
 
 /** Credits a fresh wallet's COINS balance up to exactly MAX_BALANCE via an
  * ordinary (non-withdrawal) credit — the normal cap check allows this. */
 async function creditCoinsToCap(userId: string) {
-  await getOrCreateWallet(userId);
-  await executeBalanceChange({
-    userId,
-    changes: [
-      {
-        currency: 'COINS',
-        amount: MAX_BALANCE,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'ADMIN',
-        description: 'test fixture: credit coins to cap',
-      },
-    ],
-    operationName: 'test-fixture-credit-coins-to-cap',
+  await mintTestPurchasedCoins(userId, MAX_BALANCE);
+}
+
+async function testWithdrawalPolicy(configuredBy: string) {
+  const country = await prisma.country.create({ data: {
+    code: await nextTestCountryCode(), name: `Wallet Cap Country ${randomUUID()}`,
+    currencyCode: 'USD', isActive: true, agentPaymentEnabled: true,
+  } });
+  await activateTestWithdrawalPolicy(country.id, configuredBy);
+  const policy = await prisma.countryCasinoPolicy.findFirstOrThrow({ where: { countryCode: country.code, state: 'ACTIVE' } });
+  return policy;
+}
+
+async function holdCoins(userId: string, amount: number, policy: { id: string; version: number }) {
+  const withdrawalId = randomUUID();
+  const result = await prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `test-hold:${userId}:${withdrawalId}`);
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR SHARE`;
+    return reserveWithdrawalCoins(tx, userId, amount, {
+      withdrawalId, policyId: policy.id, policyVersion: policy.version, holdingPeriodHours: 0,
+    });
+  });
+  return { withdrawalId, holdOperationId: result.holdOperationId, amount };
+}
+
+async function releaseCoins(userId: string, hold: { withdrawalId: string; holdOperationId: string; amount: number }) {
+  return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `test-release:${userId}:${hold.withdrawalId}`);
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId} FOR SHARE`;
+    return releaseWithdrawalCoins(tx, userId, hold.withdrawalId, {
+      holdOperationId: hold.holdOperationId, amount: hold.amount,
+    });
   });
 }
 
@@ -80,20 +114,7 @@ describeIf('economy/wallet-service — MAX_BALANCE withdrawal-refund exemption (
     const user = await createUser(tag);
     await creditCoinsToCap(user.id);
 
-    await expect(
-      prisma.$transaction((tx) =>
-        applyBalanceChanges(tx, user.id, [
-          {
-            currency: 'COINS',
-            amount: 1,
-            ledgerType: 'CREDIT',
-            transactionType: 'COIN_CREDIT',
-            referenceType: 'ADMIN',
-            description: 'would exceed cap',
-          },
-        ])
-      )
-    ).rejects.toThrow(/exceeds maximum/);
+    await expect(mintTestPurchasedCoins(user.id, 1)).rejects.toThrow(/exceeds maximum/);
 
     const balance = await getWalletBalance(user.id);
     expect(balance.coinsBalance).toBe(MAX_BALANCE); // unchanged
@@ -103,24 +124,15 @@ describeIf('economy/wallet-service — MAX_BALANCE withdrawal-refund exemption (
     await cleanFixtures();
     const tag = `withdrawal-exempt-${Date.now()}`;
     const user = await createUser(tag);
+    const policy = await testWithdrawalPolicy(user.id);
     await creditCoinsToCap(user.id);
 
     // Balance lands at 1.5e9 — above MAX_BALANCE, comfortably below the
     // 2e9 hard ceiling.
     const refundAmount = 500_000_000;
-    await prisma.$transaction((tx) =>
-      applyBalanceChanges(tx, user.id, [
-        {
-          currency: 'COINS',
-          amount: refundAmount,
-          ledgerType: 'CREDIT',
-          transactionType: 'COIN_CREDIT',
-          referenceType: 'WITHDRAWAL',
-          referenceId: 'test-withdrawal-id',
-          description: 'withdrawal cancellation refund',
-        },
-      ])
-    );
+    const hold = await holdCoins(user.id, refundAmount, policy);
+    await mintTestPurchasedCoins(user.id, refundAmount);
+    await releaseCoins(user.id, hold);
 
     const balance = await getWalletBalance(user.id);
     expect(balance.coinsBalance).toBe(MAX_BALANCE + refundAmount);
@@ -131,42 +143,21 @@ describeIf('economy/wallet-service — MAX_BALANCE withdrawal-refund exemption (
     await cleanFixtures();
     const tag = `withdrawal-ceiling-${Date.now()}`;
     const user = await createUser(tag);
+    const policy = await testWithdrawalPolicy(user.id);
     await creditCoinsToCap(user.id);
 
-    // First refund lands exactly at the ceiling — still allowed.
-    await prisma.$transaction((tx) =>
-      applyBalanceChanges(tx, user.id, [
-        {
-          currency: 'COINS',
-          amount: MAX_BALANCE,
-          ledgerType: 'CREDIT',
-          transactionType: 'COIN_CREDIT',
-          referenceType: 'WITHDRAWAL',
-          referenceId: 'test-withdrawal-id-1',
-          description: 'withdrawal refund landing exactly at the ceiling',
-        },
-      ])
-    );
+    // Two authentic holds let the first release land exactly at 2x the cap.
+    const largeHold = await holdCoins(user.id, MAX_BALANCE, policy);
+    await mintTestPurchasedCoins(user.id, MAX_BALANCE);
+    const smallHold = await holdCoins(user.id, 1, policy);
+    await mintTestPurchasedCoins(user.id, 1);
+    await releaseCoins(user.id, largeHold);
     const atCeiling = await getWalletBalance(user.id);
     expect(atCeiling.coinsBalance).toBe(WITHDRAWAL_REFUND_CEILING);
 
     // A second refund would push past the ceiling — must be rejected,
     // proving the exemption is bounded, not unlimited.
-    await expect(
-      prisma.$transaction((tx) =>
-        applyBalanceChanges(tx, user.id, [
-          {
-            currency: 'COINS',
-            amount: 1,
-            ledgerType: 'CREDIT',
-            transactionType: 'COIN_CREDIT',
-            referenceType: 'WITHDRAWAL',
-            referenceId: 'test-withdrawal-id-2',
-            description: 'would exceed the hard ceiling',
-          },
-        ])
-      )
-    ).rejects.toThrow(/exceeds maximum/);
+    await expect(releaseCoins(user.id, smallHold)).rejects.toThrow(/exceeds maximum/);
 
     const unchanged = await getWalletBalance(user.id);
     expect(unchanged.coinsBalance).toBe(WITHDRAWAL_REFUND_CEILING); // unchanged
@@ -211,5 +202,103 @@ describeIf('economy/wallet-service — MAX_BALANCE withdrawal-refund exemption (
         ])
       )
     ).rejects.toThrow(/exceeds maximum/);
+  });
+});
+
+// CORRECTION 4a: independent application-level coverage of the
+// COIN_LEDGER_INTENT capability guard in applyBalanceChanges. Nothing above
+// this point exercises the guard directly (W-1D0 above hits the MAX_BALANCE
+// check, which sits after it).
+describeIf('economy/wallet-service — COIN_LEDGER_INTENT guard (review correction #4a)', () => {
+  // A same-shaped but different Symbol. `unique symbol` typing forbids this
+  // at the type level (by design) — the double cast simulates a caller that
+  // got hold of a look-alike value, so the test proves the runtime `!==`
+  // check itself, not just the compiler.
+  const FOREIGN_INTENT = Symbol('not-the-real-intent') as unknown as typeof COIN_LEDGER_INTENT;
+
+  it('rejects a pure-COINS change with no coinLedgerIntent', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-coins-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'unguarded coins credit' },
+        ])
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(0);
+  });
+
+  it('rejects a MIXED GAME_POINTS + COINS change with no coinLedgerIntent (kills a some->every mutant)', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-mixed-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'GAME_POINTS', amount: 1, ledgerType: 'CREDIT', transactionType: 'GAME_POINT_CREDIT',
+            referenceType: 'ADMIN', description: 'game points half of a mixed batch' },
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'coins half of a mixed batch' },
+        ])
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(0);
+    expect(balance.gamePointsBalance).toBe(0);
+  });
+
+  it('rejects a COINS change carrying a foreign symbol as coinLedgerIntent', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-foreign-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await expect(
+      prisma.$transaction((tx) =>
+        applyBalanceChanges(tx, user.id, [
+          { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+            referenceType: 'ADMIN', description: 'coins credit with a look-alike intent' },
+        ], { coinLedgerIntent: FOREIGN_INTENT })
+      )
+    ).rejects.toThrow(/named economic ledger operation/);
+  });
+
+  it('allows a COINS change carrying the real COIN_LEDGER_INTENT symbol', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-real-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await prisma.$transaction((tx) =>
+      applyBalanceChanges(tx, user.id, [
+        { currency: 'COINS', amount: 7, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+          referenceType: 'ADMIN', description: 'coins credit under the real ledger intent' },
+      ], { coinLedgerIntent: COIN_LEDGER_INTENT })
+    );
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.coinsBalance).toBe(7);
+  });
+
+  it('allows a GAME_POINTS-only change with no coinLedgerIntent (guard does not overreach)', async () => {
+    await cleanFixtures();
+    const user = await createUser(`intent-gp-only-${Date.now()}`);
+    await getOrCreateWallet(user.id);
+
+    await prisma.$transaction((tx) =>
+      applyBalanceChanges(tx, user.id, [
+        { currency: 'GAME_POINTS', amount: 5, ledgerType: 'CREDIT', transactionType: 'GAME_POINT_CREDIT',
+          referenceType: 'ADMIN', description: 'game points credit needs no coin ledger intent' },
+      ])
+    );
+
+    const balance = await getWalletBalance(user.id);
+    expect(balance.gamePointsBalance).toBe(5);
   });
 });

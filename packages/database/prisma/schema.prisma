@@ -46,6 +46,12 @@ model User {
   messageReactions          MessageReaction[]
   notifications             Notification[]
   wallet                    Wallet?
+  economicOperations        EconomicOperation[]
+  coinLotEntries            CoinLotEntry[]
+  coinLedgerAccount         CoinLedgerAccount?
+  kycVerification           UserKycVerification?
+  legacyBalanceReviews      LegacyBalanceReview[]
+  adminAdjustmentApprovals  AdminAdjustmentApproval[]
   vipMembership             VipMembership?
   progress                  UserProgress?
   xpEvents                  UserXpEvent[]
@@ -54,6 +60,8 @@ model User {
   rewardClaims              RewardClaim[]
   achievements              UserAchievement[]
   gameSessions              GameSession[]
+  coinProvenances           CoinProvenance[]
+  coinAllocations           CoinAllocation[]
   triviaAttempts            UserTriviaAttempt[]
   competitionTriviaAttempts CompetitionTriviaAttempt[]
   challengesSent            GameChallenge[]            @relation("ChallengeSender")
@@ -518,6 +526,8 @@ model WalletTransaction {
   createdAt     DateTime                 @default(now())
 
   wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  coinProvenances   CoinProvenance[]
+  adjustmentApproval AdminAdjustmentApproval?
 
   @@index([walletId, createdAt])
   @@index([userId, createdAt])
@@ -558,6 +568,10 @@ model GiftTransaction {
   senderWalletId          String
   recipientWalletId       String
   createdAt               DateTime @default(now())
+  // Immutable copy of the exact success response returned at send time
+  // (CORRECTION 3). Null on rows created before this column existed; those
+  // replay through a safe legacy path that never reads the live catalog.
+  responseSnapshot        Json?
 
   sender    Wallet @relation("GiftSender", fields: [senderWalletId], references: [id], onDelete: Restrict)
   recipient Wallet @relation("GiftRecipient", fields: [recipientWalletId], references: [id], onDelete: Restrict)
@@ -795,6 +809,16 @@ enum GameType {
   DICE
   TRIVIA
   NUMBER_CHALLENGE
+  SPIN_WIN
+  THUNDER_DERBY_3D
+  NEON_HOUNDS_3D
+  TURBO_CIRCUIT_3D
+  STARFALL_NEBULA
+  JUNGLE_DASH_3D
+  TURBO_KENO
+  CRYSTAL_TRAIL
+  HEAT_VAULT
+  STRAIT_RUSH
 }
 
 enum GameSessionStatus {
@@ -805,45 +829,555 @@ enum GameSessionStatus {
   CANCELLED
 }
 
-model GameDefinition {
-  id            String   @id @default(uuid())
-  key           String   @unique
-  name          String
-  description   String?  @db.Text
-  type          GameType
-  isActive      Boolean  @default(true)
-  minBet        Int      @default(1)
-  maxBet        Int      @default(1000)
-  configuration Json // server-only: probabilities, outcomes, etc.
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+enum GameMode {
+  WAGER
+  BONUS
+  @@map("game_mode")
+}
 
-  sessions     GameSession[]
-  challenges   GameChallenge[]
-  competitions GroupCompetition[]
+enum GameFamily {
+  INSTANT
+  SCHEDULED_DRAW
+  SCHEDULED_RACE
+  @@map("game_family")
+}
+
+enum GameCatalogStatus {
+  AVAILABLE
+  COMING_SOON
+  RETIRED
+  @@map("game_catalog_status")
+}
+
+enum PlayContext {
+  SOLO_WAGER
+  COMPETITION_ROUND
+  CHALLENGE_ROUND
+  BONUS
+  @@map("play_context")
+}
+
+enum CoinProvenanceType {
+  CONVERSION
+  PURCHASE
+  GAME_WIN
+  TRIVIA_REWARD
+  REFERRAL_REWARD
+  PROMOTION
+  GIFT_SENT
+  GIFT_RECEIVED
+  BONUS_UNLOCK
+  WITHDRAWAL
+  ADMIN_ADJUSTMENT
+  COMPETITION_PRIZE
+  TASK_REWARD
+  // Coins whose balance predates (or otherwise bypassed) provenance
+  // tracking. Minted defensively — never assumed unrestricted — by the
+  // legacy backfill migration and by the runtime allocator's gap-lot
+  // fallback in provenance-service.ts. See LEGACY_REQUIRED_PLAYTHROUGH.
+  LEGACY_UNTRACKED
+  @@map("coin_provenance_type")
+}
+
+enum CoinRestrictionStatus {
+  RESTRICTED
+  UNRESTRICTED
+  PLAYING_THROUGH
+  EXPIRED
+  @@map("coin_restriction_status")
+}
+
+enum CountryCasinoStatus {
+  ENABLED
+  DISABLED
+  RESTRICTED
+  @@map("country_casino_status")
+}
+
+enum LotClass {
+  WITHDRAWABLE
+  RESTRICTED
+  UNCLASSIFIED
+  @@map("lot_class")
+}
+
+enum LotState {
+  OPEN
+  CONVERTED
+  EXHAUSTED
+  EXPIRED
+  RECLASSIFIED
+  FORFEITED
+  @@map("lot_state")
+}
+
+enum PolicyState {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  DISABLED
+  @@map("policy_state")
+}
+
+enum OperationType {
+  PURCHASE
+  BONUS_GRANT
+  WAGER
+  PAYOUT
+  GIFT_SPEND
+  P2P_TRANSFER
+  COMPETITION_ESCROW
+  COMPETITION_RELEASE
+  COMPETITION_PAYOUT
+  WITHDRAWAL_HOLD
+  WITHDRAWAL_RELEASE
+  WITHDRAWAL_FINALIZE
+  BONUS_CONVERSION
+  BONUS_EXPIRY
+  LEGACY_OPENING
+  LEGACY_RESOLVE
+  ADMIN_ADJUST
+  ADMIN_QUALIFY
+  COMPENSATION
+  @@map("operation_type")
+}
+
+enum EntryType {
+  MINT
+  CONSUME
+  RETURN
+  RESERVE
+  RELEASE
+  FINALIZE
+  TRANSFER_OUT
+  TRANSFER_IN
+  PROGRESS
+  CONVERT_OUT
+  CONVERT_IN
+  FORFEIT
+  RECLASS_OUT
+  RECLASS_IN
+  @@map("entry_type")
+}
+
+model GameDefinition {
+  id                   String               @id @default(uuid())
+  key                  String               @unique
+  name                 String
+  description          String?              @db.Text
+  type                 GameType
+  isActive             Boolean              @default(true)
+  minBet               Int                  @default(1)
+  maxBet               Int                  @default(1000)
+  configuration        Json                 // server-only: probabilities, outcomes, etc.
+  mode                 GameMode
+  family               GameFamily
+  catalogStatus        GameCatalogStatus
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  currentRulesVersion  Int?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  sessions             GameSession[]
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
+  rules                GameRules[]
 
   @@index([isActive])
   @@index([key])
+  @@index([catalogStatus])
   @@map("game_definitions")
 }
 
-model GameSession {
-  id             String            @id @default(uuid())
+model GameRules {
+  id                   String       @id @default(uuid())
+  gameId               String
+  version              Int
+  mode                 GameMode
+  family               GameFamily
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  rules                Json
+  resultSchemaVersion  Int
+  rulesHash            String
+  createdAt            DateTime     @default(now())
+
+  game                 GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
+
+  @@unique([gameId, version])
+  @@index([gameId])
+  @@map("game_rules")
+}
+
+model CountryCasinoPolicy {
+  id                      String             @id @default(uuid())
+  countryCode             String
+  version                 Int
+  status                  CountryCasinoStatus @default(DISABLED)
+  enabledAt               DateTime?
+  disabledAt              DateTime?
+  minWithdrawal           Int                @default(0)
+  maxWithdrawal           Int                @default(0)
+  dailyWithdrawalLimit    Int                @default(0)
+  monthlyWithdrawalLimit  Int                @default(0)
+  playthroughMultiplier   Decimal            @default(1.0) @db.Decimal(6, 2)
+  qualifyingGames         Json               @default("[]")
+  maxQualifyingStake      Int                @default(0)
+  holdingPeriodHours      Int                @default(0)
+  giftDailyLimit          Int                @default(0)
+  kycTierRequired         Int                @default(0)
+  supportedPaymentMethods Json               @default("[]")
+  withdrawalFeePercent    Decimal            @default(0) @db.Decimal(5, 4)
+  manualReviewThreshold   Int                @default(0)
+  notes                   String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  state                   PolicyState?
+  thresholdsConfiguredAt  DateTime?
+  configurationAttestation Json?
+  configuredBy            String?
+  activatedAt             DateTime?
+  activatedBy             String?
+  maxConversionMultiple   Decimal?           @db.Decimal(10, 2)
+  bonusExpiryHours        Int?
+
+  coinProvenances         CoinProvenance[]
+  economicOperations      EconomicOperation[]
+  activeJurisdiction      CountryJurisdiction? @relation("ActiveCasinoPolicy")
+
+  @@unique([countryCode, version])
+  @@index([countryCode])
+  @@index([status])
+  @@map("country_casino_policies")
+}
+
+model CoinProvenance {
+  id                       String                  @id @default(uuid())
+  userId                   String
+  walletTransactionId      String?
+  amount                   Int
+  provenanceType           CoinProvenanceType
+  restrictionStatus        CoinRestrictionStatus   @default(RESTRICTED)
+  originalSource           CoinProvenanceType?
+  originalGrantReferenceType String?
+  originalGrantReferenceId String?
+  countryPolicyId          String?
+  countryPolicyVersion     Int?
+  requiredPlaythrough      Int                     @default(0)
+  completedPlaythrough     Int                     @default(0)
+  giftChainOriginId        String?
+  giftChainParentId        String?
+  expiresAt                DateTime?
+  unlockedAt               DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  lotClass                 LotClass?
+  state                    LotState?
+  availableAmount          Int?
+  reservedAmount           Int?
+  requirementAmount        Int?
+  progressAmount           Int?
+  mintedAt                 DateTime?
+  availableAt              DateTime?
+  closedAt                 DateTime?
+  sourceOperationId        String?
+  parentLotId              String?
+  rootLotId                String?
+  reviewId                 String?
+
+  user                     User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  walletTransaction        WalletTransaction?      @relation(fields: [walletTransactionId], references: [id], onDelete: SetNull)
+  countryPolicy            CountryCasinoPolicy?    @relation(fields: [countryPolicyId], references: [id], onDelete: SetNull)
+  allocations              CoinAllocation[]
+  entries                  CoinLotEntry[] @relation("LotEntry")
+  counterpartyEntries      CoinLotEntry[] @relation("CounterpartyLotEntry")
+  sourceOperation          EconomicOperation? @relation("OperationSourceLot", fields: [sourceOperationId], references: [id], onDelete: Restrict, map: "coin_provenance_sourceOperation_fkey")
+  parentLot                CoinProvenance? @relation("CoinLotParent", fields: [parentLotId], references: [id], onDelete: Restrict, map: "coin_provenance_parentLot_fkey")
+  childLots                CoinProvenance[] @relation("CoinLotParent")
+  rootLot                  CoinProvenance? @relation("CoinLotRoot", fields: [rootLotId], references: [id], onDelete: Restrict, map: "coin_provenance_rootLot_fkey")
+  rootedLots               CoinProvenance[] @relation("CoinLotRoot")
+  review                   LegacyBalanceReview? @relation("LotSelectedReview", fields: [reviewId], references: [id], onDelete: Restrict, map: "coin_provenance_review_fkey")
+  reviews                  LegacyBalanceReview[] @relation("ReviewLot")
+
+  @@index([userId])
+  @@index([userId, restrictionStatus])
+  @@index([walletTransactionId])
+  @@map("coin_provenance")
+  @@index([userId, state, lotClass, id], map: "coin_provenance_funding_idx")
+  @@index([sourceOperationId], map: "coin_provenance_sourceOperation_idx")
+  @@index([reviewId], map: "coin_provenance_review_idx")
+}
+
+model EconomicOperation {
+  id                   String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type                 OperationType
+  userId               String
+  scopeType            String
+  scopeId              String
+  idempotencyKey       String?
+  requestHash          String?
+  countryPolicyId      String?
+  countryPolicyVersion Int?
+  walletTransactionIds String[] @default([])
+  reversesOperationId  String? @unique
+  snapshot             Json?
+  createdBy            String
+  createdAt            DateTime @default(now())
+
+  user                 User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "economic_operations_user_fkey")
+  countryPolicy        CountryCasinoPolicy? @relation(fields: [countryPolicyId], references: [id], onDelete: Restrict, map: "economic_operations_policy_fkey")
+  reversesOperation    EconomicOperation? @relation("EconomicOperationReversal", fields: [reversesOperationId], references: [id], onDelete: Restrict, map: "economic_operations_reverses_fkey")
+  reversedByOperation  EconomicOperation? @relation("EconomicOperationReversal")
+  entries              CoinLotEntry[]
+  sourceLots           CoinProvenance[] @relation("OperationSourceLot")
+  reviewsResolved      LegacyBalanceReview[]
+  adjustmentApproval   AdminAdjustmentApproval?
+  withdrawalHolds      WithdrawalHold[]
+
+  @@unique([type, scopeType, scopeId], map: "economic_operations_scope_key")
+  @@index([userId, createdAt], map: "economic_operations_user_created_idx")
+  @@index([countryPolicyId, countryPolicyVersion], map: "economic_operations_policy_idx")
+  @@map("economic_operations")
+}
+
+model CoinLotEntry {
+  id                String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  operationId       String
+  lotId             String
+  userId            String
+  entryType         EntryType
+  availableDelta    Int @default(0)
+  reservedDelta     Int @default(0)
+  progressDelta     Int @default(0)
+  obligationDelta   Int @default(0)
+  obligationShare   Int?
+  counterpartyLotId String?
+  reversesEntryId   String? @unique
+  sequence          Int
+  createdAt         DateTime @default(now())
+
+  operation         EconomicOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "coin_lot_entries_operation_fkey")
+  lot               CoinProvenance @relation("LotEntry", fields: [lotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_lot_fkey")
+  user              User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_lot_entries_user_fkey")
+  counterpartyLot   CoinProvenance? @relation("CounterpartyLotEntry", fields: [counterpartyLotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_counterparty_fkey")
+  reversesEntry     CoinLotEntry? @relation("CoinEntryReversal", fields: [reversesEntryId], references: [id], onDelete: Restrict, map: "coin_lot_entries_reverses_fkey")
+  reversedByEntry   CoinLotEntry? @relation("CoinEntryReversal")
+
+  @@unique([operationId, sequence], map: "coin_lot_entries_operation_sequence_key")
+  @@index([lotId, createdAt, id], map: "coin_lot_entries_lot_idx")
+  @@index([userId, createdAt], map: "coin_lot_entries_user_idx")
+  @@index([operationId], map: "coin_lot_entries_operation_idx")
+  @@map("coin_lot_entries")
+}
+
+model CountryJurisdiction {
+  countryCode    String @id
+  activePolicyId String? @unique
+  updatedAt      DateTime @default(now())
+
+  country        Country @relation(fields: [countryCode], references: [code], onDelete: Restrict, map: "country_jurisdictions_country_fkey")
+  activePolicy   CountryCasinoPolicy? @relation("ActiveCasinoPolicy", fields: [activePolicyId], references: [id], onDelete: Restrict, map: "country_jurisdictions_activePolicy_fkey")
+
+  @@map("country_jurisdictions")
+}
+
+model UserKycVerification {
+  userId       String @id
+  verifiedTier Int @default(0)
+  verifiedAt   DateTime?
+  verifiedBy   String?
+  status       String @default("PENDING")
+
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "user_kyc_verifications_user_fkey")
+
+  @@map("user_kyc_verifications")
+}
+
+model CoinLedgerAccount {
+  userId              String @id
+  classifiedAt        DateTime?
+  classificationRunId String?
+
+  user                User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_ledger_accounts_user_fkey")
+
+  @@map("coin_ledger_accounts")
+}
+
+model LegacyBalanceReview {
+  id                    String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                String
+  lotId                 String
+  amount                Int
+  evidence              Json @default("{}")
+  status                String @default("OPEN")
+  resolvedBy            String?
+  secondApproverId      String?
+  resolutionOperationId String? @unique
+  createdAt             DateTime @default(now())
+  resolvedAt            DateTime?
+
+  user                  User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_user_fkey")
+  lot                   CoinProvenance @relation("ReviewLot", fields: [lotId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_lot_fkey")
+  selectedByLots        CoinProvenance[] @relation("LotSelectedReview")
+  resolutionOperation   EconomicOperation? @relation(fields: [resolutionOperationId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_resolutionOperation_fkey")
+
+  @@index([userId, status], map: "legacy_balance_reviews_user_status_idx")
+  @@map("legacy_balance_reviews")
+}
+
+/// A signed Coin adjustment of one user, approved by two distinct SUPER_ADMINs
+/// before exactly one ADMIN_ADJUST operation executes it. Its lifecycle and the
+/// operation it authorizes are enforced by the database (migration
+/// 20260924010000_ledger_resolution_authorization).
+model AdminAdjustmentApproval {
+  id                  String    @id @default(uuid())
+  userId              String
+  /// Signed Coins: positive mints UNCLASSIFIED value, negative consumes lots.
+  amount              Int
+  caseId              String    @unique
+  evidence            Json
+  status              String    @default("PENDING")
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  firstApproverId     String?
+  firstApprovedAt     DateTime?
+  secondApproverId    String?
+  secondApprovedAt    DateTime?
+  operationId         String?   @unique
+  walletTransactionId String?   @unique
+  executedAt          DateTime?
+  closedBy            String?
+  closedAt            DateTime?
+  closeReason         String?
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_user_fkey")
+  operation         EconomicOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_operation_fkey")
+  walletTransaction WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_walletTransaction_fkey")
+
+  @@index([userId, status])
+  @@map("admin_adjustment_approvals")
+}
+
+/// A key that verifies signed ledger approval assertions. Owner only: the
+/// runtime role can neither read nor write it (ledger_apply_runtime_grants).
+model LedgerApprovalKey {
+  keyId       String    @id
+  secret      Bytes
+  installedAt DateTime  @default(now())
+  retiredAt   DateTime?
+
+  assertions LedgerApprovalAssertion[]
+
+  @@map("ledger_approval_keys")
+  @@ignore
+}
+
+/// One approval decision, signed by the API for exactly these terms; append
+/// only, written only by the ledger_* approval procedures.
+model LedgerApprovalAssertion {
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  subjectType    String
+  subjectId      String
+  action         String
+  actorId        String
   userId         String
-  gameId         String
-  challengeId    String?
-  status         GameSessionStatus @default(PENDING)
-  betAmount      Int
-  result         Json // server-generated canonical result
-  rewardAmount   Int               @default(0)
-  isWin          Boolean           @default(false)
-  idempotencyKey String?
-  createdAt      DateTime          @default(now())
-  completedAt    DateTime?
+  amount         Decimal  @db.Decimal
+  caseId         String
+  evidenceDigest String
+  nonce          String   @unique
+  keyId          String
+  signature      String
+  recordedAt     DateTime @default(now())
+
+  key LedgerApprovalKey @relation(fields: [keyId], references: [keyId], onDelete: Restrict, onUpdate: Restrict, map: "ledger_approval_assertions_key_fkey") @ignore
+
+  @@index([subjectType, subjectId, action], map: "ledger_approval_assertions_subject_idx")
+  @@map("ledger_approval_assertions")
+}
+
+model InvariantCheckRun {
+  id         String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  violations Json @default("[]")
+  passed     Boolean @default(false)
+
+  platformGates PlatformGate[]
+  @@map("invariant_check_runs")
+}
+
+model PlatformGate {
+  key                String @id
+  enabled            Boolean @default(false)
+  changedBy          String?
+  changedAt          DateTime @default(now())
+  lastInvariantRunId String?
+
+  lastInvariantRun InvariantCheckRun? @relation(fields: [lastInvariantRunId], references: [id], onDelete: Restrict, map: "platform_gates_lastInvariantRun_fkey")
+  @@map("platform_gates")
+}
+
+model CoinAllocation {
+  id              String          @id @default(uuid())
+  userId          String
+  gameSessionId   String?
+  provenanceId    String
+  allocatedAmount Int
+  provenanceType  CoinProvenanceType
+  wasRestricted   Boolean         @default(false)
+  allocationOrder Int             @default(0)
+  createdAt       DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provenance      CoinProvenance  @relation(fields: [provenanceId], references: [id], onDelete: Restrict)
+  gameSession     GameSession?    @relation(fields: [gameSessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([gameSessionId])
+  @@index([provenanceId])
+  @@map("coin_allocations")
+}
+
+model GameSession {
+  id                      String             @id @default(uuid())
+  userId                  String
+  gameId                  String
+  challengeId             String?
+  status                  GameSessionStatus  @default(PENDING)
+  betAmount               Int
+  result                  Json               // server-generated canonical result
+  rewardAmount            Int                @default(0)
+  isWin                   Boolean            @default(false)
+  idempotencyKey          String?
+  createdAt               DateTime           @default(now())
+  completedAt             DateTime?
+
+  // Rule snapshots (populated for every new session)
+  mode                    GameMode?
+  family                  GameFamily?
+  wagerCurrency           CurrencyType?
+  rewardCurrency          CurrencyType?
+  rulesVersion            Int?
+  resultSchemaVersion     Int?
+
+  // Actual per-session wallet settlement currencies
+  settlementDebitCurrency CurrencyType?
+  settlementCreditCurrency CurrencyType?
+
+  // Immutable snapshots
+  requestSnapshot         Json?
+  responseSnapshot        Json?
+  fingerprint             String?
+  selections              Json?
+  playContext             PlayContext?
 
   user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
   game      GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
   challenge GameChallenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+  allocations CoinAllocation[]
 
   @@unique([userId, idempotencyKey])
   @@unique([challengeId, userId])
@@ -851,6 +1385,8 @@ model GameSession {
   @@index([gameId])
   @@index([idempotencyKey])
   @@index([challengeId])
+  @@index([gameId, rulesVersion])
+  @@index([userId, fingerprint])
   @@map("game_sessions")
 }
 
@@ -924,6 +1460,8 @@ model GameChallenge {
   challengerId String
   challengedId String
   gameId       String
+  /// The immutable game_rules version this challenge was created under.
+  rulesVersion Int
   entryAmount  Int
   status       ChallengeStatus @default(PENDING)
   winnerId     String?
@@ -938,6 +1476,7 @@ model GameChallenge {
   challenged   User           @relation("ChallengeReceiver", fields: [challengedId], references: [id], onDelete: Cascade)
   winner       User?          @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
   game         GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules        GameRules      @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "game_challenges_rules_fkey")
   gameSessions GameSession[]
 
   @@index([challengerId, createdAt])
@@ -967,6 +1506,8 @@ model GroupCompetition {
   id               String             @id @default(uuid())
   groupId          String
   gameId           String
+  /// The immutable game_rules version this competition was created under.
+  rulesVersion     Int
   title            String
   description      String?            @db.Text
   status           CompetitionStatus  @default(SCHEDULED)
@@ -987,6 +1528,7 @@ model GroupCompetition {
 
   group                     Group                      @relation(fields: [groupId], references: [id], onDelete: Cascade)
   game                      GameDefinition             @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules                     GameRules                  @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "group_competitions_rules_fkey")
   creator                   User                       @relation("CompetitionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
   finalizer                 User?                      @relation("CompetitionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
   participants              CompetitionParticipant[]
@@ -1241,6 +1783,7 @@ model Country {
   agentPaymentAccounts AgentPaymentAccount[]
   withdrawalQuotes     WithdrawalQuote[]
   userPayoutAccounts   UserPayoutAccount[]
+  casinoJurisdiction   CountryJurisdiction?
 
   @@index([isActive])
   @@map("countries")
@@ -1757,11 +2300,13 @@ model WithdrawalHold {
   status                    WithdrawalHoldStatus @default(ACTIVE)
   debitWalletTransactionId  String               @unique // WalletTransaction.id from COIN_DEBIT at HELD
   refundWalletTransactionId String?              @unique // WalletTransaction.id from COIN_CREDIT at refund
+  holdOperationId           String?              @unique // economic_operations.id for WITHDRAWAL_HOLD
   createdAt                 DateTime             @default(now())
   consumedAt                DateTime?
   releasedAt                DateTime?
 
   withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+  holdOperation EconomicOperation? @relation(fields: [holdOperationId], references: [id], onDelete: Restrict, map: "withdrawal_holds_holdOperation_fkey")
 
   @@map("withdrawal_holds")
 }

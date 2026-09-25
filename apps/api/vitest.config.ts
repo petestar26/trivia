@@ -8,8 +8,8 @@ export default defineConfig({
     // performs destructive fixture cleanup (`deleteMany`) in its own
     // beforeAll. Under Vitest's default file parallelism those cleanups
     // interleave with other files' running tests, and shared reference data
-    // (GameDefinition / Achievement upserts via ensureGameDefinitions and
-    // ensureAchievements) is written concurrently by several files at once.
+    // (Achievement upserts via ensureAchievements) is written concurrently
+    // by several files at once.
     //
     // That produced order-dependent, non-reproducible failures — e.g.
     // challenge suites failing with "Insufficient Game Points for entry"
@@ -44,6 +44,10 @@ export default defineConfig({
     env: {
       LOG_PRETTY: 'false',
     },
+    // Scratch-only bridge for legacy fixture teardown against the new
+    // append-only ledger. It refuses to run unless TEST_LEDGER_DB_NAME names
+    // the exact throwaway database under test.
+    setupFiles: ['./src/test/fixture-ledger-cleanup.ts'],
     // Seeds reference data (trivia questions) exactly once before the run,
     // so the suite never depends on a manually pre-seeded database.
     globalSetup: ['./src/test/global-setup.ts'],

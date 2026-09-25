@@ -1,0 +1,305 @@
+-- Ledger upgrade, pre-upgrade gate. Runs before any ledger migration, on the
+-- supported pre-upgrade (master) schema. It changes no existing data; when
+-- it passes it only records the upgrade-window snapshot described below.
+--
+-- It projects exactly what the following migrations will create from the
+-- existing data (the 20260922050000 backfill and the 20260923030000 opening
+-- journal) and evaluates the same ledger-integrity definitions as the final
+-- gate (20260924000000), the runtime invariant checker (I15) and the
+-- read-only preflight (pnpm --filter api preflight:ledger-upgrade). It also
+-- refuses a legacy game whose stored rules differ from the rules this
+-- release verifies (20260922060000), which would otherwise stop the upgrade
+-- only after the casino schema exists. The blocks between the
+-- ledger-integrity markers are copies of
+-- apps/api/src/economy/ledger-integrity-definitions.ts; a test fails if they
+-- ever differ.
+--
+-- If this gate stops the upgrade, nothing has been changed and the running
+-- application is unaffected. Follow docs/deployment/ledger-upgrade-gate.md.
+--
+-- The upgrade is supported only with every application writer stopped (see
+-- the runbook). This gate first locks the tables it reads against writers,
+-- so an uncommitted write makes it wait and it then evaluates the committed
+-- result. When it passes, it records the legacy financial state it verified
+-- in "ledger_upgrade_window"; the last migration of the release
+-- (20260924090000) stops the upgrade if that state changed meanwhile.
+-- With every writer stopped these locks are free. If a writer is still
+-- running, the gate waits at most lock_timeout and then fails, changing
+-- nothing, instead of hanging the deploy; a deadlock with such a writer ends
+-- the same way for whichever side PostgreSQL aborts. See
+-- docs/deployment/ledger-upgrade-gate.md ("If a migration fails").
+SET LOCAL lock_timeout = '20s';
+LOCK TABLE "wallets", "wallet_transactions", "withdrawal_holds", "withdrawals", "game_definitions",
+  "agent_orders", "agent_order_settlements", "agent_reservations", "gift_transactions", "game_sessions"
+  IN SHARE MODE;
+
+DO $gate$
+DECLARE
+  gate_total integer;
+  gate_summary text;
+BEGIN
+  WITH
+-- ledger-integrity:source-projected:begin
+ledger_accounts AS (
+  SELECT DISTINCT w."userId" AS user_id, false AS classified
+  FROM "wallets" w
+),
+ledger_wallets AS (
+  SELECT w."userId" AS user_id, w."coinsBalance"::bigint AS coins_balance
+  FROM "wallets" w
+),
+projected_balances AS (
+  SELECT w."userId" AS user_id, w."coinsBalance"::bigint AS amount
+  FROM "wallets" w
+  WHERE w."coinsBalance" > 0
+),
+projected_holds AS (
+  SELECT h."id" AS hold_id, h."withdrawalId" AS withdrawal_id, d."userId" AS user_id,
+         h."coinAmount"::bigint AS coin_amount
+  FROM "withdrawal_holds" h
+  LEFT JOIN "withdrawals" d ON d."id" = h."withdrawalId"
+  WHERE h."status"::text = 'ACTIVE'
+),
+ledger_lots AS (
+  SELECT 'projected-balance:' || b.user_id AS id, b.user_id AS user_id, 'UNCLASSIFIED'::text AS lot_class,
+         'OPEN'::text AS state, b.amount AS available, 0::bigint AS reserved,
+         2000000000::bigint AS requirement, 0::bigint AS progress,
+         'projected-balance-opening:' || b.user_id AS source_operation_id, NULL::text AS review_id
+  FROM projected_balances b
+  UNION ALL
+  SELECT 'legacy-hold:' || h.hold_id, h.user_id, 'UNCLASSIFIED'::text, 'OPEN'::text, 0::bigint, h.coin_amount,
+         0::bigint, 0::bigint, 'projected-hold-opening:' || h.withdrawal_id, 'legacy-hold-review:' || h.hold_id
+  FROM projected_holds h
+),
+ledger_entries AS (
+  SELECT 'projected-balance:' || b.user_id AS lot_id, b.amount AS available_delta, 0::bigint AS reserved_delta,
+         0::bigint AS progress_delta, 2000000000::bigint AS obligation_delta
+  FROM projected_balances b
+  UNION ALL
+  SELECT 'legacy-hold:' || h.hold_id, h.coin_amount, 0::bigint, 0::bigint, 0::bigint
+  FROM projected_holds h
+  UNION ALL
+  SELECT 'legacy-hold:' || h.hold_id, -h.coin_amount, h.coin_amount, 0::bigint, 0::bigint
+  FROM projected_holds h
+),
+ledger_operations AS (
+  SELECT 'projected-balance-opening:' || b.user_id AS id, b.user_id AS user_id
+  FROM projected_balances b
+  UNION ALL
+  SELECT DISTINCT 'projected-hold-opening:' || h.withdrawal_id, h.user_id
+  FROM projected_holds h
+),
+ledger_reviews AS (
+  SELECT 'legacy-hold-review:' || h.hold_id AS id, h.user_id AS user_id, 'OPEN'::text AS status
+  FROM projected_holds h
+)
+-- ledger-integrity:source-projected:end
+  , anomalies AS (
+-- ledger-integrity:predicates:begin
+SELECT 'LOT_STATE_NULL'::text AS category, 'lot'::text AS subject_type, l.id AS subject_id, l.user_id AS user_id,
+       format('managed %s lot %s has no state', l.lot_class, l.id) AS detail
+FROM ledger_lots l
+WHERE l.lot_class IS NOT NULL AND l.state IS NULL
+UNION ALL
+SELECT 'LOT_CACHE_NULL', 'lot', l.id, l.user_id,
+       format('managed lot %s has a NULL cache (available %s, reserved %s, requirement %s, progress %s)',
+              l.id, COALESCE(l.available::text, 'NULL'), COALESCE(l.reserved::text, 'NULL'),
+              COALESCE(l.requirement::text, 'NULL'), COALESCE(l.progress::text, 'NULL'))
+FROM ledger_lots l
+WHERE l.lot_class IS NOT NULL
+  AND (l.available IS NULL OR l.reserved IS NULL OR l.requirement IS NULL OR l.progress IS NULL)
+UNION ALL
+SELECT 'LOT_PARTIALLY_LEGACY', 'lot', l.id, l.user_id,
+       format('lot %s has no lot class but some ledger fields set; a pre-journal lot keeps all of them NULL', l.id)
+FROM ledger_lots l
+WHERE l.lot_class IS NULL
+  AND (l.state IS NOT NULL OR l.available IS NOT NULL OR l.reserved IS NOT NULL
+       OR l.requirement IS NOT NULL OR l.progress IS NOT NULL OR l.source_operation_id IS NOT NULL)
+UNION ALL
+SELECT 'LEGACY_LOT_OF_CLASSIFIED_OWNER', 'lot', l.id, l.user_id,
+       format('pre-journal lot %s belongs to user %s, whose ledger account is already classified', l.id, l.user_id)
+FROM ledger_lots l
+WHERE l.lot_class IS NULL
+  AND EXISTS (SELECT 1 FROM ledger_accounts a WHERE a.user_id = l.user_id AND a.classified)
+UNION ALL
+SELECT 'WALLET_MISSING', 'user', o.user_id, o.user_id,
+       format('user %s has %s but no wallet row', COALESCE(o.user_id, 'NULL'),
+              string_agg(DISTINCT o.owns, ' and ' ORDER BY o.owns))
+FROM (
+  SELECT a.user_id, 'a ledger account'::text AS owns FROM ledger_accounts a
+  UNION ALL
+  SELECT l.user_id, 'coin lots'::text FROM ledger_lots l
+) o
+WHERE NOT EXISTS (SELECT 1 FROM ledger_wallets w WHERE w.user_id = o.user_id)
+GROUP BY o.user_id
+UNION ALL
+SELECT 'WALLET_LOT_MISMATCH', 'user', a.user_id, a.user_id,
+       format('classified wallet of user %s holds %s Coins but its lots hold %s',
+              a.user_id, w.coins_balance, COALESCE(t.total, 0))
+FROM ledger_accounts a
+LEFT JOIN ledger_wallets w ON w.user_id = a.user_id
+LEFT JOIN (
+  SELECT l.user_id, SUM(l.available) AS total FROM ledger_lots l GROUP BY l.user_id
+) t ON t.user_id = a.user_id
+WHERE a.classified
+  AND w.user_id IS NOT NULL
+  AND w.coins_balance IS DISTINCT FROM COALESCE(t.total, 0)
+UNION ALL
+SELECT 'CACHE_JOURNAL_MISMATCH', 'lot', l.id, l.user_id,
+       format('managed lot %s caches (available %s, reserved %s, requirement %s, progress %s) differ from its journal (%s, %s, %s, %s)',
+              l.id, COALESCE(l.available::text, 'NULL'), COALESCE(l.reserved::text, 'NULL'),
+              COALESCE(l.requirement::text, 'NULL'), COALESCE(l.progress::text, 'NULL'),
+              COALESCE(j.available, 0), COALESCE(j.reserved, 0), COALESCE(j.requirement, 0), COALESCE(j.progress, 0))
+FROM ledger_lots l
+LEFT JOIN (
+  SELECT e.lot_id,
+         SUM(e.available_delta) AS available,
+         SUM(e.reserved_delta) AS reserved,
+         SUM(e.progress_delta) AS progress,
+         SUM(COALESCE(e.progress_delta, 0) + COALESCE(e.obligation_delta, 0)) AS requirement
+  FROM ledger_entries e
+  GROUP BY e.lot_id
+) j ON j.lot_id = l.id
+WHERE l.lot_class IS NOT NULL
+  AND (l.available IS DISTINCT FROM COALESCE(j.available, 0)
+       OR l.reserved IS DISTINCT FROM COALESCE(j.reserved, 0)
+       OR l.requirement IS DISTINCT FROM COALESCE(j.requirement, 0)
+       OR l.progress IS DISTINCT FROM COALESCE(j.progress, 0))
+UNION ALL
+SELECT 'SOURCE_OPERATION_MISSING', 'lot', l.id, l.user_id,
+       format('managed lot %s has no source operation', l.id)
+FROM ledger_lots l
+WHERE l.lot_class IS NOT NULL AND l.source_operation_id IS NULL
+UNION ALL
+SELECT 'SOURCE_OPERATION_INVALID', 'lot', l.id, l.user_id,
+       format('managed lot %s names source operation %s, which does not exist', l.id, l.source_operation_id)
+FROM ledger_lots l
+WHERE l.lot_class IS NOT NULL AND l.source_operation_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM ledger_operations o WHERE o.id = l.source_operation_id)
+UNION ALL
+SELECT 'SOURCE_OPERATION_CROSS_USER', 'lot', l.id, l.user_id,
+       format('managed lot %s of user %s names source operation %s of user %s',
+              l.id, COALESCE(l.user_id, 'NULL'), o.id, COALESCE(o.user_id, 'NULL'))
+FROM ledger_lots l
+JOIN ledger_operations o ON o.id = l.source_operation_id -- a missing operation is SOURCE_OPERATION_INVALID above
+WHERE l.lot_class IS NOT NULL AND o.user_id IS DISTINCT FROM l.user_id
+UNION ALL
+SELECT 'UNCLASSIFIED_VALUE_UNREVIEWED', 'lot', l.id, l.user_id,
+       format('UNCLASSIFIED lot %s of classified user %s holds %s Coins without an open review (review: %s)',
+              l.id, l.user_id, COALESCE(l.available, 0) + COALESCE(l.reserved, 0),
+              COALESCE(l.review_id || ' is ' || COALESCE(r.status, 'missing') || ' for user ' || COALESCE(r.user_id, 'NULL'), 'none'))
+FROM ledger_lots l
+LEFT JOIN ledger_reviews r ON r.id = l.review_id
+WHERE l.lot_class = 'UNCLASSIFIED'
+  AND COALESCE(l.available, 0) + COALESCE(l.reserved, 0) > 0
+  AND EXISTS (SELECT 1 FROM ledger_accounts a WHERE a.user_id = l.user_id AND a.classified)
+  AND (r.id IS NULL OR r.user_id IS DISTINCT FROM l.user_id
+       OR r.status IS NULL OR r.status NOT IN ('OPEN', 'FIRST_APPROVED'))
+-- ledger-integrity:predicates:end
+  UNION ALL
+-- ledger-integrity:catalog-preconditions:begin
+SELECT 'GAME_RULES_CHANGED'::text AS category, 'game'::text AS subject_type, d."key" AS subject_id,
+       NULL::text AS user_id,
+       format('legacy game %s is configured as %s, but this release verifies its rules as %s (numbers compare by value)',
+              d."key", COALESCE(d."configuration"::text, 'NULL'), e.expected::text) AS detail
+FROM "game_definitions" d
+JOIN (VALUES
+  ('lucky_spin', '{"outcomes": [{"name": "LOSE", "multiplier": 0, "probability": 0.45}, {"name": "SMALL_WIN", "multiplier": 1.5, "probability": 0.25}, {"name": "MEDIUM_WIN", "multiplier": 3, "probability": 0.15}, {"name": "LARGE_WIN", "multiplier": 5, "probability": 0.10}, {"name": "JACKPOT", "multiplier": 10, "probability": 0.05}]}'::jsonb),
+  ('dice', '{"winThreshold": 7, "multiplier": 2}'::jsonb),
+  ('number_challenge', '{"range": {"min": 1, "max": 100}, "rewards": {"exact": 5, "within1": 3, "within5": 2, "within10": 1.5}}'::jsonb)
+) AS e(game_key, expected) ON e.game_key = d."key"
+WHERE d."configuration" IS DISTINCT FROM e.expected
+-- ledger-integrity:catalog-preconditions:end
+  ), by_category AS (
+    SELECT a.category, count(*) AS n,
+           array_to_string((array_agg(COALESCE(a.subject_id, 'NULL') ORDER BY a.subject_id))[1:10], ', ') AS sample
+    FROM anomalies a
+    GROUP BY a.category
+  )
+  SELECT COALESCE(sum(c.n), 0)::integer,
+         string_agg(format('%s x%s [%s]', c.category, c.n, c.sample), '; ' ORDER BY c.category)
+    INTO gate_total, gate_summary
+  FROM by_category c;
+
+  IF gate_total > 0 THEN
+    RAISE EXCEPTION USING
+      MESSAGE = format('LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE before any ledger migration ran: upgrading this data would create %s anomalous ledger or catalog record(s): %s', gate_total, gate_summary),
+      DETAIL = 'This migration changed nothing and no ledger table exists yet; the running application is unaffected.',
+      HINT = 'Run the read-only preflight (pnpm --filter api preflight:ledger-upgrade) to list every record, then follow docs/deployment/ledger-upgrade-gate.md: escalate each record for a separately reviewed, case-specific correction. Never mark this migration as applied.';
+  END IF;
+END
+$gate$;
+
+-- The legacy financial state this gate verified, compared again by
+-- 20260924090000_ledger_upgrade_window_check: every master-era column of
+-- every table that reconciliation and legacy classification read (wallets,
+-- wallet transactions with their chronological balances, withdrawal holds
+-- and withdrawals, agent orders with their reservations and settlements,
+-- gift transactions, game sessions) and the legacy catalog. No migration of
+-- this release changes these columns, so any difference is a write made by a
+-- still-running application or worker. The block between the markers is
+-- repeated there; a test fails if the copies differ.
+CREATE TABLE "ledger_upgrade_window" (
+  "subject" TEXT NOT NULL,
+  "fingerprint" TEXT NOT NULL,
+  "capturedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ledger_upgrade_window_pkey" PRIMARY KEY ("subject")
+);
+INSERT INTO "ledger_upgrade_window" ("subject", "fingerprint")
+-- ledger-upgrade-window:begin
+SELECT 'wallet:' || w."userId", md5(jsonb_build_array(
+         w."id", w."userId", w."coinsBalance", w."gamePointsBalance", w."version", w."createdAt", w."updatedAt")::text)
+FROM "wallets" w
+UNION ALL
+SELECT 'wallet_transactions', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         t."id", t."walletId", t."userId", t."type", t."ledgerType", t."currency", t."amount", t."balanceBefore",
+         t."balanceAfter", t."referenceType", t."referenceId", t."description", t."status", t."createdAt")::text, 0)), 0)
+FROM "wallet_transactions" t
+UNION ALL
+SELECT 'withdrawal_holds', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         h."id", h."withdrawalId", h."coinAmount", h."status", h."debitWalletTransactionId",
+         h."refundWalletTransactionId", h."createdAt", h."consumedAt", h."releasedAt")::text, 0)), 0)
+FROM "withdrawal_holds" h
+UNION ALL
+SELECT 'withdrawals', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         d."id", d."withdrawalNumber", d."userId", d."agentId", d."requestHash", d."idempotencyKey", d."countryId",
+         d."paymentMethodDefId", d."paymentAccountId", d."paymentSnapshot", d."fiatAmount", d."fiatCurrency",
+         d."exchangeRateConfigId", d."exchangeRateValue", d."coinAmount", d."status", d."quoteExpiresAt",
+         d."confirmationDeadlineAt", d."paymentSubmittedAt", d."completedAt", d."cancelledAt", d."expiredAt",
+         d."disputedAt", d."createdAt", d."updatedAt", d."quoteId", d."paymentSubmissionDeadlineAt")::text, 0)), 0)
+FROM "withdrawals" d
+UNION ALL
+SELECT 'agent_orders', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         o."id", o."orderNumber", o."userId", o."agentId", o."countryId", o."paymentMethodDefId", o."paymentAccountId",
+         o."paymentSnapshot", o."fiatAmount", o."fiatCurrency", o."exchangeRateConfigId", o."exchangeRateValue",
+         o."coinAmount", o."status", o."idempotencyKey", o."paymentInstructionsShownAt", o."paymentSubmittedAt",
+         o."releaseDeadlineAt", o."agentTimeoutAt", o."completedAt", o."cancelledAt", o."expiredAt", o."createdAt",
+         o."updatedAt")::text, 0)), 0)
+FROM "agent_orders" o
+UNION ALL
+SELECT 'agent_order_settlements', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         s."id", s."orderId", s."reservationId", s."coinAmount", s."walletTransactionId", s."resolvedVia",
+         s."releasedBy", s."settledAt")::text, 0)), 0)
+FROM "agent_order_settlements" s
+UNION ALL
+SELECT 'agent_reservations', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         r."id", r."orderId", r."agentId", r."amount", r."status", r."createdAt", r."releasedAt",
+         r."consumedAt")::text, 0)), 0)
+FROM "agent_reservations" r
+UNION ALL
+SELECT 'gift_transactions', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         x."id", x."senderId", x."recipientId", x."giftId", x."quantity", x."totalCoins", x."totalGamePoints",
+         x."coinPriceAtTransaction", x."pointValueAtTransaction", x."senderWalletId", x."recipientWalletId",
+         x."createdAt")::text, 0)), 0)
+FROM "gift_transactions" x
+UNION ALL
+SELECT 'game_sessions', count(*) || '/' || COALESCE(sum(hashtextextended(jsonb_build_array(
+         e."id", e."userId", e."gameId", e."challengeId", e."status", e."betAmount", e."result", e."rewardAmount",
+         e."isWin", e."idempotencyKey", e."createdAt", e."completedAt")::text, 0)), 0)
+FROM "game_sessions" e
+UNION ALL
+SELECT 'game:' || g."key", COALESCE(g."configuration"::text, 'NULL')
+FROM "game_definitions" g
+WHERE g."key" IN ('lucky_spin', 'dice', 'number_challenge', 'trivia')
+-- ledger-upgrade-window:end
+;
