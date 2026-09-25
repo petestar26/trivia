@@ -477,6 +477,8 @@ DECLARE
   trusted TEXT;
   holders TEXT;
   planted TEXT;
+  foreign_owned TEXT;
+  tables_owner OID := (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', schema_name, 'economic_operations')));
 BEGIN
   IF runtime_role IS NULL OR NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = runtime_role) THEN
     RAISE EXCEPTION 'runtime role % does not exist', runtime_role;
@@ -486,7 +488,7 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles r ON r.oid = c.relowner
              WHERE n.nspname = schema_name AND r.rolname = runtime_role)
-     OR pg_has_role(runtime_role, (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass(format('%I.%I', schema_name, 'economic_operations'))), 'MEMBER') THEN
+     OR pg_has_role(runtime_role, tables_owner, 'MEMBER') THEN
     RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
       MESSAGE = format('runtime role %s must neither own nor be a member of the owner of the schema''s tables', runtime_role);
   END IF;
@@ -526,7 +528,16 @@ BEGIN
         MESSAGE = format('runtime role %s can still create objects in schema %s, through %s: functions that run as the owner resolve names there. Revoke that CREATE privilege (or that membership) as its grantor, then run this again',
           runtime_role, trusted, COALESCE(holders, runtime_role));
     END IF;
-    SELECT string_agg(DISTINCT o.kind || ' ' || o.name, ', ') INTO planted
+    -- Nor may anything there belong to any other role outside the owner's
+    -- trust: one that is neither a superuser nor able to act as the tables'
+    -- owner, such as a retired account or another application's role. What
+    -- it created while it could (an exact-type overload of a built-in, an
+    -- operator on the ledger's types) would sit where the owner's migrations,
+    -- scans and functions pinned to this schema resolve names.
+    SELECT string_agg(DISTINCT o.kind || ' ' || o.name, ', ') FILTER (WHERE pg_has_role(runtime_role, o.owner, 'MEMBER')),
+           left(string_agg(DISTINCT o.kind || ' ' || o.name || ' (owner ' || r.rolname::text || ')', ', ')
+                  FILTER (WHERE NOT r.rolsuper AND NOT pg_has_role(o.owner, tables_owner, 'MEMBER')), 2000)
+      INTO planted, foreign_owned
     FROM (
       SELECT 'function' AS kind, p.oid::regprocedure::text AS name, p.proowner AS owner, p.pronamespace AS ns FROM pg_proc p
       UNION ALL SELECT 'operator', o.oid::regoperator::text, o.oprowner, o.oprnamespace FROM pg_operator o
@@ -538,12 +549,17 @@ BEGIN
       UNION ALL SELECT 'operator family', fam.opfname::text, fam.opfowner, fam.opfnamespace FROM pg_opfamily fam
       UNION ALL SELECT 'text search configuration', tc.cfgname::text, tc.cfgowner, tc.cfgnamespace FROM pg_ts_config tc
       UNION ALL SELECT 'text search dictionary', td.dictname::text, td.dictowner, td.dictnamespace FROM pg_ts_dict td
-    ) o JOIN pg_namespace n ON n.oid = o.ns
-    WHERE n.nspname = trusted AND pg_has_role(runtime_role, o.owner, 'MEMBER');
+    ) o JOIN pg_namespace n ON n.oid = o.ns JOIN pg_roles r ON r.oid = o.owner
+    WHERE n.nspname = trusted;
     IF planted IS NOT NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
         MESSAGE = format('runtime role %s owns objects in schema %s: %s. Functions that run as the owner could pick them up; check what they are, drop them (or reassign them to the owner), then run this again',
           runtime_role, trusted, planted);
+    END IF;
+    IF foreign_owned IS NOT NULL THEN
+      RAISE EXCEPTION USING ERRCODE = 'insufficient_privilege',
+        MESSAGE = format('schema %s holds objects owned by roles that are neither superusers nor able to act as the tables'' owner %s: %s. Code that runs as the owner and resolves names there could pick them up; check what they are, drop them (or reassign them to the owner), then run this again',
+          trusted, tables_owner::regrole::text, foreign_owned);
     END IF;
   END LOOP;
 
@@ -604,70 +620,70 @@ DECLARE
   entries RECORD;
 BEGIN
   SELECT o."id", o."type"::text AS kind, o."userId", o."scopeType", o."scopeId", o."snapshot", o."createdBy"
-    INTO op FROM "economic_operations" o WHERE o."id" = operation_id;
+    INTO op FROM public."economic_operations" o WHERE o."id" = operation_id;
   IF NOT FOUND OR op.kind <> 'LEGACY_RESOLVE' THEN
     RETURN NULL;
   END IF;
 
   SELECT r."id", r."userId", r."lotId", r."status", r."evidence", r."resolvedBy", r."secondApproverId"
-    INTO review FROM "legacy_balance_reviews" r WHERE r."resolutionOperationId" = op."id";
+    INTO review FROM public."legacy_balance_reviews" r WHERE r."resolutionOperationId" = op."id";
   IF NOT FOUND THEN
-    RETURN format('legacy resolution %s is not the resolution of any legacy review', op."id");
+    RETURN pg_catalog.format('legacy resolution %s is not the resolution of any legacy review', op."id");
   END IF;
   IF op."scopeType" IS DISTINCT FROM 'REVIEW' OR op."scopeId" IS DISTINCT FROM review."id" THEN
-    RETURN format('legacy resolution %s is scoped to %s %s, not to its review %s',
+    RETURN pg_catalog.format('legacy resolution %s is scoped to %s %s, not to its review %s',
                   op."id", op."scopeType", op."scopeId", review."id");
   END IF;
   IF review."status" IS DISTINCT FROM 'RESOLVED' THEN
-    RETURN format('legacy resolution %s names review %s, which is %s, not RESOLVED', op."id", review."id", review."status");
+    RETURN pg_catalog.format('legacy resolution %s names review %s, which is %s, not RESOLVED', op."id", review."id", review."status");
   END IF;
   IF review."userId" IS DISTINCT FROM op."userId" THEN
-    RETURN format('legacy resolution %s of user %s names review %s of user %s', op."id", op."userId", review."id", review."userId");
+    RETURN pg_catalog.format('legacy resolution %s of user %s names review %s of user %s', op."id", op."userId", review."id", review."userId");
   END IF;
 
   IF review."resolvedBy" IS NULL OR review."secondApproverId" IS NULL
      OR review."resolvedBy" = review."secondApproverId"
      OR review."resolvedBy" = review."userId" OR review."secondApproverId" = review."userId" THEN
-    RETURN format('legacy resolution %s lacks two distinct independent approvers', op."id");
+    RETURN pg_catalog.format('legacy resolution %s lacks two distinct independent approvers', op."id");
   END IF;
   IF op."createdBy" IS DISTINCT FROM review."secondApproverId" THEN
-    RETURN format('legacy resolution %s was recorded by %s, not by its second approver', op."id", COALESCE(op."createdBy", 'NULL'));
+    RETURN pg_catalog.format('legacy resolution %s was recorded by %s, not by its second approver', op."id", COALESCE(op."createdBy", 'NULL'));
   END IF;
   IF check_approvers_active AND (
-       SELECT count(*) FROM "users" u
+       SELECT pg_catalog.count(*) FROM public."users" u
        WHERE u."id" IN (review."resolvedBy", review."secondApproverId")
          AND u."role"::text = 'SUPER_ADMIN' AND u."status"::text = 'ACTIVE') <> 2 THEN
-    RETURN format('legacy resolution %s needs two currently active SUPER_ADMIN approvers', op."id");
+    RETURN pg_catalog.format('legacy resolution %s needs two currently active SUPER_ADMIN approvers', op."id");
   END IF;
 
   proposal := review."evidence" -> 'proposal';
-  IF proposal IS NULL OR jsonb_typeof(proposal) IS DISTINCT FROM 'object'
-     OR jsonb_typeof(proposal -> 'amount') IS DISTINCT FROM 'number'
+  IF proposal IS NULL OR pg_catalog.jsonb_typeof(proposal) IS DISTINCT FROM 'object'
+     OR pg_catalog.jsonb_typeof(proposal -> 'amount') IS DISTINCT FROM 'number'
      OR (proposal ->> 'decision') IS NULL OR (proposal ->> 'decision') NOT IN ('WITHDRAWABLE', 'RESTRICTED') THEN
-    RETURN format('legacy review %s has no approved proposal', review."id");
+    RETURN pg_catalog.format('legacy review %s has no approved proposal', review."id");
   END IF;
   approved := (proposal ->> 'amount')::numeric;
   IF approved IS NULL OR approved <= 0 THEN
-    RETURN format('legacy review %s approved a non-positive amount', review."id");
+    RETURN pg_catalog.format('legacy review %s approved a non-positive amount', review."id");
   END IF;
-  IF approved <> trunc(approved) THEN
-    RETURN format('legacy review %s approved a fractional amount', review."id");
+  IF approved <> pg_catalog.trunc(approved) THEN
+    RETURN pg_catalog.format('legacy review %s approved a fractional amount', review."id");
   END IF;
   -- Both approvals are signed assertions of the API for exactly these terms
   -- (see ledger_approval_assertions): the runtime role cannot forge them.
   IF NOT EXISTS (
-       SELECT 1 FROM "ledger_approval_assertions" a
+       SELECT 1 FROM public."ledger_approval_assertions" a
        WHERE a."subjectType" = 'LEGACY_REVIEW' AND a."subjectId" = review."id" AND a."action" = 'FIRST_APPROVAL'
          AND a."actorId" = review."resolvedBy" AND a."userId" = review."userId" AND a."amount" = approved
-         AND a."caseId" = review."id" AND a."evidenceDigest" = "ledger_evidence_digest"(proposal)
-         AND "ledger_assertion_valid"(a))
+         AND a."caseId" = review."id" AND a."evidenceDigest" = public."ledger_evidence_digest"(proposal)
+         AND public."ledger_assertion_valid"(a))
      OR NOT EXISTS (
-       SELECT 1 FROM "ledger_approval_assertions" a
+       SELECT 1 FROM public."ledger_approval_assertions" a
        WHERE a."subjectType" = 'LEGACY_REVIEW' AND a."subjectId" = review."id" AND a."action" = 'SECOND_APPROVAL'
          AND a."actorId" = review."secondApproverId" AND a."userId" = review."userId" AND a."amount" = approved
-         AND a."caseId" = review."id" AND a."evidenceDigest" = "ledger_evidence_digest"(proposal)
-         AND "ledger_assertion_valid"(a)) THEN
-    RETURN format('legacy resolution %s is not backed by signed first and second approvals of review %s', op."id", review."id");
+         AND a."caseId" = review."id" AND a."evidenceDigest" = public."ledger_evidence_digest"(proposal)
+         AND public."ledger_assertion_valid"(a)) THEN
+    RETURN pg_catalog.format('legacy resolution %s is not backed by signed first and second approvals of review %s', op."id", review."id");
   END IF;
   IF op."snapshot" IS NULL
      OR (op."snapshot" -> 'evidence') IS DISTINCT FROM review."evidence"
@@ -675,38 +691,38 @@ BEGIN
      OR (op."snapshot" ->> 'secondApproverId') IS DISTINCT FROM review."secondApproverId"
      OR (op."snapshot" -> 'amount') IS DISTINCT FROM (proposal -> 'amount')
      OR (op."snapshot" ->> 'decision') IS DISTINCT FROM (proposal ->> 'decision') THEN
-    RETURN format('legacy resolution %s does not repeat the approved evidence of review %s', op."id", review."id");
+    RETURN pg_catalog.format('legacy resolution %s does not repeat the approved evidence of review %s', op."id", review."id");
   END IF;
 
   SELECT p."userId", p."lotClass"::text AS lot_class, p."reviewId"
-    INTO lot FROM "coin_provenance" p WHERE p."id" = review."lotId";
+    INTO lot FROM public."coin_provenance" p WHERE p."id" = review."lotId";
   IF NOT FOUND OR lot."userId" IS DISTINCT FROM review."userId"
      OR lot.lot_class IS DISTINCT FROM 'UNCLASSIFIED' OR lot."reviewId" IS DISTINCT FROM review."id" THEN
-    RETURN format('legacy review %s does not own an UNCLASSIFIED lot linked back to it', review."id");
+    RETURN pg_catalog.format('legacy review %s does not own an UNCLASSIFIED lot linked back to it', review."id");
   END IF;
 
-  SELECT count(*) FILTER (WHERE e."entryType" = 'RECLASS_OUT') AS outs,
-         count(*) FILTER (WHERE e."entryType" = 'RECLASS_OUT' AND e."lotId" = review."lotId"
+  SELECT pg_catalog.count(*) FILTER (WHERE e."entryType" = 'RECLASS_OUT') AS outs,
+         pg_catalog.count(*) FILTER (WHERE e."entryType" = 'RECLASS_OUT' AND e."lotId" = review."lotId"
                             AND e."availableDelta" = -approved AND e."reservedDelta" = 0
                             AND e."progressDelta" = 0 AND e."obligationDelta" = 0) AS exact_outs,
-         count(*) FILTER (WHERE e."entryType" = 'RECLASS_IN') AS ins,
-         count(*) FILTER (WHERE e."entryType" = 'RECLASS_IN' AND e."availableDelta" = approved
+         pg_catalog.count(*) FILTER (WHERE e."entryType" = 'RECLASS_IN') AS ins,
+         pg_catalog.count(*) FILTER (WHERE e."entryType" = 'RECLASS_IN' AND e."availableDelta" = approved
                             AND e."reservedDelta" = 0 AND p."parentLotId" = review."lotId"
                             AND p."userId" = review."userId"
                             AND p."lotClass"::text = (proposal ->> 'decision')) AS exact_ins,
-         count(*) FILTER (WHERE e."entryType" NOT IN ('RECLASS_OUT', 'RECLASS_IN')) AS others
+         pg_catalog.count(*) FILTER (WHERE e."entryType" NOT IN ('RECLASS_OUT', 'RECLASS_IN')) AS others
     INTO entries
-  FROM "coin_lot_entries" e
-  JOIN "coin_provenance" p ON p."id" = e."lotId"
+  FROM public."coin_lot_entries" e
+  JOIN public."coin_provenance" p ON p."id" = e."lotId"
   WHERE e."operationId" = op."id";
   IF entries.outs <> 1 OR entries.exact_outs <> 1 OR entries.ins <> 1 OR entries.exact_ins <> 1
      OR entries.others <> 0 THEN
-    RETURN format('legacy resolution %s must move exactly the approved %s Coins from review lot %s into one child lot of class %s',
+    RETURN pg_catalog.format('legacy resolution %s must move exactly the approved %s Coins from review lot %s into one child lot of class %s',
                   op."id", approved, review."lotId", proposal ->> 'decision');
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp;
 
 -- Evidence is an object whose caseId (a string) matches the approval's, with
 -- a real string rationale and at least one non-empty string reference.
@@ -836,70 +852,70 @@ DECLARE
   entries RECORD;
 BEGIN
   SELECT o."id", o."type"::text AS kind, o."userId", o."snapshot", o."createdBy", o."walletTransactionIds"
-    INTO op FROM "economic_operations" o WHERE o."id" = operation_id;
+    INTO op FROM public."economic_operations" o WHERE o."id" = operation_id;
   IF NOT FOUND OR op.kind <> 'ADMIN_ADJUST' THEN
     RETURN NULL;
   END IF;
-  SELECT a.* INTO approval FROM "admin_adjustment_approvals" a WHERE a."operationId" = op."id";
+  SELECT a.* INTO approval FROM public."admin_adjustment_approvals" a WHERE a."operationId" = op."id";
   IF NOT FOUND THEN
-    RETURN format('admin adjustment %s is not the execution of any adjustment approval', op."id");
+    RETURN pg_catalog.format('admin adjustment %s is not the execution of any adjustment approval', op."id");
   END IF;
   IF approval."status" IS DISTINCT FROM 'EXECUTED' THEN
-    RETURN format('admin adjustment %s names approval %s, which is %s, not EXECUTED', op."id", approval."id", approval."status");
+    RETURN pg_catalog.format('admin adjustment %s names approval %s, which is %s, not EXECUTED', op."id", approval."id", approval."status");
   END IF;
   IF approval."userId" IS DISTINCT FROM op."userId" THEN
-    RETURN format('admin adjustment %s of user %s names approval %s of user %s', op."id", op."userId", approval."id", approval."userId");
+    RETURN pg_catalog.format('admin adjustment %s of user %s names approval %s of user %s', op."id", op."userId", approval."id", approval."userId");
   END IF;
   IF approval."firstApproverId" IS NULL OR approval."secondApproverId" IS NULL
      OR approval."firstApproverId" = approval."secondApproverId"
      OR approval."firstApproverId" = approval."userId" OR approval."secondApproverId" = approval."userId" THEN
-    RETURN format('admin adjustment %s lacks two distinct independent approvals', op."id");
+    RETURN pg_catalog.format('admin adjustment %s lacks two distinct independent approvals', op."id");
   END IF;
   IF op."createdBy" IS DISTINCT FROM approval."secondApproverId" THEN
-    RETURN format('admin adjustment %s was recorded by %s, not by its executing approver', op."id", COALESCE(op."createdBy", 'NULL'));
+    RETURN pg_catalog.format('admin adjustment %s was recorded by %s, not by its executing approver', op."id", COALESCE(op."createdBy", 'NULL'));
   END IF;
   IF check_approvers_active AND (
-       SELECT count(*) FROM "users" u
+       SELECT pg_catalog.count(*) FROM public."users" u
        WHERE u."id" IN (approval."firstApproverId", approval."secondApproverId")
          AND u."role"::text = 'SUPER_ADMIN' AND u."status"::text = 'ACTIVE') <> 2 THEN
-    RETURN format('admin adjustment %s needs two currently active SUPER_ADMIN approvers', op."id");
+    RETURN pg_catalog.format('admin adjustment %s needs two currently active SUPER_ADMIN approvers', op."id");
   END IF;
   -- The request and both approvals are signed assertions of the API for
   -- exactly these terms (see ledger_approval_assertions).
-  IF (SELECT count(DISTINCT a."action") FROM "ledger_approval_assertions" a
+  IF (SELECT pg_catalog.count(DISTINCT a."action") FROM public."ledger_approval_assertions" a
       WHERE a."subjectType" = 'ADMIN_ADJUSTMENT' AND a."subjectId" = approval."id"
         AND a."userId" = approval."userId" AND a."amount" = approval."amount" AND a."caseId" = approval."caseId"
-        AND a."evidenceDigest" = "ledger_evidence_digest"(approval."evidence")
+        AND a."evidenceDigest" = public."ledger_evidence_digest"(approval."evidence")
         AND ((a."action" = 'REQUEST' AND a."actorId" = approval."createdBy")
           OR (a."action" = 'FIRST_APPROVAL' AND a."actorId" = approval."firstApproverId")
           OR (a."action" = 'SECOND_APPROVAL' AND a."actorId" = approval."secondApproverId"))
-        AND "ledger_assertion_valid"(a)) <> 3 THEN
-    RETURN format('admin adjustment %s is not backed by a signed request, first approval and second approval', op."id");
+        AND public."ledger_assertion_valid"(a)) <> 3 THEN
+    RETURN pg_catalog.format('admin adjustment %s is not backed by a signed request, first approval and second approval', op."id");
   END IF;
   IF op."snapshot" IS NULL
      OR (op."snapshot" ->> 'approvalId') IS DISTINCT FROM approval."id"
      OR (op."snapshot" -> 'evidence') IS DISTINCT FROM approval."evidence"
-     OR (op."snapshot" -> 'amount') IS DISTINCT FROM to_jsonb(approval."amount") THEN
-    RETURN format('admin adjustment %s does not repeat the terms of approval %s', op."id", approval."id");
+     OR (op."snapshot" -> 'amount') IS DISTINCT FROM pg_catalog.to_jsonb(approval."amount") THEN
+    RETURN pg_catalog.format('admin adjustment %s does not repeat the terms of approval %s', op."id", approval."id");
   END IF;
 
-  SELECT COALESCE(sum(e."availableDelta"), 0) AS moved,
-         count(*) AS n,
-         count(*) FILTER (WHERE approval."amount" > 0 AND e."entryType" = 'MINT' AND e."availableDelta" > 0
+  SELECT COALESCE(pg_catalog.sum(e."availableDelta"), 0) AS moved,
+         pg_catalog.count(*) AS n,
+         pg_catalog.count(*) FILTER (WHERE approval."amount" > 0 AND e."entryType" = 'MINT' AND e."availableDelta" > 0
                             AND e."reservedDelta" = 0 AND p."lotClass"::text = 'UNCLASSIFIED'
                             AND p."userId" = op."userId") AS valid_credits,
-         count(*) FILTER (WHERE approval."amount" < 0 AND e."entryType" = 'CONSUME' AND e."availableDelta" < 0
+         pg_catalog.count(*) FILTER (WHERE approval."amount" < 0 AND e."entryType" = 'CONSUME' AND e."availableDelta" < 0
                             AND e."reservedDelta" = 0 AND p."lotClass" IS NOT NULL
                             AND p."userId" = op."userId") AS valid_debits
     INTO entries
-  FROM "coin_lot_entries" e
-  JOIN "coin_provenance" p ON p."id" = e."lotId"
+  FROM public."coin_lot_entries" e
+  JOIN public."coin_provenance" p ON p."id" = e."lotId"
   WHERE e."operationId" = op."id";
   IF entries.n = 0 OR entries.moved <> approval."amount"
      OR (approval."amount" > 0 AND entries.valid_credits <> entries.n)
      OR (approval."amount" < 0 AND entries.valid_debits <> entries.n) THEN
-    RETURN format('admin adjustment %s must %s exactly the approved %s Coins %s the user''s own %s lots',
-                  op."id", CASE WHEN approval."amount" > 0 THEN 'mint' ELSE 'consume' END, abs(approval."amount"),
+    RETURN pg_catalog.format('admin adjustment %s must %s exactly the approved %s Coins %s the user''s own %s lots',
+                  op."id", CASE WHEN approval."amount" > 0 THEN 'mint' ELSE 'consume' END, pg_catalog.abs(approval."amount"),
                   CASE WHEN approval."amount" > 0 THEN 'into' ELSE 'from' END,
                   CASE WHEN approval."amount" > 0 THEN 'UNCLASSIFIED' ELSE 'managed' END);
   END IF;
@@ -909,31 +925,40 @@ BEGIN
   -- this case (reference ADMIN / the case ID), and named by no other
   -- operation, purchase settlement or lot. An existing purchase credit, a
   -- reward or a transaction of another case can never back it.
-  IF cardinality(op."walletTransactionIds") IS DISTINCT FROM 1
+  IF pg_catalog.cardinality(op."walletTransactionIds") IS DISTINCT FROM 1
      OR op."walletTransactionIds"[1] IS DISTINCT FROM approval."walletTransactionId"
      OR NOT EXISTS (
-       SELECT 1 FROM "wallet_transactions" w
+       SELECT 1 FROM public."wallet_transactions" w
        WHERE w."id" = approval."walletTransactionId" AND w."userId" = op."userId"
          AND w."currency"::text = 'COINS'
          AND w."type"::text = CASE WHEN approval."amount" > 0 THEN 'COIN_CREDIT' ELSE 'COIN_DEBIT' END
          AND w."ledgerType"::text = CASE WHEN approval."amount" > 0 THEN 'CREDIT' ELSE 'DEBIT' END
          AND w."referenceType"::text = 'ADMIN' AND w."referenceId" = approval."caseId"
-         AND w."status"::text = 'SUCCEEDED' AND w."amount" = abs(approval."amount"))
+         AND w."status"::text = 'SUCCEEDED' AND w."amount" = pg_catalog.abs(approval."amount"))
      OR EXISTS (
-       SELECT 1 FROM "economic_operations" other
+       SELECT 1 FROM public."economic_operations" other
        WHERE other."id" <> op."id" AND approval."walletTransactionId" = ANY (other."walletTransactionIds"))
      OR EXISTS (
-       SELECT 1 FROM "agent_order_settlements" s WHERE s."walletTransactionId" = approval."walletTransactionId")
+       SELECT 1 FROM public."agent_order_settlements" s WHERE s."walletTransactionId" = approval."walletTransactionId")
      OR EXISTS (
-       SELECT 1 FROM "coin_provenance" l
+       SELECT 1 FROM public."coin_provenance" l
        WHERE l."walletTransactionId" = approval."walletTransactionId"
          AND l."sourceOperationId" IS DISTINCT FROM op."id") THEN
-    RETURN format('admin adjustment %s is not backed by the approval''s own Coin adjustment wallet transaction', op."id");
+    RETURN pg_catalog.format('admin adjustment %s is not backed by the approval''s own Coin adjustment wallet transaction', op."id");
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp;
 
+-- This guard and the two validators above are reached from inside the signed
+-- procedures: ledger_adjustment_execute fires adjustment_execution_guard, and
+-- that check runs as the owner whenever it runs inside the procedure (a
+-- caller may set it IMMEDIATE; PostgreSQL 18 also runs a deferred trigger as
+-- the role that queued it). So, like the procedures, they resolve names only
+-- in pg_catalog and name every table and function of this schema: an object
+-- in public that the owner did not create, such as an exact-type overload of
+-- a built-in (to_jsonb(integer), format(...)) or an operator on the ledger's
+-- types, is never a candidate.
 CREATE OR REPLACE FUNCTION "operation_authorization_guard"()
 RETURNS trigger AS $$
 DECLARE
@@ -946,17 +971,17 @@ BEGIN
     operation := NEW."operationId";
   END IF;
   IF TG_TABLE_NAME = 'admin_adjustment_approvals' AND NOT EXISTS (
-       SELECT 1 FROM "economic_operations" o WHERE o."id" = operation AND o."type"::text = 'ADMIN_ADJUST') THEN
+       SELECT 1 FROM public."economic_operations" o WHERE o."id" = operation AND o."type"::text = 'ADMIN_ADJUST') THEN
     RAISE EXCEPTION 'admin adjustment approval % was executed by %, which is not an ADMIN_ADJUST operation', NEW."id", operation;
   END IF;
-  message := COALESCE("legacy_resolution_violation"(operation, true),
-                      "admin_adjustment_violation"(operation, true));
+  message := COALESCE(public."legacy_resolution_violation"(operation, true),
+                      public."admin_adjustment_violation"(operation, true));
   IF message IS NOT NULL THEN
     RAISE EXCEPTION '%', message;
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp;
 -- Checked at commit, whichever row of the operation is written: its entries,
 -- the operation itself (so an operation without entries cannot pass), or
 -- the approval it executes.
@@ -974,6 +999,74 @@ AFTER UPDATE ON "admin_adjustment_approvals"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW WHEN (NEW."status" = 'EXECUTED')
 EXECUTE FUNCTION "operation_authorization_guard"();
+
+-- coin_provenance_guard (migration 20260922070000) is SECURITY DEFINER: it
+-- runs as the owner on every lot insert and update, among them the lot a
+-- signed adjustment settles, yet it resolved names in public (its
+-- OLD/NEW "restrictionStatus" comparisons pick the best-matching `=` there).
+-- Its rules are unchanged; this forward correction only makes it resolve
+-- names in pg_catalog and name its table by schema, like the functions above.
+CREATE OR REPLACE FUNCTION "coin_provenance_guard"()
+RETURNS trigger AS $$
+DECLARE
+    wt RECORD;
+BEGIN
+    IF NEW."amount" IS NULL OR NEW."amount" < 1 THEN
+        RAISE EXCEPTION 'coin_provenance: amount must be >= 1 (got %)', NEW."amount";
+    END IF;
+
+    IF NEW."requiredPlaythrough" IS NULL OR NEW."requiredPlaythrough" < 0 THEN
+        RAISE EXCEPTION 'coin_provenance: requiredPlaythrough must be >= 0 (got %)',
+            NEW."requiredPlaythrough";
+    END IF;
+
+    IF NEW."completedPlaythrough" IS NULL OR NEW."completedPlaythrough" < 0 THEN
+        RAISE EXCEPTION 'coin_provenance: completedPlaythrough must be >= 0 (got %)',
+            NEW."completedPlaythrough";
+    END IF;
+
+    IF NEW."completedPlaythrough" > NEW."requiredPlaythrough" THEN
+        RAISE EXCEPTION 'coin_provenance: completedPlaythrough % exceeds requiredPlaythrough % (id %)',
+            NEW."completedPlaythrough", NEW."requiredPlaythrough", NEW."id";
+    END IF;
+
+    IF NEW."walletTransactionId" IS NOT NULL THEN
+        SELECT "userId" INTO wt FROM public."wallet_transactions" WHERE "id" = NEW."walletTransactionId";
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'coin_provenance: walletTransaction % not found',
+                NEW."walletTransactionId";
+        END IF;
+        IF wt."userId" IS DISTINCT FROM NEW."userId" THEN
+            RAISE EXCEPTION 'coin_provenance: userId % does not own walletTransaction % (owner %)',
+                NEW."userId", NEW."walletTransactionId", wt."userId";
+        END IF;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND OLD."restrictionStatus" IS DISTINCT FROM NEW."restrictionStatus" THEN
+        IF OLD."restrictionStatus" = 'UNRESTRICTED' THEN
+            RAISE EXCEPTION 'coin_provenance: % cannot leave UNRESTRICTED (attempted -> %)',
+                NEW."id", NEW."restrictionStatus";
+        END IF;
+
+        IF OLD."restrictionStatus" = 'EXPIRED' THEN
+            RAISE EXCEPTION 'coin_provenance: % cannot leave EXPIRED (attempted -> %)',
+                NEW."id", NEW."restrictionStatus";
+        END IF;
+
+        IF OLD."restrictionStatus" = 'PLAYING_THROUGH' AND NEW."restrictionStatus" = 'RESTRICTED' THEN
+            RAISE EXCEPTION 'coin_provenance: % cannot move PLAYING_THROUGH -> RESTRICTED',
+                NEW."id";
+        END IF;
+
+        IF NEW."restrictionStatus" = 'UNRESTRICTED' AND NEW."completedPlaythrough" < NEW."requiredPlaythrough" THEN
+            RAISE EXCEPTION 'coin_provenance: % cannot become UNRESTRICTED with completedPlaythrough % < requiredPlaythrough %',
+                NEW."id", NEW."completedPlaythrough", NEW."requiredPlaythrough";
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp;
 
 CREATE OR REPLACE FUNCTION "legacy_review_lifecycle_guard"()
 RETURNS trigger AS $$

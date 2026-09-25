@@ -35,11 +35,13 @@ async function collectCount(tx: Tx, invariant: string, sql: string): Promise<Led
 }
 
 /**
- * The ledger approval functions (migration 20260924010000). They run as the
- * owner (SECURITY DEFINER, what those call and fire, and the owner-run key and
- * grants functions), so each keeps the fixed search path pg_catalog, pg_temp
- * and names everything else by schema: an object another role creates can
- * never be picked in their place. Invariant I3 checks the pin.
+ * The ledger approval functions (migrations 20260924000000 and 20260924010000).
+ * They run as the owner (SECURITY DEFINER, what those call and fire, among
+ * them the older authorization, review-coverage and SECURITY DEFINER lot
+ * guards and their validators, and the owner-run key and grants functions),
+ * so each keeps the fixed search path pg_catalog, pg_temp and names
+ * everything else by schema: an object another role creates can never be
+ * picked in their place. Invariant I3 checks the pin.
  */
 export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'ledger_evidence_digest', 'ledger_approval_payload', 'ledger_approval_signature_valid', 'ledger_assertion_valid',
@@ -48,6 +50,8 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'ledger_adjustment_execute', 'ledger_adjustment_close', 'ledger_review_first_approval', 'ledger_review_reopen',
   'ledger_review_resolve', 'ledger_lock_economy_for_invariant_check', 'ledger_apply_runtime_grants',
   'admin_adjustment_evidence_valid', 'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard',
+  'operation_authorization_guard', 'admin_adjustment_violation', 'legacy_resolution_violation',
+  'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
 

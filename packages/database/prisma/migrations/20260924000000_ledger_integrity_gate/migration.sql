@@ -286,26 +286,33 @@ FOR EACH ROW EXECUTE FUNCTION "wallet_ledger_owner_guard"();
 -- row guard only checked a NULL reviewId and available value at lot-write
 -- time; this also covers reserved value, reviews that were resolved or moved
 -- to another user, and an account classified around unreviewed value.
+-- review_coverage_guard runs this inside the signed review procedures
+-- (migration 20260924010000), as the owner whenever the check runs there, so
+-- both resolve names only in pg_catalog and name this schema's tables and
+-- functions: no object in public that the owner did not create, such as an
+-- exact-type overload of format(), is ever a candidate. (They name schema
+-- public, as the ledger approval functions do; 20260924010000 stops the
+-- upgrade if the ledger lives elsewhere.)
 CREATE OR REPLACE FUNCTION "unclassified_lot_review_violation"(lot_id TEXT)
 RETURNS TEXT AS $$
 DECLARE
   message TEXT;
 BEGIN
-  SELECT format('UNCLASSIFIED lot %s of classified user %s holds %s Coins without an open review',
+  SELECT pg_catalog.format('UNCLASSIFIED lot %s of classified user %s holds %s Coins without an open review',
                 p."id", p."userId", COALESCE(p."availableAmount", 0) + COALESCE(p."reservedAmount", 0))
     INTO message
-  FROM "coin_provenance" p
-  LEFT JOIN "legacy_balance_reviews" r ON r."id" = p."reviewId"
+  FROM public."coin_provenance" p
+  LEFT JOIN public."legacy_balance_reviews" r ON r."id" = p."reviewId"
   WHERE p."id" = lot_id
     AND p."lotClass" = 'UNCLASSIFIED'
     AND COALESCE(p."availableAmount", 0) + COALESCE(p."reservedAmount", 0) > 0
-    AND EXISTS (SELECT 1 FROM "coin_ledger_accounts" a
+    AND EXISTS (SELECT 1 FROM public."coin_ledger_accounts" a
                 WHERE a."userId" = p."userId" AND a."classifiedAt" IS NOT NULL)
     AND (r."id" IS NULL OR r."userId" IS DISTINCT FROM p."userId"
          OR r."status" IS NULL OR r."status" NOT IN ('OPEN', 'FIRST_APPROVED'));
   RETURN message;
 END;
-$$ LANGUAGE plpgsql STABLE;
+$$ LANGUAGE plpgsql STABLE SET search_path = pg_catalog, pg_temp;
 
 CREATE OR REPLACE FUNCTION "coin_lot_review_coverage_guard"()
 RETURNS trigger AS $$
@@ -355,16 +362,16 @@ DECLARE
   message TEXT;
 BEGIN
   FOR lot IN
-    SELECT p."id" FROM "coin_provenance" p WHERE p."reviewId" = NEW."id" ORDER BY p."id"
+    SELECT p."id" FROM public."coin_provenance" p WHERE p."reviewId" = NEW."id" ORDER BY p."id"
   LOOP
-    message := "unclassified_lot_review_violation"(lot."id");
+    message := public."unclassified_lot_review_violation"(lot."id");
     IF message IS NOT NULL THEN
       RAISE EXCEPTION '%', message;
     END IF;
   END LOOP;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp;
 CREATE CONSTRAINT TRIGGER "review_coverage_guard"
 AFTER UPDATE ON "legacy_balance_reviews"
 DEFERRABLE INITIALLY DEFERRED

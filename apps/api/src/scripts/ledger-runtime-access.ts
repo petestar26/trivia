@@ -16,8 +16,9 @@
  * secret under an installed key ID is refused), applies
  * ledger_apply_runtime_grants() (which also removes, or refuses, any way for
  * the runtime role to create objects in the schemas the approval functions
- * resolve names in) and verifies the result. It never prints a connection
- * string, a password or the key.
+ * resolve names in, and refuses while those schemas hold objects owned by a
+ * role outside the owner's trust) and verifies the result. It never prints a
+ * connection string, a password or the key.
  * Exit codes: 0 applied and verified, 1 refused or not verified, 2 could not run.
  */
 import { PrismaClient } from '@prisma/client';

@@ -139,14 +139,29 @@ It reads only these variables (no `.env` file), and in one transaction:
   PostgreSQL 13 and 14, `PUBLIC` holds `CREATE` on `public` by default,
   granted by the superuser that owns the schema, so revoke it as that
   superuser first;
+- refuses (exit 1, nothing changed) while those schemas hold any object owned
+  by a role outside the owner's trust: one that is neither a superuser nor
+  able to act as the tables' owner, such as a retired account that could
+  create in `public` in the past (the PostgreSQL 13 and 14 default) or
+  another application's role. An exact-type overload it left behind, such as
+  `public.to_jsonb(integer)`, would be picked over the built-in by anything
+  that runs as the owner and resolves names in `public`. The refusal names
+  each object and its owner: check what they are, then drop them or reassign
+  them to the owner (`ALTER ... OWNER TO`, or `REASSIGN OWNED BY`), and run
+  the setup again;
 - verifies every denied and every required privilege.
 
-The approval functions themselves run with the fixed search path
+The approval functions themselves, and the older guards and validators a
+signed decision fires (`operation_authorization_guard`,
+`admin_adjustment_violation`, `legacy_resolution_violation`,
+`review_coverage_guard`, `unclassified_lot_review_violation`, and the
+SECURITY DEFINER `coin_provenance_guard`), run with the fixed search path
 `pg_catalog, pg_temp` and name every table and non-catalog function by
 schema, with exact argument types, so no object another role creates is
-picked in their place; invariant I3 reports any of them without that pin,
-and reports `CREATE` on the schema held by the runtime role (any role other
-than the tables' owner) if it is granted after the setup ran.
+picked in their place, even one the setup has not yet seen; invariant I3
+reports any of them without that pin, and reports `CREATE` on the schema held
+by the runtime role (any role other than the tables' owner) if it is granted
+after the setup ran.
 
 It never prints a connection string, a password or the key. Exit codes:
 **0** applied and verified; **1** refused or not verified (nothing changed);

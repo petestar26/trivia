@@ -13,9 +13,10 @@
 //   5. the API and the worker work under it;
 // and that the owner-run setup script (ledger:runtime-access) installs the
 // key and the grants, verifies them, refuses a shared or wrong credential
-// and prints no secret; and (6.) that the runtime role cannot plant a
+// and prints no secret; (6.) that the runtime role cannot plant a
 // function or operator that runs with the owner's privileges inside the
-// approval functions.
+// approval functions; and (7.) that neither can any other role, such as a
+// retired one, whose objects the setup then refuses.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -23,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
+import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
@@ -871,7 +873,10 @@ describe('6. nothing the runtime role could plant runs in the privileged approva
       'ledger_adjustment_first_approval', 'ledger_adjustment_execute', 'ledger_adjustment_close',
       'ledger_review_first_approval', 'ledger_review_reopen', 'ledger_review_resolve',
       'ledger_lock_economy_for_invariant_check', 'ledger_apply_runtime_grants', 'admin_adjustment_evidence_valid',
-      'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard'];
+      'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard',
+      // The older guards and validators a signed decision fires, which run as the owner too.
+      'operation_authorization_guard', 'admin_adjustment_violation', 'legacy_resolution_violation',
+      'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard'];
     const functions = await prisma.$queryRawUnsafe<{ name: string; config: string[] | null }[]>(`
       SELECT p.proname::text AS name, p.proconfig AS config FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname = 'public' AND p.proname = ANY($1::text[]) ORDER BY 1`, privileged);
@@ -884,4 +889,130 @@ describe('6. nothing the runtime role could plant runs in the privileged approva
     });
     expect(i3?.sample).toContain('search_path:ledger_require_whole_coin_amount(numeric)');
   });
+});
+
+describe('7. a retired role\'s overload of a built-in never runs in the privileged approval context', () => {
+  // A role that once could create objects in public (PostgreSQL 14 and
+  // earlier grant that to PUBLIC by default) and has since been retired: it
+  // no longer logs in or creates anything, and it is unrelated to the runtime
+  // role, so the runtime role's own checks never see it. What it left behind
+  // is an exact-type public.to_jsonb(integer), which PostgreSQL prefers to
+  // the polymorphic pg_catalog.to_jsonb(anyelement) wherever public is on the
+  // search path, whatever the order (admin_adjustment_violation calls
+  // to_jsonb on the approval's INTEGER amount), and an exact-type `=` on the
+  // lots' restriction status, preferred the same way to anyenum = anyenum
+  // (coin_provenance_guard, SECURITY DEFINER, compares it on every lot
+  // update). Each records whom it ran as and returns the genuine result, so
+  // the adjustment still succeeds and nothing but that record shows it ran.
+  const retire = async () => {
+    const t = randomUUID().replaceAll('-', '').slice(0, 10);
+    const retired = `playqube_retired_${t}`;
+    const log = `rr_retired_log_${t}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${retired}" LOGIN NOSUPERUSER`);
+    await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${retired}"`);
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET LOCAL ROLE "${retired}"`),
+      prisma.$executeRawUnsafe(`CREATE TABLE public."${log}" ("via" text NOT NULL, "ranAs" text NOT NULL, "sessionUser" text NOT NULL)`),
+      prisma.$executeRawUnsafe(`GRANT INSERT ON public."${log}" TO PUBLIC`),
+      prisma.$executeRawUnsafe(`CREATE FUNCTION public.to_jsonb(integer) RETURNS jsonb LANGUAGE plpgsql AS $f$
+        BEGIN
+          INSERT INTO public."${log}" VALUES ('to_jsonb(integer)', current_user, session_user);
+          RETURN pg_catalog.to_jsonb($1);
+        END $f$`),
+      prisma.$executeRawUnsafe(`CREATE FUNCTION public."rr_retired_eq_${t}"(public.coin_restriction_status,
+          public.coin_restriction_status) RETURNS boolean LANGUAGE plpgsql AS $f$
+        BEGIN
+          INSERT INTO public."${log}" VALUES ('= on coin_restriction_status', current_user, session_user);
+          RETURN $1::text OPERATOR(pg_catalog.=) $2::text;
+        END $f$`),
+      prisma.$executeRawUnsafe(`CREATE OPERATOR public.= (LEFTARG = public.coin_restriction_status,
+          RIGHTARG = public.coin_restriction_status, FUNCTION = public."rr_retired_eq_${t}")`),
+    ]);
+    // Retired: it can no longer log in or create anything; what it owns stays.
+    await prisma.$executeRawUnsafe(`REVOKE CREATE ON SCHEMA public FROM "${retired}"`);
+    await prisma.$executeRawUnsafe(`ALTER ROLE "${retired}" NOLOGIN`);
+    return {
+      retired,
+      runs: () => prisma.$queryRawUnsafe<{ via: string; ranAs: string; sessionUser: string }[]>(
+        `SELECT "via", "ranAs", "sessionUser" FROM public."${log}"`),
+      drop: async () => {
+        await prisma.$executeRawUnsafe(`DROP OWNED BY "${retired}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${retired}"`);
+      },
+    };
+  };
+
+  /**
+   * A valid Coin adjustment, run by the runtime role as the API runs it: the
+   * signed request and first approval, then in one transaction the credit
+   * and the signed second approval (ledger_adjustment_execute). `immediate`
+   * checks the execution guard at the end of that procedure's UPDATE, so
+   * inside the SECURITY DEFINER procedure, as the owner; `deferred` leaves
+   * it (and every other guard) to COMMIT.
+   */
+  const signedAdjustment = async (timing: 'immediate' | 'deferred') => {
+    const approvalId = randomUUID(); const caseId = uid('rr-retired-case'); const evidence = evidenceFor(caseId);
+    const amount = 5;
+    const terms = { subjectType: 'ADMIN_ADJUSTMENT', subjectId: approvalId, userId: f.buyer.id, amount: String(amount),
+      caseId, evidence };
+    const request = await apiSignature(app, { ...terms, action: 'REQUEST', actorId: approvers.first.id });
+    const first = await apiSignature(app, { ...terms, action: 'FIRST_APPROVAL', actorId: approvers.first.id });
+    const second = await apiSignature(app, { ...terms, action: 'SECOND_APPROVAL', actorId: approvers.second.id });
+    expect(await commitAsApp([
+      ['SELECT "ledger_adjustment_request"($1, $2, $3::numeric, $4, $5::jsonb, $6, $7, $8, $9)', approvalId, f.buyer.id,
+        String(amount), caseId, JSON.stringify(evidence), approvers.first.id, request.keyId, request.nonce, request.signature],
+      ['SELECT "ledger_adjustment_first_approval"($1, $2, $3, $4, $5)', approvalId, approvers.first.id,
+        first.keyId, first.nonce, first.signature],
+    ])).toBe('committed');
+    await app.$transaction(async (tx) => {
+      // Names resolve afresh, whatever this pooled connection planned before.
+      await tx.$executeRawUnsafe('DISCARD PLANS');
+      const credit = await creditCoins(tx, f.buyer.id, amount, {
+        type: 'ADMIN_ADJUST', scopeType: 'ADMIN_ADJUSTMENT', scopeId: caseId, referenceType: 'ADMIN', referenceId: caseId,
+        description: evidence.rationale, createdBy: approvers.second.id, evidence,
+        adjustmentApproval: { id: approvalId, amount },
+      });
+      if (timing === 'immediate') await tx.$executeRawUnsafe('SET CONSTRAINTS "adjustment_execution_guard" IMMEDIATE');
+      await tx.$executeRawUnsafe('SELECT "ledger_adjustment_execute"($1, $2, $3, $4, $5, $6, $7)', approvalId,
+        approvers.second.id, credit.operationId, credit.walletTransactionId, second.keyId, second.nonce, second.signature);
+    }, { timeout: 120_000 });
+    return approvalId;
+  };
+
+  it('setup refuses the database while a role outside the owner\'s trust owns objects in public, and prints no key', async () => {
+    const plant = await retire();
+    try {
+      await expect(prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role))
+        .rejects.toThrow(new RegExp(`function public\\.to_jsonb\\(integer\\) \\(owner ${plant.retired}\\)`));
+      const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toMatch(new RegExp(
+        `NOT verified; nothing was changed:\\n.*function public\\.to_jsonb\\(integer\\) \\(owner ${plant.retired}\\)`));
+      expect(refused.output).not.toContain(process.env.LEDGER_APPROVAL_SIGNING_KEY!);
+      expect(refused.output).not.toContain(password);
+    } finally {
+      await plant.drop();
+    }
+    // With the retired role's objects gone, the setup applies again.
+    const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+    expect(applied.status, applied.output).toBe(0);
+  });
+
+  for (const timing of ['immediate', 'deferred'] as const) {
+    it(`even if it were left in place, it never runs with elevated privileges in a signed adjustment (${timing} checks)`, async () => {
+      const plant = await retire();
+      try {
+        const approvalId = await signedAdjustment(timing);
+        const executed = await prisma.adminAdjustmentApproval.findUniqueOrThrow({ where: { id: approvalId } });
+        expect(executed.status).toBe('EXECUTED');
+        expect(await prisma.economicOperation.count({ where: { id: executed.operationId!, type: 'ADMIN_ADJUST' } })).toBe(1);
+        // Elevated: running as a role other than the session's own, which is
+        // what a SECURITY DEFINER context (the owner's) would show.
+        const runs = await plant.runs();
+        expect(runs.filter((run) => run.ranAs !== run.sessionUser), JSON.stringify(runs)).toEqual([]);
+      } finally {
+        await plant.drop();
+      }
+    });
+  }
 });
