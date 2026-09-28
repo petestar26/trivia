@@ -7,11 +7,18 @@
  * shortlisted pairs would ever be sent to TypeSafe, so a partner missed here
  * can never be judged later.
  *
+ * The shortlist adds an "answer appears in the other question's text" signal.
+ * It was motivated by two misses in the dev pairs (p027, p028), so dev results
+ * are post-hoc. The holdout pairs were written after the rule and its guard
+ * parameters were fixed; they are reported separately and are still weak
+ * evidence (same author, tiny counts).
+ *
  * Makes no network calls and touches no database, seed, route or app code. It
  * only reads pairs.json and (read-only) packages/database/prisma/seed.ts.
  *
  * Usage: node tools/question-dedup-pilot/evaluate.mjs [--k 3,5,10] [--json]
- *          [--misses] [--min-recall 0.9] [--min-recall-k 10] [--pairs file.json]
+ *          [--misses] [--no-leak] [--no-guards] [--min-recall 0.9]
+ *          [--min-recall-k 10] [--pairs file.json]
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,6 +27,13 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SEED_PATH = join(HERE, '..', '..', 'packages', 'database', 'prisma', 'seed.ts');
 
+// Answer-in-text signal parameters. Fixed before looking at scores; not swept.
+export const LEAK_WEIGHT = 0.3;
+export const MIN_ANSWER_CHARS = 2; // single-character answers ("D", "5") match too much text
+export const DF_CAP_FRACTION = 0.05; // ignore answers found in the stems of >5% of the pool
+export const DF_CAP_FLOOR = 3;
+
+export const SPLITS = ['dev', 'holdout'];
 export const LABELS = ['duplicate_question', 'answer_leakage', 'related_distinct', 'seed_variant'];
 // Labels whose partner we want in the shortlist because a real judgment is needed.
 // related_distinct is reported separately: surfacing it is useful (TypeSafe must reject
@@ -36,7 +50,7 @@ const STOPWORDS = new Set(
 // Generic normalizations only; nothing here is tuned to a specific pair.
 const TOKEN_ALIASES = { x: 'times', '×': 'times', '*': 'times', '%': 'percent' };
 
-export function tokenize(text) {
+export function tokenList(text) {
   const cleaned = String(text)
     .toLowerCase()
     .replace(/\(set \d+\)/g, ' ')
@@ -51,7 +65,18 @@ export function tokenize(text) {
     if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1);
     tokens.push(t);
   }
-  return new Set(tokens);
+  return tokens;
+}
+
+export const tokenize = (text) => new Set(tokenList(text));
+
+/** True when `needle` occurs as a contiguous whole-token run inside `hay`. */
+export function containsSequence(hay, needle) {
+  if (needle.length === 0 || needle.length > hay.length) return false;
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    if (needle.every((t, j) => hay[i + j] === t)) return true;
+  }
+  return false;
 }
 
 export function jaccard(a, b) {
@@ -64,29 +89,74 @@ export function jaccard(a, b) {
 const norm = (s) => [...tokenize(s)].sort().join(' ');
 
 export function prepare(question) {
+  const answerTokens = tokenList(question.choices[question.correctIndex]);
   return {
     id: question.id,
     stem: tokenize(question.question),
+    stemTokens: tokenList(question.question),
     choices: new Set(question.choices.map(norm)),
     answer: norm(question.choices[question.correctIndex]),
+    answerTokens,
   };
 }
 
-/** Similarity used only to shortlist; it is not a duplicate verdict. */
-export function shortlistScore(a, b) {
+/**
+ * Why an answer is too generic to trust as a text match, or null if usable.
+ * `docFreq` is how many pool stems contain the answer as a token run.
+ */
+export function answerGuard(answerTokens, docFreq, poolSize) {
+  if (answerTokens.length === 0) return 'empty';
+  const joined = answerTokens.join('');
+  if (joined.length < MIN_ANSWER_CHARS) return 'too-short';
+  if (answerTokens.length === 1 && /^\d$/.test(answerTokens[0])) return 'single-digit';
+  const cap = Math.max(DF_CAP_FLOOR, Math.floor(DF_CAP_FRACTION * poolSize));
+  if (docFreq > cap) return 'too-common';
+  return null;
+}
+
+/** Per-question guard verdicts for the whole pool (null = usable). */
+export function buildAnswerGuards(prepared) {
+  const stems = [...prepared.values()].map((p) => p.stemTokens);
+  const guards = new Map();
+  for (const [id, p] of prepared) {
+    const docFreq = stems.filter((stem) => containsSequence(stem, p.answerTokens)).length;
+    guards.set(id, answerGuard(p.answerTokens, docFreq, prepared.size));
+  }
+  return guards;
+}
+
+/**
+ * Does either question's correct answer appear in the other's text?
+ * `guards` maps id -> guard reason; pass null to disable guarding.
+ */
+export function answerInText(a, b, guards) {
+  const usable = (q) => guards === null || guards.get(q.id) === null;
+  const aInB = usable(a) && containsSequence(b.stemTokens, a.answerTokens);
+  const bInA = usable(b) && containsSequence(a.stemTokens, b.answerTokens);
+  return { aInB, bInA, either: aInB || bInA };
+}
+
+/**
+ * Similarity used only to shortlist; it is not a duplicate verdict.
+ * `opts.guards`: Map from buildAnswerGuards, or null for unguarded. `opts.leak`: add the
+ * answer-in-text signal (default true).
+ */
+export function shortlistScore(a, b, opts = {}) {
   const stem = jaccard(a.stem, b.stem);
   const choices = jaccard(a.choices, b.choices);
   const sameAnswer = a.answer !== '' && a.answer === b.answer ? 1 : 0;
-  return 0.6 * stem + 0.2 * choices + 0.2 * sameAnswer;
+  let score = 0.6 * stem + 0.2 * choices + 0.2 * sameAnswer;
+  if (opts.leak !== false && answerInText(a, b, opts.guards ?? null).either) score += LEAK_WEIGHT;
+  return score;
 }
 
 /** Ranked list of every other question in the pool for one candidate. */
-export function rankPool(candidateId, prepared) {
+export function rankPool(candidateId, prepared, opts = {}) {
   const me = prepared.get(candidateId);
   const ranked = [];
   for (const [id, other] of prepared) {
     if (id === candidateId) continue;
-    ranked.push({ id, score: shortlistScore(me, other) });
+    ranked.push({ id, score: shortlistScore(me, other, opts) });
   }
   ranked.sort((x, y) => y.score - x.score || (x.id < y.id ? -1 : 1));
   return ranked;
@@ -131,6 +201,8 @@ export function validate(data, seedQuestions = null) {
       if (!ids.has(p[side])) errors.push(`${p.id}: unknown ${side} id "${p[side]}"`);
     }
     if (p.candidate === p.existing) errors.push(`${p.id}: pairs a question with itself`);
+    if (!SPLITS.includes(p.split))
+      errors.push(`${p.id}: split must be one of ${SPLITS.join(', ')}`);
     const key = [p.candidate, p.existing].sort().join('|');
     if (seen.has(key)) errors.push(`${p.id}: unordered pair ${key} is labeled twice`);
     seen.add(key);
@@ -157,50 +229,31 @@ export function validate(data, seedQuestions = null) {
 /**
  * Candidate -> existing recall at each K, per label. `either` also counts a pair
  * found from the reverse direction (existing -> candidate).
+/**
+ * Candidate -> existing shortlist ranks for every labeled pair under one configuration.
+ * `config`: { leak: boolean, guards: boolean }.
  */
-export function evaluateShortlist(data, ks) {
+export function rankPairs(data, config) {
   const prepared = new Map(data.questions.map((q) => [q.id, prepare(q)]));
-  const rankCache = new Map();
+  const guards = config.guards ? buildAnswerGuards(prepared) : null;
+  const opts = { leak: config.leak, guards };
+  const cache = new Map();
   const ranked = (id) => {
-    if (!rankCache.has(id)) rankCache.set(id, rankPool(id, prepared));
-    return rankCache.get(id);
+    if (!cache.has(id)) cache.set(id, rankPool(id, prepared, opts));
+    return cache.get(id);
   };
   const rankOf = (fromId, targetId) => ranked(fromId).findIndex((r) => r.id === targetId) + 1;
-
   const rows = data.pairs.map((p) => {
-    const forward = rankOf(p.candidate, p.existing);
-    const reverse = rankOf(p.existing, p.candidate);
-    return { ...p, forwardRank: forward, reverseRank: reverse };
-  });
-
-  const byLabel = {};
-  for (const label of LABELS) {
-    const subset = rows.filter((r) => r.label === label);
-    byLabel[label] = {
-      pairs: subset.length,
-      forward: Object.fromEntries(
-        ks.map((k) => [k, subset.filter((r) => r.forwardRank <= k).length])
-      ),
-      either: Object.fromEntries(
-        ks.map((k) => [k, subset.filter((r) => Math.min(r.forwardRank, r.reverseRank) <= k).length])
-      ),
-      medianRank: median(subset.map((r) => r.forwardRank)),
+    const a = prepared.get(p.candidate);
+    const b = prepared.get(p.existing);
+    return {
+      ...p,
+      forwardRank: rankOf(p.candidate, p.existing),
+      reverseRank: rankOf(p.existing, p.candidate),
+      leakFires: answerInText(a, b, guards).either,
     };
-  }
-  const positives = rows.filter((r) => POSITIVE_LABELS.includes(r.label));
-  const overall = {
-    pairs: positives.length,
-    forward: Object.fromEntries(
-      ks.map((k) => [k, positives.filter((r) => r.forwardRank <= k).length])
-    ),
-    either: Object.fromEntries(
-      ks.map((k) => [
-        k,
-        positives.filter((r) => Math.min(r.forwardRank, r.reverseRank) <= k).length,
-      ])
-    ),
-  };
-  return { rows, byLabel, overall, poolSize: data.questions.length };
+  });
+  return { rows, prepared, guards };
 }
 
 function median(values) {
@@ -210,70 +263,189 @@ function median(values) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-const pct = (n, d) => (d === 0 ? '  n/a' : `${((100 * n) / d).toFixed(0).padStart(3)}%`);
+/** Recall per split and label. Labels are never pooled into a blended number. */
+export function summarize(rows, ks) {
+  const out = {};
+  for (const split of SPLITS) {
+    out[split] = {};
+    for (const label of LABELS) {
+      const subset = rows.filter((r) => (r.split ?? 'dev') === split && r.label === label);
+      out[split][label] = {
+        pairs: subset.length,
+        found: Object.fromEntries(
+          ks.map((k) => [k, subset.filter((r) => r.forwardRank <= k).length])
+        ),
+        foundEither: Object.fromEntries(
+          ks.map((k) => [
+            k,
+            subset.filter((r) => Math.min(r.forwardRank, r.reverseRank) <= k).length,
+          ])
+        ),
+        medianRank: median(subset.map((r) => r.forwardRank)),
+      };
+    }
+  }
+  return out;
+}
+
+/**
+ * How often the answer-in-text signal fires across every unordered pool pair, with and
+ * without guards. Fires on unlabeled pairs are listed for human review, not counted as
+ * errors: unlabeled pairs are only assumed distinct.
+ */
+export function leakFireReport(data) {
+  const prepared = new Map(data.questions.map((q) => [q.id, prepare(q)]));
+  const guarded = buildAnswerGuards(prepared);
+  const labeled = new Map(
+    data.pairs.map((p) => [[p.candidate, p.existing].sort().join('|'), p.label])
+  );
+  const ids = [...prepared.keys()];
+  const count = () => ({ total: 0, byLabel: {}, unlabeled: [] });
+  const on = count();
+  const off = count();
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const key = [ids[i], ids[j]].sort().join('|');
+      const label = labeled.get(key) ?? 'unlabeled';
+      for (const [bucket, guards] of [
+        [on, guarded],
+        [off, null],
+      ]) {
+        if (!answerInText(prepared.get(ids[i]), prepared.get(ids[j]), guards).either) continue;
+        bucket.total += 1;
+        bucket.byLabel[label] = (bucket.byLabel[label] ?? 0) + 1;
+        if (label === 'unlabeled') bucket.unlabeled.push(key);
+      }
+    }
+  }
+  const dropped = [...guarded]
+    .filter(([, reason]) => reason !== null)
+    .map(([id, reason]) => ({ id, reason }));
+  return {
+    pairsChecked: (ids.length * (ids.length - 1)) / 2,
+    guarded: on,
+    unguarded: off,
+    ignoredAnswers: dropped,
+  };
+}
+
+/** Full evaluation: main configuration plus ablations (no answer-in-text; no guards). */
+export function evaluateShortlist(data, ks) {
+  const main = rankPairs(data, { leak: true, guards: true });
+  const noLeak = rankPairs(data, { leak: false, guards: true });
+  const noGuards = rankPairs(data, { leak: true, guards: false });
+  return {
+    poolSize: data.questions.length,
+    rows: main.rows,
+    summary: summarize(main.rows, ks),
+    ablation: {
+      noLeak: summarize(noLeak.rows, ks),
+      noGuards: summarize(noGuards.rows, ks),
+    },
+    noLeakRows: noLeak.rows,
+    leakFires: leakFireReport(data),
+  };
+}
+
+const pct = (n, d) => (d === 0 ? ' n/a' : `${((100 * n) / d).toFixed(0)}%`);
+const frac = (n, d) => `${n}/${d}`;
 
 export function formatReport(result, ks, { showMisses, questionsById }) {
   const lines = [];
+  const maxK = Math.max(...ks);
+  const fmtCell = (b, k) =>
+    `${frac(b.found[k], b.pairs)} (${pct(b.found[k], b.pairs)})`.padStart(13);
   lines.push(`Pool: ${result.poolSize} questions, ${result.rows.length} labeled pairs.`);
-  lines.push(
-    "Shortlist recall = labeled partner appears in the candidate's top K (candidate -> existing)."
+  lines.push("Recall = labeled partner is in the candidate's top K (candidate -> existing).");
+  lines.push('Labels are reported separately; there is no blended overall number.');
+
+  const table = (title, summary, note) => {
+    lines.push('', title, note);
+    lines.push(
+      ['label'.padEnd(20), ...ks.map((k) => `K=${k}`.padStart(13)), '  median rank'].join('')
+    );
+    for (const label of LABELS) {
+      const b = summary[label];
+      const tag = POSITIVE_LABELS.includes(label) ? '' : ' *';
+      lines.push(
+        [
+          (label + tag).padEnd(20),
+          ...ks.map((k) => fmtCell(b, k)),
+          String(b.medianRank ?? '-').padStart(14),
+        ].join('')
+      );
+    }
+  };
+  table(
+    'DEV pairs (post-hoc: p027/p028 motivated the answer-in-text rule)',
+    result.summary.dev,
+    '  Not independent validation.'
   );
-  lines.push('');
-  const head = [
-    'label'.padEnd(20),
-    'pairs',
-    ...ks.map((k) => `K=${k}`.padStart(9)),
-    ' median rank',
-  ];
-  lines.push(head.join('  '));
-  for (const label of LABELS) {
-    const b = result.byLabel[label];
-    const tag = POSITIVE_LABELS.includes(label) ? '' : ' *';
+  table(
+    'HOLDOUT pairs (written after the rule and guards were fixed)',
+    result.summary.holdout,
+    '  Tiny counts, same author: weak evidence, do not over-read percentages.'
+  );
+
+  lines.push('', `Answer-in-text ablation at K=${maxK} (found/pairs; dev | holdout)`);
+  lines.push(
+    [
+      'label'.padEnd(20),
+      'leak off'.padStart(16),
+      'leak on'.padStart(16),
+      'leak on, no guards'.padStart(22),
+    ].join('')
+  );
+  for (const label of POSITIVE_LABELS) {
+    const cell = (sum) =>
+      `${frac(sum.dev[label].found[maxK], sum.dev[label].pairs)} | ${frac(sum.holdout[label].found[maxK], sum.holdout[label].pairs)}`;
     lines.push(
       [
-        (label + tag).padEnd(20),
-        String(b.pairs).padStart(5),
-        ...ks.map((k) =>
-          `${pct(b.forward[k], b.pairs)} ${String(b.forward[k]).padStart(2)}/${b.pairs}`.padStart(9)
-        ),
-        String(b.medianRank ?? '-').padStart(12),
-      ].join('  ')
+        label.padEnd(20),
+        cell(result.ablation.noLeak).padStart(16),
+        cell(result.summary).padStart(16),
+        cell(result.ablation.noGuards).padStart(22),
+      ].join('')
     );
   }
-  const o = result.overall;
   lines.push(
-    [
-      'OVERALL (excl. *)'.padEnd(20),
-      String(o.pairs).padStart(5),
-      ...ks.map((k) =>
-        `${pct(o.forward[k], o.pairs)} ${String(o.forward[k]).padStart(2)}/${o.pairs}`.padStart(9)
-      ),
-      '',
-    ].join('  ')
+    '* related_distinct is a hard-negative label: it is reported for context, and a miss is harmless.'
   );
-  lines.push(
-    [
-      '  either direction'.padEnd(20),
-      '',
-      ...ks.map((k) => pct(o.either[k], o.pairs).padStart(9)),
-    ].join('  ')
-  );
-  lines.push('');
-  lines.push(
-    '* related_distinct is a hard-negative label: surfacing it is desirable (TypeSafe must reject it),'
-  );
-  lines.push('  but a miss is harmless, so it is excluded from the overall recall.');
 
+  const f = result.leakFires;
+  const labelCounts = (b) =>
+    Object.entries(b.byLabel)
+      .sort()
+      .map(([l, n]) => `${l} ${n}`)
+      .join(', ') || 'none';
+  lines.push('', `Answer-in-text signal across all ${f.pairsChecked} unordered pool pairs:`);
+  lines.push(`  guarded:   ${f.guarded.total} fire  (${labelCounts(f.guarded)})`);
+  lines.push(`  unguarded: ${f.unguarded.total} fire  (${labelCounts(f.unguarded)})`);
+  lines.push(
+    `  answers ignored by guards: ${f.ignoredAnswers.length}` +
+      (f.ignoredAnswers.length
+        ? ` (${f.ignoredAnswers.map((g) => `${g.id}:${g.reason}`).join(', ')})`
+        : '')
+  );
+  if (f.guarded.unlabeled.length > 0) {
+    lines.push(
+      '  guarded fires on unlabeled pairs (review by hand; unlabeled is only assumed distinct):'
+    );
+    for (const key of f.guarded.unlabeled) {
+      const [x, y] = key.split('|');
+      lines.push(
+        `    ${key}: "${questionsById.get(x).question}"  /  "${questionsById.get(y).question}"`
+      );
+    }
+  }
   if (showMisses) {
-    const maxK = Math.max(...ks);
     const misses = result.rows
       .filter((r) => POSITIVE_LABELS.includes(r.label) && r.forwardRank > maxK)
       .sort((a, b) => b.forwardRank - a.forwardRank);
-    lines.push('');
-    lines.push(`Positive pairs outside top ${maxK} (${misses.length}):`);
+    lines.push('', `Positive pairs outside top ${maxK} (${misses.length}):`);
     for (const m of misses) {
       lines.push(
-        `  ${m.id} ${m.label} rank ${m.forwardRank}: "${questionsById.get(m.candidate).question}"  vs  "${questionsById.get(m.existing).question}"`
+        `  ${m.id} [${m.split}] ${m.label} rank ${m.forwardRank}: "${questionsById.get(m.candidate).question}"  vs  "${questionsById.get(m.existing).question}"`
       );
     }
   }
@@ -330,17 +502,22 @@ function main() {
   } else {
     const questionsById = new Map(data.questions.map((q) => [q.id, q]));
     console.log(
-      'Validation OK (ids, labels, answer indexes' +
+      'Validation OK (ids, labels, splits, answer indexes' +
         (seedQuestions ? ', seed.ts match' : '') +
         ').\n'
     );
     console.log(formatReport(result, opts.ks, { showMisses: opts.misses, questionsById }));
   }
   if (opts.minRecall !== null) {
-    const recall = result.overall.forward[opts.minRecallK] / result.overall.pairs;
-    if (recall < opts.minRecall) {
+    // Gate: every positive label, dev and holdout together, must reach the bar.
+    const failing = POSITIVE_LABELS.filter((label) => {
+      const pairs = SPLITS.reduce((n, s) => n + result.summary[s][label].pairs, 0);
+      const found = SPLITS.reduce((n, s) => n + result.summary[s][label].found[opts.minRecallK], 0);
+      return pairs > 0 && found / pairs < opts.minRecall;
+    });
+    if (failing.length > 0) {
       console.error(
-        `\nGate failed: recall@${opts.minRecallK} = ${recall.toFixed(3)} < ${opts.minRecall}`
+        `\nGate failed at K=${opts.minRecallK}: ${failing.join(', ')} below ${opts.minRecall}`
       );
       process.exit(1);
     }

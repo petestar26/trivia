@@ -910,6 +910,142 @@
       "correctIndex": 1,
       "category": "art",
       "source": "handwritten"
+    },
+    {
+      "id": "h01",
+      "question": "What is the highest mountain above sea level on Earth?",
+      "choices": ["Everest", "K2", "Denali", "Fuji"],
+      "correctIndex": 0,
+      "category": "geography",
+      "source": "handwritten"
+    },
+    {
+      "id": "h02",
+      "question": "Who is the author of 'Romeo and Juliet'?",
+      "choices": ["Shakespeare", "Marlowe", "Wilde", "Twain"],
+      "correctIndex": 0,
+      "category": "literature",
+      "source": "handwritten"
+    },
+    {
+      "id": "h03",
+      "question": "Which organ is responsible for pumping blood through the body?",
+      "choices": ["Heart", "Lungs", "Liver", "Brain"],
+      "correctIndex": 0,
+      "category": "science",
+      "source": "handwritten"
+    },
+    {
+      "id": "h04",
+      "question": "What is the currency used in Japan?",
+      "choices": ["Yen", "Won", "Yuan", "Peso"],
+      "correctIndex": 0,
+      "category": "general",
+      "source": "handwritten"
+    },
+    {
+      "id": "h05",
+      "question": "Neil Armstrong's famous 'one small step' came during which event?",
+      "choices": ["Moon landing", "Shuttle launch", "Lunar orbit", "Spacewalk"],
+      "correctIndex": 0,
+      "category": "history",
+      "source": "handwritten"
+    },
+    {
+      "id": "h06",
+      "question": "In which country would you find the city of Rio de Janeiro?",
+      "choices": ["Brazil", "Portugal", "Argentina", "Chile"],
+      "correctIndex": 0,
+      "category": "geography",
+      "source": "handwritten"
+    },
+    {
+      "id": "h07",
+      "question": "What is 7 x 8?",
+      "choices": ["54", "56", "58", "64"],
+      "correctIndex": 1,
+      "category": "math",
+      "source": "handwritten"
+    },
+    {
+      "id": "h08",
+      "question": "What is 56 divided by 8?",
+      "choices": ["6", "7", "8", "9"],
+      "correctIndex": 1,
+      "category": "math",
+      "source": "handwritten"
+    },
+    {
+      "id": "h09",
+      "question": "Which chemical element has the symbol Au?",
+      "choices": ["Silver", "Gold", "Copper", "Aluminum"],
+      "correctIndex": 1,
+      "category": "science",
+      "source": "handwritten"
+    },
+    {
+      "id": "h10",
+      "question": "How many legs does a spider have?",
+      "choices": ["6", "8", "10", "12"],
+      "correctIndex": 1,
+      "category": "nature",
+      "source": "handwritten"
+    },
+    {
+      "id": "h11",
+      "question": "How many sides does an octagon have?",
+      "choices": ["6", "8", "10", "12"],
+      "correctIndex": 1,
+      "category": "math",
+      "source": "handwritten"
+    },
+    {
+      "id": "h12",
+      "question": "How many players are on a baseball team on the field?",
+      "choices": ["7", "8", "9", "10"],
+      "correctIndex": 2,
+      "category": "sports",
+      "source": "handwritten"
+    },
+    {
+      "id": "h13",
+      "question": "Which animal is the fastest on land?",
+      "choices": ["Cheetah", "Lion", "Horse", "Greyhound"],
+      "correctIndex": 0,
+      "category": "nature",
+      "source": "handwritten"
+    },
+    {
+      "id": "h14",
+      "question": "Which planet do humans live on?",
+      "choices": ["Earth", "Mars", "Venus", "Jupiter"],
+      "correctIndex": 0,
+      "category": "science",
+      "source": "handwritten"
+    },
+    {
+      "id": "v13",
+      "question": "How many continents are there? (set 2)",
+      "choices": ["5", "6", "7", "8"],
+      "correctIndex": 2,
+      "category": "geography",
+      "source": "seed-variant"
+    },
+    {
+      "id": "v14",
+      "question": "What is the largest ocean on Earth? (set 3)",
+      "choices": ["Atlantic", "Indian", "Arctic", "Pacific"],
+      "correctIndex": 3,
+      "category": "geography",
+      "source": "seed-variant"
+    },
+    {
+      "id": "v15",
+      "question": "Which gas do plants absorb from the air? (set 2)",
+      "choices": ["Oxygen", "Nitrogen", "Carbon dioxide", "Hydrogen"],
+      "correctIndex": 2,
+      "category": "science",
+      "source": "seed-variant"
     }
   ],
   "pairs": [
@@ -917,457 +1053,643 @@
       "id": "p001",
       "candidate": "d01",
       "existing": "s01",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p002",
       "candidate": "d02",
       "existing": "s02",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p003",
       "candidate": "d03",
       "existing": "s03",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p004",
       "candidate": "d04",
       "existing": "s04",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p005",
       "candidate": "d05",
       "existing": "s05",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p006",
       "candidate": "d06",
       "existing": "s06",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p007",
       "candidate": "d07",
       "existing": "s07",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p008",
       "candidate": "d08",
       "existing": "s08",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p009",
       "candidate": "d09",
       "existing": "s09",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p010",
       "candidate": "d10",
       "existing": "s10",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p011",
       "candidate": "d11",
       "existing": "s11",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p012",
       "candidate": "d12",
       "existing": "s12",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p013",
       "candidate": "d13",
       "existing": "s13",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p014",
       "candidate": "d14",
       "existing": "s14",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p015",
       "candidate": "d15",
       "existing": "s15",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p016",
       "candidate": "d16",
       "existing": "s16",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p017",
       "candidate": "d17",
       "existing": "s17",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p018",
       "candidate": "d18",
       "existing": "s18",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p019",
       "candidate": "d19",
       "existing": "s19",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p020",
       "candidate": "d20",
       "existing": "s20",
-      "label": "duplicate_question"
+      "label": "duplicate_question",
+      "split": "dev"
     },
     {
       "id": "p021",
       "candidate": "l01",
       "existing": "s01",
       "label": "answer_leakage",
-      "note": "same answer; stem names the landmark city"
+      "note": "same answer; stem names the landmark city",
+      "split": "dev"
     },
     {
       "id": "p022",
       "candidate": "l02",
       "existing": "s01",
       "label": "answer_leakage",
-      "note": "inverse question; stem contains the other answer"
+      "note": "inverse question; stem contains the other answer",
+      "split": "dev"
     },
     {
       "id": "p023",
       "candidate": "l03",
       "existing": "s04",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p024",
       "candidate": "l04",
       "existing": "s03",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p025",
       "candidate": "l05",
       "existing": "s11",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p026",
       "candidate": "l06",
       "existing": "s06",
       "label": "answer_leakage",
-      "note": "same numeric answer via a different fact"
+      "note": "same numeric answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p027",
       "candidate": "l07",
       "existing": "s07",
       "label": "answer_leakage",
-      "note": "stem contains the other answer (144)"
+      "note": "stem contains the other answer (144)",
+      "split": "dev"
     },
     {
       "id": "p028",
       "candidate": "l08",
       "existing": "s13",
       "label": "answer_leakage",
-      "note": "other question's stem contains this answer (81)"
+      "note": "other question's stem contains this answer (81)",
+      "split": "dev"
     },
     {
       "id": "p029",
       "candidate": "l09",
       "existing": "s08",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p030",
       "candidate": "l10",
       "existing": "s10",
       "label": "answer_leakage",
-      "note": "same answer; different scope (animal vs mammal)"
+      "note": "same answer; different scope (animal vs mammal)",
+      "split": "dev"
     },
     {
       "id": "p031",
       "candidate": "l11",
       "existing": "s17",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p032",
       "candidate": "l12",
       "existing": "s16",
       "label": "answer_leakage",
-      "note": "stem contains the other answer (six)"
+      "note": "stem contains the other answer (six)",
+      "split": "dev"
     },
     {
       "id": "p033",
       "candidate": "l13",
       "existing": "s19",
       "label": "answer_leakage",
-      "note": "other answer minus the goalkeeper"
+      "note": "other answer minus the goalkeeper",
+      "split": "dev"
     },
     {
       "id": "p034",
       "candidate": "l14",
       "existing": "s18",
       "label": "answer_leakage",
-      "note": "same numeric answer via different arithmetic"
+      "note": "same numeric answer via different arithmetic",
+      "split": "dev"
     },
     {
       "id": "p035",
       "candidate": "l15",
       "existing": "s07",
       "label": "answer_leakage",
-      "note": "same numeric answer via a different fact"
+      "note": "same numeric answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p036",
       "candidate": "l16",
       "existing": "s11",
       "label": "answer_leakage",
-      "note": "same answer via a different fact"
+      "note": "same answer via a different fact",
+      "split": "dev"
     },
     {
       "id": "p037",
       "candidate": "r01",
       "existing": "s04",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p038",
       "candidate": "r02",
       "existing": "s04",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p039",
       "candidate": "r03",
       "existing": "s01",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p040",
       "candidate": "r04",
       "existing": "s01",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p041",
       "candidate": "r05",
       "existing": "s03",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p042",
       "candidate": "r06",
       "existing": "s14",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p043",
       "candidate": "r07",
       "existing": "s05",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p044",
       "candidate": "r08",
       "existing": "s05",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p045",
       "candidate": "r09",
       "existing": "s06",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p046",
       "candidate": "r10",
       "existing": "s07",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p047",
       "candidate": "r11",
       "existing": "s07",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p048",
       "candidate": "r12",
       "existing": "s08",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p049",
       "candidate": "r13",
       "existing": "s09",
       "label": "related_distinct",
-      "note": "same numeric answer by coincidence; no fact is revealed"
+      "note": "same numeric answer by coincidence; no fact is revealed",
+      "split": "dev"
     },
     {
       "id": "p050",
       "candidate": "r14",
       "existing": "s10",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p051",
       "candidate": "r15",
       "existing": "s11",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p052",
       "candidate": "r16",
       "existing": "s12",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p053",
       "candidate": "r17",
       "existing": "s13",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p054",
       "candidate": "r18",
       "existing": "s15",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p055",
       "candidate": "r19",
       "existing": "s16",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p056",
       "candidate": "r20",
       "existing": "s17",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p057",
       "candidate": "r21",
       "existing": "s18",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p058",
       "candidate": "r22",
       "existing": "s19",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p059",
       "candidate": "r23",
       "existing": "s20",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p060",
       "candidate": "r24",
       "existing": "s14",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p061",
       "candidate": "r25",
       "existing": "s02",
-      "label": "related_distinct"
+      "label": "related_distinct",
+      "split": "dev"
     },
     {
       "id": "p062",
       "candidate": "v01",
       "existing": "s01",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p063",
       "candidate": "v02",
       "existing": "s05",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p064",
       "candidate": "v03",
       "existing": "s10",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p065",
       "candidate": "v04",
       "existing": "s15",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p066",
       "candidate": "v05",
       "existing": "s17",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p067",
       "candidate": "v06",
       "existing": "s20",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p068",
       "candidate": "v07",
       "existing": "s07",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p069",
       "candidate": "v08",
       "existing": "s12",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p070",
       "candidate": "v09",
       "existing": "s09",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p071",
       "candidate": "v10",
       "existing": "s14",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p072",
       "candidate": "v11",
       "existing": "s18",
-      "label": "seed_variant"
+      "label": "seed_variant",
+      "split": "dev"
     },
     {
       "id": "p073",
       "candidate": "v12",
       "existing": "v01",
       "label": "seed_variant",
-      "note": "two variants of the same base question"
+      "note": "two variants of the same base question",
+      "split": "dev"
+    },
+    {
+      "id": "p074",
+      "candidate": "h01",
+      "existing": "f08",
+      "label": "duplicate_question",
+      "split": "holdout"
+    },
+    {
+      "id": "p075",
+      "candidate": "h02",
+      "existing": "f01",
+      "label": "duplicate_question",
+      "split": "holdout"
+    },
+    {
+      "id": "p076",
+      "candidate": "h03",
+      "existing": "f13",
+      "label": "duplicate_question",
+      "split": "holdout"
+    },
+    {
+      "id": "p077",
+      "candidate": "h04",
+      "existing": "f05",
+      "label": "duplicate_question",
+      "split": "holdout"
+    },
+    {
+      "id": "p078",
+      "candidate": "h05",
+      "existing": "f14",
+      "label": "answer_leakage",
+      "split": "holdout",
+      "note": "stem contains the other question's answer (Neil Armstrong)"
+    },
+    {
+      "id": "p079",
+      "candidate": "h06",
+      "existing": "f07",
+      "label": "answer_leakage",
+      "split": "holdout",
+      "note": "same answer via a different fact; no answer text in either stem"
+    },
+    {
+      "id": "p080",
+      "candidate": "h08",
+      "existing": "h07",
+      "label": "answer_leakage",
+      "split": "holdout",
+      "note": "stem contains the other question's answer (56)"
+    },
+    {
+      "id": "p081",
+      "candidate": "h09",
+      "existing": "r08",
+      "label": "answer_leakage",
+      "split": "holdout",
+      "note": "inverse question; each stem contains the other answer"
+    },
+    {
+      "id": "p082",
+      "candidate": "h10",
+      "existing": "h11",
+      "label": "related_distinct",
+      "split": "holdout",
+      "note": "same numeric answer by coincidence"
+    },
+    {
+      "id": "p083",
+      "candidate": "h12",
+      "existing": "s19",
+      "label": "related_distinct",
+      "split": "holdout",
+      "note": "same template, different sport"
+    },
+    {
+      "id": "p084",
+      "candidate": "h13",
+      "existing": "r14",
+      "label": "related_distinct",
+      "split": "holdout",
+      "note": "shared wording, different fact"
+    },
+    {
+      "id": "p085",
+      "candidate": "h14",
+      "existing": "s03",
+      "label": "related_distinct",
+      "split": "holdout",
+      "note": "common-word answer (Earth) appears in the other stem"
+    },
+    {
+      "id": "p086",
+      "candidate": "v13",
+      "existing": "s02",
+      "label": "seed_variant",
+      "split": "holdout"
+    },
+    {
+      "id": "p087",
+      "candidate": "v14",
+      "existing": "s03",
+      "label": "seed_variant",
+      "split": "holdout"
+    },
+    {
+      "id": "p088",
+      "candidate": "v15",
+      "existing": "s08",
+      "label": "seed_variant",
+      "split": "holdout"
     }
   ]
 }
