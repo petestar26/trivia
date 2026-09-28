@@ -14,9 +14,15 @@
  *   LEDGER_APPROVAL_KEY_ID       its ID (default "primary")
  * In one transaction it first refuses, before changing anything, a runtime
  * role that is, or can become, a role no runtime role may act as (a
- * superuser, the owner of the database, of the schema or of anything in it,
- * among others), and any denied privilege held by a role the runtime role
- * can become or by PUBLIC, which the setup does not change. It then installs
+ * superuser, among others), or that is, can become or inherits the
+ * privileges of a role no runtime role may hold the privileges of (the owner
+ * of the database, of the schema or of anything in it, among others), and
+ * any denied privilege held by a role it can become or inherits from, or by
+ * PUBLIC, which the setup does not change. A role counts as one it can
+ * become when a SET ROLE to it would succeed (PostgreSQL 16 and later: every
+ * membership on the way grants SET; before 16, any membership) or when it
+ * holds ADMIN OPTION on it, and so could grant it to itself; one it inherits
+ * from, when it holds its privileges without SET ROLE. It then installs
  * the approval key (idempotent; a different secret under an installed key ID
  * is refused), applies ledger_apply_runtime_grants() (which also removes, or
  * refuses, any way for the runtime role to create objects in the schemas
@@ -24,8 +30,8 @@
  * other role outside the owner's trust can create there or owns objects
  * there; the runtime role also loses UPDATE on every key other tables follow
  * by cascade) and verifies the result, again for the runtime role and every
- * role it can become. A refusal rolls the transaction back. It never prints
- * a connection string, a password or the key.
+ * role it can become or inherits from. A refusal rolls the transaction back.
+ * It never prints a connection string, a password or the key.
  * Exit codes: 0 applied and verified, 1 refused or not verified, 2 could not run.
  */
 import { realpathSync } from 'node:fs';
@@ -91,34 +97,97 @@ function grantsRefusal(error: unknown): string | null {
 
 type Tx = Prisma.TransactionClient;
 
-/** How the runtime role holds what `subject` holds: as itself, as a role it can become, or through PUBLIC. */
-function through(role: string, subject: string): string {
-  if (subject === role) return '';
-  return subject === 'public' ? ' through PUBLIC' : ` as ${subject}, a role it can become`;
+/**
+ * The pg_has_role privilege that says whether one role can become another
+ * with SET ROLE. From PostgreSQL 16 every membership carries its own SET and
+ * INHERIT options, and SET ROLE needs SET on every membership on the way
+ * (MEMBER then also reports a membership that grants neither). Before 16
+ * any membership, direct or through other roles, allows SET ROLE, whatever
+ * the member's INHERIT attribute, and there is no SET privilege to ask for.
+ */
+export function setRolePrivilege(serverVersionNum: number): 'SET' | 'MEMBER' {
+  return serverVersionNum >= 160000 ? 'SET' : 'MEMBER';
+}
+
+/** A role whose privileges the runtime role holds or can come to hold. */
+interface Reached {
+  name: string;
+  /** The runtime role itself, or a role it can become (SET ROLE, or a grant to itself under ADMIN OPTION). */
+  assumable: boolean;
+  /** For a role it cannot become, the role that inherits its privileges: the runtime role itself, or a role it can become. */
+  via: string | null;
+  superuser: boolean;
 }
 
 /**
- * Every role the runtime role can become with SET ROLE, directly or through
- * other roles, inherited or not, itself first. has_*_privilege sees only
- * what a role inherits; a membership usable by SET ROLE alone (the member
- * NOINHERIT) is one pg_has_role MEMBER still reports (PostgreSQL 13 and later).
+ * Every role the runtime role is, can become or inherits the privileges of,
+ * itself first. It can become a role when SET ROLE to it succeeds
+ * (setRolePrivilege), or when it can grant the role to itself: a membership
+ * in it WITH ADMIN OPTION held by itself or by a role it inherits from, the
+ * grantors PostgreSQL 16 accepts (pg_has_role's ADMIN OPTION test also
+ * counts one behind a membership that grants neither INHERIT nor SET, which
+ * GRANT cannot use; before 16 such a role is already one it can become),
+ * unless the role is a superuser, which only a superuser can grant.
+ * And so on from every role it can become. It inherits a role's privileges
+ * when every membership on the way grants INHERIT (before PostgreSQL 16,
+ * when no member on the way is NOINHERIT) - pg_has_role USAGE, which
+ * has_*_privilege follow.
+ * Attributes (superuser, row-security exemption, CREATEROLE, replication)
+ * are never inherited: they apply only after SET ROLE. A superuser, refused
+ * in its own right, can become every role: nothing is followed from it.
  */
-async function assumableRoles(tx: Tx, role: string): Promise<string[]> {
-  const rows = await tx.$queryRaw<{ name: string }[]>`
-    SELECT m.rolname::text AS "name" FROM pg_roles m WHERE pg_has_role(${role}, m.oid, 'MEMBER')
+async function reachableRoles(tx: Tx, role: string): Promise<Reached[]> {
+  const [server] = await tx.$queryRaw<{ version: number }[]>`
+    SELECT current_setting('server_version_num')::int AS "version"`;
+  const setRole = setRolePrivilege(server.version);
+  return tx.$queryRaw<Reached[]>`
+    WITH RECURSIVE assumable(oid) AS (
+      SELECT r.oid FROM pg_roles r WHERE r.rolname = ${role}
+      UNION
+      SELECT m.oid FROM assumable a JOIN pg_roles s ON s.oid = a.oid AND NOT s.rolsuper CROSS JOIN pg_roles m
+      WHERE pg_has_role(a.oid, m.oid, ${setRole}) OR (NOT m.rolsuper AND EXISTS (
+        SELECT 1 FROM pg_auth_members g WHERE g.roleid = m.oid AND g.admin_option AND pg_has_role(a.oid, g.member, 'USAGE')))),
+    sources AS (SELECT s.oid, s.rolname::text AS name FROM assumable a JOIN pg_roles s ON s.oid = a.oid WHERE NOT s.rolsuper)
+    SELECT m.rolname::text AS "name", m.oid IN (SELECT oid FROM assumable) AS "assumable",
+           CASE WHEN m.oid NOT IN (SELECT oid FROM assumable) THEN (
+             SELECT s.name FROM sources s WHERE pg_has_role(s.oid, m.oid, 'USAGE') ORDER BY s.name <> ${role}, s.name LIMIT 1)
+           END AS "via", m.rolsuper AS "superuser"
+    FROM pg_roles m
+    WHERE m.oid IN (SELECT oid FROM assumable) OR EXISTS (SELECT 1 FROM sources s WHERE pg_has_role(s.oid, m.oid, 'USAGE'))
     ORDER BY m.rolname::text <> ${role}, m.rolname`;
-  return rows.map((row) => row.name);
+}
+
+/** A role whose grants the denied-privilege checks read, and how the runtime role holds what it holds. */
+interface Subject { name: string; how: string }
+
+/**
+ * The runtime role, every role it can become and every role it inherits from
+ * in its own right, and how it holds what each holds. What a role it can
+ * become inherits, has_*_privilege already reports for that role. A
+ * superuser it only inherits from is left out: has_*_privilege reports every
+ * privilege for a superuser, whose bypass is not inherited; the grants such a
+ * role holds explicitly, the runtime role inherits, and the verification of
+ * the runtime role itself reports them.
+ */
+function subjectsOf(role: string, reached: Reached[]): Subject[] {
+  return reached.filter((r) => r.assumable || (r.via === role && !r.superuser)).map((r) => ({
+    name: r.name,
+    how: r.name === role ? '' : r.assumable ? ` as ${r.name}, a role it can become`
+      : ` through ${r.name}, a role whose privileges it inherits`,
+  }));
 }
 
 /**
  * Roles the runtime role must neither be nor be able to become: each can
  * act beyond any grant (a superuser, a role exempt from row security, one
- * that can make itself a member of the tables' owner, copy every row by
- * replication or reach the server's files) or change the ledger's objects
- * whatever their grants say (the owner of the database, of the schema, of
- * the tables or of anything else in the schema).
+ * that can make itself a member of the tables' owner, or copy every row by
+ * replication), attributes that apply only to the current role. And roles
+ * whose privileges it must not hold, whether it can become them or inherits
+ * from them: those that reach the server's files, or change the ledger's
+ * objects whatever their grants say (the owner of the database, of the
+ * schema, of the tables or of anything else in the schema).
  */
-async function unsafeRoles(tx: Tx, role: string): Promise<string[]> {
+async function unsafeRoles(tx: Tx, role: string, reached: Reached[]): Promise<string[]> {
   const rows = await tx.$queryRaw<{ name: string; reasons: string[] }[]>`
     WITH owned AS (
       SELECT c.relowner AS owner, 'relation ' || c.oid::regclass::text AS what
@@ -130,13 +199,18 @@ async function unsafeRoles(tx: Tx, role: string): Promise<string[]> {
       UNION ALL SELECT t.typowner, 'type ' || t.oid::regtype::text
       FROM pg_type t WHERE t.typnamespace = 'public'::regnamespace AND t.typrelid = 0 AND t.typcategory <> 'A'),
     tables_owner AS (SELECT c.relowner AS oid FROM pg_class c WHERE c.oid = to_regclass('economic_operations')),
+    reached AS (
+      SELECT r.name, r.assumable, r.k
+      FROM unnest(${reached.map((r) => r.name)}::text[], ${reached.map((r) => r.assumable)}::boolean[])
+        WITH ORDINALITY AS r(name, assumable, k)),
     checked AS (
-      SELECT m.rolname::text AS name, m.rolname::text <> ${role} AS other, array_remove(ARRAY[
-        CASE WHEN m.rolsuper THEN 'a superuser' END,
-        CASE WHEN m.rolbypassrls THEN 'exempt from row security' END,
-        CASE WHEN m.rolcreaterole THEN 'allowed to create roles (before PostgreSQL 16, to grant itself any role '
+      SELECT m.rolname::text AS name, r.k, array_remove(ARRAY[
+        CASE WHEN r.assumable AND m.rolsuper THEN 'a superuser' END,
+        CASE WHEN r.assumable AND m.rolbypassrls THEN 'exempt from row security' END,
+        CASE WHEN r.assumable AND m.rolcreaterole THEN 'allowed to create roles (before PostgreSQL 16, to grant itself any role '
           || 'but a superuser, the tables'' owner included)' END,
-        CASE WHEN m.rolreplication THEN 'allowed to replicate, and so to copy every row, the signing key included' END,
+        CASE WHEN r.assumable AND m.rolreplication
+          THEN 'allowed to replicate, and so to copy every row, the signing key included' END,
         CASE WHEN m.rolname IN ('pg_execute_server_program', 'pg_read_server_files', 'pg_write_server_files')
           THEN 'allowed to run programs or read or write files on the database server' END,
         CASE WHEN m.oid = (SELECT d.datdba FROM pg_database d WHERE d.datname = current_database())
@@ -148,21 +222,29 @@ async function unsafeRoles(tx: Tx, role: string): Promise<string[]> {
                   || ' in schema public'
          FROM owned o WHERE o.owner = m.oid AND m.oid NOT IN (SELECT oid FROM tables_owner))
       ], NULL) AS reasons
-      FROM pg_roles m WHERE pg_has_role(${role}, m.oid, 'MEMBER'))
-    SELECT name, reasons FROM checked WHERE cardinality(reasons) > 0 ORDER BY other, name`;
-  return rows.flatMap(({ name, reasons }) => reasons.map((reason) =>
-    (name === role ? `${role} is ${reason}` : `${role} can become ${name}, which is ${reason}`)));
+      FROM reached r JOIN pg_roles m ON m.rolname = r.name)
+    SELECT name, reasons FROM checked WHERE cardinality(reasons) > 0 ORDER BY k`;
+  const how = new Map(reached.map((r) => [r.name, r]));
+  return rows.flatMap(({ name, reasons }) => reasons.map((reason) => {
+    const r = how.get(name)!;
+    if (name === role) return `${role} is ${reason}`;
+    if (r.assumable) return `${role} can become ${name}, which is ${reason}`;
+    if (r.via === role) return `${role} inherits the privileges of ${name}, which is ${reason}`;
+    return `${role} can become ${r.via}, which inherits the privileges of ${name}; ${name} is ${reason}`;
+  }));
 }
 
 /**
- * Every denied privilege `subjects` hold, as the runtime role would hold it
- * through them: table grants and column grants alike (has_table_privilege
- * does not see a grant on some columns only, such as SELECT on
- * ledger_approval_keys.secret), user role and status, the owner's
- * procedures, keys other tables follow by cascade and, with `schemaCreate`,
- * CREATE on the schema.
+ * Every denied privilege `holders` hold, as the runtime role would hold it
+ * through them (as a role it can become, by inheritance or through PUBLIC):
+ * table grants and column grants alike (has_table_privilege does not see a
+ * grant on some columns only, such as SELECT on ledger_approval_keys.secret),
+ * user role and status, the owner's procedures, keys other tables follow by
+ * cascade and, with `schemaCreate`, CREATE on the schema.
  */
-async function deniedPrivileges(tx: Tx, role: string, subjects: string[], schemaCreate: boolean): Promise<string[]> {
+async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schemaCreate: boolean): Promise<string[]> {
+  const subjects = holders.map(({ name }) => name);
+  const how = new Map(holders.map(({ name, how: held }) => [name, held]));
   /** Each denial found: who holds it, what it is, and its failure given how the runtime role holds it. */
   const found: { subject: string; what: string; failure: (via: string) => string }[] = [];
   const tables = await tx.$queryRaw<{ subject: string; privilege: string; table: string; whole: boolean; columns: string[] }[]>`
@@ -235,7 +317,7 @@ async function deniedPrivileges(tx: Tx, role: string, subjects: string[], schema
   // What PUBLIC holds, every role holds: named once, through PUBLIC.
   const byPublic = new Set(found.filter(({ subject }) => subject === 'public').map(({ what }) => what));
   return found.filter(({ subject, what }) => subject === 'public' || !byPublic.has(what))
-    .map(({ subject, failure }) => failure(through(role, subject)));
+    .map(({ subject, failure }) => failure(how.get(subject)!));
 }
 
 /**
@@ -255,18 +337,21 @@ export async function applyRuntimeAccess(client: PrismaClient, role: string, key
 
       // Before anything changes. The setup changes only the runtime role's
       // own grants (and PUBLIC's CREATE on the schema): what it could reach
-      // as another role, or through PUBLIC, it would keep.
-      const unsafe = await unsafeRoles(tx, role);
+      // as another role, by inheritance or through PUBLIC, it would keep.
+      const reached = await reachableRoles(tx, role);
+      if (reached[0]?.name !== role) throw new Error(`role "${role}" does not exist`);
+      const unsafe = await unsafeRoles(tx, role, reached);
       if (unsafe.length > 0) throw new NotVerified(unsafe);
-      const roles = await assumableRoles(tx, role);
-      const held = await deniedPrivileges(tx, role, [...roles.filter((name) => name !== role), 'public'], false);
+      const subjects = subjectsOf(role, reached);
+      const held = await deniedPrivileges(tx, role,
+        [...subjects.filter(({ name }) => name !== role), { name: 'public', how: ' through PUBLIC' }], false);
       if (held.length > 0) throw new NotVerified(held);
 
       await tx.$executeRaw`SELECT "ledger_install_approval_key"(${keyId}, decode(${keyHex}, 'hex'))`;
       await tx.$executeRaw`SELECT "ledger_apply_runtime_grants"(${role})`;
 
-      // Verified for the runtime role and for every role it can become.
-      const failures = await deniedPrivileges(tx, role, roles, true);
+      // Verified for the runtime role and for every role it can become or inherits from.
+      const failures = await deniedPrivileges(tx, role, subjects, true);
       for (const [table, column] of REQUIRED_UPDATE_COLUMNS) {
         const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
           SELECT has_column_privilege(${role}, to_regclass(${table}), ${column}, 'UPDATE') AS "granted"`;

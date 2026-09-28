@@ -123,26 +123,36 @@ any refusal rolls back (every grant, ACL, membership and key stays as it was):
   owner, if the runtime role is that same role, or if its own
   `DATABASE_URL` is the owner credential (the services would still hold it);
 - before it changes anything, refuses (exit 1) a runtime role that is, or
-  can become by `SET ROLE` (directly or through other roles, inherited or
-  not: `NOINHERIT` memberships included), a superuser, a role exempt from
-  row security, one that can create roles (before PostgreSQL 16 that is
-  enough to make itself a member of the tables' owner), a replication role,
-  `pg_execute_server_program`, `pg_read_server_files` or
-  `pg_write_server_files`, or the owner of the database, of `public`, of the
-  ledger tables or of anything else in `public`. It then refuses (exit 1,
-  still before any change) while any role the runtime role can become, or
-  `PUBLIC`, holds a privilege the runtime role must not have: the setup
-  changes only the runtime role's own grants, so the runtime role would
-  keep it by `SET ROLE`, or through `PUBLIC`. Column grants count like table
-  grants (`SELECT ("secret") ON ledger_approval_keys` is a read of the
-  signing key). The denied privileges are writing approvals, assertions or
-  the migration history; reading or writing `ledger_approval_keys`;
-  updating or deleting financial history; deleting wallets, provenance,
-  ledger accounts or users; writing the rules; `TRUNCATE` or `TRIGGER` on
-  any table; updating `users.role` or `users.status`; running the owner's
+  can become, a superuser, a role exempt from row security, one that can
+  create roles (before PostgreSQL 16 that is enough to make itself a
+  member of the tables' owner) or a replication role (attributes, which
+  apply only after `SET ROLE`), and one that is, can become or inherits
+  the privileges of `pg_execute_server_program`, `pg_read_server_files`,
+  `pg_write_server_files`, or the owner of the database, of `public`, of
+  the ledger tables or of anything else in `public`. A role counts as one
+  it can become when `SET ROLE` to it succeeds, directly or through other
+  roles (from PostgreSQL 16, every membership on the way grants `SET`;
+  before 16, any membership does, `NOINHERIT` ones included), or when it
+  can grant the role to itself (`ADMIN OPTION` held by itself or by a role
+  it inherits from); as one it inherits from, when every membership on the
+  way grants `INHERIT`. From PostgreSQL 16 a membership that grants
+  neither `INHERIT`, `SET` nor usable `ADMIN OPTION` gives the runtime
+  role nothing, and these checks ignore it (those of
+  `ledger_apply_runtime_grants`, below, still count every membership). It
+  then refuses (exit 1, still before any change) while any role the
+  runtime role can become or inherits from, or `PUBLIC`, holds a privilege
+  the runtime role must not have: the setup changes only the runtime
+  role's own grants, so the runtime role would keep it by `SET ROLE`, by
+  inheritance or through `PUBLIC`. Column grants count like table grants
+  (`SELECT ("secret") ON ledger_approval_keys` is a read of the signing
+  key). The denied privileges are writing approvals, assertions or the
+  migration history; reading or writing `ledger_approval_keys`; updating
+  or deleting financial history; deleting wallets, provenance, ledger
+  accounts or users; writing the rules; `TRUNCATE` or `TRIGGER` on any
+  table; updating `users.role` or `users.status`; running the owner's
   procedures (`ledger_install_approval_key`, `ledger_retire_approval_key`,
-  `ledger_record_assertion`, `ledger_apply_runtime_grants`); and updating a
-  key other tables follow by cascade. The refusal names each role and
+  `ledger_record_assertion`, `ledger_apply_runtime_grants`); and updating
+  a key other tables follow by cascade. The refusal names each role and
   privilege: revoke that membership, or that role's (or `PUBLIC`'s)
   privilege, as its grantor, then run the setup again;
 - installs the key (`ledger_install_approval_key`; idempotent, and a
@@ -195,8 +205,8 @@ any refusal rolls back (every grant, ACL, membership and key stays as it was):
   are, then drop them or reassign them to the owner (`ALTER ... OWNER TO`, or
   `REASSIGN OWNED BY`), and run the setup again;
 - verifies every denied privilege again, for the runtime role and for every
-  role it can become, and every privilege the API needs, for the runtime
-  role.
+  role it can become or inherits from, and every privilege the API needs,
+  for the runtime role.
 
 The approval functions themselves, the older guards and validators a
 signed decision fires (`operation_authorization_guard`,

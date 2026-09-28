@@ -24,7 +24,12 @@
 // no cascade the runtime role can start runs such an object as the owner,
 // even one created after the setup ran; and (11.) that the setup checks
 // every role the runtime role can become, even by SET ROLE alone, and every
-// column grant, and that a refusal changes no grant, ACL, membership or key.
+// column grant, and that a refusal changes no grant, ACL, membership or key;
+// on PostgreSQL 16 and later it follows each membership's options: one that
+// grants neither INHERIT nor SET gives nothing and is allowed, an inherited
+// privilege is refused as inherited, a role it can become (by SET, or by
+// granting it to itself under ADMIN OPTION) is refused as such, and
+// attributes count only for a role it can become.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -35,7 +40,7 @@ import { prisma } from '@socialplay/database';
 import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
-import { applyRuntimeAccess } from '../scripts/ledger-runtime-access.js';
+import { applyRuntimeAccess, setRolePrivilege } from '../scripts/ledger-runtime-access.js';
 import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
@@ -1590,9 +1595,10 @@ describe('11. the setup checks every role the runtime role can become, and a ref
                        (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(d.datacl) AS x))
                      FROM pg_database d WHERE d.datname = current_database()),
         'defaults', (SELECT jsonb_agg(da.defaclacl::text[] ORDER BY da.oid) FROM pg_default_acl da),
-        'memberships', (SELECT jsonb_agg(m.roleid::regrole::text || ' to ' || m.member::regrole::text
-                          || CASE WHEN m.admin_option THEN ' with admin' ELSE '' END
-                          ORDER BY m.roleid::regrole::text, m.member::regrole::text) FROM pg_auth_members m),
+        'memberships', (SELECT jsonb_agg(m.roleid::regrole::text || ' to ' || m.member::regrole::text || ' by '
+                          || m.grantor::regrole::text || ' ' || (to_jsonb(m) - 'oid' - 'roleid' - 'member' - 'grantor')::text
+                          ORDER BY m.roleid::regrole::text, m.member::regrole::text, m.grantor::regrole::text)
+                        FROM pg_auth_members m),
         'runtimeRole', (SELECT jsonb_build_array(r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolreplication,
                           r.rolbypassrls) FROM pg_roles r WHERE r.rolname = $1),
         'keys', (SELECT jsonb_agg(k."keyId" || CASE WHEN k."retiredAt" IS NULL THEN '' ELSE ' (retired)' END ORDER BY k."keyId")
@@ -1875,5 +1881,247 @@ describe('11. the setup checks every role the runtime role can become, and a ref
         expectNoSecrets(applied.output);
       });
     }
+  });
+
+  it('asks PostgreSQL 16 and later whether a role can SET ROLE, and earlier versions whether it is a MEMBER', () => {
+    expect([130000, 140012, 150008, 159999, 160000, 160015, 170000].map(setRolePrivilege))
+      .toEqual(['MEMBER', 'MEMBER', 'MEMBER', 'MEMBER', 'SET', 'SET', 'SET']);
+  });
+
+  describe('on PostgreSQL 16 and later, each membership\'s INHERIT, SET and ADMIN options', () => {
+    // From PostgreSQL 16 a membership grants INHERIT (the member holds the
+    // role's privileges), SET (the member can SET ROLE to it) and ADMIN (the
+    // member can grant it, to itself too) separately. pg_has_role MEMBER
+    // reports every membership, even one that grants none of them; USAGE is
+    // what the runtime role inherits and SET what it can become. Neither
+    // role here is NOINHERIT: only the options decide.
+    let pg16 = false;
+    beforeAll(async () => {
+      const [row] = await prisma.$queryRawUnsafe<{ version: number }[]>(
+        `SELECT current_setting('server_version_num')::int AS version`);
+      pg16 = row.version >= 160000;
+    });
+
+    type Options = { inherit: boolean; set: boolean; admin?: boolean };
+    const withOptions = ({ inherit, set, admin = false }: Options) =>
+      `WITH ADMIN ${admin ? 'TRUE' : 'FALSE'}, INHERIT ${inherit ? 'TRUE' : 'FALSE'}, SET ${set ? 'TRUE' : 'FALSE'}`;
+    const setupFailures = () => applyRuntimeAccess(prisma, role, process.env.LEDGER_APPROVAL_KEY_ID!, key().toLowerCase());
+    /** What pg_has_role says of the runtime role and `other`. */
+    const reach = async (other: string) => (await prisma.$queryRawUnsafe<{ member: boolean; usage: boolean; set: boolean }[]>(
+      `SELECT pg_has_role($1, $2, 'MEMBER') AS member, pg_has_role($1, $2, 'USAGE') AS usage,
+              pg_has_role($1, $2, 'SET') AS set`, role, other))[0];
+    const readSecret: Statement = ['SELECT length("secret") FROM "ledger_approval_keys" LIMIT 0'];
+
+    /**
+     * Makes the runtime role a member of a new role, the holder, with these
+     * options: directly, or through a role in the middle, the runtime role's
+     * membership in the middle carrying `first` (by default the same options,
+     * without ADMIN). `prepare` gives the holder what the case needs and
+     * `restore` puts back what it moved. Afterwards every grant, ACL,
+     * membership and key is as it was.
+     */
+    async function withMembership(path: Path, options: Options, setup: { attributes?: string; first?: Options;
+      prepare: (holder: string) => Promise<string[]>; restore?: () => string[] },
+    body: (holder: string, middle: string) => Promise<void>) {
+      const initial = await accessSnapshot();
+      const t = t11();
+      const holder = `playqube_holder_${t}`;
+      const middle = `playqube_middle_${t}`;
+      await prisma.$executeRawUnsafe(`CREATE ROLE "${holder}" NOLOGIN ${setup.attributes ?? ''}`);
+      await prisma.$executeRawUnsafe(`CREATE ROLE "${middle}" NOLOGIN`);
+      try {
+        const memberships = path === 'direct' ? [`GRANT "${holder}" TO "${role}" ${withOptions(options)}`]
+          : [`GRANT "${holder}" TO "${middle}" ${withOptions(options)}`,
+            `GRANT "${middle}" TO "${role}" ${withOptions(setup.first ?? { ...options, admin: false })}`];
+        for (const sql of [...memberships, ...await setup.prepare(holder)]) await prisma.$executeRawUnsafe(sql);
+        await body(holder, middle);
+      } finally {
+        for (const sql of setup.restore?.() ?? []) await prisma.$executeRawUnsafe(sql);
+        await prisma.$executeRawUnsafe(`DROP OWNED BY "${holder}", "${middle}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${middle}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${holder}"`);
+      }
+      expect(await accessSnapshot(), 'the case leaves nothing behind').toBe(initial);
+    }
+
+    it('INHERIT FALSE, SET FALSE (direct, transitive, and past a role it can become and inherits from): the membership gives nothing, so the setup applies and verifies', async (ctx) => {
+      if (!pg16) ctx.skip();
+      expect(await setupFailures()).toEqual([]);
+      // The runtime role's own membership in the middle role: the same
+      // options, or INHERIT and SET (the middle role holds nothing).
+      const cases: [Path, Options | undefined][] = [['direct', undefined], ['transitive', undefined],
+        ['transitive', { inherit: true, set: true }]];
+      for (const [path, first] of cases) {
+        // Each of these would be refused in a role the runtime role could
+        // become or inherits from: an attribute, a predefined role, denied
+        // table, column and function grants.
+        await withMembership(path, { inherit: false, set: false }, { attributes: 'BYPASSRLS', first, prepare: async (holder) => [
+          `GRANT pg_read_server_files TO "${holder}"`,
+          `GRANT SELECT ON "ledger_approval_keys" TO "${holder}"`,
+          `GRANT UPDATE ("role") ON "users" TO "${holder}"`,
+          `GRANT EXECUTE ON FUNCTION "ledger_install_approval_key"(text, bytea) TO "${holder}"`,
+        ] }, async (holder) => {
+          expect(await reach(holder), 'MEMBER still reports the membership').toEqual({ member: true, usage: false, set: false });
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`]])).toMatch(/rejects: .*permission denied to set role/);
+          expect(await asApp([readSecret])).toMatch(/rejects: .*permission denied for table ledger_approval_keys/);
+          expect(await setupFailures()).toEqual([]);
+          const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+          expect(applied.status, applied.output).toBe(0);
+          expectNoSecrets(applied.output);
+        });
+      }
+    });
+
+    it('INHERIT TRUE, SET FALSE with a denied grant (direct and transitive): refused as an inherited privilege, changing nothing', async (ctx) => {
+      if (!pg16) ctx.skip();
+      for (const path of paths) {
+        await withMembership(path, { inherit: true, set: false }, { prepare: async (holder) => [
+          `GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`,
+          `GRANT EXECUTE ON FUNCTION "ledger_install_approval_key"(text, bytea) TO "${holder}"`,
+        ] }, async (holder) => {
+          expect(await reach(holder)).toEqual({ member: true, usage: true, set: false });
+          // The runtime role cannot become the holder, yet reads the secret column as itself.
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`]])).toMatch(/rejects: .*permission denied to set role/);
+          expect(await asApp([readSecret])).toBe('accepts');
+          await refusedChangingNothing([
+            `${role} still holds SELECT on ledger_approval_keys.secret through ${holder}, a role whose privileges it inherits`,
+            `${role} can still run ledger_install_approval_key through ${holder}, a role whose privileges it inherits`,
+          ], path === 'direct' ? scriptRefused : undefined);
+        });
+      }
+    });
+
+    it('SET TRUE, INHERIT FALSE with a denied grant (direct and transitive): refused as a role it can become, changing nothing', async (ctx) => {
+      if (!pg16) ctx.skip();
+      for (const path of paths) {
+        await withMembership(path, { inherit: false, set: true }, { prepare: async (holder) => [
+          `GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`,
+          `GRANT EXECUTE ON FUNCTION "ledger_install_approval_key"(text, bytea) TO "${holder}"`,
+        ] }, async (holder) => {
+          expect(await reach(holder)).toEqual({ member: true, usage: false, set: true });
+          // The runtime role inherits nothing, yet reads the secret column as the holder.
+          expect(await asApp([readSecret])).toMatch(/rejects: .*permission denied for table ledger_approval_keys/);
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`], readSecret])).toBe('accepts');
+          await refusedChangingNothing([
+            `${role} still holds SELECT on ledger_approval_keys.secret as ${holder}, a role it can become`,
+            `${role} can still run ledger_install_approval_key as ${holder}, a role it can become`,
+          ], path === 'direct' ? scriptRefused : undefined);
+        });
+      }
+    });
+
+    it('ADMIN OPTION without INHERIT or SET (direct, and inherited through a role in the middle): the runtime role can grant itself the role, so it is refused as one it can become', async (ctx) => {
+      if (!pg16) ctx.skip();
+      for (const path of paths) {
+        await withMembership(path, { inherit: false, set: false, admin: true }, { first: { inherit: true, set: false },
+          prepare: async (holder) => [`GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`] }, async (holder) => {
+          expect(await reach(holder)).toEqual({ member: true, usage: false, set: false });
+          expect(await asApp([[`GRANT "${holder}" TO "${role}" WITH SET TRUE`], [`SET LOCAL ROLE "${holder}"`], readSecret]))
+            .toBe('accepts');
+          await refusedChangingNothing([`${role} still holds SELECT on ledger_approval_keys.secret as ${holder}, a role it can become`]);
+        });
+      }
+      // ADMIN OPTION held by a role the runtime role can neither become nor
+      // inherits from is not its to use: PostgreSQL finds no grantor.
+      expect(await setupFailures()).toEqual([]);
+      await withMembership('transitive', { inherit: false, set: false, admin: true }, { first: { inherit: false, set: false },
+        prepare: async (holder) => [`GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`] }, async (holder) => {
+        expect(await asApp([[`GRANT "${holder}" TO "${role}" WITH SET TRUE`]])).toMatch(/rejects: .*(no possible grantors|permission denied to grant role)/);
+        expect(await setupFailures()).toEqual([]);
+      });
+    });
+
+    it('mixed options through a role in the middle: SET then INHERIT reaches the holder\'s grants, and an owner\'s or a predefined role\'s privileges, as the middle role; INHERIT then SET reaches nothing', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const o = await originals();
+      await withMembership('transitive', { inherit: true, set: false }, { first: { inherit: false, set: true },
+        prepare: async (holder) => [`GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`] }, async (holder, middle) => {
+        expect(await reach(holder)).toEqual({ member: true, usage: false, set: false });
+        expect(await asApp([[`SET LOCAL ROLE "${middle}"`], readSecret])).toBe('accepts');
+        await refusedChangingNothing([`${role} still holds SELECT on ledger_approval_keys.secret as ${middle}, a role it can become`]);
+      });
+      await withMembership('transitive', { inherit: true, set: false }, { first: { inherit: false, set: true },
+        prepare: async (holder) => [`ALTER SCHEMA public OWNER TO "${holder}"`],
+        restore: () => [`ALTER SCHEMA public OWNER TO ${o.schemaOwner}`] }, async (holder, middle) => {
+        await refusedChangingNothing([
+          `${role} can become ${middle}, which inherits the privileges of ${holder}; ${holder} is the owner of schema public`]);
+      });
+      await withMembership('transitive', { inherit: true, set: false }, { first: { inherit: false, set: true },
+        prepare: async (holder) => [`GRANT pg_read_server_files TO "${holder}" WITH INHERIT TRUE, SET FALSE`] }, async (_, middle) => {
+        await refusedChangingNothing([`${role} can become ${middle}, which inherits the privileges of pg_read_server_files; `
+          + 'pg_read_server_files is allowed to run programs or read or write files on the database server']);
+      });
+      // SET ROLE needs SET on every membership on the way; inheriting the
+      // middle role's privileges does not carry its SET on the holder.
+      expect(await setupFailures()).toEqual([]);
+      await withMembership('transitive', { inherit: false, set: true }, { attributes: 'BYPASSRLS', first: { inherit: true, set: false },
+        prepare: async (holder) => [`GRANT SELECT ("secret") ON "ledger_approval_keys" TO "${holder}"`] }, async (holder) => {
+        expect(await reach(holder)).toEqual({ member: true, usage: false, set: false });
+        expect(await asApp([[`SET LOCAL ROLE "${holder}"`]])).toMatch(/rejects: .*permission denied to set role/);
+        expect(await setupFailures()).toEqual([]);
+      });
+    });
+
+    it('a superuser the runtime role only inherits from, or holds only ADMIN OPTION on (which only a superuser can use): the setup\'s own checks raise nothing for it', async (ctx) => {
+      if (!pg16) ctx.skip();
+      // ledger_apply_runtime_grants still counts every membership (pg_has_role
+      // MEMBER), and a superuser holds every privilege, so it alone refuses:
+      // over the keys other tables follow by cascade, rolling back.
+      const cases: [Path, Options][] = [['direct', { inherit: true, set: false }], ['transitive', { inherit: true, set: false }],
+        ['direct', { inherit: false, set: false, admin: true }]];
+      for (const [path, options] of cases) {
+        await withMembership(path, options, { attributes: 'SUPERUSER', prepare: async () => [] }, async (holder) => {
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`]])).toMatch(/rejects: .*permission denied to set role/);
+          if (options.admin) {
+            expect(await asApp([[`GRANT "${holder}" TO "${role}" WITH SET TRUE`]])).toMatch(/rejects: .*permission denied to grant role/);
+          }
+          let failures: string[] = [];
+          await refusedChangingNothing(
+            [expect.stringMatching(/can still change keys other tables follow by cascade, as a role it can become: .* through /)],
+            async (keyId) => (failures = await applyRuntimeAccess(prisma, role, keyId, key().toLowerCase())));
+          expect(failures).toHaveLength(1);
+        });
+      }
+    });
+
+    // An attribute applies only to the current role, after SET ROLE; an
+    // owner's or a predefined role's privileges also reach a member that
+    // inherits them.
+    const attributes: [attribute: string, reason: string][] = [
+      ['BYPASSRLS', 'exempt from row security'],
+      ['REPLICATION', 'allowed to replicate, and so to copy every row, the signing key included'],
+      ['CREATEROLE', 'allowed to create roles (before PostgreSQL 16, to grant itself any role but a superuser, the tables\' owner included)'],
+    ];
+    it('an attribute (direct and transitive): refused in a role the runtime role can become (SET TRUE, INHERIT FALSE); allowed in one it only inherits from (INHERIT TRUE, SET FALSE)', async (ctx) => {
+      if (!pg16) ctx.skip();
+      for (const [attribute, reason] of attributes) {
+        for (const path of paths) {
+          await withMembership(path, { inherit: false, set: true }, { attributes: attribute, prepare: async () => [] }, async (holder) => {
+            await refusedChangingNothing([`${role} can become ${holder}, which is ${reason}`]);
+          });
+          expect(await setupFailures()).toEqual([]);
+          await withMembership(path, { inherit: true, set: false }, { attributes: attribute, prepare: async () => [] }, async () => {
+            expect(await setupFailures()).toEqual([]);
+          });
+        }
+      }
+    });
+
+    it('INHERIT TRUE, SET FALSE (direct and transitive): the privileges of the schema\'s owner, or of a role that reads the server\'s files, are refused as inherited, changing nothing', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const o = await originals();
+      for (const path of paths) {
+        await withMembership(path, { inherit: true, set: false }, { prepare: async (holder) => [`ALTER SCHEMA public OWNER TO "${holder}"`],
+          restore: () => [`ALTER SCHEMA public OWNER TO ${o.schemaOwner}`] }, async (holder) => {
+          await refusedChangingNothing([`${role} inherits the privileges of ${holder}, which is the owner of schema public`]);
+        });
+        await withMembership(path, { inherit: true, set: false }, {
+          prepare: async (holder) => [`GRANT pg_read_server_files TO "${holder}" WITH INHERIT TRUE, SET FALSE`] }, async () => {
+          expect(await reach('pg_read_server_files')).toEqual({ member: true, usage: true, set: false });
+          await refusedChangingNothing([`${role} inherits the privileges of pg_read_server_files, which is allowed to run `
+            + 'programs or read or write files on the database server']);
+        });
+      }
+    });
   });
 });
