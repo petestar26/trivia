@@ -81,8 +81,41 @@ matching the stem "Which ocean lies east of Africa?").
 - Any further tuning against these pairs should use a fresh holdout; do not reuse `holdout` once it has
   informed a change.
 
+## TypeSafe pilot (bounded, labeled pairs only)
+
+One request per labeled pair to `POST /v1/systemone`, with three `noul` questions over the same state
+(`same_fact`, `same_answer`, `leakage`). The model, question wording and thresholds are defined once in
+`typesafe-questions.mjs` and were fixed before any call. They were not tuned on any split, and no
+threshold sweep was run. The state sent is neutral (`question_a` / `question_b` with choices and correct
+answer only); ids, labels and splits are never sent.
+
+Code owns the decision: a pair is `duplicate` if `same_fact >= 0.9` and `same_answer >= 0.8`, else
+`leakage` if `leakage >= 0.9`, else `review` if `same_fact` or `leakage >= 0.4`, else `distinct`.
+Intentional `(set N)` copies are classed by a deterministic code rule, not by the model.
+
+| File                                     | Purpose                                                              |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `typesafe-questions.mjs`                 | Model, questions, thresholds, verdict logic (pure)                   |
+| `typesafe-pilot.mjs`                     | Runner: `--stage sample` (12 pairs) then `--stage expand` (the rest) |
+| `analyze-judgments.mjs`                  | Offline report from the saved raw file                               |
+| `results/raw-judgments.jsonl`            | Raw request, response, status and latency for every pair             |
+| `results/runs.json`, `results/report.md` | Stage timings and the generated report                               |
+
+Re-read the saved results offline, with no network and no key:
+
+```sh
+node tools/question-dedup-pilot/analyze-judgments.mjs          # print the report
+node tools/question-dedup-pilot/analyze-judgments.mjs --write  # also rewrite results/report.md
+node --test tools/question-dedup-pilot/typesafe-pilot.test.mjs
+```
+
+Re-running the API stages needs credentials (`TYPESAFE_API_KEY`, sent as a Bearer token and never
+logged), and the runner skips pairs already saved. Use `--dry-run` to print payloads without sending
+anything. Behind a proxy, run with `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=<ca bundle>`.
+
+The pilot writes only under `results/`. It does not touch the database, seed, routes, competition logic,
+balances or payouts, and deactivates nothing.
+
 ## Next stage (not implemented)
 
-Gate on shortlist recall first, per label. Then send only shortlisted pairs to TypeSafe with questions such as
-"same fact?" and "same answer?", store the raw probabilities, and sweep thresholds offline against
-these labels. Any decision logic would live in code, and nothing here changes `isActive` or any row.
+Independent examples, written by someone other than the pilot's author, before any app integration.
