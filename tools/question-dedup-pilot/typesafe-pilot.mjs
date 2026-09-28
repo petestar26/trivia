@@ -10,6 +10,11 @@
  * Stages:  --stage sample   12 pairs (first/middle/last dev pair per label), sequential
  *          --stage expand   every remaining labeled pair not already in the raw file
  * Options: --dry-run (print payloads, send nothing)  --concurrency N (expand only, default 4)
+ *          --out-dir DIR (default results/)
+ *
+ * A request is recorded as ok only if the HTTP status is 200 AND all three probabilities are present,
+ * numeric and within [0, 1] (see judgeResponse). Anything else is stored as a failure and re-sent
+ * on the next run.
  *
  * Network: through the environment proxy, run with NODE_USE_ENV_PROXY=1 and
  * NODE_EXTRA_CA_CERTS=<ca bundle>. Auth: TYPESAFE_API_KEY (Bearer) if set; otherwise no header is
@@ -19,74 +24,17 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LABELS } from './evaluate.mjs';
-import { QUESTIONS, buildRequest, samplePairIds } from './typesafe-questions.mjs';
+import { callWithRetry } from './typesafe-client.mjs';
+import { QUESTIONS, buildRequest, judgeResponse, samplePairIds } from './typesafe-questions.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const RESULTS = join(HERE, 'results');
-const RAW = join(RESULTS, 'raw-judgments.jsonl');
-const RUNS = join(RESULTS, 'runs.json');
-const BASE = process.env.TYPESAFE_API_BASE ?? 'https://api.typesafe.ai';
-const MAX_ATTEMPTS = 3;
-const TIMEOUT_MS = 60_000;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function callOnce(body) {
-  const headers = { 'content-type': 'application/json' };
-  if (process.env.TYPESAFE_API_KEY)
-    headers.authorization = `Bearer ${process.env.TYPESAFE_API_KEY}`;
-  const started = performance.now();
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(`${BASE}/v1/systemone`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    const text = await res.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      /* keep text */
-    }
-    return {
-      status: res.status,
-      latencyMs: Math.round(performance.now() - started),
-      json,
-      text: json ? undefined : text.slice(0, 500),
-    };
-  } catch (err) {
-    return {
-      status: 0,
-      latencyMs: Math.round(performance.now() - started),
-      error: String(err?.cause?.code ?? err?.message ?? err),
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Retries only transient failures (network error, 429, 5xx); a 4xx is a bug and is not retried. */
-async function callWithRetry(body) {
-  let last;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    last = await callOnce(body);
-    const transient = last.status === 0 || last.status === 429 || last.status >= 500;
-    if (!transient) return { ...last, attempts: attempt };
-    if (attempt < MAX_ATTEMPTS) await sleep(1000 * 2 ** (attempt - 1));
-  }
-  return { ...last, attempts: MAX_ATTEMPTS };
-}
-
 function parseArgs(argv) {
-  const o = { stage: null, dryRun: false, concurrency: 4 };
+  const o = { stage: null, dryRun: false, concurrency: 4, outDir: join(HERE, 'results') };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--stage') o.stage = argv[++i];
     else if (argv[i] === '--dry-run') o.dryRun = true;
     else if (argv[i] === '--concurrency') o.concurrency = Number(argv[++i]);
+    else if (argv[i] === '--out-dir') o.outDir = argv[++i];
     else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!['sample', 'expand'].includes(o.stage)) throw new Error('--stage must be sample or expand');
@@ -100,7 +48,9 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const data = JSON.parse(readFileSync(join(HERE, 'pairs.json'), 'utf8'));
   const byId = new Map(data.questions.map((q) => [q.id, q]));
-  mkdirSync(RESULTS, { recursive: true });
+  const RAW = join(opts.outDir, 'raw-judgments.jsonl');
+  const RUNS = join(opts.outDir, 'runs.json');
+  mkdirSync(opts.outDir, { recursive: true });
 
   const done = new Set(
     existsSync(RAW)
@@ -143,7 +93,8 @@ async function main() {
       const request = buildRequest(byId.get(p.candidate), byId.get(p.existing));
       const requestedAt = new Date().toISOString();
       const r = await callWithRetry(request);
-      const good = r.status === 200 && r.json?.answers;
+      const verdict = judgeResponse(r.status, r.json);
+      const good = verdict.ok;
       if (good) ok += 1;
       appendFileSync(
         RAW,
@@ -161,12 +112,13 @@ async function main() {
           latencyMs: r.latencyMs,
           request,
           response: good ? r.json : undefined,
+          failure: good ? undefined : verdict.reason,
           error: good ? undefined : (r.error ?? r.text ?? JSON.stringify(r.json)?.slice(0, 500)),
         }) + '\n'
       );
       const u = r.json?.usage;
       console.log(
-        `${p.id} ${p.split}/${p.label} ${good ? 'ok' : 'FAIL ' + (r.status || r.error)} ${r.latencyMs}ms` +
+        `${p.id} ${p.split}/${p.label} ${good ? 'ok' : 'FAIL ' + verdict.reason + ' ' + (r.error ?? '')} ${r.latencyMs}ms` +
           (u ? ` in=${u.input_tokens} out=${u.output_tokens}` : '')
       );
     }

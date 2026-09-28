@@ -116,6 +116,40 @@ anything. Behind a proxy, run with `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=<ca
 The pilot writes only under `results/`. It does not touch the database, seed, routes, competition logic,
 balances or payouts, and deactivates nothing.
 
-## Next stage (not implemented)
+## Runner hardening
 
-Independent examples, written by someone other than the pilot's author, before any app integration.
+A request is recorded as successful only when the HTTP status is 200 **and** all three probabilities
+(`same_fact`, `same_answer`, `leakage`) are present, typed `noul`, finite and within 0-1
+(`judgeResponse` in `typesafe-questions.mjs`). Anything else is stored as a failure with a reason
+(`invalid-probabilities`, `http-500`, ...), the run exits non-zero, and the pair is re-sent next time.
+Both runners share this check. It is tested against a local mock server, so no real API call is needed.
+
+## Independent evaluation (waiting on a human labeler)
+
+The next stage tests the fixed thresholds on pairs labeled by **someone other than the pilot's author,
+who has not seen any TypeSafe output**. The tooling is built and tested against synthetic fixtures. No
+independent data exists yet, and no API call has been made for it.
+
+Flow: the labeler writes `independent/labels.json` from `independent/template.json` (see
+`independent/LABELING-GUIDE.md`), including hard negatives and resolutions for any ambiguous
+duplicate-versus-leakage pairs. Then:
+
+```sh
+node tools/question-dedup-pilot/independent-set.mjs validate    # structure, minimums, ambiguity resolved
+node tools/question-dedup-pilot/independent-set.mjs shortlist   # top-5 pool matches per candidate; label them all
+node tools/question-dedup-pilot/independent-set.mjs freeze      # hash-lock the labels (commit labels.json + freeze.json)
+node tools/question-dedup-pilot/flow.mjs --dry-run              # then --limit 10 for a small first batch
+node tools/question-dedup-pilot/flow.mjs                        # full shortlist-then-TypeSafe run (needs a key)
+node tools/question-dedup-pilot/analyze-flow.mjs --write        # confusion, missed pairs, review workload
+```
+
+Safeguards: the labeler must be a named person (AI-looking names are rejected) and attest they were blind;
+minimums are 30 candidates and 12 / 12 / 20 final duplicate / leakage / related_distinct pairs; every
+shortlisted pair must be labeled before the freeze; the flow refuses to run if `labels.json` no longer
+matches `freeze.json` or if any result predates the freeze; and there is a request cap (default 500).
+Thresholds stay fixed at the values above; the shortlist size is fixed at K=5.
+
+The report shows a human-label by outcome confusion matrix (including `not_shortlisted`), positives
+missed at the shortlist versus at TypeSafe, duplicate/leakage type swaps, false positives on hard
+negatives, and review workload per 100 candidates. Nothing here touches the database, live games,
+competitions or any money flow.

@@ -79,15 +79,33 @@ export function isSeedVariantByRule(candidate, existing) {
   );
 }
 
-/** Pull the three probabilities out of a systemone response; null if any is missing. */
+/**
+ * Pull the three probabilities out of a systemone response. Returns null unless every question
+ * has a `noul` answer that is a finite number in [0, 1]: a missing, mistyped, NaN or
+ * out-of-range value makes the whole response unusable.
+ */
 export function readProbabilities(response) {
   const out = {};
   for (const name of Object.keys(QUESTIONS)) {
     const a = response?.answers?.[name];
-    if (!a || a.type !== 'noul' || typeof a.noul !== 'number') return null;
+    if (!a || a.type !== 'noul') return null;
+    if (typeof a.noul !== 'number' || !Number.isFinite(a.noul) || a.noul < 0 || a.noul > 1)
+      return null;
     out[name] = a.noul;
   }
   return out;
+}
+
+/**
+ * Decides whether a request counts as successful. Only an HTTP 200 whose body carries all three
+ * valid probabilities is recorded as ok; anything else is a failure with a stated reason and is
+ * re-sent on the next run.
+ */
+export function judgeResponse(status, json) {
+  if (status !== 200) return { ok: false, probs: null, reason: `http-${status}` };
+  const probs = readProbabilities(json);
+  if (probs === null) return { ok: false, probs: null, reason: 'invalid-probabilities' };
+  return { ok: true, probs, reason: null };
 }
 
 /**
