@@ -25,11 +25,14 @@
 // even one created after the setup ran; and (11.) that the setup checks
 // every role the runtime role can become, even by SET ROLE alone, and every
 // column grant, and that a refusal changes no grant, ACL, membership or key;
-// on PostgreSQL 16 and later it follows each membership's options: one that
-// grants neither INHERIT nor SET gives nothing and is allowed, an inherited
-// privilege is refused as inherited, a role it can become (by SET, or by
-// granting it to itself under ADMIN OPTION) is refused as such, and
-// attributes count only for a role it can become.
+// on PostgreSQL 16 and later it follows each membership's options, and
+// ledger_apply_runtime_grants follows them too (the same ledger_role_reach):
+// one that grants neither INHERIT nor SET gives nothing and passes both, an
+// inherited privilege is refused as inherited, a role it can become (by SET,
+// or by granting it to itself under ADMIN OPTION it can use) is refused as
+// such, each refusal changing nothing; attributes count only for a role it
+// can become; a role joins the owner's trust only if it can become the owner
+// or a superuser; and the owner credential must inherit the owner's privileges.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -40,7 +43,7 @@ import { prisma } from '@socialplay/database';
 import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
-import { applyRuntimeAccess, setRolePrivilege } from '../scripts/ledger-runtime-access.js';
+import { applyRuntimeAccess } from '../scripts/ledger-runtime-access.js';
 import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
@@ -431,7 +434,7 @@ describe('1. the documented runtime role holds data access only', () => {
       await prisma.$executeRawUnsafe(`CREATE TABLE "${table}" ("x" int)`);
       await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" OWNER TO "${owning}"`);
       await expect(prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', owning))
-        .rejects.toThrow(/must neither own nor be a member of the owner/);
+        .rejects.toThrow(/must neither own, nor be able to become or inherit the privileges of, the owner/);
     } finally {
       await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "${table}"`);
       await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS "${owning}"`);
@@ -1498,7 +1501,7 @@ describe('10. no cascade the runtime role can start runs a planted object with t
           expect(await asApp([[`SET LOCAL ROLE "${holder}"`], ['UPDATE "agents" SET "id" = "id" || \'-moved\' WHERE false']]), path)
             .toBe('accepts');
           // The setup refuses it, naming the key and the role, and changes nothing.
-          const refusal = new RegExp(`can still change keys other tables follow by cascade, as a role it can become: .*public\\.agents\\.id through ${holder}`);
+          const refusal = new RegExp(`can still change keys other tables follow by cascade, as a role it can become or inherits from: .*public\\.agents\\.id through ${holder}`);
           await expect(grants(), path).rejects.toThrow(refusal);
           const refused = runtimeAccess({ DATABASE_URL: runtimeUrl });
           expect(refused.status, `${path}: ${refused.output}`).toBe(1);
@@ -1883,9 +1886,11 @@ describe('11. the setup checks every role the runtime role can become, and a ref
     }
   });
 
-  it('asks PostgreSQL 16 and later whether a role can SET ROLE, and earlier versions whether it is a MEMBER', () => {
-    expect([130000, 140012, 150008, 159999, 160000, 160015, 170000].map(setRolePrivilege))
-      .toEqual(['MEMBER', 'MEMBER', 'MEMBER', 'MEMBER', 'SET', 'SET', 'SET']);
+  it('asks PostgreSQL 16 and later whether a role can SET ROLE, and earlier versions whether it is a MEMBER', async () => {
+    const versions = [130000, 140012, 150008, 159999, 160000, 160015, 170000];
+    const rows = await prisma.$queryRawUnsafe<{ privilege: string }[]>(
+      'SELECT "ledger_set_role_privilege"(v) AS privilege FROM unnest($1::int[]) WITH ORDINALITY AS u(v, k) ORDER BY k', versions);
+    expect(rows.map((row) => row.privilege)).toEqual(['MEMBER', 'MEMBER', 'MEMBER', 'MEMBER', 'SET', 'SET', 'SET']);
   });
 
   describe('on PostgreSQL 16 and later, each membership\'s INHERIT, SET and ADMIN options', () => {
@@ -1911,6 +1916,27 @@ describe('11. the setup checks every role the runtime role can become, and a ref
       `SELECT pg_has_role($1, $2, 'MEMBER') AS member, pg_has_role($1, $2, 'USAGE') AS usage,
               pg_has_role($1, $2, 'SET') AS set`, role, other))[0];
     const readSecret: Statement = ['SELECT length("secret") FROM "ledger_approval_keys" LIMIT 0'];
+    /** ledger_apply_runtime_grants called directly, as the owner, without the setup script. */
+    const grants = () => prisma.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', role);
+    const tablesOwner = async () => (await originals()).tablesOwner;
+    /**
+     * ledger_apply_runtime_grants, called directly while it has something to
+     * change (a stray grant to the runtime role, which it revokes, and CREATE
+     * for PUBLIC, which it revokes too), refuses (SQLSTATE 42501) with
+     * `expected` and leaves every grant, ACL and membership as it was.
+     */
+    async function grantsRefusedChangingNothing(expected: RegExp) {
+      await prisma.$executeRawUnsafe(`GRANT DELETE ON "wallets" TO "${role}"`);
+      await prisma.$executeRawUnsafe('GRANT CREATE ON SCHEMA public TO PUBLIC');
+      try {
+        const before = await accessSnapshot();
+        await expect(grants()).rejects.toThrow(expected);
+        expect(await accessSnapshot(), 'a refused grants function changes nothing').toBe(before);
+      } finally {
+        await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+        await prisma.$executeRawUnsafe(`REVOKE DELETE ON "wallets" FROM "${role}"`);
+      }
+    }
 
     /**
      * Makes the runtime role a member of a new role, the holder, with these
@@ -2062,11 +2088,9 @@ describe('11. the setup checks every role the runtime role can become, and a ref
       });
     });
 
-    it('a superuser the runtime role only inherits from, or holds only ADMIN OPTION on (which only a superuser can use): the setup\'s own checks raise nothing for it', async (ctx) => {
+    it('a superuser the runtime role only inherits from, or holds only ADMIN OPTION on (which only a superuser can use): its bypass does not reach the runtime role, so the grants function and the setup apply and verify', async (ctx) => {
       if (!pg16) ctx.skip();
-      // ledger_apply_runtime_grants still counts every membership (pg_has_role
-      // MEMBER), and a superuser holds every privilege, so it alone refuses:
-      // over the keys other tables follow by cascade, rolling back.
+      expect(await setupFailures()).toEqual([]);
       const cases: [Path, Options][] = [['direct', { inherit: true, set: false }], ['transitive', { inherit: true, set: false }],
         ['direct', { inherit: false, set: false, admin: true }]];
       for (const [path, options] of cases) {
@@ -2075,11 +2099,9 @@ describe('11. the setup checks every role the runtime role can become, and a ref
           if (options.admin) {
             expect(await asApp([[`GRANT "${holder}" TO "${role}" WITH SET TRUE`]])).toMatch(/rejects: .*permission denied to grant role/);
           }
-          let failures: string[] = [];
-          await refusedChangingNothing(
-            [expect.stringMatching(/can still change keys other tables follow by cascade, as a role it can become: .* through /)],
-            async (keyId) => (failures = await applyRuntimeAccess(prisma, role, keyId, key().toLowerCase())));
-          expect(failures).toHaveLength(1);
+          expect(await asApp([['UPDATE "agents" SET "id" = "id" WHERE false']])).toMatch(/rejects: .*permission denied for table agents/);
+          await grants();
+          expect(await setupFailures()).toEqual([]);
         });
       }
     });
@@ -2121,6 +2143,280 @@ describe('11. the setup checks every role the runtime role can become, and a ref
           await refusedChangingNothing([`${role} inherits the privileges of pg_read_server_files, which is allowed to run `
             + 'programs or read or write files on the database server']);
         });
+      }
+    });
+
+    // The grants function and the setup script ask the same question
+    // (ledger_role_reach): a membership that grants neither INHERIT, SET nor
+    // usable ADMIN OPTION gives the runtime role nothing, whatever the role
+    // it leads to can do.
+    it('SET FALSE memberships that give nothing (direct, transitive, and past a role it can become and inherits from): the grants function and the setup both apply and verify', async (ctx) => {
+      if (!pg16) ctx.skip();
+      expect(await setupFailures()).toEqual([]);
+      const owner = await tablesOwner();
+      const cases: [Path, Options | undefined][] = [['direct', undefined], ['transitive', undefined],
+        ['transitive', { inherit: true, set: true }]];
+      for (const [path, first] of cases) {
+        // A holder every membership check would refuse, could the runtime role
+        // use it: it can act as the tables' owner, create in public, owns a
+        // function there and can change a key other tables follow by cascade.
+        await withMembership(path, { inherit: false, set: false }, { first, prepare: async (holder) => [
+          `GRANT ${owner} TO "${holder}"`,
+          `GRANT CREATE ON SCHEMA public TO "${holder}"`,
+          `CREATE FUNCTION public."rr16_${holder}"() RETURNS int LANGUAGE sql AS 'SELECT 1'`,
+          `ALTER FUNCTION public."rr16_${holder}"() OWNER TO "${holder}"`,
+          `GRANT SELECT, UPDATE ("id") ON "agents" TO "${holder}"`,
+        ] }, async (holder) => {
+          expect(await reach(holder)).toEqual({ member: true, usage: false, set: false });
+          expect(await reach(owner), 'MEMBER reports the tables\' owner').toEqual({ member: true, usage: false, set: false });
+          expect(await asApp([[`SET LOCAL ROLE "${holder}"`]])).toMatch(/rejects: .*permission denied to set role/);
+          await grants();
+          expect(await setupFailures()).toEqual([]);
+          // pg_has_role MEMBER reaches the holder's CREATE (and the schema's
+          // owner, through the tables' owner), yet the runtime role can use
+          // neither: invariant I3 reports nothing.
+          expect(await i3AsApp()).not.toContain('create:public');
+          const applied = runtimeAccess({ DATABASE_URL: runtimeUrl });
+          expect(applied.status, applied.output).toBe(0);
+          expectNoSecrets(applied.output);
+        });
+      }
+      // And a membership in the tables' owner itself.
+      const initial = await accessSnapshot();
+      await prisma.$executeRawUnsafe(`GRANT ${owner} TO "${role}" WITH ADMIN FALSE, INHERIT FALSE, SET FALSE`);
+      try {
+        await grants();
+        expect(await setupFailures()).toEqual([]);
+      } finally {
+        await prisma.$executeRawUnsafe(`REVOKE ${owner} FROM "${role}"`);
+      }
+      expect(await accessSnapshot()).toBe(initial);
+    });
+
+    // Inherited (INHERIT TRUE, SET FALSE), SETtable (SET TRUE, INHERIT FALSE)
+    // or grantable to itself (ADMIN OPTION alone): the grants function, called
+    // directly, refuses it and changes nothing; so does the setup.
+    const reaching: [label: string, options: Options, first?: Options][] = [
+      ['INHERIT TRUE, SET FALSE', { inherit: true, set: false }],
+      ['SET TRUE, INHERIT FALSE', { inherit: false, set: true }],
+      ['ADMIN OPTION alone', { inherit: false, set: false, admin: true }, { inherit: true, set: false }],
+    ];
+    for (const [label, options, first] of reaching) {
+      it(`${label} (direct and transitive) in a role that can act as the tables' owner, or change a key other tables follow by cascade: the grants function refuses it transactionally, and so does the setup`, async (ctx) => {
+        if (!pg16) ctx.skip();
+        const owner = await tablesOwner();
+        const [ownerRow] = await prisma.$queryRawUnsafe<{ superuser: boolean }[]>(
+          'SELECT rolsuper AS superuser FROM pg_roles WHERE rolname = $1', owner);
+        // A runtime role that can become the owner can become a superuser when
+        // the owner is one (as on the test server): that refusal comes first.
+        const ownerRefusal = !options.inherit && ownerRow.superuser
+          ? new RegExp(`is, or can become, a role that acts beyond its grants: .*${owner} \\(a superuser`)
+          : /must neither own, nor be able to become or inherit the privileges of, the owner of the schema's tables/;
+        for (const path of paths) {
+          await withMembership(path, options, { first, prepare: async (holder) => [`GRANT ${owner} TO "${holder}"`] }, async () => {
+            await grantsRefusedChangingNothing(ownerRefusal);
+            await refusedChangingNothing([expect.stringContaining(`${owner}, which is the owner of the ledger tables`)]);
+          });
+          await withMembership(path, options, { first,
+            prepare: async (holder) => [`GRANT SELECT, UPDATE ("id") ON "agents" TO "${holder}"`] }, async (holder) => {
+            await grantsRefusedChangingNothing(new RegExp('can still change keys other tables follow by cascade, as a role it '
+              + `can become or inherits from: .*public\\.agents\\.id through ${holder}`));
+            await refusedChangingNothing([options.inherit
+              ? `${role} can still change agents.id through ${holder}, a role whose privileges it inherits, a key other tables follow by cascade`
+              : `${role} can still change agents.id as ${holder}, a role it can become, a key other tables follow by cascade`]);
+          });
+        }
+      });
+    }
+
+    it('INHERIT TRUE, SET FALSE (direct and transitive) in a role that can create in public, or owns an object there, and may itself become the tables\' owner: refused transactionally', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const owner = await tablesOwner();
+      for (const path of paths) {
+        // The holder is inside the owner's trust (it can SET ROLE to the owner),
+        // but the runtime role inherits only the holder's own privileges.
+        await withMembership(path, { inherit: true, set: false }, { prepare: async (holder) => [
+          `GRANT ${owner} TO "${holder}" WITH INHERIT FALSE, SET TRUE`, `GRANT CREATE ON SCHEMA public TO "${holder}"`,
+        ] }, async (holder) => {
+          expect(await reach(owner)).toEqual({ member: true, usage: false, set: false });
+          await grantsRefusedChangingNothing(new RegExp(`can still create objects in schema public, through ${holder}`));
+          await refusedChangingNothing([expect.stringMatching(new RegExp(`can still create objects in schema public, through ${holder}`))]);
+        });
+        await withMembership(path, { inherit: true, set: false }, { prepare: async (holder) => [
+          `GRANT ${owner} TO "${holder}" WITH INHERIT FALSE, SET TRUE`,
+          `CREATE FUNCTION public."rr16_${holder}"() RETURNS int LANGUAGE sql AS 'SELECT 1'`,
+          `ALTER FUNCTION public."rr16_${holder}"() OWNER TO "${holder}"`,
+        ] }, async (holder) => {
+          await grantsRefusedChangingNothing(new RegExp(`runtime role ${role} owns objects in schema public: function public\\.rr16_${holder}\\(\\)`));
+          await refusedChangingNothing([`${role} inherits the privileges of ${holder}, which is the owner of function rr16_${holder}() in schema public`]);
+        });
+      }
+    });
+
+    // Trust: a role outside it (one that can become neither a superuser nor
+    // the tables' owner) may neither create in public nor own anything there.
+    // A membership in the owner brings a role inside only if it can SET ROLE
+    // to the owner or grant itself the owner under ADMIN OPTION PostgreSQL
+    // lets it use; INHERIT alone leaves the owner's attributes behind.
+    it('a role whose only link to the tables\' owner gives it no SET ROLE (no options, INHERIT alone, unusable ADMIN OPTION) stays outside the owner\'s trust; SET, or ADMIN OPTION it can use, brings it inside', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const owner = await tablesOwner();
+      const [ownerRow] = await prisma.$queryRawUnsafe<{ superuser: boolean }[]>(
+        'SELECT rolsuper AS superuser FROM pg_roles WHERE rolname = $1', owner);
+      const cases: { name: string; links: (u: string, deputy: string, m: string) => string[]; trusted: boolean }[] = [
+        { name: 'no options', links: (u) => [`GRANT ${owner} TO "${u}" WITH INHERIT FALSE, SET FALSE`], trusted: false },
+        { name: 'INHERIT alone', links: (u) => [`GRANT ${owner} TO "${u}" WITH INHERIT TRUE, SET FALSE`], trusted: false },
+        { name: 'SET', links: (u) => [`GRANT ${owner} TO "${u}" WITH INHERIT FALSE, SET TRUE`], trusted: true },
+        { name: 'ADMIN OPTION on a deputy that can become the owner',
+          links: (u, deputy) => [`GRANT ${owner} TO "${deputy}"`, `GRANT "${deputy}" TO "${u}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`],
+          trusted: true },
+        { name: 'ADMIN OPTION held behind a membership that grants nothing',
+          links: (u, deputy, m) => [`GRANT ${owner} TO "${deputy}"`, `GRANT "${deputy}" TO "${m}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+            `GRANT "${m}" TO "${u}" WITH INHERIT FALSE, SET FALSE`], trusted: false },
+        // Only a superuser grants a superuser role (the test server's owner is one).
+        { name: `ADMIN OPTION on the owner${ownerRow.superuser ? ', a superuser' : ''}`,
+          links: (u: string) => [`GRANT ${owner} TO "${u}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`], trusted: !ownerRow.superuser },
+      ];
+      expect(await setupFailures()).toEqual([]);
+      for (const trustCase of cases) {
+        for (const what of ['creates', 'owns'] as const) {
+          const initial = await accessSnapshot();
+          const t = t11();
+          const [u, deputy, m] = [`playqube_cand_${t}`, `playqube_deputy_${t}`, `playqube_mid_${t}`];
+          for (const name of [u, deputy, m]) await prisma.$executeRawUnsafe(`CREATE ROLE "${name}" NOLOGIN`);
+          try {
+            for (const sql of trustCase.links(u, deputy, m)) await prisma.$executeRawUnsafe(sql);
+            if (what === 'creates') {
+              await prisma.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${u}"`);
+            } else {
+              await prisma.$executeRawUnsafe(`CREATE FUNCTION public."rr16_${u}"() RETURNS int LANGUAGE sql AS 'SELECT 1'`);
+              await prisma.$executeRawUnsafe(`ALTER FUNCTION public."rr16_${u}"() OWNER TO "${u}"`);
+            }
+            const label = `${trustCase.name}, ${what}`;
+            if (trustCase.trusted) {
+              await grants();
+              expect(await i3AsApp(), label).not.toContain('create:public');
+            } else if (what === 'creates') {
+              await grantsRefusedChangingNothing(new RegExp(
+                `roles outside the owner's trust can still create objects in schema public: .*${u} \\(through ${u}\\)`));
+              expect(await i3AsApp(), `${label}: invariant I3 reports it`).toContain('create:public');
+            } else {
+              // Refused as the owner of an object there; a role that inherits
+              // the owner's privileges may be refused earlier, as one that can
+              // create there, when that owner also owns the database (and so
+              // the schema, as pg_database_owner).
+              const owned = `schema public holds objects owned by roles that can act neither as a superuser nor as the `
+                + `tables' owner .*: function public\\.rr16_${u}\\(\\) \\(owner ${u}\\)`;
+              await grantsRefusedChangingNothing(new RegExp(trustCase.name === 'INHERIT alone'
+                ? `(${owned})|(roles outside the owner's trust can still create objects in schema public: .*${u} \\(through )` : owned));
+            }
+          } finally {
+            await prisma.$executeRawUnsafe(`DROP OWNED BY "${u}", "${deputy}", "${m}"`);
+            for (const name of [u, m, deputy]) await prisma.$executeRawUnsafe(`DROP ROLE "${name}"`);
+          }
+          expect(await accessSnapshot(), `${trustCase.name}, ${what}: the case leaves nothing behind`).toBe(initial);
+        }
+      }
+    });
+
+    // The test server's owner is a superuser, so every trusted case above is
+    // trusted twice over. ledger_role_is_trusted takes the owner as an
+    // argument: with a non-superuser owner only the owner branch decides.
+    it('the owner\'s trust with a non-superuser owner: SET, ADMIN OPTION it can use (directly or through a role it can become) bring a role inside; no options, INHERIT alone, or ADMIN OPTION behind a membership that grants nothing leave it outside', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const t = t11();
+      const [owner, u, m] = [`playqube_owner_${t}`, `playqube_cand_${t}`, `playqube_mid_${t}`];
+      const cases: [string, string[], boolean][] = [
+        ['SET', [`GRANT "${owner}" TO "${u}" WITH INHERIT FALSE, SET TRUE`], true],
+        ['ADMIN OPTION on the owner', [`GRANT "${owner}" TO "${u}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`], true],
+        ['ADMIN OPTION held by a role it can SET ROLE to', [`GRANT "${owner}" TO "${m}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+          `GRANT "${m}" TO "${u}" WITH INHERIT FALSE, SET TRUE`], true],
+        ['ADMIN OPTION held by a role it inherits from', [`GRANT "${owner}" TO "${m}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+          `GRANT "${m}" TO "${u}" WITH INHERIT TRUE, SET FALSE`], true],
+        ['no options', [`GRANT "${owner}" TO "${u}" WITH INHERIT FALSE, SET FALSE`], false],
+        ['INHERIT alone', [`GRANT "${owner}" TO "${u}" WITH INHERIT TRUE, SET FALSE`], false],
+        ['ADMIN OPTION behind a membership that grants nothing', [`GRANT "${owner}" TO "${m}" WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+          `GRANT "${m}" TO "${u}" WITH INHERIT FALSE, SET FALSE`], false],
+      ];
+      for (const [name, links, trusted] of cases) {
+        for (const role_ of [owner, u, m]) await prisma.$executeRawUnsafe(`CREATE ROLE "${role_}" NOLOGIN`);
+        try {
+          for (const sql of links) await prisma.$executeRawUnsafe(sql);
+          const [row] = await prisma.$queryRawUnsafe<{ trusted: boolean; unrelated: boolean }[]>(
+            `SELECT "ledger_role_is_trusted"($1::regrole, $2::regrole) AS trusted, "ledger_role_is_trusted"($1::regrole, $3::regrole) AS unrelated`,
+            u, owner, m);
+          expect(row.trusted, name).toBe(trusted);
+          if (name !== 'ADMIN OPTION held by a role it can SET ROLE to') expect(row.unrelated, `${name}: another owner`).toBe(false);
+        } finally {
+          for (const role_ of [u, m, owner]) await prisma.$executeRawUnsafe(`DROP ROLE "${role_}"`);
+        }
+      }
+    });
+
+    it('the grants function, called directly, refuses a runtime role that can become a superuser, a role exempt from row security, one allowed to create roles or a replication role (as the setup does), changing nothing; one it only inherits from is no such role', async (ctx) => {
+      if (!pg16) ctx.skip();
+      expect(await setupFailures()).toEqual([]);
+      const attributes: [string, string][] = [['SUPERUSER', 'a superuser'], ['BYPASSRLS', 'exempt from row security'],
+        ['CREATEROLE', 'allowed to create roles'], ['REPLICATION', 'allowed to replicate']];
+      for (const [attribute, reason] of attributes) {
+        for (const path of paths) {
+          await withMembership(path, { inherit: false, set: true }, { attributes: attribute, prepare: async () => [] }, async (holder) => {
+            await grantsRefusedChangingNothing(new RegExp(
+              `runtime role ${role} is, or can become, a role that acts beyond its grants: .*${holder} \\(${reason}\\)`));
+          });
+          await withMembership(path, { inherit: true, set: false }, { attributes: attribute, prepare: async () => [] }, async () => {
+            await grants();
+          });
+        }
+      }
+    });
+
+    // The owner credential: the setup runs as it, never with SET ROLE, so it
+    // must hold the owner's privileges; and it must be inside the owner's
+    // trust, or ledger_apply_runtime_grants refuses it as a role that can
+    // create where the owner resolves names.
+    it('an owner credential that does not inherit the tables\' owner (no options, SET alone), or only inherits it (INHERIT alone), is refused before anything changes; one that inherits it and can SET ROLE to it applies and verifies', async (ctx) => {
+      if (!pg16) ctx.skip();
+      const owner = await tablesOwner();
+      const database = new URL(process.env.DATABASE_URL!).pathname.slice(1);
+      const asOwner = 'connect as the owner, or as a role that inherits its privileges and can become it or a superuser '
+        + '(SET ROLE, which PostgreSQL 16\'s default GRANT allows, or ADMIN OPTION it can use)';
+      const notInherited = 'LEDGER_OWNER_DATABASE_URL connects as a member of the owner of the ledger tables that does not inherit its '
+        + `privileges (a NOINHERIT role, or from PostgreSQL 16 a membership without INHERIT), and the setup never uses SET ROLE: ${asOwner}`;
+      const untrusted = 'LEDGER_OWNER_DATABASE_URL connects as a role that inherits the privileges of the owner of the ledger tables '
+        + 'but can become neither it nor a superuser: ledger_apply_runtime_grants refuses such a role, which can create where code '
+        + `running as the owner resolves names; ${asOwner}`;
+      const cases: [Options, string | null][] = [[{ inherit: false, set: false }, notInherited], [{ inherit: false, set: true }, notInherited],
+        [{ inherit: true, set: false }, untrusted], [{ inherit: true, set: true }, null]];
+      expect(await setupFailures()).toEqual([]);
+      for (const [options, expected] of cases) {
+        const initial = await accessSnapshot();
+        const credential = `playqube_ownercred_${t11()}`;
+        const secret = randomUUID();
+        await prisma.$executeRawUnsafe(`CREATE ROLE "${credential}" LOGIN PASSWORD '${secret}'`);
+        const url = new URL(process.env.DATABASE_URL!);
+        url.username = credential; url.password = secret;
+        const client = new PrismaClient({ datasourceUrl: url.toString(), log: [] });
+        try {
+          await prisma.$executeRawUnsafe(`GRANT CONNECT ON DATABASE "${database}" TO "${credential}"`);
+          await prisma.$executeRawUnsafe(`GRANT ${owner} TO "${credential}" ${withOptions(options)}`);
+          const label = JSON.stringify(options);
+          if (expected) {
+            expect(await applyRuntimeAccess(client, role, `k16-${t11()}`, key().toLowerCase()), label).toEqual([expected]);
+            const refused = runtimeAccess({ DATABASE_URL: runtimeUrl, LEDGER_OWNER_DATABASE_URL: url.toString() });
+            expect(refused.status, refused.output).toBe(1);
+            expect(refused.output).toContain(expected);
+            expect(refused.output).not.toContain(secret);
+            expectNoSecrets(refused.output);
+          } else {
+            expect(await applyRuntimeAccess(client, role, process.env.LEDGER_APPROVAL_KEY_ID!, key().toLowerCase()), label).toEqual([]);
+          }
+        } finally {
+          await client.$disconnect();
+          await prisma.$executeRawUnsafe(`DROP OWNED BY "${credential}"`);
+          await prisma.$executeRawUnsafe(`DROP ROLE "${credential}"`);
+        }
+        expect(await accessSnapshot()).toBe(initial);
       }
     });
   });

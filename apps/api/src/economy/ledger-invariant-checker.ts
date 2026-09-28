@@ -52,6 +52,7 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'admin_adjustment_evidence_valid', 'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard',
   'operation_authorization_guard', 'admin_adjustment_violation', 'legacy_resolution_violation',
   'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard',
+  'ledger_set_role_privilege', 'ledger_role_reach', 'ledger_role_is_trusted',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -163,24 +164,27 @@ const checks: ReadonlyArray<[string, string]> = [
           THEN 'search_path=pg_catalog, pg_temp'
           ELSE 'search_path=' || quote_ident(current_schema()) || ', pg_temp' END])
       UNION ALL
-      -- No role outside the owner's trust (one that can act neither as a
-      -- superuser nor as the tables' owner) may create in this schema or in
-      -- pg_catalog, where code that runs as the owner resolves names: not by
-      -- grant, through PUBLIC, through a role it can become, inherited or by
-      -- SET ROLE, or as the schema's owner. The setup refuses such a role; one
-      -- given CREATE after it ran is reported here.
+      -- No role outside the owner's trust (one that can become neither a
+      -- superuser nor the tables' owner: ledger_role_is_trusted) may create
+      -- in this schema or in pg_catalog, where code that runs as the owner
+      -- resolves names: not by grant, through PUBLIC, through a role it can
+      -- become or inherits from (ledger_role_reach), or as the schema's
+      -- owner. A membership that grants neither INHERIT, SET nor usable ADMIN
+      -- OPTION (PostgreSQL 16) gives nothing either way. The setup refuses
+      -- such a role; one given CREATE after it ran is reported here.
+      -- (pg_has_role MEMBER, which follows every membership, filters first.)
       SELECT DISTINCT 'create:' || n.nspname AS id
       FROM pg_namespace n
       CROSS JOIN LATERAL (
         SELECT a.grantee AS holder FROM aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
         WHERE a.privilege_type = 'CREATE'
         UNION SELECT n.nspowner) src
-      JOIN pg_roles u ON u.rolname !~ '^pg_'
-        AND CASE WHEN src.holder = 0 THEN true ELSE pg_has_role(u.oid, src.holder, 'MEMBER') END
+      JOIN pg_roles u ON u.rolname !~ '^pg_' AND CASE
+        WHEN src.holder <> 0 AND NOT pg_has_role(u.oid, src.holder, 'MEMBER') THEN false
+        WHEN src.holder <> 0 AND src.holder NOT IN (SELECT x.role_id FROM "ledger_role_reach"(u.oid) x) THEN false
+        ELSE NOT "ledger_role_is_trusted"(u.oid,
+          (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass('economic_operations'))) END
       WHERE n.nspname IN (current_schema(), 'pg_catalog')
-        AND NOT EXISTS (SELECT 1 FROM pg_roles t
-          WHERE (t.rolsuper OR t.oid = (SELECT c.relowner FROM pg_class c WHERE c.oid = to_regclass('economic_operations')))
-            AND pg_has_role(u.oid, t.oid, 'MEMBER'))
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I4 operation identity indexes present', `

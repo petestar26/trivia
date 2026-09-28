@@ -21,8 +21,13 @@
  * PUBLIC, which the setup does not change. A role counts as one it can
  * become when a SET ROLE to it would succeed (PostgreSQL 16 and later: every
  * membership on the way grants SET; before 16, any membership) or when it
- * holds ADMIN OPTION on it, and so could grant it to itself; one it inherits
- * from, when it holds its privileges without SET ROLE. It then installs
+ * holds ADMIN OPTION on it that PostgreSQL lets it use, and so could grant
+ * it to itself; one it inherits from, when it holds its privileges without
+ * SET ROLE (ledger_role_reach, which ledger_apply_runtime_grants shares). The
+ * owner credential must be the owner, or a role that both inherits its
+ * privileges (the setup never uses SET ROLE) and can become it or a
+ * superuser (else the grants function refuses it as a role outside the
+ * owner's trust that can create where the owner resolves names). It then installs
  * the approval key (idempotent; a different secret under an installed key ID
  * is refused), applies ledger_apply_runtime_grants() (which also removes, or
  * refuses, any way for the runtime role to create objects in the schemas
@@ -97,18 +102,6 @@ function grantsRefusal(error: unknown): string | null {
 
 type Tx = Prisma.TransactionClient;
 
-/**
- * The pg_has_role privilege that says whether one role can become another
- * with SET ROLE. From PostgreSQL 16 every membership carries its own SET and
- * INHERIT options, and SET ROLE needs SET on every membership on the way
- * (MEMBER then also reports a membership that grants neither). Before 16
- * any membership, direct or through other roles, allows SET ROLE, whatever
- * the member's INHERIT attribute, and there is no SET privilege to ask for.
- */
-export function setRolePrivilege(serverVersionNum: number): 'SET' | 'MEMBER' {
-  return serverVersionNum >= 160000 ? 'SET' : 'MEMBER';
-}
-
 /** A role whose privileges the runtime role holds or can come to hold. */
 interface Reached {
   name: string;
@@ -121,40 +114,24 @@ interface Reached {
 
 /**
  * Every role the runtime role is, can become or inherits the privileges of,
- * itself first. It can become a role when SET ROLE to it succeeds
- * (setRolePrivilege), or when it can grant the role to itself: a membership
- * in it WITH ADMIN OPTION held by itself or by a role it inherits from, the
- * grantors PostgreSQL 16 accepts (pg_has_role's ADMIN OPTION test also
- * counts one behind a membership that grants neither INHERIT nor SET, which
- * GRANT cannot use; before 16 such a role is already one it can become),
- * unless the role is a superuser, which only a superuser can grant.
- * And so on from every role it can become. It inherits a role's privileges
- * when every membership on the way grants INHERIT (before PostgreSQL 16,
- * when no member on the way is NOINHERIT) - pg_has_role USAGE, which
- * has_*_privilege follow.
+ * itself first, as the database's ledger_role_reach answers (migration
+ * 20260924070000, shared with ledger_apply_runtime_grants and invariant I3).
+ * It can become a role when SET ROLE to it succeeds (pg_has_role SET from
+ * PostgreSQL 16, MEMBER before it), or when it can grant the role to itself:
+ * a membership in it WITH ADMIN OPTION held by itself or by a role it
+ * inherits from, never a superuser role; and so on from every role it can
+ * become. It inherits a role's privileges when every membership on the way
+ * grants INHERIT (pg_has_role USAGE, which has_*_privilege follow).
  * Attributes (superuser, row-security exemption, CREATEROLE, replication)
  * are never inherited: they apply only after SET ROLE. A superuser, refused
  * in its own right, can become every role: nothing is followed from it.
  */
 async function reachableRoles(tx: Tx, role: string): Promise<Reached[]> {
-  const [server] = await tx.$queryRaw<{ version: number }[]>`
-    SELECT current_setting('server_version_num')::int AS "version"`;
-  const setRole = setRolePrivilege(server.version);
   return tx.$queryRaw<Reached[]>`
-    WITH RECURSIVE assumable(oid) AS (
-      SELECT r.oid FROM pg_roles r WHERE r.rolname = ${role}
-      UNION
-      SELECT m.oid FROM assumable a JOIN pg_roles s ON s.oid = a.oid AND NOT s.rolsuper CROSS JOIN pg_roles m
-      WHERE pg_has_role(a.oid, m.oid, ${setRole}) OR (NOT m.rolsuper AND EXISTS (
-        SELECT 1 FROM pg_auth_members g WHERE g.roleid = m.oid AND g.admin_option AND pg_has_role(a.oid, g.member, 'USAGE')))),
-    sources AS (SELECT s.oid, s.rolname::text AS name FROM assumable a JOIN pg_roles s ON s.oid = a.oid WHERE NOT s.rolsuper)
-    SELECT m.rolname::text AS "name", m.oid IN (SELECT oid FROM assumable) AS "assumable",
-           CASE WHEN m.oid NOT IN (SELECT oid FROM assumable) THEN (
-             SELECT s.name FROM sources s WHERE pg_has_role(s.oid, m.oid, 'USAGE') ORDER BY s.name <> ${role}, s.name LIMIT 1)
-           END AS "via", m.rolsuper AS "superuser"
-    FROM pg_roles m
-    WHERE m.oid IN (SELECT oid FROM assumable) OR EXISTS (SELECT 1 FROM sources s WHERE pg_has_role(s.oid, m.oid, 'USAGE'))
-    ORDER BY m.rolname::text <> ${role}, m.rolname`;
+    SELECT r.rolname::text AS "name", x.assumable AS "assumable", v.rolname::text AS "via", r.rolsuper AS "superuser"
+    FROM "ledger_role_reach"((SELECT m.oid FROM pg_roles m WHERE m.rolname = ${role})) x
+    JOIN pg_roles r ON r.oid = x.role_id LEFT JOIN pg_roles v ON v.oid = x.via_id
+    ORDER BY r.rolname::text <> ${role}, r.rolname`;
 }
 
 /** A role whose grants the denied-privilege checks read, and how the runtime role holds what it holds. */
@@ -328,11 +305,36 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
 export async function applyRuntimeAccess(client: PrismaClient, role: string, keyId: string, keyHex: string): Promise<string[]> {
   try {
     await client.$transaction(async (tx) => {
-      const [who] = await tx.$queryRaw<{ isOwner: boolean; sameRole: boolean }[]>`
-        SELECT pg_has_role(current_user, c."relowner", 'MEMBER') AS "isOwner", current_user = ${role} AS "sameRole"
+      // The owner credential must hold the owner's privileges (USAGE): the
+      // setup runs as it and never uses SET ROLE, so a membership in the
+      // owner that grants neither INHERIT nor SET (PostgreSQL 16), or SET
+      // alone, is no ownership it can use. And it must be inside the owner's
+      // trust (it can become the owner or a superuser): one that only
+      // inherits the owner's privileges can create where the owner resolves
+      // names, and ledger_apply_runtime_grants refuses such a role.
+      const [who] = await tx.$queryRaw<{ isOwner: boolean; member: boolean; current: boolean; sameRole: boolean }[]>`
+        SELECT pg_has_role(current_user, c."relowner", 'USAGE') AS "isOwner",
+               pg_has_role(current_user, c."relowner", 'MEMBER') AS "member",
+               to_regprocedure('ledger_role_reach(oid)') IS NOT NULL AS "current", current_user = ${role} AS "sameRole"
         FROM pg_class c WHERE c."oid" = to_regclass('economic_operations')`;
       if (!who) throw new NotVerified(['the ledger schema is not installed: apply the migrations first']);
-      if (!who.isOwner) throw new NotVerified(['LEDGER_OWNER_DATABASE_URL does not connect as the owner of the ledger tables']);
+      const asOwner = 'connect as the owner, or as a role that inherits its privileges and can become it or a superuser '
+        + '(SET ROLE, which PostgreSQL 16\'s default GRANT allows, or ADMIN OPTION it can use)';
+      if (!who.isOwner) {
+        throw new NotVerified([who.member
+          ? 'LEDGER_OWNER_DATABASE_URL connects as a member of the owner of the ledger tables that does not inherit its '
+            + `privileges (a NOINHERIT role, or from PostgreSQL 16 a membership without INHERIT), and the setup never uses SET ROLE: ${asOwner}`
+          : 'LEDGER_OWNER_DATABASE_URL does not connect as the owner of the ledger tables']);
+      }
+      if (!who.current) throw new NotVerified(['the ledger schema is not up to date (ledger_role_reach is missing): apply the migrations first']);
+      const [trust] = await tx.$queryRaw<{ trusted: boolean }[]>`
+        SELECT "ledger_role_is_trusted"((SELECT r.oid FROM pg_roles r WHERE r.rolname = current_user), c."relowner") AS "trusted"
+        FROM pg_class c WHERE c."oid" = to_regclass('economic_operations')`;
+      if (!trust?.trusted) {
+        throw new NotVerified(['LEDGER_OWNER_DATABASE_URL connects as a role that inherits the privileges of the owner of the ledger '
+          + 'tables but can become neither it nor a superuser: ledger_apply_runtime_grants refuses such a role, which can create '
+          + `where code running as the owner resolves names; ${asOwner}`]);
+      }
       if (who.sameRole) throw new NotVerified(['LEDGER_RUNTIME_ROLE is the owner credential\'s own role']);
 
       // Before anything changes. The setup changes only the runtime role's

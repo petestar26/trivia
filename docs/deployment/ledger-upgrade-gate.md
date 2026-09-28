@@ -120,8 +120,19 @@ It reads only these variables (no `.env` file), and in one transaction, which
 any refusal rolls back (every grant, ACL, membership and key stays as it was):
 
 - refuses if `LEDGER_OWNER_DATABASE_URL` does not connect as the tables'
-  owner, if the runtime role is that same role, or if its own
-  `DATABASE_URL` is the owner credential (the services would still hold it);
+  owner (or a superuser), or as a role that inherits the owner's
+  privileges and can become the owner or a superuser: by `SET ROLE`
+  (PostgreSQL 16's default `GRANT` allows it) or by `ADMIN OPTION`
+  PostgreSQL lets it use. The setup never uses `SET ROLE`, so a
+  `NOINHERIT` credential, or from PostgreSQL 16 a membership that grants
+  neither `INHERIT` nor `SET`, or `SET` alone, cannot use the ownership;
+  and one that only inherits the owner's privileges is a role outside the
+  owner's trust that can create where the owner resolves names, which
+  `ledger_apply_runtime_grants` refuses. It also refuses a database that
+  lacks `ledger_role_reach` (migration `20260924070000`: apply the
+  migrations first), a runtime role that is the credential's own role, and
+  a `DATABASE_URL` that is the owner credential (the services would still
+  hold it);
 - before it changes anything, refuses (exit 1) a runtime role that is, or
   can become, a superuser, a role exempt from row security, one that can
   create roles (before PostgreSQL 16 that is enough to make itself a
@@ -137,65 +148,77 @@ any refusal rolls back (every grant, ACL, membership and key stays as it was):
   it inherits from); as one it inherits from, when every membership on the
   way grants `INHERIT`. From PostgreSQL 16 a membership that grants
   neither `INHERIT`, `SET` nor usable `ADMIN OPTION` gives the runtime
-  role nothing, and these checks ignore it (those of
-  `ledger_apply_runtime_grants`, below, still count every membership). It
-  then refuses (exit 1, still before any change) while any role the
-  runtime role can become or inherits from, or `PUBLIC`, holds a privilege
-  the runtime role must not have: the setup changes only the runtime
-  role's own grants, so the runtime role would keep it by `SET ROLE`, by
-  inheritance or through `PUBLIC`. Column grants count like table grants
-  (`SELECT ("secret") ON ledger_approval_keys` is a read of the signing
-  key). The denied privileges are writing approvals, assertions or the
-  migration history; reading or writing `ledger_approval_keys`; updating
-  or deleting financial history; deleting wallets, provenance, ledger
-  accounts or users; writing the rules; `TRUNCATE` or `TRIGGER` on any
-  table; updating `users.role` or `users.status`; running the owner's
-  procedures (`ledger_install_approval_key`, `ledger_retire_approval_key`,
+  role nothing, and these checks ignore it, as do those of
+  `ledger_apply_runtime_grants` below (both ask the database's
+  `ledger_role_reach`). It then refuses (exit 1, still before any change)
+  while any role the runtime role can become or inherits from, or
+  `PUBLIC`, holds a privilege the runtime role must not have: the setup
+  changes only the runtime role's own grants, so the runtime role would
+  keep it by `SET ROLE`, by inheritance or through `PUBLIC`. Column grants
+  count like table grants (`SELECT ("secret") ON ledger_approval_keys` is
+  a read of the signing key). The denied privileges are writing approvals,
+  assertions or the migration history; reading or writing
+  `ledger_approval_keys`; updating or deleting financial history; deleting
+  wallets, provenance, ledger accounts or users; writing the rules;
+  `TRUNCATE` or `TRIGGER` on any table; updating `users.role` or
+  `users.status`; running the owner's procedures
+  (`ledger_install_approval_key`, `ledger_retire_approval_key`,
   `ledger_record_assertion`, `ledger_apply_runtime_grants`); and updating
   a key other tables follow by cascade. The refusal names each role and
   privilege: revoke that membership, or that role's (or `PUBLIC`'s)
   privilege, as its grantor, then run the setup again;
 - installs the key (`ledger_install_approval_key`; idempotent, and a
   different secret under an installed key ID is refused);
-- applies `ledger_apply_runtime_grants('<runtime role>')`, which first
+- applies `ledger_apply_runtime_grants('<runtime role>')`, which refuses
+  (exit 1, nothing changed) a runtime role that is, or can become, a
+  superuser, a role exempt from row security, one allowed to create roles
+  or a replication role, as the setup does before it (before PostgreSQL 16
+  a role allowed to create roles can grant itself any role but a
+  superuser, the tables' owner included; the function refuses this also
+  when called directly), and which first
   revokes everything and then grants only data access, so it is idempotent and
   also covers tables added by the migrations just applied;
-- takes from the runtime role `UPDATE` on every key another table follows by
-  a cascading foreign key (an `id`, `countries.code`), keeping it on every
-  other column. A cascade runs as the owner of the referencing table, and so
-  do that table's triggers; the application never changes these keys. The
-  setup verifies that none of them is left updatable, and refuses (exit 1,
-  nothing changed) while any role the runtime role can become can change one:
-  a membership usable by `SET ROLE` alone (the runtime role `NOINHERIT`),
-  direct or through other roles, would let it start the cascade as that role.
-  The refusal names each key and role; revoke that membership, or that role's
-  `UPDATE` on the key, as its grantor, then run the setup again;
+- takes from the runtime role `UPDATE` on every key another table follows
+  by a cascading foreign key (an `id`, `countries.code`), keeping it on
+  every other column. A cascade runs as the owner of the referencing
+  table, and so do that table's triggers; the application never changes
+  these keys. The setup verifies that none of them is left updatable, and
+  refuses (exit 1, nothing changed) while any role the runtime role can
+  become or inherits from can change one: a membership usable by `SET
+  ROLE` alone, direct or through other roles, would let it start the
+  cascade as that role. The refusal names each key and role; revoke that
+  membership, or that role's `UPDATE` on the key, as its grantor, then run
+  the setup again;
 - makes sure the runtime role cannot create objects in the schemas where
   functions that run as the owner resolve names (`pg_catalog`, `public`,
   pgcrypto's): a function or operator the runtime role could create there
   would run with the owner's privileges. The setup revokes `CREATE` there
   from `PUBLIC` and from the role. It refuses (exit 1, nothing changed) if
-  the role could still create there through a grant the owner cannot revoke
-  or through a role it belongs to (inherited or by `SET ROLE`, the schema's
-  owner included), or if it already owns anything there that it could have
-  planted while it had that privilege. Revoke that grant or membership as
-  its grantor, or check and drop what it owns, then run the setup again. On
-  PostgreSQL 13 and 14, `PUBLIC` holds `CREATE` on `public` by default,
-  granted by the superuser that owns the schema, so revoke it as that
-  superuser first;
+  the role could still create there through a grant the owner cannot
+  revoke or through a role it can become or inherits from (the schema's
+  owner included), or if it, or such a role, already owns anything there
+  that it could have planted while it had that privilege. Revoke that
+  grant or membership as its grantor, or check and drop what it owns, then
+  run the setup again. On PostgreSQL 13 and 14, `PUBLIC` holds `CREATE` on
+  `public` by default, granted by the superuser that owns the schema, so
+  revoke it as that superuser first;
 - refuses (exit 1, nothing changed) while any role outside the owner's
   trust can still create in those schemas. A role is inside it when it can
-  act as a superuser or as the tables' owner; any other role (another
-  application's, an operator's, a retired account) counts, however it gets
-  `CREATE`: a grant, `PUBLIC`, a role it can become (inherited or by
-  `SET ROLE`), or the schema's ownership. Whatever such a role created after
-  the setup would be picked by code that runs as the owner: migrations, the
-  preflight and the invariant scan, every function pinned to `public`, and
-  the triggers a cascade from a key the runtime role changes runs as the
-  owner. The setup revokes only its own grants (`PUBLIC`'s and the runtime
-  role's); the refusal names every other role and the grant or role it
-  creates through. Revoke that grant or membership as its grantor, or make
-  the role one that can act as the tables' owner, then run the setup again;
+  become a superuser or the tables' owner (by `SET ROLE`, or by granting
+  itself the role under `ADMIN OPTION` PostgreSQL lets it use; only a
+  superuser grants a superuser role). A membership in the owner that
+  grants neither, or `INHERIT` alone, leaves a role outside: the owner's
+  attributes stay behind. Any other role (another application's, an
+  operator's, a retired account) counts, however it gets `CREATE`: a
+  grant, `PUBLIC`, a role it can become or inherits from, or the schema's
+  ownership. Whatever such a role created after the setup would be picked
+  by code that runs as the owner: migrations, the preflight and the
+  invariant scan, every function pinned to `public`, and the triggers a
+  cascade from a key the runtime role changes runs as the owner. The setup
+  revokes only its own grants (`PUBLIC`'s and the runtime role's); the
+  refusal names every other role and the grant or role it creates through.
+  Revoke that grant or membership as its grantor, or make the role one
+  that can act as the tables' owner, then run the setup again;
 - refuses (exit 1, nothing changed) while those schemas hold any object owned
   by such a role, such as a retired account that could create in `public` in
   the past (the PostgreSQL 13 and 14 default). An exact-type overload it left
@@ -274,7 +297,8 @@ constrained by the ledger's guards and invariants, not by signed approvals.
 | `20260924010000_ledger_resolution_authorization` | Installs the binding of `LEGACY_RESOLVE` and `ADMIN_ADJUST` to the records that authorize them, then stops if any operation already recorded breaks it. |
 | `20260924040000_ledger_function_search_path` | Pins every schema function's `search_path` (schema first, `pg_temp` last); the functions that run as the owner get the stricter `pg_catalog, pg_temp`. |
 | `20260924050000_ledger_cascade_trigger_search_path` | Gives every trigger function a cascade can fire the same strict `pg_catalog, pg_temp`, rules unchanged. |
-| `20260924060000_ledger_runtime_grants_cascade_keys` | Installs the current `ledger_apply_runtime_grants` (cascade keys taken from the runtime role, and from every role it can become), also on a database that applied the earlier version with `20260924010000`. |
+| `20260924060000_ledger_runtime_grants_cascade_keys` | Installs `ledger_apply_runtime_grants` with cascade keys taken from the runtime role, and from every role it can become, also on a database that applied the earlier version with `20260924010000`. |
+| `20260924070000_ledger_runtime_grants_membership_options` | Installs the current `ledger_apply_runtime_grants`, also on a database that applied either earlier version, and the helpers it shares with the setup script and invariant I3: `ledger_set_role_privilege`, `ledger_role_reach` (the roles a role can become, by `SET ROLE` or `ADMIN OPTION` it can use, or inherits from) and `ledger_role_is_trusted`. From PostgreSQL 16 a membership that grants neither `INHERIT`, `SET` nor usable `ADMIN OPTION` no longer counts for the runtime role, which removes false refusals. It also tightens two rules, on every version: a role joins the owner's trust only if it can become the owner or a superuser (`SET ROLE`, or `ADMIN OPTION` it can use), so from PostgreSQL 16 a role with `INHERIT` alone on the owner that can create in, or owns objects in, `public` is now refused; and the function itself now refuses (SQLSTATE 42501) a runtime role that is, or can become, a superuser, a role exempt from row security, one allowed to create roles or a replication role, as the setup script already did. |
 | `20260924090000_ledger_upgrade_window_check` (last migration) | Locks the same tables and compares every one of those records, field by field, with the fingerprint taken by the first migration; stops if anything changed while the release migrated, even when row counts and credited totals are unchanged. Drops `ledger_upgrade_window` when it passes. |
 | Read-only preflight (`preflight:ledger-upgrade`) | Before: what the first gate will decide. After: what the final gate and invariant I15 decide, plus every operation the authorization rules reject. |
 | Invariant scan (`scan:ledger-invariants`) | Every runtime invariant (I1 to I16) in a rolled-back transaction; records nothing. |

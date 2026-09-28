@@ -34,7 +34,9 @@ const MASTER = ALL.filter((name) => name < PRE_GATE);
 // the parent's, byte for byte: a migration a database has applied is never
 // edited, so what corrects it comes forward.
 const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
-  '20260924060000_ledger_runtime_grants_cascade_keys'];
+  '20260924060000_ledger_runtime_grants_cascade_keys', '20260924070000_ledger_runtime_grants_membership_options'];
+// The migrations of the previous candidate (d2355e7): all but the membership-options one.
+const PREVIOUS_CANDIDATE = ALL.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
 const PARENT = ALL.filter((name) => !ADDED_AFTER_PARENT.includes(name));
 
 const created: string[] = [];
@@ -353,12 +355,13 @@ describe('ledger upgrade migrations', () => {
     try {
       const parent = deploy(db.url, migrationSubset(PARENT));
       expect(parent.status, parent.output).toBe(0);
-      // The parent's grants function predates the cascade-key rules, and a
-      // correction to the migration that installed it would never run here:
-      // the candidate setup does not verify it.
+      // The parent's grants function predates the cascade-key rules and the
+      // helpers the candidate setup shares with it, and a correction to the
+      // migration that installed it would never run here: the candidate setup
+      // refuses the database until the candidate migrations are applied.
       const early = await runtimeSetup(db);
       expect(early.status, early.output).toBe(1);
-      expect(early.output).toMatch(/can still change agents\.id, a key other tables follow by cascade/);
+      expect(early.output).toMatch(/the ledger schema is not up to date \(ledger_role_reach is missing\): apply the migrations first/);
 
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
@@ -378,6 +381,121 @@ describe('ledger upgrade migrations', () => {
       expect(status.output).toContain('Database schema is up to date');
     } finally { await db.client.$disconnect(); }
   }, 300_000);
+
+  it('PostgreSQL 16: a database at the parent release, whose runtime role has memberships that grant neither INHERIT nor SET, upgrades; the setup then verifies, still refuses an inherited denied privilege without changing anything, and a replay changes nothing', async (ctx) => {
+    const [{ version }] = await prisma.$queryRawUnsafe<{ version: number }[]>(
+      `SELECT current_setting('server_version_num')::int AS version`);
+    if (version < 160000) ctx.skip();
+    for (const [label, from] of [['parent release', PARENT], ['previous candidate', PREVIOUS_CANDIDATE]] as const) {
+      const db = await scratchDatabase(label === 'parent release' ? 'pg16parent' : 'pg16previous');
+      const t = randomUUID().replaceAll('-', '').slice(0, 8);
+      const [runtime, keyHolder, reaching, creator] = [`playqube_upg_rt_${t}`, `playqube_upg_kh_${t}`, `playqube_upg_ih_${t}`,
+        `playqube_upg_cr_${t}`];
+      const keyHex = randomBytes(32).toString('hex');
+      const setup = (keyId = `upg-${t}`) => {
+        const run = spawnSync(TSX, [RUNTIME_ACCESS], {
+          env: { PATH: process.env.PATH ?? '', LEDGER_OWNER_DATABASE_URL: db.url, LEDGER_RUNTIME_ROLE: runtime,
+            LEDGER_APPROVAL_SIGNING_KEY: keyHex, LEDGER_APPROVAL_KEY_ID: keyId },
+          encoding: 'utf8', timeout: 120_000 });
+        return { status: run.status, output: `${run.stdout}${run.stderr}` };
+      };
+      /** The grants, ACLs and keys a refused setup must leave as they were. */
+      const access = async () => (await db.client.$queryRawUnsafe<{ access: string }[]>(`
+        SELECT jsonb_build_object(
+          'relations', (SELECT jsonb_object_agg(c.relname, (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(c.relacl) x))
+                        FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace),
+          'columns', (SELECT jsonb_object_agg(a.attrelid::regclass::text || '.' || a.attname,
+                        (SELECT array_agg(x::text ORDER BY x::text) FROM unnest(a.attacl) x))
+                      FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+                      WHERE c.relnamespace = 'public'::regnamespace AND cardinality(a.attacl) > 0),
+          'schema', (SELECT n.nspacl::text[] FROM pg_namespace n WHERE n.nspname = 'public'),
+          'keys', (SELECT count(*) FROM "ledger_approval_keys"))::text AS access`))[0].access;
+      try {
+        const before = deploy(db.url, migrationSubset([...from]));
+        expect(before.status, `${label}: ${before.output}`).toBe(0);
+        const [{ owner }] = await db.client.$queryRawUnsafe<{ owner: string }[]>(
+          `SELECT c.relowner::regrole::text AS owner FROM pg_class c WHERE c.oid = 'public.economic_operations'::regclass`);
+        // Memberships that give the runtime role nothing: in the tables'
+        // owner, and in a role that can change a key other tables follow by cascade.
+        await prisma.$executeRawUnsafe(`CREATE ROLE "${runtime}" NOLOGIN`);
+        await prisma.$executeRawUnsafe(`CREATE ROLE "${keyHolder}" NOLOGIN`);
+        await prisma.$executeRawUnsafe(`CREATE ROLE "${reaching}" NOLOGIN`);
+        await prisma.$executeRawUnsafe(`CREATE ROLE "${creator}" NOLOGIN`);
+        await db.client.$executeRawUnsafe(`GRANT SELECT, UPDATE ("id") ON "agents" TO "${keyHolder}", "${reaching}"`);
+        // Inside the owner's trust (it can SET ROLE to the owner), and able to create in public.
+        await prisma.$executeRawUnsafe(`GRANT ${owner} TO "${creator}" WITH INHERIT FALSE, SET TRUE`);
+        await db.client.$executeRawUnsafe(`GRANT CREATE ON SCHEMA public TO "${creator}"`);
+        await prisma.$executeRawUnsafe(`GRANT ${owner} TO "${runtime}" WITH ADMIN FALSE, INHERIT FALSE, SET FALSE`);
+        await prisma.$executeRawUnsafe(`GRANT "${keyHolder}" TO "${runtime}" WITH ADMIN FALSE, INHERIT FALSE, SET FALSE`);
+        // The grants function installed before the upgrade asked pg_has_role MEMBER, and refused them.
+        await expect(db.client.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', runtime), label)
+          .rejects.toThrow(/must neither own nor be a member of the owner/);
+
+        const upgrade = deploy(db.url);
+        expect(upgrade.status, `${label}: ${upgrade.output}`).toBe(0);
+        expect(upgrade.output).toContain('Applying migration `20260924070000_ledger_runtime_grants_membership_options`');
+        expect((await migrationRows(db.client)).map((row) => row.migration_name).sort()).toEqual(ALL);
+
+        const verified = setup();
+        expect(verified.status, `${label}: ${verified.output}`).toBe(0);
+        expect(verified.output).toContain('Verified');
+        await db.client.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', runtime);
+
+        // An inherited or SETtable denied privilege is still refused, and the
+        // refusal changes nothing, although there is something to change: a
+        // stray grant to the runtime role, CREATE for PUBLIC (both of which
+        // the grants function revokes before it refuses) and a new key ID.
+        await db.client.$executeRawUnsafe(`GRANT DELETE ON "wallets" TO "${runtime}"`);
+        await db.client.$executeRawUnsafe('GRANT CREATE ON SCHEMA public TO PUBLIC');
+        const reachingCases: [string, string, string, string][] = [
+          ['INHERIT TRUE, SET FALSE', reaching, `can still change keys other tables follow by cascade, as a role it can become or inherits from: .*public\\.agents\\.id through ${reaching}`,
+            `can still change agents.id through ${reaching}, a role whose privileges it inherits`],
+          ['SET TRUE, INHERIT FALSE', reaching, `can still change keys other tables follow by cascade, as a role it can become or inherits from: .*public\\.agents\\.id through ${reaching}`,
+            `can still change agents.id as ${reaching}, a role it can become`],
+          // The setup's own checks pass this one: its refusal comes from the
+          // grants function, after the key was installed and PUBLIC's CREATE revoked.
+          ['INHERIT TRUE, SET FALSE', creator, `can still create objects in schema public, through ${creator}`,
+            `can still create objects in schema public, through ${creator}`],
+        ];
+        for (const [options, target, sqlRefusal, scriptRefusal] of reachingCases) {
+          const grantOptions = options.startsWith('INHERIT TRUE') ? 'INHERIT TRUE, SET FALSE' : 'INHERIT FALSE, SET TRUE';
+          await prisma.$executeRawUnsafe(`GRANT "${target}" TO "${runtime}" WITH ADMIN FALSE, ${grantOptions}`);
+          try {
+            const unchanged = await access();
+            await expect(db.client.$executeRawUnsafe('SELECT "ledger_apply_runtime_grants"($1)', runtime), `${label}, ${options} ${target}`)
+              .rejects.toThrow(new RegExp(sqlRefusal));
+            expect(await access(), `${label}, ${options} ${target}: a refused grants function changes nothing`).toBe(unchanged);
+            const refused = setup(`upg-${t}-refused`);
+            expect(refused.status, `${label}: ${refused.output}`).toBe(1);
+            expect(refused.output).toContain(scriptRefusal);
+            expect(refused.output).not.toContain(keyHex);
+            expect(await access(), `${label}, ${options} ${target}: a refused setup changes nothing`).toBe(unchanged);
+          } finally {
+            await prisma.$executeRawUnsafe(`REVOKE "${target}" FROM "${runtime}"`);
+          }
+        }
+        await db.client.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+        await db.client.$executeRawUnsafe(`REVOKE DELETE ON "wallets" FROM "${runtime}"`);
+
+        // Replay: nothing pending, and the setup verifies again.
+        const replay = deploy(db.url);
+        expect(replay.status, replay.output).toBe(0);
+        expect(replay.output).toContain('No pending migrations to apply');
+        const again = setup();
+        expect(again.status, `${label}: ${again.output}`).toBe(0);
+        expect(prismaCli(db.url, ['migrate', 'status', '--schema', SCHEMA]).output).toContain('Database schema is up to date');
+      } finally {
+        for (const name of [runtime, keyHolder, reaching, creator]) {
+          const [exists] = await prisma.$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM pg_roles WHERE rolname = $1', name);
+          if (exists.n) {
+            await db.client.$executeRawUnsafe(`DROP OWNED BY "${name}"`);
+            await prisma.$executeRawUnsafe(`DROP ROLE "${name}"`);
+          }
+        }
+        await db.client.$disconnect();
+      }
+    }
+  }, 600_000);
 
   it('populated upgrade from master-era data preserves every legacy record and opens the ledger under review', async () => {
     const db = await scratchDatabase('populated');
