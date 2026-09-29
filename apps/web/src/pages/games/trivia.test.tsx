@@ -23,6 +23,7 @@ const NEXT_QUESTION = {
   difficulty: 1,
 };
 let questionFetchCount = 0;
+let retiredQuestion = false;
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof ApiModule>('@/lib/api');
@@ -38,6 +39,7 @@ vi.mock('@/lib/api', async () => {
           return { success: true, data: [{ key: 'trivia', currentRulesVersion: 1 }] };
         }
         if (path === '/games/questions') {
+          if (retiredQuestion) return { success: true, data: [NEXT_QUESTION] };
           if (params?.resumeQuestionId) return { success: true, data: [QUESTION] };
           questionFetchCount += 1;
           return { success: true, data: [questionFetchCount === 1 ? QUESTION : NEXT_QUESTION] };
@@ -70,6 +72,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   currentUser = { id: 'me-uuid', username: 'me', displayName: 'Me' };
   questionFetchCount = 0;
+  retiredQuestion = false;
 });
 
 function createClient() {
@@ -240,4 +243,29 @@ describe('TriviaGamePage — durable play', () => {
     },
     setUser: (user) => { currentUser = user; },
   });
+});
+
+
+it('manually confirms a retired question after recovery fails, then allows the next question', async () => {
+  retiredQuestion = true;
+  const key = 'retired-question-recovery';
+  const body = { questionId: QUESTION.id, answerIndex: 1 };
+  window.sessionStorage.setItem(pendingPlayStorageKey('me-uuid', 'trivia'), JSON.stringify({ key, body }));
+  playGameMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  playGameMock.mockResolvedValueOnce({ success: true, data: { ...successResponse.data, isReplay: true } });
+  renderPage();
+  await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+  const confirm = await screen.findByRole('button', { name: 'Confirm pending answer' });
+  await waitFor(() => expect(confirm).not.toBeDisabled());
+  fireEvent.click(confirm);
+  await screen.findByText('Replayed answer — no additional reward.');
+  expect(playGameMock).toHaveBeenCalledTimes(2);
+  expect(playGameMock.mock.calls[0]).toEqual(['trivia', body, key]);
+  expect(playGameMock.mock.calls[1]).toEqual(playGameMock.mock.calls[0]);
+  expect(newIdempotencyKeySpy).not.toHaveBeenCalled();
+  expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'trivia'))).toBeNull();
+  const next = await screen.findByRole('button', { name: 'Next Question' });
+  await waitFor(() => expect(next).not.toBeDisabled());
+  fireEvent.click(next);
+  await screen.findByText(NEXT_QUESTION.question);
 });

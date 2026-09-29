@@ -196,6 +196,17 @@ export function TriviaGamePage() {
           </button>
         )}
 
+        {pending && (
+          <button
+            type="button"
+            disabled={playMutation.isPending}
+            onClick={() => play(pending.body)}
+            className="w-full rounded-lg border border-amber-400 px-6 py-3 font-semibold disabled:opacity-50"
+          >
+            {playMutation.isPending ? 'Confirming answer…' : 'Confirm pending answer'}
+          </button>
+        )}
+
         {confirmingEarlierRound && (
           <div className="text-sm text-amber-700 dark:text-amber-400">
             Your previous answer has not been confirmed yet. Submitting confirms that answer first.
@@ -235,7 +246,7 @@ export function TriviaGamePage() {
           </div>
         )}
 
-        {lastResult && current && (
+        {lastResult && (
           <button
             type="button"
             onClick={() => {
