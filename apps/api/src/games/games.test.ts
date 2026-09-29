@@ -1695,6 +1695,34 @@ describeIf('Spin Win 90% Coin settlement', () => {
     expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
   });
 
+  it('never advances restricted playthrough for Spin Win even if the pinned policy lists it', async () => {
+    const user = await createUser(`spin90-progress-${randomUUID().slice(0, 8)}`);
+    const code = `S90${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+    await provideCountryAndAccount(user.id, code, `Spin policy ${code}`, null);
+    const administrator = await createBareUser(`spin90-policy-${randomUUID().slice(0, 8)}`, 'ADMIN');
+    const policy = await prisma.countryCasinoPolicy.create({ data: {
+      countryCode: code, version: 1, status: 'ENABLED', enabledAt: new Date(),
+      minWithdrawal: 100, maxWithdrawal: 100000,
+      dailyWithdrawalLimit: 100000, monthlyWithdrawalLimit: 1000000,
+      playthroughMultiplier: 1, qualifyingGames: ['spin_win'],
+      maxQualifyingStake: 1000, holdingPeriodHours: 0,
+      giftDailyLimit: 100000, kycTierRequired: 0,
+      supportedPaymentMethods: ['BANK_TRANSFER'], withdrawalFeePercent: 0,
+      manualReviewThreshold: 100000,
+    } });
+    await activateTestPolicy(policy.id, code, administrator.id);
+    const bonus = await primeRestrictedCoins(user.id, 100, 40);
+    expect(bonus.countryPolicyId).toBe(policy.id);
+
+    await playGame({
+      userId: user.id, gameKey: 'spin_win', betAmount: 40, idempotencyKey: randomUUID(),
+      clientData: { bets: [{ marketId: 'red', amount: 40 }] },
+    });
+    const after = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: bonus.id } });
+    expect(after).toMatchObject({ lotClass: 'RESTRICTED', requirementAmount: 40, progressAmount: 0 });
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+  });
+
   it('rolls back a failed session insert after debit and payout, then settles once on retry', async () => {
     const user = await createUser(`spin90-rollback-${randomUUID().slice(0,8)}`);
     await primeCoins(user.id, 200);

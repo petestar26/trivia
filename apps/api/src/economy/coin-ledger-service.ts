@@ -380,7 +380,10 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
       throw ApiError.internal('Restricted lot policy pin is invalid');
     }
     const games = Array.isArray(pinned.qualifyingGames) ? pinned.qualifyingGames : [];
-    const qualifies = games.includes(args.gameKey) && args.stake <= pinned.maxQualifyingStake;
+    // Offsetting Spin Win tickets can turn a bonus obligation into low-variance
+    // wagering. Keep it non-qualifying even if an older policy lists the game.
+    const qualifies = args.gameKey !== 'spin_win'
+      && games.includes(args.gameKey) && args.stake <= pinned.maxQualifyingStake;
     const progress = qualifies
       ? Math.min(share.amount, Math.max(0, lot.requirementAmount - lot.progressAmount)) : 0;
     progressById.set(lot.id, progress);
