@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { parseSpinBets } from '@socialplay/shared';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet } from '../economy/wallet-service.js';
@@ -6,6 +7,7 @@ import { creditCoins, settleWagerCoins } from '../economy/coin-ledger-service.js
 import { resolveJurisdictionForPlay, requirePlayableJurisdiction, requirePlatformGate } from '../economy/jurisdiction-service.js';
 import { isApprovedGameKey } from './game-catalog.js';
 import { fingerprintPlay } from './game-fingerprint.js';
+import { generateSpinWinResult } from './spin-win-engine.js';
 import { lockUserForPlay, lockGameForPlay } from './game-locks.js';
 import type { GameCurrencyValue } from './game-catalog.js';
 import type { LockedGame } from './game-locks.js';
@@ -152,6 +154,9 @@ function buildSelections(
   clientData: Record<string, unknown>
 ): Record<string, unknown> {
   switch (gameType) {
+    case 'SPIN_WIN':
+      try { return { bets: parseSpinBets(clientData.bets) }; }
+      catch { throw ApiError.badRequest('Invalid Spin Win bets'); }
     case 'NUMBER_CHALLENGE':
       return { guess: clientData.guess };
     case 'TRIVIA':
@@ -280,6 +285,9 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     const family = (game.family as PlayFamilyValue) ?? 'INSTANT';
     const rulesConfig = (rules.rules as Record<string, unknown>) ?? {};
     const selections = buildSelections(game.type, clientData);
+    if (game.type === 'SPIN_WIN' && parseSpinBets(selections.bets).reduce((sum, bet) => sum + bet.amount, 0) !== stake) {
+      throw ApiError.badRequest('Spin Win stake must equal the total of its bets');
+    }
     const playContext: PlayContextValue = isBonus ? 'BONUS' : 'SOLO_WAGER';
 
     const fingerprint = fingerprintPlay({
@@ -295,6 +303,9 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     let isWin = false;
 
     switch (game.type) {
+      case 'SPIN_WIN':
+        ({ result: resultData, rewardAmount, isWin } = generateSpinWinResult(stake, rulesConfig, selections.bets));
+        break;
       case 'DICE':
         ({ result: resultData, rewardAmount, isWin } = generateDiceResult(stake, rulesConfig));
         break;

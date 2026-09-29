@@ -99,6 +99,15 @@ export interface DurablePlayHandlers<T> {
   onFailed?: (error: unknown, conclusive: boolean) => void;
 }
 
+export interface DurablePlayOptions {
+  /**
+   * Whether to retry a stored request immediately on mount. Pages that need
+   * to restore request context before displaying the replay can resume it
+   * themselves by calling `play` with the stored body.
+   */
+  autoResume?: boolean;
+}
+
 /**
  * Durable, exactly-once play for one game. The idempotency key is created
  * once per round and stored with the exact request body in sessionStorage
@@ -112,7 +121,12 @@ export interface DurablePlayHandlers<T> {
  * remount) resends exactly it; edited form values wait for the next round,
  * which gets a new key. Only a conclusive server answer ends it.
  */
-export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handlers: DurablePlayHandlers<T> = {}) {
+export function useDurablePlay<T extends GamePlayResult>(
+  gameKey: string,
+  handlers: DurablePlayHandlers<T> = {},
+  options: DurablePlayOptions = {},
+) {
+  const autoResume = options.autoResume ?? true;
   const { user } = useAuth();
   const storageKey = user ? pendingPlayStorageKey(user.id, gameKey) : null;
   // Each signed-in user's pending request on this page, by storage key, and
@@ -141,6 +155,7 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     const stored = recall(storageKey);
     return stored.ok ? stored.pending : null;
   });
+  const [needsResume, setNeedsResume] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
@@ -155,6 +170,7 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     onSuccess: (round, request) => {
       forget(request.storageKey, request);
       setPending(null);
+      setNeedsResume(false);
       handlersRef.current.onSettled?.(round.data, round.isReplay);
     },
     onError: (error, request) => {
@@ -162,6 +178,7 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
       if (conclusive) {
         forget(request.storageKey, request);
         setPending(null);
+        setNeedsResume(false);
       }
       handlersRef.current.onFailed?.(error, conclusive);
     },
@@ -175,13 +192,15 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     setStorageError(null);
     if (!storageKey) {
       setPending(null);
+      setNeedsResume(false);
       return;
     }
     const stored = recall(storageKey);
     const unconfirmed = stored.ok ? stored.pending : null;
     setPending(unconfirmed);
-    if (unconfirmed) mutateRef.current({ ...unconfirmed, storageKey });
-  }, [storageKey, recall]);
+    setNeedsResume(!!unconfirmed && !autoResume);
+    if (unconfirmed && autoResume) mutateRef.current({ ...unconfirmed, storageKey });
+  }, [storageKey, recall, autoResume]);
 
   const play = useCallback((body: Record<string, unknown>) => {
     if (!storageKey) return;
@@ -193,6 +212,7 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     }
     if (stored.pending) {
       setStorageError(null);
+      setNeedsResume(false);
       setPending(stored.pending);
       mutateRef.current({ ...stored.pending, storageKey });
       return;
@@ -204,6 +224,7 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     }
     remembered.current.set(storageKey, request);
     setStorageError(null);
+    setNeedsResume(false);
     setPending(request);
     mutateRef.current({ ...request, storageKey });
   }, [storageKey, recall]);
@@ -213,5 +234,5 @@ export function useDurablePlay<T extends GamePlayResult>(gameKey: string, handle
     pending !== null && canonicalPlayBody(pending.body) !== canonicalPlayBody(body)
   ), [pending]);
 
-  return { play, pending, pendingDiffersFrom, mutation, storageError };
+  return { play, pending, needsResume, pendingDiffersFrom, mutation, storageError };
 }

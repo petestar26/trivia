@@ -1410,3 +1410,94 @@ describeIf('Replay after a rules bump', () => {
     ).rejects.toMatchObject({ statusCode: 409 });
   });
 });
+
+// Dedicated Spin Win settlement coverage. Uses real purchase fixtures, ledger
+// guards and jurisdiction checks; catalog changes are restored after the block.
+describeIf('Spin Win Coin settlement', () => {
+  let original: Awaited<ReturnType<typeof prisma.gameDefinition.findUniqueOrThrow>>;
+  let version: number;
+  const ticket = Array.from({ length: 37 }, (_, number) => ({ marketId: `number:${number}`, amount: 1 }));
+  const request = (userId: string, key: string) => ({ userId, gameKey: 'spin_win', betAmount: 37, idempotencyKey: key, clientData: { bets: ticket } });
+  beforeAll(async () => {
+    original = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
+    const latest = await prisma.gameRules.aggregate({ where: { gameId: original.id }, _max: { version: true } });
+    version = (latest._max.version ?? 0) + 1;
+    await prisma.gameRules.create({ data: {
+      gameId: original.id, version, mode: 'WAGER', family: 'INSTANT',
+      wagerCurrency: 'COINS', rewardCurrency: 'COINS', rules: { rulesId: 'single-zero-standard-v1' },
+      resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+    } });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      catalogStatus: 'AVAILABLE', isActive: true, currentRulesVersion: version,
+    } });
+  });
+  afterAll(async () => {
+    if (original) await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      catalogStatus: original.catalogStatus, isActive: original.isActive, currentRulesVersion: original.currentRulesVersion,
+    } });
+  });
+  it('settles all overlapping bets atomically and replays without a second debit', async () => {
+    const user = await createUser(`spin-settle-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    expect(first).toMatchObject({ betAmount: 37, rewardAmount: 36, newBalance: 99, rulesVersion: version, isReplay: false });
+    const replay = await playGame(args);
+    expect(replay).toEqual({ ...first, isReplay: true });
+    expect(await prisma.gameSession.count({ where: { userId: user.id, gameId: original.id } })).toBe(1);
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(99);
+    await expect(playGame({ ...args, clientData: { bets: [{ marketId: 'red', amount: 37 }] } })).rejects.toMatchObject({ statusCode: 409 });
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(99);
+  });
+  it('settles concurrent duplicates once', async () => {
+    const user = await createUser(`spin-race-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const args = request(user.id, randomUUID());
+    const rounds = await Promise.all([playGame(args), playGame(args)]);
+    expect(new Set(rounds.map((round) => round.sessionId)).size).toBe(1);
+    expect(rounds.filter((round) => !round.isReplay)).toHaveLength(1);
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(99);
+  });
+  it('rejects a mismatched ticket without ledger or session changes', async () => {
+    const user = await createUser(`spin-invalid-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    await expect(playGame({ ...request(user.id, randomUUID()), betAmount: 38 })).rejects.toThrow('total');
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(100);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(0);
+  });
+  it('rejects overspend without partial settlement', async () => {
+    const user = await createUser(`spin-short-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 10);
+    await expect(playGame(request(user.id, randomUUID()))).rejects.toThrow();
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(10);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(0);
+  });
+  it('preserves restricted and purchased funding proportions', async () => {
+    const user = await createUser(`spin-mixed-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const purchased = await prisma.coinProvenance.findFirstOrThrow({ where: { userId: user.id, lotClass: 'WITHDRAWABLE' } });
+    const bonus = await primeRestrictedCoins(user.id, 100, 10000);
+    const result = await playGame({ userId: user.id, gameKey: 'spin_win', betAmount: 200,
+      idempotencyKey: randomUUID(), clientData: { bets: [{ marketId: 'red', amount: 200 }] } });
+    const purchasedAfter = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: purchased.id } });
+    const bonusAfter = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: bonus.id } });
+    expect(purchasedAfter.lotClass).toBe('WITHDRAWABLE');
+    expect(bonusAfter).toMatchObject({ lotClass: 'RESTRICTED', requirementAmount: 10000 });
+    expect(purchasedAfter.availableAmount).toBe(result.rewardAmount / 2);
+    expect(bonusAfter.availableAmount).toBe(result.rewardAmount / 2);
+    expect(result.newBalance).toBe(result.rewardAmount);
+  });
+  it('replays the stored result after the current rules version changes', async () => {
+    const user = await createUser(`spin-version-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    await prisma.gameRules.create({ data: {
+      gameId: original.id, version: version+1, mode: 'WAGER', family: 'INSTANT',
+      wagerCurrency: 'COINS', rewardCurrency: 'COINS', rules: { rulesId: 'single-zero-standard-v1' },
+      resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+    } });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: { currentRulesVersion: version+1 } });
+    expect(await playGame(args)).toEqual({ ...first, isReplay: true });
+  });
+});

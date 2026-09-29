@@ -18,6 +18,12 @@ export interface DurablePlayPage {
   playEnabled: () => boolean;
   /** The body the first play sends. */
   firstBody: Record<string, unknown>;
+  /** Body a one-attempt-per-item game sends after moving to a fresh item. */
+  firstBodyAfterNext?: Record<string, unknown>;
+  /** Edited body for one-attempt-per-item games after moving to a fresh item. */
+  editedBodyAfterNext?: Record<string, unknown>;
+  /** Wager and bonus games use different replay wording. */
+  replayNotice?: string;
   /** Changes the form; returns the body it now describes. */
   edit: () => Record<string, unknown>;
   /** Makes the page ready for another round after a settled one. */
@@ -41,6 +47,7 @@ const settle = () => act(async () => { await new Promise((resolve) => setTimeout
  */
 export function durablePlayContract(page: DurablePlayPage) {
   const storageKey = () => pendingPlayStorageKey(page.userId, page.gameKey);
+  const replayNotice = page.replayNotice ?? 'Replayed round — no new wager.';
 
   /** The API's idempotency: the first request with a key settles a round,
    * an exact retry replays it. */
@@ -138,7 +145,7 @@ export function durablePlayContract(page: DurablePlayPage) {
     page.play();
     await waitFor(() => expect(page.playGameMock).toHaveBeenCalledTimes(2));
     expect(page.playGameMock.mock.calls[1].slice(1)).toEqual(page.playGameMock.mock.calls[0].slice(1));
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+    expect(await screen.findByText(replayNotice)).toBeInTheDocument();
     expect(server.settled.size).toBe(1);
     expect(page.newIdempotencyKeySpy).toHaveBeenCalledTimes(1);
 
@@ -150,7 +157,7 @@ export function durablePlayContract(page: DurablePlayPage) {
     await waitFor(() => expect(page.playGameMock).toHaveBeenCalledTimes(3));
     const [, nextBody, nextKey] = page.playGameMock.mock.calls[2];
     expect(nextKey).not.toBe(page.playGameMock.mock.calls[0][2]);
-    expect(nextBody).toEqual(page.firstBody);
+    expect(nextBody).toEqual(page.firstBodyAfterNext ?? page.firstBody);
     expect(server.settled.size).toBe(2);
     expect(page.newIdempotencyKeySpy).toHaveBeenCalledTimes(2);
   });
@@ -165,7 +172,7 @@ export function durablePlayContract(page: DurablePlayPage) {
     await waitFor(() => expect(page.playEnabled()).toBe(true));
     cleanup(); // the player reloads
     page.renderPage();
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+    expect(await screen.findByText(replayNotice)).toBeInTheDocument();
     expect(page.playGameMock).toHaveBeenCalledTimes(2);
     expect(page.playGameMock.mock.calls[1].slice(1)).toEqual(page.playGameMock.mock.calls[0].slice(1));
     expect(page.playGameMock.mock.calls[0][1]).toEqual(page.firstBody);
@@ -192,7 +199,7 @@ export function durablePlayContract(page: DurablePlayPage) {
     page.play();
     await waitFor(() => expect(page.playGameMock).toHaveBeenCalledTimes(3));
     const [, editedBody, editedKey] = page.playGameMock.mock.calls[2];
-    expect(editedBody).toEqual(edited);
+    expect(editedBody).toEqual(page.editedBodyAfterNext ?? edited);
     expect(editedKey).not.toBe(firstKey);
     for (const [, body, key] of page.playGameMock.mock.calls) {
       if (key === firstKey) expect(body).toEqual(firstBody);

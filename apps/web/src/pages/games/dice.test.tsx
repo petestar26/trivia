@@ -129,6 +129,51 @@ describe('DiceGamePage', () => {
     expect(screen.getByRole('button', { name: /Roll/i })).toBeInTheDocument();
   });
 
+  it('rejects fractional and out-of-range stakes in the form without truncating them', async () => {
+    playGameMock.mockResolvedValue(successResponse);
+    renderPage();
+    const bet = await screen.findByRole('spinbutton', { name: /Bet amount/i });
+    const roll = screen.getByRole('button', { name: /^Roll$/i });
+
+    fireEvent.change(bet, { target: { value: '50.5' } });
+    expect(screen.getByText('Bet amount must be a whole number.')).toBeInTheDocument();
+    expect(roll).toBeDisabled();
+    fireEvent.click(roll);
+    expect(playGameMock).not.toHaveBeenCalled();
+
+    fireEvent.change(bet, { target: { value: '1001' } });
+    expect(screen.getByText('Bet amount must be no more than 1000.')).toBeInTheDocument();
+    expect(roll).toBeDisabled();
+
+    fireEvent.change(bet, { target: { value: '75' } });
+    expect(roll).toBeEnabled();
+    fireEvent.click(roll);
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+    expect(playGameMock.mock.calls[0][1]).toEqual({ betAmount: 75 });
+  });
+
+  it('requires a valid edited stake before retrying, then reuses the exact pending request', async () => {
+    playGameMock.mockRejectedValueOnce(lostResponse());
+    playGameMock.mockResolvedValueOnce(successResponse);
+    renderPage();
+    const roll = await rollButton();
+    fireEvent.click(roll);
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(roll).not.toBeDisabled());
+    const firstRequest = playGameMock.mock.calls[0].slice(1);
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Bet amount/i }), { target: { value: '50.5' } });
+    expect(roll).toBeDisabled();
+    fireEvent.click(roll);
+    expect(playGameMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: /Bet amount/i }), { target: { value: '75' } });
+    expect(roll).toBeEnabled();
+    fireEvent.click(roll);
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
+    expect(playGameMock.mock.calls[1].slice(1)).toEqual(firstRequest);
+  });
+
   it('a successful play settles the round and shows the server result', async () => {
     playGameMock.mockResolvedValue(successResponse);
     renderPage();
