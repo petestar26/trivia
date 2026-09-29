@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { SPIN90_RULES_ID } from '@socialplay/shared';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@socialplay/database';
 import {
@@ -1572,6 +1573,177 @@ describeIf('Spin Win Coin settlement', () => {
       resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
     } });
     await prisma.gameDefinition.update({ where: { id: original.id }, data: { currentRulesVersion: version+1 } });
+    expect(await playGame(args)).toEqual({ ...first, isReplay: true });
+  });
+});
+
+// Temporarily enable the versioned 90% rules on a throwaway test database.
+// No production catalog or country-policy change is made by this suite.
+describeIf('Spin Win 90% Coin settlement', () => {
+  let original: Awaited<ReturnType<typeof prisma.gameDefinition.findUniqueOrThrow>>;
+  let version: number;
+  const bets = [
+    { marketId: 'red', amount: 40 },
+    { marketId: 'black', amount: 40 },
+    { marketId: 'number:0', amount: 40 },
+  ];
+  const request = (userId: string, idempotencyKey: string) => ({
+    userId, gameKey: 'spin_win', betAmount: 120, idempotencyKey,
+    clientData: { bets },
+  });
+  beforeAll(async () => {
+    original = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
+    const latest = await prisma.gameRules.aggregate({
+      where: { gameId: original.id }, _max: { version: true },
+    });
+    version = (latest._max.version ?? 0) + 1;
+    await prisma.gameRules.create({ data: {
+      gameId: original.id, version, mode: 'WAGER', family: 'INSTANT',
+      wagerCurrency: 'COINS', rewardCurrency: 'COINS',
+      rules: { rulesId: SPIN90_RULES_ID },
+      resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+    } });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      catalogStatus: 'AVAILABLE', isActive: true, currentRulesVersion: version,
+    } });
+  });
+  afterAll(async () => {
+    if (original) await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      catalogStatus: original.catalogStatus, isActive: original.isActive,
+      currentRulesVersion: original.currentRulesVersion,
+    } });
+  });
+
+  it('settles the pinned 90% rules once, preserves the stored response, and rejects a changed ticket', async () => {
+    const user = await createUser(`spin90-settle-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    const expectedPayout = (first.result as { number: number }).number === 0 ? 1332 : 74;
+    expect(first).toMatchObject({
+      betAmount: 120, rewardAmount: expectedPayout, newBalance: 80 + expectedPayout,
+      rulesVersion: version, result: { rulesId: SPIN90_RULES_ID }, isReplay: false,
+    });
+    expect(await playGame({ ...args, clientData: { bets: [...bets].reverse() } }))
+      .toEqual({ ...first, isReplay: true });
+    await expect(playGame({ ...args, clientData: { bets: [
+      { ...bets[0], amount: 80 }, bets[1], bets[2],
+    ] } })).rejects.toMatchObject({ statusCode: 409 });
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(first.newBalance);
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+  });
+
+  it('settles concurrent duplicates exactly once', async () => {
+    const user = await createUser(`spin90-race-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const rounds = await Promise.all([playGame(args), playGame(args)]);
+    expect(new Set(rounds.map((round) => round.sessionId)).size).toBe(1);
+    expect(rounds.filter((round) => !round.isReplay)).toHaveLength(1);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(rounds[0].newBalance);
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+  });
+
+  it('rejects fractional ticket lines, mismatched stake and overspend without ledger changes', async () => {
+    const user = await createUser(`spin90-invalid-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 80);
+    const args = request(user.id, randomUUID());
+    await expect(playGame(args)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(playGame({ ...args, betAmount: 80 })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(playGame({ ...args, clientData: { bets: [
+      { marketId: 'red', amount: 60 }, { marketId: 'black', amount: 60 },
+    ] } })).rejects.toMatchObject({
+      statusCode: 400, message: expect.stringContaining('multiple of 40'),
+    });
+    await primeCoins(user.id, 120);
+    await expect(playGame({ ...args, betAmount: 240, clientData: { bets: [
+      { marketId: 'red', amount: 80 }, { marketId: 'black', amount: 80 },
+      { marketId: 'number:0', amount: 80 },
+    ] } })).rejects.toMatchObject({
+      statusCode: 400, message: expect.stringContaining('Insufficient'),
+    });
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(200);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.economicOperation.count({ where: { userId: user.id, type: 'WAGER' } })).toBe(0);
+  });
+
+  it('preserves mixed purchased and restricted value at the new integer payout', async () => {
+    const user = await createUser(`spin90-mixed-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 80);
+    const purchased = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: user.id, lotClass: 'WITHDRAWABLE' },
+    });
+    const bonus = await primeRestrictedCoins(user.id, 80, 10000);
+    const result = await playGame({
+      userId: user.id, gameKey: 'spin_win', betAmount: 160, idempotencyKey: randomUUID(),
+      clientData: { bets: [
+        { marketId: 'red', amount: 80 }, { marketId: 'black', amount: 80 },
+      ] },
+    });
+    const purchasedAfter = await prisma.coinProvenance.findUniqueOrThrow({
+      where: { id: purchased.id },
+    });
+    const bonusAfter = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: bonus.id } });
+    expect(purchasedAfter.lotClass).toBe('WITHDRAWABLE');
+    expect(bonusAfter).toMatchObject({ lotClass: 'RESTRICTED', requirementAmount: 10000 });
+    expect(result.rewardAmount).toBe((result.result as { number: number }).number === 0 ? 0 : 148);
+    expect(purchasedAfter.availableAmount).toBe(result.rewardAmount / 2);
+    expect(bonusAfter.availableAmount).toBe(result.rewardAmount / 2);
+    expect(result.newBalance).toBe(result.rewardAmount);
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+  });
+
+  it('rolls back a failed session insert after debit and payout, then settles once on retry', async () => {
+    const user = await createUser(`spin90-rollback-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const snapshot = async () => ({
+      wallet: (await getWalletBalance(user.id)).coinsBalance,
+      operations: await prisma.economicOperation.count({ where: { userId: user.id } }),
+      transactions: await prisma.walletTransaction.count({ where: { userId: user.id } }),
+      entries: await prisma.coinLotEntry.count({ where: { userId: user.id } }),
+      sessions: await prisma.gameSession.count({ where: { userId: user.id } }),
+    });
+    const before = await snapshot();
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+    const failure = `forced spin90 session failure ${suffix}`;
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION "spin90_test_fail_${suffix}"() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN RAISE EXCEPTION '${failure}'; END $f$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER "spin90_test_fail_${suffix}" BEFORE INSERT ON "game_sessions"
+      FOR EACH ROW WHEN (NEW."userId" = '${user.id.replace(/'/g, '')}') EXECUTE FUNCTION "spin90_test_fail_${suffix}"()`);
+    try {
+      const error = await playGame(args).then(() => undefined, (caught: unknown) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('tx.gameSession.create()');
+      expect((error as Error).message).toContain(failure);
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER "spin90_test_fail_${suffix}" ON "game_sessions"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION "spin90_test_fail_${suffix}"()`);
+    }
+    const settled = await playGame(args);
+    expect(settled.result).toMatchObject({ rulesId: SPIN90_RULES_ID });
+    expect(await playGame(args)).toEqual({ ...settled, isReplay: true });
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+  });
+
+  it('replays the stored v2 result after the current pointer changes to historical v1', async () => {
+    const user = await createUser(`spin90-bump-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    await prisma.gameRules.create({ data: {
+      gameId: original.id, version: version + 1, mode: 'WAGER', family: 'INSTANT',
+      wagerCurrency: 'COINS', rewardCurrency: 'COINS',
+      rules: { rulesId: 'single-zero-standard-v1' },
+      resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+    } });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      currentRulesVersion: version + 1,
+    } });
     expect(await playGame(args)).toEqual({ ...first, isReplay: true });
   });
 });

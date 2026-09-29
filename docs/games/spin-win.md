@@ -124,6 +124,16 @@ and replay after a rules change. They passed against a throwaway PostgreSQL 16
 database (20 consecutive runs, covering both winning and losing `red` rounds).
 They use real purchase fixtures and restore the prior Spin Win catalog state.
 
+The separate `Spin Win 90% Coin settlement` block runs the v2 rules against a
+throwaway PostgreSQL 16 database. Six cases cover authoritative integer
+payouts, exact and reordered replay, conflicting reuse, concurrent duplicates,
+invalid lines, mismatched totals, overspend, purchased/restricted allocation,
+rollback after the debit at session insertion, and replay after the active
+rules pointer changes. The block restores the disabled catalog state. This is
+settlement verification; it does not activate Coin play or change country
+policies. The exhaustive 37-outcome tests independently prove the 90% return
+for each betting market and a combined ticket.
+
 The Coin screen and practice screen were checked in Chromium at 1280×800 and
 390×844, with and without `prefers-reduced-motion`. Available, pending-round
 recovery (lost response, reload, exact-key confirm) and paused-catalog states used
