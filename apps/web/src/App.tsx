@@ -7,6 +7,7 @@ import { RegisterPage } from '@/pages/register';
 import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
+import { CasinoPage } from '@/pages/casino';
 import { DiceGamePage } from '@/pages/games/dice';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
@@ -57,6 +58,7 @@ export function App() {
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<GamesPage />} />
+        <Route path="casino" element={<CasinoPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
         <Route
           path="games/dice"

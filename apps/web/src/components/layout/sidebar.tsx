@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
 
 const navigation = [
@@ -6,6 +6,7 @@ const navigation = [
   { name: 'Groups',       href: '/groups',        icon: UsersIcon },
   { name: 'Messages',     href: '/messages',      icon: MessageIcon },
   { name: 'Games',        href: '/games',         icon: GameIcon },
+  { name: 'Casino',       href: '/casino',        icon: CasinoIcon },
   { name: 'Challenges',   href: '/challenges',    icon: SwordsIcon },
   { name: 'Competitions', href: '/competitions',  icon: TrophyIcon },
   { name: 'Wallet',       href: '/wallet',        icon: WalletIcon },
@@ -18,7 +19,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onNavigate }: SidebarProps = {}) {
-  const location = useLocation();
   const { user, logout } = useAuth();
 
   return (
@@ -30,8 +30,6 @@ export function Sidebar({ onNavigate }: SidebarProps = {}) {
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href || 
-              (item.href !== '/' && location.pathname.startsWith(item.href));
             return (
               <NavLink
                 key={item.name}
@@ -119,6 +117,15 @@ function GameIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+function CasinoIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={3} d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" />
     </svg>
   );
 }
