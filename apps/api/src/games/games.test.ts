@@ -1468,7 +1468,9 @@ describeIf('Spin Win Coin settlement', () => {
   it('rejects overspend without partial settlement', async () => {
     const user = await createUser(`spin-short-${randomUUID().slice(0,8)}`);
     await primeCoins(user.id, 10);
-    await expect(playGame(request(user.id, randomUUID()))).rejects.toThrow();
+    await expect(playGame(request(user.id, randomUUID()))).rejects.toMatchObject({
+      statusCode: 400, message: expect.stringContaining('Insufficient'),
+    });
     expect((await getWalletBalance(user.id)).coinsBalance).toBe(10);
     expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(0);
   });
@@ -1486,6 +1488,53 @@ describeIf('Spin Win Coin settlement', () => {
     expect(purchasedAfter.availableAmount).toBe(result.rewardAmount / 2);
     expect(bonusAfter.availableAmount).toBe(result.rewardAmount / 2);
     expect(result.newBalance).toBe(result.rewardAmount);
+  });
+  it('replays a reordered ticket exactly and refuses an edited one', async () => {
+    const user = await createUser(`spin-order-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const bets = [{ marketId: 'red', amount: 4 }, { marketId: 'dozen:1', amount: 6 }, { marketId: 'number:0', amount: 1 }];
+    const args = { userId: user.id, gameKey: 'spin_win', betAmount: 11, idempotencyKey: randomUUID(), clientData: { bets } };
+    const first = await playGame(args);
+    const balance = (await getWalletBalance(user.id)).coinsBalance;
+    expect(await playGame({ ...args, clientData: { bets: [...bets].reverse() } })).toEqual({ ...first, isReplay: true });
+    await expect(playGame({ ...args, clientData: { bets: [{ ...bets[0], amount: 5 }, bets[1], bets[2]] } }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(balance);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+  });
+  it('rolls back the whole settlement when the session write fails, then settles once on retry', async () => {
+    const user = await createUser(`spin-rollback-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    const args = request(user.id, randomUUID());
+    const snapshot = async () => ({
+      wallet: (await getWalletBalance(user.id)).coinsBalance,
+      operations: await prisma.economicOperation.count({ where: { userId: user.id } }),
+      transactions: await prisma.walletTransaction.count({ where: { userId: user.id } }),
+      lotEntries: await prisma.coinLotEntry.count({ where: { userId: user.id } }),
+      lots: (await prisma.coinProvenance.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' },
+        select: { id: true, availableAmount: true } })),
+      sessions: await prisma.gameSession.count({ where: { userId: user.id } }),
+    });
+    const before = await snapshot();
+    // Fail after the debit and any payout have been written, at the last step.
+    const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION "spin_test_fail_${suffix}"() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN RAISE EXCEPTION 'forced spin test failure'; END $f$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER "spin_test_fail_${suffix}" BEFORE INSERT ON "game_sessions"
+      FOR EACH ROW WHEN (NEW."userId" = '${user.id.replace(/'/g, '')}') EXECUTE FUNCTION "spin_test_fail_${suffix}"()`);
+    try {
+      await expect(playGame(args)).rejects.toThrow();
+      expect(await snapshot()).toEqual(before);
+      expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER "spin_test_fail_${suffix}" ON "game_sessions"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION "spin_test_fail_${suffix}"()`);
+    }
+    const settled = await playGame(args);
+    expect(settled).toMatchObject({ isReplay: false, rewardAmount: 36, newBalance: 99 });
+    expect(await playGame(args)).toEqual({ ...settled, isReplay: true });
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
   });
   it('replays the stored result after the current rules version changes', async () => {
     const user = await createUser(`spin-version-${randomUUID().slice(0,8)}`);

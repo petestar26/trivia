@@ -84,18 +84,28 @@ verification. No runtime availability or rules migration has been applied.
 
 ## Verification status (2026-09-29)
 
-Six real-database cases in `games.test.ts` under `Spin Win Coin settlement`
-cover settlement/replay, concurrent duplicates, invalid-ticket rollback,
-overspend, mixed restricted/purchased funding, and replay after a rules change.
+Eight real-database cases in `games.test.ts` under `Spin Win Coin settlement` cover
+settlement and exact replay, reordered-ticket replay and edited-ticket refusal (409),
+concurrent duplicates, invalid-ticket rejection, a mid-transaction rollback (a
+temporary trigger fails the session insert after the debit; wallet, operations,
+lots and sessions are unchanged, and a retry with the same key settles once),
+overspend (400 `Insufficient tracked Coins`), mixed restricted/purchased funding,
+and replay after a rules change. They passed against a throwaway PostgreSQL 16
+database (20 consecutive runs, covering both winning and losing `red` rounds).
 They use real purchase fixtures and restore the prior Spin Win catalog state.
-They have not passed a database run yet: this workspace cannot switch to the
-non-root user PostgreSQL requires. Test collection was checked against an
-unreachable loopback URL; database cases skipped, which is not a pass.
-Chromium installation also failed with invalid download archives. Browser
-visual verification remains outstanding.
 
-Run in a configured local throwaway ledger-test database with the repository's
-required disposable test secrets:
+The Coin screen and practice screen were checked in Chromium at 1280×800 and
+390×844, with and without `prefers-reduced-motion`. Available, pending-round
+recovery (lost response, reload, exact-key confirm) and paused-catalog states used
+browser-side API mocks; the real catalog state (`COMING_SOON`) was checked against
+a local API. Coin wagering is still disabled: no activation migration exists.
+
+Run in a configured local throwaway ledger-test database (name matching
+`playqube_*_throwaway`, loopback host only) with disposable
+`SECURITY_TOTP_ENCRYPTION_KEY` and `LEDGER_APPROVAL_SIGNING_KEY` values
+(`openssl rand -hex 32` each), `TEST_LEDGER_DB_NAME` set to that database name and
+`NODE_ENV=test`, after `pnpm build:packages` and `pnpm --filter @socialplay/database
+db:migrate:deploy`:
 
 ```sh
 pnpm --filter api test -- src/games/games.test.ts -t 'Spin Win Coin settlement'
