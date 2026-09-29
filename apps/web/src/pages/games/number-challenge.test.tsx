@@ -92,6 +92,34 @@ const successResponse = {
 };
 
 describe('NumberChallengePage', () => {
+  it('rejects fractional stakes and guesses rather than silently truncating them', async () => {
+    playGameMock.mockResolvedValue(successResponse);
+    renderPage();
+    const [bet, guess] = await screen.findAllByRole('spinbutton');
+    const submit = screen.getByRole('button', { name: /^Submit Guess$/i });
+
+    fireEvent.change(bet, { target: { value: '50.5' } });
+    fireEvent.change(guess, { target: { value: '7.2' } });
+    expect(screen.getByText('Bet amount must be a whole number.')).toBeInTheDocument();
+    expect(screen.getByText('Your guess must be a whole number.')).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(playGameMock).not.toHaveBeenCalled();
+
+    fireEvent.change(bet, { target: { value: '201' } });
+    fireEvent.change(guess, { target: { value: '101' } });
+    expect(screen.getByText('Bet amount must be no more than 200.')).toBeInTheDocument();
+    expect(screen.getByText('Your guess must be no more than 100.')).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(bet, { target: { value: '25' } });
+    fireEvent.change(guess, { target: { value: '7' } });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+    expect(playGameMock.mock.calls[0][1]).toEqual({ betAmount: 25, guess: 7 });
+  });
+
   it('a retry after a failed submission reuses the EXACT SAME idempotency key', async () => {
     playGameMock.mockRejectedValueOnce(new Error('network error'));
     playGameMock.mockResolvedValueOnce(successResponse);

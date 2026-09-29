@@ -6,6 +6,7 @@ import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { CasinoShell } from '@/components/casino/CasinoShell';
 import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
+import { parseWholeNumberInput, wholeNumberRangeError } from '@/components/casino/whole-number-input';
 
 type NumResult = {
   guess: number;
@@ -33,8 +34,8 @@ function parsePlayError(error: unknown): string {
 
 export function NumberChallengePage() {
   const { phase, setPhase, refetchBalance } = useCasino();
-  const [bet, setBet] = useState(50);
-  const [guess, setGuess] = useState(50);
+  const [betInput, setBetInput] = useState('50');
+  const [guessInput, setGuessInput] = useState('50');
   const [lastResult, setLastResult] = useState<NumResult | null>(null);
   const [serverBalance, setServerBalance] = useState<number | null>(null);
   const [isReplay, setIsReplay] = useState(false);
@@ -63,9 +64,20 @@ export function NumberChallengePage() {
 
   const minBet = game?.minBet ?? 10;
   const maxBet = game?.maxBet ?? 200;
+  const betAmount = parseWholeNumberInput(betInput);
+  const guess = parseWholeNumberInput(guessInput);
+  const betError = wholeNumberRangeError(betInput, minBet, maxBet, 'Bet amount');
+  const guessError = wholeNumberRangeError(guessInput, 1, 100, 'Your guess');
 
-  const submit = () => play({ betAmount: bet, guess });
-  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: bet, guess });
+  const submit = () => {
+    if (betAmount === null || guess === null || betError || guessError) return;
+    play({ betAmount, guess });
+  };
+  const confirmingEarlierRound = pendingDiffersFrom({
+    betAmount: betAmount ?? null,
+    guess: guess ?? null,
+  });
+  const formError = betError || guessError;
 
   return (
     <CasinoShell
@@ -76,37 +88,51 @@ export function NumberChallengePage() {
     >
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Bet amount (Coins)</label>
+          <label htmlFor="number-challenge-bet" className="text-sm font-medium text-gray-700 dark:text-gray-300">Bet amount (Coins)</label>
           <input
+            id="number-challenge-bet"
             type="number"
             min={minBet}
             max={maxBet}
-            value={bet}
-            onChange={(e) => setBet(parseInt(e.target.value, 10) || 0)}
-            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3"
+            step={1}
+            inputMode="numeric"
+            value={betInput}
+            aria-invalid={!!betError}
+            aria-describedby={betError ? 'number-challenge-bet-range number-challenge-bet-error' : 'number-challenge-bet-range'}
+            onChange={(e) => setBetInput(e.target.value)}
+            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           />
+          <div id="number-challenge-bet-range" className="mt-1 text-xs text-gray-500">Min {minBet} · Max {maxBet} Coins</div>
+          {betError && <p id="number-challenge-bet-error" className="mt-1 text-sm text-red-600 dark:text-red-400" aria-live="polite">{betError}</p>}
         </div>
 
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Your guess (1–100)</label>
+          <label htmlFor="number-challenge-guess" className="text-sm font-medium text-gray-700 dark:text-gray-300">Your guess (1–100)</label>
           <input
+            id="number-challenge-guess"
             type="number"
             min={1}
             max={100}
-            value={guess}
-            onChange={(e) => setGuess(parseInt(e.target.value, 10) || 1)}
-            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3"
+            step={1}
+            inputMode="numeric"
+            value={guessInput}
+            aria-invalid={!!guessError}
+            aria-describedby={guessError ? 'number-challenge-guess-range number-challenge-guess-error' : 'number-challenge-guess-range'}
+            onChange={(e) => setGuessInput(e.target.value)}
+            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           />
+          <div id="number-challenge-guess-range" className="mt-1 text-xs text-gray-500">Choose a whole number from 1 to 100</div>
+          {guessError && <p id="number-challenge-guess-error" className="mt-1 text-sm text-red-600 dark:text-red-400" aria-live="polite">{guessError}</p>}
         </div>
 
         <button
           onClick={submit}
-          disabled={playMutation.isPending}
-          className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50"
+          type="button"
+          disabled={playMutation.isPending || !!formError}
+          className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-50"
         >
           {playMutation.isPending ? 'Checking…' : 'Submit Guess'}
         </button>
-        <div className="text-xs text-gray-500">Min {minBet} · Max {maxBet} Coins</div>
 
         {confirmingEarlierRound && (
           <div className="text-sm text-amber-700 dark:text-amber-400">

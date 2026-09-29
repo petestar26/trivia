@@ -22,7 +22,7 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
   // enforced both by the AJV header schema and by the service.
   server.post<{
     Params: { gameKey: string };
-    Body: { betAmount?: number; guess?: number; questionId?: string; answerIndex?: number };
+    Body: { betAmount?: number; guess?: number; questionId?: string; answerIndex?: number; bets?: Array<{ marketId: string; amount: number }> };
     Headers: { 'idempotency-key': string };
   }>(
     '/:gameKey/play',
@@ -54,13 +54,18 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
             guess: { type: 'integer' },
             questionId: { type: 'string' },
             answerIndex: { type: 'integer' },
+            bets: {
+              type: 'array', minItems: 1, maxItems: 52,
+              items: { type: 'object', required: ['marketId', 'amount'], additionalProperties: false,
+                properties: { marketId: { type: 'string', maxLength: 32 }, amount: { type: 'integer', minimum: 1, maximum: 1000000 } } },
+            },
           },
         },
       },
     },
     async (request, reply) => {
       const { gameKey } = request.params;
-      const { betAmount, guess, questionId, answerIndex } = request.body;
+      const { betAmount, guess, questionId, answerIndex, bets } = request.body;
       const idempotencyKey = request.headers['idempotency-key'];
 
       const result = await playGame({
@@ -68,7 +73,7 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
         gameKey,
         betAmount,
         idempotencyKey,
-        clientData: { guess, questionId, answerIndex },
+        clientData: { guess, questionId, answerIndex, bets },
       });
 
       return reply
@@ -115,12 +120,25 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
   );
 
   // GET /games/questions — trivia questions (for trivia game selection)
-  server.get(
+  server.get<{
+    Querystring: { resumeQuestionId?: string };
+  }>(
     '/questions',
-    { preHandler: [authenticate] },
-    async (_request, reply) => {
+    {
+      preHandler: [authenticate],
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: { resumeQuestionId: { type: 'string', maxLength: 64 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user!.sub;
       const questions = await prisma.triviaQuestion.findMany({
-        where: { isActive: true },
+        // Don't offer a question this player has already answered. The play
+        // transaction remains the authoritative one-attempt enforcement.
+        where: { isActive: true, attempts: { none: { userId } } },
         select: {
           id: true,
           question: true,
@@ -130,6 +148,26 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
         },
         take: 20,
       });
+
+      // A lost response may leave a durable play request for a question that
+      // is now in the user's attempt table. Return that active question only
+      // for the exact id the authenticated client is resuming; never include
+      // its answer key.
+      const resumeQuestionId = request.query.resumeQuestionId;
+      if (resumeQuestionId && !questions.some((question) => question.id === resumeQuestionId)) {
+        const resumeQuestion = await prisma.triviaQuestion.findFirst({
+          where: { id: resumeQuestionId, isActive: true },
+          select: {
+            id: true,
+            question: true,
+            choices: true,
+            category: true,
+            difficulty: true,
+          },
+        });
+        if (resumeQuestion) questions.unshift(resumeQuestion);
+      }
+
       return reply.send({ success: true, data: questions });
     }
   );

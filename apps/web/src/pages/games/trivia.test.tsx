@@ -15,6 +15,15 @@ const QUESTION = {
   category: 'math',
   difficulty: 1,
 };
+const NEXT_QUESTION = {
+  id: 'q2',
+  question: 'What is 2 + 3?',
+  choices: ['3', '4', '5', '6'],
+  category: 'math',
+  difficulty: 1,
+};
+let questionFetchCount = 0;
+let retiredQuestion = false;
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof ApiModule>('@/lib/api');
@@ -22,7 +31,7 @@ vi.mock('@/lib/api', async () => {
     ...actual,
     api: {
       ...actual.api,
-      get: vi.fn(async (path: string) => {
+      get: vi.fn(async (path: string, params?: Record<string, unknown>) => {
         if (path === '/wallet') {
           return { success: true, data: { coinsBalance: 1000, gamePointsBalance: 0 } };
         }
@@ -30,7 +39,10 @@ vi.mock('@/lib/api', async () => {
           return { success: true, data: [{ key: 'trivia', currentRulesVersion: 1 }] };
         }
         if (path === '/games/questions') {
-          return { success: true, data: [QUESTION] };
+          if (retiredQuestion) return { success: true, data: [NEXT_QUESTION] };
+          if (params?.resumeQuestionId) return { success: true, data: [QUESTION] };
+          questionFetchCount += 1;
+          return { success: true, data: [questionFetchCount === 1 ? QUESTION : NEXT_QUESTION] };
         }
         throw new Error(`Unexpected GET ${path}`);
       }),
@@ -59,6 +71,8 @@ afterEach(() => {
   newIdempotencyKeySpy.mockReset();
   window.sessionStorage.clear();
   currentUser = { id: 'me-uuid', username: 'me', displayName: 'Me' };
+  questionFetchCount = 0;
+  retiredQuestion = false;
 });
 
 function createClient() {
@@ -123,7 +137,7 @@ describe('TriviaGamePage', () => {
     // Only ONE key minted across both attempts of the SAME round.
     expect(newIdempotencyKeySpy).toHaveBeenCalledTimes(1);
 
-    await waitFor(() => expect(screen.getByText(/\+30 Coins/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/\+30 bonus Coins/i)).toBeInTheDocument());
   });
 
   it('a successful submission settles with the reward shown', async () => {
@@ -132,8 +146,31 @@ describe('TriviaGamePage', () => {
     await screen.findByText(QUESTION.question);
     fireEvent.click(screen.getByText('4'));
     fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
-    await waitFor(() => expect(screen.getByText(/\+30 Coins/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/\+30 bonus Coins/i)).toBeInTheDocument());
     expect(playGameMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves to a fresh server-provided question after an answer and never offers the same question twice', async () => {
+    playGameMock.mockResolvedValueOnce(successResponse);
+    playGameMock.mockResolvedValueOnce({
+      ...successResponse,
+      data: { ...successResponse.data, result: { ...successResponse.data.result, questionId: NEXT_QUESTION.id } },
+    });
+    renderPage();
+    await screen.findByText(QUESTION.question);
+    fireEvent.click(screen.getByRole('button', { name: '4' }));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
+    await screen.findByText(/bonus Coins/i);
+    const nextQuestion = await screen.findByRole('button', { name: /^Next Question$/i });
+    await waitFor(() => expect(nextQuestion).toBeEnabled());
+
+    fireEvent.click(nextQuestion);
+    expect(await screen.findByText(NEXT_QUESTION.question)).toBeInTheDocument();
+    expect(screen.queryByText(QUESTION.question)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '4' }));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
+    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
+    expect(playGameMock.mock.calls[1][1]).toEqual({ questionId: NEXT_QUESTION.id, answerIndex: 1 });
   });
 
   it('shows the replay notice from the real API response shape (data.isReplay)', async () => {
@@ -142,7 +179,7 @@ describe('TriviaGamePage', () => {
     await screen.findByText(QUESTION.question);
     fireEvent.click(screen.getByText('4'));
     fireEvent.click(screen.getByRole('button', { name: /Submit Answer/i }));
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
+    expect(await screen.findByText('Replayed answer — no additional reward.')).toBeInTheDocument();
   });
 
   it('an answer whose response was lost after the server settled it is resumed after a reload and credited once', async () => {
@@ -163,8 +200,8 @@ describe('TriviaGamePage', () => {
 
     cleanup(); // reload
     renderPage();
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
-    expect(screen.getByText(/\+30 Coins/i)).toBeInTheDocument();
+    expect(await screen.findByText('Replayed answer — no additional reward.')).toBeInTheDocument();
+    expect(screen.getByText(/\+30 bonus Coins/i)).toBeInTheDocument();
     expect(playGameMock).toHaveBeenCalledTimes(2);
     expect(playGameMock.mock.calls[1].slice(1)).toEqual(playGameMock.mock.calls[0].slice(1));
     expect(settled.size).toBe(1);
@@ -188,13 +225,47 @@ describe('TriviaGamePage — durable play', () => {
     },
     playEnabled: () => !!submitButton() && !submitButton()!.disabled,
     firstBody: { questionId: 'q1', answerIndex: 1 },
+    nextRound: async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Next Question/i }));
+      if (playGameMock.mock.calls.length > 0) await screen.findByText(NEXT_QUESTION.question);
+    },
+    response: (body, isReplay) => ({ success: true, data: { ...successResponse.data,
+      result: { ...successResponse.data.result, questionId: body.questionId, submittedAnswer: body.answerIndex }, isReplay } }),
+    firstBodyAfterNext: { questionId: NEXT_QUESTION.id, answerIndex: 1 },
+    editedBodyAfterNext: { questionId: NEXT_QUESTION.id, answerIndex: 2 },
+    replayNotice: 'Replayed answer — no additional reward.',
     edit: () => {
       fireEvent.click(screen.getByRole('button', { name: '5' }));
-      return { questionId: 'q1', answerIndex: 2 };
+      return {
+        questionId: screen.queryByText(NEXT_QUESTION.question) ? NEXT_QUESTION.id : QUESTION.id,
+        answerIndex: 2,
+      };
     },
-    nextRound: async () => { fireEvent.click(await screen.findByRole('button', { name: /Next Question/i })); },
-    response: (body, isReplay) => ({ success: true, data: { ...successResponse.data,
-      result: { ...successResponse.data.result, submittedAnswer: body.answerIndex }, isReplay } }),
     setUser: (user) => { currentUser = user; },
   });
+});
+
+
+it('manually confirms a retired question after recovery fails, then allows the next question', async () => {
+  retiredQuestion = true;
+  const key = 'retired-question-recovery';
+  const body = { questionId: QUESTION.id, answerIndex: 1 };
+  window.sessionStorage.setItem(pendingPlayStorageKey('me-uuid', 'trivia'), JSON.stringify({ key, body }));
+  playGameMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  playGameMock.mockResolvedValueOnce({ success: true, data: { ...successResponse.data, isReplay: true } });
+  renderPage();
+  await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
+  const confirm = await screen.findByRole('button', { name: 'Confirm pending answer' });
+  await waitFor(() => expect(confirm).not.toBeDisabled());
+  fireEvent.click(confirm);
+  await screen.findByText('Replayed answer — no additional reward.');
+  expect(playGameMock).toHaveBeenCalledTimes(2);
+  expect(playGameMock.mock.calls[0]).toEqual(['trivia', body, key]);
+  expect(playGameMock.mock.calls[1]).toEqual(playGameMock.mock.calls[0]);
+  expect(newIdempotencyKeySpy).not.toHaveBeenCalled();
+  expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'trivia'))).toBeNull();
+  const next = await screen.findByRole('button', { name: 'Next Question' });
+  await waitFor(() => expect(next).not.toBeDisabled());
+  fireEvent.click(next);
+  await screen.findByText(NEXT_QUESTION.question);
 });

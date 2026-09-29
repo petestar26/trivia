@@ -6,6 +6,7 @@ import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { CasinoShell } from '@/components/casino/CasinoShell';
 import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
+import { parseWholeNumberInput, wholeNumberRangeError } from '@/components/casino/whole-number-input';
 
 type DiceResult = {
   die1: number;
@@ -55,7 +56,7 @@ function parsePlayError(error: unknown): string {
 
 export function DiceGamePage() {
   const { phase, setPhase, refetchBalance } = useCasino();
-  const [bet, setBet] = useState(50);
+  const [betInput, setBetInput] = useState('50');
   const [lastResult, setLastResult] = useState<DiceResult | null>(null);
   const [serverBalance, setServerBalance] = useState<number | null>(null);
   const [isReplay, setIsReplay] = useState(false);
@@ -84,11 +85,16 @@ export function DiceGamePage() {
     onFailed: () => setPhase('BETTING_OPEN'),
   });
 
-  const rollDice = (betAmount: number) => play({ betAmount });
-  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: bet });
-
   const minBet = game?.minBet ?? 5;
   const maxBet = game?.maxBet ?? 1000;
+  const betAmount = parseWholeNumberInput(betInput);
+  const betError = wholeNumberRangeError(betInput, minBet, maxBet, 'Bet amount');
+  const confirmingEarlierRound = pendingDiffersFrom({ betAmount: betAmount ?? null });
+
+  const rollDice = () => {
+    if (betAmount === null || betError) return;
+    play({ betAmount });
+  };
 
   return (
     <CasinoShell
@@ -102,29 +108,40 @@ export function DiceGamePage() {
       </p>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor="dice-bet" className="text-sm font-medium text-gray-700 dark:text-gray-300">
           Bet amount (Coins)
         </label>
         <div className="flex gap-3 mt-2">
           <input
+            id="dice-bet"
             type="number"
             min={minBet}
             max={maxBet}
-            value={bet}
-            onChange={(e) => setBet(parseInt(e.target.value, 10) || 0)}
-            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 p-3"
+            step={1}
+            inputMode="numeric"
+            value={betInput}
+            aria-invalid={!!betError}
+            aria-describedby={betError ? 'dice-bet-range dice-bet-error' : 'dice-bet-range'}
+            onChange={(e) => setBetInput(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           />
           <button
-            onClick={() => rollDice(bet)}
-            disabled={playMutation.isPending}
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 disabled:opacity-50"
+            type="button"
+            onClick={rollDice}
+            disabled={playMutation.isPending || !!betError}
+            className="shrink-0 px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-50"
           >
             {playMutation.isPending ? 'Rolling…' : 'Roll'}
           </button>
         </div>
-        <div className="mt-2 text-xs text-gray-500">
+        <div id="dice-bet-range" className="mt-2 text-xs text-gray-500">
           Min {minBet} · Max {maxBet} Coins
         </div>
+        {betError && (
+          <p id="dice-bet-error" className="mt-1 text-sm text-red-600 dark:text-red-400" aria-live="polite">
+            {betError}
+          </p>
+        )}
 
         {confirmingEarlierRound && (
           <div className="mt-4 text-sm text-amber-700 dark:text-amber-400">

@@ -44,6 +44,7 @@ const GAME_ICONS: Record<string, string> = {
 const GAME_ROUTES: Record<string, string> = {
   dice: 'dice',
   number_challenge: 'number-challenge',
+  spin_win: 'spin-win/play',
   trivia: 'trivia',
 };
 
@@ -136,10 +137,15 @@ export function GamesPage({
                   <span className="inline-block text-xs font-medium px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                     Coming soon
                   </span>
+                  {game.key === 'spin_win' && (
+                    <Link to="/games/spin-win" className="mt-3 block text-sm font-semibold text-primary-600 underline dark:text-primary-400">
+                      Try practice mode · no Coins
+                    </Link>
+                  )}
                 </div>
               ) : isTrivia ? (
                 <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                  Free to play · Earn Coins
+                  Free · no stake · restricted bonus Coins
                 </div>
               ) : (
                 <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
