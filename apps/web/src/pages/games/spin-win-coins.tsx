@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { parseSpinBets, SPIN_MARKETS, SPIN_WHEEL } from '@socialplay/shared';
+import {
+  parseSpin90Bets as parseSpinBets,
+  SPIN90_MARKETS as SPIN_MARKETS,
+  SPIN90_RULES_ID,
+  SPIN_WHEEL,
+} from '@socialplay/shared';
 import type { SpinBet } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
@@ -35,7 +40,7 @@ export function SpinWinCoinsPage() {
   const { coinsBalance, refetchBalance } = useCasino();
   const client = useQueryClient();
   const [bets, setBets] = useState<SpinBet[]>([]);
-  const [chip, setChip] = useState(10);
+  const [chip, setChip] = useState(40);
   const [round, setRound] = useState<SpinRound | null>(null);
   const [replayed, setReplayed] = useState(false);
   const [rotation, setRotation] = useState(0);
@@ -54,7 +59,8 @@ export function SpinWinCoinsPage() {
     game.mode === 'WAGER' &&
     game.wagerCurrency === 'COINS' &&
     game.rewardCurrency === 'COINS' &&
-    !!game.currentRulesVersion;
+    !!game.currentRulesVersion &&
+    game.currentRulesId === SPIN90_RULES_ID;
   const durable = useDurablePlay<SpinRound>(
     'spin_win',
     {
@@ -109,12 +115,13 @@ export function SpinWinCoinsPage() {
       <SpinWinWheel rotation={rotation} />
       <p className="text-sm text-gray-600 dark:text-gray-300">
         Select your bets. All bets share one server-generated number. Total returns include winning
-        stakes; zero loses every group bet.
+        stakes; zero loses every group bet. Each bet uses multiples of 40 Coins. Theoretical player
+        return: 90%; house edge: 10% before costs.
       </p>
       <fieldset disabled={!available || locked} className="space-y-3 disabled:opacity-50">
         <legend className="font-semibold">Coin bets</legend>
         <div className="flex gap-2" role="group" aria-label="Coin chip value">
-          {[1, 5, 10, 25, 100].map((amount) => (
+          {[40, 80, 120, 200, 400].map((amount) => (
             <button
               key={amount}
               type="button"

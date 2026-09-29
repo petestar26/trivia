@@ -8,9 +8,28 @@ credits. It does not call a play endpoint, spend Coins, or persist results.
 The catalog remains COMING_SOON for Coin wagering. The Casino card links to
 practice mode explicitly. No migration activates Spin Win.
 
-## Rules v1
+## Rules v2 — 90% target
 
-The supported server rules identifier is `single-zero-standard-v1`.
+New practice and proposed Coin play use `single-zero-rtp90-v2`. Historical
+`single-zero-standard-v1` settlement remains supported unchanged for versioned
+requests. No migration enables Coin play or changes a stored rules row.
+
+Each line must be a multiple of 40 credits/Coins. This makes every payout an
+exact whole number without rounding: one 40-unit bet returns 1332 on an exact
+number, 222 on a sector, 111 on a dozen, or 74 on an outside bet.
+
+The new gross multipliers are **33.3× / 5.55× / 2.775× / 1.85×** respectively.
+Each market has exact theoretical RTP 90% and a 10% expected house edge before
+costs and bonuses. This is not a guarantee of profit per round or session.
+All 37 numbers remain equally likely; payouts, not random outcomes, change.
+
+The Coin screen requires the catalog to advertise this exact rules identifier
+before accepting new bets. Stored requests remain confirmable under older rules.
+Practice chips are 40, 80, 120, 200 and 400; the 500-unit cap permits up to 480.
+
+## Historical rules v1 (retained for compatibility)
+
+The historical server rules identifier is `single-zero-standard-v1`.
 Every number 0–36 has probability 1/37. The displayed wheel uses the standard
 single-zero arrangement. All bets on a round share the same result.
 
@@ -40,8 +59,8 @@ previous ticket without submitting a spin. Inputs lock during animation.
   stake must equal the ticket total. Existing transactional ledger settlement
   remains responsible for provenance, wallet changes and stored responses.
 - No weighted-multiplier engine serves Spin Win: `game-play.ts` has one `SPIN_WIN` case,
-  which runs the numbered-wheel engine above and rejects any rules row whose `rulesId`
-  is not `single-zero-standard-v1`. The retired Lucky Spin generator is unrelated and
+  which dispatches by the immutable `rulesId` to the historical v1 or 90% v2
+  numbered-wheel engine and rejects unknown identifiers. The retired Lucky Spin generator is unrelated and
   untouched. The seeded catalog row still carries its original description and a
   legacy weighted `configuration`; it has no rules row and stays `COMING_SOON`.
 - Browser practice randomness uses Web Crypto with rejection sampling; it is
@@ -64,7 +83,7 @@ previous ticket without submitting a spin. Inputs lock during animation.
 6. Decide playthrough treatment. Restricted-Coin progress counts the whole round stake when
    `spin_win` is in a country policy's `qualifyingGames` and the stake is within
    `maxQualifyingStake`, so an offsetting ticket (for example red plus black) clears a
-   requirement at the same expected cost (about 2.7%) with far less variance. Keep
+   requirement at the rules-dependent expected cost (10% under v2, about 2.7% under v1) with far less variance. Keep
    `spin_win` out of `qualifyingGames` until that is accepted or limited.
 
 Shared scheduled rounds, countdowns, jackpots, mirrors, twins, neighbours and

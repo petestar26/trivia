@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { SPIN_MARKETS, SPIN_WHEEL, settleSpinBets, spinColour } from '@socialplay/shared';
+import {
+  SPIN90_MARKETS as SPIN_MARKETS,
+  SPIN_WHEEL,
+  settleSpin90Bets as settleSpinBets,
+  spinColour,
+} from '@socialplay/shared';
 import type { SpinBet, SpinMarket } from '@socialplay/shared';
 
 const COLOURS = { red: '#b83248', black: '#202d42', green: '#087f6f' };
-const CHIPS = [1, 5, 10, 25, 100];
+const CHIPS = [40, 80, 120, 200, 400];
 const INITIAL_BALANCE = 1000;
 const MAX_ROUND = 500;
 const SLICE = 360 / 37;
@@ -89,7 +94,7 @@ export function SpinWinWheel({ rotation }: { rotation: number }) {
 }
 
 export function SpinWinPage() {
-  const [chip, setChip] = useState(10);
+  const [chip, setChip] = useState(40);
   const [bets, setBets] = useState<SpinBet[]>([]);
   const [undo, setUndo] = useState<SpinBet[][]>([]);
   const [previous, setPrevious] = useState<SpinBet[]>([]);
@@ -324,7 +329,7 @@ export function SpinWinPage() {
                 {running ? 'Spinning…' : 'Spin'}
               </button>
             </div>
-            {balance === 0 && !running && (
+            {balance < 40 && !running && (
               <button
                 onClick={() => {
                   setBalance(INITIAL_BALANCE);
@@ -356,10 +361,10 @@ export function SpinWinPage() {
               </thead>
               <tbody>
                 {[
-                  ['Exact number', '35:1', '36×'],
-                  ['Sector A–F (6 numbers)', '5:1', '6×'],
-                  ['Dozen (12 numbers)', '2:1', '3×'],
-                  ['Colour / odd-even / low-high', '1:1', '2×'],
+                  ['Exact number', '32.3:1', '33.3×'],
+                  ['Sector A–F (6 numbers)', '4.55:1', '5.55×'],
+                  ['Dozen (12 numbers)', '1.775:1', '2.775×'],
+                  ['Colour / odd-even / low-high', '0.85:1', '1.85×'],
                 ].map((row) => (
                   <tr key={row[0]}>
                     {row.map((cell) => (
@@ -373,8 +378,8 @@ export function SpinWinPage() {
             </table>
             <p>
               Total return includes the winning stake. All winning bets on a spin are added
-              together. Round limit: 500 practice credits. Theoretical return: 97.30%; individual
-              results vary.
+              together. Round limit: 500 practice credits. Bets use multiples of 40. Theoretical
+              return: 90%; house edge: 10% before costs; individual results vary.
             </p>
             <p>
               Practice results are generated locally and have no cash or Coin value. Live rounds and

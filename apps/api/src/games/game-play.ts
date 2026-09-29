@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { parseSpinBets } from '@socialplay/shared';
+import { parseSpinBets, parseSpin90Bets, SPIN90_RULES_ID } from '@socialplay/shared';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet } from '../economy/wallet-service.js';
@@ -285,6 +285,13 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     const family = (game.family as PlayFamilyValue) ?? 'INSTANT';
     const rulesConfig = (rules.rules as Record<string, unknown>) ?? {};
     const selections = buildSelections(game.type, clientData);
+    if (game.type === 'SPIN_WIN' && rulesConfig.rulesId === SPIN90_RULES_ID) {
+      try {
+        parseSpin90Bets(selections.bets);
+      } catch {
+        throw ApiError.badRequest('Each Spin Win bet must be a multiple of 40 Coins');
+      }
+    }
     if (game.type === 'SPIN_WIN' && parseSpinBets(selections.bets).reduce((sum, bet) => sum + bet.amount, 0) !== stake) {
       throw ApiError.badRequest('Spin Win stake must equal the total of its bets');
     }

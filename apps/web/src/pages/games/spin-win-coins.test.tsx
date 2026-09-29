@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type * as Api from '@/lib/api';
 import { SpinWinCoinsPage } from './spin-win-coins';
 import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
-const mocks = vi.hoisted(() => ({ play: vi.fn(), available: true }));
+const mocks = vi.hoisted(() => ({
+  play: vi.fn(),
+  available: true,
+  rulesId: 'single-zero-rtp90-v2',
+}));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'spin-user' } }) }));
 vi.mock('@/components/casino/CasinoProvider', () => ({
   useCasino: () => ({
@@ -31,7 +35,8 @@ vi.mock('@/lib/api', async () => {
             mode: 'WAGER',
             wagerCurrency: 'COINS',
             rewardCurrency: 'COINS',
-            currentRulesVersion: 1,
+            currentRulesVersion: 2,
+            currentRulesId: mocks.rulesId,
             minBet: 10,
             maxBet: 500,
           },
@@ -40,16 +45,16 @@ vi.mock('@/lib/api', async () => {
     },
   };
 });
-const body = { betAmount: 10, bets: [{ marketId: 'red', amount: 10 }] };
+const body = { betAmount: 40, bets: [{ marketId: 'red', amount: 40 }] };
 const result = {
   success: true,
   data: {
     gameKey: 'spin_win',
     sessionId: 's1',
-    newBalance: 1010,
-    rewardAmount: 20,
-    rulesVersion: 1,
-    result: { number: 1, colour: 'red', stake: 10, payout: 20, net: 10, lines: [] },
+    newBalance: 1034,
+    rewardAmount: 74,
+    rulesVersion: 2,
+    result: { number: 1, colour: 'red', stake: 40, payout: 74, net: 34, lines: [] },
     isReplay: true,
   },
 };
@@ -58,6 +63,7 @@ afterEach(() => {
   sessionStorage.clear();
   mocks.play.mockReset();
   mocks.available = true;
+  mocks.rulesId = 'single-zero-rtp90-v2';
 });
 async function mount() {
   const client = new QueryClient({
@@ -85,7 +91,7 @@ describe('Spin Win Coin requests', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm pending round' }));
     await screen.findByText(/Replayed round/);
     expect(mocks.play.mock.calls[1]).toEqual(mocks.play.mock.calls[0]);
-    expect(screen.getByText(/Settled balance: 1010/)).toBeInTheDocument();
+    expect(screen.getByText(/Settled balance: 1034/)).toBeInTheDocument();
     expect(sessionStorage.getItem(pendingPlayStorageKey('spin-user', 'spin_win'))).toBeNull();
   });
   it('recovers a stored request even when new Coin play is unavailable', async () => {
@@ -97,7 +103,9 @@ describe('Spin Win Coin requests', () => {
     );
     await mount();
     expect(mocks.play).not.toHaveBeenCalled();
-    expect(screen.getByText(/Coin play is not available/)).toHaveTextContent(/confirm a previously submitted round/);
+    expect(screen.getByText(/Coin play is not available/)).toHaveTextContent(
+      /confirm a previously submitted round/
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Confirm pending round' }));
     await waitFor(() => expect(mocks.play).toHaveBeenCalledWith('spin_win', body, 'saved-key'));
   });
@@ -125,4 +133,11 @@ describe('Spin Win Coin requests', () => {
       spy.mockRestore();
     }
   });
+});
+
+it('refuses new wagers when the catalog advertises a different rules identifier', async () => {
+  mocks.rulesId = 'single-zero-standard-v1';
+  await mount();
+  expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeDisabled();
+  expect(mocks.play).not.toHaveBeenCalled();
 });

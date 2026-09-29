@@ -26,9 +26,9 @@ describe('Spin Win practice', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
     fireEvent.click(screen.getByRole('button', { name: 'Bet on 0 green' }));
-    expect(screen.getByTestId('spin-total')).toHaveTextContent('20');
+    expect(screen.getByTestId('spin-total')).toHaveTextContent('80');
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(screen.getByTestId('spin-total')).toHaveTextContent('10');
+    expect(screen.getByTestId('spin-total')).toHaveTextContent('40');
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     expect(screen.getByRole('button', { name: 'Spin' })).toBeDisabled();
   });
@@ -46,17 +46,17 @@ describe('Spin Win practice', () => {
     act(() => {
       vi.advanceTimersByTime(1850);
     });
-    expect(screen.getByRole('status')).toHaveTextContent('Return 360 · Net +350');
-    expect(screen.getByText('1,350')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Return 1332 · Net +1292');
+    expect(screen.getByText('2,292')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Rebet' }));
-    expect(screen.getByTestId('spin-total')).toHaveTextContent('10');
+    expect(screen.getByTestId('spin-total')).toHaveTextContent('40');
     expect(screen.getByRole('button', { name: 'Spin' })).toBeEnabled();
   });
   it('limits the aggregate practice stake', () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: '100' }));
-    for (let i = 0; i < 6; i++) fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
-    expect(screen.getByTestId('spin-total')).toHaveTextContent('500');
+    fireEvent.click(screen.getByRole('button', { name: '80' }));
+    for (let i = 0; i < 7; i++) fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
+    expect(screen.getByTestId('spin-total')).toHaveTextContent('480');
     expect(screen.getByRole('status')).toHaveTextContent('exceeds');
   });
   it('rejects biased tail samples before mapping to a pocket', () => {
@@ -67,5 +67,24 @@ describe('Spin Win practice', () => {
     });
     expect(practiceNumber()).toBe(36);
     expect(call).toBe(2);
+  });
+  it('allows resetting a residual balance below the 40-credit minimum', () => {
+    vi.useFakeTimers();
+    let number = 0;
+    vi.spyOn(crypto, 'getRandomValues').mockImplementation((array) => {
+      (array as Uint32Array)[0] = number;
+      return array;
+    });
+    mount();
+    for (const [chip, outcome] of [[400, 0], [400, 0], [40, 1], [200, 0]]) {
+      number = outcome;
+      fireEvent.click(screen.getByRole('button', { name: String(chip) }));
+      fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Spin' }));
+      act(() => vi.advanceTimersByTime(1850));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Reset practice credits' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Practice credits reset.');
+    expect(screen.getByText('1,000')).toBeInTheDocument();
   });
 });
