@@ -325,3 +325,90 @@ describeIf('ledger administration API', () => {
     expect(await prisma.economicOperation.count({ where: { userId: owner.id } })).toBe(before);
   });
 });
+
+describeIf('review queue pagination', () => {
+  let paginationAdmin: Awaited<ReturnType<typeof makeUser>>;
+  let paginationUser: Awaited<ReturnType<typeof makeUser>>;
+  const prefix = `pag-${randomUUID().replaceAll('-', '').slice(0, 8)}`;
+  const REVIEW_COUNT = 130;
+  const LOT_COUNT = REVIEW_COUNT + 2;
+  const OPEN_COUNT = 60;
+  const FIRST_APPROVED_COUNT = 50;
+  const QUEUED_COUNT = OPEN_COUNT + FIRST_APPROVED_COUNT;
+
+  async function purgeFixtureRows() {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      await tx.$executeRawUnsafe(`DELETE FROM "legacy_balance_reviews" WHERE "id" LIKE '${prefix}-rev-%'`);
+      await tx.$executeRawUnsafe(`DELETE FROM "coin_provenance" WHERE "id" LIKE '${prefix}-lot-%'`);
+    });
+  }
+
+  beforeAll(async () => {
+    if (!dbAvailable) return;
+    paginationAdmin = await makeUser('SUPER_ADMIN');
+    paginationUser = await makeUser('USER');
+    await purgeFixtureRows();
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+      for (let i = 0; i < LOT_COUNT; i++) {
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "coin_provenance"
+            ("id","userId","amount","provenanceType","restrictionStatus","originalSource",
+             "lotClass","state","availableAmount","reservedAmount","requirementAmount",
+             "progressAmount","createdAt","updatedAt")
+          VALUES ($1,$2,10,'ADMIN_ADJUSTMENT','UNRESTRICTED','ADMIN_ADJUSTMENT',
+            'UNCLASSIFIED','OPEN',10,0,0,0,$3::timestamptz,$3::timestamptz)
+          ON CONFLICT ("id") DO NOTHING`, `${prefix}-lot-${String(i).padStart(3, '0')}`, paginationUser.id, now);
+      }
+      for (let i = 0; i < REVIEW_COUNT; i++) {
+        const status = i < OPEN_COUNT ? 'OPEN' : i < QUEUED_COUNT ? 'FIRST_APPROVED' : 'RESOLVED';
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "legacy_balance_reviews"
+            ("id","userId","lotId","amount","status","createdAt")
+          VALUES ($1,$2,$3,10,$4,$5::timestamptz)`, `${prefix}-rev-${String(i).padStart(3, '0')}`, paginationUser.id,
+          `${prefix}-lot-${String(i).padStart(3, '0')}`, status, now);
+      }
+    });
+  });
+
+  afterAll(async () => {
+    if (!dbAvailable) return;
+    await purgeFixtureRows();
+  });
+
+  it('returns exactly the queued reviews across every page with no omissions or duplicates', async () => {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pageCount = 0;
+    for (;;) {
+      const qs = new URLSearchParams({ limit: '37' });
+      if (cursor) qs.set('cursor', cursor);
+      const res = await server.inject({ method: 'GET', url: `${endpoint}/reviews?${qs}`,
+        headers: headers(paginationAdmin) });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(Array.isArray(body.data)).toBe(true);
+      for (const item of body.data) {
+        expect(typeof item.id).toBe('string');
+      }
+      const pageIds = body.data.map((r: { id: string }) => r.id);
+      seen.push(...pageIds);
+      pageCount++;
+      expect(body.nextCursor === null || typeof body.nextCursor === 'string').toBe(true);
+      if (!body.nextCursor) break;
+      cursor = body.nextCursor;
+    }
+    const mine = seen.filter((id) => id.startsWith(`${prefix}-rev-`));
+    expect(mine.length).toBe(QUEUED_COUNT);
+    expect(new Set(mine).size).toBe(mine.length);
+    const expected = Array.from({ length: QUEUED_COUNT }, (_, i) => `${prefix}-rev-${String(i).padStart(3, '0')}`);
+    expect(new Set(mine)).toEqual(new Set(expected));
+
+    const resolved = seen.filter((id) => id.startsWith(`${prefix}-rev-`) && Number(id.slice(-3)) >= QUEUED_COUNT);
+    expect(resolved.length).toBe(0);
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(pageCount).toBeGreaterThanOrEqual(2);
+  });
+});

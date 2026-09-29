@@ -52,18 +52,23 @@ export async function ledgerAdminRoutes(server: FastifyInstance): Promise<void> 
   const admin = [authenticate, requireRole('SUPER_ADMIN')];
 
   server.get('/reviews', { preHandler: admin }, async (request, reply) => {
+    const q = request.query as Record<string, unknown>;
+    const cursor = typeof q.cursor === 'string' && q.cursor.length > 0 ? q.cursor : undefined;
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 100);
     const reviews = await prisma.$transaction(async (tx) => {
       const actors = (await tx.$queryRaw`
         SELECT "id" FROM "users" WHERE "id"=${request.user!.sub}
           AND "role"='SUPER_ADMIN' AND "status"='ACTIVE' FOR SHARE
       `) as { id: string }[];
       if (actors.length !== 1) throw ApiError.forbidden('Active SUPER_ADMIN required');
-      return tx.legacyBalanceReview.findMany({
-        where: { status: { in: ['OPEN', 'FIRST_APPROVED'] } },
-        orderBy: { id: 'asc' }, take: 100,
+      const items = await tx.legacyBalanceReview.findMany({
+        where: { status: { in: ['OPEN', 'FIRST_APPROVED'] }, ...(cursor ? { id: { gt: cursor } } : {}) },
+        orderBy: { id: 'asc' }, take: limit + 1,
       });
+      const hasMore = items.length > limit;
+      return { items: hasMore ? items.slice(0, limit) : items, nextCursor: hasMore ? items[limit - 1].id : null };
     });
-    return reply.send({ success: true, data: reviews });
+    return reply.send({ success: true, data: reviews.items, nextCursor: reviews.nextCursor });
   });
 
   server.post<{ Params: { reviewId: string } }>(
