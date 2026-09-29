@@ -47,7 +47,19 @@ const GAME_ROUTES: Record<string, string> = {
   trivia: 'trivia',
 };
 
-export function GamesPage() {
+interface GamesPageProps {
+  mode?: 'WAGER' | 'BONUS';
+  title?: string;
+  description?: string;
+  emptyMessage?: string;
+}
+
+export function GamesPage({
+  mode,
+  title = 'Games',
+  description = 'Play games and earn Coins.',
+  emptyMessage = 'No games available right now.',
+}: GamesPageProps = {}) {
   const { user } = useAuth();
 
   const { data: games, isLoading } = useQuery<GameCatalogItem[]>({
@@ -73,15 +85,17 @@ export function GamesPage() {
     );
   }
 
-  const publicGames = (games ?? []).filter(g => g.catalogStatus !== 'RETIRED');
+  const publicGames = (games ?? []).filter(g =>
+    g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode)
+  );
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Games</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Play games and earn Coins.
+            {description}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -148,7 +162,7 @@ export function GamesPage() {
 
         {publicGames.length === 0 && (
           <div className="col-span-full text-center py-16 text-gray-500 dark:text-gray-400">
-            No games available right now.
+            {emptyMessage}
           </div>
         )}
       </div>
