@@ -104,6 +104,19 @@ async function getQuestions(token: string, resumeQuestionId?: string) {
   };
 }
 
+// The route returns an unordered slice of 20, and the seeded catalogue holds
+// more than that. Mark every other active question as answered by this caller
+// (per-user rows, removed with the user) so the fixtures below are what remain.
+async function answerAllOtherActiveQuestions(userId: string, keepIds: string[]) {
+  const others = await prisma.triviaQuestion.findMany({
+    where: { isActive: true, id: { notIn: keepIds } }, select: { id: true },
+  });
+  await prisma.userTriviaAttempt.createMany({
+    data: others.map((question) => ({ userId, questionId: question.id })),
+    skipDuplicates: true,
+  });
+}
+
 describeIf('games/questions route', () => {
   it('requires authentication', async () => {
     if (!server) throw new Error('Test server was not initialized');
@@ -120,6 +133,7 @@ describeIf('games/questions route', () => {
     const inactive = await createQuestion('Inactive question', false);
     await prisma.userTriviaAttempt.create({ data: { userId: caller.id, questionId: alreadyAnswered.id } });
     await prisma.userTriviaAttempt.create({ data: { userId: otherUser.id, questionId: answeredByOther.id } });
+    await answerAllOtherActiveQuestions(caller.id, [answeredByOther.id, available.id]);
     const attemptsBefore = await prisma.userTriviaAttempt.count({
       where: { userId: { in: [caller.id, otherUser.id] } },
     });
@@ -143,6 +157,7 @@ describeIf('games/questions route', () => {
     const answered = await createQuestion('Pending answer question');
     const next = await createQuestion('Next available question');
     await prisma.userTriviaAttempt.create({ data: { userId: caller.id, questionId: answered.id } });
+    await answerAllOtherActiveQuestions(caller.id, [answered.id, next.id]);
 
     const { response, body } = await getQuestions(await tokenFor(caller), answered.id);
 
