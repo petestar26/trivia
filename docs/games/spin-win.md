@@ -80,8 +80,10 @@ previous ticket without submitting a spin. Inputs lock during animation.
    the server rules and authoritative balance; remove local practice accounting
    only for an explicitly separate Coin play mode.
 4. Validate desktop/mobile rendering in a browser and complete release review.
-5. Replace the catalog description and legacy `configuration` in the same forward migration,
-   and give an unsupported rules row a controlled 4xx instead of the current generic error.
+5. Replace the catalog description and legacy `configuration` in the activation migration.
+   New plays now require both `AVAILABLE` and `isActive=true`; unsupported Spin Win
+   rules return a controlled 400. Completed requests remain replayable after a pause
+   or a rules change.
 6. Keep Spin Win excluded from bonus playthrough: the ledger now ignores it
    even when a pinned country policy lists `spin_win` as qualifying. An
    offsetting red/black ticket has low variance and must not clear a bonus
@@ -127,12 +129,14 @@ database (20 consecutive runs, covering both winning and losing `red` rounds).
 They use real purchase fixtures and restore the prior Spin Win catalog state.
 
 The separate `Spin Win 90% Coin settlement` block runs the v2 rules against a
-throwaway PostgreSQL 16 database. Seven cases cover authoritative integer
+throwaway PostgreSQL 16 database. Nine cases cover authoritative integer
 payouts, exact and reordered replay, conflicting reuse, concurrent duplicates,
 invalid lines, mismatched totals, overspend, purchased/restricted allocation,
 rollback after the debit at session insertion, replay after the active rules
 pointer changes, and no bonus playthrough progress even when a pinned policy
-lists Spin Win. The block restores the disabled catalog state. This is
+lists Spin Win. Two additional cases verify inactive-game and unsupported-rules
+refusals leave financial state unchanged while preserving stored replay.
+The block restores the disabled catalog state. This is
 settlement verification; it does not activate Coin play. The exhaustive
 37-outcome tests independently prove the 90% return
 for each betting market and a combined ticket.

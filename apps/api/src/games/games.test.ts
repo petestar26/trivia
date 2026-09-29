@@ -1758,6 +1758,32 @@ describeIf('Spin Win 90% Coin settlement', () => {
     expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
   });
 
+  it('rejects new plays while inactive but still replays a completed round', async () => {
+    const user = await createUser(`spin90-pause-${randomUUID().slice(0, 8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    const snapshot = async () => ({
+      wallet: await getWalletBalance(user.id),
+      lots: await prisma.coinProvenance.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+      entries: await prisma.coinLotEntry.count({ where: { userId: user.id } }),
+      operations: await prisma.economicOperation.count({ where: { userId: user.id } }),
+      transactions: await prisma.walletTransaction.count({ where: { userId: user.id } }),
+      sessions: await prisma.gameSession.count({ where: { userId: user.id } }),
+    });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: { isActive: false } });
+    try {
+      const before = await snapshot();
+      await expect(playGame({ ...args, idempotencyKey: randomUUID() })).rejects.toMatchObject({
+        statusCode: 400, message: 'This game is not available to play',
+      });
+      expect(await playGame(args)).toEqual({ ...first, isReplay: true });
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await prisma.gameDefinition.update({ where: { id: original.id }, data: { isActive: true } });
+    }
+  });
+
   it('replays the stored v2 result after the current pointer changes to historical v1', async () => {
     const user = await createUser(`spin90-bump-${randomUUID().slice(0,8)}`);
     await primeCoins(user.id, 200);
@@ -1773,5 +1799,39 @@ describeIf('Spin Win 90% Coin settlement', () => {
       currentRulesVersion: version + 1,
     } });
     expect(await playGame(args)).toEqual({ ...first, isReplay: true });
+  });
+
+  it('rejects unsupported active rules with a controlled error and preserves stored replay', async () => {
+    const user = await createUser(`spin90-unsupported-${randomUUID().slice(0, 8)}`);
+    await primeCoins(user.id, 200);
+    const args = request(user.id, randomUUID());
+    const first = await playGame(args);
+    const prior = await prisma.gameDefinition.findUniqueOrThrow({ where: { id: original.id } });
+    const latest = await prisma.gameRules.aggregate({ where: { gameId: original.id }, _max: { version: true } });
+    const unsupportedVersion = (latest._max.version ?? 0) + 1;
+    await prisma.gameRules.create({ data: {
+      gameId: original.id, version: unsupportedVersion, mode: 'WAGER', family: 'INSTANT',
+      wagerCurrency: 'COINS', rewardCurrency: 'COINS', rules: { rulesId: 'unsupported-fixture' },
+      resultSchemaVersion: 1, rulesHash: '0'.repeat(64),
+    } });
+    const snapshot = async () => ({
+      wallet: await getWalletBalance(user.id),
+      lots: await prisma.coinProvenance.findMany({ where: { userId: user.id }, orderBy: { id: 'asc' } }),
+      entries: await prisma.coinLotEntry.count({ where: { userId: user.id } }),
+      operations: await prisma.economicOperation.count({ where: { userId: user.id } }),
+      transactions: await prisma.walletTransaction.count({ where: { userId: user.id } }),
+      sessions: await prisma.gameSession.count({ where: { userId: user.id } }),
+    });
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: { currentRulesVersion: unsupportedVersion } });
+    try {
+      const before = await snapshot();
+      await expect(playGame({ ...args, idempotencyKey: randomUUID() })).rejects.toMatchObject({
+        statusCode: 400, message: 'Spin Win has no supported active rules',
+      });
+      expect(await playGame(args)).toEqual({ ...first, isReplay: true });
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      await prisma.gameDefinition.update({ where: { id: original.id }, data: { currentRulesVersion: prior.currentRulesVersion } });
+    }
   });
 });
