@@ -12,7 +12,8 @@ practice mode explicitly. No migration activates Spin Win.
 
 New practice and proposed Coin play use `single-zero-rtp90-v2`. Historical
 `single-zero-standard-v1` settlement remains supported unchanged for versioned
-requests. No migration enables Coin play or changes a stored rules row.
+requests. The preparation migration adds one immutable 90% rules row but does
+not point the catalog to it or enable Coin play.
 
 Each line must be a multiple of 40 credits/Coins. This makes every payout an
 exact whole number without rounding: one 40-unit bet returns 1332 on an exact
@@ -62,7 +63,8 @@ previous ticket without submitting a spin. Inputs lock during animation.
   which dispatches by the immutable `rulesId` to the historical v1 or 90% v2
   numbered-wheel engine and rejects unknown identifiers. The retired Lucky Spin generator is unrelated and
   untouched. The seeded catalog row still carries its original description and a
-  legacy weighted `configuration`; it has no rules row and stays `COMING_SOON`.
+  legacy weighted `configuration`; the prepared v2 rules row is dormant while
+  the catalog stays `COMING_SOON` with a null current-rules pointer.
 - Browser practice randomness uses Web Crypto with rejection sampling; it is
   never used for financial settlement. The wheel lands on the selected result.
 - Colours have textual labels; controls support keyboard focus; reduced-motion
@@ -72,19 +74,21 @@ previous ticket without submitting a spin. Inputs lock during animation.
 
 1. Exercise actual PostgreSQL settlement, rollback, concurrent replay,
    overspend, mixed funding and restriction preservation on a throwaway DB.
-2. Publish immutable rules and jurisdiction approvals through a forward
-   migration; validate supported bet limits and aggregate payout limits.
+2. Review the prepared immutable rules and jurisdiction approvals; validate
+   supported bet limits and aggregate payout limits before a separate activation migration.
 3. Connect the screen to durable server requests and stored responses. Display
    the server rules and authoritative balance; remove local practice accounting
    only for an explicitly separate Coin play mode.
 4. Validate desktop/mobile rendering in a browser and complete release review.
-5. Replace the catalog description and legacy `configuration` in the same forward migration,
-   and give an unsupported rules row a controlled 4xx instead of the current generic error.
-6. Decide playthrough treatment. Restricted-Coin progress counts the whole round stake when
-   `spin_win` is in a country policy's `qualifyingGames` and the stake is within
-   `maxQualifyingStake`, so an offsetting ticket (for example red plus black) clears a
-   requirement at the rules-dependent expected cost (10% under v2, about 2.7% under v1) with far less variance. Keep
-   `spin_win` out of `qualifyingGames` until that is accepted or limited.
+5. Replace the catalog description and legacy `configuration` in the activation migration.
+   New plays now require both `AVAILABLE` and `isActive=true`; unsupported Spin Win
+   rules return a controlled 400. Completed requests remain replayable after a pause
+   or a rules change.
+6. Keep Spin Win excluded from bonus playthrough: the ledger now ignores it
+   even when a pinned country policy lists `spin_win` as qualifying. An
+   offsetting red/black ticket has low variance and must not clear a bonus
+   requirement merely by wagering its nominal stake. Reconsider only with
+   explicit risk limits and a separately reviewed policy change.
 
 Shared scheduled rounds, countdowns, jackpots, mirrors, twins, neighbours and
 finals are not implemented. They require separate rules and, for shared rounds
@@ -110,7 +114,7 @@ bet list into the existing transactional play service.
 
 Local mocked-transport tests cover lost responses, exact-key retry, reload recovery,
 unavailable games and blocked storage. They do not replace PostgreSQL settlement
-verification. No runtime availability or rules migration has been applied.
+verification. The rules-preparation migration does not change runtime availability.
 
 ## Verification status (2026-09-29)
 
@@ -125,13 +129,16 @@ database (20 consecutive runs, covering both winning and losing `red` rounds).
 They use real purchase fixtures and restore the prior Spin Win catalog state.
 
 The separate `Spin Win 90% Coin settlement` block runs the v2 rules against a
-throwaway PostgreSQL 16 database. Six cases cover authoritative integer
+throwaway PostgreSQL 16 database. Nine cases cover authoritative integer
 payouts, exact and reordered replay, conflicting reuse, concurrent duplicates,
 invalid lines, mismatched totals, overspend, purchased/restricted allocation,
-rollback after the debit at session insertion, and replay after the active
-rules pointer changes. The block restores the disabled catalog state. This is
-settlement verification; it does not activate Coin play or change country
-policies. The exhaustive 37-outcome tests independently prove the 90% return
+rollback after the debit at session insertion, replay after the active rules
+pointer changes, and no bonus playthrough progress even when a pinned policy
+lists Spin Win. Two additional cases verify inactive-game and unsupported-rules
+refusals leave financial state unchanged while preserving stored replay.
+The block restores the disabled catalog state. This is
+settlement verification; it does not activate Coin play. The exhaustive
+37-outcome tests independently prove the 90% return
 for each betting market and a combined ticket.
 
 The Coin screen and practice screen were checked in Chromium at 1280×800 and

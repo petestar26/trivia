@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { parseSpinBets, parseSpin90Bets, SPIN90_RULES_ID } from '@socialplay/shared';
+import { parseSpinBets, parseSpin90Bets, SPIN_RULES_ID, SPIN90_RULES_ID } from '@socialplay/shared';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { getOrCreateWallet } from '../economy/wallet-service.js';
@@ -250,7 +250,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     //    before this lock or wait behind this transaction.
     const game: LockedGame | null = await lockGameForPlay(tx, gameKey);
     if (!game || !isApprovedGameKey(gameKey)) throw ApiError.notFound('Game not found');
-    if (game.catalogStatus !== 'AVAILABLE') {
+    if (game.catalogStatus !== 'AVAILABLE' || !game.isActive) {
       throw ApiError.badRequest('This game is not available to play');
     }
 
@@ -284,6 +284,10 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     const resultSchemaVersion = rules.resultSchemaVersion;
     const family = (game.family as PlayFamilyValue) ?? 'INSTANT';
     const rulesConfig = (rules.rules as Record<string, unknown>) ?? {};
+    if (game.type === 'SPIN_WIN'
+      && rulesConfig.rulesId !== SPIN_RULES_ID && rulesConfig.rulesId !== SPIN90_RULES_ID) {
+      throw ApiError.badRequest('Spin Win has no supported active rules');
+    }
     const selections = buildSelections(game.type, clientData);
     if (game.type === 'SPIN_WIN' && rulesConfig.rulesId === SPIN90_RULES_ID) {
       try {
