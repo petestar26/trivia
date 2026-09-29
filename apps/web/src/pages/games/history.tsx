@@ -9,6 +9,13 @@ interface GameHistoryItem {
   rewardAmount: number;
   isWin: boolean;
   result: Record<string, unknown>;
+  mode: string;
+  family: string;
+  rulesVersion: number | null;
+  resultSchemaVersion: number | null;
+  playContext: string;
+  settlementDebitCurrency: string | null;
+  settlementCreditCurrency: string | null;
   createdAt: string;
   completedAt: string | null;
 }
@@ -20,9 +27,19 @@ interface HistoryResponse {
 
 const GAME_ICONS: Record<string, string> = {
   lucky_spin: '🎡',
+  spin_win: '🎡',
   dice: '🎲',
   number_challenge: '🔢',
   trivia: '🧠',
+  thunder_derby_3d: '⚡',
+  neon_hounds_3d: '🐕',
+  turbo_circuit_3d: '🏎️',
+  starfall_nebula: '⭐',
+  jungle_dash_3d: '🌴',
+  turbo_keno: '🔢',
+  crystal_trail: '💎',
+  heat_vault: '🔥',
+  strait_rush: '🏁',
 };
 
 function formatDate(iso: string): string {
@@ -35,6 +52,46 @@ function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function currencyLabel(code: string): string {
+  const c = code.toLowerCase().replace(/[\s_]/g, '');
+  if (c === 'coins' || c === 'coin') return 'Coins';
+  if (c === 'gamepoints' || c === 'gamepoint' || c === 'gp') return 'GP';
+  return code;
+}
+
+// A contest round moves no wallet value: its entry fee was paid once, in Game
+// Points, into the contest's escrow. It is never shown as a stake or a debit.
+const CONTEST_ROUND_LABELS: Record<string, string> = {
+  COMPETITION_ROUND: 'Competition round',
+  CHALLENGE_ROUND: 'Challenge round',
+};
+
+function RoundSettlement({ session }: { session: GameHistoryItem }) {
+  const contestLabel = CONTEST_ROUND_LABELS[session.playContext];
+  const debit = session.settlementDebitCurrency;
+  const credit = session.settlementCreditCurrency;
+  return (
+    <div className="text-right">
+      {contestLabel ? (
+        <div className="text-sm font-medium text-gray-700 dark:text-gray-200">{contestLabel}</div>
+      ) : debit && session.betAmount > 0 ? (
+        <div className="text-sm text-gray-600 dark:text-gray-300">
+          Bet: <span className="font-medium">{session.betAmount} {currencyLabel(debit)}</span>
+        </div>
+      ) : null}
+      {credit && session.rewardAmount > 0 ? (
+        <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+          +{session.rewardAmount} {currencyLabel(credit)}
+        </div>
+      ) : !contestLabel && debit && session.betAmount > 0 && !session.isWin ? (
+        <div className="text-sm text-red-600 dark:text-red-400">−{session.betAmount} {currencyLabel(debit)}</div>
+      ) : contestLabel ? (
+        <div className="text-xs text-gray-500 dark:text-gray-400">Entry paid once to the contest</div>
+      ) : null}
+    </div>
+  );
 }
 
 export function GameHistoryPage() {
@@ -77,6 +134,7 @@ export function GameHistoryPage() {
           {sessions.map((s) => (
             <div
               key={s.id}
+              data-testid={`history-row-${s.id}`}
               className="flex items-center gap-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
             >
               <div className="text-3xl">{GAME_ICONS[s.game.key] ?? '🎮'}</div>
@@ -87,19 +145,15 @@ export function GameHistoryPage() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {formatDate(s.completedAt ?? s.createdAt)}
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600 dark:text-gray-300">
-                  Bet: <span className="font-medium">{s.betAmount} GP</span>
-                </div>
-                {s.isWin ? (
-                  <div className="text-sm font-semibold text-green-600 dark:text-green-400">
-                    +{s.rewardAmount} GP
+                {(s.mode || s.family || s.rulesVersion != null || s.resultSchemaVersion != null) && (
+                  <div className="text-xs text-gray-400 dark:text-gray-500">
+                    {[s.mode, s.family].filter(Boolean).join(' · ')}
+                    {s.rulesVersion != null && `${s.mode || s.family ? ' · ' : ''}Rules v${s.rulesVersion}`}
+                    {s.resultSchemaVersion != null && ` · Schema v${s.resultSchemaVersion}`}
                   </div>
-                ) : (
-                  <div className="text-sm text-red-600 dark:text-red-400">−{s.betAmount} GP</div>
                 )}
               </div>
+              <RoundSettlement session={s} />
             </div>
           ))}
 

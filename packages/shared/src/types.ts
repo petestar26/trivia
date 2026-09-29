@@ -261,6 +261,53 @@ export interface WalletBalance {
   updatedAt: string;
 }
 
+export interface GameCatalogItem {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  type: string;
+  mode: string;
+  family: string;
+  catalogStatus: string;
+  wagerCurrency: string | null;
+  rewardCurrency: string;
+  currentRulesVersion: number | null;
+  minBet: number;
+  maxBet: number;
+  isActive: boolean;
+}
+
+export interface GamePlayResponse {
+  sessionId: string;
+  gameKey: string;
+  mode: string;
+  betAmount: number;
+  rewardAmount: number;
+  isWin: boolean;
+  result: Record<string, unknown>;
+  rulesVersion: number;
+  resultSchemaVersion: number;
+  completedAt: string;
+  newBalance: number;
+  settlementDebitCurrency: string | null;
+  settlementCreditCurrency: string | null;
+}
+
+export interface GameHistoryItem {
+  id: string;
+  gameKey: string;
+  gameName: string;
+  betAmount: number;
+  rewardAmount: number;
+  isWin: boolean;
+  result: Record<string, unknown>;
+  mode: string | null;
+  rulesVersion: number | null;
+  completedAt: string;
+  createdAt: string;
+}
+
 export interface TransactionRecord {
   id: string;
   userId: string;

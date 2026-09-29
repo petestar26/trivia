@@ -251,6 +251,14 @@ railway variables set FRONTEND_URL="https://<YOUR-VERCEL-DOMAIN>.vercel.app"
 | `STORAGE_PROVIDER` | `local` | Ephemeral on Railway |
 | `EMAIL_PROVIDER` | `console` | Logs only |
 | `FRONTEND_URL` | `https://<VERCEL-DOMAIN>` | Update after Vercel deploy |
+| `LEDGER_APPROVAL_SIGNING_KEY` | `openssl rand -hex 32` output | Signs ledger approval decisions; without it every Coin adjustment and legacy review approval is refused (503). Install the same key in the database with `ledger:runtime-access` — see [ledger-upgrade-gate.md](ledger-upgrade-gate.md), "Database roles and the approval key" |
+| `LEDGER_APPROVAL_KEY_ID` | e.g. `primary` | The installed key's ID |
+
+`DATABASE_URL` above is the database owner's credential in the current
+setup. The ledger release documents a separate runtime role for the API and
+the worker, with the owner credential kept out of both services; that split
+is **not** configured here yet. See "Database roles and the approval key" in
+[ledger-upgrade-gate.md](ledger-upgrade-gate.md).
 
 ### Railway Worker Service
 
@@ -417,10 +425,25 @@ This intentionally does **not** repeat `pnpm install`/`build` — Railway's
 CLI needs nothing further. The worker does NOT run migrations — it expects the schema
 to already be up-to-date by the time it starts.
 
+The first deployment of the ledger release (migrations `20260917900000` to
+`20260924090000`) is **not** a normal deploy: the `preDeployCommand` would run
+the migrations while the previous API deployment keeps serving. Follow the
+maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md)
+instead: stop the API and the worker, verify that nothing is connected, take
+and test a backup, run the read-only preflight, apply the migrations by hand,
+re-run the preflight and the invariant scan, and only then deploy the new
+release.
+
 If migration fails:
 1. Check Railway API logs for migration errors
-2. Manually run `railway run pnpm --filter database exec prisma migrate deploy`
-3. Fix migration file if needed, commit, and redeploy
+2. If the error names any migration of the ledger release (`20260917900000`
+   to `20260924090000`), stop and keep every writer stopped: follow
+   "If a migration fails" in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+   Do not retry, edit migrations, touch ledger rows, or mark any migration as
+   applied.
+3. For any other failure, manually run `railway run pnpm --filter database exec prisma migrate deploy`
+   to see the full error, then fix the cause in a new, reviewed commit and
+   redeploy. Never edit a migration that any environment has already applied.
 
 ### 5. CORS Updates
 

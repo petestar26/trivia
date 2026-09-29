@@ -203,13 +203,22 @@ export interface ExecuteBalanceChangeArgs {
  * flows that change balances must go through this helper (or
  * `executeBalanceChange`) so that there is no alternate balance path.
  */
+/** Internal capability for COINS writers that also maintain immutable lot entries.
+ * A generic wallet mutation may update Game Points, but may never mint or
+ * spend Coins without the economic operation that explains the movement. */
+export const COIN_LEDGER_INTENT: unique symbol = Symbol('coin-ledger-intent');
+
 export async function applyBalanceChanges(
   tx: any,
   userId: string,
   changes: BalanceChange[],
-  opts?: { idempotencyKey?: string; operationName?: string }
+  opts?: { idempotencyKey?: string; operationName?: string; coinLedgerIntent?: typeof COIN_LEDGER_INTENT }
 ) {
   const { idempotencyKey, operationName } = opts ?? {};
+  if (changes.some((change) => change.currency === 'COINS') &&
+      opts?.coinLedgerIntent !== COIN_LEDGER_INTENT) {
+    throw ApiError.forbidden('Coin changes require a named economic ledger operation');
+  }
 
   const wallet = await tx.wallet.findUnique({
     where: { userId },

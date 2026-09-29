@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
-import { applyBalanceChanges, getOrCreateWallet } from '../economy/wallet-service';
+import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
 import { reserveInventory, releaseReservedInventory, consumeReservedInventory } from './inventory-service';
 
 export interface CreateAgentOrderArgs {
@@ -387,8 +387,8 @@ export async function cancelAgentOrder(
  * PAYMENT_SUBMITTED -> COMPLETED, exactly once — the order's own atomic
  * claim (WHERE status='PAYMENT_SUBMITTED') is what makes this exactly-once;
  * AgentOrderSettlement.orderId's unique constraint is the backstop. Reuses
- * the existing applyBalanceChanges as the sole wallet-mutation path (schema:
- * "the WalletTransaction row applyBalanceChanges produced").
+ * the shared PURCHASE ledger helper so the wallet credit and withdrawable
+ * source lot are committed together.
  *
  * Only the AGENT_RELEASE path is implemented — ADMIN_DISPUTE_RESOLUTION
  * requires the Dispute model, out of scope this phase (see Phase E report).
@@ -403,9 +403,30 @@ export async function settleAgentOrder(
   if (agent.status !== 'ACTIVE') throw ApiError.forbidden('Your agent account cannot settle orders in its current state');
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `agent_order:${orderId}`);
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
     if (before.agentId !== agent.id) throw ApiError.forbidden('Not your order');
+    // L1: buyer authority precedes the L4 order/inventory claim and L5 wallet.
+    // A completed payment remains owed even if the buyer was later suspended.
+    const buyerRows = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM users WHERE id = ${before.userId} FOR SHARE
+    `;
+    if (!buyerRows[0]) throw ApiError.internal('Buyer missing for paid agent order');
+
+    // Agent suspension updates this row. Recheck under a shared row lock in
+    // the settlement transaction so a concurrent suspension and Coin mint
+    // have one serial authority order.
+    const currentAgents = await tx.$queryRaw<{ id: string; userId: string; status: string }[]>`
+      SELECT id, "userId", status::text AS status
+      FROM agents WHERE id = ${agent.id} FOR SHARE
+    `;
+    if (!currentAgents[0] || currentAgents[0].userId !== actorUserId) {
+      throw ApiError.forbidden('You do not have an agent account');
+    }
+    if (currentAgents[0].status !== 'ACTIVE') {
+      throw ApiError.forbidden('Your agent account cannot settle orders in its current state');
+    }
 
     const claim = await tx.agentOrder.updateMany({
       where: { id: orderId, agentId: agent.id, status: 'PAYMENT_SUBMITTED' },
@@ -429,35 +450,30 @@ export async function settleAgentOrder(
 
     await consumeReservedInventory(tx, agent.id, reservation.amount, orderId, reservation.id);
 
-    // applyBalanceChanges requires the wallet row to already exist and
-    // throws otherwise — unlike executeBalanceChange, it never creates one.
-    // A customer's first-ever agent order may be their first economy
-    // interaction at all, so the wallet must be created here, inside the
-    // same transaction, before crediting it.
-    await getOrCreateWallet(before.userId, tx);
-
-    const balanceResult = await applyBalanceChanges(tx, before.userId, [
-      {
-        currency: 'COINS',
-        amount: before.coinAmount,
-        ledgerType: 'CREDIT',
-        transactionType: 'COIN_CREDIT',
-        referenceType: 'AGENT_ORDER',
-        referenceId: before.id,
-        description: `Coins purchased via agent order ${before.orderNumber}`,
-      },
-    ]);
-
-    const settlement = await tx.agentOrderSettlement.create({
-      data: {
-        orderId,
-        reservationId: reservation.id,
-        coinAmount: before.coinAmount,
-        walletTransactionId: balanceResult.transactions[0].id,
-        resolvedVia: 'AGENT_RELEASE',
-        releasedBy: actorUserId,
+    const credit = await creditCoins(tx, before.userId, before.coinAmount, {
+      type: 'PURCHASE',
+      scopeType: 'AGENT_ORDER',
+      scopeId: before.id,
+      referenceType: 'AGENT_ORDER',
+      referenceId: before.id,
+      description: `Coins purchased via agent order ${before.orderNumber}`,
+      createdBy: actorUserId,
+      completePurchaseProof: async (purchaseTx, walletTransactionId) => {
+        const settlement = await purchaseTx.agentOrderSettlement.create({
+          data: {
+            orderId,
+            reservationId: reservation.id,
+            coinAmount: before.coinAmount,
+            walletTransactionId,
+            resolvedVia: 'AGENT_RELEASE',
+            releasedBy: actorUserId,
+          },
+        });
+        return settlement.id;
       },
     });
+    const settlementId = credit.purchaseSettlementId;
+    if (!settlementId) throw ApiError.internal('Settled Agent order lacks a purchase witness');
 
     await tx.auditLog.create({
       data: {
@@ -466,7 +482,7 @@ export async function settleAgentOrder(
         entity: 'AgentOrder',
         entityId: orderId,
         oldData: { status: 'PAYMENT_SUBMITTED' },
-        newData: { status: 'COMPLETED', coinAmount: before.coinAmount, settlementId: settlement.id },
+        newData: { status: 'COMPLETED', coinAmount: before.coinAmount, settlementId },
         ip: context?.ip,
         userAgent: context?.userAgent,
       },
@@ -482,6 +498,6 @@ export async function settleAgentOrder(
       },
     });
 
-    return { orderId, status: 'COMPLETED', settlementId: settlement.id };
+    return { orderId, status: 'COMPLETED', settlementId };
   });
 }

@@ -709,6 +709,12 @@ describeIf('slice 5 — referral foundation', () => {
       await prisma.referral.deleteMany({
         where: { OR: [{ referrerUserId: { in: blockUserIds } }, { referredUserId: { in: blockUserIds } }] },
       });
+      // Coin provenance/allocation rows are a real foreign key to User —
+      // must be cleared before the user row itself can be deleted. Covers
+      // both rows this run created AND legacy backfill rows for any stale
+      // fixture user left behind by a prior interrupted run (same id set).
+      await prisma.coinAllocation.deleteMany({ where: { userId: { in: blockUserIds } } });
+      await prisma.coinProvenance.deleteMany({ where: { userId: { in: blockUserIds } } });
       await prisma.user.deleteMany({ where: { id: { in: blockUserIds } } });
       blockUserIds.length = 0;
     }

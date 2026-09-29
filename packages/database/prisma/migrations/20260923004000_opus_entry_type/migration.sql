@@ -1,0 +1,2 @@
+-- M1: one enum change per migration. Forward-only.
+CREATE TYPE "entry_type" AS ENUM ('MINT', 'CONSUME', 'RETURN', 'RESERVE', 'RELEASE', 'FINALIZE', 'TRANSFER_OUT', 'TRANSFER_IN', 'PROGRESS', 'CONVERT_OUT', 'CONVERT_IN', 'FORFEIT', 'RECLASS_OUT', 'RECLASS_IN');

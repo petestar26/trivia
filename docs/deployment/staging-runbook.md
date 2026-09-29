@@ -27,6 +27,9 @@ The API config runs existing migrations through
 `pnpm --filter database exec prisma migrate deploy` before deployment. Confirm
 those migrations succeed against staging before starting the worker. Do not create
 or modify migrations, reset the database, or change application logic in H-0D.
+The ledger release (migrations `20260917900000` to `20260924090000`) is the
+exception to the normal pre-deploy migration: apply it only through the
+maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
 
 ## Domain gate and later Vercel activation
 

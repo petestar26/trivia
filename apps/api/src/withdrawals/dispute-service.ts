@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import type { WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
+import type { Prisma, WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
 import { ApiError } from '../middleware';
-import { applyBalanceChanges } from '../economy/wallet-service';
+import { finalizeWithdrawalCoins, lockUserEconomicScope, releaseWithdrawalCoins } from '../economy/coin-ledger-service.js';
 import { consumeReservedLiquidity, releaseReservedLiquidity } from './liquidity-service';
+import { lockWithdrawalParticipants } from './lock-order.js';
 
 type RequestContext = { ip?: string; userAgent?: string };
 
@@ -76,6 +77,7 @@ type LockedHold = {
   coinAmount: number;
   status: string;
   debitWalletTransactionId: string;
+  holdOperationId: string | null;
 };
 
 const DISPUTE_REASONS: WithdrawalDisputeReasonValue[] = [
@@ -208,7 +210,7 @@ async function lockReservation(tx: any, withdrawalId: string): Promise<LockedRes
 
 async function lockHold(tx: any, withdrawalId: string): Promise<LockedHold> {
   const rows = await tx.$queryRaw<LockedHold[]>`
-    SELECT id, "withdrawalId", "coinAmount", status, "debitWalletTransactionId"
+    SELECT id, "withdrawalId", "coinAmount", status, "debitWalletTransactionId", "holdOperationId"
     FROM withdrawal_holds
     WHERE "withdrawalId" = ${withdrawalId}
     FOR UPDATE
@@ -343,12 +345,15 @@ function validateReservation(withdrawal: LockedWithdrawal, reservation: LockedRe
   }
 }
 
-async function validateHold(tx: any, withdrawal: LockedWithdrawal, hold: LockedHold): Promise<void> {
+async function validateHold(tx: Prisma.TransactionClient, withdrawal: LockedWithdrawal, hold: LockedHold): Promise<string> {
   if (hold.coinAmount !== withdrawal.coinAmount) {
     throw ApiError.internal('Withdrawal hold amount does not match the withdrawal');
   }
   if (hold.status !== 'ACTIVE') {
     throw ApiError.internal(`Withdrawal hold is not ACTIVE: ${hold.status}`);
+  }
+  if (!hold.holdOperationId) {
+    throw ApiError.internal('Active withdrawal hold lacks a Coin reservation operation');
   }
   const debit = await tx.walletTransaction.findUnique({
     where: { id: hold.debitWalletTransactionId },
@@ -377,6 +382,7 @@ async function validateHold(tx: any, withdrawal: LockedWithdrawal, hold: LockedH
   ) {
     throw ApiError.internal('Withdrawal hold points to an invalid wallet debit');
   }
+  return hold.holdOperationId;
 }
 
 async function assertNoSettlement(tx: any, withdrawalId: string): Promise<void> {
@@ -405,7 +411,12 @@ async function settleCompleted(
   await consumeReservedLiquidity(tx, reservation);
 
   const hold = await lockHold(tx, withdrawal.id);
-  await validateHold(tx, withdrawal, hold);
+  const holdOperationId = await validateHold(tx, withdrawal, hold);
+  await lockWallet(tx, withdrawal.userId);
+  await finalizeWithdrawalCoins(tx, withdrawal.userId, withdrawal.id, {
+    holdOperationId,
+    amount: hold.coinAmount,
+  });
   const holdClaim = await tx.withdrawalHold.updateMany({
     where: { id: hold.id, status: 'ACTIVE' },
     data: { status: 'CONSUMED', consumedAt: now },
@@ -454,20 +465,13 @@ async function settleCancelled(
   await releaseReservedLiquidity(tx, reservation);
 
   const hold = await lockHold(tx, withdrawal.id);
-  await validateHold(tx, withdrawal, hold);
+  const holdOperationId = await validateHold(tx, withdrawal, hold);
   await lockWallet(tx, withdrawal.userId);
-  const credit = await applyBalanceChanges(tx, withdrawal.userId, [
-    {
-      currency: 'COINS',
-      amount: hold.coinAmount,
-      ledgerType: 'CREDIT',
-      transactionType: 'COIN_CREDIT',
-      referenceType: 'WITHDRAWAL',
-      referenceId: withdrawal.id,
-      description: `Withdrawal ${withdrawal.withdrawalNumber} cancelled by dispute resolution — coin refund`,
-    },
-  ]);
-  const refundWalletTransactionId = credit.transactions[0]?.id;
+  const coinRelease = await releaseWithdrawalCoins(tx, withdrawal.userId, withdrawal.id, {
+    holdOperationId,
+    amount: hold.coinAmount,
+  });
+  const refundWalletTransactionId = coinRelease.walletTransactionId;
   if (!refundWalletTransactionId) throw ApiError.internal('Withdrawal refund did not create a wallet transaction');
 
   const holdClaim = await tx.withdrawalHold.updateMany({
@@ -514,6 +518,8 @@ export async function confirmWithdrawalReceipt(
   const requestHash = hashOperation('CONFIRM_RECEIPT', {});
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
     const withdrawal = await lockWithdrawal(tx, withdrawalId);
     if (withdrawal.userId !== actorUserId) {
       throw ApiError.forbidden('This withdrawal does not belong to you');
@@ -596,6 +602,8 @@ export async function openUserWithdrawalDispute(
   const requestHash = hashOperation('DISPUTE_OPEN_USER', { reason: rawArgs.reason, description });
 
   return prisma.$transaction(async (tx) => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
     const withdrawal = await lockWithdrawal(tx, withdrawalId);
     if (withdrawal.userId !== actorUserId) {
       throw ApiError.forbidden('This withdrawal does not belong to you');
@@ -698,8 +706,10 @@ export async function escalateWithdrawalToDispute(
   // repeat against a fresh DB read inside the state-changing transaction.
   await assertActivePlatformAdmin(prisma, adminId);
   return prisma.$transaction(async (tx) => {
-    const withdrawal = await lockWithdrawal(tx, withdrawalId);
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, adminId);
     await lockActivePlatformAdmin(tx, adminId);
+    const withdrawal = await lockWithdrawal(tx, withdrawalId);
     const agent = await lockAssignedAgent(tx, withdrawal.agentId);
     assertAdminIsIndependent(adminId, withdrawal, agent);
 
@@ -909,8 +919,10 @@ export async function claimWithdrawalDispute(
   const withdrawalId = await loadDisputeTargetForAdmin(adminId, disputeId);
 
   return prisma.$transaction(async (tx) => {
-    const withdrawal = await lockWithdrawal(tx, withdrawalId);
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, adminId);
     await lockActivePlatformAdmin(tx, adminId);
+    const withdrawal = await lockWithdrawal(tx, withdrawalId);
     const agent = await lockAssignedAgent(tx, withdrawal.agentId);
     assertAdminIsIndependent(adminId, withdrawal, agent);
     const dispute = await lockDispute(tx, disputeId);
@@ -1007,8 +1019,10 @@ export async function resolveWithdrawalDispute(
   const withdrawalId = await loadDisputeTargetForAdmin(adminId, disputeId);
 
   return prisma.$transaction(async (tx) => {
-    const withdrawal = await lockWithdrawal(tx, withdrawalId);
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, adminId);
     await lockActivePlatformAdmin(tx, adminId);
+    const withdrawal = await lockWithdrawal(tx, withdrawalId);
     const agent = await lockAssignedAgent(tx, withdrawal.agentId);
     assertAdminIsIndependent(adminId, withdrawal, agent);
     const dispute = await lockDispute(tx, disputeId);

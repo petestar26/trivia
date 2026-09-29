@@ -3,6 +3,7 @@ import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
 import { sweepWithdrawalTimeouts, TimeoutSweepSummary } from './withdrawals/timeout-service';
 import { runWithdrawalReconciliation, ReconciliationReport } from './withdrawals/reconciliation-service';
+import { sweepExpiredCoinLots } from './economy/coin-expiry-service.js';
 
 // W-1D4: withdrawal worker entrypoint.
 //
@@ -21,10 +22,9 @@ import { runWithdrawalReconciliation, ReconciliationReport } from './withdrawals
 // exits 0. A fatal startup error (invalid env config) or a fatal --once cycle
 // error exits 1.
 //
-// Money-movement note: the sweep only ESCALATES to DISPUTED (it never
-// auto-completes and never auto-refunds) and reconciliation is read-only.
-// No money changes hands in this worker, by design. See timeout-service.ts
-// and reconciliation-service.ts for those guarantees.
+// Withdrawal timeouts only ESCALATE to DISPUTED and reconciliation is read-only.
+// The separate bonus-expiry sweep forfeits expired restricted Coins using an
+// atomic wallet debit and immutable BONUS_EXPIRY ledger operation.
 
 export interface WorkerConfig {
   once: boolean;
@@ -35,6 +35,7 @@ export interface WorkerConfig {
 
 export interface WorkerDeps {
   sweep: () => Promise<TimeoutSweepSummary>;
+  expireCoins?: () => Promise<{ examined: number; expired: number }>;
   reconcile: () => Promise<ReconciliationReport>;
   sleep: (ms: number) => Promise<void>;
   log: (entry: Record<string, unknown>) => void;
@@ -160,6 +161,19 @@ export async function runWorkerCycle(
     });
   }
 
+  if (deps.expireCoins) {
+    const expiryStart = deps.now();
+    try {
+      const result = await deps.expireCoins();
+      deps.log({ level: 'info', msg: 'bonus expiry sweep completed',
+        durationMs: deps.now() - expiryStart, results: result });
+    } catch (err) {
+      failed = true;
+      deps.log({ level: 'error', msg: 'bonus expiry sweep failed',
+        durationMs: deps.now() - expiryStart, error: serializeError(err) });
+    }
+  }
+
   if (!config.runReconciliation) return { lastReconcileAt, failed };
   // NEVER_RAN means reconciliation has never run (startup) — run it
   // immediately, then respect the configured cadence thereafter.
@@ -264,6 +278,7 @@ async function main(): Promise<number> {
 
   const deps: WorkerDeps = {
     sweep: () => sweepWithdrawalTimeouts(),
+    expireCoins: () => sweepExpiredCoinLots(),
     reconcile: () => runWithdrawalReconciliation(),
     sleep: createAbortableSleep(controller.signal),
     log: createWorkerLogger(),

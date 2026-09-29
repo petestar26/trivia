@@ -5,6 +5,7 @@ import { HomePage } from '@/pages/home';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
 import { ProtectedRoute } from '@/components/auth/protected-route';
+import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { DiceGamePage } from '@/pages/games/dice';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
@@ -25,7 +26,7 @@ import { RewardsPage } from '@/pages/rewards';
 import { ProfilePage } from '@/pages/profile';
 
 export function App() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -57,10 +58,31 @@ export function App() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<GamesPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
-        <Route path="games/dice" element={<DiceGamePage />} />
+        <Route
+          path="games/dice"
+          element={
+            <CasinoProvider>
+              <DiceGamePage />
+            </CasinoProvider>
+          }
+        />
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
-        <Route path="games/number-challenge" element={<NumberChallengePage />} />
-        <Route path="games/trivia" element={<TriviaGamePage />} />
+        <Route
+          path="games/number-challenge"
+          element={
+            <CasinoProvider>
+              <NumberChallengePage />
+            </CasinoProvider>
+          }
+        />
+        <Route
+          path="games/trivia"
+          element={
+            <CasinoProvider>
+              <TriviaGamePage />
+            </CasinoProvider>
+          }
+        />
         <Route path="challenges" element={<ChallengesPage />} />
         <Route path="challenges/:id" element={<ChallengeDetailPage />} />
         <Route path="competitions" element={<CompetitionsPage />} />

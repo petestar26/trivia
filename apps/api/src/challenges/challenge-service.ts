@@ -1,9 +1,10 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service';
-import { emitToUser } from '../realtime/broadcast';
-import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
-import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
+import { ApiError } from '../middleware/error-handler.js';
+import { getOrCreateWallet, applyBalanceChanges } from '../economy/wallet-service.js';
+import { emitToUser } from '../realtime/broadcast.js';
+import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine.js';
+import { lockUserForPlay } from '../games/game-locks.js';
+import { contestRoundSnapshot, pinContestRules, pinnedContestRules } from '../games/contest-rules.js';
 
 const CHALLENGE_EXPIRY_HOURS = 48;
 
@@ -38,11 +39,8 @@ export async function createChallenge(
   gameKey: string,
   entryAmount: number
 ) {
-  await ensureGameDefinitions();
-
-  const game = await getGameByKey(gameKey);
-  if (!game) throw ApiError.notFound('Game not found');
-  if (!game.isActive) throw ApiError.badRequest('This game is currently unavailable');
+  // Fail fast, before any wallet is touched; re-checked under lock below.
+  await pinContestRules(prisma, gameKey, 'CHALLENGE');
   if (challengerId === challengedId) throw ApiError.badRequest('Cannot challenge yourself');
 
   if (!Number.isInteger(entryAmount) || entryAmount < 0) {
@@ -64,6 +62,9 @@ export async function createChallenge(
 
   // Atomically debit challenger entry + create challenge + notify.
   const challenge = await prisma.$transaction(async (tx) => {
+    // The authoritative game and rules read, locked until this commits: the
+    // challenge is pinned to exactly this immutable rules version.
+    const { game, rules } = await pinContestRules(tx, gameKey, 'CHALLENGE');
     if (entryAmount > 0) {
       const wallet = await tx.wallet.findUnique({
         where: { userId: challengerId },
@@ -89,6 +90,7 @@ export async function createChallenge(
         challengerId,
         challengedId,
         gameId: game.id,
+        rulesVersion: rules.version,
         entryAmount,
         status: 'PENDING',
         expiresAt,
@@ -119,6 +121,7 @@ export async function createChallenge(
     id: challenge.id,
     gameKey: challenge.game.key,
     gameName: challenge.game.name,
+    rulesVersion: challenge.rulesVersion,
     entryAmount,
     status: challenge.status,
     expiresAt,
@@ -367,6 +370,7 @@ export async function playChallengeTurn(
   challengeId: string,
   clientData?: Record<string, unknown>
 ) {
+  // Row-lock the user first and require an ACTIVE account (correction #4).
   const challenge = await prisma.gameChallenge.findUnique({
     where: { id: challengeId },
     include: { game: true },
@@ -391,14 +395,22 @@ export async function playChallengeTurn(
     return buildChallengeTurnResponse(alreadyPlayed, challenge, userId);
   }
 
-  const config = (challenge.game.configuration as Record<string, unknown>) ?? {};
+  // Every turn plays the rules the challenge was created under, never the
+  // game's current rules or its mutable configuration.
+  const rules = await pinnedContestRules(prisma, challenge.gameId, challenge.rulesVersion);
+  const config = (rules.rules as Record<string, unknown>) ?? {};
   const { result, score } = await resolveChallengeOutcome(challenge.game.type, config, clientData);
 
   let output;
 
   try {
     output = await prisma.$transaction(async (tx) => {
-      // ── LOCK the challenge row FIRST ──────────────────────────────
+      // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+      // The user is the first row locked in every play path; the challenge
+      // row lock below is taken second (same ordering as every other op).
+      await lockUserForPlay(tx, userId);
+
+      // ── LOCK the challenge row SECOND ─────────────────────────────
       // A plain findUnique here was NOT sufficient. Under READ COMMITTED it
       // takes no row lock, so two players submitting their FINAL turns
       // concurrently could both:
@@ -443,7 +455,9 @@ export async function playChallengeTurn(
           userId,
           gameId: challenge.gameId,
           challengeId,
-          betAmount: challenge.entryAmount,
+          // A challenge round moves no wallet value: the Game Points entry
+          // was escrowed once, at create/accept, on the challenge itself.
+          ...contestRoundSnapshot(rules, 'CHALLENGE_ROUND'),
           // `score` MUST be persisted inside `result`. resolveChallengeOutcome
           // returns { result, score } as two separate values, but the opponent
           // lookup below (and buildChallengeTurnResponse) read the score back
@@ -453,10 +467,18 @@ export async function playChallengeTurn(
           // actual outcome. GameSession has no dedicated score column, and the
           // readers already expect it here, so this is where it belongs.
           result: { ...result, score } as any,
-          rewardAmount: 0,
           isWin: false,
           status: 'COMPLETED',
           completedAt: new Date(),
+          requestSnapshot: JSON.parse(
+            JSON.stringify({
+              gameKey: challenge.game.key,
+              rulesVersion: rules.version,
+              stake: 0,
+              selections: { guess: clientData?.guess ?? null },
+            })
+          ),
+          responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
         },
       });
 

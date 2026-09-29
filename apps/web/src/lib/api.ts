@@ -41,14 +41,48 @@ interface RequestOptions extends RequestInit {
 }
 
 /**
- * Minimal shape the individual game pages need from `GET /games`. The catalog
- * returns more fields (see the games hub), but each game page only looks up its
- * own entry by `key` and reads the bet bounds.
+ * Full catalog entry returned by `GET /games` (excludes RETIRED games).
+ * Individual game pages can use the subset fields and play-eligibility flags.
  */
 export interface GameCatalogEntry {
+  id: string;
   key: string;
+  name: string;
+  description: string | null;
+  type: string;
+  mode: string;
+  family: string;
+  catalogStatus: string;
+  wagerCurrency: string | null;
+  rewardCurrency: string;
+  currentRulesVersion: number | null;
   minBet: number;
   maxBet: number;
+  isActive: boolean;
+}
+
+/** Result of a played round returned by `POST /games/:key/play`. */
+export interface GamePlayResult {
+  sessionId: string;
+  gameKey: string;
+  betAmount: number;
+  rewardAmount: number;
+  isWin: boolean;
+  result: Record<string, unknown>;
+  completedAt: string;
+  newBalance: number;
+  mode: string;
+  family: string;
+  wagerCurrency: string | null;
+  rewardCurrency: string;
+  rulesVersion: number | null;
+  resultSchemaVersion: number | null;
+  playContext: string;
+  settlementDebitCurrency?: string | null;
+  settlementCreditCurrency?: string | null;
+  /** True when the server answered from the stored result of this exact
+   * request (same idempotency key) instead of playing a new round. */
+  isReplay?: boolean;
 }
 
 /**
@@ -66,6 +100,24 @@ export function unwrapData<T>(response: ApiResponse<T>, context?: string): T {
     throw new Error(`${context ? `${context}: ` : ''}API response missing data`);
   }
   return response.data;
+}
+
+/**
+ * Generate a client idempotency key for a play round. A fresh key per intent
+ * means a retried network request replays the same round instead of creating
+ * a second wager. Includes a time component to keep consecutive plays unique.
+ */
+export function newIdempotencyKey(): string {
+  return `play-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Play a round with a required idempotency key. The server answers
+ * `{ success, data }`, where `data.isReplay` tells a stored result (an exact
+ * retry of an already settled request) from a newly played round.
+ */
+export async function playGame<T extends GamePlayResult>(gameKey: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<ApiResponse<T>> {
+  return api.postWithIdempotency<T>(`/games/${gameKey}/play`, idempotencyKey ?? newIdempotencyKey(), body);
 }
 
 class ApiClient {
@@ -133,6 +185,22 @@ class ApiClient {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       params,
+    });
+  }
+
+  /**
+   * POST with a required Idempotency-Key header. The API rejects play requests
+   * (and any idempotency-requiring mutation) without a present key.
+   */
+  async postWithIdempotency<T>(
+    endpoint: string,
+    idempotencyKey: string,
+    body?: unknown
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: { 'idempotency-key': idempotencyKey },
     });
   }
 
@@ -402,8 +470,8 @@ class ApiClient {
     return this.get('/gifts');
   }
 
-  async sendGift(body: { recipientId: string; giftId: string; quantity: number }): Promise<ApiResponse<any>> {
-    return this.post('/gifts/send', body);
+  async sendGift(body: { recipientId: string; giftId: string; quantity: number }, idempotencyKey: string): Promise<ApiResponse<any>> {
+    return this.postWithIdempotency('/gifts/send', idempotencyKey, body);
   }
 
   async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {

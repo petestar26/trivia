@@ -1,12 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@socialplay/database';
 import {
   listActiveGames,
   getGameByKey,
-  ensureGameDefinitions,
-} from './game-catalog';
-import { playGame, getGameHistory } from './game-play';
-import { getOrCreateWallet, getWalletBalance, reconcileBalance } from '../economy/wallet-service';
+  getGameRules,
+  resolveCurrentRules,
+} from './game-catalog.js';
+import { fingerprintPlay, normalizeSelections } from './game-fingerprint.js';
+import { playGame, getGameHistory } from './game-play.js';
+import { lockUserForPlay, lockGameForPlay } from './game-locks.js';
+import { resolveJurisdictionForPlay } from '../economy/jurisdiction-service.js';
+import { getOrCreateWallet, getWalletBalance, reconcileBalance } from '../economy/wallet-service.js';
+import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
+import { creditCoins } from '../economy/coin-ledger-service.js';
+import { activateTestPolicy, disableTestPolicy } from '../ledger/test-policy-fixture.js';
+import { mintTestPurchasedCoins } from '../test/financial-policy-fixtures.js';
+import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -18,6 +29,14 @@ try {
   dbAvailable = false;
 }
 
+if (dbAvailable) {
+  beforeAll(async () => {
+    // Run the real DB invariant scan before enabling the G0 test gates.
+    // A fresh migration leaves them disabled, as production requires.
+    await bootstrapLedgerTestGates();
+  });
+}
+
 afterAll(async () => {
   await prisma.$disconnect();
 });
@@ -26,86 +45,300 @@ const describeIf = dbAvailable ? describe : describe.skip;
 
 // ─── Fixtures ──────────────────────────────────────────────────
 
-async function createUser(tag: string) {
-  const email = `games-${tag}@test.local`;
+const fixtureRunId = randomUUID().replaceAll('-', '').slice(0, 8);
+let fixtureGeneration = 0;
+
+async function createBareUser(tag: string, role?: 'ADMIN') {
+  const email = `games-${tag}-${fixtureRunId}-${fixtureGeneration}@test.local`;
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return existing;
   return prisma.user.create({
     data: {
       email,
-      username: `games_${tag}`,
+      username: `games_${tag}_${fixtureRunId}_${fixtureGeneration}`,
       passwordHash: 'fixture-only-not-a-real-hash',
       displayName: `Games ${tag}`,
+      ...(role ? { role } : {}),
     },
   });
 }
 
-async function primeGamePoints(userId: string, amount: number) {
-  await getOrCreateWallet(userId);
-  // Credit game points via the authoritative path
-  const { executeBalanceChange } = await import('../economy/wallet-service');
-  await executeBalanceChange({
-    userId,
-    changes: [
-      {
-        currency: 'GAME_POINTS',
-        amount,
-        ledgerType: 'CREDIT',
-        transactionType: 'GAME_POINT_CREDIT',
-        referenceType: 'ADMIN',
-        description: 'Test fixture game points',
-      },
-    ],
-    operationName: 'test_fund_gp',
+// Gives a user a playable jurisdiction: an ACTIVE payout account in a test
+// country with an ENABLED casino policy. Idempotent by design (upsert).
+async function provideCountryAndAccount(
+  userId: string,
+  code: string,
+  name: string,
+  policyStatus: 'ENABLED' | 'DISABLED' | null = 'ENABLED'
+) {
+  const country = await prisma.country.upsert({
+    where: { code },
+    update: { name, currencyCode: 'TCN', isActive: true },
+    create: { code, name, currencyCode: 'TCN', isActive: true },
   });
+
+  const methodDef = await prisma.paymentMethodDefinition.upsert({
+    where: { countryId_type_name: { countryId: country.id, type: 'BANK_TRANSFER', name: `Test Bank ${code}` } },
+    update: { isActive: true },
+    create: {
+      countryId: country.id,
+      type: 'BANK_TRANSFER',
+      name: `Test Bank ${code}`,
+      fieldSchema: '{}',
+      isActive: true,
+    },
+  });
+
+  await prisma.userPayoutAccount.deleteMany({ where: { userId } });
+  await prisma.userPayoutAccount.create({
+    data: {
+      userId,
+      countryId: country.id,
+      methodDefId: methodDef.id,
+      accountDetails: { label: 'test' },
+      status: 'ACTIVE',
+    },
+  });
+
+  const pointer = await prisma.countryJurisdiction.findUnique({ where: { countryCode: code } });
+  if (policyStatus !== 'ENABLED' && pointer?.activePolicyId) {
+    await disableTestPolicy(pointer.activePolicyId, code);
+  }
+  if (policyStatus === 'ENABLED' && !pointer?.activePolicyId) {
+    const administrator = await createBareUser('policy-admin', 'ADMIN');
+    const latest = await prisma.countryCasinoPolicy.aggregate({
+      where: { countryCode: code }, _max: { version: true },
+    });
+    const policy = await prisma.countryCasinoPolicy.create({
+      data: {
+        countryCode: code, version: (latest._max.version ?? 0) + 1,
+        status: 'ENABLED', enabledAt: new Date(),
+        minWithdrawal: 100, maxWithdrawal: 100000,
+        dailyWithdrawalLimit: 100000, monthlyWithdrawalLimit: 1000000,
+        playthroughMultiplier: 1, qualifyingGames: ['dice', 'number_challenge'],
+        maxQualifyingStake: 1000, holdingPeriodHours: 0,
+        giftDailyLimit: 100000, kycTierRequired: 0,
+        supportedPaymentMethods: ['BANK_TRANSFER'], withdrawalFeePercent: 0,
+        manualReviewThreshold: 100000,
+      },
+    });
+    await activateTestPolicy(policy.id, code, administrator.id);
+  }
+  return country;
+}
+
+async function provideJurisdiction(userId: string) {
+  return provideCountryAndAccount(userId, 'TV', 'Testland', 'ENABLED');
+}
+
+async function createUser(tag: string) {
+  const user = await createBareUser(tag);
+  await provideJurisdiction(user.id);
+  return user;
+}
+
+// A PURCHASE economic operation is the one approved withdrawable mint.
+async function primeCoins(userId: string, amount: number) {
+  await mintTestPurchasedCoins(userId, amount);
+}
+
+// A bonus operation pins its policy and fixed obligation at mint.
+async function primeRestrictedCoins(
+  userId: string,
+  amount: number,
+  requiredPlaythrough = 1_000_000
+) {
+  const account = await prisma.userPayoutAccount.findFirstOrThrow({
+    where: { userId, status: 'ACTIVE' }, include: { country: true },
+  });
+  const pointer = await prisma.countryJurisdiction.findUniqueOrThrow({
+    where: { countryCode: account.country.code },
+  });
+  const policy = await prisma.countryCasinoPolicy.findUniqueOrThrow({
+    where: { id: pointer.activePolicyId! },
+  });
+  const sessionId = `games-bonus-${randomUUID()}`;
+  const minted = await prisma.$transaction((tx) => creditCoins(tx, userId, amount, {
+    type: 'BONUS_GRANT', scopeType: 'GAME_SESSION', scopeId: sessionId,
+    referenceType: 'GAME', referenceId: sessionId,
+    description: 'Games test bonus fixture', provenanceType: 'TRIVIA_REWARD',
+    idempotencyKey: sessionId,
+    policy: { id: policy.id, version: policy.version }, requirementAmount: requiredPlaythrough,
+  }));
+  return prisma.coinProvenance.findUniqueOrThrow({ where: { id: minted.lotId } });
 }
 
 async function cleanFixtures() {
-  const users = await prisma.user.findMany({
-    where: { email: { startsWith: 'games-' } },
-  });
-  const userIds = users.map((u) => u.id);
-  if (userIds.length) {
-    await prisma.gameSession.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.walletTransaction.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-  }
+  // A new generation gives each block fresh identities. Financial history and
+  // immutable policy versions remain append-only, including across reruns.
+  fixtureGeneration++;
+  // Restore the seeded game definitions' rules pointer back to v1 so the
+  // rules-bump tests never leak an advanced pointer into other describe blocks.
+  await prisma.$executeRaw`
+    UPDATE "game_definitions" SET "currentRulesVersion" = 1
+    WHERE "key" IN ('dice', 'number_challenge', 'trivia')
+  `;
 }
 
-// ─── GAME CATALOG ──────────────────────────────────────────────
+// ─── FINGERPRINTING ────────────────────────────────────────────
 
-describeIf('Game catalog', () => {
-  beforeAll(async () => {
-    await cleanFixtures();
-    await ensureGameDefinitions();
+describe('fingerprint helper', () => {
+  it('normalizes selection key order deterministically', () => {
+    const a = normalizeSelections({ answerIndex: 1, questionId: 'q' });
+    const b = normalizeSelections({ questionId: 'q', answerIndex: 1 });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
-  it('returns active games', async () => {
-    const games = await listActiveGames();
-    expect(games.length).toBeGreaterThanOrEqual(4);
-    const keys = games.map((g) => g.key);
-    expect(keys).toContain('lucky_spin');
-    expect(keys).toContain('dice');
-    expect(keys).toContain('number_challenge');
-    expect(keys).toContain('trivia');
-  });
-
-  it('each game has min/max bet set', async () => {
-    const games = await listActiveGames();
-    for (const g of games) {
-      expect(g.minBet).toBeGreaterThan(0);
-      expect(g.maxBet).toBeGreaterThan(g.minBet);
-    }
-  });
-
-  it('inactive game cannot be loaded by key', async () => {
-    const game = await getGameByKey('nonexistent');
-    expect(game).toBeNull();
+  it('produces stable SHA-256 fingerprints', () => {
+    const f1 = fingerprintPlay({
+      gameKey: 'dice',
+      rulesVersion: 1,
+      stake: 50,
+      selections: { guess: 7 },
+    });
+    const f2 = fingerprintPlay({
+      gameKey: 'dice',
+      rulesVersion: 1,
+      stake: 50,
+      selections: { guess: 7 },
+    });
+    const f3 = fingerprintPlay({
+      gameKey: 'dice',
+      rulesVersion: 1,
+      stake: 51,
+      selections: { guess: 7 },
+    });
+    expect(f1).toBe(f2);
+    expect(f1).not.toBe(f3);
+    expect(f1).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
-// ─── BET VALIDATION ────────────────────────────────────────────
+// ─── GAME CATALOG ──────────────────────────────────────────────
+
+describeIf('Game catalog (Phase G0)', () => {
+  beforeAll(async () => {
+    await cleanFixtures();
+  });
+
+it('public catalog returns exactly 13 entries (AVAILABLE + COMING_SOON), excluding RETIRED lucky_spin', async () => {
+     const games = await listActiveGames();
+     expect(games.length).toBe(13);
+     const keys = games.map((g) => g.key);
+     // Exact approved public key set — order-independent compare.
+     const APPROVED_KEYS = new Set([
+       'dice', 'number_challenge', 'trivia', // AVAILABLE
+       'spin_win', 'thunder_derby_3d', 'neon_hounds_3d', 'turbo_circuit_3d',
+       'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'crystal_trail',
+       'heat_vault', 'strait_rush', // COMING_SOON
+     ]);
+     expect(new Set(keys).size).toBe(13);
+     for (const k of keys) expect(APPROVED_KEYS.has(k)).toBe(true);
+     expect([...APPROVED_KEYS].every((k) => keys.includes(k))).toBe(true);
+     expect(keys).not.toContain('lucky_spin');
+     expect(keys).not.toContain('coming_');
+     // Exact status split: 3 AVAILABLE + 10 COMING_SOON = 13 public.
+     expect(games.filter((g) => g.catalogStatus === 'AVAILABLE').map((g) => g.key).sort()).toEqual(
+       ['dice', 'number_challenge', 'trivia']
+     );
+     expect(games.filter((g) => g.catalogStatus === 'COMING_SOON').length).toBe(10);
+     expect(keys.filter((k) => k.startsWith('coming_')).length).toBe(0);
+   });
+
+   it('GET /games performs zero writes (catalog read is pure)', async () => {
+     const before = await prisma.gameDefinition.count();
+     const sessionsBefore = await prisma.gameSession.count();
+     const provBefore = await prisma.coinProvenance.count();
+     // The route /games must be a pure read; the service only queries.
+     await listActiveGames();
+     const after = await prisma.gameDefinition.count();
+     expect(after).toBe(before);
+     expect(await prisma.gameSession.count()).toBe(sessionsBefore);
+     expect(await prisma.coinProvenance.count()).toBe(provBefore);
+   });
+
+  it('every catalog row exposes the Phase-G0 fields', async () => {
+    const games = await listActiveGames();
+    for (const g of games) {
+      expect(g.mode).toMatch(/^(WAGER|BONUS)$/);
+      expect(g.family).toMatch(/^(INSTANT|SCHEDULED_DRAW|SCHEDULED_RACE)$/);
+      expect(g.catalogStatus).toMatch(/^(AVAILABLE|COMING_SOON)$/);
+      expect(['COINS', 'GAME_POINTS']).toContain(g.rewardCurrency);
+      expect(g.wagerCurrency === null || g.wagerCurrency === 'COINS' || g.wagerCurrency === 'GAME_POINTS').toBe(true);
+      expect(g.currentRulesVersion).not.toBe(undefined);
+    }
+    const trivia = games.find((g) => g.key === 'trivia')!;
+    expect(trivia.mode).toBe('BONUS');
+    expect(trivia.wagerCurrency).toBeNull();
+    expect(trivia.rewardCurrency).toBe('COINS');
+    expect(trivia.currentRulesVersion).toBe(1);
+    const dice = games.find((g) => g.key === 'dice')!;
+    expect(dice.mode).toBe('WAGER');
+    expect(dice.wagerCurrency).toBe('COINS');
+    expect(dice.rewardCurrency).toBe('COINS');
+    expect(dice.currentRulesVersion).toBe(1);
+  });
+
+  it('retired lucky_spin is still resolvable by key but absent from the catalog', async () => {
+    const game = await getGameByKey('lucky_spin');
+    expect(game).not.toBeNull();
+    expect(game!.catalogStatus).toBe('RETIRED');
+  });
+
+  it('the allowlist keeps lucky_spin hidden even if its catalogStatus is flipped to AVAILABLE — catalogStatus alone is not enough', async () => {
+    const lucky = await getGameByKey('lucky_spin');
+    await prisma.gameDefinition.update({ where: { id: lucky!.id }, data: { catalogStatus: 'AVAILABLE' } });
+    try {
+      const games = await listActiveGames();
+      expect(games.map((g) => g.key)).not.toContain('lucky_spin');
+      expect(games.length).toBe(13); // still exactly the 13 approved keys
+    } finally {
+      await prisma.gameDefinition.update({ where: { id: lucky!.id }, data: { catalogStatus: 'RETIRED' } });
+    }
+  });
+
+  it('an unapproved COMING_SOON row (a rogue insert, migration mistake, or future draft) never becomes public', async () => {
+    // COMING_SOON (not AVAILABLE): game_definitions_catalog_rules_check
+    // requires an AVAILABLE row to already have a currentRulesVersion,
+    // which a genuinely rogue/draft row would not have yet — COMING_SOON
+    // is the realistic shape such a row takes, and it is equally covered
+    // by PUBLIC_CATALOG_STATUSES, so it exercises the same allowlist gate.
+    const rogue = await prisma.gameDefinition.create({
+      data: {
+        key: 'rogue_unapproved_game',
+        name: 'Rogue Unapproved Game',
+        type: 'DICE',
+        minBet: 1,
+        maxBet: 100,
+        configuration: {},
+        mode: 'WAGER',
+        family: 'INSTANT',
+        catalogStatus: 'COMING_SOON',
+        wagerCurrency: 'COINS',
+        rewardCurrency: 'COINS',
+      },
+    });
+    try {
+      const games = await listActiveGames();
+      expect(games.map((g) => g.key)).not.toContain('rogue_unapproved_game');
+      expect(games.length).toBe(13);
+    } finally {
+      await prisma.gameDefinition.delete({ where: { id: rogue.id } });
+    }
+  });
+
+  it('rules helpers resolve the current version for playable games', async () => {
+    const game = await getGameByKey('dice');
+    expect(game).not.toBeNull();
+    const rules = await resolveCurrentRules(game!);
+    expect(rules?.version).toBe(game!.currentRulesVersion);
+    expect(rules?.resultSchemaVersion).toBe(1);
+    const byKey = await getGameRules(game!.id, 1);
+    expect(byKey?.version).toBe(1);
+  });
+});
+
+// ─── BET VALIDATION (WAGER) ────────────────────────────────────
 
 describeIf('Bet validation', () => {
   let a: { id: string };
@@ -113,98 +346,227 @@ describeIf('Bet validation', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('bet');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
   });
 
   it('rejects non-integer bet', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: 1.5 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 1.5, idempotencyKey: 'bet-f1' })
     ).rejects.toThrow();
   });
 
   it('rejects zero bet', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: 0 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 0, idempotencyKey: 'bet-f2' })
     ).rejects.toThrow();
   });
 
   it('rejects negative bet', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: -10 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: -10, idempotencyKey: 'bet-f3' })
     ).rejects.toThrow();
   });
 
   it('rejects bet below minimum', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: 1 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 1, idempotencyKey: 'bet-f4' })
     ).rejects.toThrow();
   });
 
   it('rejects bet above maximum', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: 99999 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 99999, idempotencyKey: 'bet-f5' })
     ).rejects.toThrow();
   });
 
   it('rejects string bet', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: '10' as any })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: '10' as any, idempotencyKey: 'bet-f6' })
+    ).rejects.toThrow();
+  });
+
+  it('rejects a WAGER game with no betAmount', async () => {
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', idempotencyKey: 'bet-f7' })
+    ).rejects.toThrow();
+  });
+
+  it('rejects a RETIRED game', async () => {
+    await expect(
+      playGame({ userId: a.id, gameKey: 'lucky_spin', betAmount: 100, idempotencyKey: 'bet-f8' })
     ).rejects.toThrow();
   });
 });
 
-// ─── INSUFFICIENT GAME POINTS ─────────────────────────────────
+// ─── JURISDICTION GATE (fail-closed) ───────────────────────────
 
-describeIf('Insufficient Game Points', () => {
+describeIf('jurisdiction gate', () => {
+  beforeAll(async () => {
+    await cleanFixtures();
+  });
+
+  it('a user with no verified country cannot play (403, before any writes — including no wallet row at all)', async () => {
+    const bare = await createBareUser('jgate_bare');
+
+    await expect(
+      playGame({ userId: bare.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-bare-1' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const sessions = await prisma.gameSession.count({ where: { userId: bare.id } });
+    const txs = await prisma.walletTransaction.count({ where: { userId: bare.id } });
+    const wallets = await prisma.wallet.count({ where: { userId: bare.id } });
+    expect(sessions).toBe(0);
+    expect(txs).toBe(0);
+    // The pre-tx getOrCreateWallet call this fixes would have created a
+    // wallet row for this user even though the play was rejected — wallet
+    // creation now only happens inside the transaction, after eligibility
+    // and jurisdiction checks both pass.
+    expect(wallets).toBe(0);
+  });
+
+  it('a user whose country has only a DISABLED policy cannot play (403, before any writes — including no wallet row at all)', async () => {
+    const user = await createBareUser('jgate_disabled');
+    await provideCountryAndAccount(user.id, 'TV2', 'Testland 2', 'DISABLED');
+
+    await expect(
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-disabled-1' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const sessions = await prisma.gameSession.count({ where: { userId: user.id } });
+    const txs = await prisma.walletTransaction.count({ where: { userId: user.id } });
+    const wallets = await prisma.wallet.count({ where: { userId: user.id } });
+    expect(sessions).toBe(0);
+    expect(txs).toBe(0);
+    expect(wallets).toBe(0);
+  });
+
+  it('a user linked only via Agent.countryId (never a UserPayoutAccount) cannot play — Agent is not a jurisdiction source', async () => {
+    const user = await createBareUser('jgate_agent_only');
+    // Set up an ENABLED policy for a country this user is linked to ONLY
+    // through an Agent row, never through their own UserPayoutAccount.
+    const policyActor = await createBareUser('agent-country-policy');
+    const country = await provideCountryAndAccount(policyActor.id, 'TV3', 'Testland 3', 'ENABLED');
+    await prisma.agent.deleteMany({ where: { userId: user.id } });
+    await prisma.agent.create({
+      data: {
+        userId: user.id,
+        countryId: country.id,
+        status: 'ACTIVE',
+        displayName: "Agent-linked reseller (not the player's jurisdiction)",
+        contactEmail: `games-jgate-agent-only-${user.id}@test.local`,
+      },
+    });
+
+    await expect(
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-agent-only-1' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const wallets = await prisma.wallet.count({ where: { userId: user.id } });
+    expect(wallets).toBe(0);
+
+    await prisma.agent.deleteMany({ where: { userId: user.id } });
+  });
+
+  it('after an ENABLED policy is provided, the same user CAN play', async () => {
+    const user = await createBareUser('jgate_enabled');
+    await provideCountryAndAccount(user.id, 'TV2', 'Testland 2', 'DISABLED');
+
+    await expect(
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-enabled-0' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    await provideCountryAndAccount(user.id, 'TV2', 'Testland 2', 'ENABLED');
+    await primeCoins(user.id, 1000);
+
+    const result = await playGame({
+      userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'jgate-enabled-1',
+    });
+    expect(result.gameKey).toBe('dice');
+    expect(result.isReplay).toBe(false);
+  });
+});
+
+// ─── IDEMPOTENCY KEY VALIDATION ────────────────────────────────
+
+describeIf('Idempotency key validation', () => {
+  let a: { id: string };
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    a = await createUser('idkey');
+    await primeCoins(a.id, 1000);
+  });
+
+  it('requires an idempotency key', async () => {
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 })
+    ).rejects.toThrow();
+  });
+
+  it('rejects keys longer than 128 chars', async () => {
+    const long = 'x'.repeat(129);
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: long })
+    ).rejects.toThrow();
+  });
+
+  it('rejects keys with control or space characters', async () => {
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'has space' })
+    ).rejects.toThrow();
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'ctrl\u0001char' })
+    ).rejects.toThrow();
+  });
+});
+
+// ─── INSUFFICIENT COINS ────────────────────────────────────────
+
+describeIf('Insufficient Coins', () => {
   let a: { id: string };
 
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('insuf');
-    await ensureGameDefinitions();
     await getOrCreateWallet(a.id);
-    // No game points — balance is 0
   });
 
-  it('rejects play when balance is 0', async () => {
+  it('rejects play when the COINS balance is 0', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 })
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'insuf-1' })
     ).rejects.toThrow();
   });
 });
 
-// ─── LUCKY SPIN ────────────────────────────────────────────────
+// ─── ELIGIBILITY ───────────────────────────────────────────────
 
-describeIf('Lucky Spin', () => {
+describeIf('Eligibility', () => {
   let a: { id: string };
 
   beforeAll(async () => {
     await cleanFixtures();
-    a = await createUser('spin');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    a = await createUser('elig');
+    await primeCoins(a.id, 1000);
   });
 
-  it('returns a valid server-side result', async () => {
-    const result = await playGame({ userId: a.id, gameKey: 'lucky_spin', betAmount: 100 });
-    expect(result.gameKey).toBe('lucky_spin');
-    expect(result.betAmount).toBe(100);
-    expect(result.rewardAmount).toBeGreaterThanOrEqual(0);
-    // NOTE: this previously read `expect(result.isWin).toBe(typeof result.isWin === 'boolean')`,
-    // whose right-hand side evaluates to `true` — so it asserted the spin ALWAYS wins and
-    // failed ~45% of runs (LOSE has probability 0.45). Restored to the evidently intended
-    // type check; the win/lose value itself is random and must not be asserted here.
-    expect(typeof result.isWin).toBe('boolean');
-    expect(result.result).toHaveProperty('name');
-    expect(result.result).toHaveProperty('multiplier');
-    expect(result.result).toHaveProperty('index');
+  it('lockUserForPlay rejects a non-ACTIVE account', async () => {
+    await prisma.user.update({ where: { id: a.id }, data: { status: 'SUSPENDED' } });
+    try {
+      await expect(
+        playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'elig-1' })
+      ).rejects.toThrow();
+    } finally {
+      await prisma.user.update({ where: { id: a.id }, data: { status: 'ACTIVE' } });
+    }
   });
 
-  it('reward is bet * multiplier', async () => {
-    const result = await playGame({ userId: a.id, gameKey: 'lucky_spin', betAmount: 50 });
-    const multiplier = (result.result as any).multiplier;
-    expect(result.rewardAmount).toBe(Math.floor(50 * multiplier));
+  it('lockUserForPlay returns the locked user for ACTIVE accounts', async () => {
+    const locked = (await prisma.$transaction((tx) => lockUserForPlay(tx, a.id))) as {
+      id: string;
+      status: string;
+    };
+    expect(locked.id).toBe(a.id);
+    expect(locked.status).toBe('ACTIVE');
   });
 });
 
@@ -216,14 +578,22 @@ describeIf('Dice', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('dice');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
   });
 
   it('returns valid dice result', async () => {
-    const result = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 100 });
+    const result = await playGame({
+      userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'dice-1',
+    });
     expect(result.gameKey).toBe('dice');
     expect(result.betAmount).toBe(100);
+    expect(result.mode).toBe('WAGER');
+    expect(result.wagerCurrency).toBe('COINS');
+    expect(result.rewardCurrency).toBe('COINS');
+    expect(result.rulesVersion).toBe(1);
+    expect(result.resultSchemaVersion).toBe(1);
+    expect(result.playContext).toBe('SOLO_WAGER');
+    expect(result.isReplay).toBe(false);
     const { die1, die2, sum } = result.result as any;
     expect(die1).toBeGreaterThanOrEqual(1);
     expect(die1).toBeLessThanOrEqual(6);
@@ -233,9 +603,10 @@ describeIf('Dice', () => {
   });
 
   it('win on sum >= threshold (7)', async () => {
-    // Run multiple times to verify the win logic
     for (let i = 0; i < 20; i++) {
-      const result = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 });
+      const result = await playGame({
+        userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: `dice-win-${i}`,
+      });
       const { sum } = result.result as any;
       if (sum >= 7) {
         expect(result.isWin).toBe(true);
@@ -247,16 +618,41 @@ describeIf('Dice', () => {
     }
   });
 
-  it('returns authoritative server-side newBalance', async () => {
+  it('returns authoritative server-side newBalance in COINS', async () => {
     const before = await getWalletBalance(a.id);
-    const result = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 });
-
-    const expected = before.gamePointsBalance - 10 + result.rewardAmount;
+    const result = await playGame({
+      userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'dice-balance-1',
+    });
+    const expected = before.coinsBalance - 10 + result.rewardAmount;
     expect(result.newBalance).toBe(expected);
-    // newBalance must equal the authoritative wallet balance
     const after = await getWalletBalance(a.id);
-    expect(result.newBalance).toBe(after.gamePointsBalance);
-    expect(after.gamePointsBalance).toBeGreaterThanOrEqual(0);
+    expect(result.newBalance).toBe(after.coinsBalance);
+    expect(after.coinsBalance).toBeGreaterThanOrEqual(0);
+  });
+
+  it('persists immutable snapshots and settlement currencies on the session', async () => {
+    const result = await playGame({
+      userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'dice-snap-1',
+    });
+    const session = await prisma.gameSession.findUniqueOrThrow({ where: { id: result.sessionId } });
+    expect(session.mode).toBe('WAGER');
+    expect(session.family).toBe('INSTANT');
+    expect(session.wagerCurrency).toBe('COINS');
+    expect(session.rewardCurrency).toBe('COINS');
+    expect(session.rulesVersion).toBe(1);
+    expect(session.resultSchemaVersion).toBe(1);
+    expect(session.playContext).toBe('SOLO_WAGER');
+    expect(session.settlementDebitCurrency).toBe('COINS');
+    expect(session.settlementCreditCurrency).toBe(result.rewardAmount > 0 ? 'COINS' : null);
+    expect(session.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    const requestSnapshot = session.requestSnapshot as Record<string, unknown>;
+    expect(requestSnapshot.gameKey).toBe('dice');
+    expect(requestSnapshot.rulesVersion).toBe(1);
+    expect(requestSnapshot.stake).toBe(10);
+    const responseSnapshot = session.responseSnapshot as Record<string, unknown>;
+    expect(responseSnapshot.sessionId).toBe(result.sessionId);
+    expect(responseSnapshot.newBalance).toBe(result.newBalance);
+    expect(responseSnapshot.isReplay).toBeUndefined();
   });
 });
 
@@ -268,28 +664,25 @@ describeIf('Number Challenge', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('num');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
   });
 
   it('validates guess is required', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'number_challenge', betAmount: 10, clientData: {} })
+      playGame({ userId: a.id, gameKey: 'number_challenge', betAmount: 10, clientData: {}, idempotencyKey: 'num-1' })
     ).rejects.toThrow();
   });
 
   it('validates guess is integer', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'number_challenge', betAmount: 10, clientData: { guess: 1.5 } })
+      playGame({ userId: a.id, gameKey: 'number_challenge', betAmount: 10, clientData: { guess: 1.5 }, idempotencyKey: 'num-2' })
     ).rejects.toThrow();
   });
 
   it('returns correct/away in result', async () => {
     const result = await playGame({
-      userId: a.id,
-      gameKey: 'number_challenge',
-      betAmount: 10,
-      clientData: { guess: 50 },
+      userId: a.id, gameKey: 'number_challenge', betAmount: 10,
+      clientData: { guess: 50 }, idempotencyKey: 'num-3',
     });
     expect(result.result).toHaveProperty('guess');
     expect(result.result).toHaveProperty('target');
@@ -299,134 +692,111 @@ describeIf('Number Challenge', () => {
   });
 });
 
-// ─── TRIVIA ────────────────────────────────────────────────────
+// ─── TRIVIA (BONUS, no stake, restricted COINS reward) ─────────
 
 describeIf('Trivia', () => {
   let a: { id: string };
   let questionId: string;
   let wrongAnswerQuestionId: string;
 
+  const bet0 = (key: string) => playGame({
+    userId: a.id, gameKey: 'trivia', betAmount: 0, idempotencyKey: key,
+  });
+  const good = (key: string, qid: string, answer: number) => playGame({
+    userId: a.id, gameKey: 'trivia', clientData: { questionId: qid, answerIndex: answer }, idempotencyKey: key,
+  });
+
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('trivia');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
 
-    // Create a test question
     const q = await prisma.triviaQuestion.create({
-      data: {
-        question: 'What is 2 + 2?',
-        choices: ['3', '4', '5', '6'],
-        correctIndex: 1,
-        category: 'math',
-      },
+      data: { question: 'What is 2 + 2?', choices: ['3', '4', '5', '6'], correctIndex: 1, category: 'math' },
     });
     questionId = q.id;
 
-    // A SECOND question, used only by the wrong-answer test. UserTriviaAttempt
-    // is unique per (userId, questionId), so reusing `questionId` there — after
-    // 'validates answer correctly' has already consumed it for this same user —
-    // fails with "You have already answered this question" rather than
-    // exercising the wrong-answer path it means to test.
     const q2 = await prisma.triviaQuestion.create({
-      data: {
-        question: 'What is 3 + 3?',
-        choices: ['5', '6', '7', '8'],
-        correctIndex: 1,
-        category: 'math',
-      },
+      data: { question: 'What is 3 + 3?', choices: ['5', '6', '7', '8'], correctIndex: 1, category: 'math' },
     });
     wrongAnswerQuestionId = q2.id;
   });
 
-  it('validates answer correctly', async () => {
-    const result = await playGame({
-      userId: a.id,
-      gameKey: 'trivia',
-      betAmount: 10,
-      clientData: { questionId, answerIndex: 1 },
-    });
-    expect(result.isWin).toBe(true);
-    expect(result.rewardAmount).toBe(30); // 10 * 3
+  it('forbids a betAmount field even when 0', async () => {
+    await expect(bet0('trivia-betfield')).rejects.toThrow();
   });
 
-  it('rejects wrong answer', async () => {
-    const result = await playGame({
-      userId: a.id,
-      gameKey: 'trivia',
-      betAmount: 10,
-      clientData: { questionId: wrongAnswerQuestionId, answerIndex: 0 },
-    });
+  it('forbids a betAmount field even when present (nonzero)', async () => {
+    await expect(
+      playGame({ userId: a.id, gameKey: 'trivia', betAmount: 10, clientData: { questionId, answerIndex: 1 }, idempotencyKey: 'trivia-betfield2' })
+    ).rejects.toThrow();
+  });
+
+  it('credits a correct answer with 30 COINS and no stake', async () => {
+    const before = await getWalletBalance(a.id);
+    const result = await good('trivia-correct', questionId, 1);
+    const after = await getWalletBalance(a.id);
+    expect(result.isWin).toBe(true);
+    expect(result.rewardAmount).toBe(30);
+    expect(result.betAmount).toBe(0);
+    expect(result.mode).toBe('BONUS');
+    expect(result.wagerCurrency).toBeNull();
+    expect(result.rewardCurrency).toBe('COINS');
+    expect(result.playContext).toBe('BONUS');
+    expect(after.coinsBalance).toBe(before.coinsBalance + 30);
+    const session = await prisma.gameSession.findUniqueOrThrow({ where: { id: result.sessionId } });
+    expect(session.settlementDebitCurrency).toBeNull();
+    expect(session.settlementCreditCurrency).toBe('COINS');
+    expect(session.betAmount).toBe(0);
+  });
+
+  it('gives no reward for a wrong answer and settles nothing', async () => {
+    const before = await getWalletBalance(a.id);
+    const result = await good('trivia-wrong', wrongAnswerQuestionId, 0);
+    const after = await getWalletBalance(a.id);
     expect(result.isWin).toBe(false);
     expect(result.rewardAmount).toBe(0);
+    expect(after.coinsBalance).toBe(before.coinsBalance);
+    const session = await prisma.gameSession.findUniqueOrThrow({ where: { id: result.sessionId } });
+    expect(session.settlementDebitCurrency).toBeNull();
+    expect(session.settlementCreditCurrency).toBeNull();
   });
 
   it('validates questionId is required', async () => {
     await expect(
-      playGame({ userId: a.id, gameKey: 'trivia', betAmount: 10, clientData: { answerIndex: 1 } })
+      playGame({ userId: a.id, gameKey: 'trivia', clientData: { answerIndex: 1 }, idempotencyKey: 'trivia-q1' })
     ).rejects.toThrow();
   });
 
-  it('rejects duplicate attempt on same question', async () => {
-    const q2 = await prisma.triviaQuestion.create({
-      data: {
-        question: 'What is 3 + 3?',
-        choices: ['5', '6', '7', '8'],
-        correctIndex: 1,
-        category: 'math',
-      },
-    });
-    await playGame({
-      userId: a.id,
-      gameKey: 'trivia',
-      betAmount: 10,
-      clientData: { questionId: q2.id, answerIndex: 1 },
-    });
+  it('validates answerIndex is required', async () => {
     await expect(
-      playGame({
-        userId: a.id,
-        gameKey: 'trivia',
-        betAmount: 10,
-        clientData: { questionId: q2.id, answerIndex: 2 },
-      })
+      playGame({ userId: a.id, gameKey: 'trivia', clientData: { questionId }, idempotencyKey: 'trivia-q2' })
     ).rejects.toThrow();
+  });
+
+  it('rejects duplicate attempt on the same question', async () => {
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'What is 3 + 3?', choices: ['5', '6', '7', '8'], correctIndex: 1, category: 'math' },
+    });
+    await good('trivia-dup-1', q.id, 1);
+    await expect(good('trivia-dup-2', q.id, 2)).rejects.toThrow();
   });
 
   it('allows different questions for the same user', async () => {
-    const q3 = await prisma.triviaQuestion.create({
-      data: {
-        question: 'What is 5 + 5?',
-        choices: ['8', '9', '10', '11'],
-        correctIndex: 2,
-        category: 'math',
-      },
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'What is 5 + 5?', choices: ['8', '9', '10', '11'], correctIndex: 2, category: 'math' },
     });
-    const result = await playGame({
-      userId: a.id,
-      gameKey: 'trivia',
-      betAmount: 10,
-      clientData: { questionId: q3.id, answerIndex: 2 },
-    });
+    const result = await good('trivia-diff-1', q.id, 2);
     expect(result.isWin).toBe(true);
   });
 
   it('concurrent duplicate attempts are rejected safely', async () => {
-    const q4 = await prisma.triviaQuestion.create({
-      data: {
-        question: 'What is 7 + 7?',
-        choices: ['12', '13', '14', '15'],
-        correctIndex: 2,
-        category: 'math',
-      },
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'What is 7 + 7?', choices: ['12', '13', '14', '15'], correctIndex: 2, category: 'math' },
     });
     const results = await Promise.allSettled(
-      Array.from({ length: 3 }, () =>
-        playGame({
-          userId: a.id,
-          gameKey: 'trivia',
-          betAmount: 10,
-          clientData: { questionId: q4.id, answerIndex: 2 },
-        })
+      Array.from({ length: 3 }, (_, i) =>
+        good(`trivia-conc-${i}`, q.id, 2)
       )
     );
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -434,50 +804,132 @@ describeIf('Trivia', () => {
   });
 });
 
-// ─── IDEMPOTENCY ───────────────────────────────────────────────
+// ─── IDEMPOTENCY / REPLAY ──────────────────────────────────────
 
-describeIf('Idempotency', () => {
+describeIf('Idempotency and replay', () => {
   let a: { id: string };
 
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('idem');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 5000);
+    await primeCoins(a.id, 5000);
   });
 
-  it('same idempotency key returns original result', async () => {
-    const r1 = await playGame({
-      userId: a.id,
-      gameKey: 'dice',
-      betAmount: 100,
-      idempotencyKey: 'idem-dice-1',
-    });
-    const r2 = await playGame({
-      userId: a.id,
-      gameKey: 'dice',
-      betAmount: 100,
-      idempotencyKey: 'idem-dice-1',
-    });
+  it('same key + same fingerprint replays the stored snapshot with isReplay=true', async () => {
+    const base = { userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'idem-dice-1' } as const;
+    const r1 = await playGame({ ...base });
+    const r2 = await playGame({ ...base });
     expect(r2.sessionId).toBe(r1.sessionId);
     expect(r2.rewardAmount).toBe(r1.rewardAmount);
     expect(r2.result).toEqual(r1.result);
+    expect(r2.isReplay).toBe(true);
+    expect(r1.isReplay).toBe(false);
+    expect(r2.newBalance).toBe(r1.newBalance);
+  });
+
+  it('same key + different fingerprint (different stake) conflicts with 409', async () => {
+    await playGame({
+      userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'idem-dice-2',
+    });
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 50, idempotencyKey: 'idem-dice-2' })
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('trivia is replayable with the same key without double-crediting', async () => {
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'What is 4 + 4?', choices: ['6', '7', '8', '9'], correctIndex: 2, category: 'math' },
+    });
+    const before = await getWalletBalance(a.id);
+    const r1 = await playGame({
+      userId: a.id, gameKey: 'trivia',
+      clientData: { questionId: q.id, answerIndex: 2 },
+      idempotencyKey: 'idem-trivia-1',
+    });
+    const r2 = await playGame({
+      userId: a.id, gameKey: 'trivia',
+      clientData: { questionId: q.id, answerIndex: 2 },
+      idempotencyKey: 'idem-trivia-1',
+    });
+    const after = await getWalletBalance(a.id);
+    expect(r2.isReplay).toBe(true);
+    expect(after.coinsBalance).toBe(before.coinsBalance + r1.rewardAmount);
   });
 
   it('different idempotency keys create different sessions', async () => {
     const r1 = await playGame({
-      userId: a.id,
-      gameKey: 'dice',
-      betAmount: 100,
-      idempotencyKey: 'idem-dice-2',
+      userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'idem-dice-3',
     });
     const r2 = await playGame({
-      userId: a.id,
-      gameKey: 'dice',
-      betAmount: 100,
-      idempotencyKey: 'idem-dice-3',
+      userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'idem-dice-4',
     });
     expect(r2.sessionId).not.toBe(r1.sessionId);
+  });
+});
+
+// ─── COMMITTED SESSIONS ARE IMMUTABLE ──────────────────────────
+
+describeIf('Committed game sessions are immutable replay records', () => {
+  let a: { id: string };
+  let first: Awaited<ReturnType<typeof playGame>>;
+  const key = 'immutable-dice-1';
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    a = await createUser('immutable');
+    await primeCoins(a.id, 1000);
+    first = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key });
+  });
+
+  async function directSql(sql: string, ...params: unknown[]): Promise<string> {
+    try {
+      await prisma.$transaction(async (tx) => { await tx.$executeRawUnsafe(sql, ...params); });
+      return 'accepted';
+    } catch (error) {
+      return String((error as Error).message);
+    }
+  }
+
+  it('refuses a direct-SQL update of every replay, identity, rules and settlement column', async () => {
+    const other = await createBareUser('immutable-other');
+    const otherGame = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'number_challenge' } });
+    const changes: [string, unknown][] = [
+      ['"userId" = $2', other.id], ['"gameId" = $2', otherGame.id], ['"idempotencyKey" = $2', 'forged-key'],
+      ['"fingerprint" = $2', 'forged'], ['"requestSnapshot" = $2::jsonb', '{"stake":1}'],
+      ['"responseSnapshot" = $2::jsonb', '{"rewardAmount":999999}'], ['"result" = $2::jsonb', '{"sum":12}'],
+      ['"selections" = $2::jsonb', '{}'], ['"betAmount" = $2', 1], ['"rewardAmount" = $2', 999_999],
+      ['"isWin" = ($2::boolean <> "isWin")', true], ['"rulesVersion" = NULLIF($2::int, $2::int)', 1],
+      ['"resultSchemaVersion" = $2', 99], ['"mode" = $2::game_mode', 'BONUS'], ['"family" = $2::game_family', 'SCHEDULED_DRAW'],
+      ['"wagerCurrency" = $2::"CurrencyType"', 'GAME_POINTS'], ['"rewardCurrency" = $2::"CurrencyType"', 'GAME_POINTS'],
+      ['"settlementDebitCurrency" = NULLIF($2::text, $2::text)::"CurrencyType"', 'COINS'],
+      ['"settlementCreditCurrency" = $2::"CurrencyType"', 'GAME_POINTS'], ['"playContext" = $2::play_context', 'BONUS'],
+      ['"status" = $2::"GameSessionStatus"', 'FAILED'], ['"completedAt" = $2::timestamp', '2020-01-01T00:00:00Z'],
+    ];
+    for (const [set, value] of changes) {
+      expect(await directSql(`UPDATE "game_sessions" SET ${set} WHERE "id" = $1`, first.sessionId, value), set)
+        .toMatch(/game_sessions is append-only: session .* cannot change/);
+    }
+  });
+
+  it('refuses deleting a committed session, directly or through the client', async () => {
+    expect(await directSql('DELETE FROM "game_sessions" WHERE "id" = $1', first.sessionId))
+      .toMatch(/game_sessions is append-only: session .* cannot be deleted/);
+    await expect(prisma.gameSession.update({ where: { id: first.sessionId }, data: { rewardAmount: 5 } }))
+      .rejects.toThrow(/append-only/);
+  });
+
+  it('an exact replay still returns the original stored response, unchanged', async () => {
+    const stored = await prisma.gameSession.findUniqueOrThrow({ where: { id: first.sessionId } });
+    const balance = await getWalletBalance(a.id);
+    const replay = await playGame({ userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key });
+    const { isReplay: firstFlag, ...original } = first;
+    expect(firstFlag).toBe(false);
+    const { isReplay, ...replayed } = replay;
+    expect(isReplay).toBe(true);
+    expect(replayed).toEqual(original);
+    expect(replayed).toEqual(stored.responseSnapshot);
+    expect(await getWalletBalance(a.id)).toEqual(balance);
+    expect(await prisma.gameSession.count({ where: { userId: a.id } })).toBe(1);
   });
 });
 
@@ -489,12 +941,10 @@ describeIf('Game history', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('hist');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
 
-    // Play some games
-    await playGame({ userId: a.id, gameKey: 'dice', betAmount: 10 });
-    await playGame({ userId: a.id, gameKey: 'lucky_spin', betAmount: 20 });
+    await playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'hist-1' });
+    await playGame({ userId: a.id, gameKey: 'number_challenge', betAmount: 20, clientData: { guess: 50 }, idempotencyKey: 'hist-2' });
   });
 
   it('returns only the authenticated user history', async () => {
@@ -527,29 +977,221 @@ describeIf('Concurrency', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('concur');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 100);
-    // Only 100 GP — enough for a few dice bets (min 5), not all concurrent
+    await primeCoins(a.id, 100);
   });
 
   it('concurrent games cannot overspend', async () => {
     const results = await Promise.allSettled(
       Array.from({ length: 10 }, (_, i) =>
-        playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: `concur-${i}` })
+        playGame({ userId: a.id, gameKey: 'dice', betAmount: 10, idempotencyKey: `conc-${i}` })
       )
     );
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
-    // Should be 10 or fewer (some may fail due to insufficient funds)
     expect(fulfilled).toBeLessThanOrEqual(10);
 
-    // Wallet should never go negative
     const wallet = await getWalletBalance(a.id);
-    expect(wallet.gamePointsBalance).toBeGreaterThanOrEqual(0);
+    expect(wallet.coinsBalance).toBeGreaterThanOrEqual(0);
 
-    // Ledger should reconcile
     const rec = await reconcileBalance(a.id);
-    expect(rec.gamePointsMatch).toBe(true);
+    expect(rec.coinsMatch).toBe(true);
+  });
+});
+
+// ─── DETERMINISTIC LOCKING RACES ────────────────────────────────
+// Proves the ROW LOCKS themselves cause blocking (not merely that the
+// end-state behavior happens to be correct) — see test/pg-locks.ts.
+
+const tx30 = { timeout: 30_000, maxWait: 30_000 };
+
+describeIf('Deterministic locking races', () => {
+  it('a concurrent policy deactivation blocks behind the settlement transaction\'s jurisdiction lock', async () => {
+    const user = await createUser('race-juris');
+    await primeCoins(user.id, 1000);
+    const policy = await prisma.countryCasinoPolicy.findFirstOrThrow({
+      where: { countryCode: 'TV', state: 'ACTIVE', status: 'ENABLED' },
+    });
+
+    let racer: Promise<void> | undefined;
+
+    // Holder: takes the SAME jurisdiction-row FOR SHARE lock as the real play.
+    // The racer is fired (not awaited) from INSIDE
+    // this still-open transaction, and we wait for it to be PROVABLY parked
+    // behind the lock before letting the callback return (which commits and
+    // releases it) — the established pattern for this suite's row-lock races.
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL resolveJurisdictionForPlay — this exercises
+      // the actual production lock, not a hand-rolled duplicate of it.
+      await resolveJurisdictionForPlay(tx, user.id);
+
+      racer = disableTestPolicy(policy.id, 'TV');
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%country_jurisdictions%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    // Only now — after the holder committed — does the racer's UPDATE proceed.
+    await racer!;
+    const pointer = await prisma.countryJurisdiction.findUniqueOrThrow({ where: { countryCode: 'TV' } });
+    expect(pointer.activePolicyId).toBeNull();
+
+    // A new immutable version restores play for later tests.
+    await provideCountryAndAccount(user.id, 'TV', 'Testland', 'ENABLED');
+  }, 60_000);
+
+  it('a concurrent catalogStatus/currentRulesVersion change blocks behind the settlement transaction\'s game lock', async () => {
+    const game = await getGameByKey('dice');
+    expect(game).not.toBeNull();
+
+    let racer: Promise<{ catalogStatus: string }> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL lockGameForPlay — exercises the actual
+      // production lock, not a hand-rolled duplicate of it.
+      await lockGameForPlay(tx, 'dice');
+
+      racer = prisma.gameDefinition.update({
+        where: { id: game!.id },
+        data: { catalogStatus: 'COMING_SOON' },
+      });
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%game_definitions%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    const updated = await racer!;
+    expect(updated.catalogStatus).toBe('COMING_SOON');
+
+    // Restore.
+    await prisma.gameDefinition.update({ where: { id: game!.id }, data: { catalogStatus: 'AVAILABLE' } });
+  }, 60_000);
+
+  it('a concurrent payout-account status change blocks behind the settlement transaction\'s jurisdiction lock (the SAME FOR SHARE JOIN also locks this row)', async () => {
+    const user = await createUser('race-account');
+    await primeCoins(user.id, 1000);
+    const account = await prisma.userPayoutAccount.findFirstOrThrow({
+      where: { userId: user.id, status: 'ACTIVE' },
+    });
+
+    let racer: Promise<{ status: string }> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      // Holder calls the REAL resolveJurisdictionForPlay — the SAME single
+      // joined FOR SHARE that locks both the policy and payout-account rows
+      // (no `FOR SHARE OF` restricting it to one table), exercising the
+      // actual production lock rather than a hand-rolled duplicate of it.
+      await resolveJurisdictionForPlay(tx, user.id);
+
+      racer = prisma.userPayoutAccount.update({
+        where: { id: account.id },
+        data: { status: 'DISABLED', disabledAt: new Date() },
+      });
+      racer.catch(() => undefined);
+
+      await waitForBlockedBackends(1, {
+        queryLike: '%user_payout_accounts%SET%',
+        waitEvents: ROW_LOCK_WAITS,
+      });
+    }, tx30);
+
+    const updated = await racer!;
+    expect(updated.status).toBe('DISABLED');
+
+    // Restore.
+    await prisma.userPayoutAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', disabledAt: null } });
+  }, 60_000);
+});
+
+// ─── ROLLBACK LEAVES NO ORPHAN PROVENANCE ───────────────────────
+
+describeIf('Rollback leaves wallet/ledger/provenance/allocation unchanged', () => {
+  it('two concurrent plays sharing the EXACT SAME idempotency key never double-debit — the advisory lock serializes them and the second transparently replays the first, exactly one allocation set exists', async () => {
+    // The advisory lock (`pg_advisory_xact_lock` keyed by userId+idempotencyKey,
+    // acquired as literally the first statement of the transaction) fully
+    // serializes two concurrent calls sharing a key — the second is blocked
+    // until the first COMMITS, then finds the already-persisted session via
+    // the replay check and returns it, rather than racing into the
+    // GameSession unique-constraint P2002. Both calls therefore FULFILL
+    // (one 201, one 200-replay) with IDENTICAL session data — the real-world
+    // guarantee this exists to prove: a retried/duplicated request can never
+    // create a second wager, whatever transport-level race produced it.
+    const user = await createUser('race-rollback');
+    await primeCoins(user.id, 1000);
+
+    const beforeSessions = await prisma.gameSession.count({ where: { userId: user.id } });
+
+    const sharedKey = 'race-rollback-shared-key';
+    const results = await Promise.allSettled([
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: sharedKey }),
+      playGame({ userId: user.id, gameKey: 'dice', betAmount: 10, idempotencyKey: sharedKey }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<Awaited<ReturnType<typeof playGame>>>[];
+    expect(fulfilled).toHaveLength(2);
+    // Both resolved to the SAME session — one is the fresh play, the other its replay.
+    expect(fulfilled[0].value.sessionId).toBe(fulfilled[1].value.sessionId);
+    expect(fulfilled.filter((r) => r.value.isReplay === true)).toHaveLength(1);
+    expect(fulfilled.filter((r) => r.value.isReplay === false)).toHaveLength(1);
+
+    const afterSessions = await prisma.gameSession.count({ where: { userId: user.id } });
+    expect(afterSessions).toBe(beforeSessions + 1); // exactly ONE session, never two
+
+    const operations = await prisma.economicOperation.findMany({
+      where: { userId: user.id, scopeType: 'GAME_SESSION', scopeId: fulfilled[0].value.sessionId },
+    });
+    // A replay creates no second economic operation. A win has one PAYOUT
+    // beside the WAGER; a loss has only the WAGER.
+    expect(operations.filter((op) => op.type === 'WAGER')).toHaveLength(1);
+    expect(operations.filter((op) => op.type === 'PAYOUT')).toHaveLength(
+      fulfilled[0].value.rewardAmount > 0 ? 1 : 0
+    );
+
+    const rec = await reconcileBalance(user.id);
+    expect(rec.coinsMatch).toBe(true);
+  });
+
+  it('a rejected trivia re-answer (P2002 on the unique attempt) leaves no orphan wallet/provenance work from that attempt', async () => {
+    // A DIFFERENT idempotency key per call means the advisory lock does NOT
+    // serialize these two — they race on the userTriviaAttempt unique
+    // constraint instead. The loser's P2002 is caught and re-thrown as a
+    // 400 BEFORE any wallet/provenance work begins in that attempt (see
+    // game-play.ts: the attempt claim happens during outcome generation,
+    // strictly before settlement) — so this proves the loser's rejection
+    // truly leaves zero trace, via the earliest possible failure point.
+    const user = await createUser('race-trivia-rollback');
+    await primeCoins(user.id, 1000);
+    const q = await prisma.triviaQuestion.create({
+      data: { question: 'Rollback-Q', choices: ['A', 'B', 'C', 'D'], correctIndex: 0, category: 'math' },
+    });
+
+    const beforeProvenance = await prisma.coinProvenance.count({ where: { userId: user.id } });
+    const beforeTx = await prisma.walletTransaction.count({ where: { userId: user.id } });
+
+    const results = await Promise.allSettled([
+      playGame({ userId: user.id, gameKey: 'trivia', clientData: { questionId: q.id, answerIndex: 0 }, idempotencyKey: 'race-trivia-a' }),
+      playGame({ userId: user.id, gameKey: 'trivia', clientData: { questionId: q.id, answerIndex: 0 }, idempotencyKey: 'race-trivia-b' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // Exactly one attempt's worth of provenance/ledger work exists — the
+    // loser's rejected attempt left nothing behind.
+    const afterProvenance = await prisma.coinProvenance.count({ where: { userId: user.id } });
+    const afterTx = await prisma.walletTransaction.count({ where: { userId: user.id } });
+    expect(afterProvenance).toBeLessThanOrEqual(beforeProvenance + 1);
+    expect(afterTx).toBeLessThanOrEqual(beforeTx + 1);
+
+    const rec = await reconcileBalance(user.id);
+    expect(rec.coinsMatch).toBe(true);
   });
 });
 
@@ -561,32 +1203,210 @@ describeIf('Client manipulation', () => {
   beforeAll(async () => {
     await cleanFixtures();
     a = await createUser('manip');
-    await ensureGameDefinitions();
-    await primeGamePoints(a.id, 1000);
+    await primeCoins(a.id, 1000);
   });
 
   it('client cannot supply dice result', async () => {
     const result = await playGame({
-      userId: a.id,
-      gameKey: 'dice',
-      betAmount: 10,
-      clientData: { die1: 6, die2: 6, sum: 12 },
+      userId: a.id, gameKey: 'dice', betAmount: 10,
+      clientData: { die1: 6, die2: 6, sum: 12 }, idempotencyKey: 'manip-dice-1',
     });
-    // Result should be server-generated, not the client-supplied values
-    const { die1, die2 } = result.result as any;
+    const { die1, sum } = result.result as { die1: number; sum: number };
     expect(typeof die1).toBe('number');
     expect(die1).toBeGreaterThanOrEqual(1);
     expect(die1).toBeLessThanOrEqual(6);
+    void sum;
   });
 
   it('client cannot supply reward amount', async () => {
     const result = await playGame({
-      userId: a.id,
-      gameKey: 'lucky_spin',
-      betAmount: 10,
-      clientData: { rewardAmount: 99999 },
+      userId: a.id, gameKey: 'dice', betAmount: 10,
+      clientData: { rewardAmount: 99999 }, idempotencyKey: 'manip-reward-1',
     });
-    // Reward should be derived from server-side multiplier
     expect(result.rewardAmount).toBeLessThan(99999);
+  });
+});
+
+// ─── CORRECTION: PROVENANCE ─────────────────────────────────────
+
+describeIf('Provenance corrections', () => {
+  let a: { id: string };
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    a = await createUser('prov');
+    await primeCoins(a.id, 5000);
+  });
+
+  it('trivia reward creates a RESTRICTED provenance row', async () => {
+    const q = await prisma.triviaQuestion.create({
+      data: {
+        question: 'Prov-1 question', choices: ['A', 'B', 'C', 'D'], correctIndex: 1, category: 'math',
+      },
+    });
+    const result = await playGame({
+      userId: a.id, gameKey: 'trivia',
+      clientData: { questionId: q.id, answerIndex: 1 },
+      idempotencyKey: 'prov-trivia-1',
+    });
+    const p = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: a.id, provenanceType: 'TRIVIA_REWARD' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(p.amount).toBe(30);
+    expect(p.restrictionStatus).toBe('RESTRICTED');
+    expect(p.originalSource).toBe('TRIVIA_REWARD');
+    expect(p.walletTransactionId).toBeTruthy();
+    expect(p.requiredPlaythrough).toBeGreaterThanOrEqual(1);
+    void result;
+  });
+
+  it('purchased stake and payout stay in the same withdrawable lot', async () => {
+    const funded = await createUser('prov-wager-clean');
+    await primeCoins(funded.id, 5000);
+    const purchased = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: funded.id, lotClass: 'WITHDRAWABLE' },
+    });
+    for (let i = 0; i < 40; i++) {
+      const key = `prov-dice-win-${i}`;
+      const r = await playGame({ userId: funded.id, gameKey: 'dice', betAmount: 10, idempotencyKey: key });
+      const current = await prisma.coinProvenance.findUniqueOrThrow({ where: { id: purchased.id } });
+      expect(current.lotClass).toBe('WITHDRAWABLE');
+      expect(current.state).toBe('OPEN');
+      expect(current.availableAmount).toBe(r.newBalance);
+    }
+    expect(await prisma.coinProvenance.count({ where: { userId: funded.id } })).toBe(1);
+  });
+
+  it('mixed funding returns proportional payout shares and never converts a bonus early', async () => {
+    const mixedUser = await createUser('prov-mixed');
+    await primeCoins(mixedUser.id, 5);
+    const bonusLot = await primeRestrictedCoins(mixedUser.id, 5, 10_000);
+    const purchaseLot = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: mixedUser.id, lotClass: 'WITHDRAWABLE' },
+    });
+    const r = await playGame({
+      userId: mixedUser.id, gameKey: 'dice', betAmount: 10, idempotencyKey: 'prov-mixed-one',
+    });
+    const [bonusAfter, purchasedAfter] = await Promise.all([
+      prisma.coinProvenance.findUniqueOrThrow({ where: { id: bonusLot.id } }),
+      prisma.coinProvenance.findUniqueOrThrow({ where: { id: purchaseLot.id } }),
+    ]);
+    expect(bonusAfter).toMatchObject({ lotClass: 'RESTRICTED', requirementAmount: 10000 });
+    expect(bonusAfter.state).toBe(r.rewardAmount > 0 ? 'OPEN' : 'EXHAUSTED');
+    expect(purchasedAfter.lotClass).toBe('WITHDRAWABLE');
+    expect(purchasedAfter.availableAmount).toBe(Math.floor(r.rewardAmount / 2));
+    expect(bonusAfter.availableAmount).toBe(r.rewardAmount - Math.floor(r.rewardAmount / 2));
+    expect(await prisma.coinProvenance.count({ where: { userId: mixedUser.id } })).toBe(2);
+    if (bonusAfter.availableAmount === null || purchasedAfter.availableAmount === null) {
+      throw new Error('Classified game lots must have available amounts');
+    }
+    expect(bonusAfter.availableAmount + purchasedAfter.availableAmount).toBe(r.newBalance);
+  });
+
+  it('provenance row references a wallet CREDIT transaction owned by the same user', async () => {
+    const q = await prisma.triviaQuestion.create({
+      data: {
+        question: 'Prov-2 question', choices: ['A', 'B', 'C', 'D'], correctIndex: 0, category: 'math',
+      },
+    });
+    const result = await playGame({
+      userId: a.id, gameKey: 'trivia',
+      clientData: { questionId: q.id, answerIndex: 0 },
+      idempotencyKey: 'prov-trivia-2',
+    });
+    expect(result.isWin).toBe(true);
+    const p = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: a.id, provenanceType: 'TRIVIA_REWARD' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!p.walletTransactionId) throw new Error('Trivia lot must link its credit transaction');
+    const tx = await prisma.walletTransaction.findUniqueOrThrow({ where: { id: p.walletTransactionId } });
+    expect(tx.userId).toBe(a.id);
+    expect(tx.currency).toBe('COINS');
+    expect(tx.ledgerType).toBe('CREDIT');
+  });
+});
+
+// ─── CORRECTION: REPLAY AFTER RULES BUMP ────────────────────────
+
+describeIf('Replay after a rules bump', () => {
+  let a: { id: string };
+
+  afterAll(async () => {
+    // The version rows are immutable, but the catalog pointer is mutable.
+    // Restore it for other test files sharing this database.
+    await prisma.gameDefinition.update({
+      where: { key: 'dice' }, data: { currentRulesVersion: 1 },
+    });
+  });
+
+  async function bumpDiceRules() {
+    const def = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
+    const rules = await prisma.gameRules.findUniqueOrThrow({
+      where: { gameId_version: { gameId: def.id, version: 1 } },
+    });
+    // game_rules is immutable, so prior bumps persist across runs. Read the
+    // max existing version and bump past it (never collide).
+    const max = await prisma.gameRules.aggregate({
+      where: { gameId: def.id },
+      _max: { version: true },
+    });
+    const version = (max._max.version ?? 1) + 1;
+    // Insert a new version with a materially different multiplier to prove the
+    // stored rules version is used on replay, not the CURRENT version.
+    const vN = await prisma.gameRules.create({
+      data: {
+        gameId: def.id,
+        version,
+        mode: rules.mode,
+        family: rules.family,
+        wagerCurrency: rules.wagerCurrency,
+        rewardCurrency: rules.rewardCurrency,
+        rules: { ...(rules.rules as Prisma.JsonObject), multiplier: 2 },
+        resultSchemaVersion: rules.resultSchemaVersion,
+        rulesHash: '0'.repeat(64),
+      },
+    });
+    await prisma.gameDefinition.update({
+      where: { id: def.id },
+      data: { currentRulesVersion: version },
+    });
+    return vN;
+  }
+
+  beforeAll(async () => {
+    await cleanFixtures();
+    a = await createUser('reqreplay');
+    await primeCoins(a.id, 5000);
+  });
+
+  it('replays the ORIGINAL response snapshot after the rules pointer advances', async () => {
+    const base = {
+      userId: a.id, gameKey: 'dice', betAmount: 100, idempotencyKey: 'bump-dice-1',
+    } as const;
+    const r1 = await playGame({ ...base });
+    expect(r1.rulesVersion).toBe(1);
+
+    await bumpDiceRules();
+
+    // Replay with the same key + fingerprint returns the stored v1 snapshot,
+    // even though the CURRENT rules pointer has advanced to v2.
+    const r2 = await playGame({ ...base });
+    expect(r2.sessionId).toBe(r1.sessionId);
+    expect(r2.rulesVersion).toBe(1); // stored, not 2
+    expect(r2.rewardAmount).toBe(r1.rewardAmount);
+    expect(r2.result).toEqual(r1.result);
+    expect(r2.isReplay).toBe(true);
+  });
+
+  it('still returns 409 for a conflicting payload after a rules bump', async () => {
+    await playGame({
+      userId: a.id, gameKey: 'dice', betAmount: 50, idempotencyKey: 'bump-dice-2',
+    });
+    await bumpDiceRules();
+    await expect(
+      playGame({ userId: a.id, gameKey: 'dice', betAmount: 40, idempotencyKey: 'bump-dice-2' })
+    ).rejects.toMatchObject({ statusCode: 409 });
   });
 });

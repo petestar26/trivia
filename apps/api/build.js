@@ -17,7 +17,17 @@ async function buildApi() {
 
   // Bundle with esbuild
   await build({
-    entryPoints: [join(__dirname, 'src/server.ts'), join(__dirname, 'src/worker.ts')],
+    entryPoints: [
+      join(__dirname, 'src/server.ts'),
+      join(__dirname, 'src/worker.ts'),
+      // Read-only ledger upgrade preflight, runnable where tsx is not installed.
+      join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),
+      // Rolled-back ledger invariant scan for the upgrade runbook.
+      join(__dirname, 'src/scripts/ledger-invariant-scan.ts'),
+      // Owner-run setup of the runtime role's grants and the approval key.
+      join(__dirname, 'src/scripts/ledger-runtime-access.ts'),
+    ],
+    outbase: join(__dirname, 'src'),
     bundle: true,
     platform: 'node',
     format: 'esm',

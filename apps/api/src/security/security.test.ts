@@ -66,6 +66,12 @@ async function cleanSecurityFixtures() {
     await prisma.userSecurityPolicy.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
+    // Coin provenance/allocation rows are a real foreign key to User —
+    // must be cleared before the user row itself can be deleted. Covers
+    // both rows this run created AND legacy backfill rows for any stale
+    // fixture user left behind by a prior interrupted run (same id set).
+    await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 }
@@ -145,27 +151,25 @@ describe('TOTP primitives (RFC 6238)', () => {
 });
 
 describe('Secret encryption at rest', () => {
-  // These run only when the server is configured for TOTP; otherwise the
-  // helper correctly fails closed and there is nothing to assert.
-  const configured = Boolean(process.env.SECURITY_TOTP_ENCRYPTION_KEY);
-  const itIf = configured ? it : it.skip;
+  // The test environment always configures a disposable TOTP key (see
+  // test/global-setup.ts), so these run, never skip silently.
 
-  itIf('round-trips a secret', () => {
+  it('round-trips a secret', () => {
     const secret = generateTotpSecret();
     expect(decryptSecret(encryptSecret(secret))).toBe(secret);
   });
 
-  itIf('never stores the plaintext secret in the ciphertext', () => {
+  it('never stores the plaintext secret in the ciphertext', () => {
     const secret = generateTotpSecret();
     expect(encryptSecret(secret)).not.toContain(secret);
   });
 
-  itIf('produces a different ciphertext each time (random IV)', () => {
+  it('produces a different ciphertext each time (random IV)', () => {
     const secret = generateTotpSecret();
     expect(encryptSecret(secret)).not.toBe(encryptSecret(secret));
   });
 
-  itIf('rejects tampered ciphertext rather than returning bad plaintext', () => {
+  it('rejects tampered ciphertext rather than returning bad plaintext', () => {
     const encoded = encryptSecret(generateTotpSecret());
     const parts = encoded.split(':');
     // Flip a byte in the ciphertext segment.
@@ -173,7 +177,7 @@ describe('Secret encryption at rest', () => {
     expect(() => decryptSecret(parts.join(':'))).toThrow();
   });
 
-  itIf('rejects a malformed envelope', () => {
+  it('rejects a malformed envelope', () => {
     expect(() => decryptSecret('not-a-valid-envelope')).toThrow();
   });
 });

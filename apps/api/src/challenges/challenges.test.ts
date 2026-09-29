@@ -10,8 +10,9 @@ import {
   getChallengeById,
 } from './challenge-service';
 import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
-import { ensureGameDefinitions } from '../games/game-catalog';
 import { ApiError } from '../middleware';
+import { getGameHistory } from '../games/game-play.js';
+import { publishNextRulesVersion } from '../test/contest-rules-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -75,6 +76,12 @@ async function cleanChalFixtures() {
     await prisma.gameSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.walletTransaction.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } });
+    // Coin provenance/allocation rows are a real foreign key to User —
+    // must be cleared before the user row itself can be deleted. Covers
+    // both rows this run created AND legacy backfill rows for any stale
+    // fixture user left behind by a prior interrupted run (same id set).
+    await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 }
@@ -111,7 +118,7 @@ describeIf('Create challenge', () => {
     await cleanChalFixtures();
     a = await createUser('a');
     b = await createUser('b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -147,7 +154,7 @@ describeIf('Challenge authorization', () => {
     a = await createUser('auth_a');
     b = await createUser('auth_b');
     c = await createUser('auth_c');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -177,7 +184,7 @@ describeIf('Accept challenge', () => {
     await cleanChalFixtures();
     a = await createUser('acc_a');
     b = await createUser('acc_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
     await primeGamePoints(b.id, 500);
   });
@@ -210,7 +217,7 @@ describeIf('Decline challenge', () => {
     await cleanChalFixtures();
     a = await createUser('dec_a');
     b = await createUser('dec_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -236,7 +243,7 @@ describeIf('Play challenge full flow', () => {
     await cleanChalFixtures();
     a = await createUser('play_a');
     b = await createUser('play_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
     await primeGamePoints(b.id, 500);
   });
@@ -303,7 +310,7 @@ describeIf('List user challenges', () => {
     await cleanChalFixtures();
     a = await createUser('list_a');
     b = await createUser('list_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 500);
   });
 
@@ -345,7 +352,7 @@ describeIf('Challenge concurrency + winner correctness (P1/P2 regression)', () =
   beforeAll(async () => {
     a = await createUser('race_a');
     b = await createUser('race_b');
-    await ensureGameDefinitions();
+
     await primeGamePoints(a.id, 100_000);
     await primeGamePoints(b.id, 100_000);
   });
@@ -521,9 +528,6 @@ describeIf('Challenge concurrency + winner correctness (P1/P2 regression)', () =
 // ═══════════════════════════════════════════════════════════════
 
 describeIf('Challenge accept/decline race hardening', () => {
-  beforeAll(async () => {
-    await ensureGameDefinitions();
-  });
 
   // ── Deterministic held-lock: decline vs an in-flight cancel ──
   it('a decline blocked on a held cancel refunds once and never overwrites CANCELLED', async () => {
@@ -802,4 +806,145 @@ describeIf('createChallenge ACTIVE enforcement', () => {
       expect(challengedTxCountAfter).toBe(challengedTxCountBefore);
     });
   }
+});
+
+// ─── CONTEST GAMES AND PINNED RULES ────────────────────────────
+
+describeIf('Challenge games and pinned rules', () => {
+  let a: { id: string };
+  let b: { id: string };
+
+  beforeAll(async () => {
+    await cleanChalFixtures();
+    a = await createUser('pin_a');
+    b = await createUser('pin_b');
+    await primeGamePoints(a.id, 500);
+    await primeGamePoints(b.id, 500);
+  });
+
+  it('rejects the retired lucky_spin, although it is still isActive', async () => {
+    const spin = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'lucky_spin' } });
+    expect({ status: spin.catalogStatus, active: spin.isActive }).toEqual({ status: 'RETIRED', active: true });
+    await expect(createChallenge(a.id, b.id, 'lucky_spin', 10)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects every COMING_SOON game', async () => {
+    const soon = await prisma.gameDefinition.findMany({ where: { catalogStatus: 'COMING_SOON' }, select: { key: true } });
+    expect(soon.length).toBeGreaterThan(0);
+    for (const { key } of soon) {
+      await expect(createChallenge(a.id, b.id, key, 10), key).rejects.toMatchObject({ statusCode: 400 });
+    }
+  });
+
+  it('rejects an approved, still active game that is no longer AVAILABLE in the catalog', async () => {
+    for (const catalogStatus of ['RETIRED', 'COMING_SOON'] as const) {
+      await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { catalogStatus } });
+      try {
+        await expect(createChallenge(a.id, b.id, 'number_challenge', 10)).rejects.toThrow('currently unavailable');
+      } finally {
+        await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { catalogStatus: 'AVAILABLE' } });
+      }
+    }
+  });
+
+  it('rejects an AVAILABLE game that is inactive', async () => {
+    await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { isActive: false } });
+    try {
+      await expect(createChallenge(a.id, b.id, 'number_challenge', 10)).rejects.toThrow('currently unavailable');
+    } finally {
+      await prisma.gameDefinition.update({ where: { key: 'number_challenge' }, data: { isActive: true } });
+    }
+  });
+
+  it('rejects an AVAILABLE game that has no challenge scoring (trivia)', async () => {
+    await expect(createChallenge(a.id, b.id, 'trivia', 10)).rejects.toThrow('not available for challenges');
+  });
+
+  it('accepts an approved AVAILABLE game and pins its current rules version', async () => {
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'number_challenge' } });
+    const created = await createChallenge(a.id, b.id, 'number_challenge', 10);
+    const row = await prisma.gameChallenge.findUniqueOrThrow({ where: { id: created.id } });
+    expect(row.rulesVersion).toBe(game.currentRulesVersion);
+    expect(created.rulesVersion).toBe(game.currentRulesVersion);
+  });
+
+  it('every turn records the result schema version of the pinned rules, not a default', async () => {
+    const current = await prisma.gameRules.findFirstOrThrow({
+      where: { game: { key: 'number_challenge' } }, orderBy: { version: 'desc' } });
+    const next = await publishNextRulesVersion('number_challenge', {}, { resultSchemaVersion: current.resultSchemaVersion + 1 });
+    let chal: Awaited<ReturnType<typeof createChallenge>>;
+    try {
+      chal = await createChallenge(a.id, b.id, 'number_challenge', 10);
+    } finally {
+      await next.restore();
+    }
+    expect(chal.rulesVersion).toBe(next.version);
+    await acceptChallenge(b.id, chal.id);
+    await playChallengeTurn(a.id, chal.id, { guess: 50 });
+    await playChallengeTurn(b.id, chal.id, { guess: 50 });
+    const rounds = await prisma.gameSession.findMany({ where: { challengeId: chal.id } });
+    expect(rounds.map((round) => [round.rulesVersion, round.resultSchemaVersion]))
+      .toEqual([[next.version, current.resultSchemaVersion + 1], [next.version, current.resultSchemaVersion + 1]]);
+  });
+
+  it('every turn plays the pinned rules, even when the current rules and configuration change between turns', async () => {
+    const entryDebitsBefore = await prisma.walletTransaction.count({
+      where: { userId: { in: [a.id, b.id] }, description: 'Challenge entry: number_challenge' },
+    });
+    const chal = await createChallenge(a.id, b.id, 'number_challenge', 20);
+    await acceptChallenge(b.id, chal.id);
+    const pinned = (await prisma.gameChallenge.findUniqueOrThrow({ where: { id: chal.id } })).rulesVersion;
+    await playChallengeTurn(a.id, chal.id, { guess: 50 });
+    // A new rules version (targets 500-600) and an edited configuration land
+    // between the two turns.
+    const next = await publishNextRulesVersion('number_challenge', { range: { min: 500, max: 600 } });
+    try {
+      expect(next.version).not.toBe(pinned);
+      const second = await playChallengeTurn(b.id, chal.id, { guess: 50 });
+      expect(second.challengeComplete).toBe(true);
+    } finally {
+      await next.restore();
+    }
+    const rounds = await prisma.gameSession.findMany({ where: { challengeId: chal.id } });
+    expect(rounds).toHaveLength(2);
+    const rules = await prisma.gameRules.findUniqueOrThrow({
+      where: { gameId_version: { gameId: rounds[0].gameId, version: pinned } },
+    });
+    for (const round of rounds) {
+      expect((round.result as { target: number }).target).toBeLessThanOrEqual(100);
+      expect(round).toMatchObject({
+        rulesVersion: pinned, resultSchemaVersion: rules.resultSchemaVersion,
+        mode: rules.mode, family: rules.family, wagerCurrency: rules.wagerCurrency, rewardCurrency: rules.rewardCurrency,
+        playContext: 'CHALLENGE_ROUND', betAmount: 0, rewardAmount: 0,
+        settlementDebitCurrency: null, settlementCreditCurrency: null,
+      });
+      expect((round.requestSnapshot as { rulesVersion: number }).rulesVersion).toBe(pinned);
+    }
+    const final = await prisma.gameChallenge.findUniqueOrThrow({ where: { id: chal.id } });
+    expect({ status: final.status, rulesVersion: final.rulesVersion }).toEqual({ status: 'COMPLETED', rulesVersion: pinned });
+    // The Game Points entry was escrowed exactly once per player.
+    expect(await prisma.walletTransaction.count({
+      where: { userId: { in: [a.id, b.id] }, description: 'Challenge entry: number_challenge' },
+    })).toBe(entryDebitsBefore + 2);
+  });
+
+  it("a challenge's pinned game and rules version cannot change after creation", async () => {
+    const chal = await createChallenge(a.id, b.id, 'dice', 0);
+    await expect(prisma.$executeRawUnsafe(
+      'UPDATE "game_challenges" SET "rulesVersion" = "rulesVersion" + 1 WHERE "id" = $1', chal.id,
+    )).rejects.toThrow(/pinned to game .* rules version/);
+    await expect(prisma.$executeRawUnsafe(
+      `UPDATE "game_challenges" SET "gameId" = (SELECT "id" FROM "game_definitions" WHERE "key" = 'number_challenge') WHERE "id" = $1`, chal.id,
+    )).rejects.toThrow(/pinned to game .* rules version/);
+  });
+
+  it('history shows each round as a challenge round with no stake and no settlement', async () => {
+    const history = await getGameHistory(a.id, { limit: 100 });
+    const rounds = history.data.filter((row) => row.playContext === 'CHALLENGE_ROUND');
+    expect(rounds.length).toBeGreaterThan(0);
+    for (const round of rounds) {
+      expect(round).toMatchObject({ betAmount: 0, settlementDebitCurrency: null, settlementCreditCurrency: null });
+      expect(round.resultSchemaVersion).toEqual(expect.any(Number));
+    }
+  });
 });

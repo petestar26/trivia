@@ -1,5 +1,10 @@
 import { prisma } from '@socialplay/database';
 
+export type GameModeValue = 'WAGER' | 'BONUS';
+export type GameFamilyValue = 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
+export type GameCatalogStatusValue = 'AVAILABLE' | 'COMING_SOON' | 'RETIRED';
+export type GameCurrencyValue = 'COINS' | 'GAME_POINTS';
+
 export interface GameCatalogItem {
   id: string;
   key: string;
@@ -9,97 +14,59 @@ export interface GameCatalogItem {
   minBet: number;
   maxBet: number;
   isActive: boolean;
+  mode: GameModeValue;
+  family: GameFamilyValue;
+  catalogStatus: GameCatalogStatusValue;
+  wagerCurrency: GameCurrencyValue | null;
+  rewardCurrency: GameCurrencyValue;
+  currentRulesVersion: number | null;
 }
 
-// ─── Server-Defined Game Definitions ────────────────────────────
-// These seed the GameDefinition rows. Clients cannot modify them.
+const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
 
-const GAME_DEFINITIONS = [
-  {
-    key: 'lucky_spin',
-    name: 'Lucky Spin',
-    description: 'Spin the wheel and try your luck! Different segments offer different multipliers.',
-    type: 'LUCKY_SPIN',
-    minBet: 10,
-    maxBet: 500,
-    configuration: {
-      outcomes: [
-        { name: 'LOSE', multiplier: 0, probability: 0.45 },
-        { name: 'SMALL_WIN', multiplier: 1.5, probability: 0.25 },
-        { name: 'MEDIUM_WIN', multiplier: 3, probability: 0.15 },
-        { name: 'LARGE_WIN', multiplier: 5, probability: 0.10 },
-        { name: 'JACKPOT', multiplier: 10, probability: 0.05 },
-      ],
-    },
-  },
-  {
-    key: 'dice',
-    name: 'Dice',
-    description: 'Roll the dice! A sum of 7 or higher doubles your bet.',
-    type: 'DICE',
-    minBet: 5,
-    maxBet: 1000,
-    configuration: {
-      winThreshold: 7,
-      multiplier: 2,
-    },
-  },
-  {
-    key: 'number_challenge',
-    name: 'Number Challenge',
-    description: 'Guess a number between 1 and 100. The closer you are, the more you win!',
-    type: 'NUMBER_CHALLENGE',
-    minBet: 10,
-    maxBet: 200,
-    configuration: {
-      range: { min: 1, max: 100 },
-      rewards: { exact: 5, within1: 3, within5: 2, within10: 1.5 },
-    },
-  },
-  {
-    key: 'trivia',
-    name: 'Trivia',
-    description: 'Answer trivia questions correctly to earn rewards!',
-    type: 'TRIVIA',
-    minBet: 5,
-    maxBet: 100,
-    configuration: {
-      correctMultiplier: 3,
-    },
-  },
+// The compliance-approved public catalog: exactly these 13 keys, each once,
+// per the seed migration (20260918020000_casino_foundation_seed) that
+// established them. This is an ALLOWLIST, not a denylist of the retired
+// `lucky_spin` row — a game row is never public just because its
+// catalogStatus happens to be AVAILABLE/COMING_SOON in the database. A row
+// that is AVAILABLE/COMING_SOON but NOT in this list (a rogue insert, a
+// migration mistake, a future draft row someone forgot to keep DRAFT) never
+// reaches a player. Adding a 14th approved game means adding its key here
+// AND shipping a forward-only migration for it — never just flipping a DB
+// column.
+const APPROVED_CATALOG_KEYS: readonly string[] = [
+  'dice',
+  'number_challenge',
+  'trivia',
+  'spin_win',
+  'thunder_derby_3d',
+  'neon_hounds_3d',
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'turbo_keno',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
 ];
 
-export async function ensureGameDefinitions(): Promise<void> {
-  for (const def of GAME_DEFINITIONS) {
-    await prisma.gameDefinition.upsert({
-      where: { key: def.key },
-      update: {
-        name: def.name,
-        description: def.description,
-        type: def.type as 'LUCKY_SPIN' | 'DICE' | 'TRIVIA' | 'NUMBER_CHALLENGE',
-        minBet: def.minBet,
-        maxBet: def.maxBet,
-        configuration: def.configuration,
-        isActive: true,
-      },
-      create: {
-        key: def.key,
-        name: def.name,
-        description: def.description,
-        type: def.type as 'LUCKY_SPIN' | 'DICE' | 'TRIVIA' | 'NUMBER_CHALLENGE',
-        minBet: def.minBet,
-        maxBet: def.maxBet,
-        configuration: def.configuration,
-        isActive: true,
-      },
-    });
-  }
+export function isApprovedGameKey(key: string): boolean {
+  return APPROVED_CATALOG_KEYS.includes(key);
 }
 
+/**
+ * Public catalog. READ-ONLY — a GET never writes. Returns every row that is
+ * AVAILABLE or COMING_SOON AND on the approved-key allowlist (excludes
+ * RETIRED, e.g. legacy lucky_spin, and excludes any row not on the
+ * allowlist regardless of its catalogStatus) with the new Phase-G0 fields
+ * (mode, family, catalogStatus, currencies, current rules version).
+ */
 export async function listActiveGames(): Promise<GameCatalogItem[]> {
-  await ensureGameDefinitions();
   const rows = await prisma.gameDefinition.findMany({
-    where: { isActive: true },
+    where: {
+      catalogStatus: { in: PUBLIC_CATALOG_STATUSES },
+      key: { in: [...APPROVED_CATALOG_KEYS] },
+    },
     orderBy: { key: 'asc' },
     select: {
       id: true,
@@ -110,6 +77,12 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
       minBet: true,
       maxBet: true,
       isActive: true,
+      mode: true,
+      family: true,
+      catalogStatus: true,
+      wagerCurrency: true,
+      rewardCurrency: true,
+      currentRulesVersion: true,
     },
   });
   return rows;
@@ -123,4 +96,25 @@ export async function getGameConfig(key: string): Promise<Record<string, unknown
   const game = await getGameByKey(key);
   if (!game) return {};
   return (game.configuration as Record<string, unknown>) ?? {};
+}
+
+// ─── Rules Helpers ─────────────────────────────────────────────
+
+export async function getGameRules(gameId: string, version: number) {
+  return prisma.gameRules.findUnique({
+    where: { gameId_version: { gameId, version } },
+  });
+}
+
+/**
+ * Resolve the ACTIVE rules version for a game row. Returns null when the
+ * game has no pinned `currentRulesVersion` (e.g. COMING_SOON games that
+ * have not published rules yet).
+ */
+export async function resolveCurrentRules(game: {
+  id: string;
+  currentRulesVersion: number | null;
+}) {
+  if (!game.currentRulesVersion) return null;
+  return getGameRules(game.id, game.currentRulesVersion);
 }

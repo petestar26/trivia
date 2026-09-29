@@ -54,21 +54,24 @@ export async function giftRoutes(server: FastifyInstance): Promise<void> {
         idempotencyKey,
       });
 
-      // Emit realtime event after successful commit
-      emitToUser(recipientId, 'gift:received', {
-        giftId: result.giftId,
-        giftName: result.giftName,
-        senderId: request.user!.sub,
-        quantity: result.quantity,
-        totalGamePoints: result.totalGamePoints,
-        createdAt: result.createdAt,
-      });
+      if (!result.isReplay) {
+        // Emit realtime event after successful commit
+        emitToUser(recipientId, 'gift:received', {
+          giftId: result.giftId,
+          giftName: result.giftName,
+          senderId: request.user!.sub,
+          quantity: result.quantity,
+          totalGamePoints: result.totalGamePoints,
+          createdAt: result.createdAt,
+        });
 
-      // Server-verified activity (post-commit, best-effort) for both parties.
-      safeRecordActivity(request.user!.sub, { type: 'GIFT_SENT' });
-      safeRecordActivity(recipientId, { type: 'GIFT_RECEIVED' });
+        // Server-verified activity (post-commit, best-effort) for both parties.
+        safeRecordActivity(request.user!.sub, { type: 'GIFT_SENT' });
+        safeRecordActivity(recipientId, { type: 'GIFT_RECEIVED' });
 
-      return reply.status(201).send({
+      }
+
+      return reply.status(result.isReplay ? 200 : 201).send({
         success: true,
         data: result,
       });

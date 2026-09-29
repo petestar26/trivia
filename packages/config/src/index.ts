@@ -36,6 +36,16 @@ const envSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters (32 bytes)')
     .optional(),
+  // Signs every ledger approval decision (Coin adjustments, legacy balance
+  // reviews). The database holds the same key in an owner-only table and
+  // refuses any approval whose signature does not verify, so a caller with
+  // only the runtime database role cannot approve anything. Optional at
+  // boot: without it every approval action fails closed (503).
+  LEDGER_APPROVAL_SIGNING_KEY: z
+    .string()
+    .regex(/^(?:[0-9a-fA-F]{2}){32,64}$/, 'must be 32-64 bytes as hex (64-128 characters)')
+    .optional(),
+  LEDGER_APPROVAL_KEY_ID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).default('primary'),
 
 
   COOKIE_DOMAIN: z.string().optional(),

@@ -107,19 +107,8 @@ export async function unlockAchievement(
     // (XP + Coins + Game Points). This ensures the reward can never be
     // permanently separated from the unlock on transient failure.
     const result = await prisma.$transaction(async (tx) => {
-      await tx.userAchievement.create({
-        data: { userId, achievementId: achievement.id },
-      });
-      await tx.notification.create({
-        data: {
-          userId,
-          type: 'ACHIEVEMENT_UNLOCKED',
-          title: 'Achievement unlocked',
-          body: def.title,
-          data: { achievementKey: key, achievementTitle: def.title },
-        },
-      });
-
+      // Grant first so its economic L0/L1/L2/L3 locks precede business inserts.
+      // The achievement and notification remain atomic with this reward.
       // Grant the reward inside the SAME transaction. grantReward's
       // RewardClaim unique guard prevents duplicates under concurrent
       // retries; a P2002 here means a concurrent unlock already succeeded.
@@ -130,6 +119,16 @@ export async function unlockAchievement(
         coinReward: def.coinReward,
         gamePointReward: def.gamePointReward,
       }, tx);
+      await tx.userAchievement.create({
+        data: { userId, achievementId: achievement.id },
+      });
+      await tx.notification.create({
+        data: {
+          userId, type: 'ACHIEVEMENT_UNLOCKED', title: 'Achievement unlocked',
+          body: def.title,
+          data: { achievementKey: key, achievementTitle: def.title },
+        },
+      });
 
       return rewardResult;
     });

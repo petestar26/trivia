@@ -1,10 +1,12 @@
 import { prisma, Prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../economy/wallet-service';
-import { assertGroupRole, assertActiveMember, getGroupMembership } from '../realtime/chat-service';
-import { emitToGroup } from '../realtime/broadcast';
-import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine';
-import { getGameByKey, ensureGameDefinitions } from '../games/game-catalog';
+import { ApiError } from '../middleware/error-handler.js';
+import { getOrCreateWallet, applyBalanceChanges, BalanceChange } from '../economy/wallet-service.js';
+import { assertGroupRole, assertActiveMember, getGroupMembership } from '../realtime/chat-service.js';
+import { emitToGroup } from '../realtime/broadcast.js';
+import { rollDice, generateTarget, evaluateGuess, secureRandomInt } from '../games/game-engine.js';
+import { lockUserForPlay } from '../games/game-locks.js';
+import { contestRoundSnapshot, pinContestRules, pinnedContestRules } from '../games/contest-rules.js';
+import type { GameRules } from '@socialplay/database';
 import { competitionLifecycleInfo } from './competition-lifecycle.js';
 
 const MANAGER_ROLES = ['OWNER', 'ADMIN'];
@@ -38,6 +40,21 @@ function maxPlaysPerParticipant(gameType: string): number | null {
 // balance is the real ceiling; this constant is defence-in-depth so an absurd
 // value can never reach the ledger.
 const MAX_COMPETITION_REWARD = 1_000_000;
+
+function assertNoLegacyCoinPrize(coins: number): void {
+  if (coins > 0) {
+    throw ApiError.conflict(
+      'This competition holds a legacy Coin prize and requires admin ledger review before it can change or settle',
+      { code: 'COIN_COMPETITION_ADMIN_REVIEW_REQUIRED' }
+    );
+  }
+}
+
+function assertNoNewCoinPrize(coins: number): void {
+  if (coins > 0) {
+    throw ApiError.badRequest('Coin competition prizes are disabled until provenance-preserving escrow is available');
+  }
+}
 
 /**
  * Strictly validates a client-supplied reward amount. Rejects — never silently
@@ -84,6 +101,8 @@ function prizeEscrowChanges(
   competitionId: string,
   description: string
 ): BalanceChange[] {
+  // G0 backstop: no competition path may move COINS without lot escrow.
+  assertNoLegacyCoinPrize(coins);
   const changes: BalanceChange[] = [];
   if (gamePoints > 0) {
     changes.push({
@@ -91,17 +110,6 @@ function prizeEscrowChanges(
       amount: gamePoints,
       ledgerType,
       transactionType: ledgerType === 'DEBIT' ? 'GAME_POINT_DEBIT' : 'GAME_POINT_CREDIT',
-      referenceType: 'REWARD',
-      referenceId: competitionId,
-      description,
-    });
-  }
-  if (coins > 0) {
-    changes.push({
-      currency: 'COINS',
-      amount: coins,
-      ledgerType,
-      transactionType: ledgerType === 'DEBIT' ? 'COIN_DEBIT' : 'COIN_CREDIT',
       referenceType: 'REWARD',
       referenceId: competitionId,
       description,
@@ -173,14 +181,13 @@ function scoringForGame(gameType: string): any {
 
 export async function createCompetition(creatorId: string, args: CreateCompetitionArgs) {
   await assertGroupRole(args.groupId, creatorId, MANAGER_ROLES);
-  await ensureGameDefinitions();
 
-  const game = await getGameByKey(args.gameKey);
-  if (!game) throw ApiError.notFound('Game not found');
-  if (!game.isActive) throw ApiError.badRequest('This game is currently unavailable');
+  // Fail fast, before any wallet is touched; re-checked under lock below.
+  const { game } = await pinContestRules(prisma, args.gameKey, 'COMPETITION');
 
   const { startsAt, endsAt, entry, maxParticipants, rGP, rCoins } = validateCompetitionInput(args);
   const scoring = scoringForGame(game.type);
+  assertNoNewCoinPrize(rCoins);
 
   await getOrCreateWallet(creatorId);
 
@@ -190,10 +197,14 @@ export async function createCompetition(creatorId: string, args: CreateCompetiti
   // finalizer from minting unbacked currency. If the creator cannot cover the
   // prize, applyBalanceChanges throws and the competition is never created.
   const competition = await prisma.$transaction(async (tx) => {
+    // The authoritative game and rules read, locked until this commits: the
+    // competition is pinned to exactly this immutable rules version.
+    const { game: locked, rules } = await pinContestRules(tx, args.gameKey, 'COMPETITION');
     const created = await tx.groupCompetition.create({
       data: {
         groupId: args.groupId,
-        gameId: game.id,
+        gameId: locked.id,
+        rulesVersion: rules.version,
         title: args.title.trim(),
         description: args.description?.trim() ?? null,
         status: 'SCHEDULED',
@@ -246,6 +257,7 @@ export async function updateCompetition(
   if (!comp) throw ApiError.notFound('Competition not found');
   await assertGroupRole(comp.groupId, actorId, MANAGER_ROLES);
   if (comp.status !== 'SCHEDULED') throw ApiError.badRequest('Only scheduled competitions can be edited');
+  assertNoLegacyCoinPrize(comp.rewardCoins);
 
   const data: any = {};
   if (args.title !== undefined) data.title = args.title.trim();
@@ -266,7 +278,10 @@ export async function updateCompetition(
       ? validateRewardAmount(args.rewardCoins, 'rewardCoins')
       : undefined;
   if (newGP !== undefined) data.rewardGamePoints = newGP;
-  if (newCoins !== undefined) data.rewardCoins = newCoins;
+  if (newCoins !== undefined) {
+    assertNoNewCoinPrize(newCoins);
+    data.rewardCoins = newCoins;
+  }
   if (args.startsAt && args.endsAt) {
     const s = new Date(args.startsAt);
     const e = new Date(args.endsAt);
@@ -297,10 +312,12 @@ export async function updateCompetition(
     // late edit.
     return prisma.$transaction(async (tx) => {
       const applied = await tx.groupCompetition.updateMany({
-        where: { id: competitionId, status: 'SCHEDULED', finalizedAt: null },
+        where: { id: competitionId, status: 'SCHEDULED', finalizedAt: null, rewardCoins: 0 },
         data,
       });
       if (applied.count === 0) {
+        const current = await tx.groupCompetition.findUnique({ where: { id: competitionId }, select: { rewardCoins: true } });
+        if (current) assertNoLegacyCoinPrize(current.rewardCoins);
         throw ApiError.badRequest('Only scheduled competitions can be edited');
       }
       const updated = await tx.groupCompetition.findUnique({ where: { id: competitionId } });
@@ -319,6 +336,7 @@ export async function updateCompetition(
   return prisma.$transaction(async (tx) => {
     const before = await tx.groupCompetition.findUnique({ where: { id: competitionId } });
     if (!before) throw ApiError.notFound('Competition not found');
+    assertNoLegacyCoinPrize(before.rewardCoins);
     if (before.status !== 'SCHEDULED') throw ApiError.badRequest('Only scheduled competitions can be edited');
 
     const targetGP = newGP ?? before.rewardGamePoints;
@@ -395,6 +413,7 @@ export async function cancelCompetition(actorId: string, competitionId: string) 
   if (!['SCHEDULED', 'ACTIVE'].includes(comp.status)) {
     throw ApiError.badRequest('Competition cannot be cancelled');
   }
+  assertNoLegacyCoinPrize(comp.rewardCoins);
 
   await getOrCreateWallet(comp.createdBy);
 
@@ -403,10 +422,12 @@ export async function cancelCompetition(actorId: string, competitionId: string) 
     // actually flips the status issues refunds, so concurrent cancels can
     // never refund the same entries or the same prize escrow twice.
     const claimed = await tx.groupCompetition.updateMany({
-      where: { id: competitionId, status: { in: ['SCHEDULED', 'ACTIVE'] } },
+      where: { id: competitionId, status: { in: ['SCHEDULED', 'ACTIVE'] }, rewardCoins: 0 },
       data: { status: 'CANCELLED', participantCount: 0 },
     });
     if (claimed.count === 0) {
+      const current = await tx.groupCompetition.findUnique({ where: { id: competitionId }, select: { rewardCoins: true } });
+      if (current) assertNoLegacyCoinPrize(current.rewardCoins);
       throw ApiError.badRequest('Competition cannot be cancelled');
     }
 
@@ -464,6 +485,7 @@ export async function joinCompetition(userId: string, competitionId: string) {
   if (!['SCHEDULED', 'ACTIVE'].includes(comp.status)) {
     throw ApiError.badRequest('Competition is not open for participation');
   }
+  assertNoLegacyCoinPrize(comp.rewardCoins);
   const now = new Date();
   if (now < comp.startsAt) throw ApiError.badRequest('Competition has not started yet');
   if (now > comp.endsAt) throw ApiError.badRequest('Competition has ended');
@@ -488,12 +510,15 @@ export async function joinCompetition(userId: string, competitionId: string) {
         id: competitionId,
         status: { in: ['SCHEDULED', 'ACTIVE'] },
         finalizedAt: null,
+        rewardCoins: 0,
         startsAt: { lte: txNow },
         endsAt: { gte: txNow },
       },
       data: { participantCount: { increment: 1 } },
     });
     if (seat.count === 0) {
+      const current = await tx.groupCompetition.findUnique({ where: { id: competitionId }, select: { rewardCoins: true } });
+      if (current) assertNoLegacyCoinPrize(current.rewardCoins);
       throw ApiError.badRequest('Competition is not open for participation');
     }
 
@@ -622,17 +647,21 @@ export async function playCompetition(
   if (comp.status !== 'ACTIVE' && comp.status !== 'SCHEDULED') {
     throw ApiError.badRequest('Competition is not playable');
   }
+  assertNoLegacyCoinPrize(comp.rewardCoins);
 
   const participant = await prisma.competitionParticipant.findUnique({
     where: { competitionId_userId: { competitionId, userId } },
   });
   if (!participant) throw ApiError.forbidden('Join the competition before playing');
 
-  const config = (comp.game.configuration as Record<string, unknown>) ?? {};
+  // Every round plays the rules the competition was created under, never the
+  // game's current rules or its mutable configuration.
+  const rules = await pinnedContestRules(prisma, comp.gameId, comp.rulesVersion);
+  const config = (rules.rules as Record<string, unknown>) ?? {};
 
   if (comp.game.type === 'TRIVIA') {
     if (comp.scoring !== 'TRIVIA_CORRECT') throw ApiError.badRequest('Invalid scoring');
-    return playTriviaCompetitionRound(userId, comp, participant, clientData);
+    return playTriviaCompetitionRound(userId, comp, rules, participant, clientData);
   }
 
   // Server-computed BEFORE the transaction, from CSPRNG game logic — clientData
@@ -641,7 +670,10 @@ export async function playCompetition(
   const { score, result } = computeScore(comp.scoring as string, comp.game.type, config, clientData);
 
   const outcome = await prisma.$transaction(async (tx) => {
-    // ── LOCK the competition row FIRST ────────────────────────────
+    // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+    await lockUserForPlay(tx, userId);
+
+    // ── LOCK the competition row SECOND ───────────────────────────
     // A plain re-read of comp.status here would be a non-locking SELECT: under
     // READ COMMITTED it does not block on a concurrent finalize/cancel/update
     // claim that is mid-flight (locked but not yet committed), so it could
@@ -692,12 +724,22 @@ export async function playCompetition(
       data: {
         userId,
         gameId: comp.gameId,
-        betAmount: comp.entryAmount,
+        // A competition round moves no wallet value: the Game Points entry
+        // was escrowed once, at join, on the competition itself.
+        ...contestRoundSnapshot(rules, 'COMPETITION_ROUND'),
         result: result as any,
-        rewardAmount: 0,
         isWin: score > 0,
         status: 'COMPLETED',
         completedAt: new Date(),
+        requestSnapshot: JSON.parse(
+          JSON.stringify({
+            gameKey: comp.game.key,
+            rulesVersion: rules.version,
+            stake: 0,
+            selections: {},
+          })
+        ),
+        responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
       },
     });
 
@@ -734,7 +776,8 @@ export async function playCompetition(
  */
 async function playTriviaCompetitionRound(
   userId: string,
-  comp: { id: string; gameId: string; entryAmount: number },
+  comp: { id: string; gameId: string; game: { key: string } },
+  rules: GameRules,
   participant: { score: number; gamesPlayed: number },
   clientData?: Record<string, unknown>
 ) {
@@ -799,7 +842,10 @@ async function playTriviaCompetitionRound(
   const result = { questionId: q.id, answerIndex, correct };
 
   await prisma.$transaction(async (tx) => {
-    // ── LOCK the competition row FIRST ────────────────────────────
+    // ── LOCK the USER first, require an ACTIVE account (correction #4) ──
+    await lockUserForPlay(tx, userId);
+
+    // ── LOCK the competition row SECOND ───────────────────────────
     // Identical discipline to playCompetition's non-trivia path above, and
     // for the identical reason. Every check performed before this
     // transaction (status, finalizedAt, startsAt/endsAt) came from a plain,
@@ -854,12 +900,20 @@ async function playTriviaCompetitionRound(
       data: {
         userId,
         gameId: comp.gameId,
-        betAmount: comp.entryAmount,
+        ...contestRoundSnapshot(rules, 'COMPETITION_ROUND'),
         result,
-        rewardAmount: 0,
         isWin: correct,
         status: 'COMPLETED',
         completedAt: new Date(),
+        requestSnapshot: JSON.parse(
+          JSON.stringify({
+            gameKey: comp.game.key,
+            rulesVersion: rules.version,
+            stake: 0,
+            selections: { questionId: q.id },
+          })
+        ),
+        responseSnapshot: JSON.parse(JSON.stringify({ score, result })),
       },
     });
   });
@@ -885,6 +939,7 @@ export async function finalizeCompetition(actorId: string, competitionId: string
   if (comp.status === 'COMPLETED' && comp.finalizedAt) {
     return { id: comp.id, status: comp.status, result: comp.result, alreadyFinalized: true };
   }
+  assertNoLegacyCoinPrize(comp.rewardCoins);
   const now = new Date();
   if (now < comp.endsAt && comp.status !== 'ACTIVE') {
     throw ApiError.badRequest('Competition has not ended');
@@ -930,6 +985,7 @@ export async function finalizeCompetition(actorId: string, competitionId: string
         where: {
           id: competitionId,
           finalizedAt: null,
+          rewardCoins: 0,
           OR: [
             { status: 'ACTIVE' },
             { status: 'SCHEDULED', endsAt: { lte: claimedAt } },
@@ -947,6 +1003,7 @@ export async function finalizeCompetition(actorId: string, competitionId: string
         // competition is not yet finalizable). Perform NO economic operation.
         const existing = await tx.groupCompetition.findUnique({ where: { id: competitionId } });
         if (!existing) throw ApiError.notFound('Competition not found');
+        if (existing.status !== 'COMPLETED') assertNoLegacyCoinPrize(existing.rewardCoins);
         if (existing.status === 'COMPLETED' && existing.finalizedAt) {
           return {
             id: existing.id,
@@ -1032,19 +1089,6 @@ export async function finalizeCompetition(actorId: string, competitionId: string
                 amount: perGP,
                 ledgerType: 'CREDIT',
                 transactionType: 'GAME_POINT_CREDIT',
-                referenceType: 'REWARD',
-                referenceId: competitionId,
-                description: `Competition reward: ${fresh.title}`,
-              },
-            ]);
-          }
-          if (perCoins > 0) {
-            await applyBalanceChanges(tx, w.userId, [
-              {
-                currency: 'COINS',
-                amount: perCoins,
-                ledgerType: 'CREDIT',
-                transactionType: 'COIN_CREDIT',
                 referenceType: 'REWARD',
                 referenceId: competitionId,
                 description: `Competition reward: ${fresh.title}`,

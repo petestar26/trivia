@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
+import type { Prisma } from '@prisma/client';
+import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
 import { submitAgentApplication, approveAgentApplication } from './agent-service';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
 import { fundAgentInventory, getAgentInventory } from './inventory-service';
@@ -21,6 +23,25 @@ afterAll(async () => {
 });
 
 const describeIf = dbAvailable ? describe : describe.skip;
+
+async function heldLock(acquire: (tx: Prisma.TransactionClient) => Promise<unknown>) {
+  let ready!: () => void;
+  let release!: () => void;
+  const acquired = new Promise<void>((resolve) => { ready = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const task = prisma.$transaction(async (tx) => {
+    await acquire(tx);
+    ready();
+    await gate;
+  }, { timeout: 20000 });
+  await acquired;
+  return { release: async () => { release(); await task; } };
+}
+
+const settled = <T>(promise: Promise<T>) => promise.then(
+  (value) => ({ ok: true as const, value }),
+  (error) => ({ ok: false as const, error }),
+);
 
 // ─── Fixtures (mirrors agent-orders.test.ts conventions) ───────
 
@@ -154,6 +175,12 @@ async function cleanDisputeFixtures() {
     await prisma.agent.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.auditLog.deleteMany({ where: { userId: { in: userIds } } });
+    // Coin provenance/allocation rows are a real foreign key to User —
+    // must be cleared before the user row itself can be deleted. Covers
+    // both rows this run created AND legacy backfill rows for any stale
+    // fixture user left behind by a prior interrupted run (same id set).
+    await prisma.coinAllocation.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.coinProvenance.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   }
 
@@ -393,6 +420,40 @@ describeIf('Dispute claim and resolution', () => {
     expect(settlement!.releasedBy).toBe(admin.id);
 
     void fixture;
+  });
+
+  it('a resolver demoted before the User lock cannot release purchased Coins', async () => {
+    const { customer, order, dispute } = await makeOpenDispute(`demote${Date.now()}`);
+    const resolver = await createAdmin(`demote${Date.now()}`);
+    await claimDispute(resolver.id, dispute.id);
+    const holder = await heldLock((tx) => tx.user.update({
+      where: { id: resolver.id }, data: { role: 'USER' },
+    }));
+    const resolution = settled(resolveDispute(resolver.id, dispute.id, 'RELEASE', 'Payment evidence checked'));
+    let scheduleError: unknown;
+    try {
+      await waitForBlockedBackends(1, { queryLike: '%users%', waitEvents: ROW_LOCK_WAITS, timeoutMs: 2500 });
+    } catch (error) { scheduleError = error; }
+    finally { await holder.release(); }
+    const result = await resolution;
+    if (scheduleError) throw scheduleError;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatchObject({ statusCode: 403 });
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('DISPUTE');
+    expect(await prisma.agentOrderSettlement.findUnique({ where: { orderId: order.id } })).toBeNull();
+    expect(await prisma.wallet.findUnique({ where: { userId: customer.id } })).toBeNull();
+  }, 20000);
+
+  it('a suspended resolver cannot release purchased Coins', async () => {
+    const { customer, order, dispute } = await makeOpenDispute(`suspend${Date.now()}`);
+    const resolver = await createAdmin(`suspend${Date.now()}`);
+    await claimDispute(resolver.id, dispute.id);
+    await prisma.user.update({ where: { id: resolver.id }, data: { status: 'SUSPENDED' } });
+    await expect(resolveDispute(resolver.id, dispute.id, 'RELEASE', 'Payment evidence checked'))
+      .rejects.toMatchObject({ statusCode: 403 });
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('DISPUTE');
+    expect(await prisma.agentOrderSettlement.findUnique({ where: { orderId: order.id } })).toBeNull();
+    expect(await prisma.wallet.findUnique({ where: { userId: customer.id } })).toBeNull();
   });
 
   it('legal transition: OPEN -> ASSIGNED -> RESOLVED (CANCEL) releases inventory, no wallet credit', async () => {
