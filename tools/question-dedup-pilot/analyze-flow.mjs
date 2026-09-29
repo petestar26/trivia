@@ -5,9 +5,13 @@
  * negatives, and the human-review workload. Uses the fixed thresholds from typesafe-questions.mjs;
  * nothing is tuned. No network.
  *
+ * Before reporting anything it verifies the freeze: labels.json must still match the SHA-256 in
+ * freeze.json (and still validate), and every result row must carry a timestamp at or after the
+ * freeze. Otherwise it exits with code 2 and writes nothing.
+ *
  * Usage: node tools/question-dedup-pilot/analyze-flow.mjs [--dir DIR] [--write]
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -15,8 +19,10 @@ import {
   POSITIVES,
   SHORTLIST_K,
   finalLabel,
+  findResultsBeforeFreeze,
   pairKey,
   shortlistPairs,
+  verifyFrozen,
 } from './independent-set.mjs';
 import { readRaw } from './flow.mjs';
 import { THRESHOLDS, readProbabilities, verdictFor } from './typesafe-questions.mjs';
@@ -242,19 +248,36 @@ export function formatFlowReport(a, data, freeze) {
   return L.join('\n') + '\n';
 }
 
+/**
+ * Loads labels, freeze record and results only if they are trustworthy: the labels match the
+ * frozen hash and no result was recorded before the freeze (or lacks a valid timestamp).
+ * Throws otherwise.
+ */
+export function loadVerified(dir, opts) {
+  const frozen = verifyFrozen(dir, opts);
+  if (!frozen.ok) throw new Error(`cannot analyze: ${frozen.reason}`);
+  const rows = readRaw(join(dir, 'results', 'raw-judgments.jsonl'));
+  const early = findResultsBeforeFreeze(rows, frozen.freeze);
+  if (early.length > 0) {
+    throw new Error(
+      `cannot analyze: ${early.length} result(s) predate the label freeze (${frozen.freeze.frozenAt}) or lack a valid timestamp, e.g. ${early[0].pairId}; they are not trustworthy`
+    );
+  }
+  return { data: frozen.data, freeze: frozen.freeze, rows };
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const dir = argv.includes('--dir') ? argv[argv.indexOf('--dir') + 1] : join(HERE, 'independent');
-  const labelsPath = join(dir, 'labels.json');
-  if (!existsSync(labelsPath)) {
-    console.error(`${labelsPath} not found`);
+  let loaded;
+  try {
+    loaded = loadVerified(dir);
+  } catch (e) {
+    console.error(e.message);
     process.exit(2);
   }
-  const data = JSON.parse(readFileSync(labelsPath, 'utf8'));
-  const freezePath = join(dir, 'freeze.json');
-  const freeze = existsSync(freezePath) ? JSON.parse(readFileSync(freezePath, 'utf8')) : null;
-  const a = analyzeFlow(data, readRaw(join(dir, 'results', 'raw-judgments.jsonl')));
-  const report = formatFlowReport(a, data, freeze);
+  const { data, freeze, rows } = loaded;
+  const report = formatFlowReport(analyzeFlow(data, rows), data, freeze);
   console.log(report);
   if (argv.includes('--write')) writeFileSync(join(dir, 'results', 'report.md'), report);
 }

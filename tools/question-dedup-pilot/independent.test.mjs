@@ -8,12 +8,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { analyzeFlow, formatFlowReport } from './analyze-flow.mjs';
+import { analyzeFlow, formatFlowReport, loadVerified } from './analyze-flow.mjs';
 import { runFlow, readRaw } from './flow.mjs';
 import {
   FINAL_LABELS,
   MINIMUMS,
   finalLabel,
+  findResultsBeforeFreeze,
   freezeLabels,
   pairKey,
   shortlistPairs,
@@ -382,6 +383,91 @@ test('a result that predates the freeze blocks the flow', async () => {
   );
   await assert.rejects(
     runFlow({ dir, base, minimums: TINY, log: () => {} }),
-    /predates the label freeze/
+    /predate the label freeze/
   );
+});
+
+// ---- analyze-flow verifies the freeze ---------------------------------------------------
+async function finishedRun() {
+  const dir = workdir();
+  assert.deepEqual(freezeLabels(dir, { minimums: TINY }).errors, []);
+  mode = 'answer-equality';
+  await runFlow({ dir, base, minimums: TINY, log: () => {} });
+  return dir;
+}
+const rawPath = (dir) => join(dir, 'results', 'raw-judgments.jsonl');
+const runAnalyze = (dir) =>
+  new Promise((resolve) => {
+    const child = spawn('node', [join(HERE, 'analyze-flow.mjs'), '--dir', dir, '--write'], {
+      env: childEnv(),
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (c) => (stdout += c));
+    child.stderr.on('data', (c) => (stderr += c));
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+
+test('findResultsBeforeFreeze flags early, untimed and unparseable rows', () => {
+  const freeze = { frozenAt: '2026-01-01T00:00:00.000Z' };
+  const rows = [
+    { pairId: 'a', requestedAt: '2026-01-01T00:00:00.000Z' }, // exactly at the freeze: allowed
+    { pairId: 'b', requestedAt: '2026-01-02T00:00:00.000Z' },
+    { pairId: 'early', requestedAt: '2025-12-31T23:59:59.999Z' },
+    { pairId: 'missing' },
+    { pairId: 'garbage', requestedAt: 'not a date' },
+  ];
+  assert.deepEqual(
+    findResultsBeforeFreeze(rows, freeze).map((r) => r.pairId),
+    ['early', 'missing', 'garbage']
+  );
+  assert.throws(() => findResultsBeforeFreeze(rows, { frozenAt: 'nope' }), /valid frozenAt/);
+});
+
+test('analyze accepts a frozen set whose results all follow the freeze', async () => {
+  const dir = await finishedRun();
+  const { data, rows } = loadVerified(dir, { minimums: TINY });
+  assert.ok(rows.length > 0);
+  assert.equal(analyzeFlow(data, rows).pairsInRawFile > 0, true);
+});
+
+test('analyze refuses when there is no freeze record', async () => {
+  const dir = workdir(); // labels only, never frozen
+  assert.throws(() => loadVerified(dir, { minimums: TINY }), /cannot analyze: .*freeze/);
+});
+
+test('analyze refuses when the labels changed after the freeze', async () => {
+  const dir = await finishedRun();
+  const data = JSON.parse(readFileSync(join(dir, 'labels.json'), 'utf8'));
+  data.pairs[0].label = 'unrelated';
+  writeFileSync(join(dir, 'labels.json'), JSON.stringify(data, null, 2));
+  assert.throws(() => loadVerified(dir, { minimums: TINY }), /changed after it was frozen/);
+  // a whitespace-only edit changes the bytes, so it is caught too
+  const dir2 = await finishedRun();
+  writeFileSync(join(dir2, 'labels.json'), readFileSync(join(dir2, 'labels.json'), 'utf8') + '\n');
+  assert.throws(() => loadVerified(dir2, { minimums: TINY }), /changed after it was frozen/);
+});
+
+test('analyze refuses results recorded before the freeze or without a timestamp', async () => {
+  const early = await finishedRun();
+  const rows = readRaw(rawPath(early));
+  rows[0].requestedAt = '2000-01-01T00:00:00.000Z';
+  writeFileSync(rawPath(early), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.throws(() => loadVerified(early, { minimums: TINY }), /predate the label freeze/);
+
+  const untimed = await finishedRun();
+  const rows2 = readRaw(rawPath(untimed));
+  delete rows2[0].requestedAt;
+  writeFileSync(rawPath(untimed), rows2.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  assert.throws(() => loadVerified(untimed, { minimums: TINY }), /lack a valid timestamp/);
+});
+
+test('analyze-flow CLI exits 2 and writes no report when verification fails', async () => {
+  const dir = await finishedRun();
+  // the CLI uses the default minimums, which the tiny fixture cannot meet, so it must refuse
+  const blocked = await runAnalyze(dir);
+  assert.equal(blocked.status, 2);
+  assert.match(blocked.stderr, /cannot analyze/);
+  assert.ok(!blocked.stdout.includes('Independent flow report'));
+  assert.throws(() => readFileSync(join(dir, 'results', 'report.md')), /ENOENT/);
 });

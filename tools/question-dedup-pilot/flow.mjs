@@ -16,7 +16,12 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pairKey, shortlistPairs, verifyFrozen } from './independent-set.mjs';
+import {
+  findResultsBeforeFreeze,
+  pairKey,
+  shortlistPairs,
+  verifyFrozen,
+} from './independent-set.mjs';
 import { callWithRetry } from './typesafe-client.mjs';
 import { buildRequest, isSeedVariantByRule, judgeResponse } from './typesafe-questions.mjs';
 
@@ -50,10 +55,10 @@ export async function runFlow({
   const RAW = join(resultsDir, 'raw-judgments.jsonl');
   const RUNS = join(resultsDir, 'runs.json');
   const existing = readRaw(RAW);
-  const early = existing.find((r) => r.requestedAt < freeze.frozenAt);
-  if (early)
+  const early = findResultsBeforeFreeze(existing, freeze);
+  if (early.length > 0)
     throw new Error(
-      `result for ${early.pairId} predates the label freeze (${freeze.frozenAt}); results are not trustworthy`
+      `${early.length} result(s) predate the label freeze (${freeze.frozenAt}) or lack a valid timestamp, e.g. ${early[0].pairId}; results are not trustworthy`
     );
 
   const pairs = shortlistPairs(data);

@@ -146,7 +146,9 @@ node tools/question-dedup-pilot/analyze-flow.mjs --write        # confusion, mis
 Safeguards: the labeler must be a named person (AI-looking names are rejected) and attest they were blind;
 minimums are 30 candidates and 12 / 12 / 20 final duplicate / leakage / related_distinct pairs; every
 shortlisted pair must be labeled before the freeze; the flow refuses to run if `labels.json` no longer
-matches `freeze.json` or if any result predates the freeze; and there is a request cap (default 500).
+matches `freeze.json` or if any result predates the freeze; `analyze-flow.mjs` applies the same two checks
+before it reports anything (exit code 2, no report written, and a result with a missing or unparseable
+timestamp counts as untrustworthy); and there is a request cap (default 500).
 Thresholds stay fixed at the values above; the shortlist size is fixed at K=5.
 
 The report shows a human-label by outcome confusion matrix (including `not_shortlisted`), positives

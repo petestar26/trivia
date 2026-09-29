@@ -185,6 +185,19 @@ export function verifyFrozen(dir, opts) {
   return { ok: true, data, freeze };
 }
 
+/**
+ * Result rows that cannot be trusted as post-freeze: recorded before the freeze, or with a
+ * missing or unparseable timestamp (so their timing cannot be shown to follow the freeze).
+ */
+export function findResultsBeforeFreeze(rows, freeze) {
+  const frozenAt = Date.parse(freeze.frozenAt);
+  if (Number.isNaN(frozenAt)) throw new Error('freeze.json has no valid frozenAt timestamp');
+  return rows.filter((r) => {
+    const t = Date.parse(r.requestedAt);
+    return Number.isNaN(t) || t < frozenAt;
+  });
+}
+
 /** Locks labels.json by hash. Refuses if the labels are not ready or scoring has already started. */
 export function freezeLabels(dir, opts) {
   const text = readFileSync(join(dir, 'labels.json'), 'utf8');
