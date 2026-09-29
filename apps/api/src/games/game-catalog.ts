@@ -20,6 +20,7 @@ export interface GameCatalogItem {
   wagerCurrency: GameCurrencyValue | null;
   rewardCurrency: GameCurrencyValue;
   currentRulesVersion: number | null;
+  currentRulesId?: string | null;
 }
 
 const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
@@ -85,7 +86,16 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
       currentRulesVersion: true,
     },
   });
-  return rows;
+  const spin = rows.find((row) => row.key === 'spin_win');
+  const rules = spin?.currentRulesVersion
+    ? await getGameRules(spin.id, spin.currentRulesVersion)
+    : null;
+  const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
+  return rows.map((row) =>
+    row.key === 'spin_win'
+      ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
+      : row
+  );
 }
 
 export async function getGameByKey(key: string) {
