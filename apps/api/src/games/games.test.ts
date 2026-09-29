@@ -1518,12 +1518,19 @@ describeIf('Spin Win Coin settlement', () => {
     const before = await snapshot();
     // Fail after the debit and any payout have been written, at the last step.
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+    // A message unique to this run, so only this trigger's failure satisfies the test.
+    const failure = `forced spin test failure ${suffix}`;
     await prisma.$executeRawUnsafe(`CREATE FUNCTION "spin_test_fail_${suffix}"() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN RAISE EXCEPTION 'forced spin test failure'; END $f$`);
+      BEGIN RAISE EXCEPTION '${failure}'; END $f$`);
     await prisma.$executeRawUnsafe(`CREATE TRIGGER "spin_test_fail_${suffix}" BEFORE INSERT ON "game_sessions"
       FOR EACH ROW WHEN (NEW."userId" = '${user.id.replace(/'/g, '')}') EXECUTE FUNCTION "spin_test_fail_${suffix}"()`);
     try {
-      await expect(playGame(args)).rejects.toThrow();
+      // The failure must be the trigger's own, raised by the session insert that
+      // runs after settleWagerCoins, not a validation or ledger rejection.
+      const error = await playGame(args).then(() => undefined, (caught: unknown) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('tx.gameSession.create()');
+      expect((error as Error).message).toContain(failure);
       expect(await snapshot()).toEqual(before);
       expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
     } finally {
