@@ -102,7 +102,8 @@ export function SpinWinCoinsPage() {
       {isError && <p role="alert">Cannot load game availability. New wagers are disabled.</p>}
       {!available && !isLoading && (
         <p role="status">
-          Coin play is not available. You can still confirm a previously submitted round below.
+          Coin play is not available.
+          {durable.pending && ' You can still confirm a previously submitted round below.'}
         </p>
       )}
       <SpinWinWheel rotation={rotation} />

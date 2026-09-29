@@ -97,6 +97,7 @@ describe('Spin Win Coin requests', () => {
     );
     await mount();
     expect(mocks.play).not.toHaveBeenCalled();
+    expect(screen.getByText(/Coin play is not available/)).toHaveTextContent(/confirm a previously submitted round/);
     fireEvent.click(screen.getByRole('button', { name: 'Confirm pending round' }));
     await waitFor(() => expect(mocks.play).toHaveBeenCalledWith('spin_win', body, 'saved-key'));
   });
@@ -106,6 +107,9 @@ describe('Spin Win Coin requests', () => {
     expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
     expect(mocks.play).not.toHaveBeenCalled();
+    // Nothing is stored, so there is no round to confirm and the copy must not offer one.
+    expect(screen.getByText(/Coin play is not available/)).not.toHaveTextContent(/confirm/i);
+    expect(screen.queryByRole('button', { name: 'Confirm pending round' })).not.toBeInTheDocument();
   });
   it('sends nothing when request storage is unavailable', async () => {
     await mount();

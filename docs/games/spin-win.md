@@ -39,7 +39,11 @@ previous ticket without submitting a spin. Inputs lock during animation.
   the canonical replay fingerprint, normalized by market ID. The declared
   stake must equal the ticket total. Existing transactional ledger settlement
   remains responsible for provenance, wallet changes and stored responses.
-- The previous weighted multiplier engine and its fallback table are removed.
+- No weighted-multiplier engine serves Spin Win: `game-play.ts` has one `SPIN_WIN` case,
+  which runs the numbered-wheel engine above and rejects any rules row whose `rulesId`
+  is not `single-zero-standard-v1`. The retired Lucky Spin generator is unrelated and
+  untouched. The seeded catalog row still carries its original description and a
+  legacy weighted `configuration`; it has no rules row and stays `COMING_SOON`.
 - Browser practice randomness uses Web Crypto with rejection sampling; it is
   never used for financial settlement. The wheel lands on the selected result.
 - Colours have textual labels; controls support keyboard focus; reduced-motion
@@ -55,6 +59,13 @@ previous ticket without submitting a spin. Inputs lock during animation.
    the server rules and authoritative balance; remove local practice accounting
    only for an explicitly separate Coin play mode.
 4. Validate desktop/mobile rendering in a browser and complete release review.
+5. Replace the catalog description and legacy `configuration` in the same forward migration,
+   and give an unsupported rules row a controlled 4xx instead of the current generic error.
+6. Decide playthrough treatment. Restricted-Coin progress counts the whole round stake when
+   `spin_win` is in a country policy's `qualifyingGames` and the stake is within
+   `maxQualifyingStake`, so an offsetting ticket (for example red plus black) clears a
+   requirement at the same expected cost (about 2.7%) with far less variance. Keep
+   `spin_win` out of `qualifyingGames` until that is accepted or limited.
 
 Shared scheduled rounds, countdowns, jackpots, mirrors, twins, neighbours and
 finals are not implemented. They require separate rules and, for shared rounds

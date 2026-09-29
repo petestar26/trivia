@@ -1411,6 +1411,24 @@ describeIf('Replay after a rules bump', () => {
   });
 });
 
+// Coin wagering stays disabled: with the catalog exactly as the migrations seed
+// it, a funded player in an enabled jurisdiction still cannot wager on Spin Win.
+describeIf('Spin Win Coin wagering stays disabled', () => {
+  it('refuses a funded, jurisdiction-ready player while the seeded catalog row is COMING_SOON', async () => {
+    const seeded = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
+    expect(seeded).toMatchObject({ catalogStatus: 'COMING_SOON', isActive: false, currentRulesVersion: null });
+    const user = await createUser(`spin-disabled-${randomUUID().slice(0,8)}`);
+    await primeCoins(user.id, 100);
+    await expect(playGame({
+      userId: user.id, gameKey: 'spin_win', betAmount: 10, idempotencyKey: randomUUID(),
+      clientData: { bets: [{ marketId: 'red', amount: 10 }] },
+    })).rejects.toMatchObject({ statusCode: 400, message: 'This game is not available to play' });
+    expect((await getWalletBalance(user.id)).coinsBalance).toBe(100);
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(0);
+    expect(await prisma.economicOperation.count({ where: { userId: user.id, type: 'WAGER' } })).toBe(0);
+  });
+});
+
 // Dedicated Spin Win settlement coverage. Uses real purchase fixtures, ledger
 // guards and jurisdiction checks; catalog changes are restored after the block.
 describeIf('Spin Win Coin settlement', () => {
