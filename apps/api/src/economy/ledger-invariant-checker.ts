@@ -2,6 +2,7 @@ import { prisma } from '@socialplay/database';
 import type { Prisma } from '@socialplay/database';
 import { splitPayout } from './coin-allocator.js';
 import { UNAUTHORIZED_OPERATIONS_QUERY } from './ledger-integrity-definitions.js';
+import { QUICKNET_CHAIN_HASH, verifyQuicknetBeacon } from '../games/economics/round-entropy.js';
 
 // Release evidence is supplied by the internal release runner, never by an
 // HTTP request. The SQL scan cannot prove replay-first behavior on its own.
@@ -49,6 +50,7 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'ledger_require_whole_coin_amount', 'ledger_adjustment_request', 'ledger_adjustment_first_approval',
   'ledger_adjustment_execute', 'ledger_adjustment_close', 'ledger_review_first_approval', 'ledger_review_reopen',
   'ledger_review_resolve', 'ledger_lock_economy_for_invariant_check', 'ledger_apply_runtime_grants',
+  'ledger_apply_runtime_grants_seed_only',
   'admin_adjustment_evidence_valid', 'admin_adjustment_approval_lifecycle_guard', 'legacy_review_lifecycle_guard',
   'operation_authorization_guard', 'admin_adjustment_violation', 'legacy_resolution_violation',
   'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard',
@@ -68,6 +70,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'scheduled_stake_settlement_failures',
   'house_round_randomness_guard', 'house_round_randomness_failures', 'house_round_randomness_constraint',
   'house_spin_outcome', 'house_ticket_resolution_failures', 'house_ticket_resolution_constraint',
+  'house_quicknet_target', 'house_round_beacon_guard',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -176,6 +179,9 @@ const checks: ReadonlyArray<[string, string]> = [
       ('house_round_randomness','house_round_randomness_guard'),
       ('house_round_randomness','house_round_randomness_no_truncate'),
       ('house_round_randomness','house_round_randomness_proof'),
+      ('house_round_beacon_pins','house_round_beacon_guard'),
+      ('house_round_beacon_pins','house_round_beacon_no_truncate'),
+      ('house_round_beacon_pins','house_beacon_randomness_proof'),
       ('scheduled_game_rounds','house_round_draw_proof'),
       ('scheduled_stake_holds','house_ticket_randomness_proof'),
       ('scheduled_stake_holds','house_financial_hold_proof'),
@@ -497,6 +503,79 @@ async function checkPayoutSplits(tx: Tx): Promise<LedgerViolation | null> {
     count: failures.length, sample: failures.slice(0, 10) } : null;
 }
 
+type StoredBeaconRow = {
+  id: string;
+  cutoffMs: bigint | null;
+  chainHash: string;
+  beaconRound: bigint;
+  beaconTimeMs: bigint;
+  signatureHex: string;
+  randomnessHex: string | null;
+  timingValid: boolean;
+};
+
+/** SQL can enforce identity and lifecycle, but cannot prove a BLS signature.
+ * Reverify persisted proofs against the pinned provider key without networking.
+ * Pages and verification batches stay bounded even as round history grows.
+ */
+async function checkBeaconProofs(tx: Tx): Promise<LedgerViolation | null> {
+  let cursor: string | null = null;
+  let count = 0;
+  const sample: string[] = [];
+  for (;;) {
+    const rows: StoredBeaconRow[] = await tx.$queryRaw<StoredBeaconRow[]>`
+      SELECT p.round_id AS id, g.closes_ms AS "cutoffMs", p.chain_hash AS "chainHash",
+        p.beacon_round AS "beaconRound", p.beacon_time_ms AS "beaconTimeMs",
+        p.signature_hex AS "signatureHex", p.randomness_hex AS "randomnessHex",
+        COALESCE(g.mode='FINANCIAL' AND g.game_key='spin_win'
+          AND x.algorithm='sha256-quicknet-rejection-u32be-v2'
+          AND EXTRACT(EPOCH FROM p.pinned_at)*1000>=g.opens_ms
+          AND EXTRACT(EPOCH FROM p.pinned_at)*1000<g.closes_ms
+          AND x.prepared_at>=p.pinned_at
+          AND EXTRACT(EPOCH FROM x.prepared_at)*1000<g.closes_ms
+          AND EXTRACT(EPOCH FROM p.received_at)*1000>=p.beacon_time_ms,
+          FALSE) AS "timingValid"
+      FROM public.house_round_beacon_pins p
+      LEFT JOIN public.scheduled_game_rounds g ON g.id=p.round_id
+      LEFT JOIN public.house_round_randomness x ON x.round_id=p.round_id
+      WHERE p.signature_hex IS NOT NULL
+        AND (${cursor}::TEXT IS NULL OR p.round_id COLLATE "C">${cursor}::TEXT COLLATE "C")
+      ORDER BY p.round_id COLLATE "C" LIMIT 100`;
+    for (let offset = 0; offset < rows.length; offset += 4) {
+      const verified = await Promise.all(rows.slice(offset, offset + 4).map(async (row) => {
+        try {
+          if (!row.timingValid || row.cutoffMs === null || row.chainHash !== QUICKNET_CHAIN_HASH) return false;
+          const cutoffMs = Number(row.cutoffMs);
+          const beaconRound = Number(row.beaconRound);
+          const beaconTimeMs = Number(row.beaconTimeMs);
+          if (!Number.isSafeInteger(cutoffMs) || !Number.isSafeInteger(beaconRound)
+            || !Number.isSafeInteger(beaconTimeMs)) return false;
+          const proof = await verifyQuicknetBeacon(cutoffMs, {
+            round: beaconRound, signature: row.signatureHex, randomness: row.randomnessHex,
+          });
+          return proof.beaconTimeMs === beaconTimeMs;
+        } catch {
+          // Malformed records and invalid signatures are violations, not scan
+          // exceptions. Never put provider errors or proof contents in reports.
+          return false;
+        }
+      }));
+      for (let index = 0; index < verified.length; index++) {
+        if (!verified[index]) {
+          count++;
+          if (sample.length < 10) sample.push(rows[offset + index].id);
+        }
+      }
+    }
+    if (rows.length < 100) break;
+    cursor = rows[rows.length - 1].id;
+  }
+  return count === 0 ? null : {
+    invariant: 'I22 future-beacon cryptographic proofs', count, sample,
+    detail: 'Stored future-beacon target, timing or BLS signature is invalid',
+  };
+}
+
 export async function runLedgerInvariantCheckInTransaction(
   tx: Tx, evidence: LedgerBehaviorEvidence | null,
   requireReleaseEvidence = false,
@@ -509,6 +588,8 @@ export async function runLedgerInvariantCheckInTransaction(
   }
   const payout = await checkPayoutSplits(tx);
   if (payout) violations.push(payout);
+  const beacon = await checkBeaconProofs(tx);
+  if (beacon) violations.push(beacon);
   if (requireReleaseEvidence && (!evidence || !evidence.runId || !evidence.apiSuitePassed
       || !evidence.exactReplayZeroWritesPassed || !evidence.deterministicRacesPassed
       || !evidence.financialMutationsCaught || !evidence.migrationReplayPassed)) {

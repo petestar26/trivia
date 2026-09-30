@@ -30,6 +30,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/game-economics-preview.ts'),
       // Standalone opt-in practice scheduler; never starts with the API/worker.
       join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
+      // Explicit owner-run dormant proof import and bounded recovery.
+      join(__dirname, 'src/scripts/house-round-recovery.ts'),
     ],
     outbase: join(__dirname, 'src'),
     bundle: true,

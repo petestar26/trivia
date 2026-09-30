@@ -1,5 +1,5 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/api-error.js';
 
 export type Currency = 'COINS' | 'GAME_POINTS';
 

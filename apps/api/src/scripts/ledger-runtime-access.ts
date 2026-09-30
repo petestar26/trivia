@@ -50,6 +50,7 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['house_round_beacon_pins', 'INSERT'], ['house_round_beacon_pins', 'UPDATE'], ['house_round_beacon_pins', 'DELETE'],
   ['house_round_randomness', 'SELECT'], ['house_round_randomness', 'INSERT'],
   ['house_round_randomness', 'UPDATE'], ['house_round_randomness', 'DELETE'],
   ['house_ticket_resolutions', 'INSERT'], ['house_ticket_resolutions', 'UPDATE'], ['house_ticket_resolutions', 'DELETE'],
@@ -77,7 +78,7 @@ const DENIED_ON_EVERY_TABLE = ['TRUNCATE', 'TRIGGER'];
 const DENIED_USER_COLUMNS = ['role', 'status'];
 /** The owner's procedures: a key installed or retired, an assertion recorded, these grants applied. */
 const DENIED_FUNCTIONS = [
-  'ledger_install_approval_key(text,bytea)', 'ledger_retire_approval_key(text)', 'ledger_apply_runtime_grants(text)',
+  'ledger_apply_runtime_grants_seed_only(text)', 'ledger_install_approval_key(text,bytea)', 'ledger_retire_approval_key(text)', 'ledger_apply_runtime_grants(text)',
   'ledger_record_assertion(text,text,text,text,text,numeric,text,jsonb,text,text,text)',
   'house_record_capital_funding(text,bigint,text)', 'house_reserve_round_loss(text,bigint,jsonb,integer)',
   'house_discharge_ticket(text,text,text,integer,integer,text)', 'house_spin_outcome(text)',

@@ -2714,6 +2714,7 @@ model ScheduledGameRound {
   drawnAt       DateTime? @map("drawn_at") @db.Timestamptz(6)
   cancelReason  String? @map("cancel_reason")
   randomness    HouseRoundRandomness?
+  beaconPin     HouseRoundBeaconPin?
   resolutions   HouseTicketResolution[]
   tickets       ScheduledPracticeTicket[]
   stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -2818,4 +2819,19 @@ model HouseTicketResolution {
   session GameSession @relation(fields:[sessionId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   @@index([roundId],map:"house_ticket_resolutions_round")
   @@map("house_ticket_resolutions")
+}
+
+
+/// Public proof metadata for dormant future-beacon draws; contains no seed.
+model HouseRoundBeaconPin {
+  roundId String @id @map("round_id")
+  chainHash String @map("chain_hash")
+  beaconRound BigInt @map("beacon_round")
+  beaconTimeMs BigInt @map("beacon_time_ms")
+  pinnedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("pinned_at") @db.Timestamptz(6)
+  signatureHex String? @map("signature_hex")
+  randomnessHex String? @map("randomness_hex")
+  receivedAt DateTime? @map("received_at") @db.Timestamptz(6)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_round_beacon_pins")
 }

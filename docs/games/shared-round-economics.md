@@ -278,6 +278,10 @@ must resume that result and honor its payouts; it cannot selectively void winner
   manually verified and the live gate remains off.
 - A dormant owner-only Spin ticket admission, committed draw, payout/refund and
   restartable per-ticket settlement path with source-preserving backstops.
+- An opt-in future quicknet beacon protocol and bounded owner recovery command;
+  see [future beacon and recovery](future-beacon-recovery.md). Historical
+  seed-only rounds retain their protocol. Public publication and activation
+  remain separate work.
 
 These are internal modules, an offline preview and an opt-in practice worker,
 not a new financial API. A forward migration adds practice tables and a disabled

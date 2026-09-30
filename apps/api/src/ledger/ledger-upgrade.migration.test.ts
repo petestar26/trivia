@@ -12,7 +12,7 @@ import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { runLedgerUpgradePreflight } from '../economy/ledger-upgrade-preflight.js';
@@ -28,6 +28,11 @@ const OPENING_JOURNAL = '20260923030000_opus_freeze_legacy_allocations';
 const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
 const PRE_SETTLEMENT = '20260930180000_scheduled_settlement_type';
 const CANCELLATION_AUDIT = '20260930200000_financial_cancellation_audit';
+const FUTURE_BEACON = '20261001010000_dormant_future_beacon_recovery';
+// Exact merged master 5d1c6b041d08afbdcb736dc8b5d0351c79e98b55.
+// A digest of framed migration name/byte-length/content needs no Git history
+// in shallow CI, while proving the copied parent migrations were not edited.
+const ENTROPY_PARENT_MIGRATIONS_SHA256 = 'e5580e829d73cd75177d58b52891a185e32dcd5d22e7d82075e43bfd03e59868';
 const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
@@ -42,7 +47,7 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
   '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
-  CANCELLATION_AUDIT];
+  CANCELLATION_AUDIT, FUTURE_BEACON];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -203,7 +208,16 @@ async function runtimeSetup(db: { url: string; client: PrismaClient }) {
       SELECT has_schema_privilege($1, 'public', 'CREATE') AS runtime,
              EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) a
                      WHERE n.nspname = 'public' AND a.grantee = 0 AND a.privilege_type = 'CREATE') AS public`, role);
-    return { status: run.status, output: `${run.stdout}${run.stderr}`, runtimeCanCreate: row.runtime, publicCanCreate: row.public };
+    const [beaconAccess] = await relationExists(db.client, 'public.house_round_beacon_pins')
+      ? await db.client.$queryRawUnsafe<Array<{ readable: boolean; writable: boolean; archived_setup: boolean }>>(`
+        SELECT has_table_privilege($1,'public.house_round_beacon_pins','SELECT') AS readable,
+          has_table_privilege($1,'public.house_round_beacon_pins','INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')
+            OR has_any_column_privilege($1,'public.house_round_beacon_pins','INSERT')
+            OR has_any_column_privilege($1,'public.house_round_beacon_pins','UPDATE') AS writable,
+          has_function_privilege($1,'public.ledger_apply_runtime_grants_seed_only(text)','EXECUTE') AS archived_setup`, role)
+      : [];
+    return { status: run.status, output: `${run.stdout}${run.stderr}`, runtimeCanCreate: row.runtime,
+      publicCanCreate: row.public, beaconAccess };
   } finally {
     await db.client.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
     await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
@@ -340,6 +354,7 @@ beforeAll(() => {
     '20260930180000_scheduled_settlement_type',
     '20260930190000_dormant_financial_settlement',
     CANCELLATION_AUDIT,
+    FUTURE_BEACON,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -499,6 +514,129 @@ describe('ledger upgrade migrations', () => {
       expect(replay.output).toContain('No pending migrations to apply');
       expect(await audit()).toEqual([after]);
       expect(await db.client.wallet.findUniqueOrThrow({ where: { userId: customer.id } })).toEqual(walletBefore);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('the exact merged seed-only master upgrades to future entropy without rewriting historical draws or customer economics, then setup and replay succeed', async () => {
+    const previousMigrations = ALL.filter((name) => name < FUTURE_BEACON);
+    const parentDigest = createHash('sha256');
+    for (const name of previousMigrations) {
+      const content = readFileSync(join(MIGRATIONS, name, 'migration.sql'));
+      parentDigest.update(name).update('\0').update(String(content.byteLength)).update('\0').update(content);
+    }
+    expect(previousMigrations).toHaveLength(70);
+    expect(parentDigest.digest('hex')).toBe(ENTROPY_PARENT_MIGRATIONS_SHA256);
+
+    const db = await scratchDatabase('future-entropy-parent');
+    try {
+      const previous = deploy(db.url, migrationSubset(previousMigrations));
+      expect(previous.status, previous.output).toBe(0);
+      expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(false);
+
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+      const customer = await db.client.user.create({ data: { username: `entropyparent${suffix}` } });
+      const wallet = await db.client.wallet.create({ data: { userId: customer.id, gamePointsBalance: 73 } });
+      await db.client.walletTransaction.create({ data: {
+        walletId: wallet.id, userId: customer.id, type: 'COIN_CREDIT', ledgerType: 'CREDIT', currency: 'COINS',
+        amount: 1, balanceBefore: 0, balanceAfter: 0, status: 'FAILED',
+        referenceType: 'ADMIN', referenceId: `entropyparent${suffix}`, description: 'Unsuccessful prior customer credit',
+      } });
+
+      const roundIds: string[] = [];
+      for (const disposition of ['OPEN', 'DRAWN'] as const) {
+        const streamId = `entropy${disposition.toLowerCase()}${suffix}`;
+        const roundId = `${streamId}:0`;
+        roundIds.push(roundId);
+        const seedHex = randomBytes(32).toString('hex');
+        await db.client.$transaction(async (tx) => {
+          const [clock] = await tx.$queryRaw<Array<{ anchor: bigint }>>`
+            SELECT pg_catalog.floor(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp())*1000)::BIGINT-1000 AS anchor`;
+          const bettingMs = disposition === 'OPEN' ? 3_600_000n : 3000n;
+          await tx.$executeRaw`
+            INSERT INTO public.scheduled_game_streams
+              (id,game_key,rules_id,mode,enabled,anchor_ms,betting_ms,reveal_ms,result_ms)
+            VALUES (${streamId},'spin_win','single-zero-rtp90-v2','FINANCIAL',true,${clock.anchor},${bettingMs},1000,1000)`;
+          await tx.$executeRaw`
+            INSERT INTO public.scheduled_game_rounds
+              (id,stream_id,sequence,game_key,rules_id,mode,opens_ms,closes_ms,reveal_ends_ms,ends_ms)
+            VALUES (${roundId},${streamId},0,'spin_win','single-zero-rtp90-v2','FINANCIAL',
+              ${clock.anchor},${clock.anchor + bettingMs},${clock.anchor + bettingMs + 1000n},${clock.anchor + bettingMs + 2000n})`;
+          await tx.$executeRaw`
+            INSERT INTO public.house_round_randomness(round_id,seed_hex,commitment_sha256,algorithm)
+            VALUES (${roundId},${seedHex},pg_catalog.encode(public.digest(pg_catalog.convert_to(
+              'playqube:spin-win:commit:v1'||E'\n'||${roundId}||E'\n'||'single-zero-rtp90-v2'||E'\n'||${seedHex},
+              'UTF8'),'sha256'::TEXT),'hex'),'sha256-rejection-u32be-v1')`;
+        });
+        if (disposition === 'DRAWN') {
+          const deadline = Date.now() + 10_000;
+          for (;;) {
+            const [clock] = await db.client.$queryRaw<Array<{ reached: boolean }>>`
+              SELECT pg_catalog.floor(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp())*1000)::BIGINT>=closes_ms AS reached
+              FROM public.scheduled_game_rounds WHERE id=${roundId}`;
+            if (clock.reached) break;
+            if (Date.now() >= deadline) throw new Error('Historical parent draw never reached its original cutoff');
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          await db.client.$transaction(async (tx) => {
+            await tx.$executeRaw`UPDATE public.house_round_randomness SET revealed_at=pg_catalog.clock_timestamp()
+              WHERE round_id=${roundId}`;
+            await tx.$executeRaw`UPDATE public.scheduled_game_rounds
+              SET state='DRAWN',outcome=public.house_spin_outcome(${roundId}),drawn_at=pg_catalog.clock_timestamp()
+              WHERE id=${roundId}`;
+            await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+          });
+        }
+      }
+
+      const historicalProofs = () => db.client.$queryRaw<Array<{ round: string; randomness: string; outcome: number }>>`
+        SELECT pg_catalog.to_jsonb(g)::TEXT AS round,pg_catalog.to_jsonb(x)::TEXT AS randomness,
+          public.house_spin_outcome(g.id) AS outcome
+        FROM public.scheduled_game_rounds g JOIN public.house_round_randomness x ON x.round_id=g.id
+        WHERE g.id IN (${roundIds[0]},${roundIds[1]}) ORDER BY g.id`;
+      const economicTables = ['economic_operations', 'coin_provenance', 'coin_lot_entries',
+        'scheduled_stake_holds', 'house_capital_accounts', 'house_capital_fundings',
+        'house_round_reservations', 'house_ticket_resolutions', 'platform_gates',
+        'game_definitions', 'game_rules', 'country_casino_policies'];
+      const economicFingerprint = async () => {
+        const result: Record<string, string> = {};
+        for (const table of economicTables) {
+          const [row] = await db.client.$queryRawUnsafe<Array<{ fingerprint: string }>>(`
+            SELECT count(*)::TEXT||':'||COALESCE(md5(string_agg(row_text,E'\\n' ORDER BY row_text)),'empty') AS fingerprint
+            FROM (SELECT pg_catalog.to_jsonb(t)::TEXT AS row_text FROM public."${table}" t) rows`);
+          result[table] = row.fingerprint;
+        }
+        return result;
+      };
+      const proofsBefore = await historicalProofs();
+      expect(proofsBefore).toHaveLength(2);
+      expect(proofsBefore.map((proof) => JSON.parse(proof.round).state).sort()).toEqual(['DRAWN', 'OPEN']);
+      expect(proofsBefore.every((proof) => JSON.parse(proof.randomness).algorithm === 'sha256-rejection-u32be-v1')).toBe(true);
+      const customersBefore = await legacyFingerprint(db.client);
+      const economicsBefore = await economicFingerprint();
+      expect(await anomalies(db.client)).toEqual([]);
+
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
+      expect(applied).toEqual([FUTURE_BEACON]);
+      expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
+      expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
+      expect(await historicalProofs()).toEqual(proofsBefore);
+      expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
+      expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await anomalies(db.client)).toEqual([]);
+
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('Verified');
+      expect(setup.beaconAccess).toEqual({ readable: true, writable: false, archived_setup: false });
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+      expect((await migrationRows(db.client)).map((row) => row.migration_name).sort()).toEqual(ALL);
+      expect(await historicalProofs()).toEqual(proofsBefore);
+      expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
+      expect(await economicFingerprint()).toEqual(economicsBefore);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
