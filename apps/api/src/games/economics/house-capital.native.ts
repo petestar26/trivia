@@ -32,9 +32,10 @@ describe('native operator-capital serial admission', () => {
     const clients = [new PrismaClient(), new PrismaClient()];
     try {
       const outcomes = await Promise.allSettled(clients.map((client, index) =>
-        client.$queryRaw`SELECT public.house_reserve_round_loss(${ids[index]},${40n},${JSON.stringify(vector)}::jsonb,${1})`
+        client.$queryRaw`SELECT public.house_reserve_round_loss(${ids[index]},${40n},${JSON.stringify(vector)}::jsonb,${1}::integer)`
       ));
-      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+      const diagnostics = outcomes.map((outcome) => outcome.status === 'fulfilled' ? 'fulfilled' : String(outcome.reason));
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled'), diagnostics.join(' | ')).toHaveLength(1);
       expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
       expect(String((outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult).reason))
         .toContain('capacity exhausted');
