@@ -833,7 +833,7 @@ export async function refundScheduledStakeCoins(
   await lockUserEconomicScope(tx, `scheduled-stake:${holdId}`);
   const hold = await tx.scheduledStakeHold.findUnique({
     where: { id: holdId },
-    include: { refundOperation: true, holdOperation: true },
+    include: { refundOperation: true },
   });
   if (!hold || hold.userId !== userId)
     throw ApiError.notFound("Scheduled hold not found");
@@ -847,7 +847,10 @@ export async function refundScheduledStakeCoins(
       isReplay: true,
     };
   }
-  if ((hold.holdOperation.snapshot as Record<string, unknown> | null)?.financialTicket) {
+  const [financial] = await tx.$queryRaw<Array<{ has_ticket: boolean }>>`
+    SELECT snapshot ? 'financialTicket' AS has_ticket
+    FROM public.economic_operations WHERE id=${hold.holdOperationId}`;
+  if (financial?.has_ticket) {
     throw ApiError.conflict('Financial ticket settlement is not available');
   }
   const { wallet, account } = await lockEconomicWallet(tx, userId);
