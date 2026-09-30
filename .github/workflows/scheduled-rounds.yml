@@ -78,6 +78,15 @@ jobs:
           pnpm --filter api test:scheduled-practice
       - name: Native two-connection runtime tests
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts
+      - name: Generate disposable ledger test keys
+        run: |
+          python3 - <<'PYKEYS'
+          import os, secrets
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for name in ('SECURITY_TOTP_ENCRYPTION_KEY', 'LEDGER_APPROVAL_SIGNING_KEY'):
+                  env.write(name + '=' + secrets.token_hex(32) + '\n')
+              env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
+          PYKEYS
       - name: Existing ledger guard regressions
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway

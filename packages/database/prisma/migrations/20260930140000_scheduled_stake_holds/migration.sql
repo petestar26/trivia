@@ -351,6 +351,9 @@ RETURNS TABLE(id TEXT) LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp
     JOIN public.coin_lot_entries reversal ON reversal."reversesEntryId"=src.id
     WHERE h.state<>'REFUNDED' OR reversal."operationId" IS DISTINCT FROM h.refund_operation_id
   UNION
+  SELECT h.id FROM subjects h JOIN public.economic_operations reversal ON reversal."reversesOperationId"=h.hold_operation_id
+    WHERE h.state<>'REFUNDED' OR reversal.id IS DISTINCT FROM h.refund_operation_id
+  UNION
   SELECT o.id FROM public.economic_operations o
     WHERE o.type IN ('SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND')
       AND (target_id IS NULL OR o."scopeId"=target_id OR o.id=target_id)
@@ -365,8 +368,12 @@ DECLARE subject TEXT; source_id TEXT; kind TEXT;
 BEGIN
   IF TG_TABLE_NAME='scheduled_stake_holds' THEN subject:=NEW.id;
   ELSIF TG_TABLE_NAME='economic_operations' THEN
-    IF NEW.type NOT IN ('SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND') THEN RETURN NULL; END IF;
-    subject:=NEW."scopeId";
+    IF NEW.type IN ('SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND') THEN
+      subject:=NEW."scopeId";
+    ELSE
+      SELECT h.id INTO subject FROM public.scheduled_stake_holds h WHERE h.hold_operation_id=NEW."reversesOperationId";
+      IF subject IS NULL THEN RETURN NULL; END IF;
+    END IF;
   ELSE
     SELECT o.type::TEXT,o."scopeId" INTO kind,subject FROM public.economic_operations o WHERE o.id=NEW."operationId";
     IF kind NOT IN ('SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND') THEN

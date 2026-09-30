@@ -154,6 +154,48 @@ describe('scheduled stakes preserve original Coin sources', () => {
     expect(refunds.filter((x) => !x.isReplay)).toHaveLength(1);
     expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(400);
   });
+  it('prevents concurrent different holds from overspending the wallet', async () => {
+    const { buyer, args } = await fixture();
+    const attempts = [args.holdId, uid('other-hold')].map((holdId) => ({
+      ...args,
+      holdId,
+      amount: 300,
+    }));
+    const results = await Promise.allSettled(
+      attempts.map((terms) =>
+        prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, terms))
+      )
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(100);
+    const held = await prisma.scheduledStakeHold.findFirstOrThrow({ where: { userId: buyer.id } });
+    await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, held.id));
+    expect((await snapshot(buyer.id)).wallet?.coinsBalance).toBe(400);
+  });
+  it('rejects an unrelated reversal operation that would block the real refund', async () => {
+    const { buyer, args } = await fixture();
+    const held = await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args));
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await tx.economicOperation.create({
+          data: {
+            type: 'COMPENSATION',
+            userId: buyer.id,
+            createdBy: buyer.id,
+            scopeType: 'TEST',
+            scopeId: uid('forged-reversal'),
+            reversesOperationId: held.holdOperationId,
+          },
+        });
+        await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+      })
+    ).rejects.toThrow('scheduled stake proof mismatch');
+    expect(
+      (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
+        .coinsBalance
+    ).toBe(400);
+  });
   it('rolls back a failure after hold creation', async () => {
     const { buyer, args } = await fixture();
     const before = await snapshot(buyer.id);

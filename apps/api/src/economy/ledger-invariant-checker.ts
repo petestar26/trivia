@@ -139,6 +139,10 @@ const checks: ReadonlyArray<[string, string]> = [
       ('admin_adjustment_approvals','adjustment_execution_guard'),
       ('ledger_approval_assertions','ledger_approval_assertions_append_only'),
       ('users','users_privilege_guard'),
+      ('scheduled_stake_holds','scheduled_stake_hold_guard'),
+      ('scheduled_stake_holds','scheduled_stake_row_proof'),
+      ('economic_operations','scheduled_stake_operation_proof'),
+      ('coin_lot_entries','scheduled_stake_entry_proof'),
       ('game_sessions','game_session_immutability_guard'),
       ('game_challenges','game_challenges_rules_pin_guard'),
       ('group_competitions','group_competitions_rules_pin_guard')
