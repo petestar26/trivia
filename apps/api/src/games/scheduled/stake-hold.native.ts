@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
+import { PrismaClient } from '@prisma/client';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { applyRuntimeAccess } from '../../scripts/ledger-runtime-access.js';
 import { purchasedFixture, uid } from '../../test/ledger-integrity-fixtures.js';
 import { bootstrapLedgerTestGates } from '../../economy/ledger-test-bootstrap.js';
 import {
   creditCoins,
+  settleWagerCoins,
   reserveScheduledStakeCoins,
   refundScheduledStakeCoins,
 } from '../../economy/coin-ledger-service.js';
@@ -127,6 +131,54 @@ describe('scheduled stakes preserve original Coin sources', () => {
     ] as const)
       expect(after[key]).toEqual(before[key]);
   });
+  it('does not convert a restricted source while part of it remains reserved', async () => {
+    const { buyer, args } = await fixture();
+    const marker = 'rollback-conversion-probe';
+    await expect(
+      prisma.$transaction(async (tx) => {
+        await creditCoins(tx, buyer.id, 120, {
+          type: 'BONUS_GRANT',
+          scopeType: 'TEST',
+          scopeId: uid('bonus'),
+          referenceType: 'GAME',
+          description: 'Held bonus probe',
+          policy: args.policy,
+          requirementAmount: 40,
+        });
+        const source = await tx.coinProvenance.findFirstOrThrow({
+          where: { userId: buyer.id, lotClass: 'RESTRICTED' },
+        });
+        await reserveScheduledStakeCoins(tx, buyer.id, { ...args, amount: 40 });
+        await settleWagerCoins(tx, buyer.id, {
+          sessionId: uid('probe-session'),
+          idempotencyKey: uid('probe-request'),
+          gameKey: 'dice',
+          stake: 40,
+          payout: 40,
+          policy: args.policy,
+          responseSnapshot: (coinsBalance) => ({ coinsBalance }),
+        });
+        expect(await tx.coinProvenance.findUnique({ where: { id: source.id } })).toMatchObject({
+          state: 'OPEN',
+          lotClass: 'RESTRICTED',
+          reservedAmount: 40,
+          availableAmount: 80,
+          requirementAmount: 40,
+          progressAmount: 40,
+        });
+        await refundScheduledStakeCoins(tx, buyer.id, args.holdId);
+        expect(await tx.coinProvenance.findUnique({ where: { id: source.id } })).toMatchObject({
+          state: 'OPEN',
+          lotClass: 'RESTRICTED',
+          reservedAmount: 0,
+          availableAmount: 120,
+          requirementAmount: 40,
+          progressAmount: 40,
+        });
+        throw new Error(marker);
+      })
+    ).rejects.toThrow(marker);
+  });
   it('refuses changed terms and cross-user replay without any writes', async () => {
     const { buyer, args } = await fixture();
     const other = await fixture();
@@ -195,6 +247,42 @@ describe('scheduled stakes preserve original Coin sources', () => {
       (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
         .coinsBalance
     ).toBe(400);
+  });
+  it('holds and refunds through the documented restricted runtime role', async () => {
+    const { buyer, args } = await fixture();
+    const role = `stake_${randomUUID().replaceAll('-', '')}`;
+    const password = randomBytes(24).toString('hex');
+    const runtimeUrl = new URL(url);
+    runtimeUrl.username = role;
+    runtimeUrl.password = password;
+    const runtime = new PrismaClient({ datasourceUrl: runtimeUrl.toString(), log: [] });
+    let created = false;
+    try {
+      await prisma.$executeRawUnsafe(
+        `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`
+      );
+      created = true;
+      expect(await applyRuntimeAccess(prisma, role, role, randomBytes(32).toString('hex'))).toEqual(
+        []
+      );
+      await expect(
+        runtime.$queryRawUnsafe('SELECT secret FROM public.ledger_approval_keys')
+      ).rejects.toThrow('permission denied');
+      const hold = await runtime.$transaction((tx) =>
+        reserveScheduledStakeCoins(tx, buyer.id, args)
+      );
+      expect(hold.coinsBalance).toBe(320);
+      const refund = await runtime.$transaction((tx) =>
+        refundScheduledStakeCoins(tx, buyer.id, args.holdId)
+      );
+      expect(refund.coinsBalance).toBe(400);
+    } finally {
+      await runtime.$disconnect();
+      if (created) {
+        await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+      }
+    }
   });
   it('rolls back a failure after hold creation', async () => {
     const { buyer, args } = await fixture();
