@@ -36,8 +36,9 @@ const MASTER = ALL.filter((name) => name < PRE_GATE);
 const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260924060000_ledger_runtime_grants_cascade_keys', '20260924070000_ledger_runtime_grants_membership_options'];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
-const PREVIOUS_CANDIDATE = ALL.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
-const PARENT = ALL.filter((name) => !ADDED_AFTER_PARENT.includes(name));
+const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
+const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
+const PARENT = ORIGINAL_RELEASE.filter((name) => !ADDED_AFTER_PARENT.includes(name));
 
 const created: string[] = [];
 const scratchRoots: string[] = [];
@@ -316,7 +317,13 @@ beforeAll(() => {
   expect(ALL).toContain(PRE_GATE);
   expect(ALL).toContain(FINAL_GATE);
   expect(ALL.indexOf(FINAL_GATE)).toBeLessThan(ALL.indexOf(AUTHORIZATION));
-  expect(ALL.at(-1)).toBe(WINDOW_CHECK);
+  expect(ORIGINAL_RELEASE.at(-1)).toBe(WINDOW_CHECK);
+  // Explicitly account for forward migrations after the original ledger gate;
+  // never silently include them in a supposed historical parent fixture.
+  expect(ALL.filter((name) => name > WINDOW_CHECK)).toEqual([
+    '20260924100000_spin_win_rtp90_rules_dormant',
+    '20260930110000_scheduled_practice_rounds',
+  ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
 });
