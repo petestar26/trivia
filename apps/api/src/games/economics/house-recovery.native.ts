@@ -216,12 +216,15 @@ describe('bounded dormant financial recovery', () => {
     for (const limit of [0, 101, 1.5, NaN])
       await expect(recoverDormantSpinRound(owner, { roundId: f.roundId, limit })).rejects.toThrow('limit');
     const role = `playqube_recovery_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
-    await owner.$executeRawUnsafe(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS`);
+    const password = randomUUID().replaceAll('-', '');
+    await owner.$executeRawUnsafe(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${password}'`);
     const runtimeUrl = new URL(database!.url);
     runtimeUrl.username = role;
-    runtimeUrl.password = '';
+    runtimeUrl.password = password;
     const runtime = new PrismaClient({ datasourceUrl: runtimeUrl.toString(), log: [] });
     try {
+      const identity = await runtime.$queryRaw<Array<{ current_user: string }>>`SELECT CURRENT_USER`;
+      expect(identity[0]?.current_user).toBe(role);
       await expect(getDormantSpinRecoveryStatus(runtime, f.roundId)).rejects.toThrow('owner-only');
       await expect(recoverDormantSpinRound(runtime, { roundId: f.roundId })).rejects.toThrow('owner-only');
     } finally {
