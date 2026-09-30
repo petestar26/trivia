@@ -81,7 +81,11 @@ Admission must reload and update the treasury and round under database locks in
 one transaction with the stake hold and immutable ticket. A stale quote is not
 permission to debit. Risk must aggregate across users and simultaneous games.
 New tickets may be refused before acceptance; accepted tickets cannot be trimmed,
-repriced or cancelled because the result is expensive. The RNG receives only
+repriced or cancelled because the result is expensive. The dormant owner-known
+seed implementation cannot enforce that cancellation motive: it discloses the
+seed and would-be outcome with every committed cancellation for audit. Live
+activation requires independent entropy and a reviewed cancellation policy.
+The RNG receives only
 game/rules IDs, never the book, prior results, bankroll or player identity.
 
 The API must build models and payout vectors from the pinned server-side rules,
@@ -140,6 +144,9 @@ Coin sources in a scheduled hold, and reserves that ticket's standalone
 worst-case loss. The immutable hold snapshot binds normalized bets, round and
 payout vector to the matching capital reservation; I19 rejects unmatched
 holds. Exact replay survives a pause.
+Each semantic `rulesId` identifies exactly one immutable published row within
+a game, enforced by `game_rules_semantic_id_unique`. Publishing a new version
+requires a new semantic ID; settlement cannot choose between duplicate IDs.
 
 Before admission, an owner-only preparation helper commits a random seed
 to the round.
@@ -147,8 +154,14 @@ After cutoff it reveals that seed and persists one deterministic, uniform
 result. An owner-only settlement transaction atomically records the player
 wallet credit (if any), lot-level payout returns, finalization of reserved
 stake, game session, terminal hold, immutable resolution, and capital
-discharge. A cancelled undrawn round returns the full stake to its original
-lots and releases its reserve. Retries read the stored resolution; a crash
+discharge. A cancelled undrawn round first discloses its committed seed and
+would-be outcome in the immutable randomness record (`revealed_at` and
+`cancelled_outcome`), then returns the full stake to its original lots and
+releases its reserve. Cancellation replay returns the same audit data. A
+prepared round cannot be cancelled with the audit missing, and a drawn round
+cannot be cancelled. Existing dormant cancellations are audited by the forward
+migration; their disclosure timestamp is the migration time, not an invented
+historical cancellation time. Retries read the stored resolution; a crash
 after the draw resumes that result and cannot reroll or refund it. I20/I21 and
 deferred database proofs check those links.
 
@@ -161,8 +174,36 @@ still needs independent entropy and public commitment, external capital
 reconciliation, recovery tooling, and separate activation review. The migration
 stops before even the enum change when it finds a pre-existing prototype
 financial ticket hold, because that prototype had no pre-admission commitment;
-the hold needs owner-reviewed resolution before retry. Never mark that
-migration applied to bypass the stop.
+upgrade from a database containing such prototype holds is unsupported. Never
+mark that migration applied to bypass the stop.
+
+### Prototype-hold upgrade stop
+
+The supported populated upgrade starts from master with no prototype financial
+tickets. The schema at `170000` has no supported financial refund/resolution
+procedure, and this release cannot assign fair retrospective randomness.
+
+When the stop reports a prototype ticket, stop writers, keep financial gates
+disabled, and preserve a database backup plus read-only ledger evidence. For a
+verified disposable test database containing no real player funds or obligations,
+create a new empty isolated database and deploy all migrations there. Retain the
+old evidence; do not delete its holds or journal to force an upgrade. The migration
+regression proves the original database stays unchanged and the replacement
+deploys and replays successfully.
+
+For persistent databases, real funds, or uncertain provenance, retain the stop.
+Recovery/refund tooling needs a separate financial review. A pre-prototype
+backup can be restored only after independently reconciling all subsequent
+economic effects; a backup already containing prototype holds repeats the stop.
+Do not disable triggers, mark the gate migration applied, or invent a past seed.
+
+### Financial native test isolation
+
+Admission and settlement native files each create, migrate and drop their own
+uniquely named loopback throwaway database. The acknowledged bootstrap database
+is used only to create/drop those databases. Capital and append-only history are
+never reset or deleted to isolate tests. Both files can run in one Vitest command,
+either order, or repeatedly without sharing the global COINS capital account.
 
 ## Contest fee plan
 

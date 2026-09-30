@@ -100,10 +100,11 @@ jobs:
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/ledger/ledger-upgrade.migration.test.ts
-      - name: Dormant financial ticket admission
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/economics/house-ticket.native.ts
-      - name: Dormant financial draw, settlement, refund and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/economics/house-settlement.native.ts
+      - name: Isolated financial admission, draw, settlement and refund
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/economics/house-ticket.native.ts
+          src/games/economics/house-settlement.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 

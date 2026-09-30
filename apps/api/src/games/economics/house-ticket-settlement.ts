@@ -4,6 +4,7 @@ import { ApiError } from '../../middleware/error-handler.js';
 import { flushCoinLedgerConstraints, resolveFinancialStakeCoins } from '../../economy/coin-ledger-service.js';
 import type { EconomicTx } from '../../economy/coin-ledger-service.js';
 import { quoteSpin90Ticket } from './models.js';
+import { deriveSpinCommittedOutcome, verifySpinSeedCommitment } from './house-round-draw.js';
 
 /** Internal owner adapter only. Never give this credential to API/worker.
  * Draw/reveal is durable before any payout; a retry resumes that result even
@@ -65,6 +66,8 @@ export async function settleDormantSpinTicket(owner: PrismaClient, args: { holdI
       ...(round.cancel_reason ? { reason: round.cancel_reason } : {}),
     });
     const game = await tx.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
+    // The semantic-rules unique index maps the admission's immutable rulesId
+    // to exactly one published version; republishing that ID is rejected.
     const rules = await tx.gameRules.findFirstOrThrow({ where: {
       gameId: game.id, rules: { path: ['rulesId'], equals: hold.rulesId },
     } });
@@ -92,7 +95,10 @@ export async function settleDormantSpinTicket(owner: PrismaClient, args: { holdI
 }
 
 /** Cancellation is irrevocable and possible only before a durable draw.
- * It records the reason; pending tickets then refund through the SAME atomic
+ * It discloses the committed seed and would-be outcome for audit. This does
+ * not prevent an owner who already knows the seed from selecting a void;
+ * independent entropy remains required before live activation.
+ * Pending tickets then refund through the SAME atomic
  * resolution path. A crash cannot turn a drawn winner into a void/refund.
  */
 export async function cancelDormantSpinRound(owner: PrismaClient, args: { roundId: string; reason: string }) {
@@ -104,18 +110,36 @@ export async function cancelDormantSpinRound(owner: PrismaClient, args: { roundI
     const stream = await tx.scheduledGameRound.findUnique({ where: { id: args.roundId }, select: { streamId: true } });
     if (!stream) throw ApiError.notFound('Financial round not found');
     await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(${'scheduled-round:' + stream.streamId},0))) AS lock_wait`;
-    const [round] = await tx.$queryRaw<Array<{ mode: string; state: string; cancel_reason: string | null }>>`
-      SELECT mode,state,cancel_reason FROM public.scheduled_game_rounds WHERE id=${args.roundId} FOR UPDATE`;
+    const [round] = await tx.$queryRaw<Array<{ mode: string; state: string; rules_id: string; cancel_reason: string | null }>>`
+      SELECT mode,state,rules_id,cancel_reason FROM public.scheduled_game_rounds WHERE id=${args.roundId} FOR UPDATE`;
     if (round.mode !== 'FINANCIAL') throw ApiError.conflict('Only a financial round can be cancelled');
+    const [seed] = await tx.$queryRaw<Array<{
+      seed_hex: string; commitment_sha256: string; revealed_at: Date | null; cancelled_outcome: number | null;
+    }>>`SELECT seed_hex,commitment_sha256,revealed_at,cancelled_outcome
+      FROM public.house_round_randomness WHERE round_id=${args.roundId} FOR UPDATE`;
+    const audit = () => ({ roundId: args.roundId, seedHex: seed?.seed_hex ?? null,
+      commitmentSha256: seed?.commitment_sha256 ?? null,
+      wouldBeOutcome: seed?.cancelled_outcome ?? null, revealedAt: seed?.revealed_at ?? null });
     if (round.state === 'CANCELLED') {
       if (round.cancel_reason !== args.reason) throw ApiError.conflict('Cancellation reason differs from stored evidence');
-      return { roundId: args.roundId, isReplay: true };
+      return { ...audit(), isReplay: true };
     }
     if (round.state !== 'OPEN') throw ApiError.conflict('A drawn round must honor its result');
+    if (seed) {
+      if (!verifySpinSeedCommitment(args.roundId, round.rules_id, seed.seed_hex, seed.commitment_sha256))
+        throw ApiError.conflict('Cancellation commitment mismatch');
+      const outcome = deriveSpinCommittedOutcome(args.roundId, round.rules_id, seed.seed_hex);
+      const [recorded] = await tx.$queryRaw<Array<{ revealed_at: Date }>>`
+        UPDATE public.house_round_randomness
+        SET revealed_at=pg_catalog.clock_timestamp(),cancelled_outcome=${outcome}
+        WHERE round_id=${args.roundId} RETURNING revealed_at`;
+      seed.cancelled_outcome = outcome;
+      seed.revealed_at = recorded.revealed_at;
+    }
     await tx.scheduledGameRound.update({ where: { id: args.roundId }, data: {
       state: 'CANCELLED', cancelReason: args.reason,
     } });
     await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
-    return { roundId: args.roundId, isReplay: false };
+    return { ...audit(), isReplay: false };
   }, { isolationLevel: 'ReadCommitted', timeout: 20_000 });
 }

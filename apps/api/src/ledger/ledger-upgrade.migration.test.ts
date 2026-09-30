@@ -27,6 +27,7 @@ const AUTHORIZATION = '20260924010000_ledger_resolution_authorization';
 const OPENING_JOURNAL = '20260923030000_opus_freeze_legacy_allocations';
 const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
 const PRE_SETTLEMENT = '20260930180000_scheduled_settlement_type';
+const CANCELLATION_AUDIT = '20260930200000_financial_cancellation_audit';
 const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
@@ -40,7 +41,8 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930120000_scheduled_practice_tickets', '20260930130000_scheduled_stake_types',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
-  '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement'];
+  '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
+  CANCELLATION_AUDIT];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -337,6 +339,7 @@ beforeAll(() => {
     '20260930170000_dormant_financial_rounds',
     '20260930180000_scheduled_settlement_type',
     '20260930190000_dormant_financial_settlement',
+    CANCELLATION_AUDIT,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -427,6 +430,78 @@ describe('ledger upgrade migrations', () => {
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
+  it('a previous dormant cancellation gains an immutable committed-outcome audit without changing customer balances', async () => {
+    const db = await scratchDatabase('cancellation-audit');
+    try {
+      const previous = deploy(db.url, migrationSubset(ALL.filter((name) => name < CANCELLATION_AUDIT)));
+      expect(previous.status, previous.output).toBe(0);
+
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+      const streamId = `audit${suffix}`;
+      const roundId = `${streamId}:0`;
+      const seedHex = randomBytes(32).toString('hex');
+      const customer = await db.client.user.create({ data: { username: `auditcustomer${suffix}` } });
+      await db.client.wallet.create({ data: { userId: customer.id, gamePointsBalance: 73 } });
+      const walletBefore = await db.client.wallet.findUniqueOrThrow({ where: { userId: customer.id } });
+
+      // Exercise the actual previous guards with ordinary owner SQL. The
+      // old cancellation path retained its commitment but did not reveal it.
+      await db.client.$transaction(async (tx) => {
+        const [clock] = await tx.$queryRaw<Array<{ anchor: bigint }>>`
+          SELECT pg_catalog.floor(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp())*1000)::BIGINT-1000 AS anchor`;
+        await tx.$executeRaw`
+          INSERT INTO public.scheduled_game_streams
+            (id,game_key,rules_id,mode,enabled,anchor_ms,betting_ms,reveal_ms,result_ms)
+          VALUES (${streamId},'spin_win','single-zero-rtp90-v2','FINANCIAL',true,${clock.anchor},3600000,1000,1000)`;
+        await tx.$executeRaw`
+          INSERT INTO public.scheduled_game_rounds
+            (id,stream_id,sequence,game_key,rules_id,mode,opens_ms,closes_ms,reveal_ends_ms,ends_ms)
+          VALUES (${roundId},${streamId},0,'spin_win','single-zero-rtp90-v2','FINANCIAL',
+            ${clock.anchor},${clock.anchor + 3600000n},${clock.anchor + 3601000n},${clock.anchor + 3602000n})`;
+        await tx.$executeRaw`
+          INSERT INTO public.house_round_randomness(round_id,seed_hex,commitment_sha256,algorithm)
+          VALUES (${roundId},${seedHex},pg_catalog.encode(public.digest(pg_catalog.convert_to(
+            'playqube:spin-win:commit:v1'||E'\n'||${roundId}||E'\n'||'single-zero-rtp90-v2'||E'\n'||${seedHex},
+            'UTF8'),'sha256'::TEXT),'hex'),'sha256-rejection-u32be-v1')`;
+        await tx.$executeRaw`
+          UPDATE public.scheduled_game_rounds SET state='CANCELLED',cancel_reason='Previous dormant cancellation'
+          WHERE id=${roundId}`;
+      });
+      const [before] = await db.client.$queryRaw<Array<{
+        seed_hex: string; commitment_sha256: string; prepared_at: Date; revealed_at: Date | null; outcome: number;
+      }>>`
+        SELECT x.seed_hex,x.commitment_sha256,x.prepared_at,x.revealed_at,public.house_spin_outcome(x.round_id) AS outcome
+        FROM public.house_round_randomness x WHERE x.round_id=${roundId}`;
+      expect(before.revealed_at).toBeNull();
+      expect(await anomalies(db.client)).toEqual([]);
+
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      expect(upgrade.output).toContain(`Applying migration \`${CANCELLATION_AUDIT}\``);
+      const audit = () => db.client.$queryRaw<Array<{
+        seed_hex: string; commitment_sha256: string; prepared_at: Date; revealed_at: Date | null;
+        cancelled_outcome: number | null; outcome: number; state: string; cancel_reason: string;
+      }>>`
+        SELECT x.seed_hex,x.commitment_sha256,x.prepared_at,x.revealed_at,x.cancelled_outcome,
+          public.house_spin_outcome(x.round_id) AS outcome,g.state,g.cancel_reason
+        FROM public.house_round_randomness x JOIN public.scheduled_game_rounds g ON g.id=x.round_id
+        WHERE x.round_id=${roundId}`;
+      const [after] = await audit();
+      expect(after).toMatchObject({ seed_hex: before.seed_hex, commitment_sha256: before.commitment_sha256,
+        prepared_at: before.prepared_at, cancelled_outcome: before.outcome, outcome: before.outcome,
+        state: 'CANCELLED', cancel_reason: 'Previous dormant cancellation' });
+      expect(after.revealed_at).toBeInstanceOf(Date);
+      expect(await db.client.wallet.findUniqueOrThrow({ where: { userId: customer.id } })).toEqual(walletBefore);
+      expect(await anomalies(db.client)).toEqual([]);
+
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+      expect(await audit()).toEqual([after]);
+      expect(await db.client.wallet.findUniqueOrThrow({ where: { userId: customer.id } })).toEqual(walletBefore);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
   it('stops before changing schema when a prototype financial ticket lacks committed randomness', async () => {
     const db = await scratchDatabase('prototype-ticket');
     try {
@@ -478,6 +553,18 @@ describe('ledger upgrade migrations', () => {
       expect(failed.at(-1)).toMatchObject({
         migration_name: PRE_SETTLEMENT, finished: false, rolled_back: false, steps: 0,
       });
+      // The documented recovery is restricted to verified disposable test
+      // databases: build a new empty database, never erase retained history.
+      const replacement = await scratchDatabase('prototype-rebuild');
+      try {
+        const rebuilt = deploy(replacement.url);
+        expect(rebuilt.status, rebuilt.output).toBe(0);
+        expect(await replacement.client.scheduledStakeHold.count()).toBe(0);
+        const replay = deploy(replacement.url);
+        expect(replay.status, replay.output).toBe(0);
+        expect(replay.output).toContain('No pending migrations to apply');
+        expect(await inspect()).toEqual(before);
+      } finally { await replacement.client.$disconnect(); }
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 

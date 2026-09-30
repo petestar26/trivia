@@ -1,29 +1,39 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { prisma } from '@socialplay/database';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SPIN90_RULES_ID } from '@socialplay/shared';
 import { randomUUID } from 'node:crypto';
-import type { GameDefinition } from '@prisma/client';
-import { purchasedFixture, uid } from '../../test/ledger-integrity-fixtures.js';
-import { bootstrapLedgerTestGates } from '../../economy/ledger-test-bootstrap.js';
-import { admitDormantSpinTicket } from './house-ticket-admission.js';
-import { prepareDormantSpinRandomness } from './house-round-draw.js';
+import type { PrismaClient } from '@prisma/client';
+import type * as LedgerFixtures from '../../test/ledger-integrity-fixtures.js';
+import type * as LedgerBootstrap from '../../economy/ledger-test-bootstrap.js';
+import type * as TicketAdmission from './house-ticket-admission.js';
+import type * as RoundDraw from './house-round-draw.js';
+import { financialNativeDatabase } from '../../test/financial-native-database.js';
 
-const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
-if (!['127.0.0.1', 'localhost'].includes(url.hostname) ||
-    url.pathname !== '/playqube_scheduled_throwaway' ||
-    process.env.SCHEDULED_NATIVE_DB_ACK !== 'throwaway') {
-  throw new Error('Financial admission tests require the acknowledged isolated throwaway database');
-}
-process.env.TEST_LEDGER_DB_NAME = 'playqube_scheduled_throwaway';
+let database: Awaited<ReturnType<typeof financialNativeDatabase>> | undefined;
+let prisma: PrismaClient;
+let purchasedFixture: typeof LedgerFixtures.purchasedFixture;
+let uid: typeof LedgerFixtures.uid;
+let bootstrapLedgerTestGates: typeof LedgerBootstrap.bootstrapLedgerTestGates;
+let admitDormantSpinTicket: typeof TicketAdmission.admitDormantSpinTicket;
+let prepareDormantSpinRandomness: typeof RoundDraw.prepareDormantSpinRandomness;
 
 const streamId = `fin${randomUUID().replaceAll('-', '').slice(0, 18)}`;
 const roundId = `${streamId}:0`;
 const bets = [{ marketId: 'number:7', amount: 40 }];
 let buyerId: string;
-let original: Pick<GameDefinition, 'catalogStatus' | 'isActive' | 'currentRulesVersion'>;
 let runId: string;
 
 beforeAll(async () => {
+  database = await financialNativeDatabase('admission');
+  prisma = database.client;
+  // Fixtures use the real client for this file's database, even if a previous
+  // file loaded the package's process-global singleton in this worker.
+  vi.doMock('@socialplay/database', async () => ({
+    ...await import('@prisma/client'), prisma, default: prisma,
+  }));
+  ({ purchasedFixture, uid } = await import('../../test/ledger-integrity-fixtures.js'));
+  ({ bootstrapLedgerTestGates } = await import('../../economy/ledger-test-bootstrap.js'));
+  ({ admitDormantSpinTicket } = await import('./house-ticket-admission.js'));
+  ({ prepareDormantSpinRandomness } = await import('./house-round-draw.js'));
   await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
   runId = await bootstrapLedgerTestGates();
   const fixture = await purchasedFixture(1000);
@@ -36,8 +46,6 @@ beforeAll(async () => {
     accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' }, status: 'ACTIVE',
   } });
   const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
-  original = { catalogStatus: game.catalogStatus, isActive: game.isActive,
-    currentRulesVersion: game.currentRulesVersion };
   await prisma.gameDefinition.update({ where: { id: game.id }, data: {
     catalogStatus: 'AVAILABLE', isActive: true, currentRulesVersion: 1,
   } });
@@ -59,15 +67,10 @@ beforeAll(async () => {
   } });
   await prepareDormantSpinRandomness(prisma, roundId);
   await prisma.$queryRaw`SELECT public.house_record_capital_funding(${`bank:${randomUUID()}`},${1292n},${'a'.repeat(64)})`;
-});
+}, 240_000);
 afterAll(async () => {
-  try {
-    await prisma.scheduledGameStream.update({ where: { id: streamId }, data: { enabled: false } }).catch(() => undefined);
-    if (original) await prisma.gameDefinition.update({ where: { key: 'spin_win' }, data: original });
-    for (const key of ['HOUSE_TICKET_ADMISSION', 'SCHEDULED_STAKE_HOLD']) {
-      await prisma.platformGate.update({ where: { key }, data: { enabled: false } });
-    }
-  } finally { await prisma.$disconnect(); }
+  try { await database?.dispose(); }
+  finally { vi.doUnmock('@socialplay/database'); }
 });
 
 describe('dormant financial ticket atomic admission', () => {

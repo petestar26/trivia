@@ -2795,6 +2795,7 @@ model HouseRoundRandomness {
   algorithm String
   preparedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("prepared_at") @db.Timestamptz(6)
   revealedAt DateTime? @map("revealed_at") @db.Timestamptz(6)
+  cancelledOutcome Int? @map("cancelled_outcome")
   round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   @@map("house_round_randomness")
 }

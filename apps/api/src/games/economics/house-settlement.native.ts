@@ -1,28 +1,30 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { prisma } from '@socialplay/database';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SPIN90_RULES_ID } from '@socialplay/shared';
 import { randomUUID } from 'node:crypto';
-import type { GameDefinition } from '@prisma/client';
-import { purchasedFixture, uid } from '../../test/ledger-integrity-fixtures.js';
-import { bootstrapLedgerTestGates } from '../../economy/ledger-test-bootstrap.js';
-import { creditCoins } from '../../economy/coin-ledger-service.js';
-import { runLedgerInvariantCheck } from '../../economy/ledger-invariant-checker.js';
-import { admitDormantSpinTicket } from './house-ticket-admission.js';
-import { cancelDormantSpinRound, settleDormantSpinTicket } from './house-ticket-settlement.js';
-import {
-  deriveSpinCommittedOutcome, drawDormantSpinRound, prepareDormantSpinRandomness,
-} from './house-round-draw.js';
+import type { PrismaClient } from '@prisma/client';
+import type * as LedgerFixtures from '../../test/ledger-integrity-fixtures.js';
+import type * as LedgerBootstrap from '../../economy/ledger-test-bootstrap.js';
+import type * as CoinLedger from '../../economy/coin-ledger-service.js';
+import type * as LedgerInvariant from '../../economy/ledger-invariant-checker.js';
+import type * as TicketAdmission from './house-ticket-admission.js';
+import type * as TicketSettlement from './house-ticket-settlement.js';
+import type * as RoundDraw from './house-round-draw.js';
+import { financialNativeDatabase } from '../../test/financial-native-database.js';
 
-const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
-if (!['127.0.0.1', 'localhost'].includes(url.hostname) ||
-    url.pathname !== '/playqube_scheduled_throwaway' ||
-    process.env.SCHEDULED_NATIVE_DB_ACK !== 'throwaway') {
-  throw new Error('Financial settlement tests require the acknowledged isolated throwaway database');
-}
-process.env.TEST_LEDGER_DB_NAME = 'playqube_scheduled_throwaway';
+let database: Awaited<ReturnType<typeof financialNativeDatabase>> | undefined;
+let prisma: PrismaClient;
+let purchasedFixture: typeof LedgerFixtures.purchasedFixture;
+let uid: typeof LedgerFixtures.uid;
+let bootstrapLedgerTestGates: typeof LedgerBootstrap.bootstrapLedgerTestGates;
+let creditCoins: typeof CoinLedger.creditCoins;
+let runLedgerInvariantCheck: typeof LedgerInvariant.runLedgerInvariantCheck;
+let admitDormantSpinTicket: typeof TicketAdmission.admitDormantSpinTicket;
+let cancelDormantSpinRound: typeof TicketSettlement.cancelDormantSpinRound;
+let settleDormantSpinTicket: typeof TicketSettlement.settleDormantSpinTicket;
+let deriveSpinCommittedOutcome: typeof RoundDraw.deriveSpinCommittedOutcome;
+let drawDormantSpinRound: typeof RoundDraw.drawDormantSpinRound;
+let prepareDormantSpinRandomness: typeof RoundDraw.prepareDormantSpinRandomness;
 
-let original: Pick<GameDefinition, 'catalogStatus' | 'isActive' | 'currentRulesVersion'>;
-const createdStreams: string[] = [];
 let runId: string;
 
 async function dbClock() {
@@ -59,7 +61,6 @@ async function createRound() {
     mode: 'FINANCIAL', enabled: true, anchorMs: anchor,
     bettingMs: 4000, revealMs: 1000, resultMs: 1000,
   } });
-  createdStreams.push(streamId);
   await prisma.scheduledGameRound.create({ data: {
     id: roundId, streamId, sequence: 0n, gameKey: 'spin_win', rulesId: SPIN90_RULES_ID,
     mode: 'FINANCIAL', opensMs: anchor, closesMs: anchor + 4000n,
@@ -136,25 +137,29 @@ async function financialSnapshot(userId: string, holdId: string) {
 }
 
 beforeAll(async () => {
+  database = await financialNativeDatabase('settlement');
+  prisma = database.client;
+  // Every fixture and real service uses this file's fresh PostgreSQL client.
+  vi.doMock('@socialplay/database', async () => ({
+    ...await import('@prisma/client'), prisma, default: prisma,
+  }));
+  ({ purchasedFixture, uid } = await import('../../test/ledger-integrity-fixtures.js'));
+  ({ bootstrapLedgerTestGates } = await import('../../economy/ledger-test-bootstrap.js'));
+  ({ creditCoins } = await import('../../economy/coin-ledger-service.js'));
+  ({ runLedgerInvariantCheck } = await import('../../economy/ledger-invariant-checker.js'));
+  ({ admitDormantSpinTicket } = await import('./house-ticket-admission.js'));
+  ({ cancelDormantSpinRound, settleDormantSpinTicket } = await import('./house-ticket-settlement.js'));
+  ({ deriveSpinCommittedOutcome, drawDormantSpinRound, prepareDormantSpinRandomness } =
+    await import('./house-round-draw.js'));
   await prisma.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
   runId = await bootstrapLedgerTestGates();
-  const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
-  original = { catalogStatus: game.catalogStatus, isActive: game.isActive,
-    currentRulesVersion: game.currentRulesVersion };
   await setGameEnabled(true);
   await prisma.$queryRaw`SELECT public.house_record_capital_funding(${`bank:${randomUUID()}`},${1_000_000n},${'c'.repeat(64)})`;
-});
+}, 240_000);
 
 afterAll(async () => {
-  try {
-    for (const id of createdStreams) {
-      await prisma.scheduledGameStream.update({ where: { id }, data: { enabled: false } });
-    }
-    if (original) await prisma.gameDefinition.update({ where: { key: 'spin_win' }, data: original });
-    for (const key of ['HOUSE_TICKET_ADMISSION', 'SCHEDULED_STAKE_HOLD']) {
-      await prisma.platformGate.update({ where: { key }, data: { enabled: false } });
-    }
-  } finally { await prisma.$disconnect(); }
+  try { await database?.dispose(); }
+  finally { vi.doUnmock('@socialplay/database'); }
 });
 
 describe('dormant Spin Win draw and ticket settlement', () => {
@@ -249,7 +254,15 @@ describe('dormant Spin Win draw and ticket settlement', () => {
 
   it('refunds cancellation to exactly its source lots and releases the reserve once', async () => {
     const f = await fixture({ bonus: 40, stake: 80 });
-    await cancelDormantSpinRound(prisma, { roundId: f.roundId, reason: 'fixture cancellation before draw' });
+    const reason = 'fixture cancellation before draw';
+    const cancellation = await cancelDormantSpinRound(prisma, { roundId: f.roundId, reason });
+    const seed = await prisma.houseRoundRandomness.findUniqueOrThrow({ where: { roundId: f.roundId } });
+    expect(cancellation).toMatchObject({ seedHex: seed.seedHex,
+      commitmentSha256: seed.commitmentSha256, wouldBeOutcome: f.outcome,
+      revealedAt: seed.revealedAt, isReplay: false });
+    expect(seed).toMatchObject({ cancelledOutcome: f.outcome, revealedAt: expect.any(Date) });
+    expect(await cancelDormantSpinRound(prisma, { roundId: f.roundId, reason }))
+      .toEqual({ ...cancellation, isReplay: true });
     const result = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
     expect(result).toMatchObject({ payout: 80, coinsBalance: 160, disposition: 'CANCELLED', isReplay: false });
     const after = await financialSnapshot(f.buyer.id, f.holdId);
@@ -269,6 +282,50 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     await expect(drawDormantSpinRound(prisma, f.roundId)).rejects.toThrow();
   });
 
+  it('rejects an unaudited cancellation and makes its disclosed would-be result immutable', async () => {
+    const f = await fixture();
+    const before = await financialSnapshot(f.buyer.id, f.holdId);
+    await expect(prisma.$executeRaw`UPDATE public.scheduled_game_rounds
+      SET state='CANCELLED',cancel_reason='unrecorded expensive result' WHERE id=${f.roundId}`)
+      .rejects.toThrow(/undrawn financial round/i);
+    expect(await financialSnapshot(f.buyer.id, f.holdId)).toEqual(before);
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE public.house_round_randomness
+        SET revealed_at=clock_timestamp(),cancelled_outcome=${(f.outcome + 1) % 37}
+        WHERE round_id=${f.roundId}`;
+    })).rejects.toThrow(/committed outcome/i);
+    await expect(prisma.$executeRaw`UPDATE public.house_round_randomness
+      SET revealed_at=clock_timestamp(),cancelled_outcome=${f.outcome} WHERE round_id=${f.roundId}`)
+      .rejects.toThrow(/financial randomness proof mismatch/i);
+    const audit = await cancelDormantSpinRound(prisma, { roundId: f.roundId, reason: 'recorded cancellation test' });
+    expect(audit.wouldBeOutcome).toBe(f.outcome);
+    await expect(prisma.$executeRaw`UPDATE public.house_round_randomness
+      SET cancelled_outcome=${(f.outcome + 1) % 37} WHERE round_id=${f.roundId}`)
+      .rejects.toThrow(/immutable/i);
+    await settleDormantSpinTicket(prisma, { holdId: f.holdId });
+    expect((await runLedgerInvariantCheck()).passed).toBe(true);
+  });
+
+  it('rejects republishing a semantic rules ID and settles with its original published version', async () => {
+    const f = await fixture();
+    const published = await prisma.gameRules.findFirstOrThrow({
+      where: { rules: { path: ['rulesId'], equals: SPIN90_RULES_ID } },
+    });
+    await expect(prisma.$executeRaw`INSERT INTO public.game_rules
+      (id,"gameId",version,mode,family,"wagerCurrency","rewardCurrency",
+       rules,"rulesHash","resultSchemaVersion","createdAt")
+      SELECT ${uid('duplicate-rules')},"gameId",version+100,mode,family,"wagerCurrency","rewardCurrency",
+        rules,"rulesHash","resultSchemaVersion",clock_timestamp()
+      FROM public.game_rules WHERE id=${published.id}`).rejects.toMatchObject({
+        meta: { code: '23505', message: expect.stringContaining("rules ->> 'rulesId'") },
+      });
+    await waitForCutoff(f.roundId);
+    await drawDormantSpinRound(prisma, f.roundId);
+    await settleDormantSpinTicket(prisma, { holdId: f.holdId });
+    const session = await prisma.gameSession.findUniqueOrThrow({ where: { id: `scheduled:${f.holdId}` } });
+    expect(session.rulesVersion).toBe(published.version);
+  });
+
   it('cannot cancel an already drawn round or substitute its stored result', async () => {
     const f = await fixture();
     await waitForCutoff(f.roundId);
@@ -278,6 +335,30 @@ describe('dormant Spin Win draw and ticket settlement', () => {
       SET outcome=${(draw.outcome + 1) % 37} WHERE id=${f.roundId}`).rejects.toThrow();
     expect((await drawDormantSpinRound(prisma, f.roundId)).outcome).toBe(draw.outcome);
     await settleDormantSpinTicket(prisma, { holdId: f.holdId });
+  });
+
+  it('serializes a cutoff draw racing audited cancellation into one terminal result', async () => {
+    const f = await fixture();
+    await waitForCutoff(f.roundId);
+    const raced = await Promise.allSettled([
+      drawDormantSpinRound(prisma, f.roundId),
+      cancelDormantSpinRound(prisma, { roundId: f.roundId, reason: 'audited cutoff race' }),
+    ]);
+    expect(raced.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(raced.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const round = await prisma.scheduledGameRound.findUniqueOrThrow({ where: { id: f.roundId } });
+    const seed = await prisma.houseRoundRandomness.findUniqueOrThrow({ where: { roundId: f.roundId } });
+    expect(seed.revealedAt).toBeInstanceOf(Date);
+    const settled = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
+    if (round.state === 'DRAWN') {
+      expect(round.outcome).toBe(f.outcome);
+      expect(seed.cancelledOutcome).toBeNull();
+      expect(settled.disposition).toBe('SETTLED');
+    } else {
+      expect(round.state).toBe('CANCELLED');
+      expect(seed.cancelledOutcome).toBe(f.outcome);
+      expect(settled).toMatchObject({ disposition: 'CANCELLED', payout: 40 });
+    }
   });
 
   it('concurrent settlement requests commit one payout and replay one persisted result', async () => {
