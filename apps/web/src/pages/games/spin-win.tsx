@@ -195,6 +195,7 @@ export function SpinWinPage() {
       <Link to="/casino" className="text-sm text-primary-600 dark:text-primary-400">
         ← Casino
       </Link>
+      <Link to="/games/spin-win/live" className="ml-4 text-sm font-semibold text-primary-600 dark:text-primary-400">Shared scheduled practice →</Link>
       <div className="overflow-hidden rounded-3xl border border-slate-700 bg-[#0b1424] text-white shadow-xl">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-5 py-5 sm:px-8">
           <div>

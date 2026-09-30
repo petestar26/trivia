@@ -1,0 +1,114 @@
+name: Scheduled rounds PostgreSQL
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/scheduled-rounds.yml'
+      - 'apps/api/src/games/economics/**'
+      - 'apps/api/src/games/scheduled/**'
+      - 'apps/api/src/routes/games.ts'
+      - 'apps/api/src/economy/**'
+      - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/App.tsx'
+      - 'packages/shared/src/**'
+      - 'apps/api/src/scripts/scheduled-practice-worker.ts'
+      - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
+      - 'apps/api/vitest.scheduled-*.config.ts'
+      - 'packages/database/prisma/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-rounds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [13, 16]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:${{ matrix.version }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-password
+          POSTGRES_DB: playqube_scheduled_throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:isolated-ci-password@127.0.0.1:5432/playqube_scheduled_throwaway?schema=public
+      SCHEDULED_NATIVE_DB_ACK: throwaway
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      JWT_ACCESS_SECRET: disposable-scheduled-ci-access-secret
+      JWT_REFRESH_SECRET: disposable-scheduled-ci-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pinned workspace dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+      - name: Build workspace packages
+        run: pnpm build:packages
+      - name: Fresh migration deployment and replay
+        run: |
+          pnpm --filter @socialplay/database db:migrate:deploy
+          pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Economics and embedded SQL contracts
+        run: |
+          pnpm --filter api test:economics
+          pnpm --filter api test:scheduled-practice
+      - name: Native two-connection runtime tests
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts src/games/economics/house-capital.native.ts
+      - name: Generate disposable ledger test keys
+        run: |
+          python3 - <<'PYKEYS'
+          import os, secrets
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for name in ('SECURITY_TOTP_ENCRYPTION_KEY', 'LEDGER_APPROVAL_SIGNING_KEY'):
+                  env.write(name + '=' + secrets.token_hex(32) + '\n')
+              env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
+          PYKEYS
+      - name: Existing ledger guard regressions
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/ledger/allocator.contract.test.ts
+          src/ledger/ledger-integrity-guards.contract.test.ts
+          src/ledger/ledger-authorization-guards.contract.test.ts
+          src/ledger/flows.contract.test.ts
+      - name: Fresh and populated migration regression
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/ledger/ledger-upgrade.migration.test.ts
+      - name: Isolated financial admission, draw, settlement and refund
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/economics/house-ticket.native.ts
+          src/games/economics/house-settlement.native.ts
+      - name: Build API
+        run: pnpm --filter api exec node build.js
+
+      - name: Scheduled practice web contracts
+        run: pnpm --filter web exec vitest run src/pages/games/spin-win-scheduled.test.tsx src/pages/games/spin-win.test.tsx --minWorkers=1 --maxWorkers=1
+      - name: Build web and typecheck
+        run: pnpm --filter web build

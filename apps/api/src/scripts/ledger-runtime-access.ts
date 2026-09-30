@@ -50,6 +50,12 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['house_round_randomness', 'SELECT'], ['house_round_randomness', 'INSERT'],
+  ['house_round_randomness', 'UPDATE'], ['house_round_randomness', 'DELETE'],
+  ['house_ticket_resolutions', 'INSERT'], ['house_ticket_resolutions', 'UPDATE'], ['house_ticket_resolutions', 'DELETE'],
+  ['house_capital_accounts', 'INSERT'], ['house_capital_accounts', 'UPDATE'], ['house_capital_accounts', 'DELETE'],
+  ['house_capital_fundings', 'INSERT'], ['house_capital_fundings', 'UPDATE'], ['house_capital_fundings', 'DELETE'],
+  ['house_round_reservations', 'INSERT'], ['house_round_reservations', 'UPDATE'], ['house_round_reservations', 'DELETE'],
   ['admin_adjustment_approvals', 'INSERT'], ['admin_adjustment_approvals', 'UPDATE'], ['admin_adjustment_approvals', 'DELETE'],
   ['ledger_approval_assertions', 'INSERT'], ['ledger_approval_assertions', 'UPDATE'], ['ledger_approval_assertions', 'DELETE'],
   ['ledger_approval_keys', 'SELECT'], ['ledger_approval_keys', 'INSERT'], ['ledger_approval_keys', 'UPDATE'],
@@ -58,6 +64,7 @@ const DENIED: [table: string, privilege: string][] = [
   ['coin_lot_entries', 'UPDATE'], ['coin_lot_entries', 'DELETE'],
   ['wallet_transactions', 'UPDATE'], ['wallet_transactions', 'DELETE'],
   ['legacy_balance_reviews', 'UPDATE'], ['legacy_balance_reviews', 'DELETE'],
+  ['scheduled_stake_holds', 'DELETE'],
   ['wallets', 'DELETE'], ['coin_provenance', 'DELETE'], ['users', 'DELETE'],
   ['game_rules', 'INSERT'], ['game_rules', 'UPDATE'], ['game_rules', 'DELETE'],
   ['_prisma_migrations', 'INSERT'], ['_prisma_migrations', 'UPDATE'], ['_prisma_migrations', 'DELETE'],
@@ -72,6 +79,8 @@ const DENIED_USER_COLUMNS = ['role', 'status'];
 const DENIED_FUNCTIONS = [
   'ledger_install_approval_key(text,bytea)', 'ledger_retire_approval_key(text)', 'ledger_apply_runtime_grants(text)',
   'ledger_record_assertion(text,text,text,text,text,numeric,text,jsonb,text,text,text)',
+  'house_record_capital_funding(text,bigint,text)', 'house_reserve_round_loss(text,bigint,jsonb,integer)',
+  'house_discharge_ticket(text,text,text,integer,integer,text)', 'house_spin_outcome(text)',
 ];
 const REQUIRED: [table: string, privilege: string][] = [
   ['users', 'INSERT'], ['economic_operations', 'INSERT'], ['coin_lot_entries', 'INSERT'],
@@ -255,6 +264,17 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
     ORDER BY s.k, u.n`;
   for (const { subject, column } of users) {
     found.push({ subject, what: `users.${column}`, failure: (via) => `${role} can still change users.${column}${via}` });
+  }
+  const holdColumns = await tx.$queryRaw<{ subject: string; column: string }[]>`
+    SELECT s.subject, a.attname::text AS "column"
+    FROM unnest(${subjects}::text[]) AS s(subject)
+    JOIN pg_attribute a ON a.attrelid=to_regclass('public.scheduled_stake_holds')
+      AND a.attnum>0 AND NOT a.attisdropped
+    WHERE a.attname NOT IN ('state','refund_operation_id')
+      AND has_column_privilege(s.subject,a.attrelid,a.attnum,'UPDATE')`;
+  for (const { subject, column } of holdColumns) {
+    found.push({ subject, what: `scheduled_stake_holds.${column}`,
+      failure: (via) => `${role} can still change scheduled_stake_holds.${column}${via}` });
   }
   const functions = await tx.$queryRaw<{ subject: string; name: string }[]>`
     SELECT s.subject, p.proname::text AS "name"

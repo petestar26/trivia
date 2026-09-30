@@ -10,6 +10,7 @@ import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
 import { DiceGamePage } from '@/pages/games/dice';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
+import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
 import { SpinWinPage } from '@/pages/games/spin-win';
 import { SpinWinCoinsPage } from '@/pages/games/spin-win-coins';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
@@ -71,6 +72,7 @@ export function App() {
           }
         />
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
+        <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinPage />} />
         <Route path="games/spin-win/play" element={<CasinoProvider><SpinWinCoinsPage /></CasinoProvider>} />
         <Route

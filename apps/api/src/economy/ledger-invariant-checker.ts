@@ -54,9 +54,39 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard',
   'ledger_set_role_privilege', 'ledger_role_reach', 'ledger_role_is_trusted',
 ];
-const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
+// New scheduled functions also use only explicitly qualified objects. Require
+// their stronger pin rather than the legacy public-first default.
+const STRICT_SCHEDULED_FUNCTIONS = [
+  'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
+  'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
+  'scheduled_stake_constraint', 'scheduled_stake_integrity_failures',
+  'scheduled_stake_backing_constraint', 'scheduled_stake_backing_failures',
+  'house_capital_owner_guard', 'house_capital_constraint', 'house_capital_failures',
+  'house_record_capital_funding', 'house_reserve_round_loss',
+  'scheduled_financial_owner_guard', 'house_financial_hold_failures', 'house_financial_hold_constraint',
+  'house_discharge_ticket', 'scheduled_stake_payout_sources',
+  'scheduled_stake_settlement_failures',
+  'house_round_randomness_guard', 'house_round_randomness_failures', 'house_round_randomness_constraint',
+  'house_spin_outcome', 'house_ticket_resolution_failures', 'house_ticket_resolution_constraint',
+];
+const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
 const checks: ReadonlyArray<[string, string]> = [
+  ['I17 scheduled stake hold/refund proofs', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.scheduled_stake_integrity_failures()`],
+  ['I18 operator funds and reserved exposure reconcile', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_capital_failures()`],
+  ['I19 financial holds retain an owner-booked exposure reserve', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_financial_hold_failures()`],
+  ['I20 financial settlement, wallet, session and capital discharge agree', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_ticket_resolution_failures()`],
+  ['I21 committed financial results retain their reveal proof', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_round_randomness_failures()`],
   // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
   // type, and no lot entry attributed to one, may ever exist. This is a
   // second, independent line of defense behind the INSERT-time trigger in
@@ -129,6 +159,37 @@ const checks: ReadonlyArray<[string, string]> = [
       ('admin_adjustment_approvals','adjustment_execution_guard'),
       ('ledger_approval_assertions','ledger_approval_assertions_append_only'),
       ('users','users_privilege_guard'),
+      ('house_capital_accounts','house_capital_account_guard'),
+      ('house_capital_accounts','house_capital_account_no_truncate'),
+      ('house_capital_accounts','house_capital_account_proof'),
+      ('house_capital_fundings','house_funding_guard'),
+      ('house_capital_fundings','house_funding_no_truncate'),
+      ('house_capital_fundings','house_funding_proof'),
+      ('house_round_reservations','house_reservation_guard'),
+      ('house_round_reservations','house_reservation_no_truncate'),
+      ('house_round_reservations','house_reservation_proof'),
+      ('house_round_reservations','house_financial_reserve_proof'),
+      ('house_ticket_resolutions','house_ticket_resolution_guard'),
+      ('house_ticket_resolutions','house_ticket_resolution_no_truncate'),
+      ('house_ticket_resolutions','house_ticket_resolution_proof'),
+      ('wallet_transactions','house_ticket_wallet_proof'),
+      ('house_round_randomness','house_round_randomness_guard'),
+      ('house_round_randomness','house_round_randomness_no_truncate'),
+      ('house_round_randomness','house_round_randomness_proof'),
+      ('scheduled_game_rounds','house_round_draw_proof'),
+      ('scheduled_stake_holds','house_ticket_randomness_proof'),
+      ('scheduled_stake_holds','house_financial_hold_proof'),
+      ('scheduled_game_streams','scheduled_financial_stream_guard'),
+      ('scheduled_game_rounds','scheduled_financial_round_guard'),
+      ('scheduled_stake_holds','scheduled_stake_hold_guard'),
+      ('scheduled_stake_holds','scheduled_stake_hold_no_truncate'),
+      ('coin_provenance','scheduled_stake_lot_backing'),
+      ('coin_provenance','coin_lot_row_guard'),
+      ('coin_lot_entries','coin_lot_entry_validate'),
+      ('coin_lot_entries','coin_lot_entry_apply'),
+      ('scheduled_stake_holds','scheduled_stake_row_proof'),
+      ('economic_operations','scheduled_stake_operation_proof'),
+      ('coin_lot_entries','scheduled_stake_entry_proof'),
       ('game_sessions','game_session_immutability_guard'),
       ('game_challenges','game_challenges_rules_pin_guard'),
       ('group_competitions','group_competitions_rules_pin_guard')
@@ -228,9 +289,10 @@ const checks: ReadonlyArray<[string, string]> = [
                    WHERE minted."operationId"=o."id" AND minted."entryType"='MINT')=1
           )) OR
           (o."type"='BONUS_CONVERSION' AND e."entryType"='CONVERT_IN') OR
-          (o."type"='PAYOUT' AND e."entryType"='RETURN') OR
+          (o."type" IN ('PAYOUT','SCHEDULED_STAKE_SETTLE') AND e."entryType"='RETURN') OR
           (o."type"='WITHDRAWAL_RELEASE' AND e."entryType"='RELEASE') OR
           (o."type"='COMPETITION_RELEASE' AND e."entryType"='RELEASE') OR
+          (o."type"='SCHEDULED_STAKE_REFUND' AND e."entryType"='RELEASE') OR
           (o."type"='LEGACY_OPENING' AND o."scopeType"='AGENT_ORDER'
             AND e."entryType"='RECLASS_IN' AND o."snapshot" ? 'ledgerReplayHash') OR
           (o."type"='LEGACY_RESOLVE' AND e."entryType"='RECLASS_IN'
@@ -250,7 +312,7 @@ const checks: ReadonlyArray<[string, string]> = [
       SELECT "id" FROM totals WHERE
         ("type"='WAGER' AND obligation<>-progress) OR
         ("type" IN ('PAYOUT','P2P_TRANSFER','COMPETITION_ESCROW','COMPETITION_RELEASE',
-                    'COMPETITION_PAYOUT','BONUS_CONVERSION') AND obligation<>0)
+                    'COMPETITION_PAYOUT','BONUS_CONVERSION','SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND','SCHEDULED_STAKE_SETTLE') AND obligation<>0)
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg("id" ORDER BY "id"))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I8 conversion is unique and terminal', `
