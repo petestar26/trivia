@@ -24,7 +24,8 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "test": "pnpm -w run build:packages && vitest run",
     "test:watch": "pnpm -w run build:packages && vitest",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "house:recovery": "tsx src/scripts/house-round-recovery.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^9.0.0",
@@ -40,6 +41,7 @@
     "@socialplay/shared": "workspace:*",
     "@socialplay/storage": "workspace:*",
     "bcryptjs": "^2.4.3",
+    "drand-client": "1.4.2",
     "fastify": "^4.25.0",
     "fastify-plugin": "^4.5.0",
     "pino": "^8.16.0",

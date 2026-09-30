@@ -12,6 +12,8 @@ on:
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
+      - 'apps/api/src/scripts/house-round-recovery.ts'
+      - 'apps/api/src/scripts/ledger-runtime-access.ts'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
       - 'packages/database/prisma/**'
@@ -105,6 +107,8 @@ jobs:
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/games/economics/house-ticket.native.ts
           src/games/economics/house-settlement.native.ts
+          src/games/economics/house-entropy.native.ts
+          src/games/economics/house-recovery.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 

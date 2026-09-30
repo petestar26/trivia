@@ -1,10 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import { parseSpin90Bets, SPIN90_RULES_ID } from '@socialplay/shared';
-import { ApiError } from '../../middleware/error-handler.js';
+import { ApiError } from '../../middleware/api-error.js';
 import { flushCoinLedgerConstraints, resolveFinancialStakeCoins } from '../../economy/coin-ledger-service.js';
 import type { EconomicTx } from '../../economy/coin-ledger-service.js';
 import { quoteSpin90Ticket } from './models.js';
-import { deriveSpinCommittedOutcome, verifySpinSeedCommitment } from './house-round-draw.js';
+import { deriveSpinCommittedOutcome, verifySpinSeedCommitment, getDormantSpinEntropyAvailability } from './house-round-draw.js';
+import { QUICKNET_PROTOCOL } from './round-entropy.js';
 
 /** Internal owner adapter only. Never give this credential to API/worker.
  * Draw/reveal is durable before any payout; a retry resumes that result even
@@ -53,6 +54,10 @@ export async function settleDormantSpinTicket(owner: PrismaClient, args: { holdI
       WHERE id=${saved.roundId} FOR UPDATE`;
     if (!round || round.mode !== 'FINANCIAL' || !['DRAWN','CANCELLED'].includes(round.state))
       throw ApiError.conflict('Financial round has no terminal result');
+    // Direct settlement is also a verification boundary; it must not rely on
+    // a SQL-shaped signature or a coordinator having checked it earlier.
+    if (round.state === 'DRAWN' && await getDormantSpinEntropyAvailability(tx, round.id) !== 'READY')
+      throw ApiError.conflict('Financial round entropy proof is not ready');
     const bets = parseSpin90Bets(JSON.parse(saved.bets));
     const quote = quoteSpin90Ticket(bets).ticket;
     if (quote.stake !== BigInt(hold.amount) || JSON.stringify(quote.payouts.map(Number)) !== JSON.stringify(saved.payouts))
@@ -114,8 +119,8 @@ export async function cancelDormantSpinRound(owner: PrismaClient, args: { roundI
       SELECT mode,state,rules_id,cancel_reason FROM public.scheduled_game_rounds WHERE id=${args.roundId} FOR UPDATE`;
     if (round.mode !== 'FINANCIAL') throw ApiError.conflict('Only a financial round can be cancelled');
     const [seed] = await tx.$queryRaw<Array<{
-      seed_hex: string; commitment_sha256: string; revealed_at: Date | null; cancelled_outcome: number | null;
-    }>>`SELECT seed_hex,commitment_sha256,revealed_at,cancelled_outcome
+      seed_hex: string; commitment_sha256: string; algorithm: string; revealed_at: Date | null; cancelled_outcome: number | null;
+    }>>`SELECT seed_hex,commitment_sha256,algorithm,revealed_at,cancelled_outcome
       FROM public.house_round_randomness WHERE round_id=${args.roundId} FOR UPDATE`;
     const audit = () => ({ roundId: args.roundId, seedHex: seed?.seed_hex ?? null,
       commitmentSha256: seed?.commitment_sha256 ?? null,
@@ -125,6 +130,7 @@ export async function cancelDormantSpinRound(owner: PrismaClient, args: { roundI
       return { ...audit(), isReplay: true };
     }
     if (round.state !== 'OPEN') throw ApiError.conflict('A drawn round must honor its result');
+    if (seed?.algorithm === QUICKNET_PROTOCOL) throw ApiError.conflict('Future-beacon rounds must await their pinned result');
     if (seed) {
       if (!verifySpinSeedCommitment(args.roundId, round.rules_id, seed.seed_hex, seed.commitment_sha256))
         throw ApiError.conflict('Cancellation commitment mismatch');

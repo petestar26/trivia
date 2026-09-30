@@ -1,5 +1,5 @@
 import type { CoinProvenanceType, EntryType, Prisma } from '@socialplay/database';
-import { ApiError } from '../middleware/error-handler.js';
+import { ApiError } from '../middleware/api-error.js';
 import { applyBalanceChanges, COIN_LEDGER_INTENT, getOrCreateWallet } from './wallet-service.js';
 import type { BalanceChange } from './wallet-service.js';
 import { allocateFunding, splitObligation, splitPayout } from './coin-allocator.js';
