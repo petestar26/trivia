@@ -286,7 +286,12 @@ describe('scheduled stakes preserve original Coin sources', () => {
       const hold = await runtime.$transaction((tx) =>
         reserveScheduledStakeCoins(tx, buyer.id, args)
       );
+      expect(hold.holdId).toBe(args.holdId);
       expect(hold.coinsBalance).toBe(320);
+      expect(await runtime.$queryRaw`SELECT current_database() AS name`)
+        .toEqual(await prisma.$queryRaw`SELECT current_database() AS name`);
+      expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
+        .toBe(320);
       expect(await prisma.scheduledStakeHold.findUnique({ where: { id: args.holdId }, select: { userId: true } }))
         .toEqual({ userId: buyer.id });
       expect(await runtime.scheduledStakeHold.findUnique({ where: { id: args.holdId }, select: { userId: true } }))
@@ -404,6 +409,8 @@ describe('scheduled stakes preserve original Coin sources', () => {
         (await runtime.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
           .coinsBalance
       ).toBe(360);
+      expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
+        .toBe(360);
       expect(await runtime.scheduledStakeHold.findUnique({ where: { id: otherHold.holdId },
         select: { userId: true, state: true, refundOperationId: true } }))
         .toEqual({ userId: buyer.id, state: 'HELD', refundOperationId: null });
