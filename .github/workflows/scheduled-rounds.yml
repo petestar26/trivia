@@ -100,6 +100,8 @@ jobs:
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/ledger/ledger-upgrade.migration.test.ts
+      - name: Dormant financial ticket admission
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/economics/house-ticket.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 

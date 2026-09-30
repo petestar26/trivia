@@ -131,6 +131,22 @@ ticket/settlement workflow can prove that liabilities are fully discharged.
 Do not add a player or worker caller or enable Coin wagering based on this
 register alone.
 
+The next forward migration permits owner-created `FINANCIAL` Spin Win streams
+and rounds while retaining all practice-only guards. The new
+`HOUSE_TICKET_ADMISSION` gate starts disabled. An internal owner-only admission
+transaction reprices a submitted Spin selection against the pinned 90% rules,
+checks the active jurisdiction/catalog/round after database locks, preserves
+the Coin sources in a scheduled hold, and reserves each ticket's standalone
+worst-case loss. Holding the full sum of individual worst-case losses is
+conservative compared with netting opposing bets in a shared round. Each
+financial hold's immutable operation snapshot binds its normalized bets,
+round and payout vector to the matching capital reservation; a deferred guard
+and I19 reject unmatched holds. Exact replay survives a pause. The hold cannot
+be refunded by the generic refund path until a settlement/release workflow is
+reviewed. There is no HTTP route, worker caller or live settlement, so this
+cannot accept real player bets. Activation still requires external backing
+verification and a separate release review.
+
 ## Contest fee plan
 
 `planContestSettlement` consumes escrow receipts supplied by a trusted adapter.
@@ -201,6 +217,8 @@ must resume that result and honor its payouts; it cannot selectively void winner
   Spin Win results and restart recovery. It accepts no financial tickets.
 - An owner-only, zero-funded capital journal and serialized preliminary round
   reserve with database reconciliation; neither is wired into live admission.
+- A dormant owner-only Spin ticket transaction with conservative per-ticket
+  reserves and a database backstop linking its hold to its reserve.
 
 These are internal modules, an offline preview and an opt-in practice worker,
 not a new financial API. A forward migration adds practice tables and a disabled

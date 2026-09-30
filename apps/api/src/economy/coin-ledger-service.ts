@@ -680,6 +680,8 @@ export interface ScheduledStakeArgs {
   policy: PolicyPin;
   gameKey: "spin_win";
   rulesId: "single-zero-rtp90-v2";
+  /** Owner-admission-only terms. No player route accepts this snapshot. */
+  financialTicket?: { roundId: string; bets: string; payouts: number[] };
 }
 
 /** Internal primitive. Caller owns admission/jurisdiction locks before L5/L6.
@@ -699,6 +701,12 @@ export async function reserveScheduledStakeCoins(
   ) {
     throw ApiError.badRequest("Invalid scheduled hold terms");
   }
+  if (args.financialTicket && (
+    !/^[A-Za-z0-9_:-]{1,128}$/.test(args.financialTicket.roundId) ||
+    args.financialTicket.bets.length > 4096 ||
+    args.financialTicket.payouts.length !== 37 ||
+    args.financialTicket.payouts.some((value) => !Number.isSafeInteger(value) || value < 0)
+  )) throw ApiError.badRequest("Invalid financial ticket terms");
   // This scope lock must precede wallet/lot acquisition for every caller.
   await lockUserEconomicScope(tx, `scheduled-stake:${args.holdId}`);
   const prior = await tx.scheduledStakeHold.findUnique({
@@ -712,7 +720,14 @@ export async function reserveScheduledStakeCoins(
       prior.gameKey !== args.gameKey ||
       prior.rulesId !== args.rulesId ||
       prior.policyId !== args.policy.id ||
-      prior.policyVersion !== args.policy.version
+      prior.policyVersion !== args.policy.version ||
+      (() => {
+        const stored = (prior.holdOperation.snapshot as Record<string, unknown> | null)?.financialTicket as
+          { roundId?: string; bets?: string; payouts?: number[] } | undefined;
+        const requested = args.financialTicket;
+        return stored?.roundId !== requested?.roundId || stored?.bets !== requested?.bets ||
+          JSON.stringify(stored?.payouts) !== JSON.stringify(requested?.payouts);
+      })()
     )
       throw ApiError.conflict(
         "Scheduled hold identity reused with different terms",
@@ -775,7 +790,8 @@ export async function reserveScheduledStakeCoins(
     scopeId: args.holdId,
     policy: args.policy,
     walletTransactionIds: [balance.transactions[0].id],
-    snapshot: { gameKey: args.gameKey, rulesId: args.rulesId },
+    snapshot: { gameKey: args.gameKey, rulesId: args.rulesId,
+      ...(args.financialTicket ? { financialTicket: args.financialTicket } : {}) },
   });
   await tx.scheduledStakeHold.create({
     data: {
@@ -800,6 +816,12 @@ export async function reserveScheduledStakeCoins(
       reservedDelta: share.amount,
     });
   await flushCoinLedgerConstraints(tx);
+  // This new deferred trigger must be checked before Prisma's callback
+  // resolves. Financial admission flushes it after its matching reserve.
+  if (!args.financialTicket) {
+    await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof IMMEDIATE');
+    await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof DEFERRED');
+  }
   return {
     holdId: args.holdId,
     holdOperationId: operation.id,
@@ -830,6 +852,12 @@ export async function refundScheduledStakeCoins(
       coinsBalance: walletEntry.balanceAfter,
       isReplay: true,
     };
+  }
+  const [financial] = await tx.$queryRaw<Array<{ has_ticket: boolean }>>`
+    SELECT snapshot ? 'financialTicket' AS has_ticket
+    FROM public.economic_operations WHERE id=${hold.holdOperationId}`;
+  if (financial?.has_ticket) {
+    throw ApiError.conflict('Financial ticket settlement is not available');
   }
   const { wallet, account } = await lockEconomicWallet(tx, userId);
   const lots = await lockLots(tx, userId);
@@ -881,6 +909,8 @@ export async function refundScheduledStakeCoins(
     data: { state: "REFUNDED", refundOperationId: operation.id },
   });
   await flushCoinLedgerConstraints(tx);
+  await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof IMMEDIATE');
+  await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof DEFERRED');
   return {
     refundOperationId: operation.id,
     coinsBalance: balance.coinsBalance,
