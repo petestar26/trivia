@@ -54,7 +54,14 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
   'review_coverage_guard', 'unclassified_lot_review_violation', 'coin_provenance_guard',
   'ledger_set_role_privilege', 'ledger_role_reach', 'ledger_role_is_trusted',
 ];
-const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
+// New scheduled functions also use only explicitly qualified objects. Require
+// their stronger pin rather than the legacy public-first default.
+const STRICT_SCHEDULED_FUNCTIONS = [
+  'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
+  'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
+  'scheduled_stake_constraint', 'scheduled_stake_integrity_failures',
+];
+const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
 const checks: ReadonlyArray<[string, string]> = [
   ['I17 scheduled stake hold/refund proofs', `SELECT COUNT(*)::INT AS count,

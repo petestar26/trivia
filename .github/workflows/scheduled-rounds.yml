@@ -78,6 +78,15 @@ jobs:
           pnpm --filter api test:scheduled-practice
       - name: Native two-connection runtime tests
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts
+      - name: Existing ledger guard regressions
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/ledger/allocator.contract.test.ts
+          src/ledger/ledger-integrity-guards.contract.test.ts
+          src/ledger/ledger-authorization-guards.contract.test.ts
+          src/ledger/flows.contract.test.ts
       - name: Fresh and populated migration regression
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
