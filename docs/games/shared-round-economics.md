@@ -1,6 +1,7 @@
 # Shared rounds and game economics — implementation proposal
 
-Status: **economic kernel implemented; not connected to live Coin settlement**.
+Status: **economic kernel and opt-in durable practice rounds implemented;
+not connected to live Coin settlement**.
 Base: master `ed03d13570df66629dd794885eb41841b918f15a`.
 Policy: `scheduled-economics-v1`.
 
@@ -137,7 +138,9 @@ seconds result. Every round derives its sequence from a fixed UTC anchor. Other
 games can use longer display/answer intervals while sharing lifecycle code.
 Private events use their agreed server-side start rather than the public anchor.
 
-`scheduledRound` is a deterministic clock calculation, not a running scheduler.
+`scheduledRound` is a deterministic clock calculation. The separate opt-in
+practice worker now persists rounds/results; see
+[scheduled-practice-rounds.md](./scheduled-practice-rounds.md) for its limits.
 `assertRoundOpen` rejects at the precise close timestamp even if a stalled worker
 left the persisted status OPEN. The future admission transaction uses fresh
 database time after acquiring locks, never a client timestamp or request-arrival
@@ -165,9 +168,12 @@ must resume that result and honor its payouts; it cannot selectively void winner
 - 15% contest-pool planner with conservation, ties, sponsorship and void refunds.
 - Exposure admission calculator and deterministic server-clock boundary checks.
 - Offline preview command and mathematical contract tests requiring no DB/secrets.
+- A separately disabled practice-only stream worker with immutable persisted
+  Spin Win results and restart recovery. It accepts no financial tickets.
 
-These are internal modules and an offline preview, not a new financial API.
-No live fee, treasury, wallet, schema, rule row or catalog activation changed.
+These are internal modules, an offline preview and an opt-in practice worker,
+not a new financial API. A forward migration adds practice tables and a disabled
+stream; no live fee, treasury, wallet, Coin rule row or catalog activation changes.
 
 ## Still required for a live release
 
@@ -176,7 +182,8 @@ No live fee, treasury, wallet, schema, rule row or catalog activation changed.
 - Provenance-preserving Coin contest and scheduled-wager escrow, with deferred
   database backstops and owner/runtime grants reviewed together.
 - Funded treasury journal and transactional multi-round liability reservations.
-- Durable round/ticket/result tables, worker election, recovery, event streaming.
+- Financial ticket/settlement tables and event streaming; extend the practice
+  round lifecycle only after native database concurrency/recovery verification.
 - New private-game scoring adapters, fee disclosure and entry consent screens.
 - Financial DB tests: concurrent admission at final capacity, duplicate tickets,
   late-cutoff races, cancellation, result/retry crashes, double settlement, and
@@ -194,10 +201,12 @@ pnpm --filter api economics:preview
 node apps/api/dist/scripts/game-economics-preview.js
 ```
 
-Validation for this initial kernel: 127 mathematical/contract tests passed;
+Validation for the initial kernel: 127 mathematical/contract tests passed;
 targeted TypeScript checking and ESLint passed; the API production build and its
-compiled offline preview passed. No database concurrency test, full platform
-suite, migration, production activation or live fee collection was performed.
+compiled offline preview passed. Its original run included no migration. The
+practice extension's SQL tests and native-database limits are documented in
+`scheduled-practice-rounds.md`. No production activation or live fee collection
+has been performed.
 
 ## Research references
 

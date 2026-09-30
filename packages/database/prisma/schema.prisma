@@ -2670,3 +2670,40 @@ model UserSecurityPolicy {
 
   @@map("user_security_policies")
 }
+
+/// Practice-only infrastructure. No financial ticket or wallet relation exists.
+model ScheduledGameStream {
+  id         String @id
+  gameKey    String @map("game_key")
+  rulesId    String @map("rules_id")
+  mode       String @default("PRACTICE")
+  enabled    Boolean @default(false)
+  anchorMs   BigInt @map("anchor_ms")
+  bettingMs  Int @map("betting_ms")
+  revealMs   Int @map("reveal_ms")
+  resultMs   Int @map("result_ms")
+  rounds     ScheduledGameRound[]
+
+  @@map("scheduled_game_streams")
+}
+
+model ScheduledGameRound {
+  id            String @id
+  streamId      String @map("stream_id")
+  sequence      BigInt
+  gameKey       String @map("game_key")
+  rulesId       String @map("rules_id")
+  mode          String
+  opensMs       BigInt @map("opens_ms")
+  closesMs      BigInt @map("closes_ms")
+  revealEndsMs  BigInt @map("reveal_ends_ms")
+  endsMs        BigInt @map("ends_ms")
+  state         String @default("OPEN")
+  outcome       Int? @db.SmallInt
+  drawnAt       DateTime? @map("drawn_at") @db.Timestamptz(6)
+  stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([streamId, sequence], map: "scheduled_game_rounds_stream_id_sequence_key")
+  // Pending partial index is installed by SQL; Prisma cannot represent it.
+  @@map("scheduled_game_rounds")
+}

@@ -28,6 +28,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/ledger-runtime-access.ts'),
       // Offline proposed economics preview; no production database access.
       join(__dirname, 'src/scripts/game-economics-preview.ts'),
+      // Standalone opt-in practice scheduler; never starts with the API/worker.
+      join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
     ],
     outbase: join(__dirname, 'src'),
     bundle: true,
