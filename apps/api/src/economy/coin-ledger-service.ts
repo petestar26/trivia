@@ -22,11 +22,13 @@ export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> 
   // PostgreSQL's real COMMIT rejects a still-deferred violation).
   const names = '"wallet_coin_lot_equality", "entry_coin_lot_equality", ' +
     '"classification_coin_lot_equality", "coin_operation_obligation_guard", ' +
-    '"lot_coin_lot_equality", "coin_lot_journal_integrity_guard"';
+    '"lot_coin_lot_equality", "coin_lot_journal_integrity_guard", ' +
+    '"scheduled_stake_row_proof", "scheduled_stake_operation_proof", "scheduled_stake_entry_proof"';
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} IMMEDIATE`);
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
 export type OperationName =
+  | 'SCHEDULED_STAKE_HOLD' | 'SCHEDULED_STAKE_REFUND'
   | 'PURCHASE' | 'BONUS_GRANT' | 'WAGER' | 'PAYOUT' | 'GIFT_SPEND'
   | 'COMPETITION_ESCROW' | 'COMPETITION_RELEASE' | 'COMPETITION_PAYOUT'
   | 'WITHDRAWAL_HOLD' | 'WITHDRAWAL_RELEASE' | 'WITHDRAWAL_FINALIZE'
@@ -323,7 +325,7 @@ export async function debitCoins(tx: EconomicTx, userId: string, amount: number,
     const source = sourceById.get(share.lotId)!;
     const obligationShare = source.lotClass === 'RESTRICTED'
       ? splitObligation(Math.max(0, source.requirementAmount - source.progressAmount),
-          share.amount, source.availableAmount).moved : undefined;
+          share.amount, source.availableAmount + source.reservedAmount).moved : undefined;
     await entry(tx, { operationId: operation.id, userId, lotId: share.lotId,
       sequence: index, entryType: 'CONSUME', availableDelta: -share.amount,
       obligationShare });
@@ -389,7 +391,9 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
     progressById.set(lot.id, progress);
     const progressAfter = lot.progressAmount + progress;
     const availableAfter = lot.availableAmount - share.amount + (payoutById.get(lot.id) ?? 0);
-    if (progressAfter < lot.requirementAmount || availableAfter <= 0) continue;
+    // A pending hold must retain this source lot and its original restriction.
+    // Conversion waits until all reserved value returns or settles.
+    if (progressAfter < lot.requirementAmount || availableAfter <= 0 || lot.reservedAmount > 0) continue;
     const cap = pinned.maxConversionMultiple === null
       ? availableAfter
       : exactConversionCap(lot.amount, pinned.maxConversionMultiple);
@@ -434,7 +438,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
     const source = sourceById.get(share.lotId)!;
     const obligationShare = source.lotClass === 'RESTRICTED'
       ? splitObligation(Math.max(0, source.requirementAmount - source.progressAmount),
-          share.amount, source.availableAmount).moved : undefined;
+          share.amount, source.availableAmount + source.reservedAmount).moved : undefined;
     await entry(tx, { operationId: wager.id, userId, lotId: share.lotId,
       sequence: sequence++, entryType: 'CONSUME', availableDelta: -share.amount,
       obligationShare });
@@ -668,4 +672,213 @@ export async function expireBonusLot(tx: EconomicTx, userId: string, lotId: stri
     data: { state: 'EXPIRED', closedAt: clock[0].now } });
   await flushCoinLedgerConstraints(tx);
   return true;
+}
+
+export interface ScheduledStakeArgs {
+  holdId: string;
+  amount: number;
+  policy: PolicyPin;
+  gameKey: "spin_win";
+  rulesId: "single-zero-rtp90-v2";
+}
+
+/** Internal primitive. Caller owns admission/jurisdiction locks before L5/L6.
+ * No player route calls it; the new SQL gate defaults disabled.
+ * The stable hold ID is the replay identity, never generated on a retry.
+ */
+export async function reserveScheduledStakeCoins(
+  tx: EconomicTx,
+  userId: string,
+  args: ScheduledStakeArgs,
+) {
+  safePositive(args.amount, "Scheduled stake");
+  if (
+    !/^[A-Za-z0-9_-]{1,128}$/.test(args.holdId) ||
+    args.gameKey !== "spin_win" ||
+    args.rulesId !== "single-zero-rtp90-v2"
+  ) {
+    throw ApiError.badRequest("Invalid scheduled hold terms");
+  }
+  // This scope lock must precede wallet/lot acquisition for every caller.
+  await lockUserEconomicScope(tx, `scheduled-stake:${args.holdId}`);
+  const prior = await tx.scheduledStakeHold.findUnique({
+    where: { id: args.holdId },
+    include: { holdOperation: true },
+  });
+  if (prior) {
+    if (
+      prior.userId !== userId ||
+      prior.amount !== args.amount ||
+      prior.gameKey !== args.gameKey ||
+      prior.rulesId !== args.rulesId ||
+      prior.policyId !== args.policy.id ||
+      prior.policyVersion !== args.policy.version
+    )
+      throw ApiError.conflict(
+        "Scheduled hold identity reused with different terms",
+      );
+    const walletEntry = await tx.walletTransaction.findUniqueOrThrow({
+      where: { id: prior.holdOperation.walletTransactionIds[0] },
+    });
+    return {
+      holdId: prior.id,
+      holdOperationId: prior.holdOperationId,
+      coinsBalance: walletEntry.balanceAfter,
+      isReplay: true,
+    };
+  }
+  const gate = await tx.$queryRaw<
+    { enabled: boolean }[]
+  >`SELECT enabled FROM platform_gates WHERE key='SCHEDULED_STAKE_HOLD' FOR SHARE`;
+  if (!gate[0]?.enabled)
+    throw ApiError.forbidden("Scheduled stake holds are disabled");
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const [{ now }] = await tx.$queryRaw<
+    { now: Date }[]
+  >`SELECT clock_timestamp() AS now`;
+  let funding: FundingShare[];
+  try {
+    funding = allocateFunding(usableSpendLots(lots, now), args.amount);
+  } catch (error) {
+    if (error instanceof RangeError)
+      throw ApiError.badRequest("Insufficient tracked Coins");
+    throw error;
+  }
+  const balance = await applyBalanceChanges(
+    tx,
+    userId,
+    [
+      {
+        currency: "COINS",
+        amount: args.amount,
+        ledgerType: "DEBIT",
+        transactionType: "COIN_DEBIT",
+        referenceType: "GAME",
+        referenceId: args.holdId,
+        description: "Scheduled stake hold",
+      },
+    ],
+    { coinLedgerIntent: COIN_LEDGER_INTENT },
+  );
+  const operation = await createOperation(tx, {
+    type: "SCHEDULED_STAKE_HOLD",
+    userId,
+    scopeType: "SCHEDULED_STAKE",
+    scopeId: args.holdId,
+    policy: args.policy,
+    walletTransactionIds: [balance.transactions[0].id],
+    snapshot: { gameKey: args.gameKey, rulesId: args.rulesId },
+  });
+  await tx.scheduledStakeHold.create({
+    data: {
+      id: args.holdId,
+      userId,
+      amount: args.amount,
+      policyId: args.policy.id,
+      policyVersion: args.policy.version,
+      gameKey: args.gameKey,
+      rulesId: args.rulesId,
+      holdOperationId: operation.id,
+    },
+  });
+  for (const [sequence, share] of funding.entries())
+    await entry(tx, {
+      operationId: operation.id,
+      userId,
+      lotId: share.lotId,
+      sequence,
+      entryType: "RESERVE",
+      availableDelta: -share.amount,
+      reservedDelta: share.amount,
+    });
+  await flushCoinLedgerConstraints(tx);
+  return {
+    holdId: args.holdId,
+    holdOperationId: operation.id,
+    coinsBalance: balance.coinsBalance,
+    isReplay: false,
+  };
+}
+
+/** Full source-preserving refund only. No generic MINT or reclassification. */
+export async function refundScheduledStakeCoins(
+  tx: EconomicTx,
+  userId: string,
+  holdId: string,
+) {
+  await lockUserEconomicScope(tx, `scheduled-stake:${holdId}`);
+  const hold = await tx.scheduledStakeHold.findUnique({
+    where: { id: holdId },
+    include: { refundOperation: true },
+  });
+  if (!hold || hold.userId !== userId)
+    throw ApiError.notFound("Scheduled hold not found");
+  if (hold.refundOperation) {
+    const walletEntry = await tx.walletTransaction.findUniqueOrThrow({
+      where: { id: hold.refundOperation.walletTransactionIds[0] },
+    });
+    return {
+      refundOperationId: hold.refundOperationId!,
+      coinsBalance: walletEntry.balanceAfter,
+      isReplay: true,
+    };
+  }
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const source = await tx.coinLotEntry.findMany({
+    where: { operationId: hold.holdOperationId, entryType: "RESERVE" },
+    orderBy: { sequence: "asc" },
+  });
+  if (source.reduce((sum, e) => sum + e.reservedDelta, 0) !== hold.amount)
+    throw ApiError.internal("Scheduled hold proof mismatch");
+  const balance = await applyBalanceChanges(
+    tx,
+    userId,
+    [
+      {
+        currency: "COINS",
+        amount: hold.amount,
+        ledgerType: "CREDIT",
+        transactionType: "COIN_CREDIT",
+        referenceType: "GAME",
+        referenceId: hold.id,
+        description: "Scheduled stake refund",
+      },
+    ],
+    { coinLedgerIntent: COIN_LEDGER_INTENT },
+  );
+  const operation = await createOperation(tx, {
+    type: "SCHEDULED_STAKE_REFUND",
+    userId,
+    scopeType: "SCHEDULED_STAKE",
+    scopeId: hold.id,
+    policy: { id: hold.policyId, version: hold.policyVersion },
+    walletTransactionIds: [balance.transactions[0].id],
+    reversesOperationId: hold.holdOperationId,
+  });
+  for (const [sequence, reserve] of source.entries())
+    await entry(tx, {
+      operationId: operation.id,
+      userId,
+      lotId: reserve.lotId,
+      sequence,
+      entryType: "RELEASE",
+      availableDelta: -reserve.availableDelta,
+      reservedDelta: -reserve.reservedDelta,
+      reversesEntryId: reserve.id,
+    });
+  await tx.scheduledStakeHold.update({
+    where: { id: hold.id },
+    data: { state: "REFUNDED", refundOperationId: operation.id },
+  });
+  await flushCoinLedgerConstraints(tx);
+  return {
+    refundOperationId: operation.id,
+    coinsBalance: balance.coinsBalance,
+    isReplay: false,
+  };
 }

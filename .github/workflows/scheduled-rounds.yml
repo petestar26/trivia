@@ -7,6 +7,7 @@ on:
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
+      - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
@@ -76,7 +77,7 @@ jobs:
           pnpm --filter api test:economics
           pnpm --filter api test:scheduled-practice
       - name: Native two-connection runtime tests
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts
       - name: Fresh and populated migration regression
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts

@@ -57,6 +57,9 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
 const privilegedApprovalFunctionsSql = `ARRAY[${PRIVILEGED_APPROVAL_FUNCTIONS.map((name) => `'${name}'`).join(',')}]::text[]`;
 
 const checks: ReadonlyArray<[string, string]> = [
+  ['I17 scheduled stake hold/refund proofs', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.scheduled_stake_integrity_failures()`],
   // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
   // type, and no lot entry attributed to one, may ever exist. This is a
   // second, independent line of defense behind the INSERT-time trigger in
@@ -231,6 +234,7 @@ const checks: ReadonlyArray<[string, string]> = [
           (o."type"='PAYOUT' AND e."entryType"='RETURN') OR
           (o."type"='WITHDRAWAL_RELEASE' AND e."entryType"='RELEASE') OR
           (o."type"='COMPETITION_RELEASE' AND e."entryType"='RELEASE') OR
+          (o."type"='SCHEDULED_STAKE_REFUND' AND e."entryType"='RELEASE') OR
           (o."type"='LEGACY_OPENING' AND o."scopeType"='AGENT_ORDER'
             AND e."entryType"='RECLASS_IN' AND o."snapshot" ? 'ledgerReplayHash') OR
           (o."type"='LEGACY_RESOLVE' AND e."entryType"='RECLASS_IN'
@@ -250,7 +254,7 @@ const checks: ReadonlyArray<[string, string]> = [
       SELECT "id" FROM totals WHERE
         ("type"='WAGER' AND obligation<>-progress) OR
         ("type" IN ('PAYOUT','P2P_TRANSFER','COMPETITION_ESCROW','COMPETITION_RELEASE',
-                    'COMPETITION_PAYOUT','BONUS_CONVERSION') AND obligation<>0)
+                    'COMPETITION_PAYOUT','BONUS_CONVERSION','SCHEDULED_STAKE_HOLD','SCHEDULED_STAKE_REFUND') AND obligation<>0)
     ) SELECT COUNT(*)::int AS count,
        COALESCE((array_agg("id" ORDER BY "id"))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I8 conversion is unique and terminal', `

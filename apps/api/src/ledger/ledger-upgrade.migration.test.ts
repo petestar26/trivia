@@ -324,6 +324,8 @@ beforeAll(() => {
     '20260924100000_spin_win_rtp90_rules_dormant',
     '20260930110000_scheduled_practice_rounds',
     '20260930120000_scheduled_practice_tickets',
+    '20260930130000_scheduled_stake_types',
+    '20260930140000_scheduled_stake_holds',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));

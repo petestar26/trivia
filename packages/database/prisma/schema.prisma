@@ -10,6 +10,7 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  scheduledStakeHolds ScheduledStakeHold[]
   scheduledPracticeTickets ScheduledPracticeTicket[]
   id           String     @id @default(uuid())
   email        String?    @unique
@@ -921,6 +922,8 @@ enum PolicyState {
 }
 
 enum OperationType {
+  SCHEDULED_STAKE_HOLD
+  SCHEDULED_STAKE_REFUND
   PURCHASE
   BONUS_GRANT
   WAGER
@@ -1014,6 +1017,7 @@ model GameRules {
 }
 
 model CountryCasinoPolicy {
+  scheduledStakeHolds ScheduledStakeHold[]
   id                      String             @id @default(uuid())
   countryCode             String
   version                 Int
@@ -1113,6 +1117,8 @@ model CoinProvenance {
 }
 
 model EconomicOperation {
+  scheduledHold ScheduledStakeHold? @relation("ScheduledHoldOperation")
+  scheduledRefund ScheduledStakeHold? @relation("ScheduledRefundOperation")
   id                   String @id @default(dbgenerated("(gen_random_uuid())::text"))
   type                 OperationType
   userId               String
@@ -2721,4 +2727,25 @@ model ScheduledPracticeTicket {
   @@id([roundId, userId])
   @@index([userId, acceptedAt(sort: Desc)], map: "scheduled_practice_tickets_user")
   @@map("scheduled_practice_tickets")
+}
+
+/// Disabled financial primitive; no public wager admission or settlement yet.
+model ScheduledStakeHold {
+  id String @id
+  userId String @map("user_id")
+  amount Int
+  policyId String @map("policy_id")
+  policyVersion Int @map("policy_version")
+  gameKey String @map("game_key")
+  rulesId String @map("rules_id")
+  holdOperationId String @unique @map("hold_operation_id")
+  refundOperationId String? @unique @map("refund_operation_id")
+  state String @default("HELD")
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  policy CountryCasinoPolicy @relation(fields:[policyId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  holdOperation EconomicOperation @relation("ScheduledHoldOperation",fields:[holdOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  refundOperation EconomicOperation? @relation("ScheduledRefundOperation",fields:[refundOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@index([userId,state],map:"scheduled_stake_holds_user")
+  @@map("scheduled_stake_holds")
 }
