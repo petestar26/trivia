@@ -10,6 +10,7 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  scheduledPracticeTickets ScheduledPracticeTicket[]
   id           String     @id @default(uuid())
   email        String?    @unique
   username     String     @unique
@@ -2701,9 +2702,23 @@ model ScheduledGameRound {
   state         String @default("OPEN")
   outcome       Int? @db.SmallInt
   drawnAt       DateTime? @map("drawn_at") @db.Timestamptz(6)
+  tickets       ScheduledPracticeTicket[]
   stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([streamId, sequence], map: "scheduled_game_rounds_stream_id_sequence_key")
   // Pending partial index is installed by SQL; Prisma cannot represent it.
   @@map("scheduled_game_rounds")
+}
+
+model ScheduledPracticeTicket {
+  roundId    String @map("round_id")
+  userId     String @map("user_id")
+  bets       Json
+  acceptedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("accepted_at") @db.Timestamptz(6)
+  round      ScheduledGameRound @relation(fields: [roundId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  user       User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([roundId, userId])
+  @@index([userId, acceptedAt(sort: Desc)], map: "scheduled_practice_tickets_user")
+  @@map("scheduled_practice_tickets")
 }

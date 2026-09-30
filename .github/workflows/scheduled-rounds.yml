@@ -6,6 +6,10 @@ on:
       - '.github/workflows/scheduled-rounds.yml'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/scheduled/**'
+      - 'apps/api/src/routes/games.ts'
+      - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/App.tsx'
+      - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
@@ -21,12 +25,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  postgres16:
+  postgres:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [13, 16]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.version }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: isolated-ci-password
@@ -76,3 +84,8 @@ jobs:
           -t 'fresh install:|populated upgrade from master-era data|complete upgrade succeeds'
       - name: Build API
         run: pnpm --filter api exec node build.js
+
+      - name: Scheduled practice web contracts
+        run: pnpm --filter web exec vitest run src/pages/games/spin-win-scheduled.test.tsx src/pages/games/spin-win.test.tsx --minWorkers=1 --maxWorkers=1
+      - name: Build web and typecheck
+        run: pnpm --filter web build
