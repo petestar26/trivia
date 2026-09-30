@@ -816,6 +816,12 @@ export async function reserveScheduledStakeCoins(
       reservedDelta: share.amount,
     });
   await flushCoinLedgerConstraints(tx);
+  // This new deferred trigger must be checked before Prisma's callback
+  // resolves. Financial admission flushes it after its matching reserve.
+  if (!args.financialTicket) {
+    await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof IMMEDIATE');
+    await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof DEFERRED');
+  }
   return {
     holdId: args.holdId,
     holdOperationId: operation.id,
@@ -903,6 +909,8 @@ export async function refundScheduledStakeCoins(
     data: { state: "REFUNDED", refundOperationId: operation.id },
   });
   await flushCoinLedgerConstraints(tx);
+  await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof IMMEDIATE');
+  await tx.$executeRawUnsafe('SET CONSTRAINTS house_financial_hold_proof, house_financial_reserve_proof DEFERRED');
   return {
     refundOperationId: operation.id,
     coinsBalance: balance.coinsBalance,

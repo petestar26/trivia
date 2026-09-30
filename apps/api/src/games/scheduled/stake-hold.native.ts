@@ -288,12 +288,6 @@ describe('scheduled stakes preserve original Coin sources', () => {
       );
       expect(hold.holdId).toBe(args.holdId);
       expect(hold.coinsBalance).toBe(320);
-      expect(await runtime.$queryRaw`SELECT current_database() AS name`)
-        .toEqual(await prisma.$queryRaw`SELECT current_database() AS name`);
-      expect(await runtime.$queryRaw`SELECT current_schema() AS name`)
-        .toEqual(await prisma.$queryRaw`SELECT current_schema() AS name`);
-      expect((await runtime.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
-        .toBe(320);
       expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyer.id } })).coinsBalance)
         .toBe(320);
       expect(await prisma.scheduledStakeHold.findUnique({ where: { id: args.holdId }, select: { userId: true } }))

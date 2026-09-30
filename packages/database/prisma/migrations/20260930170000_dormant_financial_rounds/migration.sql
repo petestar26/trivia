@@ -73,5 +73,9 @@ CREATE CONSTRAINT TRIGGER house_financial_hold_proof AFTER INSERT OR UPDATE ON p
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.house_financial_hold_constraint();
 CREATE CONSTRAINT TRIGGER house_financial_reserve_proof AFTER INSERT ON public.house_round_reservations
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.house_financial_hold_constraint();
-REVOKE ALL ON FUNCTION public.house_financial_hold_failures(),public.house_financial_hold_constraint() FROM PUBLIC;
+-- The proof query runs with its caller's SELECT rights. Restricted ledger
+-- writers must execute it from the deferred trigger and from invariant I19.
+-- Other roles without ledger SELECT cannot read the underlying tables.
+GRANT EXECUTE ON FUNCTION public.house_financial_hold_failures() TO PUBLIC;
+REVOKE ALL ON FUNCTION public.house_financial_hold_constraint() FROM PUBLIC;
 COMMIT;
