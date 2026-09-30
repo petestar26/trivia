@@ -429,9 +429,25 @@ describe('scheduled stakes preserve original Coin sources', () => {
       prisma.$transaction(async (tx) => {
         // Observe an invalid intermediate state with constraints still deferred;
         // always roll it back. No trigger is disabled.
-        await tx.coinProvenance.update({
-          where: { id: purchaseLot.id },
-          data: { reservedAmount: 80 },
+        const operation = await tx.economicOperation.create({
+          data: {
+            type: 'P2P_TRANSFER',
+            userId: buyer.id,
+            createdBy: buyer.id,
+            scopeType: 'TEST',
+            scopeId: uid('scan-drain'),
+          },
+        });
+        await tx.coinLotEntry.create({
+          data: {
+            operationId: operation.id,
+            lotId: purchaseLot.id,
+            userId: buyer.id,
+            entryType: 'TRANSFER_OUT',
+            reservedDelta: -80,
+            counterpartyLotId: purchaseLot.id,
+            sequence: 0,
+          },
         });
         const violations = await tx.$queryRawUnsafe<{ id: string }[]>(
           'SELECT id FROM public.scheduled_stake_integrity_failures()'

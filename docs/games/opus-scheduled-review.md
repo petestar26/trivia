@@ -25,6 +25,9 @@ Verify independently:
 4. Hold/refund operation linkage to exact user, amount, policy, wallet transaction
    and original lots. Test ordinary SQL for orphan operations, extra entries,
    mismatched refunds and unrelated operations claiming reversal identities.
+   Attempt a balanced reserved transfer while two holds share a source lot;
+   verify the aggregate backing guard rejects it and both refunds still work.
+   Check ACTIVE policy admission, SUPERSEDED refunds and immutable-field grants.
 5. Restricted-source preservation, playthrough while a source is reserved,
    double/refund replay, concurrent overspend, transaction rollback and
    operation under the documented restricted runtime role.
@@ -38,7 +41,7 @@ Verify independently:
 
 Use `.github/workflows/scheduled-rounds.yml` as the reproducible focused matrix.
 Inspect its actual run logs on the candidate SHA. It includes native races,
-existing financial guards, three selected migration tests and web checks; it is
+existing financial guards, the complete migration test file and web checks; it is
 not the full API suite or a broad mutation campaign. Full API typecheck has an
 existing baseline; compare diagnostic identities rather than totals.
 
