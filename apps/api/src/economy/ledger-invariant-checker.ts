@@ -63,6 +63,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'scheduled_stake_backing_constraint', 'scheduled_stake_backing_failures',
   'house_capital_owner_guard', 'house_capital_constraint', 'house_capital_failures',
   'house_record_capital_funding', 'house_reserve_round_loss',
+  'scheduled_financial_owner_guard', 'house_financial_hold_failures', 'house_financial_hold_constraint',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -73,6 +74,9 @@ const checks: ReadonlyArray<[string, string]> = [
   ['I18 operator funds and reserved exposure reconcile', `SELECT COUNT(*)::INT AS count,
     COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
     FROM public.house_capital_failures()`],
+  ['I19 financial holds retain an owner-booked exposure reserve', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_financial_hold_failures()`],
   // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
   // type, and no lot entry attributed to one, may ever exist. This is a
   // second, independent line of defense behind the INSERT-time trigger in
@@ -154,6 +158,10 @@ const checks: ReadonlyArray<[string, string]> = [
       ('house_round_reservations','house_reservation_guard'),
       ('house_round_reservations','house_reservation_no_truncate'),
       ('house_round_reservations','house_reservation_proof'),
+      ('house_round_reservations','house_financial_reserve_proof'),
+      ('scheduled_stake_holds','house_financial_hold_proof'),
+      ('scheduled_game_streams','scheduled_financial_stream_guard'),
+      ('scheduled_game_rounds','scheduled_financial_round_guard'),
       ('scheduled_stake_holds','scheduled_stake_hold_guard'),
       ('scheduled_stake_holds','scheduled_stake_hold_no_truncate'),
       ('coin_provenance','scheduled_stake_lot_backing'),
