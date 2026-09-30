@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/games/scheduled/*.native.ts', 'src/ledger/ledger-upgrade.migration.test.ts'],
+    include: ['src/games/scheduled/*.native.ts', 'src/games/economics/*.native.ts', 'src/ledger/ledger-upgrade.migration.test.ts'],
     fileParallelism: false, pool: 'forks', minWorkers: 1, maxWorkers: 1,
     testTimeout: 120_000, hookTimeout: 120_000,
     env: { LOG_PRETTY: 'false' },

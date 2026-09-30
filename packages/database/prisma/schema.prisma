@@ -2749,3 +2749,30 @@ model ScheduledStakeHold {
   @@index([userId,state],map:"scheduled_stake_holds_user")
   @@map("scheduled_stake_holds")
 }
+
+/// Dormant owner capital; no customer wallet, stake escrow or external reconciliation adapter.
+model HouseCapitalAccount {
+  currency       String @id
+  fundedAmount   BigInt @default(0) @map("funded_amount")
+  reservedAmount BigInt @default(0) @map("reserved_amount")
+  @@map("house_capital_accounts")
+}
+
+model HouseCapitalFunding {
+  externalReference String @id @map("external_reference")
+  amount            BigInt
+  evidenceSha256    String @map("evidence_sha256")
+  recordedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("recorded_at") @db.Timestamptz(6)
+  @@map("house_capital_fundings")
+}
+
+model HouseRoundReservation {
+  roundId        String @id @map("round_id")
+  stakeTotal     BigInt @map("stake_total")
+  payoutVector   Json @map("payout_vector")
+  drawCount      Int @map("draw_count")
+  maxGrossPayout BigInt @map("max_gross_payout")
+  reservedLoss   BigInt @map("reserved_loss")
+  createdAt      DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  @@map("house_round_reservations")
+}
