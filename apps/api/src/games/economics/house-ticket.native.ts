@@ -116,6 +116,25 @@ describe('dormant financial ticket atomic admission', () => {
     expect(await prisma.houseRoundReservation.findUnique({ where: { roundId: `ticket:${holdId}` } })).toBeNull();
   });
 
+  it('admits only one of two competing tickets for the last funded capacity', async () => {
+    await prisma.$queryRaw`SELECT public.house_record_capital_funding(${`bank:${randomUUID()}`},${1292n},${'b'.repeat(64)})`;
+    const before = await prisma.wallet.findUniqueOrThrow({ where: { userId: buyerId } });
+    const requests = [8, 9].map((number) => ({
+      userId: buyerId, roundId, holdId: uid('race'),
+      selections: [{ marketId: `number:${number}`, amount: 40 }],
+    }));
+    const outcomes = await Promise.allSettled(requests.map((input) => admitDormantSpinTicket(prisma, input)));
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    const loser = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+    expect(String(loser?.reason)).toContain('House exposure limit reached');
+    const holds = await prisma.scheduledStakeHold.findMany({ where: { id: { in: requests.map((r) => r.holdId) } } });
+    expect(holds).toHaveLength(1);
+    expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: buyerId } })).coinsBalance)
+      .toBe(before.coinsBalance - 40);
+    expect(await prisma.houseRoundReservation.count({ where: { roundId: { in: requests.map((r) => `ticket:${r.holdId}`) } } }))
+      .toBe(1);
+  });
+
   it('refuses a new ticket after pause but replays an accepted ticket', async () => {
     const [hold] = await prisma.scheduledStakeHold.findMany({ where: { userId: buyerId }, orderBy: { createdAt: 'asc' } });
     await prisma.scheduledGameStream.update({ where: { id: streamId }, data: { enabled: false } });
