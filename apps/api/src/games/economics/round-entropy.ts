@@ -56,6 +56,12 @@ export function quicknetTargetForCutoff(cutoff: Date | number): Readonly<Quickne
   return Object.freeze({ cutoffMs, beaconRound: Number(beaconRound), beaconTimeMs: Number(beaconTimeMs) });
 }
 
+// BLS12-381 compressed G1: C=1, I=0, either sign, and canonical Fp x.
+// https://docs.rs/bls12_381/latest/bls12_381/notes/serialization/index.html
+// Reject rather than normalize: drand randomness hashes the exact wire bytes.
+const BLS12_381_FIELD_MODULUS = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaabn;
+const COMPRESSED_G1_X_MASK = (1n << 381n) - 1n;
+
 function parseBeacon(raw: unknown, expectedRound: number): RandomnessBeacon {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new RangeError('Quicknet beacon must be an object');
@@ -72,6 +78,11 @@ function parseBeacon(raw: unknown, expectedRound: number): RandomnessBeacon {
   if (round !== expectedRound) throw new RangeError('Quicknet beacon is not the pinned target round');
   if (typeof signature !== 'string' || !/^[0-9a-f]{96}$/.test(signature)) {
     throw new RangeError('Quicknet signature must be 48 bytes of lowercase hexadecimal');
+  }
+  const flags = Number.parseInt(signature.slice(0, 2), 16);
+  const x = BigInt(`0x${signature}`) & COMPRESSED_G1_X_MASK;
+  if ((flags & 0xc0) !== 0x80 || x >= BLS12_381_FIELD_MODULUS) {
+    throw new RangeError('Quicknet signature requires canonical compressed non-infinity G1 encoding');
   }
   if (typeof randomness !== 'string' || !/^[0-9a-f]{64}$/.test(randomness)) {
     throw new RangeError('Quicknet randomness must be 32 bytes of lowercase hexadecimal');

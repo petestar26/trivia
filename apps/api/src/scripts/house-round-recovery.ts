@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import type * as RecoveryTypes from '../games/economics/house-round-recovery.js';
 const DEFAULT_RECOVERY_LIMIT = 10;
 const MAX_RECOVERY_LIMIT = 100;
@@ -39,6 +39,30 @@ export function parseRecoveryCommand(args: readonly string[]) {
   return { roundId, limit, run, prepareBeacon, beaconProofPath };
 }
 
+const MAX_BEACON_PROOF_BYTES = 65_536;
+
+export function readBeaconProofFile(path: string): unknown {
+  // Nonblocking open avoids waiting for a FIFO writer before fstat can reject it.
+  // Inspect and read the same descriptor, never reopen a checked path.
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new Error('Beacon proof must be a regular file');
+    if (stat.size > MAX_BEACON_PROOF_BYTES) throw new Error('Beacon proof is oversized');
+    // A regular file may grow after fstat. Read one sentinel byte beyond the
+    // limit, with a fixed allocation and a total bound across partial reads.
+    const bytes = Buffer.alloc(MAX_BEACON_PROOF_BYTES + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const count = readSync(fd, bytes, size, bytes.length - size, null);
+      if (count === 0) break;
+      size += count;
+    }
+    if (size > MAX_BEACON_PROOF_BYTES) throw new Error('Beacon proof is oversized');
+    return JSON.parse(bytes.subarray(0, size).toString('utf8'));
+  } finally { closeSync(fd); }
+}
+
 export async function main(args = process.argv.slice(2)): Promise<number> {
   if (args.length === 1 && args[0] === '--help') { console.log(usage); return 0; }
   let command: ReturnType<typeof parseRecoveryCommand>;
@@ -59,8 +83,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     const draw = await import('../games/economics/house-round-draw.js');
     if (command.prepareBeacon) await draw.prepareDormantBeaconSpinRandomness(owner, command.roundId);
     if (command.beaconProofPath) {
-      if (statSync(command.beaconProofPath).size > 65_536) throw new Error('Beacon proof is oversized');
-      const proof: unknown = JSON.parse(readFileSync(command.beaconProofPath, 'utf8'));
+      const proof = readBeaconProofFile(command.beaconProofPath);
       await draw.recordDormantSpinBeacon(owner, command.roundId, proof);
     }
     const result = command.run

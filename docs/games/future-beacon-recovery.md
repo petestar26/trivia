@@ -25,7 +25,10 @@ The new protocol pins the drand quicknet chain:
 The database transaction stores the future target and seed commitment before
 admission. The seed is private until draw. Proof import accepts an explicit
 beacon JSON object (`round`, `signature`, `randomness`) and verifies the BLS
-signature offline with the official client. It does not fetch a URL, choose the
+signature offline with the official client. Before verification, it requires
+canonical compressed non-infinity G1 bytes (including x below the field modulus).
+Alternate encodings are rejected, never normalized, because randomness hashes
+the exact signature bytes. It does not fetch a URL, choose the
 latest beacon, or trust a stored `verified` flag. Import is one-time and occurs
 only after the pinned beacon time according to the database clock.
 
@@ -96,7 +99,9 @@ node apps/api/dist/scripts/house-round-recovery.js --round=STREAM:SEQUENCE --run
 node apps/api/dist/scripts/house-round-recovery.js --round=STREAM:SEQUENCE --run --limit=10
 ```
 
-Proof files are limited to 64 KiB. Exit 0 includes successful read-only status,
+Proof input must be a regular file of at most 64 KiB. The CLI opens it without
+blocking on FIFOs, checks the opened descriptor, and reads at most 65,537 bytes
+to detect growth beyond the limit. Pipes and devices are rejected. Exit 0 includes successful read-only status,
 waiting, completed replay and a successful batch; inspect `phase`, `pending`
 and `hasMore` instead of interpreting exit 0 as a fully settled round. Exit 1
 means blocked; exit 2 means invalid arguments/configuration. Failed batches
@@ -126,6 +131,11 @@ still separate work. The 90% RTP and payout caps remain unchanged.
 
 The pure suite includes a real quicknet round-1 signature and independent draw
 vectors, altered proofs, invalid inputs and rejection sampling boundaries.
+A synthetic-key regression demonstrates two encodings accepted by the installed
+BLS dependency and verifies that the application rejects the non-canonical one
+before pairing. It substitutes only the public key in the test adapter; the
+production quicknet key remains fixed. File regressions cover FIFOs, devices,
+the exact size boundary, and growth after the size check.
 Native tests use isolated throwaway databases. To exercise the historical
 public beacon without a live network dependency, one fixture transplants only
 its immutable timing metadata under transaction-local replica mode; import,
