@@ -1,8 +1,9 @@
 # Scheduled Coin hold/refund foundation
 
-Draft implementation; wagering remains disabled. There is no public endpoint,
-settlement path, prize mint, treasury reservation or fee collection in this module.
-The scheduled practice stream never calls these helpers.
+Draft implementation; wagering remains disabled. A dormant, owner-only Spin
+Win draw and ticket settlement path exists elsewhere in the economics module,
+but no public endpoint or worker calls it. The scheduled practice stream never
+calls these helpers.
 
 A stable hold ID identifies one immutable set of terms. Reservation moves Coin
 value from available to reserved on the same original lots, with an exactly
@@ -45,7 +46,10 @@ Validation is run against isolated PostgreSQL 13 and 16 by the scheduled-rounds
 workflow. The native stake test requires the exact acknowledged throwaway DB.
 No passing native result should be inferred from compilation alone.
 
-Still required: durable house capital accounting and capacity admission,
-settlement and result linkage, private/group/challenge funded-pool settlement,
-fee disclosures and consent, per-game adapters and UI, crash recovery tests,
-and independent review of the complete candidate before activation.
+The dormant Spin Win path links holds to an owner-backed capital reservation,
+committed round result, atomic payout or refund, game session, and capital
+discharge. It remains off and has no operator worker or public route. Still
+required for activation: independent/public randomness and commitment, external
+funding reconciliation, supported recovery tooling, private/group/challenge
+funded-pool settlement, fee disclosures and consent, per-game adapters and UI,
+and independent review of the complete candidate.

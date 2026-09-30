@@ -6,6 +6,7 @@ import type { GameDefinition } from '@prisma/client';
 import { purchasedFixture, uid } from '../../test/ledger-integrity-fixtures.js';
 import { bootstrapLedgerTestGates } from '../../economy/ledger-test-bootstrap.js';
 import { admitDormantSpinTicket } from './house-ticket-admission.js';
+import { prepareDormantSpinRandomness } from './house-round-draw.js';
 
 const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
 if (!['127.0.0.1', 'localhost'].includes(url.hostname) ||
@@ -56,6 +57,7 @@ beforeAll(async () => {
     mode: 'FINANCIAL', opensMs: anchor, closesMs: anchor + 3_600_000n,
     revealEndsMs: anchor + 3_601_000n, endsMs: anchor + 3_602_000n,
   } });
+  await prepareDormantSpinRandomness(prisma, roundId);
   await prisma.$queryRaw`SELECT public.house_record_capital_funding(${`bank:${randomUUID()}`},${1292n},${'a'.repeat(64)})`;
 });
 afterAll(async () => {

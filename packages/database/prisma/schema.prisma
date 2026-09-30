@@ -924,6 +924,7 @@ enum PolicyState {
 enum OperationType {
   SCHEDULED_STAKE_HOLD
   SCHEDULED_STAKE_REFUND
+  SCHEDULED_STAKE_SETTLE
   PURCHASE
   BONUS_GRANT
   WAGER
@@ -1119,6 +1120,8 @@ model CoinProvenance {
 model EconomicOperation {
   scheduledHold ScheduledStakeHold? @relation("ScheduledHoldOperation")
   scheduledRefund ScheduledStakeHold? @relation("ScheduledRefundOperation")
+  scheduledSettlement ScheduledStakeHold? @relation("ScheduledSettlementOperation")
+  houseTicketResolution HouseTicketResolution?
   id                   String @id @default(dbgenerated("(gen_random_uuid())::text"))
   type                 OperationType
   userId               String
@@ -1349,6 +1352,7 @@ model CoinAllocation {
 }
 
 model GameSession {
+  houseTicketResolution HouseTicketResolution?
   id                      String             @id @default(uuid())
   userId                  String
   gameId                  String
@@ -2678,7 +2682,7 @@ model UserSecurityPolicy {
   @@map("user_security_policies")
 }
 
-/// Practice-only infrastructure. No financial ticket or wallet relation exists.
+/// Scheduled practice and dormant owner-only financial rounds.
 model ScheduledGameStream {
   id         String @id
   gameKey    String @map("game_key")
@@ -2708,6 +2712,9 @@ model ScheduledGameRound {
   state         String @default("OPEN")
   outcome       Int? @db.SmallInt
   drawnAt       DateTime? @map("drawn_at") @db.Timestamptz(6)
+  cancelReason  String? @map("cancel_reason")
+  randomness    HouseRoundRandomness?
+  resolutions   HouseTicketResolution[]
   tickets       ScheduledPracticeTicket[]
   stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
@@ -2729,7 +2736,7 @@ model ScheduledPracticeTicket {
   @@map("scheduled_practice_tickets")
 }
 
-/// Disabled financial primitive; no public wager admission or settlement yet.
+/// Dormant source-preserving hold; no public wager API.
 model ScheduledStakeHold {
   id String @id
   userId String @map("user_id")
@@ -2740,17 +2747,20 @@ model ScheduledStakeHold {
   rulesId String @map("rules_id")
   holdOperationId String @unique @map("hold_operation_id")
   refundOperationId String? @unique @map("refund_operation_id")
+  settlementOperationId String? @unique @map("settlement_operation_id")
+  resolution HouseTicketResolution?
   state String @default("HELD")
   createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
   user User @relation(fields:[userId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   policy CountryCasinoPolicy @relation(fields:[policyId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   holdOperation EconomicOperation @relation("ScheduledHoldOperation",fields:[holdOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   refundOperation EconomicOperation? @relation("ScheduledRefundOperation",fields:[refundOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  settlementOperation EconomicOperation? @relation("ScheduledSettlementOperation",fields:[settlementOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   @@index([userId,state],map:"scheduled_stake_holds_user")
   @@map("scheduled_stake_holds")
 }
 
-/// Dormant owner capital; no customer wallet, stake escrow or external reconciliation adapter.
+/// Dormant owner capital register; funding requires external asset verification.
 model HouseCapitalAccount {
   currency       String @id
   fundedAmount   BigInt @default(0) @map("funded_amount")
@@ -2775,4 +2785,36 @@ model HouseRoundReservation {
   reservedLoss   BigInt @map("reserved_loss")
   createdAt      DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
   @@map("house_round_reservations")
+}
+
+/// Secret seed is owner-only. Its commitment is pinned before the first ticket.
+model HouseRoundRandomness {
+  roundId String @id @map("round_id")
+  seedHex String @map("seed_hex")
+  commitmentSha256 String @map("commitment_sha256")
+  algorithm String
+  preparedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("prepared_at") @db.Timestamptz(6)
+  revealedAt DateTime? @map("revealed_at") @db.Timestamptz(6)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_round_randomness")
+}
+
+/// Immutable terminal link between a source-preserving ticket and house capital.
+model HouseTicketResolution {
+  holdId String @id @map("hold_id")
+  roundId String @map("round_id")
+  operationId String @unique @map("operation_id")
+  sessionId String @unique @map("session_id")
+  disposition String
+  payout Int
+  houseDelta BigInt @map("house_delta")
+  releasedLoss BigInt @map("released_loss")
+  coinsBalance Int @map("coins_balance")
+  resolvedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("resolved_at") @db.Timestamptz(6)
+  hold ScheduledStakeHold @relation(fields:[holdId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  operation EconomicOperation @relation(fields:[operationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  session GameSession @relation(fields:[sessionId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@index([roundId],map:"house_ticket_resolutions_round")
+  @@map("house_ticket_resolutions")
 }

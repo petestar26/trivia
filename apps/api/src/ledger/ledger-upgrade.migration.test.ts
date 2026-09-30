@@ -26,6 +26,7 @@ const FINAL_GATE = '20260924000000_ledger_integrity_gate';
 const AUTHORIZATION = '20260924010000_ledger_resolution_authorization';
 const OPENING_JOURNAL = '20260923030000_opus_freeze_legacy_allocations';
 const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
+const PRE_SETTLEMENT = '20260930180000_scheduled_settlement_type';
 const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
@@ -34,7 +35,12 @@ const MASTER = ALL.filter((name) => name < PRE_GATE);
 // the parent's, byte for byte: a migration a database has applied is never
 // edited, so what corrects it comes forward.
 const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
-  '20260924060000_ledger_runtime_grants_cascade_keys', '20260924070000_ledger_runtime_grants_membership_options'];
+  '20260924060000_ledger_runtime_grants_cascade_keys', '20260924070000_ledger_runtime_grants_membership_options',
+  '20260924100000_spin_win_rtp90_rules_dormant', '20260930110000_scheduled_practice_rounds',
+  '20260930120000_scheduled_practice_tickets', '20260930130000_scheduled_stake_types',
+  '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
+  '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
+  '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement'];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -329,6 +335,8 @@ beforeAll(() => {
     '20260930150000_scheduled_hold_backing',
     '20260930160000_house_capital_reservations',
     '20260930170000_dormant_financial_rounds',
+    '20260930180000_scheduled_settlement_type',
+    '20260930190000_dormant_financial_settlement',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -392,6 +400,84 @@ describe('ledger upgrade migrations', () => {
       expect(replay.output).toContain('No pending migrations to apply');
       const status = prismaCli(db.url, ['migrate', 'status', '--schema', SCHEMA]);
       expect(status.output).toContain('Database schema is up to date');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('an empty dormant admission database upgrades to draw and settlement, then replays cleanly', async () => {
+    const db = await scratchDatabase('dormant-settlement-upgrade');
+    try {
+      const previous = deploy(db.url, migrationSubset(ALL.filter((name) => name < PRE_SETTLEMENT)));
+      expect(previous.status, previous.output).toBe(0);
+      const existingHolds = await db.client.$queryRawUnsafe<Array<{ count: number }>>(
+        `SELECT count(*)::INT AS count FROM public.scheduled_stake_holds`);
+      expect(existingHolds[0].count).toBe(0);
+
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      expect(upgrade.output).toContain('Applying migration `20260930180000_scheduled_settlement_type`');
+      expect(upgrade.output).toContain('Applying migration `20260930190000_dormant_financial_settlement`');
+      expect((await migrationRows(db.client)).map((row) => row.migration_name).sort()).toEqual(ALL);
+      expect(await relationExists(db.client, 'public.house_round_randomness')).toBe(true);
+      expect(await relationExists(db.client, 'public.house_ticket_resolutions')).toBe(true);
+      expect(await anomalies(db.client)).toEqual([]);
+
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('stops before changing schema when a prototype financial ticket lacks committed randomness', async () => {
+    const db = await scratchDatabase('prototype-ticket');
+    try {
+      const parent = deploy(db.url, migrationSubset(ALL.filter((name) => name < PRE_SETTLEMENT)));
+      expect(parent.status, parent.output).toBe(0);
+
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+      const holdId = `legacy-fin-${suffix}`;
+      const operationId = `legacy-op-${suffix}`;
+      // Model a ticket admitted by the prior dormant prototype. These
+      // relations are inserted as migration-owned test fixture data; the
+      // migration gate must detect the immutable operation snapshot before
+      // changing the type, tables, or hold schema.
+      await db.client.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+        await tx.$executeRaw`
+          INSERT INTO public.economic_operations
+            (id,type,"userId","scopeType","scopeId","countryPolicyId","countryPolicyVersion",
+             "walletTransactionIds",snapshot,"createdBy")
+          VALUES (${operationId},'SCHEDULED_STAKE_HOLD'::public.operation_type,${`legacy-user-${suffix}`},
+            'SCHEDULED_STAKE',${holdId},${`legacy-policy-${suffix}`},1,ARRAY[]::TEXT[],
+            ${JSON.stringify({ financialTicket: { roundId: `legacy-round-${suffix}` } })}::JSONB,'upgrade-test')`;
+        await tx.$executeRaw`
+          INSERT INTO public.scheduled_stake_holds
+            (id,user_id,amount,policy_id,policy_version,game_key,rules_id,hold_operation_id,state)
+          VALUES (${holdId},${`legacy-user-${suffix}`},40,${`legacy-policy-${suffix}`},1,'spin_win',
+            'single-zero-rtp90-v2',${operationId},'HELD')`;
+      });
+
+      const inspect = () => db.client.$queryRaw<Array<{
+        operation: string; hold: string; enum_value: boolean; settlement_column: boolean; randomness_table: boolean;
+      }>>`
+        SELECT (SELECT row_to_json(o)::TEXT FROM public.economic_operations o WHERE o.id=${operationId}) AS operation,
+          (SELECT row_to_json(h)::TEXT FROM public.scheduled_stake_holds h WHERE h.id=${holdId}) AS hold,
+          EXISTS(SELECT 1 FROM pg_catalog.pg_enum e WHERE e.enumtypid='public.operation_type'::REGTYPE
+            AND e.enumlabel='SCHEDULED_STAKE_SETTLE') AS enum_value,
+          EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid='public.scheduled_stake_holds'::REGCLASS
+            AND a.attname='settlement_operation_id' AND NOT a.attisdropped) AS settlement_column,
+          pg_catalog.to_regclass('public.house_round_randomness') IS NOT NULL AS randomness_table`;
+      const before = await inspect();
+      const upgrade = deploy(db.url);
+      expect(upgrade.status).not.toBe(0);
+      expect(upgrade.output).toContain('existing prototype financial holds require owner-reviewed resolution before upgrading');
+      expect(upgrade.output).toContain(`Applying migration \`${PRE_SETTLEMENT}\``);
+
+      const after = await inspect();
+      expect(after).toEqual(before);
+      const failed = await migrationRows(db.client);
+      expect(failed.at(-1)).toMatchObject({
+        migration_name: PRE_SETTLEMENT, finished: false, rolled_back: false, steps: 0,
+      });
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 

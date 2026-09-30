@@ -50,6 +50,9 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['house_round_randomness', 'SELECT'], ['house_round_randomness', 'INSERT'],
+  ['house_round_randomness', 'UPDATE'], ['house_round_randomness', 'DELETE'],
+  ['house_ticket_resolutions', 'INSERT'], ['house_ticket_resolutions', 'UPDATE'], ['house_ticket_resolutions', 'DELETE'],
   ['house_capital_accounts', 'INSERT'], ['house_capital_accounts', 'UPDATE'], ['house_capital_accounts', 'DELETE'],
   ['house_capital_fundings', 'INSERT'], ['house_capital_fundings', 'UPDATE'], ['house_capital_fundings', 'DELETE'],
   ['house_round_reservations', 'INSERT'], ['house_round_reservations', 'UPDATE'], ['house_round_reservations', 'DELETE'],
@@ -77,6 +80,7 @@ const DENIED_FUNCTIONS = [
   'ledger_install_approval_key(text,bytea)', 'ledger_retire_approval_key(text)', 'ledger_apply_runtime_grants(text)',
   'ledger_record_assertion(text,text,text,text,text,numeric,text,jsonb,text,text,text)',
   'house_record_capital_funding(text,bigint,text)', 'house_reserve_round_loss(text,bigint,jsonb,integer)',
+  'house_discharge_ticket(text,text,text,integer,integer,text)', 'house_spin_outcome(text)',
 ];
 const REQUIRED: [table: string, privilege: string][] = [
   ['users', 'INSERT'], ['economic_operations', 'INSERT'], ['coin_lot_entries', 'INSERT'],

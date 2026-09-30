@@ -1,7 +1,7 @@
 # Shared rounds and game economics — implementation proposal
 
-Status: **economic kernel and opt-in durable practice rounds implemented;
-not connected to live Coin settlement**.
+Status: **economic kernel, opt-in durable practice rounds, and a dormant
+owner-only Spin Win ticket lifecycle implemented; no player Coin wagering**.
 Base: master `ed03d13570df66629dd794885eb41841b918f15a`.
 Policy: `scheduled-economics-v1`.
 
@@ -123,29 +123,46 @@ Deferred constraints and I18 compare the account cache with both journals and
 recompute each maximum. Runtime roles get no execution or table-write grants;
 the owner trigger also refuses writes if a broad table grant is added later.
 
-This register is **not a wager-admission control**. Its current owner-only call
-accepts a supplied vector and does not authenticate tickets, settle receipts,
-or attest external funds. It has no release operation because no terminal
-financial round exists. Reserves deliberately stay committed until a reviewed
-ticket/settlement workflow can prove that liabilities are fully discharged.
-Do not add a player or worker caller or enable Coin wagering based on this
-register alone.
+This register is **not evidence that the operator holds external funds**. Its
+owner-only funding call records a reference and digest after a finance operator
+has verified the receipt out of band. The later ticket workflow authenticates
+each ticket against server-side Spin Win rules, books a conservative per-ticket
+reserve, and releases that reserve only when a terminal payout or refund is
+linked to the hold. The accounting is durable, but it is not connected to an
+external bank/payment reconciliation or to player routes.
 
-The next forward migration permits owner-created `FINANCIAL` Spin Win streams
-and rounds while retaining all practice-only guards. The new
-`HOUSE_TICKET_ADMISSION` gate starts disabled. An internal owner-only admission
-transaction reprices a submitted Spin selection against the pinned 90% rules,
-checks the active jurisdiction/catalog/round after database locks, preserves
-the Coin sources in a scheduled hold, and reserves each ticket's standalone
-worst-case loss. Holding the full sum of individual worst-case losses is
-conservative compared with netting opposing bets in a shared round. Each
-financial hold's immutable operation snapshot binds its normalized bets,
-round and payout vector to the matching capital reservation; a deferred guard
-and I19 reject unmatched holds. Exact replay survives a pause. The hold cannot
-be refunded by the generic refund path until a settlement/release workflow is
-reviewed. There is no HTTP route, worker caller or live settlement, so this
-cannot accept real player bets. Activation still requires external backing
-verification and a separate release review.
+Forward migrations permit owner-created `FINANCIAL` Spin Win streams and rounds
+while retaining the practice-only guards. `HOUSE_TICKET_ADMISSION` and
+`SCHEDULED_STAKE_HOLD` are seeded disabled. An internal owner-only admission
+transaction reprices a submitted selection against the pinned 90% rules,
+checks jurisdiction/catalog/round state after database locks, preserves the
+Coin sources in a scheduled hold, and reserves that ticket's standalone
+worst-case loss. The immutable hold snapshot binds normalized bets, round and
+payout vector to the matching capital reservation; I19 rejects unmatched
+holds. Exact replay survives a pause.
+
+Before admission, an owner-only preparation helper commits a random seed
+to the round.
+After cutoff it reveals that seed and persists one deterministic, uniform
+result. An owner-only settlement transaction atomically records the player
+wallet credit (if any), lot-level payout returns, finalization of reserved
+stake, game session, terminal hold, immutable resolution, and capital
+discharge. A cancelled undrawn round returns the full stake to its original
+lots and releases its reserve. Retries read the stored resolution; a crash
+after the draw resumes that result and cannot reroll or refund it. I20/I21 and
+deferred database proofs check those links.
+
+This remains dormant: there is no player route, settlement worker, public
+commitment feed or live Coin wagering, and no migration changes Spin Win's
+catalog status or activates a gate. The owner process knows the seed before
+admission, so this commitment is an audit/reproducibility mechanism, not
+independent randomness or proof against a privileged operator. Live release
+still needs independent entropy and public commitment, external capital
+reconciliation, recovery tooling, and separate activation review. The migration
+stops before even the enum change when it finds a pre-existing prototype
+financial ticket hold, because that prototype had no pre-admission commitment;
+the hold needs owner-reviewed resolution before retry. Never mark that
+migration applied to bypass the stop.
 
 ## Contest fee plan
 
@@ -215,10 +232,11 @@ must resume that result and honor its payouts; it cannot selectively void winner
 - Offline preview command and mathematical contract tests requiring no DB/secrets.
 - A separately disabled practice-only stream worker with immutable persisted
   Spin Win results and restart recovery. It accepts no financial tickets.
-- An owner-only, zero-funded capital journal and serialized preliminary round
-  reserve with database reconciliation; neither is wired into live admission.
-- A dormant owner-only Spin ticket transaction with conservative per-ticket
-  reserves and a database backstop linking its hold to its reserve.
+- A dormant owner-only capital journal, per-ticket capacity reservation and
+  discharge linked to the terminal ticket result; external funding remains
+  manually verified and the live gate remains off.
+- A dormant owner-only Spin ticket admission, committed draw, payout/refund and
+  restartable per-ticket settlement path with source-preserving backstops.
 
 These are internal modules, an offline preview and an opt-in practice worker,
 not a new financial API. A forward migration adds practice tables and a disabled
@@ -228,14 +246,15 @@ stream; no live fee, treasury, wallet, Coin rule row or catalog activation chang
 
 - Resolve the already-failed owner/runtime migration deployment.
 - Approve the proposed mechanics above and exact per-game rule versions.
-- Provenance-preserving Coin contest and scheduled-wager escrow, with deferred
-  database backstops and owner/runtime grants reviewed together.
-- Independently reconciled actual operator funding, trusted server-side ticket
-  aggregation, and an atomic capital-reservation/stake-hold admission adapter.
-- Reviewed reserve release only after every ticket's payout/refund discharges
-  the liability, with crash/retry and delayed-withdrawal coverage.
-- Financial ticket/settlement tables and event streaming; extend the practice
-  round lifecycle only after native database concurrency/recovery verification.
+- Independently reconciled operator funding, independent/public RNG commitment,
+  and owner-operated monitoring and recovery automation.
+- Extend the audited draw/admission/settlement adapters to the remaining games
+  only after each game's math, worst-case exposure, and lot semantics are
+  independently reviewed.
+- Provenance-preserving Coin contest escrow and durable 15% fee settlement;
+  current contest-fee logic is still only a pure planner.
+- Private/group/challenge entry, scoring, cancellation, dispute and consent
+  workflows; scheduled Spin Win does not implement those modes.
 - New private-game scoring adapters, fee disclosure and entry consent screens.
 - Financial DB tests: concurrent admission at final capacity, duplicate tickets,
   late-cutoff races, cancellation, result/retry crashes, double settlement, and
@@ -253,12 +272,10 @@ pnpm --filter api economics:preview
 node apps/api/dist/scripts/game-economics-preview.js
 ```
 
-Validation for the initial kernel: 127 mathematical/contract tests passed;
-targeted TypeScript checking and ESLint passed; the API production build and its
-compiled offline preview passed. Its original run included no migration. The
-practice extension's SQL tests and native-database limits are documented in
-`scheduled-practice-rounds.md`. No production activation or live fee collection
-has been performed.
+The settlement phase adds pure draw tests, PostgreSQL-native admission and
+settlement tests, and migration stop/replay coverage. The release review records
+the exact run and PostgreSQL version; earlier kernel totals are not totals for
+this phase. No production activation or live fee collection has been performed.
 
 ## Research references
 

@@ -12,7 +12,7 @@ import { identifier, total } from './money.js';
  * Owner-only internal proof of atomic admission. No HTTP route or worker calls
  * this. The API runtime credential cannot execute the capital function.
  * Every ticket reserves its own worst-case loss; this is conservative when
- * different players back opposing outcomes. No settlement/release exists.
+ * different players back opposing outcomes. Result/settlement remain internal.
  */
 export async function admitDormantSpinTicket(owner: PrismaClient, args: {
   userId: string; roundId: string; holdId: string; selections: unknown;
@@ -28,6 +28,10 @@ export async function admitDormantSpinTicket(owner: PrismaClient, args: {
   const reservationId = `ticket:${args.holdId}`;
 
   return owner.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<Array<{ owner: boolean }>>`
+      SELECT (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CURRENT_USER)=relowner AS owner
+      FROM pg_catalog.pg_class WHERE oid='public.house_capital_accounts'::regclass`;
+    if (!actor?.owner) throw ApiError.forbidden('Financial admission is owner-only');
     // Replay must work after pause/cutoff without re-checking mutable gates.
     await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(${'house-ticket:' + args.holdId},0))) AS lock_wait`;
     const prior = await tx.scheduledStakeHold.findUnique({ where: { id: args.holdId } });
@@ -60,13 +64,16 @@ export async function admitDormantSpinTicket(owner: PrismaClient, args: {
     const [account] = await tx.$queryRaw<Array<{ funded_amount: bigint; reserved_amount: bigint }>>`
       SELECT funded_amount,reserved_amount FROM public.house_capital_accounts WHERE currency='COINS' FOR UPDATE`;
     if (!account) throw ApiError.conflict('Operator capital is unavailable');
+    const schedule = await tx.scheduledGameRound.findUnique({ where: { id: args.roundId }, select: { streamId: true } });
+    if (!schedule) throw ApiError.conflict('Round is not accepting wagers');
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(${'scheduled-round:' + schedule.streamId},0))) AS lock_wait`;
     const [round] = await tx.$queryRaw<Array<{
       id: string; game_key: string; rules_id: string; mode: string; state: string;
       opens_ms: bigint; closes_ms: bigint; enabled: boolean;
     }>>`
       SELECT g.id,g.game_key,g.rules_id,g.mode,g.state,g.opens_ms,g.closes_ms,s.enabled
       FROM public.scheduled_game_rounds g JOIN public.scheduled_game_streams s ON s.id=g.stream_id
-      WHERE g.id=${args.roundId} FOR UPDATE OF g FOR SHARE OF s`;
+      WHERE g.id=${args.roundId} FOR UPDATE OF g`;
     const [clock] = await tx.$queryRaw<Array<{ now_ms: bigint }>>`
       SELECT floor(EXTRACT(EPOCH FROM clock_timestamp())*1000)::bigint AS now_ms`;
     if (!round || !round.enabled || round.mode !== 'FINANCIAL' || round.state !== 'OPEN' ||
@@ -74,6 +81,9 @@ export async function admitDormantSpinTicket(owner: PrismaClient, args: {
         clock.now_ms < round.opens_ms || clock.now_ms >= round.closes_ms) {
       throw ApiError.conflict('Round is not accepting wagers');
     }
+    const [commitment] = await tx.$queryRaw<Array<{ ready: boolean }>>`
+      SELECT revealed_at IS NULL AS ready FROM public.house_round_randomness WHERE round_id=${args.roundId}`;
+    if (!commitment?.ready) throw ApiError.conflict('Round randomness must be committed before admission');
     const existing = await tx.$queryRaw<Array<{
       user_id: string; amount: number; snapshot: { financialTicket?: typeof financialTicket };
     }>>`
@@ -107,7 +117,7 @@ export async function admitDormantSpinTicket(owner: PrismaClient, args: {
     const [reserved] = await tx.$queryRaw<Array<{ loss: bigint }>>`
       SELECT public.house_reserve_round_loss(${reservationId},${ticket.stake},
         ${JSON.stringify(financialTicket.payouts)}::jsonb,${1}::integer) AS loss`;
-    await tx.$executeRawUnsafe('SET CONSTRAINTS house_capital_account_proof, house_reservation_proof, house_financial_hold_proof, house_financial_reserve_proof IMMEDIATE');
+    await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
     return { ticketId: args.holdId, roundId: args.roundId, coinsBalance: held.coinsBalance,
       lossReserve: reserved.loss, isReplay: false };
   }, { isolationLevel: 'ReadCommitted', timeout: 20_000, maxWait: 5_000 });

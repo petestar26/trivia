@@ -28,7 +28,7 @@ export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> 
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
 export type OperationName =
-  | 'SCHEDULED_STAKE_HOLD' | 'SCHEDULED_STAKE_REFUND'
+  | 'SCHEDULED_STAKE_HOLD' | 'SCHEDULED_STAKE_REFUND' | 'SCHEDULED_STAKE_SETTLE'
   | 'PURCHASE' | 'BONUS_GRANT' | 'WAGER' | 'PAYOUT' | 'GIFT_SPEND'
   | 'COMPETITION_ESCROW' | 'COMPETITION_RELEASE' | 'COMPETITION_PAYOUT'
   | 'WITHDRAWAL_HOLD' | 'WITHDRAWAL_RELEASE' | 'WITHDRAWAL_FINALIZE'
@@ -916,4 +916,70 @@ export async function refundScheduledStakeCoins(
     coinsBalance: balance.coinsBalance,
     isReplay: false,
   };
+}
+
+/** Owner settlement adapter only. Caller locks user, capital, round and hold,
+ * then writes the matching capital resolution before flushing constraints.
+ * Funds were already debited at admission: settlement never debits again.
+ */
+export async function resolveFinancialStakeCoins(
+  tx: EconomicTx,
+  userId: string,
+  args: { holdId: string; roundId: string; disposition: 'SETTLED' | 'CANCELLED';
+    payout: number; outcome: number | null; reason?: string },
+) {
+  safeNonnegative(args.payout, 'Scheduled payout');
+  await lockUserEconomicScope(tx, `scheduled-stake:${args.holdId}`);
+  const hold = await tx.scheduledStakeHold.findUniqueOrThrow({ where: { id: args.holdId } });
+  if (hold.userId !== userId || hold.state !== 'HELD')
+    throw ApiError.conflict('Financial hold is not pending');
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const sources = await tx.coinLotEntry.findMany({
+    where: { operationId: hold.holdOperationId, entryType: 'RESERVE' },
+    orderBy: { sequence: 'asc' },
+  });
+  if (sources.reduce((sum, e) => sum + e.reservedDelta, 0) !== hold.amount)
+    throw ApiError.conflict('Financial source proof mismatch');
+  if (args.disposition === 'CANCELLED' && args.payout !== hold.amount)
+    throw ApiError.conflict('Cancellation must return the complete stake');
+  const balance = args.payout === 0 ? null : await applyBalanceChanges(tx, userId, [{
+    currency: 'COINS', amount: args.payout, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+    referenceType: 'GAME', referenceId: hold.id,
+    description: args.disposition === 'CANCELLED' ? 'Cancelled scheduled stake refund' : 'Scheduled Spin Win payout',
+  }], { coinLedgerIntent: COIN_LEDGER_INTENT });
+  const coinsBalance = balance?.coinsBalance ?? wallet.coinsBalance;
+  const operation = await createOperation(tx, {
+    type: args.disposition === 'CANCELLED' ? 'SCHEDULED_STAKE_REFUND' : 'SCHEDULED_STAKE_SETTLE',
+    userId, scopeType: 'SCHEDULED_STAKE', scopeId: hold.id,
+    policy: { id: hold.policyId, version: hold.policyVersion },
+    reversesOperationId: hold.holdOperationId,
+    walletTransactionIds: balance ? [balance.transactions[0].id] : [],
+    snapshot: { roundId: args.roundId, outcome: args.outcome, payout: args.payout,
+      coinsBalance, ...(args.reason ? { reason: args.reason } : {}) },
+  });
+  let sequence = 0;
+  for (const source of sources) {
+    await entry(tx, { operationId: operation.id, userId, lotId: source.lotId, sequence: sequence++,
+      entryType: args.disposition === 'CANCELLED' ? 'RELEASE' : 'FINALIZE',
+      availableDelta: args.disposition === 'CANCELLED' ? source.reservedDelta : 0,
+      reservedDelta: -source.reservedDelta, reversesEntryId: source.id });
+  }
+  if (args.disposition === 'SETTLED' && args.payout > 0) {
+    // SQL and the deferred proof use the same exact source allocation; ties
+    // use database C collation, so localeCompare cannot change the split.
+    const returns = await tx.$queryRaw<Array<{ lot_id: string; amount: bigint }>>`
+      SELECT lot_id,amount FROM public.scheduled_stake_payout_sources(${hold.id},${args.payout}::integer)`;
+    for (const share of returns) if (share.amount > 0n) {
+      await entry(tx, { operationId: operation.id, userId, lotId: share.lot_id,
+        sequence: sequence++, entryType: 'RETURN', availableDelta: Number(share.amount) });
+    }
+  }
+  await tx.scheduledStakeHold.update({ where: { id: hold.id }, data: args.disposition === 'CANCELLED'
+    ? { state: 'REFUNDED', refundOperationId: operation.id }
+    : { state: 'SETTLED', settlementOperationId: operation.id } });
+  await closeEmptyLots(tx, userId);
+  return { operationId: operation.id, coinsBalance };
 }
