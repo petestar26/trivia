@@ -69,6 +69,27 @@ afterAll(async () => {
 });
 
 describe('dormant financial ticket atomic admission', () => {
+  it('blocks a non-owner from deleting financial schedules', async () => {
+    const role = `fin_delete_${randomUUID().replaceAll('-', '')}`;
+    await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN`);
+    try {
+      await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`);
+      await prisma.$executeRawUnsafe(`GRANT SELECT, DELETE ON public.scheduled_game_streams,
+        public.scheduled_game_rounds TO "${role}"`);
+      for (const [table, id] of [
+        ['scheduled_game_rounds', roundId], ['scheduled_game_streams', streamId],
+      ]) {
+        await expect(prisma.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+          await tx.$executeRawUnsafe(`DELETE FROM public.${table} WHERE id=$1`, id);
+        })).rejects.toThrow('financial rounds are owner-only');
+      }
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+      await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+    }
+  });
+
   it('holds 40 Coins and books 1292 operator loss capacity exactly once', async () => {
     const holdId = uid('ticket');
     const input = { userId: buyerId, roundId, holdId, selections: bets };

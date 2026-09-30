@@ -14,19 +14,21 @@ CREATE FUNCTION public.scheduled_financial_owner_guard() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE owner_oid OID;
 BEGIN
-  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
-  IF NEW.mode='FINANCIAL' OR (TG_OP='UPDATE' AND OLD.mode='FINANCIAL') THEN
+  IF (TG_OP='DELETE' AND OLD.mode='FINANCIAL') OR
+     (TG_OP<>'DELETE' AND NEW.mode='FINANCIAL') OR
+     (TG_OP='UPDATE' AND OLD.mode='FINANCIAL') THEN
     SELECT c.relowner INTO owner_oid FROM pg_catalog.pg_class c WHERE c.oid=TG_RELID;
     IF (SELECT r.oid FROM pg_catalog.pg_roles r WHERE r.rolname=CURRENT_USER)
       IS DISTINCT FROM owner_oid THEN
       RAISE EXCEPTION 'financial rounds are owner-only' USING ERRCODE='42501';
     END IF;
   END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER scheduled_financial_stream_guard BEFORE INSERT OR UPDATE ON public.scheduled_game_streams
+CREATE TRIGGER scheduled_financial_stream_guard BEFORE INSERT OR UPDATE OR DELETE ON public.scheduled_game_streams
   FOR EACH ROW EXECUTE FUNCTION public.scheduled_financial_owner_guard();
-CREATE TRIGGER scheduled_financial_round_guard BEFORE INSERT OR UPDATE ON public.scheduled_game_rounds
+CREATE TRIGGER scheduled_financial_round_guard BEFORE INSERT OR UPDATE OR DELETE ON public.scheduled_game_rounds
   FOR EACH ROW EXECUTE FUNCTION public.scheduled_financial_owner_guard();
 REVOKE ALL ON FUNCTION public.scheduled_financial_owner_guard() FROM PUBLIC;
 
