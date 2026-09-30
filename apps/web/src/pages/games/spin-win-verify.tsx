@@ -4,6 +4,7 @@ import { API_BASE } from '@/lib/api-config';
 import {
   MAX_PUBLIC_PROOF_BYTES,
   parsePublicProofText,
+  SpinProofCryptoUnavailable,
   verifyPublicSpinProof,
 } from '@/lib/spin-proof-verifier';
 import type { PublicSpinVerification } from '@/lib/spin-proof-verifier';
@@ -80,9 +81,13 @@ export function SpinWinVerifyPage() {
         savedText.trim() ? parsePublicProofText(savedText) : undefined
       );
       if (alive.current) setResult(verified);
-    } catch {
+    } catch (cause) {
       if (alive.current)
-        setError('Verification failed. Check the proof, saved receipt, protocol and result.');
+        setError(
+          cause instanceof SpinProofCryptoUnavailable
+            ? 'Browser cryptography is unavailable. Open this page over HTTPS or localhost in a browser that supports Web Crypto, then retry.'
+            : 'Verification failed. Check the proof, saved receipt, protocol and result.'
+        );
     } finally {
       if (alive.current) setBusy(false);
     }

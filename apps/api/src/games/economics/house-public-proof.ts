@@ -2,8 +2,11 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { parseSpinPublicProof, spinPublicCommitmentFrame } from '@socialplay/shared';
 import type { SpinPublicCommitment, SpinPublicProof } from '@socialplay/shared';
-import { verifyQuicknetBeacon, deriveBeaconSpinOutcome } from './round-entropy.js';
+import { deriveBeaconSpinOutcome } from './round-entropy.js';
 import { verifySpinSeedCommitment } from './house-round-draw.js';
+import { PublicProofBeaconCache } from './public-proof-beacon-cache.js';
+
+const beacons = new PublicProofBeaconCache();
 
 export class PublicSpinProofUnavailable extends Error {}
 export async function readPublicSpinProof(
@@ -37,7 +40,7 @@ export async function readPublicSpinProof(
         r = proof.reveal;
       if (!verifySpinSeedCommitment(c.roundId, c.rulesId, r.seedHex, c.seedCommitment))
         throw new Error();
-      const beacon = await verifyQuicknetBeacon(c.closesAtMs, r.beacon);
+      const beacon = await beacons.verify(c.closesAtMs, r.beacon);
       if (deriveBeaconSpinOutcome(c.roundId, c.rulesId, r.seedHex, beacon) !== r.outcome)
         throw new Error();
     }

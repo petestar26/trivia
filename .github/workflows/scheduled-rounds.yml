@@ -8,6 +8,9 @@ on:
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
       - 'apps/api/src/server.ts'
+      - 'apps/api/tsconfig.json'
+      - 'apps/api/scripts/check-shared-types.mjs'
+      - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/lib/spin-proof-verifier*'
@@ -72,6 +75,8 @@ jobs:
           pnpm install --frozen-lockfile
       - name: Build workspace packages
         run: pnpm build:packages
+      - name: Check API shared declaration boundary
+        run: pnpm --filter api typecheck:shared-boundary
       - name: Fresh migration deployment and replay
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy

@@ -11,14 +11,18 @@ import {
 import type { SpinPublicProof } from '@socialplay/shared';
 
 export const MAX_PUBLIC_PROOF_BYTES = 32_768;
+export class SpinProofCryptoUnavailable extends Error {
+  constructor() {
+    super('This browser requires a secure connection for verification');
+  }
+}
 export function parsePublicProofText(text: string): unknown {
   if (new TextEncoder().encode(text).byteLength > MAX_PUBLIC_PROOF_BYTES)
     throw new Error('Proof JSON exceeds the 32 KiB limit');
   return JSON.parse(text);
 }
 async function digest(text: string): Promise<Uint8Array> {
-  if (!globalThis.crypto?.subtle)
-    throw new Error('This browser requires a secure connection for verification');
+  if (!globalThis.crypto?.subtle) throw new SpinProofCryptoUnavailable();
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 }
 async function hexDigest(text: string) {

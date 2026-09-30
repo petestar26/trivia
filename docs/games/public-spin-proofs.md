@@ -30,6 +30,15 @@ return 400; IDs exceeding the router's 128-character bound return 404 before
 route validation. A terminal proof that fails timing, commitment, real BLS or outcome
 verification returns a safe 503 without revealing its contents.
 
+Successful beacon-signature verifications are memoized in each API process for
+at most five minutes, with a maximum of 128 entries. Identical in-flight checks
+share the work; failed verifications are discarded. The key includes every
+beacon-verifier input and the protocol/chain/public-key pins. Every request still
+reads the current database projection, validates its receipt and timing, checks
+the current seed commitment, and reproduces its outcome. Proof responses and
+database rows are never cached. Per-IP rate limiting remains in place; this cache
+does not provide a global CPU budget for unique proofs.
+
 The endpoint uses the normal restricted runtime connection. A narrow STABLE,
 SECURITY DEFINER function `public.house_public_spin_proof(text)` reads one
 snapshot. It uses `search_path=pg_catalog,pg_temp`, qualified objects and no
@@ -73,6 +82,8 @@ The production chain, public key, cutoff offset and payout rules are unchanged.
 
 The public page is `/games/spin-win/verify`; scheduled practice links to it.
 It needs no account, stake or deposit. Use HTTPS (or localhost) for Web Crypto.
+If browser cryptography is unavailable, the page explains this requirement and
+does not label the proof invalid or verified.
 
 1. Enter a financial round ID and load its pending public proof, or upload/paste
    a JSON proof. Files and pasted JSON are limited to 32 KiB.
@@ -107,6 +118,10 @@ forged terminal proofs fail closed; repeated GETs leave financial fingerprints
 unchanged. The historical real-beacon fixture transplants only clock metadata
 in a transaction-local replica setup; production reads and draws keep all triggers.
 CI includes these tests and the browser contracts on PostgreSQL 13 and 16.
+It also checks that the API resolves shared types from built declarations,
+preventing new shared modules from adding root-directory diagnostics. Build the
+workspace packages before API typechecking. Unrelated legacy API diagnostics
+remain separate from this shared-package boundary check.
 
 ## Activation prerequisites remain
 

@@ -40,7 +40,9 @@ describe('public player verifier', () => {
         <App />
       </MemoryRouter>
     );
-    expect(await screen.findByRole('heading', { name: 'Verify a Spin Win round' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Verify a Spin Win round' })
+    ).toBeInTheDocument();
     expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument();
   });
   it('needs no login and offers verification without wager controls', () => {
@@ -90,6 +92,18 @@ describe('public player verifier', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify locally' }));
     await screen.findByRole('alert');
     expect(screen.queryByText(/untrusted proof contents/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verified result/)).not.toBeInTheDocument();
+  });
+  it('explains how to enable browser cryptography without treating its absence as a bad proof', async () => {
+    const actual = await vi.importActual<typeof Verifier>('@/lib/spin-proof-verifier');
+    mocked.verify.mockImplementation(actual.verifyPublicSpinProof);
+    vi.stubGlobal('crypto', {});
+    mount();
+    enter();
+    fireEvent.click(screen.getByRole('button', { name: 'Verify locally' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/HTTPS or localhost/);
+    expect(alert).toHaveTextContent(/browser that supports Web Crypto/);
     expect(screen.queryByText(/Verified result/)).not.toBeInTheDocument();
   });
   it('loads only the public GET endpoint without credentials', async () => {
