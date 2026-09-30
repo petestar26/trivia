@@ -77,7 +77,7 @@ jobs:
           pnpm --filter api test:economics
           pnpm --filter api test:scheduled-practice
       - name: Native two-connection runtime tests
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts src/games/economics/house-capital.native.ts
       - name: Generate disposable ledger test keys
         run: |
           python3 - <<'PYKEYS'

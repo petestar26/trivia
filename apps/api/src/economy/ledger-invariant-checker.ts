@@ -61,6 +61,8 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
   'scheduled_stake_constraint', 'scheduled_stake_integrity_failures',
   'scheduled_stake_backing_constraint', 'scheduled_stake_backing_failures',
+  'house_capital_owner_guard', 'house_capital_constraint', 'house_capital_failures',
+  'house_record_capital_funding', 'house_reserve_round_loss',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -68,6 +70,9 @@ const checks: ReadonlyArray<[string, string]> = [
   ['I17 scheduled stake hold/refund proofs', `SELECT COUNT(*)::INT AS count,
     COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
     FROM public.scheduled_stake_integrity_failures()`],
+  ['I18 operator funds and reserved exposure reconcile', `SELECT COUNT(*)::INT AS count,
+    COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::TEXT[]) AS sample
+    FROM public.house_capital_failures()`],
   // CORRECTION 1: ADMIN_QUALIFY is reserved/disabled — no operation of this
   // type, and no lot entry attributed to one, may ever exist. This is a
   // second, independent line of defense behind the INSERT-time trigger in
@@ -140,6 +145,15 @@ const checks: ReadonlyArray<[string, string]> = [
       ('admin_adjustment_approvals','adjustment_execution_guard'),
       ('ledger_approval_assertions','ledger_approval_assertions_append_only'),
       ('users','users_privilege_guard'),
+      ('house_capital_accounts','house_capital_account_guard'),
+      ('house_capital_accounts','house_capital_account_no_truncate'),
+      ('house_capital_accounts','house_capital_account_proof'),
+      ('house_capital_fundings','house_funding_guard'),
+      ('house_capital_fundings','house_funding_no_truncate'),
+      ('house_capital_fundings','house_funding_proof'),
+      ('house_round_reservations','house_reservation_guard'),
+      ('house_round_reservations','house_reservation_no_truncate'),
+      ('house_round_reservations','house_reservation_proof'),
       ('scheduled_stake_holds','scheduled_stake_hold_guard'),
       ('scheduled_stake_holds','scheduled_stake_hold_no_truncate'),
       ('coin_provenance','scheduled_stake_lot_backing'),

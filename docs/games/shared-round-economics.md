@@ -102,6 +102,35 @@ Actual fiat backing, country conversion rates and withdrawal obligations must
 be reconciled before configuring any Coin risk limits. Stop accepting new bets
 if the reserve ledger or its backing cannot be verified; honor existing tickets.
 
+### Preliminary capital register (disabled for admission)
+
+The `20260930160000_house_capital_reservations` migration adds a separate
+operator-only COINS funding journal, one zero-funded account, and append-only
+round loss reservations. It never touches customer wallets. The owner-run
+`house_record_capital_funding(reference, units, evidence_sha256)` accepts an
+externally verified, unique receipt reference and returns the recorded amount;
+identical retries return the same amount. The digest is an audit pointer,
+**not** proof of funds. A finance operator must first verify that the backing
+has actually cleared, is unencumbered, and excludes all player funds, unpaid
+withdrawals and required operating buffers. No automatic reconciliation with
+a bank or payment provider exists yet.
+
+`house_reserve_round_loss(round_id, stake, payout_vector, draw_count)` locks
+the account and books `max(0, sum(top draw_count payouts) - stake)`. All round
+reservations share that account lock and cannot commit above recorded funding.
+It returns the original reserve on an exact retry and refuses a changed round.
+Deferred constraints and I18 compare the account cache with both journals and
+recompute each maximum. Runtime roles get no execution or table-write grants;
+the owner trigger also refuses writes if a broad table grant is added later.
+
+This register is **not a wager-admission control**. Its current owner-only call
+accepts a supplied vector and does not authenticate tickets, settle receipts,
+or attest external funds. It has no release operation because no terminal
+financial round exists. Reserves deliberately stay committed until a reviewed
+ticket/settlement workflow can prove that liabilities are fully discharged.
+Do not add a player or worker caller or enable Coin wagering based on this
+register alone.
+
 ## Contest fee plan
 
 `planContestSettlement` consumes escrow receipts supplied by a trusted adapter.
@@ -170,6 +199,8 @@ must resume that result and honor its payouts; it cannot selectively void winner
 - Offline preview command and mathematical contract tests requiring no DB/secrets.
 - A separately disabled practice-only stream worker with immutable persisted
   Spin Win results and restart recovery. It accepts no financial tickets.
+- An owner-only, zero-funded capital journal and serialized preliminary round
+  reserve with database reconciliation; neither is wired into live admission.
 
 These are internal modules, an offline preview and an opt-in practice worker,
 not a new financial API. A forward migration adds practice tables and a disabled
@@ -181,7 +212,10 @@ stream; no live fee, treasury, wallet, Coin rule row or catalog activation chang
 - Approve the proposed mechanics above and exact per-game rule versions.
 - Provenance-preserving Coin contest and scheduled-wager escrow, with deferred
   database backstops and owner/runtime grants reviewed together.
-- Funded treasury journal and transactional multi-round liability reservations.
+- Independently reconciled actual operator funding, trusted server-side ticket
+  aggregation, and an atomic capital-reservation/stake-hold admission adapter.
+- Reviewed reserve release only after every ticket's payout/refund discharges
+  the liability, with crash/retry and delayed-withdrawal coverage.
 - Financial ticket/settlement tables and event streaming; extend the practice
   round lifecycle only after native database concurrency/recovery verification.
 - New private-game scoring adapters, fee disclosure and entry consent screens.

@@ -327,6 +327,7 @@ beforeAll(() => {
     '20260930130000_scheduled_stake_types',
     '20260930140000_scheduled_stake_holds',
     '20260930150000_scheduled_hold_backing',
+    '20260930160000_house_capital_reservations',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
