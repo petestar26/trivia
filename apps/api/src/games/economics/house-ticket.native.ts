@@ -27,6 +27,13 @@ beforeAll(async () => {
   runId = await bootstrapLedgerTestGates();
   const fixture = await purchasedFixture(1000);
   buyerId = fixture.buyer.id;
+  const method = await prisma.paymentMethodDefinition.findFirstOrThrow({
+    where: { countryId: fixture.country.id, type: 'BANK_TRANSFER', isActive: true },
+  });
+  await prisma.userPayoutAccount.create({ data: {
+    userId: buyerId, countryId: fixture.country.id, methodDefId: method.id,
+    accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' }, status: 'ACTIVE',
+  } });
   const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'spin_win' } });
   original = { catalogStatus: game.catalogStatus, isActive: game.isActive,
     currentRulesVersion: game.currentRulesVersion };
