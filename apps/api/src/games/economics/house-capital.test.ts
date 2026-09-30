@@ -78,8 +78,8 @@ describe('dormant owner capital journal', () => {
   it('rejects fractional, negative, oversized and contradictory vectors before reservation', async () => {
     await fund('bank:receipt-1', 10_000n);
     const before = await state();
-    for (const vector of [[0.5, 5], [-1, 5], ['5', 0], [Number.MAX_SAFE_INTEGER * 10, 0], [1]]) {
-      await expect(reserve('invalid', 40n, vector as number[], 1)).rejects.toThrow();
+    for (const vector of [[0.5, 5], [-1, 5], ['5', 0], [1e20, 0], [1]]) {
+      await expect(reserve('invalid', 40n, vector as number[], 1)).rejects.toThrow('invalid round risk vector');
     }
     expect(await state()).toEqual(before);
   });
