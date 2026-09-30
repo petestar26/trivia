@@ -70,7 +70,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'scheduled_stake_settlement_failures',
   'house_round_randomness_guard', 'house_round_randomness_failures', 'house_round_randomness_constraint',
   'house_spin_outcome', 'house_ticket_resolution_failures', 'house_ticket_resolution_constraint',
-  'house_quicknet_target', 'house_round_beacon_guard',
+  'house_quicknet_target', 'house_round_beacon_guard', 'house_public_spin_proof',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 

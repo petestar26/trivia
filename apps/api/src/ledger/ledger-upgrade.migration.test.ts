@@ -16,6 +16,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '@socialplay/database';
 import { runLedgerUpgradePreflight } from '../economy/ledger-upgrade-preflight.js';
+import { prepareDormantBeaconSpinRandomness } from '../games/economics/house-round-draw.js';
 
 const DATABASE_PACKAGE = fileURLToPath(new URL('../../../../packages/database/', import.meta.url));
 const PRISMA = join(DATABASE_PACKAGE, 'node_modules/.bin/prisma');
@@ -29,6 +30,9 @@ const WINDOW_CHECK = '20260924090000_ledger_upgrade_window_check';
 const PRE_SETTLEMENT = '20260930180000_scheduled_settlement_type';
 const CANCELLATION_AUDIT = '20260930200000_financial_cancellation_audit';
 const FUTURE_BEACON = '20261001010000_dormant_future_beacon_recovery';
+const PUBLIC_PROOFS = '20261001020000_public_spin_proofs';
+// Exact merged ef3a026b6d208118932b76119fe165f866584ab0 (71 migrations).
+const PUBLIC_PROOF_PARENT_MIGRATIONS_SHA256 = '9664a01a5f783c0e67a111e31aa41516e9ab06914483074d0ad38e8df44fe622';
 // Exact merged master 5d1c6b041d08afbdcb736dc8b5d0351c79e98b55.
 // A digest of framed migration name/byte-length/content needs no Git history
 // in shallow CI, while proving the copied parent migrations were not edited.
@@ -47,7 +51,7 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
   '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
-  CANCELLATION_AUDIT, FUTURE_BEACON];
+  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -355,6 +359,7 @@ beforeAll(() => {
     '20260930190000_dormant_financial_settlement',
     CANCELLATION_AUDIT,
     FUTURE_BEACON,
+    PUBLIC_PROOFS,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -618,7 +623,7 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -637,6 +642,63 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('the exact merged beacon parent gains only a read-only public projection, preserves private commitments and customer rows, then setup and replay succeed', async () => {
+    const previousMigrations = ALL.filter(name => name < PUBLIC_PROOFS);
+    const parentDigest = createHash('sha256');
+    for (const name of previousMigrations) {
+      const content = readFileSync(join(MIGRATIONS, name, 'migration.sql'));
+      parentDigest.update(name).update('\0').update(String(content.byteLength)).update('\0').update(content);
+    }
+    expect(previousMigrations).toHaveLength(71);
+    expect(parentDigest.digest('hex')).toBe(PUBLIC_PROOF_PARENT_MIGRATIONS_SHA256);
+    const db = await scratchDatabase('public-proof-parent');
+    try {
+      const previous = deploy(db.url, migrationSubset(previousMigrations));
+      expect(previous.status, previous.output).toBe(0);
+      const [missing] = await db.client.$queryRaw<Array<{ absent: boolean }>>`
+        SELECT pg_catalog.to_regprocedure('public.house_public_spin_proof(text)') IS NULL AS absent`;
+      expect(missing.absent).toBe(true);
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+      const customer = await db.client.user.create({ data: { username: `proofparent${suffix}` } });
+      await db.client.wallet.create({ data: { userId: customer.id, gamePointsBalance: 37 } });
+      const streamId = `proofparent${suffix}`, roundId = `${streamId}:0`;
+      const [clock] = await db.client.$queryRaw<Array<{ opens: bigint }>>`
+        SELECT pg_catalog.floor(EXTRACT(EPOCH FROM pg_catalog.clock_timestamp())*1000)::BIGINT-1000 AS opens`;
+      await db.client.scheduledGameStream.create({ data: { id: streamId, gameKey: 'spin_win',
+        rulesId: 'single-zero-rtp90-v2', mode: 'FINANCIAL', enabled: true, anchorMs: clock.opens,
+        bettingMs: 3_600_000, revealMs: 1000, resultMs: 1000 } });
+      await db.client.scheduledGameRound.create({ data: { id: roundId, streamId, sequence: 0n,
+        gameKey: 'spin_win', rulesId: 'single-zero-rtp90-v2', mode: 'FINANCIAL', opensMs: clock.opens,
+        closesMs: clock.opens + 3_600_000n, revealEndsMs: clock.opens + 3_601_000n, endsMs: clock.opens + 3_602_000n } });
+      await prepareDormantBeaconSpinRandomness(db.client, roundId);
+      const privateState = () => db.client.$queryRaw`
+        SELECT pg_catalog.to_jsonb(g)::TEXT AS round,pg_catalog.to_jsonb(x)::TEXT AS seed,
+          pg_catalog.to_jsonb(p)::TEXT AS pin
+        FROM public.scheduled_game_rounds g
+        JOIN public.house_round_randomness x ON x.round_id=g.id
+        JOIN public.house_round_beacon_pins p ON p.round_id=g.id WHERE g.id=${roundId}`;
+      const before = await privateState(), customers = await legacyFingerprint(db.client);
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS]);
+      expect(await privateState()).toEqual(before);
+      expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
+      const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
+        SELECT public.house_public_spin_proof(${roundId}) AS proof`;
+      expect(projection.proof).toMatchObject({ stage: 'PENDING', reveal: null, commitment: { roundId } });
+      expect(JSON.stringify(projection)).not.toMatch(/seedHex|signature|randomness/);
+      const setup = await runtimeSetup(db);
+      expect(setup.status, setup.output).toBe(0);
+      expect(setup.output).toContain('Verified');
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+      expect(await privateState()).toEqual(before);
+      expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
+      expect(await anomalies(db.client)).toEqual([]);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 

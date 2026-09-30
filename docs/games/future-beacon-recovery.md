@@ -19,7 +19,8 @@ The new protocol pins the drand quicknet chain:
 - Genesis: `1692803367000` epoch milliseconds; round 1 occurs at genesis.
 - Period: 3 seconds. The selected beacon is the first scheduled event strictly
   after the immutable betting cutoff plus 6 seconds.
-- Public key and chain metadata are fixed in `round-entropy.ts`, sourced from
+- Public key and chain metadata are fixed in shared `spin-win-proof.ts` and
+  re-exported by `round-entropy.ts`, sourced from
   the exact `drand-client@1.4.2` release. A relay cannot supply replacement pins.
 
 The database transaction stores the future target and seed commitment before
@@ -124,8 +125,11 @@ cutoff, seed commitment and beacon target before admission; provide player
 verification and monitoring; reconcile actual house backing; verify the target
 owner/runtime split; review the outage policy, jurisdiction and admission
 controls; and complete an independent release review. The public commitment
-endpoint, receipts, player verifier UI and unattended financial scheduler are
-still separate work. The 90% RTP and payout caps remain unchanged.
+endpoint, receipts and player verifier UI are documented in
+[public-spin-proofs.md](public-spin-proofs.md). They establish consistency, not
+independently witnessed publication time. External acknowledgement,
+receipt-bound admission and an unattended financial scheduler remain separate
+work. The 90% RTP and payout caps remain unchanged.
 
 ## Verification
 

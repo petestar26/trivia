@@ -1,7 +1,7 @@
-import Fastify, { FastifyInstance, FastifyReply } from 'fastify';
+import Fastify from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
-import { prisma } from '@socialplay/database';
 import { registerPlugins } from './plugins';
 import { registerRoutes } from './routes';
 import { healthRoutes } from './routes/health';
@@ -31,6 +31,9 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
       : undefined;
 
   const server = Fastify({
+    // Financial round IDs allow 128 characters; the router must not reject a
+    // valid public-proof identifier before its route schema can validate it.
+    maxParamLength: 128,
     logger: {
       level: options.logLevel ?? config.LOG_LEVEL,
       transport,

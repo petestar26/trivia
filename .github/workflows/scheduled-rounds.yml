@@ -7,8 +7,10 @@ on:
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
+      - 'apps/api/src/server.ts'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/lib/spin-proof-verifier*'
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
@@ -109,10 +111,17 @@ jobs:
           src/games/economics/house-settlement.native.ts
           src/games/economics/house-entropy.native.ts
           src/games/economics/house-recovery.native.ts
+          src/games/economics/house-public-proof.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 
       - name: Scheduled practice web contracts
-        run: pnpm --filter web exec vitest run src/pages/games/spin-win-scheduled.test.tsx src/pages/games/spin-win.test.tsx --minWorkers=1 --maxWorkers=1
+        run: >-
+          pnpm --filter web exec vitest run
+          src/pages/games/spin-win-scheduled.test.tsx
+          src/pages/games/spin-win.test.tsx
+          src/pages/games/spin-win-verify.test.tsx
+          src/lib/spin-proof-verifier.test.ts
+          --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
         run: pnpm --filter web build

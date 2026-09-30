@@ -135,6 +135,9 @@ importers:
       clsx:
         specifier: ^2.1.0
         version: 2.1.1
+      drand-client:
+        specifier: 1.4.2
+        version: 1.4.2
       lucide-react:
         specifier: ^0.303.0
         version: 0.303.0(react@18.3.1)

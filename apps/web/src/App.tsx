@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import { Layout } from '@/components/layout/layout';
 import { HomePage } from '@/pages/home';
@@ -29,10 +30,19 @@ import { WalletPage } from '@/pages/wallet';
 import { RewardsPage } from '@/pages/rewards';
 import { ProfilePage } from '@/pages/profile';
 
+// Keep pairing-verification code out of the normal casino entry bundle.
+const SpinWinVerifyPage = lazy(async () => {
+  const page = await import('@/pages/games/spin-win-verify');
+  return { default: page.SpinWinVerifyPage };
+});
+
 export function App() {
   const { isLoading } = useAuth();
+  const location = useLocation();
 
-  if (isLoading) {
+  // Offline public verification must also work while the unrelated session
+  // probe is waiting on an unavailable API.
+  if (isLoading && !/^\/games\/spin-win\/verify\/?$/.test(location.pathname)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
@@ -42,6 +52,11 @@ export function App() {
 
   return (
     <Routes>
+      <Route path="/games/spin-win/verify" element={
+        <Suspense fallback={<main className="min-h-screen bg-slate-950 p-8 text-slate-100">Loading round verifier…</main>}>
+          <SpinWinVerifyPage />
+        </Suspense>
+      } />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route
