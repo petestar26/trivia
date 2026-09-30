@@ -32,7 +32,7 @@ jobs:
       matrix:
         version: [13, 16]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:${{ matrix.version }}
@@ -100,7 +100,6 @@ jobs:
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/ledger/ledger-upgrade.migration.test.ts
-          -t 'fresh install:|populated upgrade from master-era data|complete upgrade succeeds'
       - name: Build API
         run: pnpm --filter api exec node build.js
 

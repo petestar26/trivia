@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { PrismaClient } from '@prisma/client';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { disableTestPolicy } from '../../ledger/test-policy-fixture.js';
+import { runLedgerInvariantCheckInTransaction } from '../../economy/ledger-invariant-checker.js';
 import { applyRuntimeAccess } from '../../scripts/ledger-runtime-access.js';
 import { purchasedFixture, uid } from '../../test/ledger-integrity-fixtures.js';
 import { bootstrapLedgerTestGates } from '../../economy/ledger-test-bootstrap.js';
@@ -268,6 +270,19 @@ describe('scheduled stakes preserve original Coin sources', () => {
       await expect(
         runtime.$queryRawUnsafe('SELECT secret FROM public.ledger_approval_keys')
       ).rejects.toThrow('permission denied');
+      const [permissions] = await runtime.$queryRawUnsafe<
+        {
+          delete: boolean;
+          amount: boolean;
+          state: boolean;
+          refund: boolean;
+        }[]
+      >(`SELECT
+        pg_catalog.has_table_privilege(current_user,'public.scheduled_stake_holds','DELETE') AS delete,
+        pg_catalog.has_column_privilege(current_user,'public.scheduled_stake_holds','amount','UPDATE') AS amount,
+        pg_catalog.has_column_privilege(current_user,'public.scheduled_stake_holds','state','UPDATE') AS state,
+        pg_catalog.has_column_privilege(current_user,'public.scheduled_stake_holds','refund_operation_id','UPDATE') AS refund`);
+      expect(permissions).toEqual({ delete: false, amount: false, state: true, refund: true });
       const hold = await runtime.$transaction((tx) =>
         reserveScheduledStakeCoins(tx, buyer.id, args)
       );
@@ -283,6 +298,226 @@ describe('scheduled stakes preserve original Coin sources', () => {
         await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
       }
     }
+  });
+  it('rejects a runtime transfer draining aggregate hold backing, then refunds both holds', async () => {
+    const { buyer, args, purchaseLot } = await fixture();
+    const otherHold = { ...args, holdId: uid('second-hold') };
+    await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args));
+    await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, otherHold));
+    await prisma.$transaction((tx) =>
+      creditCoins(tx, buyer.id, 40, {
+        type: 'BONUS_GRANT',
+        scopeType: 'TEST',
+        scopeId: uid('recipient'),
+        referenceType: 'GAME',
+        description: 'Restricted transfer recipient',
+        policy: args.policy,
+        requirementAmount: 200,
+      })
+    );
+    const recipient = await prisma.coinProvenance.findFirstOrThrow({
+      where: { userId: buyer.id, lotClass: 'RESTRICTED' },
+    });
+    const before = await snapshot(buyer.id);
+    const role = `stake_${randomUUID().replaceAll('-', '')}`;
+    const password = randomBytes(24).toString('hex');
+    const runtimeUrl = new URL(url);
+    runtimeUrl.username = role;
+    runtimeUrl.password = password;
+    const runtime = new PrismaClient({ datasourceUrl: runtimeUrl.toString(), log: [] });
+    let created = false;
+    try {
+      await prisma.$executeRawUnsafe(
+        `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`
+      );
+      created = true;
+      expect(await applyRuntimeAccess(prisma, role, role, randomBytes(32).toString('hex'))).toEqual(
+        []
+      );
+      // Ordinary runtime DML, all triggers enabled. This is balanced and its
+      // destination is restricted; the assertion requires the new backing
+      // guard, not an unrelated withdrawable-mint or wallet-equality refusal.
+      await expect(
+        runtime.$transaction(async (tx) => {
+          const wallet = await tx.wallet.findUniqueOrThrow({ where: { userId: buyer.id } });
+          const receipt = await tx.walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId: buyer.id,
+              currency: 'COINS',
+              type: 'COIN_CREDIT',
+              ledgerType: 'CREDIT',
+              amount: 80,
+              balanceBefore: wallet.coinsBalance,
+              balanceAfter: wallet.coinsBalance + 80,
+              referenceType: 'GAME',
+              description: 'Backing regression',
+            },
+          });
+          const operation = await tx.economicOperation.create({
+            data: {
+              type: 'P2P_TRANSFER',
+              userId: buyer.id,
+              createdBy: buyer.id,
+              scopeType: 'TEST',
+              scopeId: uid('drain'),
+              walletTransactionIds: [receipt.id],
+            },
+          });
+          await tx.coinLotEntry.create({
+            data: {
+              operationId: operation.id,
+              userId: buyer.id,
+              lotId: purchaseLot.id,
+              entryType: 'TRANSFER_OUT',
+              reservedDelta: -80,
+              counterpartyLotId: recipient.id,
+              sequence: 0,
+            },
+          });
+          await tx.coinLotEntry.create({
+            data: {
+              operationId: operation.id,
+              userId: buyer.id,
+              lotId: recipient.id,
+              entryType: 'TRANSFER_IN',
+              availableDelta: 80,
+              counterpartyLotId: purchaseLot.id,
+              sequence: 1,
+            },
+          });
+          await tx.wallet.update({
+            where: { id: wallet.id },
+            data: { coinsBalance: { increment: 80 } },
+          });
+          await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+        })
+      ).rejects.toThrow('scheduled stake backing mismatch');
+      expect(await snapshot(buyer.id)).toEqual(before);
+      expect(
+        (await runtime.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
+          .coinsBalance
+      ).toBe(360);
+      expect(
+        (
+          await runtime.$transaction((tx) =>
+            refundScheduledStakeCoins(tx, buyer.id, otherHold.holdId)
+          )
+        ).coinsBalance
+      ).toBe(440);
+      expect(
+        (
+          await runtime.$transaction((tx) =>
+            refundScheduledStakeCoins(tx, buyer.id, otherHold.holdId)
+          )
+        ).isReplay
+      ).toBe(true);
+    } finally {
+      await runtime.$disconnect();
+      if (created) {
+        await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+        await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+      }
+    }
+  });
+  it('I17 counts all active holds sharing a lot, not each hold in isolation', async () => {
+    const { buyer, args, purchaseLot } = await fixture();
+    const second = { ...args, holdId: uid('second-hold') };
+    await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args));
+    await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, second));
+    await expect(
+      prisma.$transaction(async (tx) => {
+        // Observe an invalid intermediate state with constraints still deferred;
+        // always roll it back. No trigger is disabled.
+        await tx.coinProvenance.update({
+          where: { id: purchaseLot.id },
+          data: { reservedAmount: 80 },
+        });
+        const violations = await tx.$queryRawUnsafe<{ id: string }[]>(
+          'SELECT id FROM public.scheduled_stake_integrity_failures()'
+        );
+        expect(violations.map((v) => v.id).sort()).toEqual([args.holdId, second.holdId].sort());
+        throw new Error('rollback-backing-scan');
+      })
+    ).rejects.toThrow('rollback-backing-scan');
+    await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId));
+    await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, second.holdId));
+  });
+  it('requires a published active policy but refunds a superseded version', async () => {
+    const { buyer, args, country } = await fixture();
+    const draft = await prisma.countryCasinoPolicy.create({
+      data: {
+        countryCode: country.code,
+        version: args.policy.version + 1,
+        state: 'DRAFT',
+      },
+    });
+    const before = await snapshot(buyer.id);
+    const draftArgs = { ...args, policy: { id: draft.id, version: draft.version } };
+    await expect(
+      prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, draftArgs))
+    ).rejects.toThrow('active published policy');
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const op = await tx.economicOperation.create({
+          data: {
+            type: 'SCHEDULED_STAKE_HOLD',
+            userId: buyer.id,
+            createdBy: buyer.id,
+            scopeType: 'SCHEDULED_STAKE',
+            scopeId: args.holdId,
+            countryPolicyId: draft.id,
+            countryPolicyVersion: draft.version,
+          },
+        });
+        await tx.scheduledStakeHold.create({
+          data: {
+            id: args.holdId,
+            userId: buyer.id,
+            amount: args.amount,
+            policyId: draft.id,
+            policyVersion: draft.version,
+            gameKey: args.gameKey,
+            rulesId: args.rulesId,
+            holdOperationId: op.id,
+          },
+        });
+      })
+    ).rejects.toThrow('active published policy');
+    expect(await snapshot(buyer.id)).toEqual(before);
+    await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args));
+    await disableTestPolicy(args.policy.id, country.code);
+    expect(
+      (await prisma.$transaction((tx) => reserveScheduledStakeCoins(tx, buyer.id, args))).isReplay
+    ).toBe(true);
+    expect(
+      (await prisma.$transaction((tx) => refundScheduledStakeCoins(tx, buyer.id, args.holdId)))
+        .coinsBalance
+    ).toBe(400);
+    expect(
+      await prisma.$queryRawUnsafe('SELECT * FROM public.scheduled_stake_integrity_failures()')
+    ).toEqual([]);
+  });
+  it.each([
+    ['scheduled_stake_holds', 'scheduled_stake_hold_no_truncate'],
+    ['coin_provenance', 'scheduled_stake_lot_backing'],
+    ['coin_provenance', 'coin_lot_row_guard'],
+    ['coin_lot_entries', 'coin_lot_entry_validate'],
+    ['coin_lot_entries', 'coin_lot_entry_apply'],
+  ])('I3 reports a missing %s.%s trigger', async (table, trigger) => {
+    await expect(
+      prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRawUnsafe(`DROP TRIGGER "${trigger}" ON public."${table}"`);
+          const scan = await runLedgerInvariantCheckInTransaction(tx, null);
+          expect(scan.violations.find((v) => v.invariant.startsWith('I3 '))?.sample).toContain(
+            trigger
+          );
+          throw new Error('rollback-trigger-probe');
+        },
+        { timeout: 30000 }
+      )
+    ).rejects.toThrow('rollback-trigger-probe');
   });
   it('rolls back a failure after hold creation', async () => {
     const { buyer, args } = await fixture();

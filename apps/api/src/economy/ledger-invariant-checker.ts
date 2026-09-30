@@ -60,6 +60,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
   'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
   'scheduled_stake_constraint', 'scheduled_stake_integrity_failures',
+  'scheduled_stake_backing_constraint', 'scheduled_stake_backing_failures',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -140,6 +141,11 @@ const checks: ReadonlyArray<[string, string]> = [
       ('ledger_approval_assertions','ledger_approval_assertions_append_only'),
       ('users','users_privilege_guard'),
       ('scheduled_stake_holds','scheduled_stake_hold_guard'),
+      ('scheduled_stake_holds','scheduled_stake_hold_no_truncate'),
+      ('coin_provenance','scheduled_stake_lot_backing'),
+      ('coin_provenance','coin_lot_row_guard'),
+      ('coin_lot_entries','coin_lot_entry_validate'),
+      ('coin_lot_entries','coin_lot_entry_apply'),
       ('scheduled_stake_holds','scheduled_stake_row_proof'),
       ('economic_operations','scheduled_stake_operation_proof'),
       ('coin_lot_entries','scheduled_stake_entry_proof'),

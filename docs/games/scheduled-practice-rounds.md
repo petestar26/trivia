@@ -124,3 +124,11 @@ job, never through API startup. The standalone draw worker does not need ticket
 SELECT/INSERT: it cannot choose results based on entries through these grants.
 Do not publish a 24/7 availability claim until the worker is supervised and its
 restart/health monitoring has been rehearsed on the deployment target.
+
+### Admission clock and isolation
+
+The ticket guard locks the round, stream and active player before sampling its
+acceptance timestamp and enforcing cutoff. The stored timestamp is that same
+sample. Repeatable-read and serializable callers fail closed if a pause or draw
+committed after their snapshot; they must retry the whole transaction. The
+normal adapter uses READ COMMITTED.

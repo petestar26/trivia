@@ -58,6 +58,7 @@ const DENIED: [table: string, privilege: string][] = [
   ['coin_lot_entries', 'UPDATE'], ['coin_lot_entries', 'DELETE'],
   ['wallet_transactions', 'UPDATE'], ['wallet_transactions', 'DELETE'],
   ['legacy_balance_reviews', 'UPDATE'], ['legacy_balance_reviews', 'DELETE'],
+  ['scheduled_stake_holds', 'DELETE'],
   ['wallets', 'DELETE'], ['coin_provenance', 'DELETE'], ['users', 'DELETE'],
   ['game_rules', 'INSERT'], ['game_rules', 'UPDATE'], ['game_rules', 'DELETE'],
   ['_prisma_migrations', 'INSERT'], ['_prisma_migrations', 'UPDATE'], ['_prisma_migrations', 'DELETE'],
@@ -255,6 +256,17 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
     ORDER BY s.k, u.n`;
   for (const { subject, column } of users) {
     found.push({ subject, what: `users.${column}`, failure: (via) => `${role} can still change users.${column}${via}` });
+  }
+  const holdColumns = await tx.$queryRaw<{ subject: string; column: string }[]>`
+    SELECT s.subject, a.attname::text AS "column"
+    FROM unnest(${subjects}::text[]) AS s(subject)
+    JOIN pg_attribute a ON a.attrelid=to_regclass('public.scheduled_stake_holds')
+      AND a.attnum>0 AND NOT a.attisdropped
+    WHERE a.attname NOT IN ('state','refund_operation_id')
+      AND has_column_privilege(s.subject,a.attrelid,a.attnum,'UPDATE')`;
+  for (const { subject, column } of holdColumns) {
+    found.push({ subject, what: `scheduled_stake_holds.${column}`,
+      failure: (via) => `${role} can still change scheduled_stake_holds.${column}${via}` });
   }
   const functions = await tx.$queryRaw<{ subject: string; name: string }[]>`
     SELECT s.subject, p.proname::text AS "name"

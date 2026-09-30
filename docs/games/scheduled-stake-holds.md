@@ -20,7 +20,20 @@ activation is included.
 
 Database constraints bind the hold/refund to its user, amount, policy, operation,
 wallet transaction and original source entries. Runtime invariant I17 uses the
-same proof query. Refunding twice is replay, not a second credit. Exact hold replay
+same proof query. A forward migration also compares each source lot's reserved
+cache with the **sum of all active scheduled holds** against that lot. A deferred
+lot trigger enforces this even when an unrelated operation changes the cache;
+ordinary balanced transfers cannot consume backing owed to these holds.
+
+Creation requires a matching ACTIVE published policy under a shared lock. A
+later SUPERSEDED policy remains valid for historical proof, replay and refund.
+DRAFT policies cannot become hold terms. Runtime setup grants UPDATE only on
+`state` and `refund_operation_id`, with no DELETE permission; the verifier also
+rejects immutable-field access through other reachable roles. Existing runtime
+roles must rerun owner setup after this forward migration.
+
+I3 checks the backing and no-truncate triggers along with the existing lot row,
+entry-validation and cache-application triggers. Refunding twice is replay, not a second credit. Exact hold replay
 returns the stored debit balance, even after refund. Different terms conflict.
 
 Restricted lots with outstanding reserved value are not converted by an

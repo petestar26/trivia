@@ -88,7 +88,8 @@ export function quoteHouseAdmission(
     throw new RangeError('Invalid existing payout vector');
   }
   book.payouts.forEach((payout) => units(payout, 'Existing payout'));
-  // A corrupted or different-rules book must not manufacture reserve capacity.
+  // Check the aggregate mean only. This cannot authenticate the payout vector
+  // or its peak: the live adapter must reconstruct it from accepted tickets.
   if (book.stake === 0n) {
     if (book.payouts.some((payout) => payout !== 0n)) throw new RangeError('Unfunded book');
   } else {

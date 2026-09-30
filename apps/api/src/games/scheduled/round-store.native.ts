@@ -68,6 +68,9 @@ beforeAll(async () => {
     `GRANT SELECT ON public.scheduled_practice_tickets, public.users TO "${role}"`
   );
   await owner.$executeRawUnsafe(`GRANT INSERT ON public.scheduled_practice_tickets TO "${role}"`);
+  await owner.$executeRawUnsafe(
+    `GRANT UPDATE (enabled) ON public.scheduled_game_streams TO "${role}"`
+  );
   await owner.$executeRawUnsafe(`GRANT UPDATE ("displayName") ON public.users TO "${role}"`);
   await owner.$executeRawUnsafe(`GRANT INSERT ON public.scheduled_game_rounds TO "${role}"`);
   await owner.$executeRawUnsafe(
@@ -283,4 +286,96 @@ describe('native practice ticket transactions', () => {
       ).isReplay
     ).toBe(true);
   });
+});
+
+describe('practice acceptance locks', () => {
+  it('rechecks cutoff after waiting for the active-user lock', async () => {
+    const streamId = await stream(1500);
+    const user = await owner.user.create({ data: { username: `locked-${randomUUID()}` } });
+    await tickPracticeStream(prismaRoundDatabase(first), streamId);
+    const round = await owner.scheduledGameRound.findFirstOrThrow({ where: { streamId } });
+    let release!: () => void;
+    let ready!: () => void;
+    const held = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const finish = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = owner.$transaction(
+      async (tx) => {
+        await tx.$queryRawUnsafe('SELECT id FROM public.users WHERE id=$1 FOR UPDATE', user.id);
+        ready();
+        await finish;
+      },
+      { timeout: 10000 }
+    );
+    let request: Promise<unknown> | undefined;
+    try {
+      await Promise.race([held, holder]);
+      request = first.scheduledPracticeTicket.create({
+        data: {
+          roundId: round.id,
+          userId: user.id,
+          bets: [{ marketId: 'red', amount: 40 }],
+        },
+      });
+      const rejected = expect(request).rejects.toThrow('practice round is closed');
+      let waiting = false;
+      for (let i = 0; i < 80; i++) {
+        const [row] = await owner.$queryRawUnsafe<{ waiting: boolean }[]>(
+          "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND wait_event<>'advisory') AS waiting",
+          role
+        );
+        if (row.waiting) {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(true);
+      await afterClose(round.id);
+      release();
+      await holder;
+      await rejected;
+      expect(await owner.scheduledPracticeTicket.count({ where: { roundId: round.id } })).toBe(0);
+    } finally {
+      release();
+      await holder;
+      await request?.catch(() => undefined);
+    }
+  });
+  it.each(['RepeatableRead', 'Serializable'] as const)(
+    'fails closed after a committed pause under %s',
+    async (isolationLevel) => {
+      const streamId = await stream();
+      const user = await owner.user.create({ data: { username: `snapshot-${randomUUID()}` } });
+      await tickPracticeStream(prismaRoundDatabase(first), streamId);
+      const round = await owner.scheduledGameRound.findFirstOrThrow({ where: { streamId } });
+      await expect(
+        first.$transaction(
+          async (tx) => {
+            // Establish an old snapshot, then commit a pause on another connection.
+            await tx.$queryRawUnsafe(
+              'SELECT enabled FROM public.scheduled_game_streams WHERE id=$1',
+              streamId
+            );
+            await owner.scheduledGameStream.update({
+              where: { id: streamId },
+              data: { enabled: false },
+            });
+            await tx.scheduledPracticeTicket.create({
+              data: {
+                roundId: round.id,
+                userId: user.id,
+                bets: [{ marketId: 'red', amount: 40 }],
+              },
+            });
+          },
+          { isolationLevel }
+        )
+      ).rejects.toThrow(/could not serialize|write conflict|deadlock/i);
+      expect(await owner.scheduledPracticeTicket.count({ where: { roundId: round.id } })).toBe(0);
+    }
+  );
 });

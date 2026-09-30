@@ -326,6 +326,7 @@ beforeAll(() => {
     '20260930120000_scheduled_practice_tickets',
     '20260930130000_scheduled_stake_types',
     '20260930140000_scheduled_stake_holds',
+    '20260930150000_scheduled_hold_backing',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -911,13 +912,16 @@ describe('legacy game rules on a master database whose catalog the pre-casino AP
     try {
       expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
       execute(db.url, masterRuntimeCatalogSql());
+      // These historical verifiers describe the catalog BEFORE dormant Spin
+      // rules were published. Exercise them at that exact migration boundary.
+      expect(deploy(db.url, migrationSubset(ALL.filter((name) => name <= '20260922060000_g0_rules_hash_verification_fix'))).status).toBe(0);
+      for (const verification of ['20260922020000_g0_rules_hash_verification', '20260922060000_g0_rules_hash_verification_fix']) {
+        execute(db.url, readFileSync(join(MIGRATIONS, verification, 'migration.sql'), 'utf8'));
+      }
       expect(deploy(db.url).status).toBe(0);
       const upgraded = await legacyRules(db.client);
       const replay = deploy(db.url);
       expect(replay.output).toContain('No pending migrations to apply');
-      for (const verification of ['20260922020000_g0_rules_hash_verification', '20260922060000_g0_rules_hash_verification_fix']) {
-        execute(db.url, readFileSync(join(MIGRATIONS, verification, 'migration.sql'), 'utf8'));
-      }
       expect(await legacyRules(db.client)).toEqual(upgraded);
       const [recomputed] = await db.client.$queryRawUnsafe<{ lucky: string }[]>(
         `SELECT "rules_hash"(configuration) AS lucky FROM game_definitions WHERE key = 'lucky_spin'`);

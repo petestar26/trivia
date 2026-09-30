@@ -23,7 +23,7 @@ export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> 
   const names = '"wallet_coin_lot_equality", "entry_coin_lot_equality", ' +
     '"classification_coin_lot_equality", "coin_operation_obligation_guard", ' +
     '"lot_coin_lot_equality", "coin_lot_journal_integrity_guard", ' +
-    '"scheduled_stake_row_proof", "scheduled_stake_operation_proof", "scheduled_stake_entry_proof"';
+    '"scheduled_stake_row_proof", "scheduled_stake_operation_proof", "scheduled_stake_entry_proof", "scheduled_stake_lot_backing"';
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} IMMEDIATE`);
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
@@ -732,6 +732,11 @@ export async function reserveScheduledStakeCoins(
   >`SELECT enabled FROM platform_gates WHERE key='SCHEDULED_STAKE_HOLD' FOR SHARE`;
   if (!gate[0]?.enabled)
     throw ApiError.forbidden("Scheduled stake holds are disabled");
+  const published = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id FROM public.country_casino_policies
+    WHERE id=${args.policy.id} AND version=${args.policy.version} AND state='ACTIVE' FOR SHARE`;
+  if (!published.length)
+    throw ApiError.conflict("Scheduled stake requires an active published policy");
   const { wallet, account } = await lockEconomicWallet(tx, userId);
   const lots = await lockLots(tx, userId);
   requireClassified(account.classifiedAt);
