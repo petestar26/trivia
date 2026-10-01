@@ -1,6 +1,5 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import { MAX_PUBLICATION_JSON_BYTES, parsePublicationArchiveText } from '@socialplay/shared';
 import { verifyPortablePublicationArchive } from '../games/economics/publication-receipt.js';
 
@@ -65,7 +64,17 @@ export async function main(args = process.argv.slice(2)) {
     return 1;
   }
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export function publicationVerifierInvokedAsScript(
+  entry = process.argv[1],
+  moduleUrl = import.meta.url
+) {
+  try {
+    return realpathSync(entry ?? '') === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+if (publicationVerifierInvokedAsScript()) {
   main()
     .then((code) => {
       process.exitCode = code;

@@ -8,11 +8,13 @@ import {
   renameSync,
   rmSync,
   writeFileSync,
+  symlinkSync,
 } from 'node:fs';
 import * as fs from 'node:fs';
 import type * as NodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_PUBLICATION_JSON_BYTES,
@@ -25,6 +27,7 @@ import {
   main,
   parsePublicationVerifyCommand,
   readPublicationArchiveFile,
+  publicationVerifierInvokedAsScript,
 } from '../../scripts/publication-receipt-verify.js';
 
 vi.mock('node:fs', async (original) => {
@@ -76,6 +79,16 @@ describe('offline publication command', () => {
     ).toBe(1);
     expect(error).toHaveBeenCalledOnce();
     expect(error).toHaveBeenCalledWith('{"status":"BLOCKED"}');
+  });
+  it('executes through real or symlinked script paths but stays inert when imported', () => {
+    const target = write(),
+      alias = path.join(directory, 'alias.js'),
+      url = pathToFileURL(target).href;
+    symlinkSync(target, alias);
+    expect(publicationVerifierInvokedAsScript(target, url)).toBe(true);
+    expect(publicationVerifierInvokedAsScript(alias, url)).toBe(true);
+    expect(publicationVerifierInvokedAsScript(directory, url)).toBe(false);
+    expect(publicationVerifierInvokedAsScript(path.join(directory, 'missing'), url)).toBe(false);
   });
   it('usage/help cannot enable network or trust configuration', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);

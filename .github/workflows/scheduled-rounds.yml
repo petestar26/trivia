@@ -125,8 +125,18 @@ jobs:
           src/games/economics/house-public-proof.native.ts
           src/games/economics/publication-store.native.ts
           src/games/economics/publication-submission.native.ts
-      - name: Build API
-        run: pnpm --filter api exec node build.js
+      - name: Build API and probe offline CLI entry
+        run: |
+          pnpm --filter api exec node build.js
+          PUB_CLI_PROBE=$(mktemp -d)
+          trap 'rm -rf "$PUB_CLI_PROBE"' EXIT
+          ln -s "$PWD/apps/api/dist/scripts/publication-receipt-verify.js" "$PUB_CLI_PROBE/verify.js"
+          set +e
+          node "$PUB_CLI_PROBE/verify.js" --file=/dev/null --commitment=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$PUB_CLI_PROBE/result" 2>&1
+          PUB_CLI_STATUS=$?
+          set -e
+          test "$PUB_CLI_STATUS" -eq 1
+          test "$(cat "$PUB_CLI_PROBE/result")" = '{"status":"BLOCKED"}'
 
       - name: Scheduled practice web contracts
         run: >-
