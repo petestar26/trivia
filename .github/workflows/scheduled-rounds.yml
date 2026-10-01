@@ -83,6 +83,8 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Economics and embedded SQL contracts
         run: |
+          # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
+          openssl version
           pnpm --filter api test:economics
           pnpm --filter api test:scheduled-practice
       - name: Native two-connection runtime tests
