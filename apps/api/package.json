@@ -20,6 +20,7 @@
     "test:scheduled-practice": "vitest run --config vitest.scheduled-practice.config.ts",
     "worker:scheduled-practice": "tsx src/scripts/scheduled-practice-worker.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:shared-boundary": "node scripts/check-shared-types.mjs",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "test": "pnpm -w run build:packages && vitest run",

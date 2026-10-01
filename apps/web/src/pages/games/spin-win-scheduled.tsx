@@ -133,6 +133,7 @@ function ScheduledTable({ userId }: { userId: string }) {
       <Link to="/games/spin-win" className="text-sm text-primary-600">
         ← Solo practice
       </Link>
+      <Link to="/games/spin-win/verify" className="ml-4 text-sm text-primary-600">Round-proof verifier</Link>
       <div className="overflow-hidden rounded-3xl border border-slate-700 bg-[#0b1424] text-white shadow-xl">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 p-6">
           <div>

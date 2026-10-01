@@ -7,8 +7,13 @@ on:
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
+      - 'apps/api/src/server.ts'
+      - 'apps/api/tsconfig.json'
+      - 'apps/api/scripts/check-shared-types.mjs'
+      - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/lib/spin-proof-verifier*'
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
@@ -70,6 +75,8 @@ jobs:
           pnpm install --frozen-lockfile
       - name: Build workspace packages
         run: pnpm build:packages
+      - name: Check API shared declaration boundary
+        run: pnpm --filter api typecheck:shared-boundary
       - name: Fresh migration deployment and replay
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
@@ -109,10 +116,17 @@ jobs:
           src/games/economics/house-settlement.native.ts
           src/games/economics/house-entropy.native.ts
           src/games/economics/house-recovery.native.ts
+          src/games/economics/house-public-proof.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 
       - name: Scheduled practice web contracts
-        run: pnpm --filter web exec vitest run src/pages/games/spin-win-scheduled.test.tsx src/pages/games/spin-win.test.tsx --minWorkers=1 --maxWorkers=1
+        run: >-
+          pnpm --filter web exec vitest run
+          src/pages/games/spin-win-scheduled.test.tsx
+          src/pages/games/spin-win.test.tsx
+          src/pages/games/spin-win-verify.test.tsx
+          src/lib/spin-proof-verifier.test.ts
+          --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
         run: pnpm --filter web build
