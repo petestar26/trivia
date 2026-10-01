@@ -1,12 +1,14 @@
-# Dormant external timestamp witness core
+# Dormant external timestamp witness and archive
 
 This phase adds offline RFC 3161 verification of the exact public Spin Win
-commitment receipt hash. It does not submit anything to a timestamp service,
-publish or persist a proof, start a scheduler, or change Coin admission. The
+commitment receipt hash, plus immutable request/receipt persistence and a public
+read-only archive endpoint. It does not submit anything to a timestamp service,
+start a scheduler, or change Coin admission. The
 approved authority list is empty. No production authority is implicitly trusted.
 
 The existing Quicknet protocol, rules, payout calculations, financial gates,
-runtime grants and public proof response are unchanged. This core currently
+existing public draw proof response are unchanged. Runtime setup additionally
+denies writes to the new archive tables. This core currently
 accepts the Spin proof schema; adapters for other games need their own reviewed
 receipt formats. It is not an implementation of all games.
 
@@ -73,6 +75,75 @@ Test fixtures generate their own **test-only** CA and timestamp signer and use
 real OpenSSL CMS/TSP signatures. These fixtures are not evidence of an approved
 external provider, mainnet timestamps, or production clock accuracy.
 
+## Durable requests and receipts
+
+The forward migration `20261001030000_dormant_publication_storage` creates two
+append-only public-evidence tables. It leaves every earlier migration unchanged
+and does not update any existing row, gate, stream or payout rule.
+
+`prepareDormantPublicationRequest(owner, roundId, authorityId)` stores one
+canonical request per round, including its original query DER, nonce, query
+hash, exact commitment receipt and approved authority identity. Concurrent
+preparation is serialized using the same stream lock as preparation/draw, then
+the round lock. Retries return the identical request bytes; a different
+authority ID conflicts with status 409. Provider retries must resend the stored
+query, never create a new nonce. New requests must match the current pending
+commitment and remain before its cutoff, checked by the database after query
+generation. Preparation replay does not require the round to remain open.
+
+`recordDormantPublicationReceipt(owner, roundId, responseBytes)` verifies the
+raw DER offline before storing it with its hash, serial and uncertainty bounds.
+It snapshots the supplied buffer before the first await, holds the round/stream
+locks, and rechecks the current commitment. It accepts the same exact receipt
+once, returns verified replay on identical bytes, and rejects different reuse
+with 409. New imports require a currently projected OPEN or DRAWN round;
+cancelled rounds cannot acquire a new receipt through this helper. Already
+archived evidence remains retrievable after any terminal transition.
+
+These are internal owner-run helpers, not HTTP writers or automatically running
+jobs. Production calls still fail closed because the authority list is empty.
+Optional explicit roots are for reviewed offline/test callers; no HTTP input
+supplies trust. Persisted fingerprints, policy and accuracy only compare the
+archive with current approved source trust; they never establish trust by
+themselves. Rotation/revocation that removes the approved identity makes reads
+and imports unavailable until a separately reviewed archival-trust policy exists.
+
+Owner-only row triggers reject UPDATE/DELETE, and statement triggers reject
+TRUNCATE. Size/hash/linkage constraints supplement service verification. SQL
+cannot verify CMS/TSA signatures: an owner could insert fraudulent DER or change
+derived metadata with elevated privileges. Public reads repeat real CMS/ESS,
+nonce/imprint and signed-time verification and compare every stored derived
+field, so neither such row is accepted as a verified witness. Runtime setup
+revokes table and column writes and rejects remaining writes through inherited
+or assumable roles. The archived setup function has no runtime EXECUTE grant.
+
+## Read-only public archive
+
+```text
+GET /api/v1/games/scheduled/spin-win/proofs/:roundId/publication
+```
+
+The response is `{ success: true, data: archive }`, with schema
+`playqube-spin-publication-v1`, the archived pending commitment proof, approved
+authority ID/pins/policy/accuracy, the request DER as base64 and its SHA-256 hash,
+and either a null receipt or verified response DER/serial/time interval. This
+JSON can be saved for independent verification against separately trusted
+certificates. It contains no unrevealed seed, signing key, credential or CA
+selected by a submitted proof. The nested pending proof describes the original
+receipt, not the current round's state or result; use the existing proof endpoint
+for current draw status.
+
+Unknown archives return 404. Unapproved trust or failed verification returns a
+generic 503. GET executes only bounded parameterized SELECTs, creates nothing,
+uses no owner connection, and verifies raw artifacts again on every read. It is
+rate limited to ten requests per minute per the existing server rate-limit
+configuration, with `Cache-Control: no-store`. Unique-proof CPU cost and retention
+infrastructure still need review before activation.
+
+Serving this endpoint makes evidence retrievable from the platform; it does not
+establish independent public retention, prove earlier availability, or enforce
+admission chronology. No Coin writer calls the archive or witness helper yet.
+
 ## Pure admission precondition
 
 `requireWitnessedAdmission` accepts only a frozen witness returned by this module
@@ -101,8 +172,10 @@ pure helper alone does not meet that release contract.
    certificate chain/pin rotation and revocation/compromise handling. Add pins
    through a reviewed change; missing or unavailable authority must stop new
    admission rather than fall back to local time/signatures.
-2. Implement bounded submission/retry, idempotent proof persistence, public
-   retrieval/retention, saved player receipts and independent verification.
+2. Implement bounded provider submission/retry, independent public retention,
+   saved player receipts and a client verifier for these archived TSA artifacts.
+   Durable local persistence and read-only retrieval exist; those controls alone
+   do not prove independently witnessed public availability.
 3. Integrate receipt-bound admission transactionally, with database clock
    monitoring, concurrent recheck and rollback/replay regressions.
 4. Re-review runtime-role enforcement, jurisdiction/gates, capital reservation,
@@ -121,8 +194,22 @@ pnpm --filter api exec vitest run --config vitest.economics.config.ts \
 ```
 
 The existing scheduled-rounds PostgreSQL 13/16 workflow also includes these pure
-economics tests. No database, credentials, external provider or production
-environment is needed for this focused command.
+economics tests and the native publication archive tests. No database,
+credentials, external provider or production environment is needed for the pure
+command above. Native tests use an acknowledged loopback throwaway cluster:
+
+```sh
+NODE_ENV=test SCHEDULED_NATIVE_DB_ACK=throwaway \
+DATABASE_URL=postgresql://OWNER@127.0.0.1:5432/playqube_scheduled_throwaway \
+pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts \
+  src/games/economics/publication-store.native.ts
+```
+
+After deploying the migration, run the documented owner-run
+`ledger:runtime-access` setup before starting the API/worker with its restricted
+role. That setup applies the forward archive restrictions and verifies them
+transactionally. Never provide the owner credential to the API/worker. Nothing
+in this phase authorizes wagering activation.
 
 Primary protocol references:
 

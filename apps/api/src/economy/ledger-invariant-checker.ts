@@ -71,6 +71,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'house_round_randomness_guard', 'house_round_randomness_failures', 'house_round_randomness_constraint',
   'house_spin_outcome', 'house_ticket_resolution_failures', 'house_ticket_resolution_constraint',
   'house_quicknet_target', 'house_round_beacon_guard', 'house_public_spin_proof',
+  'house_publication_guard', 'ledger_apply_runtime_grants_pre_publication',
 ];
 const privilegedApprovalFunctionsSql = `ARRAY[${[...PRIVILEGED_APPROVAL_FUNCTIONS, ...STRICT_SCHEDULED_FUNCTIONS].map((name) => `'${name}'`).join(',')}]::text[]`;
 
@@ -182,6 +183,10 @@ const checks: ReadonlyArray<[string, string]> = [
       ('house_round_beacon_pins','house_round_beacon_guard'),
       ('house_round_beacon_pins','house_round_beacon_no_truncate'),
       ('house_round_beacon_pins','house_beacon_randomness_proof'),
+      ('house_publication_requests','house_publication_request_guard'),
+      ('house_publication_requests','house_publication_request_no_truncate'),
+      ('house_publication_receipts','house_publication_receipt_guard'),
+      ('house_publication_receipts','house_publication_receipt_no_truncate'),
       ('scheduled_game_rounds','house_round_draw_proof'),
       ('scheduled_stake_holds','house_ticket_randomness_proof'),
       ('scheduled_stake_holds','house_financial_hold_proof'),

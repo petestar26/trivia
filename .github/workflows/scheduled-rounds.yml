@@ -119,6 +119,7 @@ jobs:
           src/games/economics/house-entropy.native.ts
           src/games/economics/house-recovery.native.ts
           src/games/economics/house-public-proof.native.ts
+          src/games/economics/publication-store.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 
