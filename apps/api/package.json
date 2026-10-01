@@ -41,6 +41,7 @@
     "@socialplay/database": "workspace:*",
     "@socialplay/shared": "workspace:*",
     "@socialplay/storage": "workspace:*",
+    "asn1.js": "5.4.1",
     "bcryptjs": "^2.4.3",
     "drand-client": "1.4.2",
     "fastify": "^4.25.0",
