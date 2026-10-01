@@ -281,6 +281,27 @@ runs `prisma migrate deploy` with the runtime `DATABASE_URL`, replace it with
 the verification-only command above. Repeated redeploys cannot apply a
 pending migration as the runtime role and leave the new API version blocked.
 
+### Repair a missing scheduled practice snapshot read
+
+Predeploy checks the required API capabilities, including SELECT on the four
+practice snapshot relations, even while practice is disabled. It also rejects
+CREATE and runtime-owned objects in `public`, `pg_catalog`, and pgcrypto's
+actual schema. A missing capability must be corrected before releasing.
+
+If current migrations and the restricted identity are already verified but
+scheduled practice fails with `42501`, inspect the effective runtime ACLs and
+setup order in an isolated owner connection. For the bounded missing-read case,
+run `docs/deployment/repair-practice-runtime-reads.sql` there with `psql -X -v
+ON_ERROR_STOP=1`. It defaults to `playqube_app`, grants only SELECT on the four
+snapshot tables, and neither installs keys nor changes activation or write
+permissions. Use the full owner setup for a broader provisioning mismatch.
+Never place the owner connection in the API or its predeploy environment.
+
+Then run the built identity checker with the runtime credential, migration
+status, and read-only preflight, and verify the authenticated dormant snapshot.
+Record the actual live gate/stream settings; migration defaults do not prove
+those settings. The repair alone does not authorize any worker or wagering.
+
 ### Rotating the key
 
 Install the new key under a **new** key ID with the setup command, switch
@@ -468,7 +489,7 @@ stopped.
 
 | The failed migration | What it means | Response |
 |---|---|---|
-| `20260917900000_ledger_preupgrade_gate` (`LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE`) | Anomalies in the current data, or a game's rules differ from `master` (`GAME_RULES_CHANGED`). Nothing of the release is applied. | 1. Save the preflight's `--json` report in the incident. 2. Escalate each record (below) and wait for its reviewed correction. 3. Re-run the preflight until it exits 0. 4. Record the gate as rolled back, which is accurate since it changed nothing: `railway run --service api pnpm --filter database exec prisma migrate resolve --rolled-back 20260917900000_ledger_preupgrade_gate`. 5. Continue from step 4 of the procedure. |
+| `20260917900000_ledger_preupgrade_gate` (`LEDGER PRE-UPGRADE GATE STOPPED THE UPGRADE`) | Anomalies in the current data, or a game's rules differ from `master` (`GAME_RULES_CHANGED`). Nothing of the release is applied. | 1. Save the preflight's `--json` report in the incident. 2. Escalate each record (below) and wait for its reviewed correction. 3. Re-run the preflight until it exits 0. 4. Record the gate as rolled back, which is accurate since it changed nothing: in the isolated owner maintenance shell, using its owner `DATABASE_URL`: `pnpm --filter @socialplay/database exec prisma migrate resolve --rolled-back 20260917900000_ledger_preupgrade_gate`. 5. Continue from step 4 of the procedure. |
 | `20260918010000_casino_foundation_schema` failing on `CREATE EXTENSION` | Prerequisite 2 is not met. Only the pre-upgrade gate is applied; it changed no data. | Restore the backup (below), fix the privilege or install `pgcrypto`, then start again from step 2. |
 | Any later migration, including `LEDGER INTEGRITY GATE STOPPED THE UPGRADE`, `LEDGER AUTHORIZATION CHECK STOPPED THE UPGRADE`, `LEDGER UPGRADE WINDOW CHECK STOPPED THE UPGRADE`, a rules hash mismatch, or any other error | The database is at an intermediate schema no release was built for. The window check means something wrote while the release migrated: steps 1 and 2 missed a writer. | Restore the backup (below). Do **not** correct this database in place or mark anything resolved. Investigate on a copy, escalate with the error and the preflight report, and start again from step 1 only once the cause is understood and fixed. If the same stop repeats, the release itself is at fault: escalate to the ledger owner before any further attempt. |
 

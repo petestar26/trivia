@@ -23,6 +23,7 @@ on:
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
       - 'apps/api/src/scripts/house-round-recovery.ts'
       - 'apps/api/src/scripts/ledger-runtime-access.ts'
+      - 'docs/deployment/repair-practice-runtime-reads.sql'
       - 'apps/api/src/scripts/ledger-runtime-identity-check*'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'

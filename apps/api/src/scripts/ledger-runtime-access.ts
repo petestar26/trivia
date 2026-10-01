@@ -96,6 +96,37 @@ const REQUIRED_UPDATE_COLUMNS: [table: string, column: string][] = [
   ['wallets', 'coinsBalance'], ['wallets', 'gamePointsBalance'], ['agent_orders', 'status'], ['coin_provenance', 'state'],
 ];
 
+/** Required even when the scheduled practice stream is disabled. */
+const PRACTICE_READ_TABLES = ['scheduled_game_streams', 'scheduled_game_rounds', 'scheduled_practice_tickets', 'users'];
+
+/** Shared positive capabilities. Owner setup also supports pre-practice upgrade fixtures;
+ * the current release's predeploy requires every practice relation to exist. */
+async function requiredPrivileges(tx: Tx, role: string, requirePractice: boolean): Promise<string[]> {
+  const failures: string[] = [];
+  for (const [table, column] of REQUIRED_UPDATE_COLUMNS) {
+    const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
+      SELECT has_column_privilege(${role}, to_regclass(${'public.' + table}), ${column}, 'UPDATE') AS "granted"`;
+    if (!row?.granted) failures.push(`${role} cannot update ${table}.${column}, which the API needs`);
+  }
+  for (const [table, privilege] of REQUIRED) {
+    const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
+      SELECT has_table_privilege(${role}, to_regclass(${'public.' + table}), ${privilege}) AS "granted"`;
+    if (!row?.granted) failures.push(`${role} lacks ${privilege} on ${table}, which the API needs`);
+  }
+  for (const table of PRACTICE_READ_TABLES) {
+    const [row] = await tx.$queryRaw<{ installed: boolean; granted: boolean | null }[]>`
+      SELECT to_regclass(${'public.' + table}) IS NOT NULL AS installed,
+        has_table_privilege(${role}, to_regclass(${'public.' + table}), 'SELECT') AS granted`;
+    if ((requirePractice || row?.installed) && !row?.granted) {
+      failures.push(`${role} lacks SELECT on ${table}, which the practice snapshot needs`);
+    }
+  }
+  const [schema] = await tx.$queryRaw<{ granted: boolean }[]>`
+    SELECT has_schema_privilege(${role}, 'public', 'USAGE') AS granted`;
+  if (!schema?.granted) failures.push(`${role} lacks USAGE on schema public, which the API needs`);
+  return failures;
+}
+
 interface Report {
   applied: boolean;
   runtimeRole: string;
@@ -180,15 +211,19 @@ function subjectsOf(role: string, reached: Reached[]): Subject[] {
  */
 async function unsafeRoles(tx: Tx, role: string, reached: Reached[]): Promise<string[]> {
   const rows = await tx.$queryRaw<{ name: string; reasons: string[] }[]>`
-    WITH owned AS (
-      SELECT c.relowner AS owner, 'relation ' || c.oid::regclass::text AS what
-      FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace
-      UNION ALL SELECT p.proowner, 'function ' || p.oid::regprocedure::text
-      FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
-      UNION ALL SELECT o.oprowner, 'operator ' || o.oid::regoperator::text
-      FROM pg_operator o WHERE o.oprnamespace = 'public'::regnamespace
-      UNION ALL SELECT t.typowner, 'type ' || t.oid::regtype::text
-      FROM pg_type t WHERE t.typnamespace = 'public'::regnamespace AND t.typrelid = 0 AND t.typcategory <> 'A'),
+    WITH trusted AS (
+      SELECT n.oid, n.nspname, n.nspowner FROM pg_namespace n
+      WHERE n.nspname IN ('public', 'pg_catalog')
+        OR n.oid IN (SELECT e.extnamespace FROM pg_extension e WHERE e.extname = 'pgcrypto')),
+    owned AS (
+      SELECT c.relowner AS owner, 'relation ' || c.oid::regclass::text AS what, n.nspname AS schema
+      FROM pg_class c JOIN trusted n ON n.oid = c.relnamespace
+      UNION ALL SELECT p.proowner, 'function ' || p.oid::regprocedure::text, n.nspname
+      FROM pg_proc p JOIN trusted n ON n.oid = p.pronamespace
+      UNION ALL SELECT o.oprowner, 'operator ' || o.oid::regoperator::text, n.nspname
+      FROM pg_operator o JOIN trusted n ON n.oid = o.oprnamespace
+      UNION ALL SELECT t.typowner, 'type ' || t.oid::regtype::text, n.nspname
+      FROM pg_type t JOIN trusted n ON n.oid = t.typnamespace WHERE t.typrelid = 0 AND t.typcategory <> 'A'),
     tables_owner AS (SELECT c.relowner AS oid FROM pg_class c WHERE c.oid = to_regclass('economic_operations')),
     reached AS (
       SELECT r.name, r.assumable, r.k
@@ -206,11 +241,11 @@ async function unsafeRoles(tx: Tx, role: string, reached: Reached[]): Promise<st
           THEN 'allowed to run programs or read or write files on the database server' END,
         CASE WHEN m.oid = (SELECT d.datdba FROM pg_database d WHERE d.datname = current_database())
           THEN 'the owner of database ' || current_database() END,
-        CASE WHEN m.oid = (SELECT n.nspowner FROM pg_namespace n WHERE n.nspname = 'public')
-          THEN 'the owner of schema public' END,
+        (SELECT 'the owner of schema ' || string_agg(n.nspname, ', ' ORDER BY n.nspname)
+         FROM trusted n WHERE n.nspowner = m.oid),
         CASE WHEN m.oid IN (SELECT oid FROM tables_owner) THEN 'the owner of the ledger tables' END,
         (SELECT 'the owner of ' || min(o.what) || CASE WHEN count(*) > 1 THEN ' and ' || (count(*) - 1) || ' more' ELSE '' END
-                  || ' in schema public'
+                  || ' in schema ' || string_agg(DISTINCT o.schema::text, ', ' ORDER BY o.schema::text)
          FROM owned o WHERE o.owner = m.oid AND m.oid NOT IN (SELECT oid FROM tables_owner))
       ], NULL) AS reasons
       FROM reached r JOIN pg_roles m ON m.rolname = r.name)
@@ -291,16 +326,21 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
   for (const { subject, name } of functions) {
     found.push({ subject, what: `run ${name}`, failure: (via) => `${role} can still run ${name}${via}` });
   }
-  // The approval functions run as the owner and resolve names in this
-  // schema: the runtime role must not be able to create anything there
-  // (the grants function removes PUBLIC's CREATE, and refuses when it
-  // cannot remove the rest).
+  // Match the owner's trusted namespace set, including a relocated pgcrypto.
+  // has_schema_privilege includes ownership and inherited rights; holders also
+  // includes SET/ADMIN-reachable roles and PUBLIC.
   if (schemaCreate) {
-    const creators = await tx.$queryRaw<{ subject: string }[]>`
-      SELECT s.subject FROM unnest(${subjects}::text[]) WITH ORDINALITY AS s(subject, k)
-      WHERE has_schema_privilege(s.subject, 'public', 'CREATE') ORDER BY s.k`;
-    for (const { subject } of creators) {
-      found.push({ subject, what: 'create', failure: (via) => `${role} can still create objects in schema public${via}` });
+    const creators = await tx.$queryRaw<{ subject: string; schema: string }[]>`
+      SELECT s.subject, n.nspname::text AS schema
+      FROM unnest(${subjects}::text[]) WITH ORDINALITY AS s(subject, k)
+      CROSS JOIN pg_namespace n
+      WHERE (n.nspname IN ('public', 'pg_catalog')
+        OR n.oid IN (SELECT e.extnamespace FROM pg_extension e WHERE e.extname = 'pgcrypto'))
+        AND has_schema_privilege(s.subject, n.oid, 'CREATE')
+      ORDER BY s.k, n.nspname`;
+    for (const { subject, schema } of creators) {
+      found.push({ subject, what: `create ${schema}`,
+        failure: (via) => `${role} can still create objects in schema ${schema}${via}` });
     }
   }
   // No key another table follows by cascade: a cascade, and the triggers
@@ -330,7 +370,7 @@ export async function verifyRuntimeAccessReadOnly(tx: Tx, role: string): Promise
   const subjects = subjectsOf(role, reached);
   const held = await deniedPrivileges(tx, role,
     [...subjects, { name: 'public', how: ' through PUBLIC' }], true);
-  return [...unsafe, ...held];
+  return [...unsafe, ...held, ...await requiredPrivileges(tx, role, true)];
 }
 
 /**
@@ -390,16 +430,7 @@ export async function applyRuntimeAccess(client: PrismaClient, role: string, key
 
       // Verified for the runtime role and for every role it can become or inherits from.
       const failures = await deniedPrivileges(tx, role, subjects, true);
-      for (const [table, column] of REQUIRED_UPDATE_COLUMNS) {
-        const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
-          SELECT has_column_privilege(${role}, to_regclass(${table}), ${column}, 'UPDATE') AS "granted"`;
-        if (!row?.granted) failures.push(`${role} cannot update ${table}.${column}, which the API needs`);
-      }
-      for (const [table, privilege] of REQUIRED) {
-        const [row] = await tx.$queryRaw<{ granted: boolean }[]>`
-          SELECT has_table_privilege(${role}, to_regclass(${table}), ${privilege}) AS "granted"`;
-        if (!row?.granted) failures.push(`${role} lacks ${privilege} on ${table}, which the API needs`);
-      }
+      failures.push(...await requiredPrivileges(tx, role, false));
       const [key] = await tx.$queryRaw<{ active: boolean }[]>`
         SELECT EXISTS (SELECT 1 FROM "ledger_approval_keys" WHERE "keyId" = ${keyId} AND "retiredAt" IS NULL) AS "active"`;
       if (!key?.active) failures.push(`approval key ${keyId} is retired: install a new key ID`);
