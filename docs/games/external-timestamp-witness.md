@@ -1,10 +1,11 @@
 # Dormant external timestamp witness and archive
 
-This phase adds offline RFC 3161 verification of the exact public Spin Win
-commitment receipt hash, plus immutable request/receipt persistence and a public
-read-only archive endpoint. It does not submit anything to a timestamp service,
-start a scheduler, or change Coin admission. The
-approved authority list is empty. No production authority is implicitly trusted.
+This phase adds RFC 3161 verification of the exact public Spin Win commitment
+receipt hash, immutable request/receipt persistence, a public read-only archive,
+and an internal bounded submission core. No production caller, scheduler or Coin
+admission uses that core. Approved authority and submission endpoint lists remain
+empty, so default submission fails before writes or network I/O. No production
+authority is implicitly trusted.
 
 The existing Quicknet protocol, rules, payout calculations, financial gates,
 existing public draw proof response are unchanged. Runtime setup additionally
@@ -64,7 +65,7 @@ The implementation requires:
 
 ## Bounded offline execution
 
-Runtime requires Node 20+ and OpenSSL 3+ on Linux. The core never makes a network
+Runtime requires Node 20+ and OpenSSL 3+ on Linux. The verifier never makes a network
 request. It invokes fixed OpenSSL argument arrays without a shell, with a
 five-second timeout and bounded captured output. Requests are capped at 4,096
 bytes and responses at 65,536 bytes before copies or decoding. Files use a
@@ -107,6 +108,47 @@ supplies trust. Persisted fingerprints, policy and accuracy only compare the
 archive with current approved source trust; they never establish trust by
 themselves. Rotation/revocation that removes the approved identity makes reads
 and imports unavailable until a separately reviewed archival-trust policy exists.
+
+## Dormant bounded submission
+
+`submitDormantPublication(owner, roundId, authorityId)` is an internal, owner-run
+helper. It has no API/worker/CLI registration. Trust and HTTPS endpoints come from
+reviewed source policy, never the archive, an HTTP argument or an environment
+fallback. Explicit policy is for reviewed internal/test callers. Production
+`PUBLICATION_AUTHORITIES` and `TIMESTAMP_SUBMISSION_ENDPOINTS` are both empty.
+Approving either requires a separate provider/trust review.
+
+Preparation commits the original query/nonce before network I/O. Every attempt
+sends exactly those bytes. An existing verified receipt returns its exact archive
+without a POST, even after cancellation/cutoff. Before each new POST, the helper
+checks the current pending commitment and actual database cutoff. Cancellation
+or a changed commitment stops submission. This is not a monitored clock bound
+or an admission/public-availability guarantee. A cancellation racing a POST is
+rechecked by the existing importer before any receipt commit.
+
+Each RFC 3161 POST uses normal TLS certificate/hostname validation, fixed binary
+content types, no redirects or URL credentials, no compressed body, an 8,192-byte
+header bound and a 65,536-byte response bound while streaming. Its absolute
+deadline is at most five seconds (including DNS, TLS, headers and trickling body),
+shortened to the remaining database window. Requests are at most 4,096 bytes and
+the supplied buffer is copied before awaiting. Safe errors expose no endpoint,
+provider response, credential or TLS/socket message.
+
+There are at most three attempts per invocation, with 100/250 ms waits. Only
+selected transient transport errors and HTTP 502/503/504 are retried. HTTP 429 is
+terminal until service/rate-limit policy is explicitly reviewed; untrusted
+Retry-After values do not control the delay. TLS failure, redirect, invalid
+headers/body or cryptographic verification failure is terminal. A later
+invocation reuses the durable query, never a fresh nonce. This bounds network
+attempts, not total database/cryptographic execution time or aggregate concurrency.
+
+No database transaction/round lock is held during a POST. Every successful body
+still goes through real CMS/TSA/ESS verification and the owner-only atomic
+importer. Concurrent processes may receive different valid replies to the same
+query; the first verified commit wins. A loser returns that exact reverified
+stored archive, never overwrites it. This guarantees one archived receipt, not
+one provider call or free provider retries. Multi-process rate limits, service
+usage, credentials/billing and independent retention remain unimplemented.
 
 Owner-only row triggers reject UPDATE/DELETE, and statement triggers reject
 TRUNCATE. Size/hash/linkage constraints supplement service verification. SQL
@@ -172,10 +214,11 @@ pure helper alone does not meet that release contract.
    certificate chain/pin rotation and revocation/compromise handling. Add pins
    through a reviewed change; missing or unavailable authority must stop new
    admission rather than fall back to local time/signatures.
-2. Implement bounded provider submission/retry, independent public retention,
-   saved player receipts and a client verifier for these archived TSA artifacts.
-   Durable local persistence and read-only retrieval exist; those controls alone
-   do not prove independently witnessed public availability.
+2. Review and integrate the dormant bounded submission core with an approved
+   provider, multi-process rate limits and service usage. Implement independent
+   public retention, saved player receipts and a client verifier for these TSA
+   artifacts. Local persistence and retrieval do not prove independently
+   witnessed public availability.
 3. Integrate receipt-bound admission transactionally, with database clock
    monitoring, concurrent recheck and rollback/replay regressions.
 4. Re-review runtime-role enforcement, jurisdiction/gates, capital reservation,
@@ -190,7 +233,8 @@ remains disabled.
 pnpm build:packages
 pnpm --filter api exec vitest run --config vitest.economics.config.ts \
   src/games/economics/publication-witness.test.ts \
-  src/games/economics/rfc3161-codec.test.ts
+  src/games/economics/rfc3161-codec.test.ts \
+  src/games/economics/publication-transport.test.ts
 ```
 
 The existing scheduled-rounds PostgreSQL 13/16 workflow also includes these pure

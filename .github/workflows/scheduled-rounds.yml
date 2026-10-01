@@ -120,6 +120,7 @@ jobs:
           src/games/economics/house-recovery.native.ts
           src/games/economics/house-public-proof.native.ts
           src/games/economics/publication-store.native.ts
+          src/games/economics/publication-submission.native.ts
       - name: Build API
         run: pnpm --filter api exec node build.js
 
