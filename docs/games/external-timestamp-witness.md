@@ -186,6 +186,49 @@ Serving this endpoint makes evidence retrievable from the platform; it does not
 establish independent public retention, prove earlier availability, or enforce
 admission chronology. No Coin writer calls the archive or witness helper yet.
 
+## Portable player archives and offline verification
+
+The public Spin Win verification page offers **Load timestamp archive** and
+**Download timestamp archive**. It checks strict structure, the pending
+commitment hash, binary query/reply hashes, and an optional earlier saved
+commitment. It never authenticates CMS/TSA signatures or labels the supplied
+clock interval verified. A null reply is shown as request-only evidence. Reads
+use the public GET without credentials, an eight-second deadline and a streamed
+196,608-byte JSON limit plus 4,096 bytes for the response envelope. Editing inputs
+clears stale download/verification results.
+
+A SHA-256 match is integrity evidence, not authentication. The browser can accept
+arbitrary reply bytes whose declared hash matches. Use the offline verifier for
+actual CMS/TSA/ESS, nonce/imprint, policy, certificate and signed-time checks:
+
+```sh
+pnpm build:packages
+pnpm --filter api exec node build.js
+node apps/api/dist/scripts/publication-receipt-verify.js \
+  --file=downloaded-archive.json --commitment=EARLIER_SAVED_COMMITMENT_HASH
+```
+
+The hash must be the 64 lowercase hexadecimal characters from a commitment the
+player saved independently earlier, not a hash copied from the archive being
+verified. Otherwise consistency alone cannot establish continuity with the
+original observed terms. The file is capped at 196,608 bytes and read from one
+nonblocking regular-file descriptor; growth and special files fail safely. Query
+DER is capped at 4,096 bytes, response DER at 65,536, and base64 must be canonical.
+
+The CLI performs no database or provider request. It uses the same real offline
+CMS/TSA/ESS verifier and separately approved source certificates as the server.
+Uploaded pins, PEM certificates, endpoints and ambient CAs cannot supply trust.
+No CLI option overrides trust. Production trust remains empty, so the shipped
+command returns safe `BLOCKED` metadata until a provider is separately approved.
+With approved trust it exits 0 only for `VERIFIED_TIMESTAMP`; a request-only
+archive is `REQUEST_ONLY`, exit 1. File/verification failures also exit 1 with
+`BLOCKED`; invalid arguments exit 2. Neither failure includes the path, archive,
+provider data or credential.
+
+A player download is portable evidence, not independent public retention or a
+promise of service availability. External retention, source trust approval,
+clock monitoring and receipt-bound financial admission remain separate tasks.
+
 ## Pure admission precondition
 
 `requireWitnessedAdmission` accepts only a frozen witness returned by this module
@@ -216,9 +259,10 @@ pure helper alone does not meet that release contract.
    admission rather than fall back to local time/signatures.
 2. Review and integrate the dormant bounded submission core with an approved
    provider, multi-process rate limits and service usage. Implement independent
-   public retention, saved player receipts and a client verifier for these TSA
-   artifacts. Local persistence and retrieval do not prove independently
-   witnessed public availability.
+   public retention. Portable player downloads and offline verification now
+   exist, but the browser does not authenticate TSA signatures. Local
+   persistence/retrieval and downloads do not prove independently witnessed
+   public availability.
 3. Integrate receipt-bound admission transactionally, with database clock
    monitoring, concurrent recheck and rollback/replay regressions.
 4. Re-review runtime-role enforcement, jurisdiction/gates, capital reservation,

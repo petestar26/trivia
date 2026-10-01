@@ -32,6 +32,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),
+      // Offline player archive verification; no database or provider connection.
+      join(__dirname, 'src/scripts/publication-receipt-verify.ts'),
     ],
     outbase: join(__dirname, 'src'),
     bundle: true,

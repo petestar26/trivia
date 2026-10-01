@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { parseSpinPublicProof, spinPublicCommitmentFrame } from '@socialplay/shared';
-import type { SpinPublicProof } from '@socialplay/shared';
+import type { PublicPublicationArchive } from '@socialplay/shared';
+export type { PublicPublicationArchive } from '@socialplay/shared';
 import { PUBLICATION_AUTHORITIES } from './publication-authorities.js';
 import type { PublicationAuthority } from './publication-authorities.js';
 import { readPublicSpinProof } from './house-public-proof.js';
@@ -17,7 +18,6 @@ import {
 import type { PublicationRequest } from './publication-witness.js';
 
 type Reader = Pick<PrismaClient, '$queryRaw'>;
-type TrustIdentity = ReturnType<typeof publicationAuthorityIdentity>;
 type RequestRow = {
   round_id: string;
   authority_id: string;
@@ -38,21 +38,6 @@ type ReceiptRow = {
   observed_from_ms: bigint;
   observed_through_ms: bigint;
 };
-export interface PublicPublicationArchive {
-  schema: 'playqube-spin-publication-v1';
-  roundId: string;
-  // This is the archived pre-draw receipt, not a current draw/status claim.
-  proof: SpinPublicProof;
-  authority: TrustIdentity;
-  request: { sha256: string; derBase64: string; nonceHex: string };
-  receipt: null | {
-    sha256: string;
-    derBase64: string;
-    serialHex: string;
-    observedFromMs: number;
-    observedThroughMs: number;
-  };
-}
 export class PublicationArchiveConflict extends Error {
   readonly statusCode = 409;
   constructor() {

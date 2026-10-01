@@ -14,6 +14,10 @@ on:
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/lib/spin-proof-verifier*'
+      - 'apps/web/src/lib/spin-publication-archive*'
+      - 'apps/web/src/test/spin-publication-fixture.ts'
+      - 'apps/api/src/scripts/publication-receipt-verify.ts'
+      - 'apps/api/build.js'
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
@@ -131,6 +135,7 @@ jobs:
           src/pages/games/spin-win.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
+          src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
         run: pnpm --filter web build
