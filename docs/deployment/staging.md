@@ -233,7 +233,7 @@ railway variables set FRONTEND_URL="https://<YOUR-VERCEL-DOMAIN>.vercel.app"
 
 | Variable | Value | Notes |
 |----------|-------|-------|
-| `DATABASE_URL` | From Railway PostgreSQL | Auto-generated |
+| `DATABASE_URL` | Restricted runtime role connection | API and worker only; never the owner credential |
 | `JWT_ACCESS_SECRET` | Random 32-byte base64 | Generate fresh |
 | `JWT_REFRESH_SECRET` | Random 32-byte base64 | Generate fresh |
 | `SECURITY_TOTP_ENCRYPTION_KEY` | `openssl rand -hex 32` output | Must be exactly 64 hex chars — see note above |
@@ -254,17 +254,17 @@ railway variables set FRONTEND_URL="https://<YOUR-VERCEL-DOMAIN>.vercel.app"
 | `LEDGER_APPROVAL_SIGNING_KEY` | `openssl rand -hex 32` output | Signs ledger approval decisions; without it every Coin adjustment and legacy review approval is refused (503). Install the same key in the database with `ledger:runtime-access` — see [ledger-upgrade-gate.md](ledger-upgrade-gate.md), "Database roles and the approval key" |
 | `LEDGER_APPROVAL_KEY_ID` | e.g. `primary` | The installed key's ID |
 
-`DATABASE_URL` above is the database owner's credential in the current
-setup. The ledger release documents a separate runtime role for the API and
-the worker, with the owner credential kept out of both services; that split
-is **not** configured here yet. See "Database roles and the approval key" in
-[ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+Older deployments may still carry the PostgreSQL owner's connection string
+under this variable. Replace it with the separately provisioned restricted
+runtime role before releasing the API or worker. Keep the owner credential
+only in the isolated migration/backup procedure; see "Database roles and the
+approval key" in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
 
 ### Railway Worker Service
 
 | Variable | Value | Notes |
 |----------|-------|-------|
-| `DATABASE_URL` | From Railway PostgreSQL | Auto-generated |
+| `DATABASE_URL` | Restricted runtime role connection | Same restricted role as API; never the owner credential |
 | `JWT_ACCESS_SECRET` | Random 32-byte base64 | Required at import time by shared config, even though the worker never signs/verifies a token |
 | `JWT_REFRESH_SECRET` | Random 32-byte base64 | Same as above |
 | `NODE_ENV` | `production` | Fixed |
