@@ -2715,6 +2715,7 @@ model ScheduledGameRound {
   cancelReason  String? @map("cancel_reason")
   randomness    HouseRoundRandomness?
   beaconPin     HouseRoundBeaconPin?
+  publicationRequest HousePublicationRequest?
   resolutions   HouseTicketResolution[]
   tickets       ScheduledPracticeTicket[]
   stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -2834,4 +2835,36 @@ model HouseRoundBeaconPin {
   receivedAt DateTime? @map("received_at") @db.Timestamptz(6)
   round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
   @@map("house_round_beacon_pins")
+}
+
+/// Immutable public timestamp query. Trust is always supplied by reviewed source configuration.
+model HousePublicationRequest {
+  roundId String @id @map("round_id")
+  authorityId String @map("authority_id")
+  rootCertificateSha256 String @map("root_certificate_sha256")
+  signerCertificateSha256 String @map("signer_certificate_sha256")
+  policyOid String @map("policy_oid")
+  maxAccuracyMs Int @map("max_accuracy_ms")
+  commitment Json
+  commitmentHash String @map("commitment_hash")
+  queryDer Bytes @map("query_der")
+  querySha256 String @map("query_sha256")
+  nonceHex String @map("nonce_hex")
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  receipt HousePublicationReceipt?
+  @@map("house_publication_requests")
+}
+
+/// Public DER evidence; stored metadata is reverified before public retrieval or use.
+model HousePublicationReceipt {
+  roundId String @id @map("round_id")
+  responseDer Bytes @map("response_der")
+  responseSha256 String @map("response_sha256")
+  serialHex String @map("serial_hex")
+  observedFromMs BigInt @map("observed_from_ms")
+  observedThroughMs BigInt @map("observed_through_ms")
+  recordedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("recorded_at") @db.Timestamptz(6)
+  request HousePublicationRequest @relation(fields:[roundId], references:[roundId], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_publication_receipts")
 }

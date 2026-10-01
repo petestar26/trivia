@@ -73,6 +73,23 @@ function authority(id: string, roots: readonly PublicationAuthority[]) {
     signerCertificatePem: signer.toString(),
   });
 }
+/** Public trust identity, derived only from the approved source configuration.
+ * A persisted identity is a comparison value, never a source of trust. */
+export function publicationAuthorityIdentity(
+  id: string,
+  roots: readonly PublicationAuthority[] = PUBLICATION_AUTHORITIES
+) {
+  const trusted = authority(id, roots);
+  return Object.freeze({
+    authorityId: trusted.id,
+    rootCertificateSha256: createHash('sha256')
+      .update(new X509Certificate(trusted.rootCertificatePem).raw)
+      .digest('hex'),
+    signerCertificateSha256: trusted.signerCertificateSha256,
+    policyOid: trusted.policyOid,
+    maxAccuracyMs: trusted.maxAccuracyMs,
+  });
+}
 async function openssl(args: string[]) {
   return run('openssl', args, {
     timeout: 5_000,
