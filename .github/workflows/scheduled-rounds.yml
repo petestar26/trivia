@@ -14,6 +14,10 @@ on:
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/lib/spin-proof-verifier*'
+      - 'apps/web/src/lib/spin-publication-archive*'
+      - 'apps/web/src/test/spin-publication-fixture.ts'
+      - 'apps/api/src/scripts/publication-receipt-verify.ts'
+      - 'apps/api/build.js'
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
@@ -121,8 +125,18 @@ jobs:
           src/games/economics/house-public-proof.native.ts
           src/games/economics/publication-store.native.ts
           src/games/economics/publication-submission.native.ts
-      - name: Build API
-        run: pnpm --filter api exec node build.js
+      - name: Build API and probe offline CLI entry
+        run: |
+          pnpm --filter api exec node build.js
+          PUB_CLI_PROBE=$(mktemp -d)
+          trap 'rm -rf "$PUB_CLI_PROBE"' EXIT
+          ln -s "$PWD/apps/api/dist/scripts/publication-receipt-verify.js" "$PUB_CLI_PROBE/verify.js"
+          set +e
+          node "$PUB_CLI_PROBE/verify.js" --file=/dev/null --commitment=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$PUB_CLI_PROBE/result" 2>&1
+          PUB_CLI_STATUS=$?
+          set -e
+          test "$PUB_CLI_STATUS" -eq 1
+          test "$(cat "$PUB_CLI_PROBE/result")" = '{"status":"BLOCKED"}'
 
       - name: Scheduled practice web contracts
         run: >-
@@ -131,6 +145,7 @@ jobs:
           src/pages/games/spin-win.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
+          src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
         run: pnpm --filter web build

@@ -1,3 +1,6 @@
+import { webcrypto } from 'node:crypto';
+import { ReadableStream } from 'node:stream/web';
+import { PUBLICATION_ARCHIVE } from '@/test/spin-publication-fixture';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -126,5 +129,101 @@ describe('public player verifier', () => {
       expect.objectContaining({ credentials: 'omit', cache: 'no-store' })
     );
     expect(mocked.verify).not.toHaveBeenCalled();
+  });
+});
+
+describe('portable publication evidence downloads', () => {
+  const loadArchive = async (data: unknown = PUBLICATION_ARCHIVE) => {
+    const text = new TextEncoder().encode(JSON.stringify({ success: true, data }));
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(text);
+        controller.close();
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, headers: new Headers(), body }));
+    const actual = await vi.importActual<typeof Verifier>('@/lib/spin-proof-verifier');
+    mocked.verify.mockImplementation(actual.verifyPublicSpinProof);
+    vi.stubGlobal('crypto', webcrypto);
+    mount();
+    fireEvent.change(screen.getByLabelText('Round ID'), {
+      target: { value: PUBLICATION_ARCHIVE.roundId },
+    });
+  };
+  it('offers evidence, never claims timestamp verification, and clears it after edits', async () => {
+    await loadArchive();
+    fireEvent.click(screen.getByRole('button', { name: 'Load timestamp archive' }));
+    await screen.findByText('Archive ready to save');
+    expect(
+      screen.getByText('Response bytes included · timestamp signature not verified here')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/browser checked structure and hashes only/)).toBeInTheDocument();
+    expect(screen.queryByText(/Verified result/)).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByLabelText('Earlier saved commitment (optional)'), {
+      target: { value: '{}' },
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Download timestamp archive' })
+    ).not.toBeInTheDocument();
+  });
+  it('matches an earlier saved commitment and downloads the original archive bytes', async () => {
+    await loadArchive();
+    const create = vi.fn().mockReturnValue('blob:test-archive'),
+      revoke = vi.fn();
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = create;
+        static revokeObjectURL = revoke;
+      }
+    );
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    fireEvent.change(screen.getByLabelText('Earlier saved commitment (optional)'), {
+      target: { value: JSON.stringify(PUBLICATION_ARCHIVE.proof) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load timestamp archive' }));
+    await screen.findByText('Matches your saved commitment.');
+    fireEvent.click(screen.getByRole('button', { name: 'Download timestamp archive' }));
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]).toHaveProperty(
+      'download',
+      'spin-publication-spin-proof-v2_17.json'
+    );
+    expect(revoke).toHaveBeenCalledWith('blob:test-archive');
+    click.mockRestore();
+  });
+  it('request-only evidence has no timestamp-receipt claim', async () => {
+    await loadArchive({ ...PUBLICATION_ARCHIVE, receipt: null });
+    fireEvent.click(screen.getByRole('button', { name: 'Load timestamp archive' }));
+    await screen.findByText('Request only · no timestamp receipt included');
+    expect(screen.queryByText(/Verified result/)).not.toBeInTheDocument();
+  });
+  it('saved-receipt mismatch prevents the download and hides input errors', async () => {
+    await loadArchive();
+    fireEvent.change(screen.getByLabelText('Earlier saved commitment (optional)'), {
+      target: { value: '{"private":"bad receipt"}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load timestamp archive' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not check the timestamp archive'
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/bad receipt/);
+    expect(
+      screen.queryByRole('button', { name: 'Download timestamp archive' })
+    ).not.toBeInTheDocument();
+  });
+  it('shows secure-browser guidance rather than a false successful archive', async () => {
+    await loadArchive();
+    vi.stubGlobal('crypto', {});
+    fireEvent.click(screen.getByRole('button', { name: 'Load timestamp archive' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('HTTPS or localhost');
+    expect(
+      screen.queryByRole('button', { name: 'Download timestamp archive' })
+    ).not.toBeInTheDocument();
   });
 });

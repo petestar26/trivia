@@ -8,6 +8,11 @@ import {
   verifyPublicSpinProof,
 } from '@/lib/spin-proof-verifier';
 import type { PublicSpinVerification } from '@/lib/spin-proof-verifier';
+import {
+  checkPublicationArchiveIntegrity,
+  loadPublicPublicationArchive,
+} from '@/lib/spin-publication-archive';
+import type { PublicationArchiveIntegrity } from '@/lib/spin-publication-archive';
 
 export function SpinWinVerifyPage() {
   const [roundId, setRoundId] = useState('');
@@ -16,6 +21,7 @@ export function SpinWinVerifyPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PublicSpinVerification | null>(null);
+  const [archiveResult, setArchiveResult] = useState<PublicationArchiveIntegrity | null>(null);
   const alive = useRef(true);
   const work = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -27,6 +33,7 @@ export function SpinWinVerifyPage() {
   }, []);
   const reset = () => {
     setResult(null);
+    setArchiveResult(null);
     setError('');
   };
   const load = async () => {
@@ -71,6 +78,46 @@ export function SpinWinVerifyPage() {
       clearTimeout(timeout);
       if (alive.current) setBusy(false);
     }
+  };
+  const loadArchive = async () => {
+    if (!/^[A-Za-z0-9_:-]{1,128}$/.test(roundId)) {
+      setError('Enter a valid round ID');
+      return;
+    }
+    reset();
+    setBusy(true);
+    const controller = new AbortController();
+    work.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const archive = await loadPublicPublicationArchive(roundId, controller.signal);
+      const checked = await checkPublicationArchiveIntegrity(
+        archive,
+        savedText.trim() ? parsePublicProofText(savedText) : undefined
+      );
+      if (alive.current && !controller.signal.aborted) setArchiveResult(checked);
+    } catch (cause) {
+      if (alive.current)
+        setError(
+          cause instanceof SpinProofCryptoUnavailable
+            ? 'Browser cryptography is unavailable. Open this page over HTTPS or localhost in a browser that supports Web Crypto, then retry.'
+            : 'Could not check the timestamp archive. Check the round ID and saved commitment, then retry.'
+        );
+    } finally {
+      clearTimeout(timeout);
+      if (alive.current) setBusy(false);
+    }
+  };
+  const downloadArchive = () => {
+    if (!archiveResult) return;
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(archiveResult.archive, null, 2)], { type: 'application/json' })
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `spin-publication-${archiveResult.archive.roundId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
   const verify = async () => {
     reset();
@@ -159,6 +206,14 @@ export function SpinWinVerifyPage() {
             >
               Load published proof
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void loadArchive()}
+              className="rounded-lg border border-slate-500 px-5 py-3 font-semibold disabled:opacity-50"
+            >
+              Load timestamp archive
+            </button>
           </div>
           <p className="mt-3 text-sm text-slate-400">
             Only future-beacon financial rounds have this proof. Solo and scheduled practice rounds
@@ -225,6 +280,39 @@ export function SpinWinVerifyPage() {
             {busy ? 'Checking…' : 'Verify locally'}
           </button>
         </section>
+        {archiveResult && (
+          <section
+            role="status"
+            className="space-y-3 rounded-2xl border border-slate-600 bg-slate-900 p-5"
+          >
+            <h2 className="text-xl font-bold">Archive ready to save</h2>
+            <p>
+              {archiveResult.archive.receipt
+                ? 'Response bytes included · timestamp signature not verified here'
+                : 'Request only · no timestamp receipt included'}
+            </p>
+            <p className="text-sm">
+              {archiveResult.matchedSavedReceipt
+                ? 'Matches your saved commitment.'
+                : 'No earlier saved receipt was compared.'}
+            </p>
+            <p className="text-sm text-slate-300">
+              The browser checked structure and hashes only. Verify the timestamp offline against
+              separately approved certificates. A download does not prove independent retention or
+              earlier public availability.
+            </p>
+            <p className="break-all font-mono text-xs">
+              Commitment hash: {archiveResult.archive.proof.commitmentHash}
+            </p>
+            <button
+              type="button"
+              onClick={downloadArchive}
+              className="rounded-lg bg-amber-300 px-4 py-2 font-semibold text-slate-950"
+            >
+              Download timestamp archive
+            </button>
+          </section>
+        )}
         {error && (
           <p
             role="alert"
