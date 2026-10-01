@@ -20,6 +20,12 @@ Check each before scheduling the upgrade.
 
 1. **PostgreSQL 13 or later.** The release uses `gen_random_uuid()` (built in
    from 13) and installs `pgcrypto`, which is a *trusted* extension from 13.
+   The deployment target may use a newer major version than the original
+   compatibility matrix. Confirm the live server's major version and require
+   a green migration and financial-regression CI job for that same major
+   version before applying a release there. The production Railway Postgres
+   service currently declares a PostgreSQL 18 image; confirm that version
+   from the database rather than inferring it from the service configuration.
 
    ```sql
    SHOW server_version;
@@ -64,13 +70,12 @@ Keep the owner credential out of the API and worker services' variables, so
 neither process can read it: keep it in the secret store (or on a separate
 service that never deploys) and supply it only to the owner-run commands.
 
-**This repository does not configure Railway this way.** Today the Railway
-API and worker share one `DATABASE_URL`, the owner's. Until an operator
-creates the runtime role, installs the key and switches the services'
-`DATABASE_URL` to it, the boundary described here is **not** in effect in that
-environment: the guards and the approval binding still constrain the
-application's ordinary code paths, but not arbitrary SQL issued with the
-owner credential it holds.
+**The repository alone cannot configure Railway credentials.** Verify the
+effective `DATABASE_URL` identity on each deployment: the API and worker
+must use the restricted runtime role, and the owner credential must be held
+separately for migrations and setup. If a service still uses the owner
+credential, the trust boundary is not in effect there: arbitrary SQL issued
+through that service can bypass the runtime role's restrictions.
 
 ### Create the runtime role (once, as the owner)
 
@@ -257,11 +262,24 @@ It never prints a connection string, a password or the key. Exit codes:
 **2** could not run (nothing changed). Do not start the API or the worker
 until it exits 0.
 
-With the runtime role in place, the API's `preDeployCommand`
-(`prisma migrate deploy`) runs as that role: with nothing pending it reports
-"No pending migrations to apply"; with a pending migration it fails with
-`permission denied for table _prisma_migrations` before applying anything.
-Migrations are then applied by hand as the owner, followed by this setup.
+With the runtime role in place, migration deployment must be an owner-run
+maintenance step. The repository's API `preDeployCommand` verifies the
+restricted runtime identity, then runs `prisma migrate status` and the read-only
+preflight using the runtime credential. The full invariant scan reads
+owner-only financial proof tables, so run it with the owner credential in the
+maintenance procedure, never from API predeploy. The runtime checks stop the
+API deployment while a migration is pending, failed or cannot be checked,
+without granting the API permission to change migration history. Apply
+migrations separately as the owner, followed by this setup, before restarting
+the API. The runtime role's read access to `_prisma_migrations` allows the
+status and preflight checks.
+
+Confirm the service loads this repository config and the intended revision;
+an older or differently configured service can still run a stale command.
+Inspect its effective API `preDeployCommand` before deploying: if it still
+runs `prisma migrate deploy` with the runtime `DATABASE_URL`, replace it with
+the verification-only command above. Repeated redeploys cannot apply a
+pending migration as the runtime role and leave the new API version blocked.
 
 ### Rotating the key
 
@@ -341,9 +359,9 @@ connection string is typed on a command line.
 
 Stop the API service, the worker service, and every scheduled or one-off job
 and admin script that can write to the database. On Railway, stop the API and
-worker deployments themselves (a redeploy is **not** enough: the API's
-`preDeployCommand` runs `prisma migrate deploy` while the previous deployment
-keeps serving). Put the web application in maintenance so users see why.
+worker deployments themselves (a redeploy is **not** enough: a stale effective
+API `preDeployCommand` may still run `prisma migrate deploy` while the previous
+deployment keeps serving). Put the web application in maintenance so users see why.
 
 ### 2. Verify that no writer is connected
 
@@ -366,7 +384,8 @@ grant it back in step 7.
 ### 3. Take a backup and prove it restores
 
 ```bash
-railway run --service api sh -c 'pg_dump --format=custom --file=pre-ledger-upgrade.dump "$DATABASE_URL"'
+# In an isolated operator shell, with DATABASE_URL supplied from the owner secret store:
+pg_dump --format=custom --file=pre-ledger-upgrade.dump "$DATABASE_URL"
 pg_restore --list pre-ledger-upgrade.dump > /dev/null
 ```
 
@@ -398,13 +417,13 @@ machine-readable report and `--limit N` to list more records per category.
 ### 5. Apply the migrations (as the owner)
 
 ```bash
-railway run --service api pnpm --filter database exec prisma migrate deploy
+# In that isolated operator shell, with the owner DATABASE_URL:
+pnpm --filter @socialplay/database exec prisma migrate deploy
 ```
 
-This uses the service's `DATABASE_URL`, which is the owner credential until
-the runtime role is introduced. Once the services use the runtime role, run it
-with the owner credential instead (from the secret store or the ops service;
-see "Database roles and the approval key"). It must end with "All migrations
+This requires the owner credential from the secret store or an isolated ops
+service. Do not put the owner URL in an API/worker variable or print it in
+logs. It must end with "All migrations
 have been successfully applied". Anything else: see "If a migration fails".
 
 Then, before any check or writer, set up the runtime role and the approval
@@ -416,14 +435,16 @@ boundary (see that section).
 ### 6. Check the upgraded database
 
 ```bash
-railway run --service api pnpm --filter api preflight:ledger-upgrade
-railway run --service api pnpm --filter api scan:ledger-invariants
+# Owner-run maintenance shell, still using its owner DATABASE_URL:
+node apps/api/dist/scripts/ledger-invariant-scan.js
+# In a separate runtime-credential shell or API predeploy:
+node apps/api/dist/scripts/ledger-upgrade-preflight.js
 ```
 
 The preflight must exit 0 and report `Schema: UPGRADED`, gate definitions
 identical to this release and the operation authorization rules installed.
-The scan must exit 0 ("every invariant holds"); in a built image use
-`node apps/api/dist/scripts/ledger-invariant-scan.js`. Also confirm that
+The owner-run scan must exit 0 ("every invariant holds"). The runtime role
+cannot read the randomness/proof tables required by that scan. Also confirm that
 `SELECT to_regclass('ledger_upgrade_window')` is NULL: the last migration
 drops it only when the whole upgrade passed.
 
@@ -431,8 +452,11 @@ drops it only when the whole upgrade passed.
 
 Only after every check above passed: deploy the new release of the API
 (with `LEDGER_APPROVAL_SIGNING_KEY` and `LEDGER_APPROVAL_KEY_ID` set) and the
-worker (their `preDeployCommand` now reports no pending migrations),
-restore any revoked `CONNECT`, and leave maintenance.
+worker. The API's runtime-role `preDeployCommand` must confirm its restricted
+identity, migrations up to date and preflight clean; the owner-run invariant
+scan must already have passed. Restore any revoked `CONNECT`
+before these checks, and leave maintenance only after the new deployments
+start successfully.
 
 ## If a migration fails
 

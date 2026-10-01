@@ -40,6 +40,7 @@
  * Exit codes: 0 applied and verified, 1 refused or not verified, 2 could not run.
  */
 import { realpathSync } from 'node:fs';
+import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
@@ -321,6 +322,17 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
     .map(({ subject, failure }) => failure(how.get(subject)!));
 }
 
+/** The same runtime trust checks as owner-run setup, without installing a key or changing grants. */
+export async function verifyRuntimeAccessReadOnly(tx: Tx, role: string): Promise<string[]> {
+  const reached = await reachableRoles(tx, role);
+  if (reached[0]?.name !== role) return ['runtime role is not installed'];
+  const unsafe = await unsafeRoles(tx, role, reached);
+  const subjects = subjectsOf(role, reached);
+  const held = await deniedPrivileges(tx, role,
+    [...subjects, { name: 'public', how: ' through PUBLIC' }], true);
+  return [...unsafe, ...held];
+}
+
 /**
  * Applies and verifies the runtime access in one transaction as `client`
  * (the owner) and returns what failed; any failure rolls the transaction
@@ -470,7 +482,11 @@ async function main(): Promise<number> {
 /** True when this file is the program being run (by tsx or node), not a module a test imports. */
 function invokedAsScript(): boolean {
   try {
-    return realpathSync(process.argv[1] ?? '') === realpathSync(fileURLToPath(import.meta.url));
+    const file = realpathSync(fileURLToPath(import.meta.url));
+    // esbuild also bundles these helpers into the predeploy identity CLI.
+    // The entry path alone would then match and accidentally run owner setup.
+    return basename(file) === 'ledger-runtime-access.js' || basename(file) === 'ledger-runtime-access.ts'
+      ? realpathSync(process.argv[1] ?? '') === file : false;
   } catch {
     return false;
   }
