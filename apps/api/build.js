@@ -24,6 +24,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),
       // Rolled-back ledger invariant scan for the upgrade runbook.
       join(__dirname, 'src/scripts/ledger-invariant-scan.ts'),
+      // Read-only predeploy verification of the restricted DATABASE_URL identity.
+      join(__dirname, 'src/scripts/ledger-runtime-identity-check.ts'),
       // Owner-run setup of the runtime role's grants and the approval key.
       join(__dirname, 'src/scripts/ledger-runtime-access.ts'),
       // Offline proposed economics preview; no production database access.

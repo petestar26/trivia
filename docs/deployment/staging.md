@@ -413,37 +413,36 @@ buildCommand doesn't need to chain `build:packages` explicitly anymore. Do not r
 
 ### 4. Prisma Migrations
 
-Migrations run via the API service's `preDeployCommand`:
+After the ledger role split, migrations are applied separately as the owner
+during a maintenance window. The API's `preDeployCommand` uses the restricted
+runtime role to verify that all migrations were already applied and that the
+read-only ledger checks pass:
 
 ```
-pnpm --filter database exec prisma migrate deploy
+node apps/api/dist/scripts/ledger-runtime-identity-check.js && pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/ledger-upgrade-preflight.js && node apps/api/dist/scripts/ledger-invariant-scan.js
 ```
 
-This intentionally does **not** repeat `pnpm install`/`build` — Railway's
-`preDeployCommand` runs after the build step, in the same built environment, so
-`prisma` (a `packages/database` devDependency) is already installed and the migration
-CLI needs nothing further. The worker does NOT run migrations — it expects the schema
-to already be up-to-date by the time it starts.
+The worker does not run migrations. Both services require the owner to apply
+pending migrations first, then rerun `ledger:runtime-access`, verify the
+preflight and invariant scan, and only then start them. The production API
+may have an environment-specific Railway `preDeployCommand` that overrides
+the repository JSON; inspect the effective command and remove any runtime-role
+`prisma migrate deploy` before redeploying.
 
-The first deployment of the ledger release (migrations `20260917900000` to
-`20260924090000`) is **not** a normal deploy: the `preDeployCommand` would run
-the migrations while the previous API deployment keeps serving. Follow the
-maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md)
-instead: stop the API and the worker, verify that nothing is connected, take
-and test a backup, run the read-only preflight, apply the migrations by hand,
-re-run the preflight and the invariant scan, and only then deploy the new
-release.
+For the first ledger deployment or later forward migrations, follow the
+maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md):
+stop every writer, prove a backup restores, run the preflight, apply the
+migrations as the owner, rerun the owner setup and read-only checks, then
+deploy the API and worker. Verify the actual database major version against
+the CI compatibility matrix (including PostgreSQL 18 where deployed).
 
 If migration fails:
-1. Check Railway API logs for migration errors
-2. If the error names any migration of the ledger release (`20260917900000`
-   to `20260924090000`), stop and keep every writer stopped: follow
-   "If a migration fails" in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
-   Do not retry, edit migrations, touch ledger rows, or mark any migration as
-   applied.
-3. For any other failure, manually run `railway run pnpm --filter database exec prisma migrate deploy`
-   to see the full error, then fix the cause in a new, reviewed commit and
-   redeploy. Never edit a migration that any environment has already applied.
+1. Keep every writer stopped, record the owner-run error and the read-only
+   preflight report, then follow "If a migration fails" in
+   [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+2. Never rerun a pending migration using the API's runtime credential,
+   mark a failed migration as applied, or edit a migration already applied
+   in any environment.
 
 ### 5. CORS Updates
 

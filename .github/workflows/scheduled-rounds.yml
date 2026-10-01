@@ -23,6 +23,7 @@ on:
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
       - 'apps/api/src/scripts/house-round-recovery.ts'
       - 'apps/api/src/scripts/ledger-runtime-access.ts'
+      - 'apps/api/src/scripts/ledger-runtime-identity-check*'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
       - 'packages/database/prisma/**'
@@ -41,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: [13, 16]
+        version: [13, 16, 18]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -91,6 +92,8 @@ jobs:
           openssl version
           pnpm --filter api test:economics
           pnpm --filter api test:scheduled-practice
+      - name: Predeploy runtime identity guard
+        run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Native two-connection runtime tests
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts src/games/economics/house-capital.native.ts
       - name: Generate disposable ledger test keys

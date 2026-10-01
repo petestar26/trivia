@@ -20,6 +20,12 @@ Check each before scheduling the upgrade.
 
 1. **PostgreSQL 13 or later.** The release uses `gen_random_uuid()` (built in
    from 13) and installs `pgcrypto`, which is a *trusted* extension from 13.
+   The deployment target may use a newer major version than the original
+   compatibility matrix. Confirm the live server's major version and require
+   a green migration and financial-regression CI job for that same major
+   version before applying a release there. The production Railway Postgres
+   service currently declares a PostgreSQL 18 image; confirm that version
+   from the database rather than inferring it from the service configuration.
 
    ```sql
    SHOW server_version;
@@ -64,13 +70,12 @@ Keep the owner credential out of the API and worker services' variables, so
 neither process can read it: keep it in the secret store (or on a separate
 service that never deploys) and supply it only to the owner-run commands.
 
-**This repository does not configure Railway this way.** Today the Railway
-API and worker share one `DATABASE_URL`, the owner's. Until an operator
-creates the runtime role, installs the key and switches the services'
-`DATABASE_URL` to it, the boundary described here is **not** in effect in that
-environment: the guards and the approval binding still constrain the
-application's ordinary code paths, but not arbitrary SQL issued with the
-owner credential it holds.
+**The repository alone cannot configure Railway credentials.** Verify the
+effective `DATABASE_URL` identity on each deployment: the API and worker
+must use the restricted runtime role, and the owner credential must be held
+separately for migrations and setup. If a service still uses the owner
+credential, the trust boundary is not in effect there: arbitrary SQL issued
+through that service can bypass the runtime role's restrictions.
 
 ### Create the runtime role (once, as the owner)
 
@@ -257,11 +262,22 @@ It never prints a connection string, a password or the key. Exit codes:
 **2** could not run (nothing changed). Do not start the API or the worker
 until it exits 0.
 
-With the runtime role in place, the API's `preDeployCommand`
-(`prisma migrate deploy`) runs as that role: with nothing pending it reports
-"No pending migrations to apply"; with a pending migration it fails with
-`permission denied for table _prisma_migrations` before applying anything.
-Migrations are then applied by hand as the owner, followed by this setup.
+With the runtime role in place, migration deployment must be an owner-run
+maintenance step. The repository's API `preDeployCommand` verifies the
+restricted runtime identity, then runs `prisma migrate status`, the read-only
+preflight and the invariant scan (which rolls its transaction back) using the
+runtime credential. It stops the API deployment while a migration is pending,
+failed or cannot be checked,
+without granting the API permission to change migration history. Apply
+migrations separately as the owner, followed by this setup, before restarting
+the API. The runtime role's read access to `_prisma_migrations` allows the
+status and preflight checks.
+
+Railway environment service settings can override the repository's JSON.
+Inspect the effective API `preDeployCommand` before deploying: if it still
+runs `prisma migrate deploy` with the runtime `DATABASE_URL`, replace it with
+the verification-only command above. Repeated redeploys cannot apply a
+pending migration as the runtime role and leave the new API version blocked.
 
 ### Rotating the key
 
@@ -401,10 +417,11 @@ machine-readable report and `--limit N` to list more records per category.
 railway run --service api pnpm --filter database exec prisma migrate deploy
 ```
 
-This uses the service's `DATABASE_URL`, which is the owner credential until
-the runtime role is introduced. Once the services use the runtime role, run it
-with the owner credential instead (from the secret store or the ops service;
-see "Database roles and the approval key"). It must end with "All migrations
+This uses the service's `DATABASE_URL` only if it is still the owner
+credential. Once the services use the runtime role, run the command with the
+owner credential instead (from the secret store or an isolated ops service;
+see "Database roles and the approval key"). Do not put the owner URL in an
+API/worker variable or print it in logs. It must end with "All migrations
 have been successfully applied". Anything else: see "If a migration fails".
 
 Then, before any check or writer, set up the runtime role and the approval
@@ -431,8 +448,10 @@ drops it only when the whole upgrade passed.
 
 Only after every check above passed: deploy the new release of the API
 (with `LEDGER_APPROVAL_SIGNING_KEY` and `LEDGER_APPROVAL_KEY_ID` set) and the
-worker (their `preDeployCommand` now reports no pending migrations),
-restore any revoked `CONNECT`, and leave maintenance.
+worker. The API's runtime-role `preDeployCommand` must report the migrations
+up to date and both read-only checks clean. Restore any revoked `CONNECT`
+before these checks, and leave maintenance only after the new deployments
+start successfully.
 
 ## If a migration fails
 
