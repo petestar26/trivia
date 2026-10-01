@@ -11,7 +11,7 @@
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5,
     "preDeployCommand": [
-      "node apps/api/dist/scripts/ledger-runtime-identity-check.js && pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/ledger-upgrade-preflight.js && node apps/api/dist/scripts/ledger-invariant-scan.js"
+      "node apps/api/dist/scripts/ledger-runtime-identity-check.js && pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/ledger-upgrade-preflight.js"
     ]
   }
 }

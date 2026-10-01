@@ -23,13 +23,13 @@ of this task. All activation and smoke-test boxes remain pending until performed
 The existing API and worker configs both build with
 `pnpm install --frozen-lockfile && pnpm --filter api build`. The API starts with
 `pnpm --filter api start`; the worker starts with `pnpm --filter api start:worker`.
-The API config runs existing migrations through
-`pnpm --filter database exec prisma migrate deploy` before deployment. Confirm
-those migrations succeed against staging before starting the worker. Do not create
-or modify migrations, reset the database, or change application logic in H-0D.
-The ledger release (migrations `20260917900000` to `20260924090000`) is the
-exception to the normal pre-deploy migration: apply it only through the
-maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md).
+The API config checks its restricted database identity, migration status and
+read-only preflight before deployment; it cannot apply migrations. Apply all
+pending migrations separately as the owner, set up the restricted runtime
+role, and run the owner-only full invariant scan before starting either
+service. Do not create or modify migrations, reset the database, or change
+application logic in H-0D. Follow the maintenance procedure in
+[ledger-upgrade-gate.md](ledger-upgrade-gate.md) for every ledger upgrade.
 
 ## Domain gate and later Vercel activation
 
@@ -58,7 +58,7 @@ Use staging-only test accounts and test data. Record pass/fail and non-secret
 evidence for each check; a successful local build is not a staging smoke-test pass.
 
 - [ ] API `/health` responds successfully over HTTPS.
-- [ ] Existing database migrations are applied successfully (API deployment logs).
+- [ ] Owner-run migrations finish before API deployment; API predeploy reports no pending migration.
 - [ ] Register and login work, including an authenticated request.
 - [ ] The authenticated wallet endpoint returns the expected staging test account data.
 - [ ] Games catalog loads.

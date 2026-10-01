@@ -416,18 +416,19 @@ buildCommand doesn't need to chain `build:packages` explicitly anymore. Do not r
 After the ledger role split, migrations are applied separately as the owner
 during a maintenance window. The API's `preDeployCommand` uses the restricted
 runtime role to verify that all migrations were already applied and that the
-read-only ledger checks pass:
+runtime-safe read-only preflight passes:
 
 ```
-node apps/api/dist/scripts/ledger-runtime-identity-check.js && pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/ledger-upgrade-preflight.js && node apps/api/dist/scripts/ledger-invariant-scan.js
+node apps/api/dist/scripts/ledger-runtime-identity-check.js && pnpm --filter @socialplay/database exec prisma migrate status && node apps/api/dist/scripts/ledger-upgrade-preflight.js
 ```
 
 The worker does not run migrations. Both services require the owner to apply
-pending migrations first, then rerun `ledger:runtime-access`, verify the
-preflight and invariant scan, and only then start them. The production API
-may have an environment-specific Railway `preDeployCommand` that overrides
-the repository JSON; inspect the effective command and remove any runtime-role
-`prisma migrate deploy` before redeploying.
+pending migrations first, then rerun `ledger:runtime-access` and the full
+invariant scan as the owner, verify the runtime preflight, and only then start
+them. The full scan reads owner-only proof data and must never be run with
+the API/worker credential. Confirm the production service loads the expected
+repository config at the intended revision; inspect its effective command
+and remove any runtime-role `prisma migrate deploy` before redeploying.
 
 For the first ledger deployment or later forward migrations, follow the
 maintenance procedure in [ledger-upgrade-gate.md](ledger-upgrade-gate.md):

@@ -92,8 +92,6 @@ jobs:
           openssl version
           pnpm --filter api test:economics
           pnpm --filter api test:scheduled-practice
-      - name: Predeploy runtime identity guard
-        run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Native two-connection runtime tests
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts src/games/economics/house-capital.native.ts
       - name: Generate disposable ledger test keys
@@ -105,6 +103,8 @@ jobs:
                   env.write(name + '=' + secrets.token_hex(32) + '\n')
               env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
           PYKEYS
+      - name: Predeploy runtime identity guard
+        run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Existing ledger guard regressions
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
