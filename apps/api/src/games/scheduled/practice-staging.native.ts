@@ -62,7 +62,13 @@ describe('disposable staging owner CLI',()=>{
 
   it('provisions separate accounts, verifies least privilege and supports repeat setup',async()=>{
     const first=await run('--setup');
-    expect(first.code, first.output).toBe(0);
+    const publicDefiners = first.code === 0 ? [] : await owner.$queryRaw<{name:string}[]>`
+      SELECT p.oid::regprocedure::text AS name
+      FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+      WHERE n.nspname='public' AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
+        AND a.grantee=0 AND a.privilege_type='EXECUTE'`;
+    expect(first.code, first.output + JSON.stringify(publicDefiners)).toBe(0);
     expect((await run('--setup')).code).toBe(0);
     const workerUrl = new URL(url!); workerUrl.username=workerRole; workerUrl.password=workerPassword;
     const runtime = new PrismaClient({datasourceUrl:workerUrl.toString(),log:[]});
