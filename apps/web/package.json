@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "clean": "rm -rf dist",
     "start": "node server.mjs",
-    "test:gateway": "node --test server.test.mjs"
+    "test:gateway": "node --test server.test.mjs",
+    "test:pwa": "node --test pwa.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",

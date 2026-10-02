@@ -15,6 +15,9 @@ on:
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/components/spin/**'
       - 'apps/web/server*.mjs'
+      - 'apps/web/pwa.test.mjs'
+      - 'apps/web/vite.config.ts'
+      - 'apps/web/package.json'
       - 'apps/web/src/lib/api-config.ts'
       - 'apps/web/src/lib/api.test.ts'
       - 'apps/web/src/lib/request-error.ts'
@@ -164,6 +167,10 @@ jobs:
           src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
+        env:
+          VITE_API_PROXY: 'true'
         run: pnpm --filter web build
+      - name: Generated PWA navigation contracts
+        run: pnpm --filter web test:pwa
       - name: First-party gateway and WebSocket contracts
         run: pnpm --filter web test:gateway
