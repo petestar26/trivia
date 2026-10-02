@@ -81,7 +81,12 @@ describe('disposable staging owner CLI',()=>{
       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
       WHERE n.nspname='public' AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
         AND a.grantee=0 AND a.privilege_type='EXECUTE'`;
-    expect(first.code, first.output + JSON.stringify(publicDefiners)).toBe(0);
+    const publicRelations = first.code === 0 ? [] : await owner.$queryRaw<{name:string;privilege:string}[]>`
+      SELECT c.relname::text AS name,a.privilege_type AS privilege
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S' ELSE 'r' END::"char",c.relowner))) a
+      WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f','S') AND a.grantee=0`;
+    expect(first.code, first.output + JSON.stringify({publicDefiners,publicRelations})).toBe(0);
     expect((await run('--setup')).code).toBe(0);
     const workerUrl = new URL(url!); workerUrl.username=workerRole; workerUrl.password=workerPassword;
     const runtime = new PrismaClient({datasourceUrl:workerUrl.toString(),log:[]});
@@ -111,7 +116,7 @@ describe('disposable staging owner CLI',()=>{
     try {
       const result=await run('--setup');
       expect(result.code).toBe(1);
-      expect(JSON.parse(result.output)).toEqual({status:'REFUSED',reason:'WORKER_ACCESS'});
+      expect(JSON.parse(result.output)).toEqual({status:'REFUSED',reason:'WORKER_TABLES'});
     } finally { await owner.$executeRawUnsafe(`REVOKE SELECT ON public.wallets FROM "${workerRole}"`); }
     expect((await run('--setup')).code).toBe(0);
   });

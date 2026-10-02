@@ -9,7 +9,7 @@ const STAGING_HOST = 'spin-practice-db-20261002.railway.internal';
 const STREAM = 'spin-win-practice-v1';
 const command = process.argv[2];
 class Refused extends Error {
-  constructor(readonly reason: 'TARGET' | 'OWNER' | 'ROLE' | 'WORKER_ACCESS') { super('refused'); }
+  constructor(readonly reason: 'TARGET' | 'OWNER' | 'ROLE' | 'WORKER_SCHEMA' | 'WORKER_TABLES' | 'WORKER_SEQUENCES' | 'WORKER_FUNCTIONS' | 'WORKER_REQUIRED') { super('refused'); }
 }
 
 function connection(): string {
@@ -52,9 +52,9 @@ async function safeRole(tx: Prisma.TransactionClient, role: string): Promise<boo
 }
 
 async function verifyWorker(tx: Prisma.TransactionClient, role: string) {
-  const [row] = await tx.$queryRaw<{ denied: boolean; required: boolean }[]>`
+  const [row] = await tx.$queryRaw<{ schema: boolean; tables: boolean; sequences: boolean; functions: boolean; required: boolean }[]>`
     SELECT
-      pg_catalog.has_schema_privilege(${role},'public','CREATE') OR
+      pg_catalog.has_schema_privilege(${role},'public','CREATE') AS schema,
       EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') AND (
           (pg_catalog.has_table_privilege(${role},c.oid,'SELECT') AND c.relname NOT IN ('scheduled_game_streams','scheduled_game_rounds')) OR
@@ -65,13 +65,14 @@ async function verifyWorker(tx: Prisma.TransactionClient, role: string) {
             (pg_catalog.has_column_privilege(${role},c.oid,a.attname,'INSERT') AND c.relname <> 'scheduled_game_rounds') OR
             (pg_catalog.has_column_privilege(${role},c.oid,a.attname,'UPDATE') AND NOT
               (c.relname='scheduled_game_rounds' AND a.attname IN ('state','outcome','drawn_at'))) OR
-            pg_catalog.has_column_privilege(${role},c.oid,a.attname,'REFERENCES'))))) OR
+            pg_catalog.has_column_privilege(${role},c.oid,a.attname,'REFERENCES'))))) AS tables,
       EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND c.relkind='S' AND pg_catalog.has_sequence_privilege(${role},c.oid,'USAGE,SELECT,UPDATE')) OR
+        WHERE n.nspname='public' AND CASE WHEN c.relkind='S'
+          THEN pg_catalog.has_sequence_privilege(${role},c.oid,'USAGE,SELECT,UPDATE') ELSE false END) AS sequences,
       EXISTS(SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname='public' AND p.prosecdef
           AND p.prorettype NOT IN ('pg_catalog.trigger'::regtype,'pg_catalog.event_trigger'::regtype)
-          AND pg_catalog.has_function_privilege(${role},p.oid,'EXECUTE')) AS denied,
+          AND pg_catalog.has_function_privilege(${role},p.oid,'EXECUTE')) AS functions,
       pg_catalog.has_schema_privilege(${role},'public','USAGE') AND
       pg_catalog.has_table_privilege(${role},'public.scheduled_game_streams','SELECT') AND
       pg_catalog.has_table_privilege(${role},'public.scheduled_game_rounds','SELECT') AND
@@ -79,7 +80,11 @@ async function verifyWorker(tx: Prisma.TransactionClient, role: string) {
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','state','UPDATE') AND
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','outcome','UPDATE') AND
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','drawn_at','UPDATE') AS required`;
-  if (!row || row.denied || !row.required) throw new Refused('WORKER_ACCESS');
+  if (!row || !row.required) throw new Refused('WORKER_REQUIRED');
+  if (row.schema) throw new Refused('WORKER_SCHEMA');
+  if (row.tables) throw new Refused('WORKER_TABLES');
+  if (row.sequences) throw new Refused('WORKER_SEQUENCES');
+  if (row.functions) throw new Refused('WORKER_FUNCTIONS');
 }
 
 async function setup(tx: Prisma.TransactionClient) {
