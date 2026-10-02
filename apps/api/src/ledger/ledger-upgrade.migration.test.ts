@@ -629,7 +629,7 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -689,7 +689,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -742,7 +742,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT
