@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,8 +52,26 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((c) => c.clear());
+  vi.useRealTimers();
 });
 describe('shared scheduled practice', () => {
+  it('stops polling on an invalid session and provides a sign-in path', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    mocks.get.mockRejectedValue(
+      new Error(JSON.stringify({ status: 401, message: 'Invalid token' }))
+    );
+    mount();
+    expect(await screen.findByRole('link', { name: 'Sign in again' })).toHaveAttribute(
+      'href',
+      '/login'
+    );
+    expect(screen.getByRole('button', { name: 'Select Red' })).toBeDisabled();
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Reconnecting')).not.toBeInTheDocument();
+  });
   it('does not draw locally or offer Coin play, and waits for server-opened rounds', async () => {
     mocks.get.mockResolvedValue({ data: { ...snapshot(), enabled: false, rounds: [] } });
     mount();

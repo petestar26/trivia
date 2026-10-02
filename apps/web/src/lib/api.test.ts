@@ -7,6 +7,30 @@ afterEach(() => {
 });
 
 describe('API destination', () => {
+  it('keeps authentication, uploads, health and sockets on the frontend origin when the gateway is enabled', async () => {
+    vi.stubEnv('VITE_API_PROXY', 'true');
+    vi.stubEnv('VITE_API_URL', 'https://api.example.com');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ success: true, data: {} }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { API_ORIGIN, API_BASE } = await import('./api-config');
+    const { api, voiceMessageUrl, getApiHealth } = await import('./api');
+    expect(API_ORIGIN).toBe('');
+    expect(API_BASE).toBe('/api/v1');
+    await api.post('/auth/login', { username: 'test' });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `${window.location.origin}/api/v1/auth/login`,
+      expect.objectContaining({ credentials: 'include' })
+    );
+    await api.upload('/groups/group/voice-messages', new FormData());
+    expect(fetchMock.mock.lastCall?.[0]).toBe(
+      `${window.location.origin}/api/v1/groups/group/voice-messages`
+    );
+    expect(voiceMessageUrl('group', 'message')).toBe('/api/v1/groups/group/voice-messages/message');
+    await getApiHealth();
+    expect(fetchMock).toHaveBeenLastCalledWith('/health');
+  });
   it.each([
     ['https://api.example.com', 'https://api.example.com'],
     ['https://api.example.com/', 'https://api.example.com'],
@@ -34,22 +58,35 @@ describe('API destination', () => {
     const base = `${origin || window.location.origin}/api/v1`;
 
     await api.post('/auth/register', { username: 'test' });
-    expect(fetchMock).toHaveBeenLastCalledWith(`${base}/auth/register`, expect.objectContaining({
-      method: 'POST', credentials: 'include', body: '{"username":"test"}',
-      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
-    }));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `${base}/auth/register`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: '{"username":"test"}',
+        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      })
+    );
     await api.get('/auth/me', { page: 1, query: 'a & b', absent: undefined });
     expect(fetchMock.mock.lastCall?.[0]).toBe(`${base}/auth/me?page=1&query=a+%26+b`);
     const form = new FormData();
     await api.upload('/groups/group/voice-messages', form);
     expect(fetchMock).toHaveBeenLastCalledWith(`${base}/groups/group/voice-messages`, {
-      method: 'POST', body: form, credentials: 'include',
+      method: 'POST',
+      body: form,
+      credentials: 'include',
     });
-    expect(voiceMessageUrl('group', 'message')).toBe(`${origin}/api/v1/groups/group/voice-messages/message`);
+    expect(voiceMessageUrl('group', 'message')).toBe(
+      `${origin}/api/v1/groups/group/voice-messages/message`
+    );
     await api.post('/auth/logout');
-    expect(fetchMock).toHaveBeenLastCalledWith(`${base}/auth/logout`, expect.objectContaining({
-      method: 'POST', credentials: 'include',
-    }));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `${base}/auth/logout`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+      })
+    );
     // Regression: a bodyless POST must not declare a JSON content type.
     // Fastify's default body parser rejects `Content-Type: application/json`
     // on an empty body (FST_ERR_CTP_EMPTY_JSON_BODY) before the route handler
@@ -69,10 +106,12 @@ describe('API destination', () => {
     await expect(getApiHealth()).rejects.toThrow('API health check failed');
   });
 
-  it.each(['https://api.example.com/other', 'https://api.example.com?query=1', 'ftp://api.example.com']) (
-    'rejects an invalid API origin %s', async (origin) => {
-      vi.stubEnv('VITE_API_URL', origin);
-      await expect(import('./api-config')).rejects.toThrow('VITE_API_URL must be');
-    },
-  );
+  it.each([
+    'https://api.example.com/other',
+    'https://api.example.com?query=1',
+    'ftp://api.example.com',
+  ])('rejects an invalid API origin %s', async (origin) => {
+    vi.stubEnv('VITE_API_URL', origin);
+    await expect(import('./api-config')).rejects.toThrow('VITE_API_URL must be');
+  });
 });

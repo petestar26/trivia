@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import { requestStatus } from '@/lib/request-error';
+import { useLocation } from 'react-router-dom';
 
 interface GameCatalogItem {
   id: string;
@@ -62,11 +64,21 @@ export function GamesPage({
   emptyMessage = 'No games available right now.',
 }: GamesPageProps = {}) {
   const { user } = useAuth();
+  const location = useLocation();
 
-  const { data: games, isLoading } = useQuery<GameCatalogItem[]>({
+  const {
+    data: games,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<GameCatalogItem[]>({
     queryKey: ['games'],
     queryFn: async () => {
-      return unwrapData<GameCatalogItem[]>(await api.get<GameCatalogItem[]>('/games'), 'Games response');
+      return unwrapData<GameCatalogItem[]>(
+        await api.get<GameCatalogItem[]>('/games'),
+        'Games response'
+      );
     },
   });
 
@@ -80,14 +92,49 @@ export function GamesPage({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20" role="status" aria-label="Loading games">
+      <div
+        className="flex items-center justify-center py-20"
+        role="status"
+        aria-label="Loading games"
+      >
         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
       </div>
     );
   }
 
-  const publicGames = (games ?? []).filter(g =>
-    g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode)
+  if (isError)
+    return (
+      <div
+        role="alert"
+        className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-gray-900"
+      >
+        <h1 className="text-xl font-bold">{title}</h1>
+        <p className="mt-2">
+          {requestStatus(error) === 401
+            ? 'Your session is unavailable. Sign in again to load games.'
+            : 'Unable to load games. Please retry.'}
+        </p>
+        {requestStatus(error) === 401 ? (
+          <Link
+            to="/login"
+            state={{ from: location }}
+            className="mt-4 inline-block rounded-lg bg-primary-600 px-4 py-2 text-white"
+          >
+            Sign in again
+          </Link>
+        ) : (
+          <button
+            onClick={() => void refetch()}
+            className="mt-4 rounded-lg bg-primary-600 px-4 py-2 text-white"
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+
+  const publicGames = (games ?? []).filter(
+    (g) => g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode)
   );
 
   return (
@@ -95,9 +142,7 @@ export function GamesPage({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            {description}
-          </p>
+          <p className="text-gray-600 dark:text-gray-400">{description}</p>
         </div>
         <div className="flex items-center gap-3">
           <Link
@@ -138,7 +183,10 @@ export function GamesPage({
                     Coming soon
                   </span>
                   {game.key === 'spin_win' && (
-                    <Link to="/games/spin-win" className="mt-3 block text-sm font-semibold text-primary-600 underline dark:text-primary-400">
+                    <Link
+                      to="/games/spin-win"
+                      className="mt-3 block text-sm font-semibold text-primary-600 underline dark:text-primary-400"
+                    >
                       Try practice mode · no Coins
                     </Link>
                   )}

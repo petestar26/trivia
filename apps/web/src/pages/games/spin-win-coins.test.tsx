@@ -9,11 +9,15 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(),
   available: true,
   rulesId: 'single-zero-rtp90-v2',
+  walletError: false,
+  walletLoading: false,
 }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'spin-user' } }) }));
 vi.mock('@/components/casino/CasinoProvider', () => ({
   useCasino: () => ({
     coinsBalance: 1000,
+    walletError: mocks.walletError,
+    walletLoading: mocks.walletLoading,
     refetchBalance: vi.fn(),
     toggleFullscreen: vi.fn(),
     setSoundEnabled: vi.fn(),
@@ -64,6 +68,8 @@ afterEach(() => {
   mocks.play.mockReset();
   mocks.available = true;
   mocks.rulesId = 'single-zero-rtp90-v2';
+  mocks.walletError = false;
+  mocks.walletLoading = false;
 });
 async function mount() {
   const client = new QueryClient({
@@ -77,9 +83,44 @@ async function mount() {
     </QueryClientProvider>
   );
   await screen.findByRole('button', { name: 'Place Coin bets' });
+  await waitFor(() =>
+    expect(screen.queryByText('Loading game availability…')).not.toBeInTheDocument()
+  );
   return view;
 }
 describe('Spin Win Coin requests', () => {
+  it.each(['walletError', 'walletLoading'] as const)(
+    'blocks entry when %s prevents confirming the balance',
+    async (state) => {
+      mocks[state] = true;
+      await mount();
+      expect(screen.getByRole('button', { name: 'Bet on Red' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeDisabled();
+      expect(mocks.play).not.toHaveBeenCalled();
+    }
+  );
+  it('locks fresh wagers during result reveal and allows the next ticket afterwards', async () => {
+    mocks.play.mockResolvedValue({
+      ...result,
+      data: {
+        ...result.data,
+        isReplay: false,
+        result: { ...result.data.result, lines: [{ marketId: 'red', amount: 40, payout: 74 }] },
+      },
+    });
+    await mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Bet on Red' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Place Coin bets' }));
+    await screen.findByText('Round confirmed · revealing result…');
+    expect(screen.getByRole('button', { name: 'Bet on Black' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Rebet' })).toBeEnabled(), {
+      timeout: 3000,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Rebet' }));
+    expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeEnabled();
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+  });
   it('sends a ticket once and confirms a lost response with its original key and body', async () => {
     mocks.play.mockRejectedValueOnce(new TypeError('network')).mockResolvedValueOnce(result);
     await mount();
