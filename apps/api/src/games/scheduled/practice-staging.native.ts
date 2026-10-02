@@ -61,7 +61,8 @@ describe('disposable staging owner CLI',()=>{
   });
 
   it('provisions separate accounts, verifies least privilege and supports repeat setup',async()=>{
-    expect((await run('--setup')).code).toBe(0);
+    const first=await run('--setup');
+    expect(first.code, first.output).toBe(0);
     expect((await run('--setup')).code).toBe(0);
     const workerUrl = new URL(url!); workerUrl.username=workerRole; workerUrl.password=workerPassword;
     const runtime = new PrismaClient({datasourceUrl:workerUrl.toString(),log:[]});
