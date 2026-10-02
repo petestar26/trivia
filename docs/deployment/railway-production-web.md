@@ -9,11 +9,16 @@ database identity and game activation settings.
 ## Recommended frontend configuration
 
 - Source/root directory: repository root (`/`).
-- Railway config file: `deploy/railway/web/railway.json`.
+- Configure these fields directly on the frontend Railway service.
 - Build: `pnpm install --frozen-lockfile && pnpm --filter web build`.
 - Start: `node apps/web/server.mjs`.
 - Healthcheck: `/health` (forwards the API health response).
 - Public-domain target port: the gateway's `$PORT`, default `1443`.
+- Restart policy: ON_FAILURE, maximum three retries.
+
+Railway now deprecates `railway.json`/`railway.toml` configuration. Do not add a new
+config-file path for this frontend; direct service settings are sufficient for
+this update. Existing API/worker configuration is outside this frontend change.
 
 ```env
 VITE_API_PROXY=true
@@ -84,5 +89,6 @@ custom subdomains under one site are another deployment option.
 
 References: [Vite env variables](https://vite.dev/guide/env-and-mode),
 [Railpack Node/static sites](https://railpack.com/languages/node/),
+[Railway configuration migration](https://docs.railway.com/infrastructure-as-code#migrating-from-config-as-code),
 [cookie attributes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie),
 [Public Suffix List](https://publicsuffix.org/list/public_suffix_list.dat).
