@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const source = process.env.DATABASE_URL;
 const url = source ? new URL(source) : null;
@@ -16,6 +17,7 @@ const workerRole = `spin_rehearsal_worker_${suffix}`;
 const apiPassword = randomBytes(32).toString('hex');
 const workerPassword = randomBytes(32).toString('hex');
 const cli = fileURLToPath(new URL('../../../dist/scripts/staging-practice-owner.js', import.meta.url));
+const workerCli = fileURLToPath(new URL('../../../dist/scripts/scheduled-practice-worker.js', import.meta.url));
 let originalPublicProcedures: { signature: string }[] = [];
 let originalPublicProofReads: { name: string }[] = [];
 beforeAll(async()=>{
@@ -51,6 +53,35 @@ async function run(command: string, override: Record<string,string | undefined> 
   expect(output).not.toContain(workerPassword);
   expect(output).not.toContain(source!);
   return {code,output};
+}
+
+async function workerOnce(streamId: string) {
+  const workerUrl = new URL(url!);
+  workerUrl.username = workerRole;
+  workerUrl.password = workerPassword;
+  workerUrl.searchParams.set('connection_limit','1');
+  const child = spawn(process.execPath,[workerCli,'--once',`--stream=${streamId}`],{
+    env:{...process.env,DATABASE_URL:workerUrl.toString(),SCHEDULED_PRACTICE_WORKER_ENABLED:'true'},
+    stdio:['ignore','pipe','pipe'],
+  });
+  let output='';
+  child.stdout.on('data',chunk=>{output+=chunk.toString();});
+  child.stderr.on('data',chunk=>{output+=chunk.toString();});
+  const deadline=setTimeout(()=>child.kill('SIGKILL'),25_000);
+  try {
+    const code=await new Promise<number|null>((resolve,reject)=>{
+      child.once('error',reject); child.once('close',resolve);
+    });
+    expect(output).not.toContain(workerPassword);
+    expect(output).not.toContain(workerUrl.toString());
+    return {code,output};
+  } finally {clearTimeout(deadline);}
+}
+async function freshWorkerStream(id: string) {
+  await owner.$executeRawUnsafe(`INSERT INTO public.scheduled_game_streams
+    (id,game_key,rules_id,enabled,anchor_ms,betting_ms,reveal_ms,result_ms)
+    VALUES ($1,'spin_win','single-zero-rtp90-v2',true,
+      floor(EXTRACT(EPOCH FROM clock_timestamp())*1000)::BIGINT,10000,1000,1000)`,id);
 }
 
 afterAll(async()=>{
@@ -129,6 +160,59 @@ describe('disposable staging owner CLI',()=>{
       expect(JSON.parse(result.output)).toEqual({status:'REFUSED',reason:'WORKER_TABLES'});
     } finally { await owner.$executeRawUnsafe(`REVOKE SELECT ON public.wallets FROM "${workerRole}"`); }
     expect((await run('--setup')).code).toBe(0);
+  });
+
+  it('persists and draws with the exact setup role while direct invariant and approval calls stay denied',async()=>{
+    const id=`staging-worker-${suffix}`;
+    await freshWorkerStream(id);
+    const first=await workerOnce(id);
+    expect(first.code,first.output).toBe(0);
+    const rounds=await owner.$queryRawUnsafe<{id:string;state:string;closes_ms:bigint}[]>(
+      'SELECT id,state,closes_ms FROM public.scheduled_game_rounds WHERE stream_id=$1',id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].state).toBe('OPEN');
+    expect(JSON.parse(first.output)).toMatchObject({created:rounds[0].id,mode:'PRACTICE',coinsAccepted:false});
+    await owner.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',id);
+    await delay(Math.max(0,Number(rounds[0].closes_ms)-Date.now())+100);
+    const drawn=await workerOnce(id);
+    expect(drawn.code,drawn.output).toBe(0);
+    expect(JSON.parse(drawn.output).drawn).toEqual([rounds[0].id]);
+    const [before]=await owner.$queryRawUnsafe<{state:string;outcome:number}[]>(
+      'SELECT state,outcome FROM public.scheduled_game_rounds WHERE id=$1',rounds[0].id);
+    expect(before.state).toBe('DRAWN');
+    expect(before.outcome).toBeGreaterThanOrEqual(0);
+    expect(before.outcome).toBeLessThanOrEqual(36);
+    expect((await workerOnce(id)).code).toBe(0);
+    const [after]=await owner.$queryRawUnsafe<{state:string;outcome:number}[]>(
+      'SELECT state,outcome FROM public.scheduled_game_rounds WHERE id=$1',rounds[0].id);
+    expect(after).toEqual(before);
+    const [access]=await owner.$queryRaw<{direct:boolean;triggerOwner:boolean}[]>`
+      SELECT has_function_privilege(${workerRole},'public.house_round_randomness_failures()','EXECUTE') AS direct,
+        (SELECT prosecdef FROM pg_proc WHERE oid='public.house_round_randomness_constraint()'::regprocedure) AS "triggerOwner"`;
+    expect(access).toEqual({direct:false,triggerOwner:true});
+  });
+
+  it('does not publish a created round when a deferred commit check rolls it back',async()=>{
+    const id=`staging-failure-${suffix}`;
+    const fixture=`staging_commit_failure_${suffix}`;
+    await freshWorkerStream(id);
+    await owner.$executeRawUnsafe(`CREATE FUNCTION public."${fixture}"() RETURNS trigger
+      LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+      BEGIN RAISE EXCEPTION 'deferred commit refused fixture'; END $$`);
+    try {
+      await owner.$executeRawUnsafe(`CREATE CONSTRAINT TRIGGER "${fixture}"
+        AFTER INSERT ON public.scheduled_game_rounds DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW WHEN (NEW.stream_id='${id}') EXECUTE FUNCTION public."${fixture}"()`);
+      const result=await workerOnce(id);
+      expect(result.code,result.output).toBe(1);
+      expect(result.output).toContain('Practice round tick failed; no result published by this tick.');
+      expect(result.output).not.toContain('"created"');
+      expect(await owner.$queryRawUnsafe('SELECT id FROM public.scheduled_game_rounds WHERE stream_id=$1',id)).toEqual([]);
+    } finally {
+      await owner.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${fixture}" ON public.scheduled_game_rounds`);
+      await owner.$executeRawUnsafe(`DROP FUNCTION public."${fixture}"()`);
+      await owner.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',id);
+    }
   });
 
   it('reports only practice status and refuses arbitrary commands or credential syntax',async()=>{
