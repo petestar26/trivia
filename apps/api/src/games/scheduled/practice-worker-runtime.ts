@@ -89,7 +89,8 @@ export async function listenPracticeHealth(
   server.keepAliveTimeout = 1_000;
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '0.0.0.0', () => {
+    // Node's unspecified host supports IPv6 private networking and IPv4 probes.
+    server.listen(port, () => {
       server.removeListener('error', reject);
       resolve();
     });

@@ -143,6 +143,8 @@ table grants. Trigger functions stay unchanged. Native tests verify the worker
 cannot execute the approval procedure while the API can, then restore the CI
 fixture's original PUBLIC ACLs before unrelated suites run. This changes no
 production grants or migrations.
+The three public proof-table SELECT grants move to this API as well; native CI
+restores its original proof-table ACLs. Effective column grants are checked too.
 
 After setup, `--status` prints only practice availability, recent round IDs,
 states/results and an aggregate ticket count. It prints no player identity,
@@ -150,6 +152,10 @@ selections or credentials. `--enable` and `--pause` control only the disposable
 Spin stream after worker deployment. All failures print a fixed `REFUSED`
 status and a fixed reason label. Keep the owner connection solely in this job, with restart policy NEVER.
 No owner secret belongs in the API or draw worker.
+`--probe-worker` and `--probe-api` check only these services' fixed private
+Railway health URLs and report HTTP status without exposing responses or secrets.
+The worker health listener accepts both IPv4 deployment probes and IPv6 private
+networking. No public domain is needed for these backend checks.
 
 Four compiled-CLI native tests cover refused targets/acknowledgements,
 repeatable setup with separate logins, effective role boundaries, excessive

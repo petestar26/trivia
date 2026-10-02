@@ -118,6 +118,10 @@ async function setup(tx: Prisma.TransactionClient) {
     await tx.$executeRawUnsafe(`REVOKE EXECUTE ON FUNCTION ${procedure.signature} FROM PUBLIC`);
     await tx.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION ${procedure.signature} TO "${api.role}"`);
   }
+  // These public proof relations are exposed through API routes; the draw
+  // worker needs neither their reads nor their financial publication metadata.
+  await tx.$executeRawUnsafe('REVOKE SELECT ON public.house_round_beacon_pins, public.house_publication_requests, public.house_publication_receipts FROM PUBLIC');
+  await tx.$executeRawUnsafe(`GRANT SELECT ON public.house_round_beacon_pins, public.house_publication_requests, public.house_publication_receipts TO "${api.role}"`);
   await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${worker.role}"`);
   await tx.$executeRawUnsafe(`GRANT SELECT ON public.scheduled_game_streams, public.scheduled_game_rounds TO "${worker.role}"`);
   await tx.$executeRawUnsafe(`GRANT INSERT ON public.scheduled_game_rounds TO "${worker.role}"`);
@@ -130,10 +134,10 @@ async function setup(tx: Prisma.TransactionClient) {
 
 async function main() {
   if (command === '--help' && process.argv.length === 3) {
-    console.log('staging-practice-owner --guard|--setup|--status|--enable|--pause');
+    console.log('staging-practice-owner --guard|--setup|--status|--enable|--pause|--probe-worker|--probe-api');
     return;
   }
-  if (process.argv.length !== 3 || !['--guard','--setup','--status','--enable','--pause'].includes(command ?? '')) {
+  if (process.argv.length !== 3 || !['--guard','--setup','--status','--enable','--pause','--probe-worker','--probe-api'].includes(command ?? '')) {
     throw new Error('refused');
   }
   const db = new PrismaClient({ datasourceUrl: connection(), log: [] });
@@ -142,6 +146,19 @@ async function main() {
       SELECT current_user::text = pg_catalog.pg_get_userbyid(datdba) AS owns
       FROM pg_catalog.pg_database WHERE datname=current_database()`;
     if (!owner?.owns) throw new Refused('OWNER');
+    if (command === '--probe-worker' || command === '--probe-api') {
+      const target = command === '--probe-worker'
+        ? 'http://spin-practice-worker-20261002.railway.internal:1444/health'
+        : 'http://spin-practice-api-20261002.railway.internal:8080/health';
+      const response = await fetch(target, { signal: AbortSignal.timeout(5_000) });
+      if (response.status !== 200) throw new Error('refused');
+      if (command === '--probe-worker') {
+        const body = await response.json() as { ready?: boolean; mode?: string; coinsAccepted?: boolean };
+        if (body.ready !== true || body.mode !== 'PRACTICE' || body.coinsAccepted !== false) throw new Error('refused');
+      }
+      console.log(JSON.stringify({status:'READY',action:command,httpStatus:200,coinsAccepted:false}));
+      return;
+    }
     if (command === '--setup') await db.$transaction(setup, { timeout: 25_000 });
     if (command === '--enable' || command === '--pause') {
       const changed = await db.$executeRaw`

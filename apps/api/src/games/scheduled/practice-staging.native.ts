@@ -17,6 +17,7 @@ const apiPassword = randomBytes(32).toString('hex');
 const workerPassword = randomBytes(32).toString('hex');
 const cli = fileURLToPath(new URL('../../../dist/scripts/staging-practice-owner.js', import.meta.url));
 let originalPublicProcedures: { signature: string }[] = [];
+let originalPublicProofReads: { name: string }[] = [];
 beforeAll(async()=>{
   originalPublicProcedures = await owner.$queryRaw<{signature:string}[]>`
     SELECT format('%I.%I(%s)',n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)) AS signature
@@ -24,6 +25,11 @@ beforeAll(async()=>{
     CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
     WHERE n.nspname='public' AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
       AND a.grantee=0 AND a.privilege_type='EXECUTE'`;
+  originalPublicProofReads = await owner.$queryRaw<{name:string}[]>`
+    SELECT c.relname::text AS name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+    WHERE n.nspname='public' AND c.relname IN ('house_round_beacon_pins','house_publication_requests','house_publication_receipts')
+      AND a.grantee=0 AND a.privilege_type='SELECT'`;
 });
 
 async function run(command: string, override: Record<string,string | undefined> = {}) {
@@ -52,6 +58,9 @@ afterAll(async()=>{
     // Restore this disposable CI fixture's original ACL before other suites run.
     for(const procedure of originalPublicProcedures) {
       await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION ${procedure.signature} TO PUBLIC`);
+    }
+    for(const relation of originalPublicProofReads) {
+      await owner.$executeRawUnsafe(`GRANT SELECT ON public."${relation.name}" TO PUBLIC`);
     }
     for(const role of [apiRole,workerRole]) {
       const [row] = await owner.$queryRaw<{ exists:boolean }[]>`SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=${role}) AS exists`;
@@ -105,10 +114,11 @@ describe('disposable staging owner CLI',()=>{
         has_column_privilege(${apiRole},'public.scheduled_game_rounds','outcome','UPDATE') AS draw,
         has_table_privilege(${apiRole},'public.scheduled_practice_tickets','INSERT') AS ticket`;
     expect(api).toEqual({keys:false,draw:false,ticket:true});
-    const [procedures] = await owner.$queryRaw<{worker:boolean;api:boolean}[]>`
+    const [procedures] = await owner.$queryRaw<{worker:boolean;api:boolean;workerProof:boolean}[]>`
       SELECT has_function_privilege(${workerRole},'public.ledger_adjustment_first_approval(text,text,text,text,text)','EXECUTE') AS worker,
-        has_function_privilege(${apiRole},'public.ledger_adjustment_first_approval(text,text,text,text,text)','EXECUTE') AS api`;
-    expect(procedures).toEqual({worker:false,api:true});
+        has_function_privilege(${apiRole},'public.ledger_adjustment_first_approval(text,text,text,text,text)','EXECUTE') AS api,
+        has_table_privilege(${workerRole},'public.house_publication_receipts','SELECT') AS "workerProof"`;
+    expect(procedures).toEqual({worker:false,api:true,workerProof:false});
   });
 
   it('refuses excess existing worker privileges and rolls back without exposing credentials',async()=>{
