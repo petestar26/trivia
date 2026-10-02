@@ -1,14 +1,19 @@
 # Supervised shared-practice worker
 
-This candidate adds health and supervision to the existing practice scheduler.
-It does not activate a stream, change any migration or financial setting, or
-replace the API or ordinary worker service.
+This candidate adds health, supervision and committed-write verification to
+the existing practice scheduler. A forward migration confines its deferred
+financial proof check to financial writes, while direct financial proof calls
+stay denied to the restricted worker. It does not activate a stream, change
+financial settings, or replace the API or ordinary worker service.
 
 ## Runtime behavior
 
 - `--once` retains its success/failure exit codes and starts no HTTP listener.
 - `--loop` runs one transaction at a time, retrying failures after one second.
-  A successful transaction is reported only after commit.
+  Changed round IDs are verified with a fresh statement after the transaction
+  returns. Missing creation or an uncommitted draw fails the tick without
+  publishing progress. This covers Prisma resolving a transaction after a
+  deferred COMMIT check silently rolled it back.
 - Optional `SCHEDULED_PRACTICE_HEALTH_PORT` serves uncached `GET`/`HEAD /health`.
   Responses contain only status, readiness, `mode: PRACTICE` and
   `coinsAccepted: false`; no connection details, results, tickets or player data.
@@ -162,10 +167,57 @@ repeatable setup with separate logins, effective role boundaries, excessive
 privilege refusal and credential-safe output. Platform deployment and recovery
 still require target rehearsal; passing these tests does not certify it.
 
+Two additional native cases run the actual compiled worker with those exact
+setup accounts and PUBLIC ACLs still restricted. They verify persisted
+creation/draw/restart and force a deferred COMMIT failure to check that no
+round ID is published. The previous independent worker fixture restored
+PUBLIC ACLs first and therefore missed the staging account's trigger failure.
+
+The forward migration changes only `house_round_randomness_constraint()`:
+it returns without invoking the financial helper for a PRACTICE row in
+`scheduled_game_rounds`. That row cannot alter the financial proof relations.
+Every financial round, randomness and beacon write keeps the existing proof
+check. The trigger stays SECURITY INVOKER with its fixed search path and
+existing ACL; no role or privilege changes. The worker receives no direct
+access to the callable proof function, financial tables, tickets, users,
+wallets or signing keys. No financial gate or customer data changes.
+
 ## Candidate validation
 
 Nine focused tests cover readiness, real HTTP health, watchdog timing,
 failure/retry, non-overlap and shutdown. CI adds four compiled-worker checks:
 restricted access, disabled startup, pause/restart with a stored draw, and
 unhealthy-to-healthy recovery. Check the PR for exact-head native CI results.
-No staging or production worker activation is included.
+Production worker activation is not included. Disposable staging is rehearsed
+separately with the owner job below.
+
+## Private disposable acceptance job
+
+`apps/api/scripts/spin-staging-rehearsal.cjs` is an operator-only acceptance
+script. Run it from the repository root in the disposable owner job, after
+the guarded setup and healthy API/worker deployment. It requires the same
+exact staging environment, private database hostname, database name and
+acknowledgement as the owner CLI, and checks database ownership. It refuses
+all other targets before connecting. It never belongs in API/worker startup.
+
+The script uses fixed private API/worker URLs and fresh synthetic accounts.
+It checks registration/refresh, the 45/10/5-second contract, one accepted
+40-point practice ticket, identical retries, changed-ticket rejection and
+pause admission. It temporarily revokes only the disposable worker's stream
+SELECT for 72 seconds to check unhealthy readiness, no partial draw and
+recovery; its cleanup restores that grant and pauses the stream. Confirm
+the watchdog exit and platform restart separately in worker runtime logs.
+
+After recovery, a bounded 120-second observation window lets the operator
+redeploy the worker and verify the stored outcome and ticket remain fixed.
+The script then resumes at the current interval, checks no historical
+backfill, pauses again and waits for the opened round to finish. It ends
+with two stored draws, one ticket and the stream paused. Output contains
+only fixed check labels and aggregate/round evidence, never tokens, passwords
+or player identities. A PASS does not certify browser refresh/reconnection;
+those still need the same-candidate frontend rehearsal.
+
+Railway's redeploy action may clone an older deployment configuration. After
+changing the owner job command, use a fresh deployment of its pinned commit
+with the current service settings and verify the executed command in runtime
+logs. Restarting the draw worker without configuration changes can use redeploy.

@@ -35,7 +35,7 @@ async function databaseNow(tx: RoundTransaction): Promise<number> {
  */
 export async function tickPracticeStream(db: RoundDatabase, streamId: string) {
   identifier(streamId, 'Stream ID');
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [lock] = await tx.query<{ locked: boolean }>(
       "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('scheduled-round:' || $1::TEXT, 0)) AS locked",
       [streamId],
@@ -90,6 +90,27 @@ export async function tickPracticeStream(db: RoundDatabase, streamId: string) {
     }
     return { busy: false, created, drawn };
   });
+  // Some Prisma/PostgreSQL combinations can resolve an interactive transaction
+  // after a deferred COMMIT check rolled it back. Verify writes from a new
+  // statement before reporting progress or publishing a durable round ID.
+  const changed = [result.created, ...result.drawn].filter((id): id is string => id !== null);
+  if (changed.length) {
+    const rows = await db.query<{ id: string; state: string; outcome: number | null }>(
+      `SELECT id,state,outcome FROM public.scheduled_game_rounds
+       WHERE stream_id=$1 AND id IN (${changed.map((_, index) => `$${index + 2}`).join(',')})`,
+      [streamId, ...changed],
+    );
+    const committed = new Map(rows.map((row) => [row.id, row]));
+    if (changed.some((id) => !committed.has(id)) ||
+        (result.created !== null && !['OPEN','DRAWN'].includes(committed.get(result.created)!.state)) ||
+        result.drawn.some((id) => {
+          const row = committed.get(id)!;
+          return row.state !== 'DRAWN' || !Number.isInteger(row.outcome) || row.outcome! < 0 || row.outcome! > 36;
+        })) {
+      throw new Error('Practice tick changes did not commit');
+    }
+  }
+  return result;
 }
 
 /** Read-only polling; it never creates a round or triggers a draw. */

@@ -189,7 +189,7 @@ describe('disposable staging owner CLI',()=>{
     const [access]=await owner.$queryRaw<{direct:boolean;triggerOwner:boolean}[]>`
       SELECT has_function_privilege(${workerRole},'public.house_round_randomness_failures()','EXECUTE') AS direct,
         (SELECT prosecdef FROM pg_proc WHERE oid='public.house_round_randomness_constraint()'::regprocedure) AS "triggerOwner"`;
-    expect(access).toEqual({direct:false,triggerOwner:true});
+    expect(access).toEqual({direct:false,triggerOwner:false});
   });
 
   it('does not publish a created round when a deferred commit check rolls it back',async()=>{

@@ -129,6 +129,41 @@ describe('durable practice stream', () => {
     expect(await readPracticeRound(db, created!)).toMatchObject({ state: 'OPEN', outcome: null });
     expect((await tickPracticeStream(db, stream)).drawn).toEqual([created]);
   });
+  it('refuses a success acknowledgement when creation was silently rolled back', async () => {
+    const stream = await createStream();
+    const swallowed: RoundDatabase = { ...db, transaction: async (run) => {
+      let result: unknown;
+      try {
+        await pg.transaction(async (tx) => {
+          result = await run(wrap(tx));
+          throw new Error('rollback fixture');
+        });
+      } catch { /* Reproduce a transaction adapter that resolves after rollback. */ }
+      return result as never;
+    } };
+    await expect(tickPracticeStream(swallowed, stream)).rejects.toThrow('Practice tick changes did not commit');
+    expect(await db.query('SELECT id FROM public.scheduled_game_rounds WHERE stream_id=$1',[stream])).toEqual([]);
+    expect((await tickPracticeStream(db, stream)).created).toBe(`${stream}:0`);
+  });
+  it('refuses to publish a draw when its deferred commit was silently rolled back', async () => {
+    const stream = await createStream(800);
+    const { created } = await tickPracticeStream(db, stream);
+    await db.query('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',[stream]);
+    await closeEntries(created!);
+    const swallowed: RoundDatabase = { ...db, transaction: async (run) => {
+      let result: unknown;
+      try {
+        await pg.transaction(async (tx) => {
+          result = await run(wrap(tx));
+          throw new Error('rollback fixture');
+        });
+      } catch { /* The new read must distinguish stored OPEN from claimed DRAWN. */ }
+      return result as never;
+    } };
+    await expect(tickPracticeStream(swallowed, stream)).rejects.toThrow('Practice tick changes did not commit');
+    expect(await readPracticeRound(db, created!)).toMatchObject({state:'OPEN',outcome:null});
+    expect((await tickPracticeStream(db, stream)).drawn).toEqual([created]);
+  });
   it('rejects unknown streams and forged inserts, including pre-published results', async () => {
     await expect(tickPracticeStream(db, 'unknown')).rejects.toThrow('Unknown stream');
     const stream = await createStream();

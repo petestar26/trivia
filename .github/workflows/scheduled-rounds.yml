@@ -10,6 +10,7 @@ on:
       - 'apps/api/src/server.ts'
       - 'apps/api/tsconfig.json'
       - 'apps/api/scripts/check-shared-types.mjs'
+      - 'apps/api/scripts/spin-staging-rehearsal.cjs'
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
@@ -106,6 +107,21 @@ jobs:
         run: |
           pnpm --filter api exec node build.js
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/practice-staging.native.ts
+      - name: Private staging rehearsal syntax and refused production target
+        run: |
+          node --check apps/api/scripts/spin-staging-rehearsal.cjs
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import assert from 'node:assert/strict';
+          const result = spawnSync(process.execPath, ['apps/api/scripts/spin-staging-rehearsal.cjs'], {
+            env: { ...process.env, RAILWAY_ENVIRONMENT_ID: 'production' }, encoding: 'utf8',
+          });
+          assert.equal(result.status, 1);
+          assert.equal(result.stdout, '');
+          assert.deepEqual(JSON.parse(result.stderr), {
+            status: 'REFUSED', stage: 'TARGET', reason: 'STAGING_REHEARSAL_FAILED',
+          });
+          NODE
       - name: Economics and embedded SQL contracts
         run: |
           # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
