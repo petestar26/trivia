@@ -10,6 +10,7 @@ let db;
 let faulted = false;
 let touchedStream = false;
 let deadline;
+let priorRounds = new Map();
 const check = (condition) => { if (!condition) throw new Error('refused'); };
 const log = (step, extra = {}) => console.log(JSON.stringify({ status: 'PASS', step, mode: 'PRACTICE', coinsAccepted: false, ...extra }));
 
@@ -70,8 +71,23 @@ async function stream(enabled) {
   touchedStream = true;
   check(await db.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=$1 WHERE id=$2', enabled, STREAM) === 1);
 }
+function fingerprint(r) { return [r.sequence.toString(), r.state, r.outcome, r.drawn_at?.toISOString() ?? null]; }
 async function stored() {
-  return db.$queryRawUnsafe('SELECT id,sequence,state,outcome,drawn_at FROM public.scheduled_game_rounds WHERE stream_id=$1 ORDER BY sequence', STREAM);
+  const rows = await db.$queryRawUnsafe('SELECT id,sequence,state,outcome,drawn_at FROM public.scheduled_game_rounds WHERE stream_id=$1 ORDER BY sequence', STREAM);
+  for (const [id, prior] of priorRounds) {
+    const row = rows.find(r => r.id === id);
+    check(row && JSON.stringify(fingerprint(row)) === JSON.stringify(prior));
+  }
+  return rows.filter(r => !priorRounds.has(r.id));
+}
+async function resumeAtEntry() {
+  const [clock] = await db.$queryRawUnsafe('SELECT floor(EXTRACT(EPOCH FROM clock_timestamp())*1000)::BIGINT AS now_ms');
+  const offset = Number(clock.now_ms) % 60000;
+  if (offset > 15000) {
+    log('ENTRY_BOUNDARY_WAIT', { waitMilliseconds: 60000 - offset + 100 });
+    await sleep(60000 - offset + 100);
+  }
+  await stream(true);
 }
 async function ticket(token, roundId, marketId = 'red') {
   return request('/games/scheduled/spin-win/tickets', token, { roundId, bets: [{ marketId, amount: 40 }] });
@@ -98,7 +114,9 @@ async function main() {
     stage = 'PAUSED_BASELINE';
     await waitHealthy();
     const [baseline] = await db.$queryRawUnsafe('SELECT enabled FROM public.scheduled_game_streams WHERE id=$1', STREAM);
-    check(baseline?.enabled === false && (await stored()).length === 0);
+    const history = await stored();
+    check(baseline?.enabled === false && history.length <= 10 && history.every(r => r.state === 'DRAWN' && Number.isInteger(r.outcome)));
+    priorRounds = new Map(history.map(r => [r.id, fingerprint(r)]));
     log(stage);
     stage = 'STAGING_AUTH';
     const primary = await account();
@@ -108,7 +126,7 @@ async function main() {
     primary.token = rotated.body.data.accessToken;
     log(stage);
     stage = 'OPEN_TICKET';
-    await stream(true);
+    await resumeAtEntry();
     const { r: round } = await waitOpen(primary.token);
     check(round.closesAt - round.opensAt === 45000 && round.revealEndsAt - round.closesAt === 10000 && round.endsAt - round.revealEndsAt === 5000);
     const accepted = await ticket(primary.token, round.id);
@@ -164,7 +182,7 @@ async function main() {
       log('PAUSED_IMMUTABLE_OBSERVATION', { elapsedSeconds: (i + 1) * 20 });
     }
     stage = 'NO_HISTORICAL_BACKFILL';
-    await stream(true);
+    await resumeAtEntry();
     check((await ticket(late.token, round.id)).status === 409);
     check((await ticket(primary.token, round.id)).status === 200);
     log('CLOSED_ROUND_CUTOFF_AND_RETRY');
@@ -185,9 +203,9 @@ async function main() {
     check(finished);
     await waitHealthy();
     const end = await snapshot(primary.token);
-    check(end.enabled === false && end.nextOpensAt === null && end.rounds.length === 2);
+    check(end.enabled === false && end.nextOpensAt === null && end.rounds.filter(r => !priorRounds.has(r.id)).length === 2);
     check(end.rounds.find(r => r.id === round.id)?.outcome === fixedOutcome);
-    log('REHEARSAL_COMPLETE', { rounds: 2, tickets: 1, streamPaused: true });
+    log('REHEARSAL_COMPLETE', { rounds: 2, tickets: 1, streamPaused: true, historyPreserved: priorRounds.size });
   } finally {
     if (faulted) await db.$executeRawUnsafe('GRANT SELECT ON public.scheduled_game_streams TO "spin_rehearsal_worker_20261002"');
     if (touchedStream) await stream(false);

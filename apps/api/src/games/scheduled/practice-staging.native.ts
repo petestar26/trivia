@@ -162,6 +162,61 @@ describe('disposable staging owner CLI',()=>{
     expect((await run('--setup')).code).toBe(0);
   });
 
+
+  it('admits an immutable ticket with the exact API role without round or schedule write privileges',async()=>{
+    const id=`staging-api-${suffix}`;
+    await freshWorkerStream(id);
+    expect((await workerOnce(id)).code).toBe(0);
+    const [round]=await owner.$queryRawUnsafe<{id:string;closes_ms:bigint}[]>(
+      'SELECT id,closes_ms FROM public.scheduled_game_rounds WHERE stream_id=$1',id);
+    const user=await owner.user.create({data:{username:`api-ticket-${suffix}`}});
+    const late=await owner.user.create({data:{username:`api-late-${suffix}`}});
+    const apiUrl=new URL(url!); apiUrl.username=apiRole; apiUrl.password=apiPassword;
+    const runtime=new PrismaClient({datasourceUrl:apiUrl.toString(),log:[]});
+    try {
+      const [access]=await runtime.$queryRaw<{draw:boolean;schedule:boolean;triggerOwner:boolean}[]>`
+        SELECT has_any_column_privilege(current_user,'public.scheduled_game_rounds','UPDATE') AS draw,
+          has_any_column_privilege(current_user,'public.scheduled_game_streams','UPDATE') AS schedule,
+          (SELECT prosecdef FROM pg_proc WHERE oid='public.scheduled_practice_ticket_guard()'::regprocedure) AS "triggerOwner"`;
+      expect(access).toEqual({draw:false,schedule:false,triggerOwner:false});
+      const [accepted]=await runtime.$queryRawUnsafe<{accepted_at:Date}[]>(
+        "INSERT INTO public.scheduled_practice_tickets(round_id,user_id,bets) VALUES ($1,$2,'[{\"marketId\":\"red\",\"amount\":40}]'::JSONB) RETURNING accepted_at",
+        round.id,user.id);
+      expect(accepted.accepted_at.getTime()).toBeLessThan(Number(round.closes_ms));
+      expect(await owner.scheduledPracticeTicket.count({where:{roundId:round.id}})).toBe(1);
+      await expect(runtime.$executeRawUnsafe('UPDATE public.scheduled_game_rounds SET outcome=1 WHERE id=$1',round.id))
+        .rejects.toMatchObject({meta:{code:'42501'}});
+      await expect(runtime.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',id))
+        .rejects.toMatchObject({meta:{code:'42501'}});
+      await owner.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',id);
+      await expect(runtime.$executeRawUnsafe(
+        "INSERT INTO public.scheduled_practice_tickets(round_id,user_id,bets) VALUES ($1,$2,'[{\"marketId\":\"red\",\"amount\":40}]'::JSONB)",round.id,late.id))
+        .rejects.toMatchObject({meta:{code:'23514'}});
+      const [saved]=await runtime.$queryRawUnsafe<{bets:unknown;accepted_at:Date}[]>(
+        'SELECT bets,accepted_at FROM public.scheduled_practice_tickets WHERE round_id=$1 AND user_id=$2',round.id,user.id);
+      expect(saved).toEqual({bets:[{marketId:'red',amount:40}],accepted_at:accepted.accepted_at});
+    } finally {await runtime.$disconnect();}
+  });
+
+  it.each(['RepeatableRead','Serializable'] as const)('refuses practice ticket inserts under %s with no row persisted',async(isolationLevel)=>{
+    const id=`staging-snapshot-${isolationLevel.toLowerCase()}-${suffix}`;
+    await freshWorkerStream(id);
+    expect((await workerOnce(id)).code).toBe(0);
+    const [round]=await owner.$queryRawUnsafe<{id:string}[]>('SELECT id FROM public.scheduled_game_rounds WHERE stream_id=$1',id);
+    const user=await owner.user.create({data:{username:`api-snapshot-${isolationLevel}-${suffix}`}});
+    const apiUrl=new URL(url!);apiUrl.username=apiRole;apiUrl.password=apiPassword;
+    const runtime=new PrismaClient({datasourceUrl:apiUrl.toString(),log:[]});
+    try {
+      await expect(runtime.$transaction(tx=>tx.$executeRawUnsafe(
+        "INSERT INTO public.scheduled_practice_tickets(round_id,user_id,bets) VALUES ($1,$2,'[{\"marketId\":\"red\",\"amount\":40}]'::JSONB)",round.id,user.id),
+        {isolationLevel})).rejects.toThrow(/could not serialize|write conflict/i);
+      expect(await owner.scheduledPracticeTicket.count({where:{roundId:round.id}})).toBe(0);
+    } finally {
+      await runtime.$disconnect();
+      await owner.$executeRawUnsafe('UPDATE public.scheduled_game_streams SET enabled=false WHERE id=$1',id);
+    }
+  });
+
   it('persists and draws with the exact setup role while direct invariant and approval calls stay denied',async()=>{
     const id=`staging-worker-${suffix}`;
     await freshWorkerStream(id);
