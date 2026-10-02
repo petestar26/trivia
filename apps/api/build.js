@@ -32,6 +32,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/game-economics-preview.ts'),
       // Standalone opt-in practice scheduler; never starts with the API/worker.
       join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
+      // Owner-only controls restricted to the disposable staging rehearsal DB.
+      join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),
       // Offline player archive verification; no database or provider connection.

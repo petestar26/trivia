@@ -100,6 +100,52 @@ Production activation remains a separate release decision after this evidence.
 For rollback, pause the stream first and leave its worker running until all
 accepted rounds are drawn; only then stop or roll back the service.
 
+## Disposable staging owner command
+
+`staging-practice-owner` is an explicitly owner-only job, never an API or worker
+startup command. It refuses connections except the staging environment
+`7de0c716-24df-4e97-a998-ed99abfa256f`, host
+`spin-practice-db-20261002.railway.internal`, database
+`playqube_spin_rehearsal_20261002`, and acknowledgement
+`PRACTICE_STAGING_ACK=spin-practice-rehearsal-20261002`. Native CI has a separate
+loopback-only throwaway acknowledgement. The connected account must own the
+database. Check with `--guard` before applying any migration.
+
+For `--setup`, set `PRACTICE_API_ROLE`, `PRACTICE_API_PASSWORD`,
+`PRACTICE_WORKER_ROLE` and `PRACTICE_WORKER_PASSWORD` only on the owner job.
+Use distinct role names `spin_rehearsal_api_20261002` and
+`spin_rehearsal_worker_20261002`, with separate randomly generated 64-character
+hex passwords installed in secret settings. The API and worker receive their
+own complete restricted connection, never the owner's `DATABASE_URL`.
+
+The owner job's first start command is:
+
+```sh
+node apps/api/dist/scripts/staging-practice-owner.js --guard &&
+pnpm --filter @socialplay/database db:migrate:deploy &&
+node apps/api/dist/scripts/staging-practice-owner.js --setup
+```
+
+Setup is transactional and repeatable. It refuses elevated, member or owning
+roles, applies the existing API runtime-grants function, limits its practice
+access to reading rounds and inserting tickets, and grants the separate draw
+worker only its required tables/columns. It verifies effective table, column,
+sequence, schema and security-definer access, including PUBLIC grants. Existing
+excess worker privileges cause refusal and rollback. Setup does not install
+an approval key, enable a practice stream or activate Coins.
+
+After setup, `--status` prints only practice availability, recent round IDs,
+states/results and an aggregate ticket count. It prints no player identity,
+selections or credentials. `--enable` and `--pause` control only the disposable
+Spin stream after worker deployment. All failures print a fixed `REFUSED`
+status. Keep the owner connection solely in this job, with restart policy NEVER.
+No owner secret belongs in the API or draw worker.
+
+Four compiled-CLI native tests cover refused targets/acknowledgements,
+repeatable setup with separate logins, effective role boundaries, excessive
+privilege refusal and credential-safe output. Platform deployment and recovery
+still require target rehearsal; passing these tests does not certify it.
+
 ## Candidate validation
 
 Nine focused tests cover readiness, real HTTP health, watchdog timing,

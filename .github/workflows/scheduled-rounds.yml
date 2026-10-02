@@ -33,6 +33,7 @@ on:
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
+      - 'apps/api/src/scripts/staging-practice-owner.ts'
       - 'apps/api/src/scripts/house-round-recovery.ts'
       - 'apps/api/src/scripts/ledger-runtime-access.ts'
       - 'docs/deployment/repair-practice-runtime-reads.sql'
@@ -160,14 +161,17 @@ jobs:
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/games/scheduled/practice-worker.native.ts
+          src/games/scheduled/practice-staging.native.ts
 
       - name: Practice worker TypeScript contracts
         run: >-
           pnpm --filter api exec tsc --noEmit --strict --skipLibCheck
           --target ES2022 --module NodeNext --moduleResolution NodeNext --types node
           src/scripts/scheduled-practice-worker.ts
+          src/scripts/staging-practice-owner.ts
           src/games/scheduled/practice-worker-runtime.test.ts
           src/games/scheduled/practice-worker.native.ts
+          src/games/scheduled/practice-staging.native.ts
 
       - name: Scheduled practice web contracts
         run: >-
