@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,15 @@ const workerRole = `spin_rehearsal_worker_${suffix}`;
 const apiPassword = randomBytes(32).toString('hex');
 const workerPassword = randomBytes(32).toString('hex');
 const cli = fileURLToPath(new URL('../../../dist/scripts/staging-practice-owner.js', import.meta.url));
+let originalPublicProcedures: { signature: string }[] = [];
+beforeAll(async()=>{
+  originalPublicProcedures = await owner.$queryRaw<{signature:string}[]>`
+    SELECT format('%I.%I(%s)',n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)) AS signature
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+    WHERE n.nspname='public' AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
+      AND a.grantee=0 AND a.privilege_type='EXECUTE'`;
+});
 
 async function run(command: string, override: Record<string,string | undefined> = {}) {
   const child = spawn(process.execPath,[cli,command],{
@@ -40,6 +49,10 @@ async function run(command: string, override: Record<string,string | undefined> 
 
 afterAll(async()=>{
   try {
+    // Restore this disposable CI fixture's original ACL before other suites run.
+    for(const procedure of originalPublicProcedures) {
+      await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION ${procedure.signature} TO PUBLIC`);
+    }
     for(const role of [apiRole,workerRole]) {
       const [row] = await owner.$queryRaw<{ exists:boolean }[]>`SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=${role}) AS exists`;
       if(row?.exists) {
@@ -87,6 +100,10 @@ describe('disposable staging owner CLI',()=>{
         has_column_privilege(${apiRole},'public.scheduled_game_rounds','outcome','UPDATE') AS draw,
         has_table_privilege(${apiRole},'public.scheduled_practice_tickets','INSERT') AS ticket`;
     expect(api).toEqual({keys:false,draw:false,ticket:true});
+    const [procedures] = await owner.$queryRaw<{worker:boolean;api:boolean}[]>`
+      SELECT has_function_privilege(${workerRole},'public.ledger_adjustment_first_approval(text,text,text,text,text)','EXECUTE') AS worker,
+        has_function_privilege(${apiRole},'public.ledger_adjustment_first_approval(text,text,text,text,text)','EXECUTE') AS api`;
+    expect(procedures).toEqual({worker:false,api:true});
   });
 
   it('refuses excess existing worker privileges and rolls back without exposing credentials',async()=>{

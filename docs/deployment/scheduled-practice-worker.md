@@ -136,6 +136,14 @@ TRIGGER/schema-CREATE privileges. Existing
 excess worker privileges cause refusal and rollback. Setup does not install
 an approval key, enable a practice stream or activate Coins.
 
+Some existing approval/proof security-definer procedures allow PUBLIC execution.
+In this disposable database only, setup transfers their PUBLIC EXECUTE grants to
+its API account. A separate LOGIN would otherwise retain them despite restricted
+table grants. Trigger functions stay unchanged. Native tests verify the worker
+cannot execute the approval procedure while the API can, then restore the CI
+fixture's original PUBLIC ACLs before unrelated suites run. This changes no
+production grants or migrations.
+
 After setup, `--status` prints only practice availability, recent round IDs,
 states/results and an aggregate ticket count. It prints no player identity,
 selections or credentials. `--enable` and `--pause` control only the disposable

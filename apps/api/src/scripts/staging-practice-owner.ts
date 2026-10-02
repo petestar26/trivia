@@ -98,6 +98,21 @@ async function setup(tx: Prisma.TransactionClient) {
   await tx.$executeRawUnsafe(`REVOKE ALL ON public.scheduled_game_streams, public.scheduled_game_rounds, public.scheduled_practice_tickets FROM "${api.role}"`);
   await tx.$executeRawUnsafe(`GRANT SELECT ON public.scheduled_game_streams, public.scheduled_game_rounds, public.scheduled_practice_tickets TO "${api.role}"`);
   await tx.$executeRawUnsafe(`GRANT INSERT ON public.scheduled_practice_tickets TO "${api.role}"`);
+  // PUBLIC execution of existing approval/proof procedures reaches every LOGIN.
+  // In this isolated database, preserve that capability for this API alone.
+  // Trigger functions cannot be invoked directly; TRIGGER/schema CREATE are denied.
+  const procedures = await tx.$queryRaw<{ signature: string }[]>`
+    SELECT pg_catalog.format('%I.%I(%s)',n.nspname,p.proname,pg_catalog.pg_get_function_identity_arguments(p.oid)) AS signature
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+    WHERE n.nspname='public' AND p.prosecdef
+      AND p.prorettype NOT IN ('pg_catalog.trigger'::regtype,'pg_catalog.event_trigger'::regtype)
+      AND a.grantee=0 AND a.privilege_type='EXECUTE'`;
+  for (const procedure of procedures) {
+    // Signature comes from owner-controlled catalog objects, not external input.
+    await tx.$executeRawUnsafe(`REVOKE EXECUTE ON FUNCTION ${procedure.signature} FROM PUBLIC`);
+    await tx.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION ${procedure.signature} TO "${api.role}"`);
+  }
   await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${worker.role}"`);
   await tx.$executeRawUnsafe(`GRANT SELECT ON public.scheduled_game_streams, public.scheduled_game_rounds TO "${worker.role}"`);
   await tx.$executeRawUnsafe(`GRANT INSERT ON public.scheduled_game_rounds TO "${worker.role}"`);
