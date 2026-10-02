@@ -13,6 +13,15 @@ on:
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/components/spin/**'
+      - 'apps/web/server*.mjs'
+      - 'apps/web/src/lib/api-config.ts'
+      - 'apps/web/src/lib/api.test.ts'
+      - 'apps/web/src/lib/request-error.ts'
+      - 'apps/web/src/pages/games/index.tsx'
+      - 'apps/web/src/pages/casino/casino.test.tsx'
+      - 'apps/web/src/components/casino/CasinoProvider.tsx'
+      - 'deploy/railway/web/**'
       - 'apps/web/src/lib/spin-proof-verifier*'
       - 'apps/web/src/lib/spin-publication-archive*'
       - 'apps/web/src/test/spin-publication-fixture.ts'
@@ -147,9 +156,14 @@ jobs:
           pnpm --filter web exec vitest run
           src/pages/games/spin-win-scheduled.test.tsx
           src/pages/games/spin-win.test.tsx
+          src/pages/games/spin-win-coins.test.tsx
+          src/pages/casino/casino.test.tsx
+          src/lib/api.test.ts
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
       - name: Build web and typecheck
         run: pnpm --filter web build
+      - name: First-party gateway and WebSocket contracts
+        run: pnpm --filter web test:gateway
