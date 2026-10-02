@@ -8,6 +8,9 @@ const STAGING_DATABASE = 'playqube_spin_rehearsal_20261002';
 const STAGING_HOST = 'spin-practice-db-20261002.railway.internal';
 const STREAM = 'spin-win-practice-v1';
 const command = process.argv[2];
+class Refused extends Error {
+  constructor(readonly reason: 'TARGET' | 'OWNER' | 'ROLE' | 'WORKER_ACCESS') { super('refused'); }
+}
 
 function connection(): string {
   const source = process.env.DATABASE_URL;
@@ -23,7 +26,7 @@ function connection(): string {
     ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) &&
     url.pathname === '/playqube_scheduled_throwaway';
   if (!['postgres:', 'postgresql:'].includes(url.protocol) || (!staging && !ci)) {
-    throw new Error('refused');
+    throw new Refused('TARGET');
   }
   return source;
 }
@@ -44,7 +47,7 @@ async function safeRole(tx: Prisma.TransactionClient, role: string): Promise<boo
           OR EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=r.oid)
           OR EXISTS(SELECT 1 FROM pg_catalog.pg_shdepend d WHERE d.refclassid='pg_catalog.pg_authid'::regclass
             AND d.refobjid=r.oid AND d.deptype='o'))) AS unsafe`;
-  if (!row || row.unsafe) throw new Error('refused');
+  if (!row || row.unsafe) throw new Refused('ROLE');
   return row.exists;
 }
 
@@ -66,7 +69,9 @@ async function verifyWorker(tx: Prisma.TransactionClient, role: string) {
       EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind='S' AND pg_catalog.has_sequence_privilege(${role},c.oid,'USAGE,SELECT,UPDATE')) OR
       EXISTS(SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname='public' AND p.prosecdef AND pg_catalog.has_function_privilege(${role},p.oid,'EXECUTE')) AS denied,
+        WHERE n.nspname='public' AND p.prosecdef
+          AND p.prorettype NOT IN ('pg_catalog.trigger'::regtype,'pg_catalog.event_trigger'::regtype)
+          AND pg_catalog.has_function_privilege(${role},p.oid,'EXECUTE')) AS denied,
       pg_catalog.has_schema_privilege(${role},'public','USAGE') AND
       pg_catalog.has_table_privilege(${role},'public.scheduled_game_streams','SELECT') AND
       pg_catalog.has_table_privilege(${role},'public.scheduled_game_rounds','SELECT') AND
@@ -74,7 +79,7 @@ async function verifyWorker(tx: Prisma.TransactionClient, role: string) {
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','state','UPDATE') AND
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','outcome','UPDATE') AND
       pg_catalog.has_column_privilege(${role},'public.scheduled_game_rounds','drawn_at','UPDATE') AS required`;
-  if (!row || row.denied || !row.required) throw new Error('refused');
+  if (!row || row.denied || !row.required) throw new Refused('WORKER_ACCESS');
 }
 
 async function setup(tx: Prisma.TransactionClient) {
@@ -116,7 +121,7 @@ async function main() {
     const [owner] = await db.$queryRaw<{ owns: boolean }[]>`
       SELECT current_user::text = pg_catalog.pg_get_userbyid(datdba) AS owns
       FROM pg_catalog.pg_database WHERE datname=current_database()`;
-    if (!owner?.owns) throw new Error('refused');
+    if (!owner?.owns) throw new Refused('OWNER');
     if (command === '--setup') await db.$transaction(setup, { timeout: 25_000 });
     if (command === '--enable' || command === '--pause') {
       const changed = await db.$executeRaw`
@@ -139,7 +144,8 @@ async function main() {
   }
 }
 
-main().catch(() => {
-  console.error('{"status":"REFUSED"}');
+main().catch((error: unknown) => {
+  // Only fixed reason labels are exposed, never exception messages or SQL.
+  console.error(JSON.stringify({ status: 'REFUSED', reason: error instanceof Refused ? error.reason : 'CONFIGURATION_OR_DATABASE' }));
   process.exitCode = 1;
 });

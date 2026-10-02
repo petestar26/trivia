@@ -102,6 +102,10 @@ jobs:
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Build API and verify disposable staging setup
+        run: |
+          pnpm --filter api exec node build.js
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/practice-staging.native.ts
       - name: Economics and embedded SQL contracts
         run: |
           # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
@@ -144,9 +148,8 @@ jobs:
           src/games/economics/house-public-proof.native.ts
           src/games/economics/publication-store.native.ts
           src/games/economics/publication-submission.native.ts
-      - name: Build API and probe offline CLI entry
+      - name: Probe offline CLI entry
         run: |
-          pnpm --filter api exec node build.js
           PUB_CLI_PROBE=$(mktemp -d)
           trap 'rm -rf "$PUB_CLI_PROBE"' EXIT
           ln -s "$PWD/apps/api/dist/scripts/publication-receipt-verify.js" "$PUB_CLI_PROBE/verify.js"
@@ -161,7 +164,6 @@ jobs:
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
           src/games/scheduled/practice-worker.native.ts
-          src/games/scheduled/practice-staging.native.ts
 
       - name: Practice worker TypeScript contracts
         run: >-

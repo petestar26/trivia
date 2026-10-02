@@ -85,7 +85,9 @@ describe('disposable staging owner CLI',()=>{
   it('refuses excess existing worker privileges and rolls back without exposing credentials',async()=>{
     await owner.$executeRawUnsafe(`GRANT SELECT ON public.wallets TO "${workerRole}"`);
     try {
-      expect(await run('--setup')).toEqual({code:1,output:'{"status":"REFUSED"}\n'});
+      const result=await run('--setup');
+      expect(result.code).toBe(1);
+      expect(JSON.parse(result.output)).toEqual({status:'REFUSED',reason:'WORKER_ACCESS'});
     } finally { await owner.$executeRawUnsafe(`REVOKE SELECT ON public.wallets FROM "${workerRole}"`); }
     expect((await run('--setup')).code).toBe(0);
   });

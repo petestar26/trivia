@@ -130,7 +130,9 @@ Setup is transactional and repeatable. It refuses elevated, member or owning
 roles, applies the existing API runtime-grants function, limits its practice
 access to reading rounds and inserting tickets, and grants the separate draw
 worker only its required tables/columns. It verifies effective table, column,
-sequence, schema and security-definer access, including PUBLIC grants. Existing
+sequence, schema and callable security-definer access, including PUBLIC grants.
+Trigger functions cannot be called directly and are covered by the denied
+TRIGGER/schema-CREATE privileges. Existing
 excess worker privileges cause refusal and rollback. Setup does not install
 an approval key, enable a practice stream or activate Coins.
 
@@ -138,7 +140,7 @@ After setup, `--status` prints only practice availability, recent round IDs,
 states/results and an aggregate ticket count. It prints no player identity,
 selections or credentials. `--enable` and `--pause` control only the disposable
 Spin stream after worker deployment. All failures print a fixed `REFUSED`
-status. Keep the owner connection solely in this job, with restart policy NEVER.
+status and a fixed reason label. Keep the owner connection solely in this job, with restart policy NEVER.
 No owner secret belongs in the API or draw worker.
 
 Four compiled-CLI native tests cover refused targets/acknowledgements,
