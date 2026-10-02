@@ -36,6 +36,8 @@ on:
       - 'apps/api/src/scripts/house-round-recovery.ts'
       - 'apps/api/src/scripts/ledger-runtime-access.ts'
       - 'docs/deployment/repair-practice-runtime-reads.sql'
+      - 'docs/deployment/scheduled-practice-worker.md'
+      - 'docs/games/scheduled-practice-rounds.md'
       - 'apps/api/src/scripts/ledger-runtime-identity-check*'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
@@ -153,6 +155,19 @@ jobs:
           set -e
           test "$PUB_CLI_STATUS" -eq 1
           test "$(cat "$PUB_CLI_PROBE/result")" = '{"status":"BLOCKED"}'
+
+      - name: Compiled practice worker lifecycle and restricted-role rehearsal
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/scheduled/practice-worker.native.ts
+
+      - name: Practice worker TypeScript contracts
+        run: >-
+          pnpm --filter api exec tsc --noEmit --strict --skipLibCheck
+          --target ES2022 --module NodeNext --moduleResolution NodeNext --types node
+          src/scripts/scheduled-practice-worker.ts
+          src/games/scheduled/practice-worker-runtime.test.ts
+          src/games/scheduled/practice-worker.native.ts
 
       - name: Scheduled practice web contracts
         run: >-

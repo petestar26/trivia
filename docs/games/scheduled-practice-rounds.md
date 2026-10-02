@@ -82,6 +82,12 @@ Neither switch enables Coin wagering: a database CHECK rejects Coin-mode streams
 Both must be deliberately configured even for practice. The API's existing
 startup and worker processes do not start this worker automatically.
 
+Loop-mode health and supervision are described in
+[the worker deployment runbook](../deployment/scheduled-practice-worker.md).
+The optional health listener reports process readiness; a healthy worker may
+still supervise a paused stream. Stalled progress exits nonzero for supervisor
+restart. Target activation and account provisioning remain separate steps.
+
 ## Validation and limits
 
 `pnpm --filter api test:scheduled-practice` executes the actual migration,

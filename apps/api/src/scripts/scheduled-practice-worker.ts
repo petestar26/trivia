@@ -1,8 +1,17 @@
 import { PrismaClient } from '@prisma/client';
 import { prismaRoundDatabase } from '../games/scheduled/prisma-round-store.js';
 import { tickPracticeStream } from '../games/scheduled/round-store.js';
+import {
+  closePracticeHealth,
+  listenPracticeHealth,
+  PracticeWorkerHealth,
+  runPracticeWorker,
+  watchPracticeWorker,
+} from '../games/scheduled/practice-worker-runtime.js';
+import type { Server } from 'node:http';
 
-const usage = 'scheduled-practice-worker (--once|--loop) [--stream=id]; requires SCHEDULED_PRACTICE_WORKER_ENABLED=true and DATABASE_URL';
+const usage =
+  'scheduled-practice-worker (--once|--loop) [--stream=id]; requires SCHEDULED_PRACTICE_WORKER_ENABLED=true and DATABASE_URL; loop health uses optional SCHEDULED_PRACTICE_HEALTH_PORT';
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
@@ -22,34 +31,71 @@ async function main(): Promise<number> {
     console.error('Practice worker is disabled or lacks its database configuration.');
     return 2;
   }
+  const once = modes[0] === '--once';
+  const rawPort = once ? undefined : process.env.SCHEDULED_PRACTICE_HEALTH_PORT;
+  if (
+    rawPort !== undefined &&
+    (!/^[0-9]{1,5}$/.test(rawPort) || Number(rawPort) < 1 || Number(rawPort) > 65535)
+  ) {
+    console.error('Invalid practice health port.');
+    return 2;
+  }
   const client = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL, log: [] });
-  let stopping = false;
-  const stop = () => { stopping = true; };
+  const controller = new AbortController();
+  const health = new PracticeWorkerHealth();
+  let server: Server | undefined;
+  let shutdownDeadline: ReturnType<typeof setTimeout> | undefined;
+  // Railway deployment healthchecks do not continuously restart unhealthy workers.
+  // A separate watchdog exits a stalled process so the restart policy can recover it.
+  const stopWatchdog = once
+    ? undefined
+    : watchPracticeWorker(health, () => {
+        console.error(
+          'Practice worker stalled; restarting without publishing an uncommitted result.'
+        );
+        process.exit(1);
+      });
+  const stop = () => {
+    health.stop();
+    controller.abort();
+    shutdownDeadline ??= setTimeout(() => process.exit(1), 25_000);
+    shutdownDeadline.unref();
+  };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   try {
+    if (rawPort !== undefined) server = await listenPracticeHealth(health, Number(rawPort));
     const db = prismaRoundDatabase(client);
-    do {
-      try {
-        const result = await tickPracticeStream(db, streamId);
-        console.log(JSON.stringify({ mode: 'PRACTICE', coinsAccepted: false, ...result }));
-      } catch {
-        // Database exceptions can contain connection details. Do not log them.
-        console.error('Practice round tick failed; no result published by this tick.');
-        if (modes[0] === '--once') return 1;
-      }
-      if (modes[0] === '--once' || stopping) break;
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    } while (!stopping);
-    return 0;
+    return await runPracticeWorker({
+      tick: () => tickPracticeStream(db, streamId),
+      signal: controller.signal,
+      once,
+      health,
+      publish: (result) =>
+        console.log(JSON.stringify({ mode: 'PRACTICE', coinsAccepted: false, ...result })),
+      // Database exceptions can contain connection details. Never log them.
+      reportFailure: () =>
+        console.error('Practice round tick failed; no result published by this tick.'),
+    });
   } finally {
+    health.stop();
+    stopWatchdog?.();
     process.removeListener('SIGTERM', stop);
     process.removeListener('SIGINT', stop);
-    await client.$disconnect();
+    try {
+      if (server) await closePracticeHealth(server);
+    } finally {
+      await client.$disconnect();
+      if (shutdownDeadline) clearTimeout(shutdownDeadline);
+    }
   }
 }
 
-main().then((code) => { process.exitCode = code; }).catch(() => {
-  console.error('Practice worker could not start.');
-  process.exitCode = 1;
-});
+main()
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch(() => {
+    console.error('Practice worker could not start.');
+    process.exitCode = 1;
+  });
