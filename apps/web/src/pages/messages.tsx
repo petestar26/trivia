@@ -134,9 +134,10 @@ function MessagesContent({ userId }: { userId: string }) {
     };
   }, [socket, groupId, queryClient]);
 
+  const latestMessageId = messages.at(-1)?.id;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [latestMessageId]);
 
   // Declared above every conditional return below. Previously this sat after
   // the `!groupId` / `isLoading` / `isError` guards, so the loading render
@@ -233,8 +234,8 @@ function MessagesContent({ userId }: { userId: string }) {
       </Card>
 
       <Dialog.Root open={giftOpen} onOpenChange={setGiftOpen}>
-        <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-40 bg-gray-950/40 backdrop-blur-sm"/>
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-40 max-h-[90vh] w-[calc(100%_-_2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+        <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[60] bg-gray-950/40 backdrop-blur-sm"/>
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%_-_2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900">
             <Dialog.Title className="sr-only">Send a gift in chat</Dialog.Title><Dialog.Description className="sr-only">Choose a gift or send one from your collection to a group member.</Dialog.Description>
             <Dialog.Close aria-label="Close gift shop" className="absolute right-3 top-3 z-10 rounded-full bg-white p-2 dark:bg-gray-800"><X size={18}/></Dialog.Close>
             <GiftCollection key={`${groupId}:${userId}:${giftRecipient ?? ''}`} groupId={groupId} userId={userId} initialRecipient={giftRecipient} fromChat/>

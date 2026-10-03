@@ -78,8 +78,8 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
     {!groupId && <p className="text-sm text-gray-500">Want to send a gift? <Link className="font-semibold text-violet-600 underline" to="/groups">Open a group chat</Link> and choose its Gifts tab.</p>}
     <p className="flex items-start gap-2 text-xs leading-5 text-gray-500"><ArrowRightLeft size={16} className="mt-0.5 shrink-0"/>Gifts use Game Points. Conversion removes the gift and returns its fixed point value minus a 10% fee. These gifts do not convert to Coins or cash.</p>
     <Dialog.Root open={reviewOpen && (!!choice || !!attempt)} onOpenChange={open => { setReviewOpen(open); if (!open && !attempt) setChoice(null); }}>
-      <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-gray-950/45 backdrop-blur-sm"/>
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100%_-_2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+      <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[70] bg-gray-950/45 backdrop-blur-sm"/>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[70] max-h-[90vh] w-[calc(100%_-_2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900">
           <Dialog.Title className="text-xl font-bold">{title}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-gray-500">{kind === 'CONVERT' ? 'Review what you receive before removing this gift from your collection.' : 'Choose the recipient and check the details before confirming.'}</Dialog.Description>
           <Dialog.Close className="absolute right-4 top-4 rounded-full p-1 text-gray-500" aria-label="Close gift details"><X size={18}/></Dialog.Close>
