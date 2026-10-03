@@ -14,6 +14,9 @@ import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
 import { safeRecordActivity } from '../rewards/activity-service';
 import { emitToGroup } from '../realtime/broadcast';
+import { giftCardsForMessages } from '../gift-collection/service.js';
+import { setMessageReaction } from '../realtime/reaction-service.js';
+import type { ChatReactionType } from '@socialplay/shared';
 import { lockActorMembership, lockGroupForAdmission, lockGroupMessageForDeletion } from './group-locks.js';
 
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
@@ -74,7 +77,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
   // Get message history
   server.get<{
     Params: { id: string };
-    Querystring: { page?: number; limit?: number };
+    Querystring: { page?: number; limit?: number; latest?: boolean };
   }>(
     '/:id/messages',
     {
@@ -91,6 +94,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
           type: 'object',
           properties: {
             page: { type: 'integer', minimum: 1, default: 1 },
+            latest: { type: 'boolean', default: false },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           },
         },
@@ -109,10 +113,11 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       const [messages, total] = await Promise.all([
         prisma.message.findMany({
           where,
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: request.query.latest ? 'desc' : 'asc' }, { id: request.query.latest ? 'desc' : 'asc' }],
           skip: (page - 1) * limit,
           take: limit,
           include: {
+            voiceMessage: true,
             user: { select: MESSAGE_SENDER_SELECT },
             replyTo: {
               include: {
@@ -131,10 +136,12 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       ]);
 
       const totalPages = Math.ceil(total / limit);
+      const ordered = request.query.latest ? [...messages].reverse() : messages;
+      const cards = await giftCardsForMessages(prisma, messages.filter(message => message.type === 'GIFT').map(message => message.id));
 
       return {
         success: true,
-        data: messages.map(serializeMessage),
+        data: ordered.map(message => ({ ...serializeMessage(message), gift: cards.get(message.id) ?? null })),
         meta: {
           page,
           limit,
@@ -173,7 +180,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
 
       return {
         success: true,
-        data: serializeMessage(message),
+        data: { ...serializeMessage(message), gift: (await giftCardsForMessages(prisma, message.type === 'GIFT' ? [message.id] : [])).get(message.id) ?? null },
       };
     }
   );
@@ -221,6 +228,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       if (message.userId !== userId) {
         throw ApiError.forbidden('You can only edit your own messages');
       }
+
+      if (message.type !== 'TEXT') throw ApiError.badRequest('Only text messages can be edited');
 
       const updated = await prisma.message.update({
         where: { id: message.id },
@@ -375,6 +384,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
     '/:id/messages/:messageId/reactions',
     {
       preHandler: [authenticate],
+      config: { rateLimit: { max: 90, timeWindow: '1 minute' } },
       schema: {
         params: {
           type: 'object',
@@ -402,35 +412,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       const userId = request.user!.sub;
       const type = request.body.type;
 
-      await assertActiveMember(groupId, userId);
-
-      const message = await getMessageInGroup(groupId, messageId);
-
-      try {
-        const reaction = await prisma.messageReaction.create({
-          data: {
-            messageId: message.id,
-            userId,
-            type: type as 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW' | 'SAD' | 'ANGRY',
-          },
-        });
-
-        // Broadcast the reaction after commit.
-        emitToGroup(groupId, 'reaction:added', {
-          messageId: message.id,
-          reaction: { id: reaction.id, type: reaction.type, userId: reaction.userId },
-        });
-
-        reply.status(201).send({
-          success: true,
-          data: { id: reaction.id, type: reaction.type, userId: reaction.userId },
-        });
-      } catch (err) {
-        if (isPrismaUniqueViolation(err)) {
-          throw ApiError.conflict('You already reacted with this reaction type');
-        }
-        throw err;
-      }
+      const result = await setMessageReaction(prisma, groupId, userId, messageId, type as ChatReactionType, true);
+      emitToGroup(groupId, 'reaction:added', result);
+      return reply.status(200).send({ success: true, data: result });
     }
   );
 
@@ -439,6 +423,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
     '/:id/messages/:messageId/reactions/:type',
     {
       preHandler: [authenticate],
+      config: { rateLimit: { max: 90, timeWindow: '1 minute' } },
       schema: {
         params: {
           type: 'object',
@@ -460,29 +445,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       const userId = request.user!.sub;
       const type = request.params.type;
 
-      await assertActiveMember(groupId, userId);
-
-      const message = await getMessageInGroup(groupId, messageId);
-
-      const result = await prisma.messageReaction.deleteMany({
-        where: {
-          messageId: message.id,
-          userId,
-          type: type as 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW' | 'SAD' | 'ANGRY',
-        },
-      });
-
-      if (result.count === 0) {
-        throw ApiError.notFound('Reaction not found');
-      }
-
-      // Broadcast the reaction removal after commit.
-      emitToGroup(groupId, 'reaction:removed', { messageId: message.id, userId, type });
-
-      return {
-        success: true,
-        data: { message: 'Reaction removed' },
-      };
+      const result = await setMessageReaction(prisma, groupId, userId, messageId, type as ChatReactionType, false);
+      emitToGroup(groupId, 'reaction:removed', result);
+      return { success: true, data: result };
     }
   );
 
@@ -608,13 +573,5 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
 
       reply.send(buffer);
     }
-  );
-}
-
-function isPrismaUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: string }).code === 'P2002'
   );
 }

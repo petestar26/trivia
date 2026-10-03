@@ -10,6 +10,13 @@ import { Input } from '@/components/ui/input';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { VoiceMessagePlayer } from '@/components/voice/voice-message-player';
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
+import { useAuth } from '@/providers/auth-provider';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Gift, X } from 'lucide-react';
+import type { GiftChatCard } from '@socialplay/shared';
+import { GiftArt } from '@/components/gifts/gift-art';
+import { GiftCollection } from '@/components/gifts/gift-collection';
+import { MessageReactions } from '@/components/gifts/message-reactions';
 
 /**
  * Shape this page renders from `GET /groups/:id/messages`. Typed (rather than
@@ -24,14 +31,20 @@ interface ChatMessage {
   isEdited?: boolean;
   type?: string;
   voiceMessage?: { duration?: number; mimeType?: string } | null;
-  sender?: { displayName?: string | null; username?: string | null } | null;
+  userId?: string;
+  reactions?: { userId: string; type: string }[];
+  gift?: GiftChatCard | null;
+  sender?: { id?: string; displayName?: string | null; username?: string | null } | null;
 }
 
 export function MessagesPage() {
   const { groupId } = useParams<{ groupId: string }>();
-  return <MessagesContent key={groupId}/>;
+  const { user } = useAuth();
+  return <MessagesContent key={`${groupId}:${user?.id}`} userId={user?.id ?? ''}/>;
 }
-function MessagesContent() {
+function MessagesContent({ userId }: { userId: string }) {
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [giftRecipient, setGiftRecipient] = useState<string | undefined>();
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const { socket } = useSocket();
@@ -52,10 +65,11 @@ function MessagesContent() {
 
   // Resolves directly to the array; the render path uses it as-is.
   const { data: messages = [], isLoading, isError } = useQuery<ChatMessage[]>({
-    queryKey: ['messages', groupId],
-    queryFn: async () => (await api.getGroupMessages(groupId!, { limit: 50 })).data ?? [],
+    queryKey: ['messages', groupId, userId],
+    queryFn: async () => (await api.getGroupMessages(groupId!, { limit: 50, latest: true })).data ?? [],
     enabled: !!groupId,
     refetchOnWindowFocus: true,
+    refetchInterval: 10000,
   });
 
   // Join the Socket.IO group room when groupId changes
@@ -82,12 +96,13 @@ function MessagesContent() {
     const onConnect = () => {
       hasJoinedRoomRef.current = false;
       joinRoom();
+      void queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
     };
     socket.on('connect', onConnect);
     return () => {
       socket.off('connect', onConnect);
     };
-  }, [socket, joinRoom]);
+  }, [socket, joinRoom, queryClient, groupId]);
 
   // Join/leave room when groupId changes
   useEffect(() => {
@@ -108,16 +123,21 @@ function MessagesContent() {
     socket.on('message:created', refresh);
     socket.on('message:updated', refresh);
     socket.on('message:deleted', refresh);
+    socket.on('reaction:added', refresh);
+    socket.on('reaction:removed', refresh);
     return () => {
       socket.off('message:created', refresh);
       socket.off('message:updated', refresh);
       socket.off('message:deleted', refresh);
+      socket.off('reaction:added', refresh);
+      socket.off('reaction:removed', refresh);
     };
   }, [socket, groupId, queryClient]);
 
+  const latestMessageId = messages.at(-1)?.id;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [latestMessageId]);
 
   // Declared above every conditional return below. Previously this sat after
   // the `!groupId` / `isLoading` / `isError` guards, so the loading render
@@ -198,9 +218,13 @@ function MessagesContent() {
                     <span className="text-xs text-gray-400">{new Date(msg.createdAt).toLocaleTimeString()}</span>
                     {msg.isEdited && <span className="text-xs text-gray-400">(edited)</span>}
                   </div>
-                  {msg.type==='VOICE' && !msg.isDeleted ? <VoiceMessagePlayer groupId={groupId} messageId={msg.id} duration={msg.voiceMessage?.duration}/> : <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
+                  {msg.gift && !msg.isDeleted ? <div className="mt-2 flex max-w-sm items-center gap-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-900 dark:bg-violet-950"><GiftArt emoji={msg.gift.emoji} theme={msg.gift.theme} small/><div><p className="text-xs font-semibold uppercase tracking-wide text-violet-600">Gift delivered</p><h3 className="mt-1 font-bold">{msg.gift.name}</h3><p className="text-sm">For @{msg.gift.recipientUsername}</p><p className="mt-1 text-xs text-gray-500">{msg.gift.faceValue} point gift · delivered to their collection</p></div></div> : msg.type?.toUpperCase()==='VOICE' && !msg.isDeleted ? <VoiceMessagePlayer groupId={groupId} messageId={msg.id} duration={msg.voiceMessage?.duration}/> : <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     {msg.isDeleted ? '[deleted]' : msg.content}
                   </p>}
+                  {!msg.isDeleted && userId && <div className="flex flex-wrap items-end gap-3">
+                    <MessageReactions groupId={groupId} messageId={msg.id} userId={userId} reactions={msg.reactions}/>
+                    {(msg.sender?.id || msg.userId) && (msg.sender?.id || msg.userId) !== userId && <button type="button" className="mb-1 inline-flex items-center gap-1 text-xs font-medium text-violet-600" onClick={() => { setGiftRecipient(msg.sender?.id || msg.userId); setGiftOpen(true); }}><Gift size={14}/>Send gift</button>}
+                  </div>}
                 </div>
               ))}
               <div ref={messagesEndRef} />
@@ -209,8 +233,18 @@ function MessagesContent() {
         </CardContent>
       </Card>
 
+      <Dialog.Root open={giftOpen} onOpenChange={setGiftOpen}>
+        <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[60] bg-gray-950/40 backdrop-blur-sm"/>
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[60] max-h-[90vh] w-[calc(100%_-_2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900">
+            <Dialog.Title className="sr-only">Send a gift in chat</Dialog.Title><Dialog.Description className="sr-only">Choose a gift or send one from your collection to a group member.</Dialog.Description>
+            <Dialog.Close aria-label="Close gift shop" className="absolute right-3 top-3 z-10 rounded-full bg-white p-2 dark:bg-gray-800"><X size={18}/></Dialog.Close>
+            <GiftCollection key={`${groupId}:${userId}:${giftRecipient ?? ''}`} groupId={groupId} userId={userId} initialRecipient={giftRecipient} fromChat/>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       {/* Message input */}
       <div className="flex gap-2">
+        <Button variant="outline" size="icon" aria-label="Open gifts" onClick={() => { setGiftRecipient(undefined); setGiftOpen(true); }}><Gift size={19}/></Button>
         <Input
           value={message}
           onChange={(e) => setMessage(e.target.value)}

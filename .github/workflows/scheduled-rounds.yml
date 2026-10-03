@@ -6,6 +6,10 @@ on:
       - '.github/workflows/scheduled-rounds.yml'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/gift-collection/**'
+      - 'apps/api/src/realtime/reaction-service.ts'
+      - 'apps/api/src/routes/chat.ts'
+      - 'apps/web/src/components/gifts/**'
       - 'apps/api/src/scripts/group-pvp-worker.ts'
       - 'apps/api/src/routes/index.ts'
       - 'apps/web/src/pages/group-games*'
@@ -119,7 +123,7 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/gift-collection/gifts.native.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -228,7 +232,7 @@ jobs:
           pnpm --filter web exec vitest run
           src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
           src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx
-          src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts --minWorkers=1 --maxWorkers=1
+          src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck

@@ -380,7 +380,7 @@ class ApiClient {
     return this.post(`/groups/${groupId}/leave`);
   }
 
-  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
+  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number; latest?: boolean }): Promise<ApiResponse<any>> {
     return this.get(`/groups/${groupId}/messages`, params);
   }
 

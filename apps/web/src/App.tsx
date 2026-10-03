@@ -76,6 +76,7 @@ export function App() {
         <Route path="messages/:groupId" element={<MessagesPage />} />
         <Route path="groups/:id/games" element={<GroupGamesPage />} />
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
+        <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet" element={<WalletPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />
