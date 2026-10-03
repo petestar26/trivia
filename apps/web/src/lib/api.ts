@@ -1,4 +1,5 @@
 import { API_BASE, API_ORIGIN } from './api-config';
+import { assertSessionReadable, assertSessionRevision, credentialRequest, renewSession, sessionRevision, sessionSignedOut, waitForSession } from './session';
 import type {
   CreatedGroupInviteInfo,
   GroupBannedMemberInfo,
@@ -141,8 +142,20 @@ class ApiClient {
   }
 
   private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
+    if (['/auth/login', '/auth/register', '/auth/logout'].includes(endpoint)) {
+      return credentialRequest(endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
+    }
+    assertSessionReadable();
+    return this.performRequest<T, M>(endpoint, options);
+  }
+
+  private async performRequest<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
+    const revision = sessionRevision();
+    const read = fetchOptions.method === 'GET';
+    if (read) assertSessionReadable();
+    if (read && endpoint === '/auth/me' && sessionSignedOut()) throw new Error(JSON.stringify({ status: 401, code: 'UNAUTHORIZED', message: 'Signed out' }));
 
     // Only declare a JSON content type when a body is actually being sent.
     // Fastify's default body parser rejects `Content-Type: application/json`
@@ -151,16 +164,33 @@ class ApiClient {
     // its route handler ever ran. Caller-supplied headers still win either way.
     const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
 
-    const response = await fetch(url, {
+    const execute = () => fetch(url, {
       ...fetchOptions,
       headers: {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...headers,
       },
-      credentials: 'include',
+      credentials: read && sessionSignedOut() ? 'omit' : 'include',
     });
 
+    let response = await execute();
+    // Only reads are retried. A wager, transfer or other mutation is never
+    // automatically resubmitted by session recovery.
+    if (read && response.status === 401 && (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')) {
+      try {
+        assertSessionRevision(revision);
+        await waitForSession(renewSession(this.buildUrl(''), revision), fetchOptions.signal);
+        assertSessionRevision(revision);
+        fetchOptions.signal?.throwIfAborted();
+        response = await execute();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err;
+        // Surface the original 401. No recursion or unbounded retry.
+      }
+    }
+
     const data = await response.json().catch(() => ({}));
+    if (read) assertSessionRevision(revision);
 
     if (!response.ok) {
       const error = data.error || {
@@ -225,6 +255,7 @@ class ApiClient {
   }
 
   async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
+    assertSessionReadable();
     const response = await fetch(this.buildUrl(endpoint), {
       method: 'POST',
       body: formData,

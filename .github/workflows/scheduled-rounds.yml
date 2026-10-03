@@ -199,10 +199,14 @@ jobs:
           src/pages/games/spin-win-coins.test.tsx
           src/pages/casino/casino.test.tsx
           src/lib/api.test.ts
+          src/lib/session.test.ts
+          src/providers/auth-provider.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
+      - name: Cookie session renewal contracts
+        run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck
         env:
           VITE_API_PROXY: 'true'

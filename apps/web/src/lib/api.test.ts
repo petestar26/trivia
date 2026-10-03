@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
+  localStorage.clear();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -52,6 +53,7 @@ describe('API destination', () => {
     expect(API_ORIGIN).toBe('');
     expect(API_BASE).toBe('/api/v1');
     await api.post('/auth/login', { username: 'test' });
+    (await import('./session')).setSessionUser('test');
     expect(fetchMock).toHaveBeenLastCalledWith(
       `${window.location.origin}/api/v1/auth/login`,
       expect.objectContaining({ credentials: 'include' })
@@ -91,6 +93,7 @@ describe('API destination', () => {
     const base = `${origin || window.location.origin}/api/v1`;
 
     await api.post('/auth/register', { username: 'test' });
+    (await import('./session')).setSessionUser('test');
     expect(fetchMock).toHaveBeenLastCalledWith(
       `${base}/auth/register`,
       expect.objectContaining({

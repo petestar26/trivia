@@ -1,8 +1,8 @@
-import { FastifyInstance, FastifyReply } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { registerSchema, loginSchema, refreshTokenSchema, RefreshTokenPayload } from '@socialplay/shared';
+import { registerSchema, loginSchema, RefreshTokenPayload } from '@socialplay/shared';
 import { ApiError, authenticate } from '../middleware';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth';
@@ -282,7 +282,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  server.post<{ Body: z.infer<typeof refreshTokenSchema> }>(
+  server.post<{ Body: { refreshToken?: string } }>(
     '/refresh',
     {
       config: {
@@ -291,15 +291,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       schema: {
         body: {
           type: 'object',
-          required: ['refreshToken'],
           properties: {
-            refreshToken: { type: 'string' },
+            refreshToken: { type: 'string', minLength: 1 },
           },
         },
       },
     },
     async (request, reply) => {
-      const { refreshToken } = request.body;
+      reply.header('Cache-Control', 'no-store');
+      const bodyToken = request.body?.refreshToken;
+      const cookieMode = bodyToken === undefined;
+      if (cookieMode) requireCookieOrigin(request);
+      const refreshToken = bodyToken ?? request.cookies.sp_refresh_token;
+      if (!refreshToken) throw ApiError.unauthorized('Session unavailable');
 
       const session = await prisma.session.findUnique({
         where: { refreshToken },
@@ -377,21 +381,43 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       reply.send({
         success: true,
-        data: tokens,
+        // Browser renewal never exposes HttpOnly credentials to JavaScript.
+        data: cookieMode ? { expiresIn: tokens.expiresIn } : tokens,
       });
     }
   );
 
   server.post(
     '/logout',
-    { preHandler: [authenticate] },
+    {},
     async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      // Cookie logout must work after the short-lived access cookie expires.
+      // The exact stored refresh token is a bearer credential; no JWT claims
+      // are trusted from it. Revocation is allowed even for an expired session.
+      let userId: string | undefined;
+      if (request.cookies.sp_refresh_token || request.cookies.sp_access_token) {
+        requireCookieOrigin(request);
+        if (request.cookies.sp_refresh_token) {
+          const session = await prisma.session.findUnique({
+            where: { refreshToken: request.cookies.sp_refresh_token },
+            select: { userId: true },
+          });
+          userId = session?.userId;
+        }
+      }
+      if (!userId) {
+        try {
+          await authenticate(request, reply);
+          userId = request.user.sub;
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.statusCode !== 401) throw err;
+        }
+      }
       // Delete all sessions for this user and clear auth cookies.
       // (Single-session logout would require the refresh-token cookie/body;
       //  see audit note D12. This preserves existing all-device behavior.)
-      await prisma.session.deleteMany({
-        where: { userId: request.user!.sub },
-      });
+      if (userId) await prisma.session.deleteMany({ where: { userId } });
 
       clearAuthCookies(reply);
 
@@ -433,6 +459,14 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       });
     }
   );
+}
+
+function requireCookieOrigin(request: FastifyRequest): void {
+  const origin = request.headers.origin;
+  const trusted = [new URL(config.FRONTEND_URL).origin, ...config.CORS_ORIGIN.split(',').map((v) => v.trim())];
+  if (!origin || origin === 'null' || origin === '*' || !trusted.includes(origin)) {
+    throw ApiError.forbidden('Untrusted session origin');
+  }
 }
 
 function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refreshToken: string }): void {
