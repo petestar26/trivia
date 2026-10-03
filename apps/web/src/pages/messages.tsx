@@ -39,9 +39,9 @@ function MessagesContent() {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasJoinedRoomRef = useRef(false);
-  const recorder = useVoiceRecorder();
   const [voiceDraft,setVoiceDraft]=useState<{blob:Blob;duration:number}|null>(null);
   const [voiceNotice,setVoiceNotice]=useState('');
+  const recorder=useVoiceRecorder((blob,durationMs)=>setVoiceDraft({blob,duration:Math.max(1,Math.ceil(durationMs/1000))}));
   const voiceMutation=useMutation({mutationFn:async()=>{
     if(!voiceDraft||!groupId)throw new Error('Record a message first');
     const form=new FormData();form.append('duration',String(voiceDraft.duration));
@@ -223,7 +223,7 @@ function MessagesContent() {
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
-        {recorder.isRecording ? <><span role="timer">Recording {Math.floor(recorder.elapsedMs/1000)}s</span><Button onClick={async()=>{const duration=Math.max(1,Math.ceil(recorder.elapsedMs/1000));const blob=await recorder.stop();if(blob)setVoiceDraft({blob,duration});}}>Stop recording</Button><Button variant="outline" onClick={recorder.cancel}>Cancel</Button></> : <Button variant="outline" disabled={!recorder.isSupported||voiceMutation.isPending||!!voiceDraft} onClick={()=>void recorder.start()}>Record voice</Button>}
+        {recorder.isRecording ? <><span role="timer">Recording {Math.floor(recorder.elapsedMs/1000)}s</span><Button onClick={()=>void recorder.stop()}>Stop recording</Button><Button variant="outline" onClick={recorder.cancel}>Cancel</Button></> : <Button variant="outline" disabled={!recorder.isSupported||recorder.isStarting||voiceMutation.isPending||!!voiceDraft} onClick={()=>void recorder.start()}>{recorder.isStarting?'Waiting for microphone…':'Record voice'}</Button>}
         {voiceDraft && <><span className="text-sm">Voice message · {voiceDraft.duration}s</span><Button disabled={voiceMutation.isPending} onClick={()=>voiceMutation.mutate()}>Send voice message</Button><Button variant="ghost" disabled={voiceMutation.isPending} onClick={()=>setVoiceDraft(null)}>Discard</Button></>}
         {(recorder.error||voiceNotice)&&<p role="status" className="w-full text-sm">{recorder.error||voiceNotice}</p>}
       </div>
