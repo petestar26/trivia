@@ -19,6 +19,9 @@ vi.mock('@/providers/socket-provider', () => ({
   useSocket: () => ({ socket: null, isConnected: false }),
 }));
 
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'me' } }) }));
+vi.mock('@/components/voice/voice-message-player', () => ({ VoiceMessagePlayer: () => <div>Playable voice message</div> }));
+
 import { MessagesPage } from './messages';
 
 // jsdom does not implement scrollIntoView (same reason setup.ts stubs
@@ -159,4 +162,16 @@ describe('MessagesPage — send progression invalidation', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
     expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
   });
+});
+
+
+it('renders lowercase voice messages from the real API serializer', async () => {
+  getGroupMessages.mockResolvedValue({ data: [{ id:'voice',content:'',type:'voice',createdAt:'2026-10-03T00:00:00Z',voiceMessage:{duration:12} }] });
+  renderAtGroup();expect(await screen.findByText('Playable voice message')).toBeInTheDocument();
+});
+it('renders authoritative gift cards alongside free reactions and requests latest messages', async () => {
+  getGroupMessages.mockResolvedValue({ data: [{ id:'gift',content:'Gift sent',type:'gift',createdAt:'2026-10-03T00:00:00Z',sender:{id:'friend',username:'friend'},gift:{name:'Golden Heart',emoji:'💛',theme:'amber',recipientId:'me',recipientUsername:'me',faceValue:100} }] });
+  renderAtGroup();expect(await screen.findByText('Gift delivered')).toBeInTheDocument();expect(screen.getByText('Golden Heart')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Love'})).toBeInTheDocument();expect(screen.getByRole('button',{name:'Open gifts'})).toBeInTheDocument();
+  expect(getGroupMessages).toHaveBeenCalledWith('group-1',{limit:50,latest:true});
 });

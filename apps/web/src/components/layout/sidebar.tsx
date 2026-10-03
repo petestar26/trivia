@@ -9,6 +9,7 @@ const navigation = [
   { name: 'Casino',       href: '/casino',        icon: CasinoIcon },
   { name: 'Challenges',   href: '/challenges',    icon: SwordsIcon },
   { name: 'Competitions', href: '/competitions',  icon: TrophyIcon },
+  { name: 'Gifts',        href: '/gifts',         icon: GiftIcon },
   { name: 'Wallet',       href: '/wallet',        icon: WalletIcon },
   { name: 'Rewards',      href: '/rewards',       icon: GiftIcon },
   { name: 'Profile',      href: '/profile',       icon: UserIcon },

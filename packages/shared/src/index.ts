@@ -12,3 +12,4 @@ export * from './house-game-policy.js';
 export * from './pvp-entry.js';
 export * from './group-pvp.js';
 export * from './system-keno.js';
+export * from './gift-collection.js';

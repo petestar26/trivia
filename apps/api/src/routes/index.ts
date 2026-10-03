@@ -24,6 +24,7 @@ import { notificationRoutes } from './notifications.js';
 import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
 import { groupPvpRoutes } from '../games/group-pvp/routes.js';
 import { systemKenoRoutes } from '../games/group-pvp/system-keno-routes.js';
+import { giftCollectionRoutes } from '../gift-collection/routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
@@ -36,6 +37,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(storageRoutes, { prefix: '/storage' });
   await server.register(walletRoutes, { prefix: '/wallet' });
   await server.register(giftRoutes, { prefix: '/gifts' });
+  await server.register(giftCollectionRoutes, { prefix: '/gift-collection' });
   await server.register(vipRoutes, { prefix: '/vip' });
   await server.register(progressRoutes, { prefix: '/progress' });
   await server.register(taskRoutes, { prefix: '/tasks' });
