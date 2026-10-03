@@ -617,7 +617,8 @@ describe('ledger upgrade migrations', () => {
       const economicTables = ['economic_operations', 'coin_provenance', 'coin_lot_entries',
         'scheduled_stake_holds', 'house_capital_accounts', 'house_capital_fundings',
         'house_round_reservations', 'house_ticket_resolutions', 'platform_gates',
-        'game_definitions', 'game_rules', 'country_casino_policies'];
+        'game_rules', 'country_casino_policies'];
+      const catalogRows = () => db.client.gameDefinition.findMany({ orderBy: { key: 'asc' } });
       const economicFingerprint = async () => {
         const result: Record<string, string> = {};
         for (const table of economicTables) {
@@ -634,6 +635,12 @@ describe('ledger upgrade migrations', () => {
       expect(proofsBefore.every((proof) => JSON.parse(proof.randomness).algorithm === 'sha256-rejection-u32be-v1')).toBe(true);
       const customersBefore = await legacyFingerprint(db.client);
       const economicsBefore = await economicFingerprint();
+      // This forward migration intentionally pauses only the legacy Dice entry.
+      // Compare every catalog field separately so no unrelated change is hidden.
+      const expectedCatalog = (await catalogRows()).map(game => game.key === 'dice'
+        ? { ...game, catalogStatus: 'COMING_SOON', isActive: false,
+          description: 'Two dice, one shared result. Explore the scheduled free practice table.' }
+        : game);
       expect(await anomalies(db.client)).toEqual([]);
 
       const upgrade = deploy(db.url);
@@ -645,6 +652,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await catalogRows()).toEqual(expectedCatalog);
       expect(await anomalies(db.client)).toEqual([]);
 
       const setup = await runtimeSetup(db);
@@ -658,6 +666,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await catalogRows()).toEqual(expectedCatalog);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
