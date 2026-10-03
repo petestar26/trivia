@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { HOUSE_GAME_MODES, HOUSE_GAME_POLICY, KENO_90_RULES } from '@socialplay/shared';
 import { advanceKeno, drawKeno, KENO_INTERVAL, loadKeno, newKenoState, revealedCount, startKeno } from './keno-practice';
 const numbers = Array.from({length:20},(_,i)=>i+1);
 afterEach(()=>{vi.restoreAllMocks();});
@@ -46,4 +47,29 @@ describe('Keno practice integrity',()=>{
   it.each([null,'broken','{}',JSON.stringify({...newKenoState(),balance:-1}),JSON.stringify({...newKenoState(),active:{}})])('recovers invalid storage safely',(raw)=>{
     expect(loadKeno(raw)).toEqual(newKenoState());
   });
+});
+
+it('uses the same 90% house return for all house modes with no extra group fee',()=>{
+  expect(HOUSE_GAME_MODES).toEqual(['SOLO','SHARED','GROUP']);
+  expect(HOUSE_GAME_POLICY.additionalGroupFeeBps).toBe(0);
+  // Exact integer expected-value identity; independent of presentation and RNG.
+  expect(KENO_90_RULES.drawCount*KENO_90_RULES.returnPerStep*10000).toBe(KENO_90_RULES.choices*KENO_90_RULES.stakeStep*HOUSE_GAME_POLICY.targetRtpBps);
+});
+it('scales returns exactly and recovers custom stakes without duplicate payment',()=>{
+  const state=startKeno(newKenoState(),[1,80],1000,numbers,20);
+  expect(state.balance).toBe(960);
+  const end=advanceKeno(loadKeno(JSON.stringify(state)),20000);
+  expect(end.balance).toBe(1032);
+  expect(advanceKeno(loadKeno(JSON.stringify(end)),30000).balance).toBe(1032);
+});
+it('migrates existing five-credit active tickets without losing or duplicating settlement',()=>{
+  const state=startKeno(newKenoState(),[1,80],1000,numbers);
+  const {stakePerNumber: _stake,...legacyRound}=state.active!;
+  const old={...state,version:1,active:legacyRound};
+  const recovered=loadKeno(JSON.stringify(old));
+  expect(recovered.version).toBe(2);expect(recovered.active?.stakePerNumber).toBe(5);
+  expect(advanceKeno(recovered,20000).balance).toBe(1008);
+});
+it.each([0,-5,6,5.5,500])('rejects invalid per-number stake %s',stake=>{
+  expect(()=>startKeno(newKenoState(),[1],0,numbers,stake)).toThrow();
 });

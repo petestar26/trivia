@@ -7,3 +7,5 @@ export * from './spin-win-90.js';
 export * from './scheduled-practice.js';
 export * from './spin-win-proof.js';
 export * from './spin-publication-archive.js';
+
+export * from './house-game-policy.js';

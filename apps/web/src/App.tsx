@@ -90,7 +90,7 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinPage />} />
-        <Route path="games/turbo-keno" element={<KenoPage />} />
+        <Route path="games/turbo-keno" element={<CasinoProvider><KenoPage /></CasinoProvider>} />
         <Route path="games/spin-win/play" element={<CasinoProvider><SpinWinCoinsPage /></CasinoProvider>} />
         <Route
           path="games/number-challenge"
