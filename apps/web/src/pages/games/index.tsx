@@ -182,9 +182,9 @@ export function GamesPage({
                   <span className="inline-block text-xs font-medium px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                     Coming soon
                   </span>
-                  {game.key === 'spin_win' && (
+                  {(game.key === 'spin_win' || game.key === 'turbo_keno') && (
                     <Link
-                      to="/games/spin-win"
+                      to={game.key === 'turbo_keno' ? '/games/turbo-keno' : '/games/spin-win'}
                       className="mt-3 block text-sm font-semibold text-primary-600 underline dark:text-primary-400"
                     >
                       Try practice mode · no Coins
