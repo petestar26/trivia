@@ -86,26 +86,26 @@ export function SpinWinWheel({
               </text>
             </g>
           ))}
-          {Array.from({ length: 6 }, (_, i) => (
-            <g key={i}>
-              <path
-                d={wedge(i * 60 - 90, (i + 1) * 60 - 90, 150, 82)}
-                fill={i % 2 ? '#b67625' : '#d99b3f'}
-                stroke="#f5cd7d"
-                strokeWidth="1.5"
-              />
-              <text
-                x="250"
-                y="138"
-                textAnchor="middle"
-                fill="#fff3c7"
-                fontSize="22"
-                fontWeight="800"
-                transform={`rotate(${i * 60 + 30} 250 250)`}
-              >
-                {String.fromCharCode(65 + i)}
-              </text>
-            </g>
+          {/* Sector bets are numerical ranges, not contiguous roulette pockets. */}
+          <circle
+            cx="250"
+            cy="250"
+            r="150"
+            fill="url(#spin-gold)"
+            stroke="#f5cd7d"
+            strokeWidth="2"
+          />
+          {[142, 124, 96].map((r) => (
+            <circle
+              key={r}
+              cx="250"
+              cy="250"
+              r={r}
+              fill="none"
+              stroke="#895020"
+              strokeWidth="1.5"
+              opacity=".65"
+            />
           ))}
         </g>
         <circle cx="250" cy="250" r="84" fill="url(#spin-gold)" />

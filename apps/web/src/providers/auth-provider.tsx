@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, Fragment } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { setSessionUser } from '@/lib/session';
 import { UserPublicProfile } from '@socialplay/shared';
 
 interface AuthContextType {
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     pubGenRef.current += 1;              // (2) invalidate in-flight passives
     setIsLoading(false);                 // (3) authoritative op owns completion
     userRef.current = nextUser;
+    setSessionUser(nextUser?.id ?? null);
     setUser(nextUser);                   // (4) publish identity
     setBoundaryRevision((r) => r + 1);   // (5) remount identity-dependent children
   };
@@ -86,6 +88,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // invalidated entirely by any credential operation. A cleanup flag covers
   // React StrictMode-style effect replay (older duplicate probe must not
   // publish after a newer one does).
+  useEffect(() => {
+    const invalidate = () => publishTransition(null);
+    window.addEventListener('socialplay:session-invalidated', invalidate);
+    return () => window.removeEventListener('socialplay:session-invalidated', invalidate);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     let active = true;
     const pubSnapshot = pubGenRef.current;

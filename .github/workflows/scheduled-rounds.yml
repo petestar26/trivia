@@ -10,6 +10,7 @@ on:
       - 'apps/api/src/server.ts'
       - 'apps/api/tsconfig.json'
       - 'apps/api/scripts/check-shared-types.mjs'
+      - 'apps/api/scripts/spin-staging-rehearsal.cjs'
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
@@ -33,9 +34,12 @@ on:
       - 'apps/web/src/App.tsx'
       - 'packages/shared/src/**'
       - 'apps/api/src/scripts/scheduled-practice-worker.ts'
+      - 'apps/api/src/scripts/staging-practice-owner.ts'
       - 'apps/api/src/scripts/house-round-recovery.ts'
       - 'apps/api/src/scripts/ledger-runtime-access.ts'
       - 'docs/deployment/repair-practice-runtime-reads.sql'
+      - 'docs/deployment/scheduled-practice-worker.md'
+      - 'docs/games/scheduled-practice-rounds.md'
       - 'apps/api/src/scripts/ledger-runtime-identity-check*'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
@@ -99,6 +103,25 @@ jobs:
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Build API and verify disposable staging setup
+        run: |
+          pnpm --filter api exec node build.js
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/practice-staging.native.ts
+      - name: Private staging rehearsal syntax and refused production target
+        run: |
+          node --check apps/api/scripts/spin-staging-rehearsal.cjs
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import assert from 'node:assert/strict';
+          const result = spawnSync(process.execPath, ['apps/api/scripts/spin-staging-rehearsal.cjs'], {
+            env: { ...process.env, RAILWAY_ENVIRONMENT_ID: 'production' }, encoding: 'utf8',
+          });
+          assert.equal(result.status, 1);
+          assert.equal(result.stdout, '');
+          assert.deepEqual(JSON.parse(result.stderr), {
+            status: 'REFUSED', stage: 'TARGET', reason: 'STAGING_REHEARSAL_FAILED',
+          });
+          NODE
       - name: Economics and embedded SQL contracts
         run: |
           # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
@@ -141,9 +164,8 @@ jobs:
           src/games/economics/house-public-proof.native.ts
           src/games/economics/publication-store.native.ts
           src/games/economics/publication-submission.native.ts
-      - name: Build API and probe offline CLI entry
+      - name: Probe offline CLI entry
         run: |
-          pnpm --filter api exec node build.js
           PUB_CLI_PROBE=$(mktemp -d)
           trap 'rm -rf "$PUB_CLI_PROBE"' EXIT
           ln -s "$PWD/apps/api/dist/scripts/publication-receipt-verify.js" "$PUB_CLI_PROBE/verify.js"
@@ -154,6 +176,21 @@ jobs:
           test "$PUB_CLI_STATUS" -eq 1
           test "$(cat "$PUB_CLI_PROBE/result")" = '{"status":"BLOCKED"}'
 
+      - name: Compiled practice worker lifecycle and restricted-role rehearsal
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/scheduled/practice-worker.native.ts
+
+      - name: Practice worker TypeScript contracts
+        run: >-
+          pnpm --filter api exec tsc --noEmit --strict --skipLibCheck
+          --target ES2022 --module NodeNext --moduleResolution NodeNext --types node
+          src/scripts/scheduled-practice-worker.ts
+          src/scripts/staging-practice-owner.ts
+          src/games/scheduled/practice-worker-runtime.test.ts
+          src/games/scheduled/practice-worker.native.ts
+          src/games/scheduled/practice-staging.native.ts
+
       - name: Scheduled practice web contracts
         run: >-
           pnpm --filter web exec vitest run
@@ -162,10 +199,14 @@ jobs:
           src/pages/games/spin-win-coins.test.tsx
           src/pages/casino/casino.test.tsx
           src/lib/api.test.ts
+          src/lib/session.test.ts
+          src/providers/auth-provider.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
+      - name: Cookie session renewal contracts
+        run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck
         env:
           VITE_API_PROXY: 'true'
