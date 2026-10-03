@@ -369,12 +369,13 @@ describe('Opus deterministic lock schedules', () => {
 
   it('R3: a play holding the user row commits before a concurrent suspension', async () => {
     const fixture = await purchasedFixture(1000);
-    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
+    // Use an available game; legacy Coin Dice is intentionally paused.
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'number_challenge' } });
     const beforeSessions = await prisma.gameSession.count({ where: { userId: fixture.buyer.id } });
     const holder = await heldLock((tx) => tx.$queryRaw`
       SELECT id FROM game_definitions WHERE id = ${game.id} FOR UPDATE
     `);
-    const play = settled(playGame({ userId: fixture.buyer.id, gameKey: 'dice', betAmount: 100, idempotencyKey: uid('play-first') }));
+    const play = settled(playGame({ userId: fixture.buyer.id, gameKey: 'number_challenge', betAmount: 100, clientData: { guess: 50 }, idempotencyKey: uid('play-first') }));
     let suspension: ReturnType<typeof settled<Awaited<ReturnType<typeof prisma.user.update>>>> | undefined;
     let scheduleError: unknown;
     try {
