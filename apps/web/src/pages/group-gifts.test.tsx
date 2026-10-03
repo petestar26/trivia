@@ -25,3 +25,10 @@ it.each([401,403,409,429])('keeps the receipt after an uncertain send and a %s r
   fireEvent.click(screen.getByRole('button',{name:'Retry pending gift'}));await screen.findByText('Gift sent. The recipient’s Game Points were credited.');
   expect(send.mock.calls).toHaveLength(3);expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);expect(send.mock.calls[2]).toEqual(send.mock.calls[0]);
 });
+
+it('does not let an old unmounted response erase a newer receipt',async()=>{
+ let resolve!: (value:unknown)=>void;send.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));await mount();fireEvent.click(screen.getByRole('button',{name:'Confirm and send gift'}));
+ await waitFor(()=>expect(send).toHaveBeenCalledTimes(1));cleanup();
+ const later={recipientId:'recipient',giftId:'gift',quantity:1,key:'newer-request'};sessionStorage.setItem('playqube.pending-gift.owner.group',JSON.stringify(later));
+ resolve({data:{isReplay:false}});await new Promise(r=>setTimeout(r,10));expect(JSON.parse(sessionStorage.getItem('playqube.pending-gift.owner.group')!).key).toBe('newer-request');
+});
