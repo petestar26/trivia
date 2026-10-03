@@ -1,6 +1,7 @@
 -- Retire new admission to the historical 7+/2x Coin Dice rules. Completed
 -- sessions still replay before catalog checks; immutable rules/history stay intact.
-UPDATE game_definitions SET "catalogStatus"='COMING_SOON', "isActive"=false WHERE key='dice';
+UPDATE game_definitions SET "catalogStatus"='COMING_SOON', "isActive"=false,
+  description='Two dice, one shared result. Explore the scheduled free practice table.' WHERE key='dice';
 
 -- Free, nonredeemable credits. No Coin/Game Point wallet, financial gate or rule activation.
 CREATE TABLE system_dice_practice_accounts (
