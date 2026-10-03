@@ -22,12 +22,14 @@ import { withdrawalRoutes } from '../withdrawals/routes';
 import { userRoutes } from './users';
 import { notificationRoutes } from './notifications.js';
 import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
+import { groupPvpRoutes } from '../games/group-pvp/routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
   // API_PREFIX-wrapped block — see the comment there. Not registered here.
   await server.register(authRoutes, { prefix: '/auth' });
   await server.register(groupRoutes, { prefix: '/groups' });
+  await server.register(groupPvpRoutes, { prefix: '/groups' });
   await server.register(chatRoutes, { prefix: '/groups' });
   await server.register(storageRoutes, { prefix: '/storage' });
   await server.register(walletRoutes, { prefix: '/wallet' });

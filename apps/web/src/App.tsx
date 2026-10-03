@@ -27,6 +27,8 @@ import { GroupsPage } from '@/pages/groups';
 import { GroupDetailPage } from '@/pages/group-detail';
 import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
+import { GroupGamesPage } from '@/pages/group-games';
+import { GroupGiftsPage } from '@/pages/group-gifts';
 import { WalletPage } from '@/pages/wallet';
 import { RewardsPage } from '@/pages/rewards';
 import { ProfilePage } from '@/pages/profile';
@@ -73,6 +75,8 @@ export function App() {
         <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />
         <Route path="groups/:id" element={<GroupDetailPage />} />
         <Route path="messages/:groupId" element={<MessagesPage />} />
+        <Route path="groups/:id/games" element={<GroupGamesPage />} />
+        <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="wallet" element={<WalletPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />
