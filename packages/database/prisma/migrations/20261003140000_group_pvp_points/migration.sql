@@ -37,12 +37,12 @@ CREATE TABLE group_pvp_entries (
   CHECK (state <> 'READY' OR (selection IS NOT NULL AND debit_id IS NOT NULL)),
   CHECK (refund_id IS NULL OR (debit_id IS NOT NULL AND state = 'WITHDRAWN'))
 );
-CREATE FUNCTION group_pvp_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION group_pvp_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'PVP history is immutable'; END IF;
   IF TG_TABLE_NAME = 'group_pvp_rounds' THEN
     IF OLD.state IN ('OPEN','COUNTDOWN','DRAWN') AND NEW.state=OLD.state
-       AND (to_jsonb(NEW)-'retry_at') IS NOT DISTINCT FROM (to_jsonb(OLD)-'retry_at')
+       AND (pg_catalog.to_jsonb(NEW)-'retry_at') IS NOT DISTINCT FROM (pg_catalog.to_jsonb(OLD)-'retry_at')
        AND NEW.retry_at >= OLD.retry_at THEN RETURN NEW; END IF;
     IF (NEW.id,NEW.group_id,NEW.creator_id,NEW.request_id,NEW.game,NEW.rules_id,NEW.policy_id,NEW.entry_amount,NEW.created_at,NEW.expires_at)
        IS DISTINCT FROM (OLD.id,OLD.group_id,OLD.creator_id,OLD.request_id,OLD.game,OLD.rules_id,OLD.policy_id,OLD.entry_amount,OLD.created_at,OLD.expires_at)

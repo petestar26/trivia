@@ -26,10 +26,10 @@ CREATE TABLE system_keno_practice_tickets (
   UNIQUE(round_id,user_id),
   CHECK (jsonb_array_length(picks) BETWEEN 1 AND 10 AND stake=stake_per_number*jsonb_array_length(picks))
 );
-CREATE FUNCTION system_keno_practice_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION system_keno_practice_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   IF TG_OP='DELETE' THEN RAISE EXCEPTION 'Practice history is immutable'; END IF;
-  IF (to_jsonb(NEW)-'retry_at') IS NOT DISTINCT FROM (to_jsonb(OLD)-'retry_at') AND NEW.retry_at>=OLD.retry_at THEN RETURN NEW; END IF;
+  IF (pg_catalog.to_jsonb(NEW)-'retry_at') IS NOT DISTINCT FROM (pg_catalog.to_jsonb(OLD)-'retry_at') AND NEW.retry_at>=OLD.retry_at THEN RETURN NEW; END IF;
   IF TG_TABLE_NAME='system_keno_practice_rounds' THEN
     IF (NEW.id,NEW.opens_at,NEW.closes_at,NEW.ends_at) IS DISTINCT FROM (OLD.id,OLD.opens_at,OLD.closes_at,OLD.ends_at)
       OR OLD.outcome IS NOT NULL OR NEW.outcome IS NULL THEN RAISE EXCEPTION 'Round result is immutable'; END IF;
@@ -41,12 +41,12 @@ BEGIN
 END $$;
 CREATE TRIGGER system_keno_round_guard BEFORE UPDATE OR DELETE ON system_keno_practice_rounds FOR EACH ROW EXECUTE FUNCTION system_keno_practice_guard();
 CREATE TRIGGER system_keno_ticket_guard BEFORE UPDATE OR DELETE ON system_keno_practice_tickets FOR EACH ROW EXECUTE FUNCTION system_keno_practice_guard();
-CREATE FUNCTION system_keno_practice_balance_check() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+CREATE FUNCTION system_keno_practice_balance_check() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 DECLARE who text; actual bigint; expected bigint;
 BEGIN
   who:=NEW.user_id;
   SELECT balance INTO actual FROM public.system_keno_practice_accounts WHERE user_id=who;
-  SELECT 1000+COALESCE(sum(COALESCE(payout,0)-stake),0) INTO expected FROM public.system_keno_practice_tickets WHERE user_id=who;
+  SELECT 1000+COALESCE(pg_catalog.sum(COALESCE(payout,0)-stake),0) INTO expected FROM public.system_keno_practice_tickets WHERE user_id=who;
   IF actual IS DISTINCT FROM expected THEN RAISE EXCEPTION 'Practice balance does not match tickets'; END IF;
   RETURN NULL;
 END $$;
