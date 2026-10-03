@@ -8,7 +8,7 @@ import { HOUSE_GAME_POLICY, KENO_90_RULES } from '@socialplay/shared';
 import { parseKenoStake, KENO_MAX_PRACTICE_STAKE } from '@/lib/keno-practice';
 import './keno.css';
 
-function KenoMachine({ number, running }: { number: number | null; running: boolean }) {
+export function KenoMachine({ number, running }: { number: number | null; running: boolean }) {
   return <div className={`keno-machine ${running ? 'keno-machine-running' : ''}`}>
     <svg viewBox="0 0 340 400" role="img" aria-label={number === null ? 'Keno ball machine ready' : `Latest drawn ball ${number}`}>
       <defs>

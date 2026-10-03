@@ -34,7 +34,7 @@ function ScheduledTable({ userId }: { userId: string }) {
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState(
-    'Choose your selections before the shared countdown ends.'
+    'Choose your selections before the system countdown ends.'
   );
   const [rotation, setRotation] = useState(0);
   const lastDraw = useRef<string | null>(null);

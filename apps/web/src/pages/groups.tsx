@@ -175,6 +175,10 @@ export function GroupsPage() {
             />
             <span className="text-sm text-gray-600 dark:text-gray-400">Private group</span>
           </label>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+            <strong>Chat, gifts and PVP games</strong>
+            <p className="mt-1">Public and private groups have a game room. Members join and confirm their entry, then the owner starts a 30-second countdown.</p>
+          </div>
 
           {formError && (
             <p id="create-group-error" role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -285,6 +289,7 @@ export function GroupsPage() {
                   {group.isMember ? (
                     <>
                       <Button size="sm" onClick={() => navigate(`/messages/${group.id}`)}>Messages</Button>
+                      <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}/games`)}>Games</Button>
                       <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}`)}>Manage</Button>
                     </>
                   ) : (

@@ -5,6 +5,17 @@ on:
     paths:
       - '.github/workflows/scheduled-rounds.yml'
       - 'apps/api/src/games/economics/**'
+      - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/scripts/group-pvp-worker.ts'
+      - 'apps/api/src/routes/index.ts'
+      - 'apps/web/src/pages/group-games*'
+      - 'apps/web/src/pages/group-gifts*'
+      - 'apps/web/src/components/groups/group-social-nav.tsx'
+      - 'apps/web/src/pages/groups*'
+      - 'apps/web/src/pages/group-detail*'
+      - 'apps/web/src/pages/messages*'
+      - 'apps/web/src/lib/bounded-request*'
+      - 'apps/web/src/hooks/use-voice-recorder*'
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
       - 'apps/api/src/server.ts'
@@ -14,6 +25,8 @@ on:
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/pages/games/keno*'
+      - 'apps/web/src/pages/casino/index.tsx'
       - 'apps/web/src/components/spin/**'
       - 'apps/web/server*.mjs'
       - 'apps/web/pwa.test.mjs'
@@ -100,11 +113,13 @@ jobs:
       - name: Check API shared declaration boundary
         run: pnpm --filter api typecheck:shared-boundary
       - name: Shared house and PVP policy contracts
-        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
+        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts src/group-pvp.test.ts --minWorkers=1 --maxWorkers=1
       - name: Fresh migration deployment and replay
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Group PVP concurrency and recovery
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -196,6 +211,7 @@ jobs:
       - name: Scheduled practice web contracts
         run: >-
           pnpm --filter web exec vitest run
+          src/pages/games/keno-system.test.tsx
           src/pages/games/spin-win-scheduled.test.tsx
           src/pages/games/spin-win.test.tsx
           src/pages/games/spin-win-coins.test.tsx
@@ -207,6 +223,12 @@ jobs:
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
           --minWorkers=1 --maxWorkers=1
+      - name: Group game room and chat contracts
+        run: >-
+          pnpm --filter web exec vitest run
+          src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx
+          src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck

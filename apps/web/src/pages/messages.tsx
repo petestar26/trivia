@@ -7,6 +7,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { GroupSocialNav } from '@/components/groups/group-social-nav';
+import { VoiceMessagePlayer } from '@/components/voice/voice-message-player';
+import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 
 /**
  * Shape this page renders from `GET /groups/:id/messages`. Typed (rather than
@@ -19,10 +22,16 @@ interface ChatMessage {
   createdAt: string;
   isDeleted?: boolean;
   isEdited?: boolean;
+  type?: string;
+  voiceMessage?: { duration?: number; mimeType?: string } | null;
   sender?: { displayName?: string | null; username?: string | null } | null;
 }
 
 export function MessagesPage() {
+  const { groupId } = useParams<{ groupId: string }>();
+  return <MessagesContent key={groupId}/>;
+}
+function MessagesContent() {
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const { socket } = useSocket();
@@ -30,6 +39,16 @@ export function MessagesPage() {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasJoinedRoomRef = useRef(false);
+  const [voiceDraft,setVoiceDraft]=useState<{blob:Blob;duration:number}|null>(null);
+  const [voiceNotice,setVoiceNotice]=useState('');
+  const recorder=useVoiceRecorder((blob,durationMs)=>setVoiceDraft({blob,duration:Math.max(1,Math.ceil(durationMs/1000))}));
+  const voiceMutation=useMutation({mutationFn:async()=>{
+    if(!voiceDraft||!groupId)throw new Error('Record a message first');
+    const form=new FormData();form.append('duration',String(voiceDraft.duration));
+    form.append('file',voiceDraft.blob,voiceDraft.blob.type.includes('ogg')?'voice.ogg':'voice.webm');
+    return api.upload(`/groups/${groupId}/voice-messages`,form);
+  },onSuccess:()=>{setVoiceDraft(null);setVoiceNotice('Voice message sent.');void queryClient.invalidateQueries({queryKey:['messages',groupId]});},
+  onError:()=>setVoiceNotice('Voice message could not be confirmed. Check the chat before sending again.')});
 
   // Resolves directly to the array; the render path uses it as-is.
   const { data: messages = [], isLoading, isError } = useQuery<ChatMessage[]>({
@@ -162,6 +181,7 @@ export function MessagesPage() {
         <Button variant="outline" size="sm" onClick={() => navigate('/groups')}>← Groups</Button>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Messages</h1>
       </div>
+      <GroupSocialNav groupId={groupId}/>
 
       <Card>
         <CardContent className="p-4">
@@ -178,9 +198,9 @@ export function MessagesPage() {
                     <span className="text-xs text-gray-400">{new Date(msg.createdAt).toLocaleTimeString()}</span>
                     {msg.isEdited && <span className="text-xs text-gray-400">(edited)</span>}
                   </div>
-                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
+                  {msg.type==='VOICE' && !msg.isDeleted ? <VoiceMessagePlayer groupId={groupId} messageId={msg.id} duration={msg.voiceMessage?.duration}/> : <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     {msg.isDeleted ? '[deleted]' : msg.content}
-                  </p>
+                  </p>}
                 </div>
               ))}
               <div ref={messagesEndRef} />
@@ -201,6 +221,11 @@ export function MessagesPage() {
         <Button onClick={handleSend} disabled={!message.trim() || sendMutation.isPending}>
           {sendMutation.isPending ? 'Sending…' : 'Send'}
         </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
+        {recorder.isRecording ? <><span role="timer">Recording {Math.floor(recorder.elapsedMs/1000)}s</span><Button onClick={()=>void recorder.stop()}>Stop recording</Button><Button variant="outline" onClick={recorder.cancel}>Cancel</Button></> : <Button variant="outline" disabled={!recorder.isSupported||recorder.isStarting||voiceMutation.isPending||!!voiceDraft} onClick={()=>void recorder.start()}>{recorder.isStarting?'Waiting for microphone…':'Record voice'}</Button>}
+        {voiceDraft && <><span className="text-sm">Voice message · {voiceDraft.duration}s</span><Button disabled={voiceMutation.isPending} onClick={()=>voiceMutation.mutate()}>Send voice message</Button><Button variant="ghost" disabled={voiceMutation.isPending} onClick={()=>setVoiceDraft(null)}>Discard</Button></>}
+        {(recorder.error||voiceNotice)&&<p role="status" className="w-full text-sm">{recorder.error||voiceNotice}</p>}
       </div>
     </div>
   );
