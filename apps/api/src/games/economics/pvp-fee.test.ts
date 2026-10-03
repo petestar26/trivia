@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { PVP_GAME_POLICY } from '@socialplay/shared';
+import { PVP_GAME_POLICY, quotePvpEntry } from '@socialplay/shared';
 import { PVP_POLICY, HOUSE_RTP_BPS, ECONOMICS_POLICY } from './policy.js';
 import { planContestSettlement, type ContestPool } from './contest-pool.js';
 const pool = (n=10): ContestPool => ({policy:PVP_POLICY,currency:'COINS',contributions:Array.from({length:n},(_,i)=>({id:`r${i}`,userId:`u${i}`,kind:'ENTRY',amount:100n}))});
@@ -33,4 +33,16 @@ it('conserves funded money at exactly 7% across different pools and ties',()=>{
     expect(result.platformFee*100n).toBe(result.funded*7n);
     expect(result.prizes.reduce((sum,r)=>sum+r.amount,result.platformFee)).toBe(result.funded);
   }
+});
+
+it('settles exactly the fees and prize contributions disclosed for mixed entries', () => {
+  const p = pool(3);
+  p.contributions = p.contributions.map((receipt, i) => ({ ...receipt, amount: BigInt([100, 200, 1000][i]) }));
+  const quotes = p.contributions.map(receipt => quotePvpEntry(p.policy, receipt.amount.toString()));
+  const result = planContestSettlement(p, { status: 'COMPLETED', winnerIds: ['u0', 'u1'] });
+  expect(result.platformFee).toBe(91n);
+  expect(result.platformFee).toBe(quotes.reduce((sum, quote) => sum + BigInt(quote.platformFee), 0n));
+  expect(result.prizes.reduce((sum, prize) => sum + prize.amount, 0n)).toBe(
+    quotes.reduce((sum, quote) => sum + BigInt(quote.prizeContribution), 0n),
+  );
 });

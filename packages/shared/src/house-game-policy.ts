@@ -24,4 +24,5 @@ export const PVP_GAME_POLICY = Object.freeze({
   feeBasis: 'ENTRY' as const,
   chargeOn: 'COMPLETED_CONTEST' as const,
   additionalWinnerFeeBps: 0,
+  entryStepUnits: '100',
 });

@@ -1,4 +1,5 @@
-import { BPS, CONTEST_FEE_BPS, ECONOMICS_POLICY, PVP_POLICY, PVP_FEE_BPS } from './policy.js';
+import { quotePvpEntry } from '@socialplay/shared';
+import { BPS, CONTEST_FEE_BPS, ECONOMICS_POLICY, PVP_POLICY } from './policy.js';
 import { identifier, total, units } from './money.js';
 
 export interface PoolContribution {
@@ -28,14 +29,13 @@ export function planContestSettlement(
   result: { status: 'COMPLETED'; winnerIds: readonly string[] } | { status: 'VOID' },
 ) {
   if (pool.policy !== ECONOMICS_POLICY && pool.policy !== PVP_POLICY) throw new RangeError('Unsupported economic policy');
-  const feeBps = pool.policy === PVP_POLICY ? PVP_FEE_BPS : CONTEST_FEE_BPS;
-  const entryStep = pool.policy === PVP_POLICY ? 100n : 20n;
   if (pool.currency !== 'COINS' && pool.currency !== 'GAME_POINTS') throw new RangeError('Invalid currency');
   if (!Array.isArray(pool.contributions) || pool.contributions.length > 100_000) {
     throw new RangeError('Invalid contribution list');
   }
   const receiptIds = new Set<string>();
   const entrants = new Set<string>();
+  let quotedPvpFees = 0n;
   for (const receipt of pool.contributions) {
     identifier(receipt.id, 'Receipt ID');
     identifier(receipt.userId, 'User ID');
@@ -43,7 +43,11 @@ export function planContestSettlement(
     receiptIds.add(receipt.id);
     units(receipt.amount, 'Contribution', true);
     if (receipt.kind === 'ENTRY') {
-      if (receipt.amount % entryStep !== 0n) throw new RangeError(`Entry must be a multiple of ${entryStep} ledger units`);
+      if (pool.policy === PVP_POLICY) {
+        quotedPvpFees += BigInt(quotePvpEntry(pool.policy, receipt.amount.toString()).platformFee);
+      } else if (receipt.amount % 20n !== 0n) {
+        throw new RangeError('Entry must be a multiple of 20 ledger units');
+      }
       entrants.add(receipt.userId);
     } else if (receipt.kind !== 'SPONSOR') throw new RangeError('Invalid contribution kind');
   }
@@ -65,7 +69,7 @@ export function planContestSettlement(
   if (winners.length !== result.winnerIds.length || winners.some((id) => !entrants.has(id))) {
     throw new RangeError('Winners must be unique funded entrants');
   }
-  const platformFee = entries * feeBps / BPS;
+  const platformFee = pool.policy === PVP_POLICY ? quotedPvpFees : entries * CONTEST_FEE_BPS / BPS;
   const distributable = funded - platformFee;
   const share = distributable / BigInt(winners.length);
   const remainder = distributable % BigInt(winners.length);
@@ -81,4 +85,3 @@ export function planContestSettlement(
     refunds: [] as { receiptId: string; userId: string; amount: bigint }[],
   };
 }
-
