@@ -1,4 +1,4 @@
-import { BPS, CONTEST_FEE_BPS, ECONOMICS_POLICY } from './policy.js';
+import { BPS, CONTEST_FEE_BPS, ECONOMICS_POLICY, PVP_POLICY, PVP_FEE_BPS } from './policy.js';
 import { identifier, total, units } from './money.js';
 
 export interface PoolContribution {
@@ -10,7 +10,7 @@ export interface PoolContribution {
 }
 
 export interface ContestPool {
-  policy: typeof ECONOMICS_POLICY;
+  policy: typeof ECONOMICS_POLICY | typeof PVP_POLICY;
   currency: 'COINS' | 'GAME_POINTS';
   contributions: readonly PoolContribution[];
 }
@@ -19,14 +19,17 @@ export interface ContestPool {
  * Pure settlement plan. The adapter must load committed escrow receipts under
  * the contest lock, then atomically persist this plan, credits and fee journal.
  * This function by itself does NOT prove that money was escrowed.
- * ENTRY amounts use multiples of 20 so a 15% fee needs no rounding.
+ * New PVP entries use multiples of 100 smallest ledger units for exact 7% fees.
+ * Legacy pinned 15% entries retain their original 20-unit step.
  * SPONSOR contributions are returned or paid in full, with no second fee.
  */
 export function planContestSettlement(
   pool: ContestPool,
   result: { status: 'COMPLETED'; winnerIds: readonly string[] } | { status: 'VOID' },
 ) {
-  if (pool.policy !== ECONOMICS_POLICY) throw new RangeError('Unsupported economic policy');
+  if (pool.policy !== ECONOMICS_POLICY && pool.policy !== PVP_POLICY) throw new RangeError('Unsupported economic policy');
+  const feeBps = pool.policy === PVP_POLICY ? PVP_FEE_BPS : CONTEST_FEE_BPS;
+  const entryStep = pool.policy === PVP_POLICY ? 100n : 20n;
   if (pool.currency !== 'COINS' && pool.currency !== 'GAME_POINTS') throw new RangeError('Invalid currency');
   if (!Array.isArray(pool.contributions) || pool.contributions.length > 100_000) {
     throw new RangeError('Invalid contribution list');
@@ -40,7 +43,7 @@ export function planContestSettlement(
     receiptIds.add(receipt.id);
     units(receipt.amount, 'Contribution', true);
     if (receipt.kind === 'ENTRY') {
-      if (receipt.amount % 20n !== 0n) throw new RangeError('Entry must be a multiple of 20');
+      if (receipt.amount % entryStep !== 0n) throw new RangeError(`Entry must be a multiple of ${entryStep} ledger units`);
       entrants.add(receipt.userId);
     } else if (receipt.kind !== 'SPONSOR') throw new RangeError('Invalid contribution kind');
   }
@@ -62,7 +65,7 @@ export function planContestSettlement(
   if (winners.length !== result.winnerIds.length || winners.some((id) => !entrants.has(id))) {
     throw new RangeError('Winners must be unique funded entrants');
   }
-  const platformFee = entries * CONTEST_FEE_BPS / BPS;
+  const platformFee = entries * feeBps / BPS;
   const distributable = funded - platformFee;
   const share = distributable / BigInt(winners.length);
   const remainder = distributable % BigInt(winners.length);
@@ -78,3 +81,4 @@ export function planContestSettlement(
     refunds: [] as { receiptId: string; userId: string; amount: bigint }[],
   };
 }
+

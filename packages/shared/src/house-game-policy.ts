@@ -15,3 +15,13 @@ export const KENO_90_RULES = Object.freeze({
   stakeStep: 5,
   returnPerStep: 18,
 });
+
+/** Approved PVP entry-pool rule. Never also apply the house-game edge. */
+export const PVP_GAME_POLICY = Object.freeze({
+  id: 'pvp-entry-fee7-v1',
+  entryFeeBps: 700,
+  prizePoolBps: 9300,
+  feeBasis: 'ENTRY' as const,
+  chargeOn: 'COMPLETED_CONTEST' as const,
+  additionalWinnerFeeBps: 0,
+});
