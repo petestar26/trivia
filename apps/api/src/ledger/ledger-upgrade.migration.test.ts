@@ -37,6 +37,7 @@ const PRACTICE_TICKET_READ_SCOPE = '20261003020000_practice_admission_read_scope
 const GROUP_PVP_POINTS = '20261003140000_group_pvp_points';
 const SYSTEM_KENO_PRACTICE = '20261003150000_system_keno_practice';
 const COLLECTIBLE_GIFTS = '20261003160000_collectible_point_gifts';
+const SYSTEM_DICE_PRACTICE = '20261003170000_system_dice_practice';
 // Exact merged publication core 899cea6beea02b2871a4586928de632f44eafe37 (72 migrations).
 const PUBLICATION_PARENT_MIGRATIONS_SHA256 = '2c45223055f11a4ac16ffdccb7d6379ad9c365bed743853afdca28af6b5d6b0b';
 // Exact merged ef3a026b6d208118932b76119fe165f866584ab0 (71 migrations).
@@ -59,7 +60,7 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
   '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
-  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS];
+  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -374,6 +375,7 @@ beforeAll(() => {
     GROUP_PVP_POINTS,
     SYSTEM_KENO_PRACTICE,
     COLLECTIBLE_GIFTS,
+    SYSTEM_DICE_PRACTICE,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -637,7 +639,7 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -697,7 +699,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -750,7 +752,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT

@@ -9,7 +9,7 @@ import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
-import { DiceGamePage } from '@/pages/games/dice';
+import { SystemDicePage } from '@/pages/games/dice-system';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
 import { SystemKenoPage } from '@/pages/games/keno-system';
@@ -87,7 +87,7 @@ export function App() {
           path="games/dice"
           element={
             <CasinoProvider>
-              <DiceGamePage />
+              <SystemDicePage />
             </CasinoProvider>
           }
         />
