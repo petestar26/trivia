@@ -72,7 +72,7 @@ export function createGiftCollectionService(db: PrismaClient) {
       const action = canonicalAction(input);
       return db.$transaction(async tx => {
         // Serialize exact retries before checking mutable membership, ownership, or catalog state.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`collectible-gift:${actorId}:${requestId}`},0))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`collectible-gift:${actorId}:${requestId}`},0))`;
         const previous = await tx.$queryRaw<{ request: GiftAction; response: GiftActionReceipt }[]>`
           SELECT request,response FROM collectible_gift_operations WHERE actor_id=${actorId} AND request_id=${requestId}`;
         if (previous[0]) {
