@@ -8,8 +8,8 @@ interface Ticket {id:string;round_id:string;user_id:string;picks:number[];stake_
 export function createSystemKenoService(db:PrismaClient) {
   const clock=async(tx:Prisma.TransactionClient)=>(await tx.$queryRaw<{now:Date}[]>`SELECT clock_timestamp() AS now`)[0].now;
   async function account(tx:Prisma.TransactionClient,userId:string) {
-    const [user]=await tx.$queryRaw<{status:string;isVerified:boolean}[]>`SELECT status::text,"isVerified" FROM users WHERE id=${userId} FOR SHARE`;
-    if(!user||user.status!=='ACTIVE'||!user.isVerified)throw ApiError.forbidden('An active verified account is required');
+    const [user]=await tx.$queryRaw<{status:string}[]>`SELECT status::text FROM users WHERE id=${userId} FOR SHARE`;
+    if(!user||user.status!=='ACTIVE')throw ApiError.forbidden('An active account is required');
     await tx.$executeRaw`INSERT INTO system_keno_practice_accounts(user_id) VALUES(${userId}) ON CONFLICT DO NOTHING`;
   }
   async function snapshot(userId:string):Promise<SystemKenoSnapshot> {

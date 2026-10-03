@@ -29,10 +29,10 @@ export function createGroupPvpService(db: PrismaClient) {
   // The group NO KEY UPDATE lock serializes all PVP actions with group moderation.
   async function access(tx: Tx, groupId: string, actorId: string, participantIds: string[] = []) {
     const ids = [...new Set([actorId, ...participantIds])].sort();
-    const accounts = await tx.$queryRaw<{ id: string; status: string; isVerified: boolean }[]>`
-      SELECT id,status::text,"isVerified" FROM users WHERE id=ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
+    const accounts = await tx.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id,status::text FROM users WHERE id=ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
     const actor = accounts.find(a => a.id === actorId);
-    if (!actor || actor.status !== 'ACTIVE' || !actor.isVerified) throw ApiError.forbidden('An active verified account is required');
+    if (!actor || actor.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
     const [g] = await tx.$queryRaw<Group[]>`SELECT id,name,"ownerId",status::text FROM groups WHERE id=${groupId} FOR NO KEY UPDATE`;
     if (!g) throw ApiError.notFound('Group not found');
     const members = await tx.$queryRaw<{ userId: string; status: string }[]>`
@@ -144,7 +144,7 @@ export function createGroupPvpService(db: PrismaClient) {
       const players = (await entries(tx, roundId)).filter(e => e.state !== 'WITHDRAWN');
       if (players.length < 2 || players.some(e => e.state !== 'READY')) throw ApiError.conflict('At least two players must join and everyone must confirm their entry');
       if (players.some(e => !ids.includes(e.user_id))) throw ApiError.conflict('Players changed; retry start');
-      if (players.some(e => !accounts.some(a => a.id === e.user_id && a.status === 'ACTIVE' && a.isVerified) ||
+      if (players.some(e => !accounts.some(a => a.id === e.user_id && a.status === 'ACTIVE') ||
           !members.some(m => m.userId === e.user_id && m.status === 'ACTIVE'))) throw ApiError.conflict('A player is no longer eligible; cancel this round for a full refund');
       const now = await clock(tx); open(r, now);
       await tx.$executeRaw`UPDATE group_pvp_rounds SET state='COUNTDOWN',starts_at=${new Date(now.getTime()+GROUP_PVP_RULES.countdownMs)} WHERE id=${roundId}`;

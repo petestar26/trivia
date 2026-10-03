@@ -13,7 +13,7 @@ const service=createGroupPvpService(db);
 beforeAll(async()=>{await db.$connect();});afterAll(async()=>{await db.$disconnect();});
 async function fixture(game:'spin_win'|'turbo_keno'='spin_win',lobbyMs?:number) {
   const groupId=randomUUID(); const ids=[randomUUID(),randomUUID(),randomUUID()];
-  for(const id of ids){await db.user.create({data:{id,username:`pvp_${id.replaceAll('-','')}`,isVerified:true}});
+  for(const id of ids){await db.user.create({data:{id,username:`pvp_${id.replaceAll('-','')}`,isVerified:false}});
     await db.wallet.create({data:{userId:id}});
     await db.$transaction(tx=>applyBalanceChanges(tx,id,[{currency:'GAME_POINTS',amount:10000,ledgerType:'CREDIT',transactionType:'GAME_POINT_CREDIT',referenceType:'ADMIN',description:'Disposable PVP test funding'}]));}
   await db.$transaction(async tx=>{

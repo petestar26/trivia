@@ -7,7 +7,7 @@ if(!url||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||url.pathname
 const db=new PrismaClient({datasourceUrl:source,log:[]});const service=createSystemKenoService(db);
 beforeAll(async()=>{await db.$connect();});afterAll(async()=>{await db.$disconnect();});
 async function fixture(closeIn=20000){
- const userId=randomUUID(),roundId=randomUUID();const closes=new Date(Date.now()+closeIn);await db.user.create({data:{id:userId,username:`keno_${userId.replaceAll('-','')}`,isVerified:true}});
+ const userId=randomUUID(),roundId=randomUUID();const closes=new Date(Date.now()+closeIn);await db.user.create({data:{id:userId,username:`keno_${userId.replaceAll('-','')}`,isVerified:false}});
  await service.snapshot(userId);
  await db.$executeRaw`INSERT INTO system_keno_practice_rounds(id,opens_at,closes_at,ends_at) VALUES(${roundId},${new Date(closes.getTime()-45000)},${closes},${new Date(closes.getTime()+15000)})`;
  return {userId,roundId};
@@ -37,4 +37,9 @@ it('rechecks the cutoff after waiting for the wallet lock and never charges late
  const f=await fixture(1200);let release!:()=>void,locked!:()=>void;const gate=new Promise<void>(r=>release=r),started=new Promise<void>(r=>locked=r);
  const holder=db.$transaction(async tx=>{await tx.$queryRaw`SELECT user_id FROM system_keno_practice_accounts WHERE user_id=${f.userId} FOR UPDATE`;locked();await gate;});
  await started;const entry=service.enter(f.userId,f.roundId,[1],5);const check=expect(entry).rejects.toThrow('closed');await new Promise(r=>setTimeout(r,1400));release();await holder;await check;expect(await balance(f.userId)).toBe(1000);
+});
+
+it('refuses inactive accounts without changing practice balances',async()=>{
+ const f=await fixture();await db.user.update({where:{id:f.userId},data:{status:'BANNED'}});
+ await expect(service.snapshot(f.userId)).rejects.toThrow('active');await expect(service.enter(f.userId,f.roundId,[1],5)).rejects.toThrow('active');expect(await balance(f.userId)).toBe(1000);
 });
