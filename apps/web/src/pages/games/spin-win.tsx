@@ -1,3 +1,4 @@
+import { SpinStakeInput, parseSpinStake } from '@/components/spin/spin-stake-input';
 import { useEffect, useRef, useState } from 'react';
 import { SpinStage } from '@/components/spin/spin-stage';
 import {
@@ -26,7 +27,8 @@ export function practiceNumber(): number {
 export { SpinWinWheel } from '@/components/spin/spin-wheel';
 
 export function SpinWinPage() {
-  const [chip, setChip] = useState(40);
+  const [stakeText, setStakeText] = useState('40');
+  const chip = parseSpinStake(stakeText, MAX_ROUND);
   const [bets, setBets] = useState<SpinBet[]>([]);
   const [undo, setUndo] = useState<SpinBet[][]>([]);
   const [previous, setPrevious] = useState<SpinBet[]>([]);
@@ -34,7 +36,7 @@ export function SpinWinPage() {
   const [rotation, setRotation] = useState(0);
   const [running, setRunning] = useState(false);
   const [history, setHistory] = useState<number[]>([]);
-  const [message, setMessage] = useState('Choose a chip, then select numbers or markets.');
+  const [message, setMessage] = useState('Enter a bet amount or choose a chip, then select numbers or markets.');
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const locked = useRef(false);
   useEffect(
@@ -50,7 +52,7 @@ export function SpinWinPage() {
     setBets(next);
   };
   const add = (market: SpinMarket) => {
-    if (locked.current) return;
+    if (locked.current || !chip) return;
     if (total + chip > Math.min(balance, MAX_ROUND)) {
       setMessage('This chip exceeds your practice balance or the 480-credit round limit.');
       return;
@@ -100,7 +102,7 @@ export function SpinWinPage() {
       <button
         key={market.id}
         type="button"
-        disabled={running}
+        disabled={running || !chip}
         onClick={() => add(market)}
         aria-label={`Bet on ${market.label}${number ? ` ${spinColour(market.numbers[0])}` : ''}`}
         aria-pressed={!!amount}
@@ -137,6 +139,7 @@ export function SpinWinPage() {
       }
     >
       <div className="space-y-4">
+        <SpinStakeInput value={stakeText} onChange={setStakeText} maximum={MAX_ROUND} disabled={running} />
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Chip value">
           <span className="mr-2 text-xs uppercase tracking-widest text-emerald-100/60">
             Choose a chip
@@ -146,7 +149,7 @@ export function SpinWinPage() {
               key={value}
               disabled={running}
               aria-pressed={chip === value}
-              onClick={() => setChip(value)}
+              onClick={() => setStakeText(String(value))}
               className={`h-11 w-11 rounded-full border-2 border-dashed font-bold focus-visible:ring-2 focus-visible:ring-white ${chip === value ? 'border-amber-100 bg-amber-200 text-slate-950' : 'border-emerald-100/30 bg-black/20'}`}
             >
               {value}

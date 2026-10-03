@@ -1,3 +1,4 @@
+import { SpinStakeInput, parseSpinStake } from '@/components/spin/spin-stake-input';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { SpinStage } from '@/components/spin/spin-stage';
@@ -25,6 +26,8 @@ export function SpinWinScheduledPage() {
   return user ? <ScheduledTable key={user.id} userId={user.id} /> : null;
 }
 function ScheduledTable({ userId }: { userId: string }) {
+  const [stakeText, setStakeText] = useState('40');
+  const chip = parseSpinStake(stakeText, 480);
   const [clock, setClock] = useState(performance.now());
   const [draft, setDraft] = useState<Entry | null>(null);
   const [pending, setPending] = useState<Entry | null>(null);
@@ -127,12 +130,12 @@ function ScheduledTable({ userId }: { userId: string }) {
     return age < MAX_SNAPSHOT_AGE_MS && snapshot!.serverTime + age < current.closesAt;
   };
   const add = (marketId: string) => {
-    if (locked || !canEnterNow() || !current || total + 40 > 480) return;
+    if (locked || !chip || !canEnterNow() || !current || total + chip > 480) return;
     setDraft({
       roundId: current.id,
       bets: bets.some((b) => b.marketId === marketId)
-        ? bets.map((b) => (b.marketId === marketId ? { ...b, amount: b.amount + 40 } : b))
-        : [...bets, { marketId, amount: 40 }],
+        ? bets.map((b) => (b.marketId === marketId ? { ...b, amount: b.amount + chip } : b))
+        : [...bets, { marketId, amount: chip }],
     });
   };
   const submit = async () => {
@@ -235,7 +238,8 @@ function ScheduledTable({ userId }: { userId: string }) {
               </p>
             </div>
           ))}
-        <h2 className="font-semibold">Choose selections · 40 practice credits per tap</h2>
+        <SpinStakeInput value={stakeText} onChange={setStakeText} maximum={480} disabled={locked} />
+        <h2 className="font-semibold">Choose selections</h2>
         <div
           role="group"
           aria-label="Scheduled practice markets"
@@ -247,7 +251,7 @@ function ScheduledTable({ userId }: { userId: string }) {
               <button
                 key={market.id}
                 onClick={() => add(market.id)}
-                disabled={locked || total >= 480}
+                disabled={locked || !chip || total + chip > 480}
                 aria-pressed={!!amount}
                 aria-label={`Select ${market.label}`}
                 className={`min-h-12 rounded-lg border p-2 text-sm focus-visible:ring-2 focus-visible:ring-amber-200 disabled:opacity-40 ${amount ? 'border-amber-200 bg-amber-200/15' : 'border-white/15 bg-black/20'}`}

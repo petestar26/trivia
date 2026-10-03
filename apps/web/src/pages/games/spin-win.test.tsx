@@ -88,3 +88,23 @@ describe('Spin Win practice', () => {
     expect(screen.getByText('1,000')).toBeInTheDocument();
   });
 });
+
+it('uses typed stakes for new selections and keeps chips synchronized',()=>{
+  mount();
+  const input=screen.getByRole('textbox',{name:'Bet amount'});
+  fireEvent.change(input,{target:{value:'160'}});
+  fireEvent.click(screen.getByRole('button',{name:'Bet on Red'}));
+  expect(screen.getByTestId('spin-total')).toHaveTextContent('160');
+  fireEvent.change(input,{target:{value:'80'}});
+  expect(screen.getByTestId('spin-total')).toHaveTextContent('160');
+  fireEvent.click(screen.getByRole('button',{name:'Bet on Black'}));
+  expect(screen.getByTestId('spin-total')).toHaveTextContent('240');
+  fireEvent.click(screen.getByRole('button',{name:'120'}));
+  expect(input).toHaveValue('120');
+});
+it.each(['','0','-40','41','40.5','1e2','520','999999999999999999999'])('rejects invalid typed stake %s',(value)=>{
+  mount(); fireEvent.change(screen.getByRole('textbox',{name:'Bet amount'}),{target:{value}});
+  expect(screen.getByRole('textbox',{name:'Bet amount'})).toHaveAttribute('aria-invalid','true');
+  expect(screen.getByRole('button',{name:'Bet on Red'})).toBeDisabled();
+  expect(screen.getByTestId('spin-total')).toHaveTextContent('0');
+});

@@ -321,3 +321,15 @@ describe('shared scheduled practice', () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 });
+
+it('submits a typed practice stake and locks the field with its ticket',async()=>{
+  mount();
+  const input=screen.getByRole('textbox',{name:'Bet amount'});
+  await waitFor(()=>expect(input).toBeEnabled());
+  fireEvent.change(input,{target:{value:'160'}});
+  fireEvent.click(screen.getByRole('button',{name:'Select Red'}));
+  fireEvent.click(screen.getByRole('button',{name:'Join this practice round'}));
+  await waitFor(()=>expect(mocks.post).toHaveBeenCalled());
+  expect(mocks.post.mock.calls[0][1]).toEqual({roundId:'spin-win-practice-v1:0',bets:[{marketId:'red',amount:160}]});
+  expect(input).toBeDisabled();
+});

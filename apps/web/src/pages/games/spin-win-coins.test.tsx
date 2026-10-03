@@ -182,3 +182,13 @@ it('refuses new wagers when the catalog advertises a different rules identifier'
   expect(screen.getByRole('button', { name: 'Place Coin bets' })).toBeDisabled();
   expect(mocks.play).not.toHaveBeenCalled();
 });
+
+it('uses a typed Coin amount in the submitted ticket',async()=>{
+  mocks.play.mockResolvedValue(result);
+  await mount();
+  fireEvent.change(screen.getByRole('textbox',{name:'Bet amount'}),{target:{value:'160'}});
+  fireEvent.click(screen.getByRole('button',{name:'Bet on Red'}));
+  fireEvent.click(screen.getByRole('button',{name:'Place Coin bets'}));
+  await waitFor(()=>expect(mocks.play).toHaveBeenCalled());
+  expect(mocks.play.mock.calls[0][1]).toMatchObject({betAmount:160,bets:[{marketId:'red',amount:160}]});
+});
