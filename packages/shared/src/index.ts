@@ -9,3 +9,4 @@ export * from './spin-win-proof.js';
 export * from './spin-publication-archive.js';
 
 export * from './house-game-policy.js';
+export * from './pvp-entry.js';

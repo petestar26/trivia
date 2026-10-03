@@ -1,9 +1,11 @@
 /** Proposed economics, not an activation flag or a statement of deployed RTP. */
 export const ECONOMICS_POLICY = 'scheduled-economics-v1';
-import { HOUSE_GAME_POLICY } from '@socialplay/shared';
+import { HOUSE_GAME_POLICY, PVP_GAME_POLICY } from '@socialplay/shared';
 export const HOUSE_RTP_BPS = BigInt(HOUSE_GAME_POLICY.targetRtpBps);
-/** Pooled contests only. House games in groups use additionalGroupFeeBps: 0. */
+/** Legacy pinned policy only; do not use for newly created PVP contests. */
 export const CONTEST_FEE_BPS = 1_500n;
+export const PVP_POLICY = PVP_GAME_POLICY.id;
+export const PVP_FEE_BPS = BigInt(PVP_GAME_POLICY.entryFeeBps);
 export const BPS = 10_000n;
 
 export const GAME_ECONOMICS = Object.freeze([

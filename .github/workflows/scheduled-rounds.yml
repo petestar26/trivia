@@ -99,6 +99,8 @@ jobs:
         run: pnpm build:packages
       - name: Check API shared declaration boundary
         run: pnpm --filter api typecheck:shared-boundary
+      - name: Shared house and PVP policy contracts
+        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
       - name: Fresh migration deployment and replay
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
