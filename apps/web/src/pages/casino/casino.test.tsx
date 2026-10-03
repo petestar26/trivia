@@ -120,7 +120,7 @@ describe('Casino entry and catalog', () => {
     renderWithProviders(<CasinoPage />);
 
     expect(await screen.findByRole('heading', { name: 'Casino' })).toBeInTheDocument();
-    expect(screen.getByText('System tables run every minute. Try Spin and Keno with free practice credits. Find player-versus-player games inside your groups.')).toBeInTheDocument();
+    expect(screen.getByText('System tables run every minute. Try Spin, Keno and Dice with free practice credits. Find player-versus-player games inside your groups.')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();

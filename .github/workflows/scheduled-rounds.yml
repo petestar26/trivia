@@ -30,6 +30,7 @@ on:
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/pages/games/keno*'
+      - 'apps/web/src/pages/games/dice*'
       - 'apps/web/src/pages/casino/index.tsx'
       - 'apps/web/src/components/spin/**'
       - 'apps/web/server*.mjs'
@@ -117,13 +118,13 @@ jobs:
       - name: Check API shared declaration boundary
         run: pnpm --filter api typecheck:shared-boundary
       - name: Shared house and PVP policy contracts
-        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts src/group-pvp.test.ts --minWorkers=1 --maxWorkers=1
+        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts src/group-pvp.test.ts src/system-dice.test.ts --minWorkers=1 --maxWorkers=1
       - name: Fresh migration deployment and replay
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/gift-collection/gifts.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -216,6 +217,7 @@ jobs:
         run: >-
           pnpm --filter web exec vitest run
           src/pages/games/keno-system.test.tsx
+          src/pages/games/dice-system.test.tsx
           src/pages/games/spin-win-scheduled.test.tsx
           src/pages/games/spin-win.test.tsx
           src/pages/games/spin-win-coins.test.tsx
