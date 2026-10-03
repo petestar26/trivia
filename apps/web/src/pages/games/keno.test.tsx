@@ -3,10 +3,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { KenoPage } from './keno';
 import { advanceKeno, newKenoState, startKeno } from '@/lib/keno-practice';
+const wallet=vi.hoisted(()=>({coinsBalance:2500,walletLoading:false,walletError:false}));
+vi.mock('@/components/casino/CasinoProvider',()=>({useCasino:()=>wallet}));
 const auth=vi.hoisted(()=>({user:{id:'keno-a'}}));
 vi.mock('@/providers/auth-provider',()=>({useAuth:()=>auth}));
 const mount=()=>render(<MemoryRouter><KenoPage/></MemoryRouter>);
-beforeEach(()=>{sessionStorage.clear();auth.user={id:'keno-a'};vi.useFakeTimers();vi.setSystemTime(100000);});
+beforeEach(()=>{wallet.coinsBalance=2500;wallet.walletLoading=false;wallet.walletError=false;sessionStorage.clear();auth.user={id:'keno-a'};vi.useFakeTimers();vi.setSystemTime(100000);});
 afterEach(()=>{cleanup();vi.useRealTimers();});
 it('locks selections, resumes a refreshed draw, and settles it once',()=>{
   const first=mount();
@@ -54,4 +56,32 @@ it('keeps next-ticket selection visible on a previous hit and a drawn number',()
     fireEvent.click(button);
     expect(button.querySelector('.keno-selection-mark')).toBeNull();
   }
+});
+
+it('shows account funds separately and quotes a typed stake without spending Coins',()=>{
+  mount(); expect(screen.getByText('2,500 Coins')).toBeInTheDocument();
+  const input=screen.getByRole('textbox',{name:'Bet amount per number'});
+  fireEvent.change(input,{target:{value:'20'}});
+  fireEvent.click(screen.getByRole('button',{name:'Number 1'}));
+  fireEvent.click(screen.getByRole('button',{name:'Number 2'}));
+  expect(screen.getByText('Each match returns 72 credits')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Start draw · 40 credits'}));
+  expect(input).toBeDisabled();
+  const state=JSON.parse(sessionStorage.getItem('playqube.keno.practice.v1.keno-a')!);
+  expect(state.balance).toBe(960); expect(state.active.stakePerNumber).toBe(20);
+  expect(screen.getByText('2,500 Coins')).toBeInTheDocument();
+});
+it.each(['','0','-5','6','5.5','500','1e2'])('blocks invalid stake %s',value=>{
+  mount(); fireEvent.click(screen.getByRole('button',{name:'Number 1'}));
+  fireEvent.change(screen.getByRole('textbox',{name:'Bet amount per number'}),{target:{value}});
+  expect(screen.getByRole('button',{name:/Start draw/})).toBeDisabled();
+});
+it('blocks an aggregate stake above the ticket limit',()=>{
+  mount();fireEvent.change(screen.getByRole('textbox',{name:'Bet amount per number'}),{target:{value:'250'}});
+  fireEvent.click(screen.getByRole('button',{name:'Number 1'}));fireEvent.click(screen.getByRole('button',{name:'Number 2'}));
+  expect(screen.getByRole('button',{name:'Start draw · 500 credits'})).toBeDisabled();
+});
+it.each(['walletLoading','walletError'] as const)('does not show a fabricated wallet balance during %s',key=>{
+  wallet[key]=true;mount();expect(screen.queryByText('2,500 Coins')).not.toBeInTheDocument();
+  expect(screen.getByText(key==='walletLoading'?'Loading…':'Unavailable')).toBeInTheDocument();
 });

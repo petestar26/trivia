@@ -1,4 +1,4 @@
-import { parseSpin90Bets, settleSpin90Bets, SPIN90_RULES_ID } from '@socialplay/shared';
+import { parseSpin90Bets, settleSpin90Bets, SPIN90_RULES_ID, KENO_90_RULES } from '@socialplay/shared';
 import { assertExactHouseReturn } from './house-risk.js';
 import type { HouseTicket, OutcomeModel } from './house-risk.js';
 import { units } from './money.js';
@@ -16,7 +16,7 @@ export const DRAW_PROPOSALS = [
   { key: 'starfall_nebula', choices: 12, drawCount: 1, step: 5n, payoutPerStep: 54n },
   { key: 'crystal_trail', choices: 8, drawCount: 1, step: 5n, payoutPerStep: 36n },
   { key: 'heat_vault', choices: 20, drawCount: 1, step: 1n, payoutPerStep: 18n },
-  { key: 'turbo_keno', choices: 80, drawCount: 20, step: 5n, payoutPerStep: 18n },
+  { key: 'turbo_keno', choices: KENO_90_RULES.choices, drawCount: KENO_90_RULES.drawCount, step: BigInt(KENO_90_RULES.stakeStep), payoutPerStep: BigInt(KENO_90_RULES.returnPerStep) },
 ] as const;
 
 export function draftDrawRulesId(gameKey: string) {

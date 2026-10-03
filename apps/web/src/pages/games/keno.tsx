@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
 import { advanceKeno, drawKeno, kenoReturn, loadKeno, newKenoState, revealedCount, startKeno } from '@/lib/keno-practice';
 import type { KenoState } from '@/lib/keno-practice';
+import { useCasino } from '@/components/casino/CasinoProvider';
+import { HOUSE_GAME_POLICY, KENO_90_RULES } from '@socialplay/shared';
+import { parseKenoStake, KENO_MAX_PRACTICE_STAKE } from '@/lib/keno-practice';
 import './keno.css';
 
 function KenoMachine({ number, running }: { number: number | null; running: boolean }) {
@@ -40,6 +43,9 @@ function KenoSession({ storageKey }: { storageKey: string }) {
   });
   const current = useRef(state);
   const [picks, setPicks] = useState<number[]>([]);
+  const [stakeText, setStakeText] = useState('5');
+  const stake = parseKenoStake(stakeText);
+  const { coinsBalance, walletLoading, walletError } = useCasino();
   const [now, setNow] = useState(Date.now());
   const [notice, setNotice] = useState('Choose your numbers to begin.');
   const [storageWarning, setStorageWarning] = useState(false);
@@ -59,16 +65,19 @@ function KenoSession({ storageKey }: { storageKey: string }) {
   const count = state.active ? revealedCount(state.active, now) : round ? 20 : 0;
   const drawn = round?.numbers.slice(0, count) ?? [];
   const shownPicks = state.active ? state.active.picks : picks;
+  const displayedStake = state.active?.stakePerNumber ?? stake;
+  const ticketCost = shownPicks.length * displayedStake;
+  const stakeValid = !!stake && ticketCost <= Math.min(state.balance, KENO_MAX_PRACTICE_STAKE);
   const hits = round?.picks.filter(n => drawn.includes(n)) ?? [];
   const toggle = (n: number) => {
     if (current.current.active) return;
     if (!picks.includes(n) && picks.length >= 10) { setNotice('You can choose up to 10 numbers.'); return; }
     setPicks(picks.includes(n) ? picks.filter(v => v !== n) : [...picks, n].sort((a,b)=>a-b));
-    setNotice('5 practice credits per number. Each matching number returns 18.');
+    setNotice('Review your total before starting the draw.');
   };
   const play = () => {
     if (current.current.active) return;
-    try { const time = Date.now(); publish(startKeno(current.current, picks, time)); setNow(time); setNotice('Selections locked. Revealing 20 unique balls.'); }
+    try { const time = Date.now(); publish(startKeno(current.current, picks, time, undefined, stake)); setNow(time); setNotice('Selections locked. Revealing 20 unique balls.'); }
     catch (error) { setNotice(error instanceof Error ? error.message : 'Draw unavailable. Please try again.'); }
   };
   const quickPick = () => {
@@ -79,7 +88,8 @@ function KenoSession({ storageKey }: { storageKey: string }) {
   return <div className="keno-page">
     <div className="keno-navigation"><Link to="/casino">← Casino</Link><span>Practice · this tab</span></div>
     <section className="keno-stage" aria-label="Turbo Keno practice">
-      <header className="keno-header"><div><p className="keno-eyebrow">PLAYQUBE ORIGINALS</p><h1>Turbo <span>Keno</span></h1><p>Every ball brings a new possibility.</p></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{state.balance.toLocaleString()}</strong><small>credits · no cash value</small></div></header>
+      <header className="keno-header"><div><p className="keno-eyebrow">PLAYQUBE ORIGINALS</p><h1>Turbo <span>Keno</span></h1><p>Every ball brings a new possibility.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading ? 'Loading…' : walletError ? 'Unavailable' : `${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{state.balance.toLocaleString()}</strong><small>credits · no cash value</small></div></div></header>
+      <div className="keno-economics"><span>{HOUSE_GAME_POLICY.targetRtpBps / 100}% theoretical return</span><span>{HOUSE_GAME_POLICY.expectedHouseEdgeBps / 100}% expected house edge</span><span>3.6× return per matching number</span></div>
       <div className="keno-practice-note">Practice only · Local demo draw · No Coins, deposits or redeemable prizes</div>
       <div className="keno-layout">
         <div className="keno-board-panel">
@@ -94,11 +104,15 @@ function KenoSession({ storageKey }: { storageKey: string }) {
         </div>
         <aside className="keno-machine-panel"><div className="keno-machine-title"><span>LIVE BALL REVEAL</span><strong>{state.active ? `${count} of 20` : '20 balls · 80 numbers'}</strong></div><KenoMachine number={drawn.at(-1)??null} running={!!state.active}/><div className="keno-result" role="status" aria-live="polite">{state.active ? `${count} of 20 revealed · ${hits.length} matches` : round ? `${round.picks.filter(n=>round.numbers.includes(n)).length} matches · ${kenoReturn(round)} credits returned` : 'Select your numbers, then start the draw.'}</div></aside>
       </div>
+      <div className="keno-stake-panel">
+        <div><label htmlFor="keno-bet-amount">Bet amount per number</label><div className="keno-stake-row"><input id="keno-bet-amount" type="text" inputMode="numeric" pattern="[0-9]*" value={state.active ? String(state.active.stakePerNumber) : stakeText} onChange={event=>setStakeText(event.target.value)} disabled={!!state.active} aria-invalid={!state.active && !stakeValid} aria-describedby="keno-stake-help"/><span>practice credits</span></div><p id="keno-stake-help">{!state.active && !stakeValid ? 'Use steps of 5, within your practice balance and the 480-credit ticket limit.' : 'Steps of 5 · Maximum 480 credits per ticket · Amount locks when the draw starts.'}</p></div>
+        <div className="keno-ticket-summary"><span>TOTAL BET</span><strong>{ticketCost.toLocaleString()} credits</strong><small>{shownPicks.length} numbers × {displayedStake || '—'} credits</small><small>Each match returns {displayedStake ? displayedStake / KENO_90_RULES.stakeStep * KENO_90_RULES.returnPerStep : '—'} credits</small></div>
+      </div>
       <div className="keno-controls">
         <div><h2>{shownPicks.length}/10 numbers selected</h2><p>{notice}</p><p className="keno-picks">{shownPicks.length ? shownPicks.join(' · ') : 'Your selections appear here'}</p></div>
-        <div className="keno-actions"><button disabled={!!state.active} onClick={quickPick}>Quick pick 5</button><button disabled={!!state.active||!picks.length} onClick={()=>setPicks([])}>Clear</button><button className="keno-play" disabled={!!state.active||!picks.length||picks.length*5>state.balance} onClick={play}>{state.active?'Drawing…':`Start draw · ${picks.length*5} credits`}</button></div>
+        <div className="keno-actions"><button disabled={!!state.active} onClick={quickPick}>Quick pick 5</button><button disabled={!!state.active||!picks.length} onClick={()=>setPicks([])}>Clear</button><button className="keno-play" disabled={!!state.active||!picks.length||!stakeValid} onClick={play}>{state.active?'Drawing…':`Start draw · ${ticketCost} credits`}</button></div>
       </div>
-      <footer className="keno-footer"><details><summary>Practice rules & recent draws</summary><p>Select 1–10 numbers. Each selected number costs 5 practice credits and returns 18 if included among the 20 drawn numbers. Returns include the stake on that number. Every draw has 20 different numbers from 1–80.</p><p>This local practice session resumes after a refresh in this tab. Shared server draws and Coins play are not available here.</p><ol>{state.history.map(r=><li key={r.id}><strong>Draw {String(r.id).padStart(3,'0')}</strong> · {r.numbers.join(', ')} · Return {kenoReturn(r)}</li>)}</ol></details><button disabled={!!state.active} onClick={()=>{publish(newKenoState());setPicks([]);setNotice('New practice session started.');}}>Reset practice</button></footer>
+      <footer className="keno-footer"><details><summary>Practice rules & recent draws</summary><p>Select 1–10 numbers. Choose a stake in steps of 5 for each selected number. A matching number returns 3.6× its stake (18 for every 5 credits) if included among the 20 drawn numbers. Returns include the stake on that number. Every draw has 20 different numbers from 1–80.</p><p>Each number has a 20/80 chance of being drawn. A 25% chance × 3.6× total return gives 90% theoretical return and a 10% expected house edge over repeated play; this is not a guarantee for an individual draw.</p><p>Common house-game rule: solo, shared and group play use the same payout table and 90% theoretical return. Group house games have no additional group fee. Pooled competitions are separate.</p><p>This local practice session resumes after a refresh in this tab. Shared server draws and Coins play are not available here.</p><ol>{state.history.map(r=><li key={r.id}><strong>Draw {String(r.id).padStart(3,'0')}</strong> · {r.numbers.join(', ')} · Return {kenoReturn(r)}</li>)}</ol></details><button disabled={!!state.active} onClick={()=>{publish(newKenoState());setPicks([]);setNotice('New practice session started.');}}>Reset practice</button></footer>
       {storageWarning&&<p className="keno-storage" role="alert">Browser storage is unavailable. This practice session will reset if you refresh.</p>}
     </section>
   </div>;
