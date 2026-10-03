@@ -7,6 +7,39 @@ afterEach(() => {
 });
 
 describe('API destination', () => {
+  it('passes a ticket cancellation signal through POST without changing its body or parameters', async () => {
+    vi.stubEnv('VITE_API_PROXY', 'true');
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockImplementation(
+      (_url, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./api');
+    const body = { roundId: 'spin-win-practice-v1:0', bets: [{ marketId: 'red', amount: 40 }] };
+    const result = api.post(
+      '/games/scheduled/spin-win/tickets',
+      body,
+      { check: 1 },
+      { signal: controller.signal }
+    );
+    const rejected = expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${window.location.origin}/api/v1/games/scheduled/spin-win/tickets?check=1`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        credentials: 'include',
+      })
+    );
+  });
   it('keeps authentication, uploads, health and sockets on the frontend origin when the gateway is enabled', async () => {
     vi.stubEnv('VITE_API_PROXY', 'true');
     vi.stubEnv('VITE_API_URL', 'https://api.example.com');

@@ -181,11 +181,12 @@ class ApiClient {
     return this.request<T, M>(endpoint, { method: 'GET', params, signal: options?.signal });
   }
 
-  async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<ApiResponse<T>> {
+  async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       params,
+      signal: options?.signal,
     });
   }
 

@@ -3,15 +3,22 @@ import { Link } from 'react-router-dom';
 import { SpinStage } from '@/components/spin/spin-stage';
 import { requestStatus } from '@/lib/request-error';
 import { useQuery } from '@tanstack/react-query';
-import { SPIN90_MARKETS, SPIN_WHEEL, spinColour } from '@socialplay/shared';
+import { SPIN90_MARKETS, SPIN_WHEEL } from '@socialplay/shared';
 import type { ScheduledPracticeSnapshot, SpinBet } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 
 const ENDPOINT = '/games/scheduled/spin-win';
+const REQUEST_TIMEOUT_MS = 8000;
+const MAX_SNAPSHOT_AGE_MS = 5000;
+const MAX_TIMING_UNCERTAINTY_MS = 1000;
 interface Entry {
   roundId: string;
   bets: SpinBet[];
+}
+interface Submission {
+  controller: AbortController;
+  timer?: ReturnType<typeof setTimeout>;
 }
 export function SpinWinScheduledPage() {
   const { user } = useAuth();
@@ -28,22 +35,32 @@ function ScheduledTable({ userId }: { userId: string }) {
   );
   const [rotation, setRotation] = useState(0);
   const lastDraw = useRef<string | null>(null);
-  const submitting = useRef(false);
+  const submission = useRef<Submission | null>(null);
   const alive = useRef(true);
+  const releaseSubmission = () => {
+    const attempt = submission.current;
+    submission.current = null;
+    if (attempt) {
+      clearTimeout(attempt.timer);
+      attempt.controller.abort();
+    }
+  };
   const query = useQuery({
     queryKey: ['scheduled-practice', userId],
     queryFn: async ({ signal }) => {
+      const startedAt = performance.now();
       const controller = new AbortController();
       const abort = () => controller.abort();
       signal.addEventListener('abort', abort, { once: true });
-      const timeout = setTimeout(abort, 8000);
+      if (signal.aborted) abort();
+      const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
       try {
         const snapshot = unwrapData(
           await api.get<ScheduledPracticeSnapshot>(ENDPOINT, undefined, {
             signal: controller.signal,
           })
         );
-        return { snapshot, receivedAt: performance.now() };
+        return { snapshot, startedAt, receivedAt: performance.now() };
       } finally {
         clearTimeout(timeout);
         signal.removeEventListener('abort', abort);
@@ -57,16 +74,25 @@ function ScheduledTable({ userId }: { userId: string }) {
     const timer = setInterval(() => setClock(performance.now()), 250);
     return () => {
       alive.current = false;
+      releaseSubmission();
       clearInterval(timer);
     };
   }, []);
   const snapshot = query.data?.snapshot;
-  // A monotonic timer avoids a local clock change extending the betting window.
-  // The server still makes the authoritative cutoff check after taking its lock.
-  const elapsed = query.data ? Math.max(0, clock - query.data.receivedAt) : Infinity;
+  // Charge the full request round trip to the server clock. This is a conservative
+  // upper bound: response transit cannot extend the entry window. Slow samples
+  // cannot enable entry, and freshness starts at request dispatch, not receipt.
+  // Read performance.now() here too so a response between interval ticks is aged.
+  const sampledAt = Math.max(clock, performance.now());
+  const elapsed = query.data ? Math.max(0, sampledAt - query.data.startedAt) : Infinity;
   const now = snapshot ? snapshot.serverTime + elapsed : 0;
   const signInRequired = requestStatus(query.error) === 401;
-  const connected = !!snapshot && !query.isError && elapsed < 5000;
+  const connected =
+    !!query.data &&
+    !query.isError &&
+    !query.isPaused &&
+    query.data.receivedAt - query.data.startedAt <= MAX_TIMING_UNCERTAINTY_MS &&
+    elapsed < MAX_SNAPSHOT_AGE_MS;
   const current = snapshot?.rounds.find((r) => r.opensAt <= now && now < r.endsAt);
   const recentDraw = snapshot?.rounds.find((r) => r.outcome !== null);
   const open =
@@ -76,6 +102,18 @@ function ScheduledTable({ userId }: { userId: string }) {
   const bets = current && draft?.roundId === current.id ? draft.bets : [];
   const total = bets.reduce((sum, bet) => sum + bet.amount, 0);
   useEffect(() => {
+    // A GET can prove admission even if its POST response never arrives. Tickets
+    // are immutable per user/round; the stored ticket is authoritative, including
+    // when another tab submitted it. Old request callbacks must not change state.
+    if (!pending || !snapshot?.rounds.some((r) => r.id === pending.roundId && r.ticket)) return;
+    releaseSubmission();
+    setSending(false);
+    setConfirmed(pending.roundId);
+    setPending(null);
+    setDraft((value) => (value?.roundId === pending.roundId ? null : value));
+    setMessage('Your saved ticket is locked. Every player sees the same server result.');
+  }, [pending, snapshot]);
+  useEffect(() => {
     if (!recentDraw || recentDraw.outcome === null || lastDraw.current === recentDraw.id) return;
     lastDraw.current = recentDraw.id;
     const target =
@@ -83,8 +121,13 @@ function ScheduledTable({ userId }: { userId: string }) {
       360;
     setRotation((value) => value + 720 + ((target - (value % 360) + 360) % 360));
   }, [recentDraw]);
+  const canEnterNow = () => {
+    if (!open || !query.data || !current) return false;
+    const age = Math.max(0, performance.now() - query.data.startedAt);
+    return age < MAX_SNAPSHOT_AGE_MS && snapshot!.serverTime + age < current.closesAt;
+  };
   const add = (marketId: string) => {
-    if (locked || !current || total + 40 > 480) return;
+    if (locked || !canEnterNow() || !current || total + 40 > 480) return;
     setDraft({
       roundId: current.id,
       bets: bets.some((b) => b.marketId === marketId)
@@ -93,29 +136,37 @@ function ScheduledTable({ userId }: { userId: string }) {
     });
   };
   const submit = async () => {
-    if (submitting.current) return;
+    if (submission.current || !connected) return;
     const entry =
-      pending ?? (open && !accepted && current && total > 0 ? { roundId: current.id, bets } : null);
+      pending ??
+      (canEnterNow() && !accepted && current && total > 0 ? { roundId: current.id, bets } : null);
     if (!entry) return;
-    submitting.current = true;
+    const attempt: Submission = { controller: new AbortController() };
+    submission.current = attempt;
     setPending(entry);
     setSending(true);
+    attempt.timer = setTimeout(() => {
+      if (submission.current !== attempt) return;
+      releaseSubmission();
+      setSending(false);
+      setMessage('Confirmation interrupted. Retry this same ticket; do not place a replacement.');
+      void query.refetch();
+    }, REQUEST_TIMEOUT_MS);
     try {
-      unwrapData(await api.post(ENDPOINT + '/tickets', entry));
-      if (!alive.current) return;
+      unwrapData(
+        await api.post(ENDPOINT + '/tickets', entry, undefined, {
+          signal: attempt.controller.signal,
+        })
+      );
+      if (!alive.current || submission.current !== attempt) return;
       setConfirmed(entry.roundId);
       setPending(null);
       setDraft(null);
       setMessage('Ticket locked. Every player sees the same server result.');
-      await query.refetch();
+      void query.refetch();
     } catch (error) {
-      if (!alive.current) return;
-      let status = 0;
-      try {
-        status = JSON.parse(error instanceof Error ? error.message : '').status ?? 0;
-      } catch {
-        /* transport error */
-      }
+      if (!alive.current || submission.current !== attempt) return;
+      const status = requestStatus(error);
       if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
         setPending(null);
         setMessage(
@@ -125,8 +176,10 @@ function ScheduledTable({ userId }: { userId: string }) {
       } else
         setMessage('Confirmation interrupted. Retry this same ticket; do not place a replacement.');
     } finally {
-      submitting.current = false;
-      if (alive.current) setSending(false);
+      if (submission.current === attempt) {
+        releaseSubmission();
+        if (alive.current) setSending(false);
+      }
     }
   };
   const countdown = current ? Math.max(0, Math.ceil((current.closesAt - now) / 1000)) : 0;
@@ -218,7 +271,7 @@ function ScheduledTable({ userId }: { userId: string }) {
           </button>
           <button
             onClick={() => void submit()}
-            disabled={sending || (!pending && (locked || !total))}
+            disabled={sending || !connected || (!pending && (locked || !total))}
             className="rounded-lg bg-amber-200 px-5 py-3 font-bold text-slate-950 disabled:opacity-40"
           >
             {sending

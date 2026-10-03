@@ -53,6 +53,180 @@ afterEach(() => {
   cleanup();
   clients.splice(0).forEach((c) => c.clear());
   vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('shared practice under delayed or interrupted transport', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'],
+    });
+    mocks.get.mockImplementation(async () => ({
+      data: { ...snapshot(), serverTime: 10000 + performance.now() },
+    }));
+  });
+  async function advance(ms = 1) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+  async function enter() {
+    mount();
+    await advance();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Red' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Join this practice round' }));
+    await advance();
+  }
+  it('does not offer entry when a delayed response crosses its server cutoff', async () => {
+    let deliver!: (value: { data: ScheduledPracticeSnapshot }) => void;
+    mocks.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        })
+    );
+    const data = snapshot();
+    data.rounds[0].closesAt = 10700;
+    mount();
+    await advance(800);
+    await act(async () => {
+      deliver({ data });
+    });
+    await advance();
+    expect(screen.getByRole('button', { name: 'Select Red' })).toBeDisabled();
+    expect(screen.queryByText(/entry closes/)).not.toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it('does not treat a six-second-old response as fresh on receipt', async () => {
+    let deliver!: (value: { data: ScheduledPracticeSnapshot }) => void;
+    mocks.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        })
+    );
+    mount();
+    await advance(6000);
+    await act(async () => {
+      deliver({ data: snapshot() });
+    });
+    await advance();
+    expect(screen.getByText('Reconnecting')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Red' })).toBeDisabled();
+  });
+  it('rejects uncertain timing, then recovers from a fast sample without using the device clock', async () => {
+    let deliver!: (value: { data: ScheduledPracticeSnapshot }) => void;
+    mocks.get.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        })
+    );
+    mount();
+    await advance(1500);
+    await act(async () => {
+      deliver({ data: snapshot() });
+    });
+    await advance();
+    expect(screen.getByText('Reconnecting')).toBeInTheDocument();
+    await advance(2000);
+    expect(screen.getByRole('button', { name: 'Select Red' })).toBeEnabled();
+    vi.setSystemTime(new Date('2036-01-01T00:00:00Z'));
+    await advance(250);
+    expect(screen.getByText('37s · entry closes')).toBeInTheDocument();
+  });
+  it('bounds a hanging confirmation and retries the identical round and selections', async () => {
+    mocks.post.mockImplementationOnce(() => new Promise(() => {}));
+    await enter();
+    expect(screen.getByRole('button', { name: 'Confirming…' })).toBeDisabled();
+    await advance(8000);
+    const retry = screen.getByRole('button', { name: 'Retry same ticket' });
+    expect(retry).toBeEnabled();
+    const first = mocks.post.mock.calls[0];
+    expect(first[3].signal.aborted).toBe(true);
+    fireEvent.click(retry);
+    await advance();
+    expect(mocks.post.mock.calls[1].slice(0, 3)).toEqual(first.slice(0, 3));
+    expect(screen.getByRole('button', { name: 'Ticket locked' })).toBeDisabled();
+  });
+  it('reconciles a saved ticket through polling while its POST response is held', async () => {
+    mocks.post.mockImplementation(() => new Promise(() => {}));
+    await enter();
+    const data = snapshot();
+    data.serverTime = 12000;
+    data.rounds[0].ticket = {
+      bets: [{ marketId: 'red', amount: 40 }],
+      acceptedAt: '2026-10-03T00:00:00Z',
+      stake: 40,
+      payout: null,
+    };
+    mocks.get.mockResolvedValue({ data });
+    await advance(2000);
+    expect(screen.getByRole('button', { name: 'Ticket locked' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Confirming…' })).not.toBeInTheDocument();
+    expect(mocks.post.mock.calls[0][3].signal.aborted).toBe(true);
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+  });
+  it('ignores a late response from a reconciled attempt while a new round is confirming', async () => {
+    let deliverOld!: (value: { data: unknown }) => void;
+    mocks.post.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliverOld = resolve;
+        })
+    );
+    await enter();
+    const data = snapshot();
+    data.serverTime = 65000;
+    const oldRound = {
+      ...data.rounds[0],
+      state: 'DRAWN' as const,
+      outcome: 1,
+      ticket: {
+        bets: [{ marketId: 'red', amount: 40 }],
+        acceptedAt: '2026-10-03T00:00:00Z',
+        stake: 40,
+        payout: 74,
+      },
+    };
+    data.rounds = [
+      {
+        ...data.rounds[0],
+        id: 'spin-win-practice-v1:1',
+        sequence: '1',
+        opensAt: 65000,
+        closesAt: 110000,
+        revealEndsAt: 120000,
+        endsAt: 125000,
+      },
+      oldRound,
+    ];
+    mocks.get.mockResolvedValue({ data });
+    await advance(2000);
+    expect(screen.getByRole('button', { name: 'Select Red' })).toBeEnabled();
+    mocks.post.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Red' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Join this practice round' }));
+    await act(async () => {
+      deliverOld({ data: { isReplay: false } });
+    });
+    await advance();
+    expect(screen.getByRole('button', { name: 'Confirming…' })).toBeDisabled();
+    expect(mocks.post.mock.calls[1][1].roundId).toBe('spin-win-practice-v1:1');
+    expect(mocks.post.mock.calls[1][3].signal.aborted).toBe(false);
+    await advance(8000);
+    expect(screen.getByRole('button', { name: 'Retry same ticket' })).toBeEnabled();
+  });
+  it('cancels the outstanding request when leaving the table', async () => {
+    mocks.post.mockImplementation(() => new Promise(() => {}));
+    await enter();
+    const signal = mocks.post.mock.calls[0][3].signal;
+    expect(signal.aborted).toBe(false);
+    cleanup();
+    expect(signal.aborted).toBe(true);
+    await advance(8000);
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+  });
 });
 describe('shared scheduled practice', () => {
   it('stops polling on an invalid session and provides a sign-in path', async () => {
@@ -89,10 +263,15 @@ describe('shared scheduled practice', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join this practice round' }));
     await screen.findByRole('button', { name: 'Ticket locked' });
     expect(mocks.post).toHaveBeenCalledTimes(1);
-    expect(mocks.post).toHaveBeenCalledWith('/games/scheduled/spin-win/tickets', {
-      roundId: 'spin-win-practice-v1:0',
-      bets: [{ marketId: 'red', amount: 40 }],
-    });
+    expect(mocks.post).toHaveBeenCalledWith(
+      '/games/scheduled/spin-win/tickets',
+      {
+        roundId: 'spin-win-practice-v1:0',
+        bets: [{ marketId: 'red', amount: 40 }],
+      },
+      undefined,
+      { signal: expect.any(AbortSignal) }
+    );
     expect(red).toBeDisabled();
   });
   it('recovers an accepted ticket and published return on refresh', async () => {
@@ -124,7 +303,7 @@ describe('shared scheduled practice', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join this practice round' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry same ticket' }));
     await screen.findByRole('button', { name: 'Ticket locked' });
-    expect(mocks.post.mock.calls[1]).toEqual(mocks.post.mock.calls[0]);
+    expect(mocks.post.mock.calls[1].slice(0, 3)).toEqual(mocks.post.mock.calls[0].slice(0, 3));
   });
   it('keeps entries disabled when the connection cannot be verified', async () => {
     mocks.get.mockRejectedValue(new Error('offline'));
