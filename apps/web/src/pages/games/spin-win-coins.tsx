@@ -1,3 +1,4 @@
+import { SpinStakeInput, parseSpinStake } from '@/components/spin/spin-stake-input';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,13 +40,13 @@ export function SpinWinCoinsPage() {
   const { coinsBalance, refetchBalance, walletError, walletLoading } = useCasino();
   const client = useQueryClient();
   const [bets, setBets] = useState<SpinBet[]>([]);
-  const [chip, setChip] = useState(40);
+  const [stakeText, setStakeText] = useState('40');
   const [round, setRound] = useState<SpinRound | null>(null);
   const [replayed, setReplayed] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [history, setHistory] = useState<number[]>([]);
-  const [message, setMessage] = useState('Choose a chip, then select your markets.');
+  const [message, setMessage] = useState('Enter a bet amount or choose a chip, then select your markets.');
   const [undo, setUndo] = useState<SpinBet[][]>([]);
   const [previous, setPrevious] = useState<SpinBet[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -98,6 +99,7 @@ export function SpinWinCoinsPage() {
     },
     { autoResume: false }
   );
+  const chip = parseSpinStake(stakeText, game?.maxBet ?? 480);
   const locked = durable.mutation.isPending || !!durable.pending || animating;
   const total = bets.reduce((sum, bet) => sum + bet.amount, 0);
   const validTotal =
@@ -108,7 +110,7 @@ export function SpinWinCoinsPage() {
     total <= game.maxBet &&
     total <= coinsBalance;
   const add = (marketId: string) => {
-    if (!available || locked || !game || walletError || walletLoading) return;
+    if (!available || locked || !game || walletError || walletLoading || !chip) return;
     if (total + chip > Math.min(game.maxBet, coinsBalance)) {
       setMessage('This chip exceeds your balance or the round limit.');
       return;
@@ -165,13 +167,14 @@ export function SpinWinCoinsPage() {
           className="space-y-3 disabled:opacity-50"
         >
           <legend className="font-semibold">Coin bets</legend>
+          <SpinStakeInput value={stakeText} onChange={setStakeText} maximum={game?.maxBet ?? 480} disabled={!available || locked || walletLoading || walletError} currency="Coins" />
           <div className="flex flex-wrap gap-2" role="group" aria-label="Coin chip value">
             {[40, 80, 120, 200, 400].map((amount) => (
               <button
                 key={amount}
                 type="button"
                 aria-pressed={chip === amount}
-                onClick={() => setChip(amount)}
+                onClick={() => setStakeText(String(amount))}
                 className="h-11 w-11 rounded-full border-2 border-dashed border-emerald-100/30 font-bold aria-pressed:bg-amber-200 aria-pressed:text-slate-900"
               >
                 {amount}
@@ -185,6 +188,7 @@ export function SpinWinCoinsPage() {
                 <button
                   type="button"
                   key={market.id}
+                  disabled={!chip}
                   onClick={() => add(market.id)}
                   aria-label={`Bet on ${market.label}`}
                   aria-pressed={!!amount}
