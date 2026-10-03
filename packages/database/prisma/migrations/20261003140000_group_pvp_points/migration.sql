@@ -37,7 +37,7 @@ CREATE TABLE group_pvp_entries (
   CHECK (state <> 'READY' OR (selection IS NOT NULL AND debit_id IS NOT NULL)),
   CHECK (refund_id IS NULL OR (debit_id IS NOT NULL AND state = 'WITHDRAWN'))
 );
-CREATE FUNCTION group_pvp_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION group_pvp_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'PVP history is immutable'; END IF;
   IF TG_TABLE_NAME = 'group_pvp_rounds' THEN
@@ -59,7 +59,7 @@ BEGIN
        (OLD.id,OLD.round_id,OLD.user_id,OLD.username,OLD.created_at)
        OR (OLD.debit_id IS NOT NULL AND (NEW.debit_id,NEW.selection) IS DISTINCT FROM (OLD.debit_id,OLD.selection))
        OR NOT ((OLD.state = 'JOINED' AND NEW.state IN ('READY','WITHDRAWN')) OR (OLD.state = 'READY' AND NEW.state = 'WITHDRAWN'))
-       OR NOT EXISTS (SELECT 1 FROM group_pvp_rounds WHERE id=NEW.round_id AND state='OPEN') THEN
+       OR NOT EXISTS (SELECT 1 FROM public.group_pvp_rounds WHERE id=NEW.round_id AND state='OPEN') THEN
       RAISE EXCEPTION 'Invalid PVP entry transition';
     END IF;
   END IF;

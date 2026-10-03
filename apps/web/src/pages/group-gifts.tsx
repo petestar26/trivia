@@ -7,6 +7,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { Button } from '@/components/ui/button';
 import { requestStatus } from '@/lib/request-error';
+import { boundedRequest } from '@/lib/bounded-request';
 
 interface Gift {id:string;name:string;coinPrice:number;recipientPointValue:number}
 interface Attempt {recipientId:string;giftId:string;quantity:number;key:string}
@@ -20,9 +21,9 @@ function Gifts({groupId,userId}:{groupId:string;userId:string}) {
   const [attempt,setAttempt]=useState<Attempt|null>(()=>{try{return JSON.parse(sessionStorage.getItem(storageKey)??'null');}catch{return null;}});
   const members=useQuery({queryKey:['group-gift-members',groupId,userId],queryFn:async()=>(await api.getGroupMembers(groupId)).data as GroupMemberInfo[]});
   const gifts=useQuery({queryKey:['gifts'],queryFn:async()=>(await api.listGifts()).data as Gift[],enabled:members.isSuccess});
-  const mutation=useMutation({mutationFn:(a:Attempt)=>api.sendGift({recipientId:a.recipientId,giftId:a.giftId,quantity:1},a.key),
+  const mutation=useMutation({mutationFn:(a:Attempt)=>boundedRequest(()=>api.sendGift({recipientId:a.recipientId,giftId:a.giftId,quantity:1},a.key)),
     onSuccess:()=>{sessionStorage.removeItem(storageKey);setAttempt(null);setNotice('Gift sent. The recipient’s Game Points were credited.');void cache.invalidateQueries({queryKey:['wallet',userId]});},
-    onError:(error)=>{const status=requestStatus(error);if(status>=400&&status<500&&status!==408){sessionStorage.removeItem(storageKey);setAttempt(null);}try{setNotice(JSON.parse((error as Error).message).message);}catch{setNotice('Could not confirm the gift. Retry the same request.');}}});
+    onError:(error)=>{const status=requestStatus(error);if(status===400){sessionStorage.removeItem(storageKey);setAttempt(null);}try{setNotice(JSON.parse((error as Error).message).message);}catch{setNotice('Could not confirm the gift. Retry the same request.');}}});
   const selected=gifts.data?.find(g=>g.id===(attempt?.giftId??giftId));
   const submit=()=>{let a=attempt;if(!a){a={recipientId,giftId,quantity:1,key:crypto.randomUUID()};try{sessionStorage.setItem(storageKey,JSON.stringify(a));}catch{setNotice('Unable to save a retry receipt. Gift was not sent.');return;}setAttempt(a);}mutation.mutate(a);};
   return <div className="mx-auto max-w-3xl space-y-5 p-4"><GroupSocialNav groupId={groupId}/><h1 className="text-3xl font-bold">Group gifts</h1><p className="text-sm text-gray-500">Send a gift to a member. Gifts spend Coins and award the listed Game Points.</p>

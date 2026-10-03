@@ -27,25 +27,7 @@ export function SpinStage({
         <Link to="/casino" className="text-primary-600 dark:text-primary-400">
           ← Casino
         </Link>
-        <nav
-          aria-label="Spin mode"
-          className="flex gap-1 rounded-full border border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-900"
-        >
-          {[
-            ['solo', '/games/spin-win', 'Solo practice'],
-            ['scheduled', '/games/spin-win/live', 'Shared practice'],
-            ['coins', '/games/spin-win/play', 'Coins'],
-          ].map(([key, to, label]) => (
-            <Link
-              key={key}
-              to={to}
-              aria-current={mode === key ? 'page' : undefined}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${mode === key ? 'bg-emerald-800 text-white' : 'text-gray-600 dark:text-gray-300'}`}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <Link to="/groups" className="text-primary-600 dark:text-primary-400">PVP · play in a group →</Link>
       </div>
       <div
         className="overflow-hidden rounded-[24px] border border-[#b99150]/60 bg-[#06382b] text-[#fff8e8] shadow-[0_20px_70px_rgba(0,0,0,.2)]"
@@ -67,7 +49,7 @@ export function SpinStage({
                 ? 'Coin balance'
                 : mode === 'solo'
                   ? 'Practice balance'
-                  : 'Shared practice table'}
+                  : 'System table · one-minute rounds'}
             </p>
             <div className="mt-1 font-semibold text-[#ffe2a1]">
               {balance ?? 'One server result for every player'}

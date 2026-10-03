@@ -24,6 +24,8 @@ on:
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
       - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/pages/games/keno*'
+      - 'apps/web/src/pages/casino/index.tsx'
       - 'apps/web/src/components/spin/**'
       - 'apps/web/server*.mjs'
       - 'apps/web/pwa.test.mjs'
@@ -116,7 +118,7 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -208,6 +210,7 @@ jobs:
       - name: Scheduled practice web contracts
         run: >-
           pnpm --filter web exec vitest run
+          src/pages/games/keno-system.test.tsx
           src/pages/games/spin-win-scheduled.test.tsx
           src/pages/games/spin-win.test.tsx
           src/pages/games/spin-win-coins.test.tsx

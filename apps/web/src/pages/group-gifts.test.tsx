@@ -16,3 +16,12 @@ it('retains the same receipt for an uncertain response and retries the same gift
   send.mockRejectedValue(new Error('network'));await mount();fireEvent.click(screen.getByRole('button',{name:'Confirm and send gift'}));
   fireEvent.click(await screen.findByRole('button',{name:'Retry pending gift'}));await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));expect(send.mock.calls[0]).toEqual(send.mock.calls[1]);expect(screen.getByLabelText('Gift')).toBeDisabled();
 });
+
+it.each([401,403,409,429])('keeps the receipt after an uncertain send and a %s retry rejection',async status=>{
+  send.mockRejectedValueOnce(new Error('response lost')).mockRejectedValueOnce(new Error(JSON.stringify({status,message:'Retry later'}))).mockResolvedValueOnce({data:{isReplay:true}});
+  await mount();fireEvent.click(screen.getByRole('button',{name:'Confirm and send gift'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Retry pending gift'}));await screen.findByText('Retry later');
+  expect(sessionStorage.getItem('playqube.pending-gift.owner.group')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Retry pending gift'}));await screen.findByText('Gift sent. The recipient’s Game Points were credited.');
+  expect(send.mock.calls).toHaveLength(3);expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);expect(send.mock.calls[2]).toEqual(send.mock.calls[0]);
+});
