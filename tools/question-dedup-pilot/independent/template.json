@@ -1,0 +1,38 @@
+{
+  "labeler": "",
+  "attestation": {
+    "blindToTypeSafe": false,
+    "notes": "Set blindToTypeSafe to true only if you have not seen any TypeSafe output for these questions."
+  },
+  "questions": [
+    {
+      "id": "i-pool-001",
+      "role": "pool",
+      "question": "EXAMPLE ONLY: delete this entry. What is the capital of Australia?",
+      "choices": ["Sydney", "Canberra", "Melbourne", "Perth"],
+      "correctIndex": 1,
+      "category": "geography",
+      "example": true
+    },
+    {
+      "id": "i-cand-001",
+      "role": "candidate",
+      "question": "EXAMPLE ONLY: delete this entry. Which city is Australia's seat of government?",
+      "choices": ["Canberra", "Sydney", "Brisbane", "Adelaide"],
+      "correctIndex": 0,
+      "category": "geography",
+      "example": true
+    }
+  ],
+  "pairs": [
+    {
+      "id": "i-pair-001",
+      "candidate": "i-cand-001",
+      "existing": "i-pool-001",
+      "label": "duplicate_question",
+      "ambiguous": false,
+      "note": "EXAMPLE ONLY: delete this entry.",
+      "example": true
+    }
+  ]
+}

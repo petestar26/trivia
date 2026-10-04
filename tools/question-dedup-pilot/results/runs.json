@@ -1,0 +1,20 @@
+[
+  {
+    "stage": "sample",
+    "startedAt": "2026-09-28T23:44:53.084Z",
+    "endedAt": "2026-09-28T23:44:56.344Z",
+    "wallMs": 3250,
+    "concurrency": 1,
+    "requests": 12,
+    "ok": 12
+  },
+  {
+    "stage": "expand",
+    "startedAt": "2026-09-28T23:45:08.745Z",
+    "endedAt": "2026-09-28T23:45:13.843Z",
+    "wallMs": 5097,
+    "concurrency": 4,
+    "requests": 76,
+    "ok": 76
+  }
+]
