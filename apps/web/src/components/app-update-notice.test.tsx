@@ -29,6 +29,19 @@ it('ignores first install and duplicate controller events, then detects an upgra
   change({});
   expect(screen.getByRole('status')).toBeInTheDocument();
 });
+it('dismisses without reloading or losing a draft and returns only for a new controller', () => {
+  const change = worker({}); const reload = vi.fn(); const update = {};
+  render(<><input aria-label="Message" defaultValue="Unsent draft" /><AppUpdateNotice reload={reload} /></>);
+  change(update);
+  fireEvent.click(screen.getByRole('button', { name: 'Later' }));
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Unsent draft');
+  expect(reload).not.toHaveBeenCalled();
+  change(update);
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  change({});
+  expect(screen.getByRole('status')).toBeInTheDocument();
+});
 it('supports browsers without service workers', () => {
   vi.stubGlobal('navigator', {});
   render(<AppUpdateNotice />);
