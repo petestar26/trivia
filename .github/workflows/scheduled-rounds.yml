@@ -25,6 +25,7 @@ on:
       - 'apps/api/src/routes/auth*'
       - 'apps/api/src/routes/groups*.test.ts'
       - 'apps/api/src/routes/chat*.test.ts'
+      - 'apps/api/src/routes/storage*'
       - 'packages/config/src/**'
       - 'apps/api/src/routes/index.ts'
       - 'apps/web/src/pages/group-games*'
@@ -142,7 +143,7 @@ jobs:
       - name: Group PVP concurrency and recovery
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/economy/reward-coins.native.ts
       - name: Gateway identity and independent worker contracts
-        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts src/plugins/rate-limit-identity.test.ts src/scripts/group-worker-runtime.test.ts
+        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts src/plugins/rate-limit-identity.test.ts src/scripts/group-worker-runtime.test.ts src/routes/storage.test.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js

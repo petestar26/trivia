@@ -41,6 +41,13 @@ export async function storageRoutes(server: FastifyInstance): Promise<void> {
         return reply.status(400).send({ success: false, error: 'Invalid bucket name' });
       }
 
+      // Voice files belong to a group conversation. They are served only by
+      // /groups/:id/voice-messages/:messageId, which checks account membership
+      // and whether the message was removed before reading the audio.
+      if (bucket.toLowerCase() === 'voice-messages') {
+        return reply.status(404).send({ success: false, error: 'File not found' });
+      }
+
       // Validate key to prevent path traversal
       if (!key || key.includes('..') || key.includes('\0')) {
         return reply.status(400).send({ success: false, error: 'Invalid file key' });
