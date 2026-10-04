@@ -2,13 +2,16 @@
 
 ## Release status
 
-Application candidate: `f1e1441438ff7c596c8eb5cdde2aaf61656f2ba5` in [PR 33](https://github.com/petestar26/trivia/pull/33), based on `feat/social-groups-rewards`. This review does not merge either feature branch into master.
+Initial review candidate: `f1e1441438ff7c596c8eb5cdde2aaf61656f2ba5` in [PR 33](https://github.com/petestar26/trivia/pull/33), based on `feat/social-groups-rewards`. This review does not merge either feature branch into master.
 
-**The reviewed API and web interface are deployed to staging.** Both services report SUCCESS for `10a7e6fdec942328d8b5085f818587e1e9406744` (the tested application plus its report). Web deployment: `326c4e59-c29c-405b-b7be-78b9e6fc4efd`; API deployment: `69283f79-c755-412f-acef-c9af4b132a7a`. The earlier cancelled approval is no longer the staging blocker.
+**Follow-up deployed successfully to staging:** API and web both run `6377b040da935e88e52cb01ffbd055c9210a31a9`, with source tree `eedd87273bc2653034e86bd601e32389f40b69a9`, identical to local application commit `79b17cc`.
 
-Browser review confirmed the PlayQube update, retained signed-in session, wallet overview/history, deposit/withdrawal unavailable states and live Dice rounds after refresh. No payment countries are enabled, so real payment submission remains unavailable. No wager or real-money transaction was submitted.
+- API deployment: `e8c42b2e-3d2c-4e1c-ab46-70c26a3f202e` — SUCCESS.
+- Web deployment: `68d66555-b4f5-420b-9078-4147edb6a670` — SUCCESS.
+- Native PostgreSQL 13/16/18: all jobs passed in [run 37191895805](https://github.com/petestar26/trivia/actions/runs/37191895805).
+- Browser: app update loaded, signed-in session retained, Dice practice balance/countdown/history loaded, and Casino is correctly marked current instead of Free games. Wallet balances, history and navigation also loaded after the update. Earlier live checks confirmed entry controls lock during the roll and payment-unavailable states reflect the configuration.
 
-Production remains unchanged. Financial activation remains off. **Follow-up publication is blocked by automatic approval review:** it rejected disclosure of the additional source to the public `petestar26/trivia` repository because retained authorization was insufficient. No branch ref was advanced and no follow-up deployment was triggered. The local follow-up still requires exact-commit PostgreSQL regression and staging deployment verification; this is not an unconditional production-readiness certification.
+The user approved public source publication on 4 October. Production remains unchanged and financial activation remains off. No payment countries are enabled in staging; no real-money transaction or wager was submitted. This is a verified staging release, not an unconditional production-readiness certification.
 
 ## Findings and fixes
 
@@ -64,12 +67,14 @@ Other changes:
 - Per database version: 66 games/gifts/social/reward native checks; 421 payment lifecycle checks; 30 two-connection checks; 124 ledger checks; 70 financial admission/settlement/refund checks.
 - Fresh/populated migration checks: 56 passed on PostgreSQL 16 and 18; 55 passed and one documented version-specific skip on PostgreSQL 13.
 - CI also passed worker/runtime guards, cookie renewal, shared/economics contracts, web TypeScript/build, PWA navigation and gateway/WebSocket checks. Counts overlap the local suites and should not be added as unique tests.
-- Follow-up: full API TypeScript now passes, with strict checks preserved. Review-unit/worker tests pass 65/65, including seven issuer/audience authentication regressions; cookie-session tests pass 15/15. The broader database matrix must verify this follow-up commit independently.
+- Follow-up: full API TypeScript now passes, with strict checks preserved. Review-unit/worker tests pass 65/65, including seven issuer/audience authentication regressions; cookie-session tests pass 15/15. The follow-up matrix independently passed on PostgreSQL 13, 16 and 18, including 301 compatibility/task-concurrency tests and 421 payment lifecycle tests per version.
 - No real fiat was sent, no user-account financial transaction was performed, and no financial activation flags were enabled during verification.
 
 ## Deployment continuation
 
-The initial review is live in staging. To continue, explicitly approve publishing this follow-up source to public repository `petestar26/trivia`, branch `feat/casino-wallet-review` / PR 33. Automatic approval review blocked this operation; no alternate publication or deployment route was attempted. After approval, verify the published tree against the local commit, wait for the new PostgreSQL 13/16/18 matrix, and update only staging API/web sources. Production has an unrelated pending deletion of `runtime-access-maintenance`; do not apply it as part of this release.
+The initial review and follow-up are live in staging. Follow-up publication and deployment succeeded after explicit user approval. Run 37191533630 passed payments and task concurrency but exposed 79 legacy contest tests whose Dice fixture was paused by the scheduled-practice migration. The fixture now temporarily enables historical Dice only inside an explicitly named loopback throwaway database, then restores its original state. Application admission remains paused. Run 37191895805 was initially cancelled without a test failure; its retry passed all three database versions. PostgreSQL 13 retains the documented single version-specific migration skip (55 passed/1 skipped); PostgreSQL 16 and 18 passed all 56 migration checks.
+
+Production has an unrelated pending deletion of `runtime-access-maintenance`; do not apply it as part of this release.
 
 ### Authentication and typecheck follow-up
 
@@ -81,7 +86,7 @@ The initial review is live in staging. To continue, explicitly approve publishin
 
 ## Remaining work and release gates
 
-1. Approve the public source publication, then verify the follow-up database matrix and staging deployment before promoting its authentication/task changes.
+1. Staging rollout and browser smoke checks are complete. Production promotion still requires the separate baseline/configuration review described below.
 2. Production remains behind the feature branch. Reconcile and review the complete release, run the documented ledger preflight/migration/grant procedure, verify runtime identities and backups, and deploy a separately approved release candidate. Do not run native destructive tests against staging or production.
 3. Live payment availability requires enabled country/method/rate policy, approved/funded agents, withdrawal liquidity, account eligibility/KYC and the existing operational launch controls. These are not fabricated or enabled by adding the screens.
 4. Complete an operator-supervised real-provider/agent reconciliation rehearsal before live financial launch. CI exercises database lifecycle behavior with disposable fixtures, not actual bank settlement.
@@ -97,7 +102,7 @@ No new database migration is introduced by this review. No secret rotation, broa
 
 The follow-up passed the complete frontend suite (1,084 tests), API review/worker suite (65), cookie-session suite (15), economics suite (329), scheduled-practice suite (37), strict API/web typechecks, API bundle build and web production build. These suites overlap other counts; do not sum them as distinct tests.
 
-A native PostgreSQL server is unavailable in this local workspace. The added one-time task concurrency test and broader compatibility suite have not run on native PostgreSQL for this follow-up because public publication/CI is blocked. The earlier three-version CI result belongs to the deployed initial review, not these new source changes.
+A native PostgreSQL server is unavailable in this local workspace. GitHub runs the native suites in disposable databases. The corrected follow-up matrix passed all three versions, including the legacy contest compatibility and new one-time task concurrency test. No native tests were run against staging or production.
 
 ## Changed files
 
@@ -169,6 +174,7 @@ A native PostgreSQL server is unavailable in this local workspace. The added one
 - `apps/api/src/server.ts`
 - `apps/api/src/tasks/streak-service.ts`
 - `apps/api/src/tasks/task-service.ts`
+- `apps/api/src/test/contest-rules-fixtures.ts`
 - `apps/api/src/types/bcryptjs.d.ts`
 - `apps/api/src/vip/vip-service.ts`
 - `apps/api/src/withdrawals/dispute-service.ts`
