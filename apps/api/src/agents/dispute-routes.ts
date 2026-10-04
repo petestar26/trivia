@@ -15,6 +15,10 @@ function requestContext(request: FastifyRequest) {
 }
 
 export async function agentDisputeRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const auth = [authenticate];
   const admin = [authenticate, requirePermission('agent:review')];
 

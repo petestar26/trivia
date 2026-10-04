@@ -20,9 +20,11 @@ export function createSystemDiceService(db: PrismaClient) {
       const tickets = await tx.$queryRaw<Ticket[]>`SELECT * FROM system_dice_practice_tickets WHERE user_id=${userId} AND round_id=ANY(${rounds.map(r=>r.id)}::text[])`;
       const [wallet] = await tx.$queryRaw<{balance: bigint}[]>`SELECT balance FROM system_dice_practice_accounts WHERE user_id=${userId}`;
       return { enabled: true, rulesId: SYSTEM_DICE_RULES.id, serverTime: now.getTime(), balance: Number(wallet.balance),
-        rounds: rounds.map(r => { const ticket = tickets.find(t=>t.round_id===r.id); return {
+        rounds: rounds.map(r => { const ticket = tickets.find(t=>t.round_id===r.id);
+          const revealed = now.getTime() >= r.closes_at.getTime() + SYSTEM_DICE_RULES.revealMs;
+          return {
           id:r.id, opensAt:r.opens_at.getTime(), closesAt:r.closes_at.getTime(), endsAt:r.ends_at.getTime(),
-          outcome:r.die1===null?null:[r.die1,r.die2!] as [number,number], ticket:ticket?{stake:ticket.stake,payout:ticket.payout}:null,
+          outcome:!revealed||r.die1===null?null:[r.die1,r.die2!] as [number,number], ticket:ticket?{stake:ticket.stake,payout:revealed?ticket.payout:null}:null,
         }; }) };
     });
   }

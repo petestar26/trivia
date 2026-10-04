@@ -72,3 +72,11 @@ it('shows blank dice before a result rather than a winning placeholder',async()=
  expect(container.querySelectorAll('.pip')).toHaveLength(0);
  expect(screen.getByRole('img',{name:'Dice awaiting result'})).toBeInTheDocument();
 });
+it('refuses a new ticket if an inconsistent snapshot already contains the outcome',async()=>{
+ s.rounds[0].outcome=[6,6];mount();
+ await screen.findByRole('timer',{name:'Next round in'});
+ expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();
+ expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+ expect(screen.queryByRole('img',{name:'Die 6'})).not.toBeInTheDocument();
+ expect(mocks.post).not.toHaveBeenCalled();
+});

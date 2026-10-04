@@ -96,6 +96,10 @@ const idParamSchema = {
 } as const;
 
 export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const auth = [authenticate];
 
   // ── Quotes ───────────────────────────────────────────────────

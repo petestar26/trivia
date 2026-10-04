@@ -21,15 +21,16 @@ function orderRequestFieldsMatch(order: { agentId: string; countryId: string; pa
 }
 
 function validateCreateArgs(args: CreateAgentOrderArgs) {
+  if (!args || typeof args !== 'object') throw ApiError.badRequest('Order details are required');
   if (!args.agentId || typeof args.agentId !== 'string') throw ApiError.badRequest('agentId is required');
   if (!args.countryId || typeof args.countryId !== 'string') throw ApiError.badRequest('countryId is required');
   if (!args.paymentAccountId || typeof args.paymentAccountId !== 'string') {
     throw ApiError.badRequest('paymentAccountId is required');
   }
-  if (!Number.isInteger(args.fiatAmount) || args.fiatAmount <= 0) {
+  if (!Number.isSafeInteger(args.fiatAmount) || args.fiatAmount <= 0 || args.fiatAmount > 2_147_483_647) {
     throw ApiError.badRequest('fiatAmount must be a positive integer');
   }
-  if (!args.idempotencyKey || typeof args.idempotencyKey !== 'string') {
+  if (!args.idempotencyKey || typeof args.idempotencyKey !== 'string' || args.idempotencyKey.length > 128) {
     throw ApiError.badRequest('idempotencyKey is required');
   }
 }
@@ -151,7 +152,7 @@ export async function createAgentOrder(
   // Schema: "coinAmount Int // floor(fiatAmount * exchangeRateValue), fixed
   // forever" — used verbatim, via Decimal arithmetic to avoid float error.
   const coinAmount = rateConfig.coinsPerUnit.mul(args.fiatAmount).floor().toNumber();
-  if (coinAmount <= 0) {
+  if (!Number.isSafeInteger(coinAmount) || coinAmount <= 0 || coinAmount > 1_000_000_000) {
     throw ApiError.badRequest('Computed coin amount must be positive');
   }
 

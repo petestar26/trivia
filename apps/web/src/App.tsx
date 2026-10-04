@@ -28,6 +28,8 @@ import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
 import { GroupGamesPage } from '@/pages/group-games';
 import { GroupGiftsPage } from '@/pages/group-gifts';
+import { WalletPaymentsPage } from '@/pages/wallet-payments';
+import { WalletOperationsPage } from '@/pages/wallet-operations';
 import { WalletPage } from '@/pages/wallet';
 import { RewardsPage } from '@/pages/rewards';
 import { ProfilePage } from '@/pages/profile';
@@ -79,9 +81,11 @@ export function App() {
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet" element={<WalletPage />} />
+        <Route path="wallet/operations" element={<WalletOperationsPage />} />
+        <Route path="wallet/:section" element={<WalletPaymentsPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />
-        <Route path="games" element={<GamesPage />} />
+        <Route path="games" element={<GamesPage mode="BONUS" title="Free games" description="Play without a stake. Reward eligibility is shown for each game." />} />
         <Route path="casino" element={<CasinoPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
         <Route

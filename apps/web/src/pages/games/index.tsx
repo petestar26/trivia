@@ -1,3 +1,4 @@
+import { Dice5, CircleDot, Grid3X3, Brain, Gamepad2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
@@ -133,16 +134,17 @@ export function GamesPage({
       </div>
     );
 
+  const practiceRoutes: Record<string,string> = {dice:'/games/dice',spin_win:'/games/spin-win',turbo_keno:'/games/turbo-keno'};
   const publicGames = (games ?? []).filter(
     (g) => g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode)
-  );
+  ).sort((a,b)=>Number(!!practiceRoutes[b.key])-Number(!!practiceRoutes[a.key]));
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-5 rounded-3xl bg-gradient-to-br from-emerald-950 to-slate-900 p-6 text-white sm:p-9">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
-          <p className="text-gray-600 dark:text-gray-400">{description}</p>
+          <h1 className="text-3xl font-bold tracking-tight text-white">{title}</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{description}</p>
         </div>
         <div className="flex items-center gap-3">
           <Link
@@ -160,36 +162,32 @@ export function GamesPage({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {mode === 'WAGER' && <nav aria-label="Play modes" className="flex flex-wrap gap-3 text-sm"><span className="rounded-full bg-emerald-100 px-4 py-2 font-semibold text-emerald-900">System practice · every minute</span><Link className="rounded-full border border-slate-300 px-4 py-2 dark:text-white" to="/groups">Group PVP · play together →</Link><Link className="rounded-full border border-slate-300 px-4 py-2 dark:text-white" to="/games">Free games →</Link></nav>}
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {publicGames.map((game) => {
+          const practice = practiceRoutes[game.key];
+          const Icon = game.key==='dice'?Dice5:game.key==='spin_win'?CircleDot:game.key==='turbo_keno'?Grid3X3:game.key==='trivia'?Brain:Gamepad2;
           const isComingSoon = game.catalogStatus === 'COMING_SOON';
-          const isPlayable = game.catalogStatus === 'AVAILABLE' && GAME_ROUTES[game.key];
+          const isPlayable = !!practice || (game.isActive && game.catalogStatus === 'AVAILABLE' && GAME_ROUTES[game.key]);
           const isTrivia = game.key === 'trivia';
 
           const cardContent = (
             <div
-              className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-5 transition-shadow ${
+              className={`bg-white dark:bg-gray-800 h-full rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-shadow ${
                 isPlayable ? 'hover:shadow-md' : 'opacity-70'
               }`}
             >
-              <div className="text-4xl mb-3">{GAME_ICONS[game.key] ?? '🎮'}</div>
+              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Icon size={30} aria-hidden="true"/></div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{game.name}</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                 {game.description}
               </p>
-              {isComingSoon ? (
+              {practice ? (<div className="mt-5"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">Free practice</span><p className="mt-3 text-xs text-gray-500">One-minute rounds · no Coins or cash prizes</p><p className="mt-4 font-semibold text-emerald-700 dark:text-emerald-300">Play practice →</p></div>) : isComingSoon ? (
                 <div className="mt-3">
                   <span className="inline-block text-xs font-medium px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
                     Coming soon
                   </span>
-                  {(game.key === 'spin_win' || game.key === 'turbo_keno' || game.key === 'dice') && (
-                    <Link
-                      to={game.key === 'dice' ? '/games/dice' : game.key === 'turbo_keno' ? '/games/turbo-keno' : '/games/spin-win'}
-                      className="mt-3 block text-sm font-semibold text-primary-600 underline dark:text-primary-400"
-                    >
-                      Try practice mode · no Coins
-                    </Link>
-                  )}
+
                 </div>
               ) : isTrivia ? (
                 <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -205,7 +203,7 @@ export function GamesPage({
 
           if (isPlayable) {
             return (
-              <Link key={game.id} to={`/games/${GAME_ROUTES[game.key]}`}>
+              <Link key={game.id} to={practice ?? `/games/${GAME_ROUTES[game.key]}`}>
                 {cardContent}
               </Link>
             );

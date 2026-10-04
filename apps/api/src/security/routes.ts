@@ -60,6 +60,10 @@ function requestContext(request: { ip?: string; headers: Record<string, unknown>
 }
 
 export async function securityRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const authHandler = [authenticate];
 
   // GET /security/factors — the caller's own factors. Never another user's.

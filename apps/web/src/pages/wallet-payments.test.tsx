@@ -1,0 +1,40 @@
+import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {MemoryRouter,Route,Routes} from 'react-router-dom';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
+vi.mock('@/lib/api',()=>({api:m,unwrapData:(r:{data:unknown})=>r.data}));
+vi.mock('@/providers/auth-provider',()=>({useAuth:()=>({user:{id:'customer'}})}));
+import {WalletPaymentsPage} from './wallet-payments';
+import {WalletOperationsPage} from './wallet-operations';
+const options={countries:[{id:'country',name:'Test country',currencyCode:'USD'}],agents:[{id:'agent',countryId:'country',displayName:'Approved agent',minOrderAmount:1,maxOrderAmount:1000,paymentAccounts:[{id:'account',methodDef:{name:'Bank transfer'}}]}],isAgent:false,isAdmin:false};
+beforeEach(()=>{sessionStorage.clear();m.post.mockReset();m.get.mockReset();m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?options:path==='/withdrawals/payout-accounts'?[{id:'payout',countryId:'country',status:'ACTIVE',displayLabel:'My account',accountDetails:{number:'****1234'}}]:[]}));});
+afterEach(cleanup);
+function mount(section='deposit'){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}><MemoryRouter initialEntries={['/wallet/'+section]}><Routes><Route path="/wallet/operations" element={<WalletOperationsPage/>}/><Route path="/wallet/:section" element={<WalletPaymentsPage/>}/></Routes></MemoryRouter></QueryClientProvider>);}
+it('requires country, agent, approved method and confirmation before an idempotent deposit',async()=>{
+ mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
+ fireEvent.change(screen.getByLabelText('Amount to pay · USD'),{target:{value:'100'}});
+ fireEvent.change(screen.getByLabelText('Agent'),{target:{value:'agent'}});
+ fireEvent.change(screen.getByLabelText('Payment method'),{target:{value:'account'}});
+ const button=screen.getByRole('button',{name:'Create deposit request'});expect(button).toBeDisabled();
+ fireEvent.click(screen.getByRole('checkbox'));m.post.mockResolvedValue({success:true,data:{id:'order'}});fireEvent.click(button);
+ await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));expect(m.post.mock.calls[0][0]).toBe('/agent-orders');
+ expect(m.post.mock.calls[0][1]).toMatchObject({agentId:'agent',countryId:'country',paymentAccountId:'account',fiatAmount:100,idempotencyKey:expect.any(String)});
+ await waitFor(()=>expect(button).toBeDisabled());
+});
+it('uses the server quote and only IDs when confirming a withdrawal',async()=>{
+ mount('withdraw');fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
+ fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'100'}});
+ fireEvent.change(screen.getByLabelText('Payout account'),{target:{value:'payout'}});
+ m.post.mockResolvedValueOnce({data:{id:'quote',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',expiresAt:new Date(Date.now()+300000).toISOString()}}).mockResolvedValue({success:true});
+ fireEvent.click(screen.getByRole('button',{name:'Get withdrawal quote'}));await screen.findByText('100 Coins → 25 USD');
+ fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Confirm withdrawal'}));
+ await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(2));expect(m.post.mock.calls[1][1]).toEqual({quoteId:'quote',payoutAccountId:'payout',idempotencyKey:expect.any(String)});
+});
+it('shows disabled-country empty state without inventing payment availability',async()=>{
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],agents:[]}:[]}));mount();
+ expect(await screen.findByText(/No payment countries are enabled/)).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Create deposit request'})).not.toBeInTheDocument();
+});
+it('does not load privileged queues for an ordinary customer',async()=>{
+ mount('operations');await screen.findByText('Processing access required');expect(m.get.mock.calls.every(([p])=>p==='/wallet/payment-options')).toBe(true);
+});

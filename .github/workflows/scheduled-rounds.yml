@@ -46,6 +46,11 @@ on:
       - 'apps/api/scripts/spin-staging-rehearsal.cjs'
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
+      - 'apps/api/src/agents/**'
+      - 'apps/api/src/withdrawals/**'
+      - 'apps/api/src/routes/wallet*'
+      - 'apps/web/src/hooks/use-wallet-action*'
+      - 'apps/web/src/components/layout/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/pages/games/keno*'
       - 'apps/web/src/pages/games/dice*'
@@ -182,6 +187,10 @@ jobs:
                   env.write(name + '=' + secrets.token_hex(32) + '\n')
               env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
           PYKEYS
+      - name: Payment lifecycle, authorization and recovery
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: pnpm --filter api exec vitest run src/agents src/withdrawals --maxWorkers=1 --minWorkers=1
       - name: Predeploy runtime identity guard
         run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Existing ledger guard regressions
@@ -253,7 +262,7 @@ jobs:
       - name: Group game room and chat contracts
         run: >-
           pnpm --filter web exec vitest run
-          src/components/app-update-notice.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/components/app-update-notice.test.tsx src/pages/wallet-payments.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
           src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
           src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts

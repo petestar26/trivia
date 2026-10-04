@@ -52,7 +52,7 @@ function SystemDice({userId}:{userId:string}) {
   const now=s?s.serverTime+age:0;
   const round=s?.rounds.find(r=>r.opensAt<=now&&now<r.endsAt);
   const display=round??s?.rounds[0];
-  const open=!!round&&connected&&s?.enabled&&s.rulesId===rules.id&&now<round.closesAt;
+  const open=!!round&&connected&&s?.enabled&&s.rulesId===rules.id&&now<round.closesAt&&round.outcome===null;
   const revealing=!!round&&now>=round.closesAt&&now<round.closesAt+rules.revealMs;
   const resultVisible=!!display?.outcome&&now>=display.closesAt+rules.revealMs;
   const dice=resultVisible?display!.outcome:null;
