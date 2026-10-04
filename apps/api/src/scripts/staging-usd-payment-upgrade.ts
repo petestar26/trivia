@@ -70,15 +70,18 @@ export async function runUsdStagingUpgrade(apply: boolean) {
     } else if (pending.length) throw new Error('USD_MIGRATION_NOT_APPLIED');
     const role = process.env.PRACTICE_API_ROLE!; // Identifier validated before connecting.
     if (apply) {
-      // Only the new non-ledger configuration table. No role/credential changes.
+      // Only new configuration surfaces. Existing role and credentials remain unchanged.
       await db.$executeRawUnsafe(
         `GRANT SELECT, INSERT, UPDATE ON public.coin_packages TO "${role}"`
       );
+      // Countries use column-specific UPDATE grants to protect cascade keys.
+      await db.$executeRawUnsafe(`GRANT UPDATE ("usdPricingEnabled") ON public.countries TO "${role}"`);
     }
     const [access] = await db.$queryRaw<Array<{ allowed: boolean }>>`
       SELECT pg_catalog.has_table_privilege(${role}, 'public.coin_packages', 'SELECT')
         AND pg_catalog.has_table_privilege(${role}, 'public.coin_packages', 'INSERT')
-        AND pg_catalog.has_table_privilege(${role}, 'public.coin_packages', 'UPDATE') AS allowed`;
+        AND pg_catalog.has_table_privilege(${role}, 'public.coin_packages', 'UPDATE')
+        AND pg_catalog.has_column_privilege(${role}, 'public.countries', 'usdPricingEnabled', 'UPDATE') AS allowed`;
     if (!access?.allowed) throw new Error('PACKAGE_RUNTIME_GRANTS_MISSING');
     const [schema] = await db.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*) AS count FROM information_schema.columns WHERE table_schema='public' AND
