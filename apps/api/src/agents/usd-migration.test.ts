@@ -24,6 +24,8 @@ beforeAll(async () => {
   );
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261004121000_usd_pricing_guard_paths/migration.sql', import.meta.url), 'utf8'));
 
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261004122000_usd_activation_guard_path/migration.sql', import.meta.url), 'utf8'));
+
 });
 afterAll(async () => db.close());
 it('keeps all existing countries and historical rows on legacy pricing', async () => {
@@ -71,8 +73,8 @@ it('makes activation one-way and rate terms append-only while allowing emergency
 });
 
 it('pins every new guard to the existing ledger search-path policy', async () => {
-  const { rows } = await db.query<{ proconfig: string[] }>(`SELECT proconfig FROM pg_proc WHERE proname IN
+  const { rows } = await db.query<{ proname: string; proconfig: string[] }>(`SELECT proname, proconfig FROM pg_proc WHERE proname IN
     ('payment_protect_usd_snapshot','payment_protect_usd_rate','payment_protect_usd_activation')`);
   expect(rows).toHaveLength(3);
-  for (const row of rows) expect(row.proconfig).toContain('search_path=pg_catalog, pg_temp');
+  for (const row of rows) expect(row.proconfig).toContain(row.proname === 'payment_protect_usd_activation' ? 'search_path=public, pg_temp' : 'search_path=pg_catalog, pg_temp');
 });

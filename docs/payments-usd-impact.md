@@ -38,7 +38,7 @@ without a corresponding recipient and ledger entry.
 
 `staging-usd-payment-upgrade.ts --apply` is owner-only and refuses every target
 except the existing isolated staging database. It verifies migration checksums,
-refuses unrelated pending migrations, applies the two additive USD migrations and grants
+refuses unrelated pending migrations, applies the additive USD migrations and grants
 the existing API role SELECT/INSERT/UPDATE on the new package table and UPDATE
 on the new country USD-pricing column. Existing protected IDs remain unwritable.
 It does not change credentials, financial activation, countries, or agent funds.

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
-const MIGRATIONS = ['20261004120000_usd_payment_pricing', '20261004121000_usd_pricing_guard_paths'];
+const MIGRATIONS = ['20261004120000_usd_payment_pricing', '20261004121000_usd_pricing_guard_paths', '20261004122000_usd_activation_guard_path'];
 
 export function assertUsdStagingTarget(env: NodeJS.ProcessEnv) {
   const url = new URL(env.DATABASE_URL ?? 'https://invalid');

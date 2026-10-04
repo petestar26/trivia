@@ -140,6 +140,11 @@ const checks: ReadonlyArray<[string, string]> = [
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I3 financial history triggers present, guard functions pinned', `
     WITH expected(tab, trigger_name) AS (VALUES
+      ('countries','country_usd_activation'),
+      ('exchange_rate_configs','exchange_rate_usd_terms'),
+      ('agent_orders','agent_order_usd_snapshot'),
+      ('withdrawal_quotes','withdrawal_quote_usd_snapshot'),
+      ('withdrawals','withdrawal_usd_snapshot'),
       ('economic_operations','economic_operations_append_only'),
       ('coin_lot_entries','coin_lot_entries_append_only'),
       ('coin_lot_entries','purchase_settlement_proof_guard'),
