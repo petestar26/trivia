@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 vi.mock('@socialplay/config',()=>({config:{STORAGE_LOCAL_PATH:''}}));
 import {config} from '@socialplay/config';
-import {storageRoutes} from './storage';
+import {storageRoutes} from './storage.js';
 let root:string;
 let server:ReturnType<typeof Fastify>;
 beforeEach(async()=>{
