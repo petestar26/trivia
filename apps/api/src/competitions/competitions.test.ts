@@ -12,7 +12,7 @@ import {
 } from './competition-service.js';
 import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service.js';
 import { getGameHistory } from '../games/game-play.js';
-import { publishNextRulesVersion } from '../test/contest-rules-fixtures.js';
+import { publishNextRulesVersion, availableDiceContestFixture } from '../test/contest-rules-fixtures.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -24,7 +24,12 @@ try {
   dbAvailable = false;
 }
 
+let restoreDiceFixture: (() => Promise<void>) | undefined;
+beforeAll(async () => {
+  if (dbAvailable) restoreDiceFixture = await availableDiceContestFixture();
+});
 afterAll(async () => {
+  await restoreDiceFixture?.();
   await prisma.$disconnect();
 });
 
