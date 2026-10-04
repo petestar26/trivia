@@ -4,7 +4,7 @@ const db=vi.hoisted(()=>({user:{findUniqueOrThrow:vi.fn()},agent:{findUnique:vi.
 vi.mock('@socialplay/database',()=>({prisma:db}));
 vi.mock('../middleware',()=>({authenticate:async(request:any)=>{request.user={sub:'customer'};}}));
 vi.mock('../economy/wallet-service',()=>({getWalletBalance:vi.fn(),getWalletTransactions:vi.fn()}));
-import {walletRoutes} from './wallet';
+import {walletRoutes} from './wallet.js';
 let server:ReturnType<typeof Fastify>;
 beforeEach(async()=>{vi.clearAllMocks();db.user.findUniqueOrThrow.mockResolvedValue({role:'USER'});db.agent.findUnique.mockResolvedValue(null);db.country.findMany.mockResolvedValue([]);db.agent.findMany.mockResolvedValue([]);server=Fastify();await server.register(walletRoutes,{prefix:'/wallet'});});
 afterEach(async()=>{await server.close();});

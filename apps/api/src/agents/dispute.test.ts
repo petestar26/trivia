@@ -401,7 +401,7 @@ describeIf('Dispute claim and resolution', () => {
   it('legal transition: OPEN -> ASSIGNED -> RESOLVED (RELEASE)', async () => {
     const { fixture, customer, order, dispute } = await makeOpenDispute('legal1');
     const claimResult = await claimDispute(admin.id, dispute.id);
-    expect((await listOpenDisputesForAdmin(admin.id)).some(row => row.id === dispute.id)).toBe(true);
+    expect((await listOpenDisputesForAdmin(admin.id)).some((row: {id:string}) => row.id === dispute.id)).toBe(true);
     expect(claimResult.status).toBe('ASSIGNED');
 
     const walletBefore = await prisma.wallet.findUnique({ where: { userId: customer.id } });

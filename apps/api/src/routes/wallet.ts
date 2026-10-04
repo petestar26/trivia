@@ -25,7 +25,7 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
         orderBy: { displayName: 'asc' }, take: 100 }),
     ]);
     return { success: true, data: {
-      countries, isAgent: !!ownAgent, isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
+      countries, isAgent: ownAgent?.status === 'ACTIVE', isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
       agents: agents.map(a => ({ ...a, paymentAccounts: a.paymentAccounts.filter(p =>
         p.countryId === a.countryId && p.methodDef.countryId === a.countryId) })),
     } };

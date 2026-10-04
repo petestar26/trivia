@@ -57,7 +57,7 @@ export function LoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">Welcome back</CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            Sign in to your SocialPlay account
+            Sign in to your PlayQube account
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
