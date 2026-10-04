@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@socialplay/database';
-import { GROUP_PVP_RULES, validatePvpSelection, pvpWinnerIds, type GroupPvpGame, type GroupPvpSnapshot } from '@socialplay/shared';
+import { GROUP_PVP_RULES, groupPvpRulesId, validatePvpSelection, pvpWinnerIds, type GroupPvpGame, type GroupPvpSnapshot } from '@socialplay/shared';
 import { applyBalanceChanges } from '../../economy/wallet-service.js';
 import { ApiError } from '../../middleware/api-error.js';
 import { planContestSettlement } from '../economics/contest-pool.js';
@@ -15,7 +15,7 @@ interface Round {
   void_reason: string | null; settlement: NonNullable<GroupPvpSnapshot['round']>['settlement'];
 }
 interface Entry { id: string; user_id: string; username: string; state: 'JOINED' | 'READY' | 'WITHDRAWN'; selection: number[] | null; debit_id: string | null; refund_id: string | null }
-interface Group { id: string; name: string; ownerId: string; status: string }
+interface Group { id: string; name: string; ownerId: string; status: string; expiresAt: Date }
 
 export function createGroupPvpService(db: PrismaClient) {
   const clock = async (tx: Tx) => (await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`)[0].now;
@@ -27,18 +27,23 @@ export function createGroupPvpService(db: PrismaClient) {
   };
   // Lock order: sorted users -> group -> memberships -> round -> entries -> wallets.
   // The group NO KEY UPDATE lock serializes all PVP actions with group moderation.
-  async function access(tx: Tx, groupId: string, actorId: string, participantIds: string[] = []) {
+  async function access(tx: Tx, groupId: string, actorId: string, participantIds: string[] = [], options: { readOnly?:boolean; refundOnly?:boolean } = {}) {
     const ids = [...new Set([actorId, ...participantIds])].sort();
     const accounts = await tx.$queryRaw<{ id: string; status: string }[]>`
       SELECT id,status::text FROM users WHERE id=ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
     const actor = accounts.find(a => a.id === actorId);
-    if (!actor || actor.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
-    const [g] = await tx.$queryRaw<Group[]>`SELECT id,name,"ownerId",status::text FROM groups WHERE id=${groupId} FOR NO KEY UPDATE`;
+    if (!actor || (!options.refundOnly && actor.status !== 'ACTIVE')) throw ApiError.forbidden('An active account is required');
+    const [g] = options.readOnly
+      ? await tx.$queryRaw<Group[]>`SELECT id,name,"ownerId",status::text,"expiresAt" FROM groups WHERE id=${groupId} FOR SHARE`
+      : await tx.$queryRaw<Group[]>`SELECT id,name,"ownerId",status::text,"expiresAt" FROM groups WHERE id=${groupId} FOR NO KEY UPDATE`;
     if (!g) throw ApiError.notFound('Group not found');
     const members = await tx.$queryRaw<{ userId: string; status: string }[]>`
       SELECT "userId",status::text FROM group_members WHERE "groupId"=${groupId} AND "userId"=ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
-    if (!members.some(m => m.userId === actorId && m.status === 'ACTIVE')) throw ApiError.forbidden('Join this group to access its games');
+    if (!options.refundOnly && !members.some(m => m.userId === actorId && m.status === 'ACTIVE')) throw ApiError.forbidden('Join this group to access its games');
     return { group: g, accounts, members };
+  }
+  async function requireOpenGroup(tx: Tx, g: Group) {
+    if (g.status !== 'ACTIVE' || (await clock(tx)) >= g.expiresAt) throw ApiError.conflict('This group has closed. Started games will still settle.');
   }
   function owner(g: Group, actorId: string) {
     if (g.ownerId !== actorId || g.status !== 'ACTIVE') throw ApiError.forbidden('Only the active group owner can control this round');
@@ -58,11 +63,11 @@ export function createGroupPvpService(db: PrismaClient) {
   }
   async function snapshot(groupId: string, actorId: string): Promise<GroupPvpSnapshot> {
     return db.$transaction(async tx => {
-      const { group: g } = await access(tx, groupId, actorId);
+      const { group: g } = await access(tx, groupId, actorId, [], {readOnly:true});
       const [r] = await tx.$queryRaw<Round[]>`SELECT * FROM group_pvp_rounds WHERE group_id=${groupId} ORDER BY created_at DESC,id DESC LIMIT 1`;
       const wallet = await tx.wallet.findUnique({ where: { userId: actorId } });
       const items = r ? (await entries(tx, r.id)).filter(e => e.state !== 'WITHDRAWN') : [];
-      return { enabled: g.status === 'ACTIVE', currency: 'GAME_POINTS', serverTime: (await clock(tx)).getTime(),
+      return { enabled: g.status === 'ACTIVE' && (await clock(tx)) < g.expiresAt, currency: 'GAME_POINTS', serverTime: (await clock(tx)).getTime(),
         groupName: g.name, ownerId: g.ownerId, balance: wallet?.gamePointsBalance ?? 0,
         round: r ? { id: r.id, creationRequestId: r.request_id, game: r.game, entryAmount: r.entry_amount, policyId: r.policy_id, rulesId: r.rules_id,
           state: r.state, expiresAt: r.expires_at.getTime(), startsAt: r.starts_at?.getTime() ?? null,
@@ -72,7 +77,7 @@ export function createGroupPvpService(db: PrismaClient) {
     });
   }
   async function create(groupId: string, actorId: string, game: GroupPvpGame, amount: number, requestId: string) {
-    if (!['spin_win','turbo_keno'].includes(game) || !Number.isSafeInteger(amount) || amount < 100 || amount > 10000 || amount % 100 ||
+    if (!['spin_win','turbo_keno','dice'].includes(game) || !Number.isSafeInteger(amount) || amount < 100 || amount > 10000 || amount % 100 ||
         !/^[0-9a-f-]{36}$/.test(requestId)) throw ApiError.badRequest('Choose a game and an entry in steps of 100 Game Points');
     return db.$transaction(async tx => {
       const { group: g } = await access(tx, groupId, actorId); owner(g, actorId);
@@ -83,16 +88,18 @@ export function createGroupPvpService(db: PrismaClient) {
       }
       const active = await tx.$queryRaw`SELECT id FROM group_pvp_rounds WHERE group_id=${groupId} AND state IN ('OPEN','COUNTDOWN','DRAWN')`;
       if ((active as unknown[]).length) throw ApiError.conflict('Finish the current game first');
+      await requireOpenGroup(tx, g);
       const id = randomUUID(); const now = await clock(tx);
+      if (g.expiresAt.getTime()-now.getTime() <= GROUP_PVP_RULES.countdownMs) throw ApiError.conflict('There is not enough time to start a new game');
       await tx.$executeRaw`INSERT INTO group_pvp_rounds(id,group_id,creator_id,request_id,game,rules_id,policy_id,entry_amount,expires_at)
-        VALUES(${id},${groupId},${actorId},${requestId},${game},${GROUP_PVP_RULES.id},${PVP_POLICY},${amount},${new Date(now.getTime()+GROUP_PVP_RULES.lobbyMs)})`;
+        VALUES(${id},${groupId},${actorId},${requestId},${game},${groupPvpRulesId(game)},${PVP_POLICY},${amount},${new Date(Math.min(now.getTime()+GROUP_PVP_RULES.lobbyMs,g.expiresAt.getTime()))})`;
       return id;
     });
   }
   async function join(groupId: string, actorId: string, roundId: string) {
     await db.$transaction(async tx => {
       const { group: g } = await access(tx, groupId, actorId);
-      if (g.status !== 'ACTIVE') throw ApiError.forbidden('Group is not active');
+      await requireOpenGroup(tx, g);
       const r = await round(tx, groupId, roundId); open(r, await clock(tx));
       const items = await entries(tx, roundId); const previous = items.find(e => e.user_id === actorId);
       if (previous?.state === 'WITHDRAWN') throw ApiError.conflict('You left this round; join the next one');
@@ -105,7 +112,7 @@ export function createGroupPvpService(db: PrismaClient) {
   async function ready(groupId: string, actorId: string, roundId: string, selection: unknown, policyId: string, amount: number) {
     await db.$transaction(async tx => {
       const { group: g } = await access(tx, groupId, actorId);
-      if (g.status !== 'ACTIVE') throw ApiError.forbidden('Group is not active');
+      await requireOpenGroup(tx, g);
       const r = await round(tx, groupId, roundId);
       if (policyId !== r.policy_id || amount !== r.entry_amount) throw ApiError.conflict('Entry terms changed; review them again');
       let picks: number[]; try { picks = validatePvpSelection(r.game, selection); } catch (e) { throw ApiError.badRequest((e as Error).message); }
@@ -114,19 +121,23 @@ export function createGroupPvpService(db: PrismaClient) {
       open(r, await clock(tx));
       if (!entry || entry.state !== 'JOINED') throw ApiError.conflict('Join this round before confirming your entry');
       await lockWallets(tx, [actorId]);
+      await requireOpenGroup(tx,g);
       open(r, await clock(tx));
       const debitId = await money(tx, actorId, r.entry_amount, false, entry.id);
       // A delayed journal write must also roll back if the admission deadline passed.
+      await requireOpenGroup(tx,g);
       open(r, await clock(tx));
       await tx.$executeRaw`UPDATE group_pvp_entries SET state='READY', selection=${JSON.stringify(picks)}::jsonb,debit_id=${debitId} WHERE id=${entry.id}`;
     });
   }
   async function withdraw(groupId: string, actorId: string, roundId: string) {
     await db.$transaction(async tx => {
-      await access(tx, groupId, actorId);
+      // Reversing one's own unstarted entry is allowed after suspension or
+      // legacy membership removal. This never admits play or transfers funds.
+      await access(tx, groupId, actorId, [], {refundOnly:true});
       const r = await round(tx, groupId, roundId); const entry = (await entries(tx, roundId)).find(e => e.user_id === actorId);
       if (!entry || entry.state === 'WITHDRAWN') return;
-      open(r, await clock(tx));
+      if (r.state !== 'OPEN') throw ApiError.conflict('Entries are locked for this round');
       let refundId: string | null = null;
       if (entry.state === 'READY') { await lockWallets(tx,[actorId]); refundId = await money(tx, actorId, r.entry_amount, true, entry.id); }
       await tx.$executeRaw`UPDATE group_pvp_entries SET state='WITHDRAWN',refund_id=${refundId} WHERE id=${entry.id}`;
@@ -146,7 +157,9 @@ export function createGroupPvpService(db: PrismaClient) {
       if (players.some(e => !ids.includes(e.user_id))) throw ApiError.conflict('Players changed; retry start');
       if (players.some(e => !accounts.some(a => a.id === e.user_id && a.status === 'ACTIVE') ||
           !members.some(m => m.userId === e.user_id && m.status === 'ACTIVE'))) throw ApiError.conflict('A player is no longer eligible; cancel this round for a full refund');
+      await requireOpenGroup(tx, g);
       const now = await clock(tx); open(r, now);
+      if (now.getTime()+GROUP_PVP_RULES.countdownMs > g.expiresAt.getTime()) throw ApiError.conflict('Not enough time remains for the countdown. Cancel for a full refund.');
       await tx.$executeRaw`UPDATE group_pvp_rounds SET state='COUNTDOWN',starts_at=${new Date(now.getTime()+GROUP_PVP_RULES.countdownMs)} WHERE id=${roundId}`;
     });
   }
@@ -163,15 +176,15 @@ export function createGroupPvpService(db: PrismaClient) {
   async function recoverOne(groupId: string, roundId: string) {
     // Persist the outcome BEFORE attempting any payout. A failed credit leaves a durable DRAWN obligation.
     await db.$transaction(async tx => {
-      await tx.$queryRaw`SELECT id FROM groups WHERE id=${groupId} FOR NO KEY UPDATE`;
+      const [g] = await tx.$queryRaw<Group[]>`SELECT id,status::text,"expiresAt" FROM groups WHERE id=${groupId} FOR NO KEY UPDATE`;
       const r = await round(tx, groupId, roundId); const now = await clock(tx);
-      if (r.state === 'OPEN' && now >= r.expires_at) {
+      if (r.state === 'OPEN' && (now >= r.expires_at || now >= g.expiresAt || g.status !== 'ACTIVE')) {
         await tx.$executeRaw`UPDATE group_pvp_rounds SET state='DRAWN',void_reason='LOBBY_EXPIRED' WHERE id=${roundId}`;
       } else if (r.state === 'COUNTDOWN' && r.starts_at && now >= r.starts_at) {
         const values = Array.from({length:r.game === 'spin_win' ? 37 : 80},(_,i)=>i+(r.game === 'spin_win' ? 0 : 1));
         const count = r.game === 'spin_win' ? 1 : 20;
         for(let i=0;i<count;i++){const j=randomInt(i,values.length);[values[i],values[j]]=[values[j],values[i]];}
-        await tx.$executeRaw`UPDATE group_pvp_rounds SET state='DRAWN',outcome=${JSON.stringify(values.slice(0,count))}::jsonb WHERE id=${roundId}`;
+        await tx.$executeRaw`UPDATE group_pvp_rounds SET state='DRAWN',outcome=${JSON.stringify(r.game === 'dice' ? [randomInt(1,7),randomInt(1,7)] : values.slice(0,count))}::jsonb WHERE id=${roundId}`;
       }
     });
     await db.$transaction(async tx => {
@@ -198,7 +211,7 @@ export function createGroupPvpService(db: PrismaClient) {
   }
   async function tick(onError: (roundId: string, error: unknown) => void = () => {}) {
     const due = await db.$queryRaw<{id:string;group_id:string}[]>`SELECT id,group_id FROM group_pvp_rounds
-      WHERE retry_at<=clock_timestamp() AND (state='DRAWN' OR (state='COUNTDOWN' AND starts_at<=clock_timestamp()) OR (state='OPEN' AND expires_at<=clock_timestamp()))
+      WHERE retry_at<=clock_timestamp() AND (state='DRAWN' OR (state='COUNTDOWN' AND starts_at<=clock_timestamp()) OR (state='OPEN' AND (expires_at<=clock_timestamp() OR group_id IN (SELECT id FROM groups WHERE status<>'ACTIVE' OR "expiresAt"<=clock_timestamp()))))
       ORDER BY retry_at,created_at LIMIT 50`;
     for(const r of due) try {
       // Persist backoff before work so failing obligations cannot monopolize every batch.

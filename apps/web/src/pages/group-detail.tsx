@@ -29,6 +29,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BannedMembersSection } from '@/components/groups/banned-members-section';
+import { GroupLifecycle } from '@/components/groups/group-lifecycle';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import type { GroupDetailInfo, GroupInviteInfo, GroupMemberInfo } from '@socialplay/shared';
 
@@ -750,7 +751,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       </Button>
 
       {/* Group info */}
-      <GroupSocialNav groupId={groupId}/>
+      <GroupSocialNav groupId={groupId}/><GroupLifecycle groupId={groupId}/>
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-3">

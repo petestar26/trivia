@@ -401,7 +401,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
         const requirementAmount = Math.ceil(rewardAmount * playthroughMultiplier);
         const expiryHours = jurisdiction.policy.bonusExpiryHours;
         const bonus = await creditCoins(tx, userId, rewardAmount, {
-          type: 'BONUS_GRANT', scopeType: 'GAME_SESSION', scopeId: sessionId,
+          type: 'BONUS_GRANT', bonusRule: 'NET_WINNINGS_V1', scopeType: 'GAME_SESSION', scopeId: sessionId,
           idempotencyKey, referenceType: 'GAME', referenceId: sessionId,
           description: 'Trivia reward', provenanceType: 'TRIVIA_REWARD',
           policy: { id: jurisdiction.policy.id, version: jurisdiction.policy.version },

@@ -11,7 +11,7 @@ if(!url || !['127.0.0.1','localhost','[::1]'].includes(url.hostname) || url.path
 const db=new PrismaClient({datasourceUrl:source,log:[]});
 const service=createGroupPvpService(db);
 beforeAll(async()=>{await db.$connect();});afterAll(async()=>{await db.$disconnect();});
-async function fixture(game:'spin_win'|'turbo_keno'='spin_win',lobbyMs?:number) {
+async function fixture(game:'spin_win'|'turbo_keno'|'dice'='spin_win',lobbyMs?:number) {
   const groupId=randomUUID(); const ids=[randomUUID(),randomUUID(),randomUUID()];
   for(const id of ids){await db.user.create({data:{id,username:`pvp_${id.replaceAll('-','')}`,isVerified:false}});
     await db.wallet.create({data:{userId:id}});
@@ -26,7 +26,7 @@ async function fixture(game:'spin_win'|'turbo_keno'='spin_win',lobbyMs?:number) 
   return {groupId,ids,roundId,game};
 }
 type F=Awaited<ReturnType<typeof fixture>>;
-async function ready(f:F,index:number,picks=f.game==='spin_win'?[7]:[1,2,3,4,5]) {
+async function ready(f:F,index:number,picks=f.game==='turbo_keno'?[1,2,3,4,5]:[7]) {
   await service.join(f.groupId,f.ids[index],f.roundId);
   await service.ready(f.groupId,f.ids[index],f.roundId,picks,PVP_POLICY,100);
 }
@@ -91,7 +91,8 @@ it('keeps a cap-blocked refund as a durable pending obligation and resumes after
 it('protects paid obligations from group deletion and blocks an ineligible participant at start',async()=>{
   const f=await fixture();await ready(f,0);await ready(f,1);
   await expect(db.group.delete({where:{id:f.groupId}})).rejects.toThrow();
-  await db.groupMember.update({where:{groupId_userId:{groupId:f.groupId,userId:f.ids[1]}},data:{status:'BANNED'}});
+  await expect(db.groupMember.update({where:{groupId_userId:{groupId:f.groupId,userId:f.ids[1]}},data:{status:'BANNED'}})).rejects.toThrow('PVP_MEMBER_PROTECTED');
+  await db.user.update({where:{id:f.ids[1]},data:{status:'SUSPENDED'}});
   await expect(service.start(f.groupId,f.ids[0],f.roundId)).rejects.toThrow('no longer eligible');
   await service.cancel(f.groupId,f.ids[0],f.roundId);expect(await balance(f.ids[1])).toBe(10000);
 });
@@ -152,4 +153,33 @@ it('backs off 50 failed obligations so newer payouts and expired lobbies still f
   expect((await service.snapshot(payable.groupId,payable.ids[0])).round!.state).toBe('SETTLED');
   expect((await service.snapshot(expired.groupId,expired.ids[0])).round!.state).toBe('VOID');
   expect((await service.snapshot(blocked.groupId,blocked.ids[0])).round!.state).toBe('DRAWN');
+});
+it('Dice doubles settle exact total ties and preserve the 7% fee once',async()=>{
+  const f=await fixture('dice');await ready(f,0,[12]);await ready(f,1,[12]);await ready(f,2,[7]);await storedDraw(f,[6,6]);
+  await Promise.all([service.recoverOne(f.groupId,f.roundId),service.recoverOne(f.groupId,f.roundId)]);
+  const r=(await service.snapshot(f.groupId,f.ids[0])).round!;
+  expect(r.rulesId).toBe('group-pvp-dice-v1');expect(r.outcome).toEqual([6,6]);expect(r.settlement!.platformFee).toBe(21);
+  expect(r.settlement!.prizes.map(item=>item.amount).sort()).toEqual([139,140]);
+});
+it('paid members cannot be removed or leave until they withdraw or settlement finishes',async()=>{
+  const f=await fixture();await ready(f,1);
+  await expect(db.groupMember.delete({where:{groupId_userId:{groupId:f.groupId,userId:f.ids[1]}}})).rejects.toThrow('PVP_MEMBER_PROTECTED');
+  await expect(db.groupMember.update({where:{groupId_userId:{groupId:f.groupId,userId:f.ids[1]}},data:{status:'LEFT'}})).rejects.toThrow('PVP_MEMBER_PROTECTED');
+  await service.withdraw(f.groupId,f.ids[1],f.roundId);
+  await db.groupMember.update({where:{groupId_userId:{groupId:f.groupId,userId:f.ids[1]}},data:{status:'LEFT'}});
+  expect(await balance(f.ids[1])).toBe(10000);
+});
+
+it('lets a suspended player recover an unstarted entry exactly once without enabling play',async()=>{
+ const f=await fixture();await ready(f,1);await db.user.update({where:{id:f.ids[1]},data:{status:'SUSPENDED'}});
+ await Promise.all([service.withdraw(f.groupId,f.ids[1],f.roundId),service.withdraw(f.groupId,f.ids[1],f.roundId)]);
+ expect(await balance(f.ids[1])).toBe(10000);
+ await expect(service.join(f.groupId,f.ids[1],f.roundId)).rejects.toThrow('active');
+});
+it('uses compatible read locks for concurrent PVP snapshots',async()=>{
+ const f=await fixture();let release!:()=>void,locked!:()=>void;const gate=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>locked=resolve);
+ const holder=db.$transaction(async tx=>{await tx.$queryRaw`SELECT id FROM groups WHERE id=${f.groupId} FOR SHARE`;locked();await gate;});
+ await started;
+ try{const snapshot=await Promise.race([service.snapshot(f.groupId,f.ids[1]),new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('snapshot queued behind another reader')),1500))]);expect(snapshot.groupName).toBe('PVP disposable test');}
+ finally{release();await holder;}
 });

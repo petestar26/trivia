@@ -18,7 +18,7 @@ export async function groupPvpRoutes(server: FastifyInstance) {
     ({success:true,data:await service.snapshot(request.params.groupId,request.user.sub)}));
   server.post<{Params:{groupId:string};Body:{game:GroupPvpGame;entryAmount:number;requestId:string}}>('/:groupId/pvp',{
     config:{rateLimit:{max:10,timeWindow:'1 minute'}},schema:{params,body:{type:'object',required:['game','entryAmount','requestId'],additionalProperties:false,
-      properties:{game:{enum:['spin_win','turbo_keno']},entryAmount:{type:'integer',minimum:100,maximum:10000,multipleOf:100},requestId:{type:'string',format:'uuid'}}}}},
+      properties:{game:{enum:['spin_win','turbo_keno','dice']},entryAmount:{type:'integer',minimum:100,maximum:10000,multipleOf:100},requestId:{type:'string',format:'uuid'}}}}},
     async request=>({success:true,data:{roundId:await service.create(request.params.groupId,request.user.sub,request.body.game,request.body.entryAmount,request.body.requestId)}}));
   for(const action of ['join','withdraw','start','cancel'] as const) {
     server.post<{Params:{groupId:string;roundId:string}}>(`/:groupId/pvp/:roundId/${action}`,{schema:{params},config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async request=>{

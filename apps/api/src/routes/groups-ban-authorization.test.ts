@@ -234,8 +234,9 @@ describeIf('groups/routes — ban authorization', () => {
     it('rejects a ban in a non-ACTIVE (archived) group with 400', async () => {
       const owner = await createUser('arch-own');
       const victim = await createUser('arch-vic');
-      const group = await createGroup(owner.id, 'ArchivedBan', GroupStatus.ARCHIVED);
+      const group = await createGroup(owner.id, 'ArchivedBan');
       await addMember(group.id, victim.id, GroupMemberRole.MEMBER);
+      await prisma.group.update({where:{id:group.id},data:{status:GroupStatus.ARCHIVED}});
 
       const resp = await ban(group.id, victim.id, owner);
 

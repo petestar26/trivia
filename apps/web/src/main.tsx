@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { App } from './App';
 import { AuthProvider } from '@/providers/auth-provider';
 import { SocketProvider } from '@/providers/socket-provider';
+import { AppUpdateNotice } from '@/components/app-update-notice';
 import './styles/index.css';
 
 const queryClient = new QueryClient({
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <SocketProvider>
             <App />
+            <AppUpdateNotice />
             <Toaster />
           </SocketProvider>
         </AuthProvider>

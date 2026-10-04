@@ -227,6 +227,7 @@ model Group {
   coverUrl    String?
   isPrivate   Boolean     @default(false)
   status      GroupStatus @default(ACTIVE)
+  expiresAt   DateTime    @db.Timestamptz(3) @default(dbgenerated("(clock_timestamp() + interval '24 hours')"))
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
@@ -266,6 +267,7 @@ model GroupMember {
   role      GroupMemberRole   @default(MEMBER)
   status    GroupMemberStatus @default(ACTIVE)
   joinedAt  DateTime          @default(now())
+  archivedAt DateTime?
   updatedAt DateTime          @updatedAt
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -325,6 +327,7 @@ model Message {
   content   String      @db.Text
   type      MessageType @default(TEXT)
   replyToId String?
+  clientRequestId String?
   isEdited  Boolean     @default(false)
   isDeleted Boolean     @default(false)
   createdAt DateTime    @default(now())
@@ -337,6 +340,7 @@ model Message {
   reactions    MessageReaction[]
   voiceMessage VoiceMessage?
 
+  @@unique([groupId, userId, clientRequestId], map: "messages_client_request")
   @@index([groupId, createdAt])
   @@index([userId])
   @@index([replyToId])
@@ -1080,6 +1084,7 @@ model CoinProvenance {
   unlockedAt               DateTime?
   createdAt                DateTime                @default(now())
   updatedAt                DateTime                @updatedAt
+  bonusRule                String?
   lotClass                 LotClass?
   state                    LotState?
   availableAmount          Int?

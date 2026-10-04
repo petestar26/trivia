@@ -12,7 +12,7 @@ import { GiftArt } from './gift-art';
 import { useGiftAction } from './use-gift-action';
 
 type Choice = { kind: GiftAction['kind']; gift: CollectibleGift | OwnedGift };
-export function GiftCollection({ groupId, userId, initialRecipient, fromChat = false }: { groupId?: string; userId: string; initialRecipient?: string; fromChat?: boolean }) {
+export function GiftCollection({ groupId, userId, initialRecipient, fromChat = false, groupClosed = false }: { groupId?: string; userId: string; initialRecipient?: string; fromChat?: boolean; groupClosed?: boolean }) {
   const [tab, setTab] = useState<'shop' | 'owned'>('shop'); const [page, setPage] = useState(1);
   const [reviewOpen, setReviewOpen] = useState(true);
   const [choice, setChoice] = useState<Choice | null>(null);
@@ -28,13 +28,13 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
   const members = useQuery({ queryKey: ['group-gift-members', groupId, userId],
     queryFn: async () => (await api.getGroupMembers(groupId!)).data as GroupMemberInfo[], retry: false, enabled: !!groupId });
   const pick = (kind: GiftAction['kind'], gift: CollectibleGift | OwnedGift) => {
-    if (attempt) return;
+    if (attempt || (groupClosed && kind !== 'CONVERT')) return;
     setChoice({ kind, gift }); setReviewOpen(true); action.setNotice('');
     setRecipient(initialRecipient ?? (kind === 'SEND' || fromChat ? '' : userId));
   };
   const confirm = () => {
     if (attempt) { action.submit(); return; }
-    if (!choice) return;
+    if (!choice || (groupClosed && choice.kind !== 'CONVERT')) return;
     const common = { policyId: GIFT_COLLECTION_POLICY };
     const body: GiftAction = choice.kind === 'BUY'
       ? { ...common, kind: 'BUY', groupId: groupId ?? null, catalogId: choice.gift.id, recipientId, faceValue: choice.gift.faceValue }
@@ -59,6 +59,7 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
     <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-2xl bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:bg-violet-950 dark:text-violet-100">
       <span>✦ Buy with <strong>0% fee</strong></span><span>♡ Send owned gifts <strong>free</strong></span><span>↔ Convert for <strong>90% back</strong></span>
     </div>
+    {groupClosed && <p role="status" className="rounded-xl bg-slate-100 p-4 text-sm dark:bg-slate-800">This room has closed. You can still view or convert your owned gifts. Open an active group to send a gift.</p>}
     {attempt && !reviewOpen && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>A saved gift request needs confirmation. Your receipt is safe.</p><Button className="mt-2" variant="outline" onClick={() => setReviewOpen(true)}>Resume pending gift</Button></div>}
     {notice && !choice && !attempt && <p role="status" className="rounded-xl border bg-white p-3 text-sm dark:bg-gray-900">{notice}</p>}
     <div className="flex gap-2" role="tablist" aria-label="Gift views">
@@ -66,12 +67,12 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
       <button role="tab" aria-selected={tab === 'owned'} className={`rounded-full px-5 py-2 text-sm font-semibold ${tab === 'owned' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'}`} onClick={() => setTab('owned')}>My gifts {collection.data ? `(${collection.data.totalOwned})` : ''}</button>
     </div>
     {collection.isLoading ? <p role="status">Loading gifts…</p> : collection.isError ? <div role="alert" className="rounded-xl border p-5"><p>Could not load gifts. Reload to refresh your collection and balance.</p><Button variant="outline" className="mt-3" onClick={() => void collection.refetch()}>Reload gifts</Button></div> : <>
-      {tab === 'shop' ? <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">{collection.data?.catalog.map(gift => <button key={gift.id} disabled={!!attempt} aria-label={`Choose ${gift.name}`} onClick={() => pick('BUY', gift)} className="group rounded-2xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md focus-visible:outline-violet-600 dark:border-gray-700 dark:bg-gray-900">
+      {tab === 'shop' ? <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">{collection.data?.catalog.map(gift => <button key={gift.id} disabled={!!attempt || groupClosed} aria-label={`Choose ${gift.name}`} onClick={() => pick('BUY', gift)} className="group rounded-2xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md focus-visible:outline-violet-600 dark:border-gray-700 dark:bg-gray-900">
         <GiftArt emoji={gift.emoji} theme={gift.theme}/><h2 className="mt-3 font-bold">{gift.name}</h2><p className="mt-1 min-h-[2.5rem] text-xs leading-5 text-gray-500">{gift.description}</p>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-1"><strong className="text-sm">{gift.faceValue.toLocaleString()} points</strong><span className="text-xs text-violet-600">No buy fee</span></div>
       </button>)}</div> : <>
         {!collection.data?.totalOwned ? <div className="rounded-2xl border border-dashed p-10 text-center"><Gift className="mx-auto mb-3 text-violet-400" size={32}/><h2 className="font-bold">Your collection starts here</h2><p className="mt-2 text-sm text-gray-500">Gifts you buy or receive appear here. Keep them, send them, or convert them to points.</p></div>
-          : <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">{collection.data.owned.map(gift => <article key={gift.id} className="rounded-2xl border bg-white p-3 dark:bg-gray-900"><GiftArt emoji={gift.emoji} theme={gift.theme}/><h2 className="mt-3 font-bold">{gift.name}</h2><p className="my-2 text-xs text-gray-500">Convert for {giftAmounts(gift.faceValue).conversionReturn} points</p><div className="flex flex-wrap gap-2"><Button size="sm" disabled={!!attempt || !groupId} title={!groupId ? 'Open a group to send this gift' : undefined} onClick={() => pick('SEND', gift)}>Send</Button><Button size="sm" variant="outline" disabled={!!attempt} onClick={() => pick('CONVERT', gift)}>Convert</Button></div></article>)}</div>}
+          : <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">{collection.data.owned.map(gift => <article key={gift.id} className="rounded-2xl border bg-white p-3 dark:bg-gray-900"><GiftArt emoji={gift.emoji} theme={gift.theme}/><h2 className="mt-3 font-bold">{gift.name}</h2><p className="my-2 text-xs text-gray-500">Convert for {giftAmounts(gift.faceValue).conversionReturn} points</p><div className="flex flex-wrap gap-2"><Button size="sm" disabled={!!attempt || !groupId || groupClosed} title={!groupId ? 'Open a group to send this gift' : undefined} onClick={() => pick('SEND', gift)}>Send</Button><Button size="sm" variant="outline" disabled={!!attempt} onClick={() => pick('CONVERT', gift)}>Convert</Button></div></article>)}</div>}
         {collection.data && collection.data.totalOwned > collection.data.pageSize && <div className="flex items-center justify-center gap-4"><Button variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Previous</Button><span className="text-sm">Page {page}</span><Button variant="outline" disabled={page * collection.data.pageSize >= collection.data.totalOwned} onClick={() => setPage(p => p + 1)}>Next</Button></div>}
       </>}
     </>}
@@ -98,7 +99,7 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
           {tooExpensive && !attempt && <p role="alert" className="mb-3 text-sm text-amber-700">You need {(amounts?.purchaseTotal ?? 0) - (collection.data?.balance ?? 0)} more Game Points.</p>}
           {notice && <p role="status" className="mb-3 text-sm">{notice}</p>}
           {attempt && <p className="mb-3 text-xs text-gray-500">Your request is saved. Retry it to confirm the outcome without paying twice.</p>}
-          <Button className="w-full" disabled={action.isPending || (!attempt && (tooExpensive || (kind !== 'CONVERT' && !recipientId) || !collection.data || (kind !== 'CONVERT' && !!groupId && !members.isSuccess)))} onClick={confirm}>
+          <Button className="w-full" disabled={action.isPending || (!attempt && ((groupClosed && kind !== 'CONVERT') || tooExpensive || (kind !== 'CONVERT' && !recipientId) || !collection.data || (kind !== 'CONVERT' && !!groupId && !members.isSuccess)))} onClick={confirm}>
             {action.isPending ? 'Confirming…' : attempt ? 'Retry pending gift' : kind === 'CONVERT' ? 'Confirm conversion' : kind === 'SEND' ? 'Confirm and send gift' : `Confirm purchase · ${amounts?.purchaseTotal ?? 0} points`}
           </Button>
         </Dialog.Content>

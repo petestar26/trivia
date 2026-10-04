@@ -21,9 +21,9 @@ export async function lockGiftUsers(tx: Tx, actorId: string, recipientId = actor
   return users;
 }
 
-export async function lockGiftGroup(tx: Tx, groupId: string, actorId: string, recipientId = actorId) {
-  const groups = await tx.$queryRaw<{ status: string }[]>`SELECT status::text FROM groups WHERE id=${groupId} FOR SHARE`;
-  if (groups[0]?.status !== 'ACTIVE') throw ApiError.forbidden('This group is not available');
+export async function lockGiftGroup(tx: Tx, groupId: string, actorId: string, recipientId = actorId, writing = true) {
+  const groups = await tx.$queryRaw<{ status: string; expiresAt: Date; now: Date }[]>`SELECT status::text,"expiresAt",clock_timestamp() AS now FROM groups WHERE id=${groupId} FOR SHARE`;
+  if (!groups[0] || (writing && (groups[0].status !== 'ACTIVE' || groups[0].now >= groups[0].expiresAt))) throw ApiError.forbidden('This group is not available');
   const ids = [...new Set([actorId, recipientId])];
   const members = await tx.$queryRaw<{ userId: string; status: string }[]>`
     SELECT "userId",status::text FROM group_members WHERE "groupId"=${groupId} AND "userId"=ANY(${ids}::text[]) ORDER BY id FOR SHARE`;
@@ -54,7 +54,7 @@ export function createGiftCollectionService(db: PrismaClient) {
     async snapshot(groupId: string | null, userId: string, page = 1): Promise<GiftCollectionSnapshot> {
       if (!Number.isInteger(page) || page < 1 || page > 100000) throw ApiError.badRequest('Invalid inventory page');
       return db.$transaction(async tx => {
-        await lockGiftUsers(tx, userId); if (groupId) await lockGiftGroup(tx, groupId, userId);
+        await lockGiftUsers(tx, userId); if (groupId) await lockGiftGroup(tx, groupId, userId, userId, false);
         const catalog = await tx.$queryRaw<CollectibleGift[]>`
           SELECT id,name,emoji,description,theme,face_value AS "faceValue" FROM collectible_gift_catalog WHERE is_active ORDER BY face_value,id`;
         const owned = await tx.$queryRaw<OwnedGift[]>`

@@ -113,7 +113,7 @@ export async function grantReward(
     if (creditedCoins > 0 && policy) {
       const expiryHours = policy.bonusExpiryHours;
       await creditCoins(tx, userId, creditedCoins, {
-        type: 'BONUS_GRANT', scopeType: 'REWARD_CLAIM', scopeId: claimId,
+        type: 'BONUS_GRANT', bonusRule: 'NET_WINNINGS_V1', scopeType: 'REWARD_CLAIM', scopeId: claimId,
         referenceType: walletReferenceType, referenceId: sourceId,
         description: `${sourceType} Coin reward`,
         provenanceType: sourceType === 'TASK' ? 'TASK_REWARD' : 'PROMOTION',

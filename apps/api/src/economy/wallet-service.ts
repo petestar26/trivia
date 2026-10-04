@@ -8,6 +8,7 @@ export interface WalletBalanceResponse {
   coinsBalance: number;
   gamePointsBalance: number;
   updatedAt: Date;
+  coinAvailability?: {spendable:number;betOnly:number;pendingReview:number;reserved:number};
 }
 
 export interface WalletTransactionResponse {
@@ -64,14 +65,17 @@ export async function getOrCreateWallet(userId: string, tx?: any) {
 // ─── Get Wallet (read-only) ────────────────────────────────────
 
 export async function getWalletBalance(userId: string): Promise<WalletBalanceResponse> {
-  const wallet = await getOrCreateWallet(userId);
-
-  return {
-    userId: wallet.userId,
-    coinsBalance: wallet.coinsBalance,
-    gamePointsBalance: wallet.gamePointsBalance,
-    updatedAt: wallet.updatedAt,
-  };
+  await getOrCreateWallet(userId);
+  // One database snapshot keeps the displayed balance and lot split coherent.
+  const [row]=await prisma.$queryRaw<Array<{userId:string;coinsBalance:number;gamePointsBalance:number;updatedAt:Date;spendable:number;betOnly:number;reserved:number}>>`
+    SELECT w."userId",w."coinsBalance",w."gamePointsBalance",w."updatedAt",
+      COALESCE(sum(p."availableAmount") FILTER(WHERE p."lotClass"='WITHDRAWABLE' AND p.state='OPEN'),0)::integer AS spendable,
+      COALESCE(sum(p."availableAmount") FILTER(WHERE p."lotClass"='RESTRICTED' AND p.state='OPEN' AND (p."expiresAt" IS NULL OR (p."expiresAt" AT TIME ZONE 'UTC')>clock_timestamp())),0)::integer AS "betOnly",
+      COALESCE(sum(p."reservedAmount"),0)::integer AS reserved
+    FROM wallets w LEFT JOIN coin_provenance p ON p."userId"=w."userId"
+    WHERE w."userId"=${userId} GROUP BY w.id`;
+  return {userId:row.userId,coinsBalance:row.coinsBalance,gamePointsBalance:row.gamePointsBalance,updatedAt:row.updatedAt,
+    coinAvailability:{spendable:row.spendable,betOnly:row.betOnly,pendingReview:Math.max(0,row.coinsBalance-row.spendable-row.betOnly),reserved:row.reserved}};
 }
 
 // ─── Get Transaction History ───────────────────────────────────

@@ -1,3 +1,4 @@
+import { lockSocialGroup } from '../groups/lifecycle.js';
 import { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { ApiError, authenticate } from '../middleware';
@@ -27,12 +28,12 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
   // Create message
   server.post<{
     Params: { id: string };
-    Body: { content: string; replyToId?: string };
+    Body: { content: string; replyToId?: string; clientRequestId?: string };
   }>(
     '/:id/messages',
     {
       preHandler: [authenticate],
-      rateLimit: { max: 30, timeWindow: '1 minute' },
+      config: {rateLimit: { max: 30, timeWindow: '1 minute' }},
       schema: {
         params: {
           type: 'object',
@@ -47,6 +48,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
           properties: {
             content: { type: 'string', minLength: 1, maxLength: 5000 },
             replyToId: { type: 'string', format: 'uuid' },
+            clientRequestId: { type: 'string', format: 'uuid' },
           },
         },
       },
@@ -57,6 +59,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         userId: request.user!.sub,
         content: request.body.content,
         replyToId: request.body.replyToId,
+        clientRequestId: request.body.clientRequestId,
       });
 
       reply.status(201).send({
@@ -70,14 +73,14 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       emitToGroup(request.params.id, 'message:created', message);
 
       // Server-verified activity (post-commit, best-effort).
-      safeRecordActivity(request.user!.sub, { type: 'MESSAGE' });
+      if (!message.isReplay) safeRecordActivity(request.user!.sub, { type: 'MESSAGE' });
     }
   );
 
   // Get message history
   server.get<{
     Params: { id: string };
-    Querystring: { page?: number; limit?: number; latest?: boolean };
+    Querystring: { page?: number; limit?: number; latest?: boolean; before?: string };
   }>(
     '/:id/messages',
     {
@@ -95,6 +98,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
           properties: {
             page: { type: 'integer', minimum: 1, default: 1 },
             latest: { type: 'boolean', default: false },
+            before: { type: 'string', format: 'uuid' },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
           },
         },
@@ -108,7 +112,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       await getGroupOrThrow(groupId);
       await assertActiveMember(groupId, request.user!.sub);
 
-      const where = { groupId, isDeleted: false };
+      const cursor=request.query.before?await prisma.message.findFirst({where:{id:request.query.before,groupId},select:{createdAt:true,id:true}}):null;
+      if(request.query.before&&!cursor)throw ApiError.badRequest('Message cursor is not in this group');
+      const where = { groupId, isDeleted: false,...(cursor?{OR:[{createdAt:{lt:cursor.createdAt}},{createdAt:cursor.createdAt,id:{lt:cursor.id}}]}:{}) };
 
       const [messages, total] = await Promise.all([
         prisma.message.findMany({
@@ -221,9 +227,10 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         throw ApiError.badRequest('Message cannot be whitespace only');
       }
 
-      await assertActiveMember(groupId, userId);
-
-      const message = await getMessageInGroup(groupId, messageId);
+      const updated=await prisma.$transaction(async tx=>{
+      await lockSocialGroup(tx,groupId,userId);
+      const message=await lockGroupMessageForDeletion(tx,groupId,messageId);
+      if(!message||message.isDeleted)throw ApiError.notFound('Message not found');
 
       if (message.userId !== userId) {
         throw ApiError.forbidden('You can only edit your own messages');
@@ -231,7 +238,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
 
       if (message.type !== 'TEXT') throw ApiError.badRequest('Only text messages can be edited');
 
-      const updated = await prisma.message.update({
+      return tx.message.update({
         where: { id: message.id },
         data: {
           content,
@@ -253,6 +260,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         },
       });
 
+      });
       const serialized = serializeMessage(updated);
 
       // Broadcast the edit to the group room after commit.
@@ -295,6 +303,9 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       let voiceStorageKey: string | null = null;
 
       await prisma.$transaction(async (tx) => {
+        // Keep moderation's account authority stable before taking group locks.
+        const [account] = await tx.$queryRaw<{status:string}[]>`SELECT status::text FROM users WHERE id=${userId} FOR SHARE`;
+        if (account?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
         // AUTHORITATIVE CHECKS — group-locks.ts, "delete message": the group row
         // (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
         // SHARE), then the message row SCOPED TO THIS GROUP (level 5, FOR NO KEY
@@ -334,6 +345,15 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         if (message.userId !== userId && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
           throw ApiError.forbidden('Insufficient permissions');
         }
+
+        const [time] = await tx.$queryRaw<{now:Date}[]>`SELECT clock_timestamp() AS now`;
+        if ((group.status !== 'ACTIVE' || !group.expiresAt || group.expiresAt <= time.now) && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+          throw ApiError.forbidden('Only a group owner or admin can moderate closed history');
+        }
+        // Transaction-local context for the database's narrow closed-room
+        // soft-delete exception. The locked authority checks above remain the
+        // security boundary; this setting never comes from a request field.
+        await tx.$executeRaw`SELECT set_config('playqube.moderator_id',${userId},true)`;
 
         // Captured HERE, inside the transaction, while the message row is locked
         // and the delete is already authorized — the ONLY database read that
@@ -460,7 +480,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
     '/:id/voice-messages',
     {
       preHandler: [authenticate],
-      rateLimit: { max: 10, timeWindow: '1 minute' },
+      config: {rateLimit: { max: 10, timeWindow: '1 minute' }},
       schema: {
         params: {
           type: 'object',
@@ -569,7 +589,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       reply.header('Content-Type', message.voiceMessage.mimeType);
       reply.header('Content-Length', buffer.length);
       reply.header('Accept-Ranges', 'bytes');
-      reply.header('Cache-Control', 'private, max-age=3600');
+      reply.header('Cache-Control', 'private, no-store');
 
       reply.send(buffer);
     }

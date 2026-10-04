@@ -6,11 +6,27 @@ on:
       - '.github/workflows/scheduled-rounds.yml'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/groups/**'
+      - 'apps/api/src/realtime/**'
+      - 'apps/api/src/rewards/**'
+      - 'apps/api/src/games/game-play.ts'
+      - 'apps/api/src/routes/groups.ts'
+      - 'apps/api/src/routes/group-locks.ts'
+      - 'apps/api/src/middleware/error-handler.ts'
+      - 'apps/web/src/components/groups/**'
+      - 'apps/web/src/pages/wallet*'
       - 'apps/api/src/gift-collection/**'
-      - 'apps/api/src/realtime/reaction-service.ts'
       - 'apps/api/src/routes/chat.ts'
       - 'apps/web/src/components/gifts/**'
       - 'apps/api/src/scripts/group-pvp-worker.ts'
+      - 'apps/api/src/scripts/group-worker-runtime*'
+      - 'apps/api/src/plugins/**'
+      - 'apps/api/src/ws/**'
+      - 'apps/api/src/routes/auth*'
+      - 'apps/api/src/routes/groups*.test.ts'
+      - 'apps/api/src/routes/chat*.test.ts'
+      - 'apps/api/src/routes/storage*'
+      - 'packages/config/src/**'
       - 'apps/api/src/routes/index.ts'
       - 'apps/web/src/pages/group-games*'
       - 'apps/web/src/pages/group-gifts*'
@@ -20,6 +36,8 @@ on:
       - 'apps/web/src/pages/messages*'
       - 'apps/web/src/lib/bounded-request*'
       - 'apps/web/src/hooks/use-voice-recorder*'
+      - 'apps/web/src/components/app-update-notice*'
+      - 'apps/web/src/main.tsx'
       - 'apps/api/src/games/scheduled/**'
       - 'apps/api/src/routes/games.ts'
       - 'apps/api/src/server.ts'
@@ -61,6 +79,7 @@ on:
       - 'apps/api/src/scripts/ledger-runtime-identity-check*'
       - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
       - 'apps/api/vitest.scheduled-*.config.ts'
+      - 'apps/api/vitest.review-unit.config.ts'
       - 'packages/database/prisma/**'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
@@ -124,7 +143,9 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/economy/reward-coins.native.ts
+      - name: Gateway identity and independent worker contracts
+        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts src/plugins/rate-limit-identity.test.ts src/scripts/group-worker-runtime.test.ts src/routes/storage.test.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -232,8 +253,8 @@ jobs:
       - name: Group game room and chat contracts
         run: >-
           pnpm --filter web exec vitest run
-          src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
-          src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx
+          src/components/app-update-notice.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
           src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts

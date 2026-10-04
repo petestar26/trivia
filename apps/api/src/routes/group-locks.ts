@@ -350,6 +350,7 @@ export interface LockedGroup {
   status: string;
   isPrivate: boolean;
   ownerId: string;
+  expiresAt?: Date;
 }
 
 /**
@@ -370,7 +371,7 @@ export interface LockedGroup {
  */
 export async function lockGroupForAdmission(tx: Tx, groupId: string): Promise<LockedGroup | null> {
   const rows = await tx.$queryRaw<LockedGroup[]>`
-    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId"
+    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId", "expiresAt"
     FROM "groups"
     WHERE "id" = ${groupId}
     FOR SHARE
@@ -386,7 +387,7 @@ export async function lockGroupForAdmission(tx: Tx, groupId: string): Promise<Lo
  */
 export async function lockGroupForEdit(tx: Tx, groupId: string): Promise<LockedGroup | null> {
   const rows = await tx.$queryRaw<LockedGroup[]>`
-    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId"
+    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId", "expiresAt"
     FROM "groups"
     WHERE "id" = ${groupId}
     FOR NO KEY UPDATE
@@ -402,7 +403,7 @@ export async function lockGroupForEdit(tx: Tx, groupId: string): Promise<LockedG
  */
 export async function lockGroupForDeletion(tx: Tx, groupId: string): Promise<LockedGroup | null> {
   const rows = await tx.$queryRaw<LockedGroup[]>`
-    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId"
+    SELECT "id", "name", "status"::text AS "status", "isPrivate", "ownerId", "expiresAt"
     FROM "groups"
     WHERE "id" = ${groupId}
     FOR UPDATE
@@ -542,6 +543,7 @@ export async function lockInviteForRevocation(tx: Tx, groupId: string, inviteId:
 }
 
 export interface LockedGroupMessage {
+  type: string;
   id: string;
   groupId: string;
   userId: string;
@@ -567,7 +569,7 @@ export interface LockedGroupMessage {
  */
 export async function lockGroupMessageForDeletion(tx: Tx, groupId: string, messageId: string): Promise<LockedGroupMessage | null> {
   const rows = await tx.$queryRaw<LockedGroupMessage[]>`
-    SELECT "id", "groupId", "userId", "isDeleted"
+    SELECT "id", "groupId", "userId", "isDeleted", "type"::text AS "type"
     FROM "messages"
     WHERE "id" = ${messageId} AND "groupId" = ${groupId}
     FOR NO KEY UPDATE

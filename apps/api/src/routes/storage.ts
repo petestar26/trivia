@@ -4,6 +4,9 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import { config } from '@socialplay/config';
 
+// Only these buckets are public. New directories and backup copies stay private.
+const PUBLIC_BUCKETS = new Set(['avatars', 'group-images', 'gift-assets', 'game-assets']);
+
 const MIME_TYPES: Record<string, string> = {
   '.ogg': 'audio/ogg',
   '.opus': 'audio/ogg',
@@ -41,6 +44,11 @@ export async function storageRoutes(server: FastifyInstance): Promise<void> {
         return reply.status(400).send({ success: false, error: 'Invalid bucket name' });
       }
 
+      // Private audio is served only by the membership-checked group route.
+      if (!PUBLIC_BUCKETS.has(bucket)) {
+        return reply.status(404).send({ success: false, error: 'File not found' });
+      }
+
       // Validate key to prevent path traversal
       if (!key || key.includes('..') || key.includes('\0')) {
         return reply.status(400).send({ success: false, error: 'Invalid file key' });
@@ -58,7 +66,13 @@ export async function storageRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const stat = await fs.stat(resolvedPath);
+        // A symlink in a public bucket must not expose a private directory.
+        const canonicalBase = await fs.realpath(basePath);
+        const canonicalFile = await fs.realpath(resolvedPath);
+        if (!canonicalFile.startsWith(path.join(canonicalBase, bucket) + path.sep)) {
+          return reply.status(404).send({ success: false, error: 'File not found' });
+        }
+        const stat = await fs.stat(canonicalFile);
         if (!stat.isFile()) {
           return reply.status(404).send({ success: false, error: 'File not found' });
         }
@@ -70,7 +84,7 @@ export async function storageRoutes(server: FastifyInstance): Promise<void> {
         reply.header('Accept-Ranges', 'bytes');
         reply.header('Cache-Control', 'private, max-age=3600');
 
-        return reply.send(createReadStream(resolvedPath));
+        return reply.send(createReadStream(canonicalFile));
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           return reply.status(404).send({ success: false, error: 'File not found' });

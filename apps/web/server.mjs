@@ -3,6 +3,8 @@ import https from 'node:https';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHmac } from 'node:crypto';
+import { isIP } from 'node:net';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HOP = new Set([
@@ -75,18 +77,43 @@ export function createWebServer({
   apiOrigin,
   staticRoot = path.join(ROOT, 'dist'),
   timeoutMs = 15000,
+  gatewaySecret,
+  clientIpSource = 'socket',
 }) {
+  if (gatewaySecret !== undefined && (typeof gatewaySecret !== 'string' || gatewaySecret.length < 32)) throw new Error('Gateway identity key must have at least 32 characters');
+  if (!['socket', 'railway'].includes(clientIpSource)) throw new Error('Unsupported client IP source');
+  if (clientIpSource === 'railway' && !gatewaySecret) throw new Error('Railway gateway identity requires a dedicated signing key');
   const upstream = upstreamOrigin(apiOrigin);
   const transport = upstream.protocol === 'https:' ? https : http;
   const root = path.resolve(staticRoot);
+  function upstreamHeaders(req) {
+    const headers = cleanHeaders(req.headers);
+    for (const name of Object.keys(headers)) {
+      if (name.startsWith('x-playqube-client-') || ['forwarded','x-forwarded-for','x-real-ip'].includes(name)) delete headers[name];
+    }
+    // Railway mode is an explicit deployment trust choice: the web port must
+    // be reachable publicly only through Railway HTTP ingress. Its documented
+    // X-Real-IP value is signed, so direct API clients cannot forge it.
+    const remote = clientIpSource === 'railway' ? req.headers['x-real-ip'] : req.socket.remoteAddress;
+    if (gatewaySecret && typeof remote === 'string' && isIP(remote)) {
+      const ip = remote.startsWith('::ffff:') && isIP(remote.slice(7)) === 4 ? remote.slice(7) : remote;
+      const timestamp = String(Date.now());
+      headers['x-playqube-client-ip'] = ip;
+      headers['x-playqube-client-time'] = timestamp;
+      headers['x-playqube-client-signature'] = createHmac('sha256', gatewaySecret)
+        .update(JSON.stringify([timestamp, req.method, req.url, ip])).digest('hex');
+      headers['x-forwarded-for'] = ip;
+    }
+    headers.host = upstream.host;
+    return headers;
+  }
   function proxy(req, res) {
     // Browser writes must originate from this frontend. CORS alone is not CSRF protection.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sameOrigin(req)) {
       fail(res, 403, 'This request must originate from the app.');
       return;
     }
-    const headers = cleanHeaders(req.headers);
-    headers.host = upstream.host;
+    const headers = upstreamHeaders(req);
     const request = transport.request(
       {
         protocol: upstream.protocol,
@@ -192,8 +219,7 @@ export function createWebServer({
       return;
     }
     const headers = {
-      ...cleanHeaders(req.headers),
-      host: upstream.host,
+      ...upstreamHeaders(req),
       connection: 'Upgrade',
       upgrade: 'websocket',
     };
@@ -238,7 +264,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const apiOrigin = process.env.WEB_API_ORIGIN || process.env.VITE_API_URL;
   if (!apiOrigin) throw new Error('WEB_API_ORIGIN is required');
   await stat(path.join(ROOT, 'dist/index.html'));
-  const server = createWebServer({ apiOrigin });
+  const gatewaySecret = process.env.WEB_GATEWAY_SECRET;
+  if (process.env.NODE_ENV === 'production' && !gatewaySecret) throw new Error('WEB_GATEWAY_SECRET is required for the production gateway');
+  const server = createWebServer({ apiOrigin, gatewaySecret, clientIpSource: process.env.WEB_CLIENT_IP_SOURCE || 'socket' });
   server.listen(Number(process.env.PORT || 1443), '0.0.0.0', () =>
     console.log('PlayQube web gateway ready')
   );

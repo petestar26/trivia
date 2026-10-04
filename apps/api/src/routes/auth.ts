@@ -1,3 +1,4 @@
+import { anonymousRateLimitKey, createRefreshRateLimitKey } from '../plugins/rate-limit-identity.js';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@socialplay/database';
@@ -18,7 +19,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     '/register',
     {
       config: {
-        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+        rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       },
       schema: {
         body: {
@@ -199,7 +200,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     '/login',
     {
       config: {
-        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+        rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       },
       schema: {
         body: {
@@ -285,8 +286,14 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.post<{ Body: { refreshToken?: string } }>(
     '/refresh',
     {
+      // Reject cookie CSRF before the limiter looks up a refresh session.
+      preValidation: async request => {
+        if (request.body?.refreshToken === undefined) requireCookieOrigin(request);
+      },
       config: {
-        rateLimit: { max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
+        rateLimit: { hook: 'preHandler', keyGenerator: createRefreshRateLimitKey(config.JWT_REFRESH_SECRET,
+          token => prisma.session.findUnique({where:{refreshToken:token},select:{userId:true,expiresAt:true,user:{select:{status:true,tokenVersion:true}}}}),
+          config.WEB_GATEWAY_SECRET), max: config.RATE_LIMIT_AUTH_MAX_REQUESTS, timeWindow: config.RATE_LIMIT_AUTH_WINDOW_MS },
       },
       schema: {
         body: {

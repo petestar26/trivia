@@ -73,6 +73,7 @@ export function App() {
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />
         <Route path="groups/:id" element={<GroupDetailPage />} />
+        <Route path="messages" element={<MessagesPage />} />
         <Route path="messages/:groupId" element={<MessagesPage />} />
         <Route path="groups/:id/games" element={<GroupGamesPage />} />
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />

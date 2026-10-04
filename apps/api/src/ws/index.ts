@@ -20,6 +20,7 @@ interface SendMessagePayload {
   groupId: string;
   content: string;
   replyToId?: string;
+  clientRequestId?: string;
 }
 
 interface JoinGroupPayload {
@@ -121,6 +122,7 @@ export function registerWebSocket(server: FastifyInstance): void {
           userId: user.id,
           content: payload.content,
           replyToId: payload.replyToId,
+          clientRequestId: payload.clientRequestId,
         });
 
         io.to(groupRoom(payload.groupId)).emit('message:created', message);

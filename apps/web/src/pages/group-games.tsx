@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GROUP_PVP_RULES, quotePvpEntry, type GroupPvpGame, type GroupPvpSnapshot } from '@socialplay/shared';
+import { GROUP_PVP_RULES, GROUP_PVP_GAMES, quotePvpEntry, type GroupPvpGame, type GroupPvpSnapshot } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { SpinWinWheel } from '@/components/spin/spin-wheel';
+import { GroupLifecycle } from '@/components/groups/group-lifecycle';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
@@ -64,7 +65,7 @@ function GroupGames({groupId,userId}:{groupId:string;userId:string}) {
   const act=(action:string)=>r && submit({path:`${endpoint}/${r.id}/${action}`,body:{}});
   const toggle=(number:number)=>{
     if(!r || !open || mine?.ready || busy)return;
-    const max=r.game==='spin_win'?1:5;
+    const max=r.game==='turbo_keno'?5:1;
     const next=picks.includes(number)?picks.filter(n=>n!==number):max===1?[number]:picks.length<max?[...picks,number]:picks;
     setDraft({roundId:r.id,picks:next});
   };
@@ -73,7 +74,7 @@ function GroupGames({groupId,userId}:{groupId:string;userId:string}) {
   const countdown=r?.startsAt ? Math.max(0,Math.ceil((r.startsAt-now)/1000)):0;
   const funded=r?.entries.filter(e=>e.ready).length??0;
   return <div className="mx-auto max-w-6xl space-y-5 p-4">
-    <GroupSocialNav groupId={groupId}/>
+    <GroupSocialNav groupId={groupId}/><GroupLifecycle groupId={groupId}/>
     <header className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-[.25em] text-amber-600">{s.groupName}</p><h1 className="mt-1 text-3xl font-bold">Group game room</h1><p className="mt-2 text-sm text-gray-500">Play together. Confirm your entry. The owner starts the countdown.</p></div>
       <div className="rounded-2xl border bg-white px-5 py-3 dark:bg-gray-900"><span className="text-xs text-gray-500">Game Points</span><p className="text-2xl font-bold tabular-nums">{s.balance.toLocaleString()}</p></div>
@@ -82,31 +83,32 @@ function GroupGames({groupId,userId}:{groupId:string;userId:string}) {
     {!connected && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">Reconnecting. Entries and start controls are paused until the server confirms this round.</p>}
     {terminal && own && s.enabled && <section className="rounded-2xl border bg-white p-5 dark:bg-gray-900">
       <h2 className="text-lg font-bold">Create a round</h2><div className="mt-4 flex flex-wrap items-end gap-4">
-        <label className="flex flex-col gap-1 text-sm">Game<select aria-label="Game" value={game} onChange={e=>setGame(e.target.value as GroupPvpGame)} className="rounded-lg border bg-transparent p-3"><option value="spin_win">Spin PVP</option><option value="turbo_keno">Keno PVP</option></select></label>
+        <label className="flex flex-col gap-1 text-sm">Game<select aria-label="Game" value={game} onChange={e=>setGame(e.target.value as GroupPvpGame)} className="rounded-lg border bg-transparent p-3">{GROUP_PVP_GAMES.map(item=><option key={item.key} value={item.key}>{item.name}</option>)}</select></label>
         <label className="flex flex-col gap-1 text-sm">Entry per player<input aria-label="Entry per player" inputMode="numeric" value={amount} onChange={e=>setAmount(e.target.value)} className="w-40 rounded-lg border bg-transparent p-3"/></label>
         <Button disabled={busy || !/^\d+$/.test(amount) || +amount<100 || +amount>10000 || +amount%100!==0} onClick={()=>submit({path:endpoint,body:{game,entryAmount:+amount,requestId:createId}})}>Create game</Button>
       </div><p className="mt-3 text-xs text-gray-500">100–10,000 points, in steps of 100. Everyone pays the same entry. Up to {GROUP_PVP_RULES.maxPlayers} players.</p>
     </section>}
     {!r && !own && <p className="rounded-2xl border p-8 text-center">Waiting for the group owner to create a game.</p>}
     {r && <section className="overflow-hidden rounded-3xl border border-amber-600/40 bg-[#082e29] text-[#fff7e4] shadow-xl">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5"><div><p className="text-xs uppercase tracking-[.25em] text-amber-200">Player versus player</p><h2 className="text-2xl font-bold">{r.game==='spin_win'?'Spin PVP':'Keno PVP'}</h2></div><span className="rounded-full bg-white/10 px-4 py-2 text-sm">{r.state==='OPEN'?'Waiting for players':r.state==='COUNTDOWN'?'Entries locked':r.state==='DRAWN'?'Result saved · payout pending':r.state==='VOID'?'Refunded':'Paid'}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5"><div><p className="text-xs uppercase tracking-[.25em] text-amber-200">Player versus player</p><h2 className="text-2xl font-bold">{GROUP_PVP_GAMES.find(item=>item.key===r.game)?.name}</h2></div><span className="rounded-full bg-white/10 px-4 py-2 text-sm">{r.state==='OPEN'?'Waiting for players':r.state==='COUNTDOWN'?'Entries locked':r.state==='DRAWN'?'Result saved · payout pending':r.state==='VOID'?'Refunded':'Paid'}</span></div>
       <div className="grid gap-6 p-5 lg:grid-cols-[1fr_320px]">
         <div className="min-w-0 space-y-5">
-          {r.state==='COUNTDOWN' && <div role="timer" aria-label="Game starts in" className="rounded-2xl bg-black/20 p-6 text-center"><p className="text-sm text-emerald-100">Game starts in</p><p className="text-6xl font-black tabular-nums">{countdown}</p><p className="mt-2 text-xs">Your entry is locked. Everyone sees the same result.</p></div>}
-          {r.outcome && <div className="rounded-2xl bg-black/20 p-5"><h3 className="mb-3 text-sm font-semibold text-amber-200">{r.game==='spin_win'?'Winning number':'Drawn numbers'}</h3><div className="flex flex-wrap gap-2">{r.outcome.map(n=><span key={n} className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-500 text-xl font-black text-amber-950">{n}</span>)}</div></div>}
+          {r.state==='COUNTDOWN' && <div role="timer" aria-label="Game starts in" className="rounded-2xl bg-black/20 p-6 text-center"><p className="text-sm text-emerald-100">Game starts in</p><p className="text-6xl font-black tabular-nums">{countdown}</p><p className="mt-2 text-xs">Confirmed entries are locked. Everyone sees the same result.</p></div>}
+          {r.outcome && <div className="rounded-2xl bg-black/20 p-5"><h3 className="mb-3 text-sm font-semibold text-amber-200">{r.game==='spin_win'?'Winning number':r.game==='dice'?`Dice total: ${r.outcome.reduce((a,b)=>a+b,0)}`:'Drawn numbers'}</h3><div className="flex flex-wrap gap-2">{r.outcome.map((n,index)=><span key={index} className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-500 text-xl font-black text-amber-950">{n}</span>)}</div></div>}
+          {r.game==='dice' && <p className="text-xs leading-5 text-emerald-100">Exact-total chances out of 36: 2/12 → 1 each; 3/11 → 2; 4/10 → 3; 5/9 → 4; 6/8 → 5; 7 → 6. Matching players share the prize; returned points can be less than your entry after the fee.</p>}
           {r.game==='spin_win' && !r.outcome && <div className="mx-auto max-w-xs"><SpinWinWheel rotation={0} spinning={r.state==='COUNTDOWN' && countdown===0}/></div>}
-          {r.state==='OPEN' && <><p className="text-sm text-emerald-100">{r.game==='spin_win'?'Choose one number. Exact matches share the prize.':'Choose five numbers. The most matches win; tied players share the prize.'}</p><div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">{Array.from({length:r.game==='spin_win'?37:80},(_,i)=>i+(r.game==='spin_win'?0:1)).map(n=><button key={n} aria-pressed={picks.includes(n)} aria-label={`Number ${n}`} disabled={!open || !!mine?.ready || busy} onClick={()=>toggle(n)} className={`min-h-10 rounded-lg border text-sm font-bold ${picks.includes(n)?'border-amber-100 bg-amber-300 text-amber-950':'border-white/15 bg-white/5 hover:bg-white/15'} disabled:cursor-not-allowed`}>{n}</button>)}</div></>}
+          {r.state==='OPEN' && <><p className="text-sm text-emerald-100">{GROUP_PVP_GAMES.find(item=>item.key===r.game)?.description}</p><div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">{Array.from({length:r.game==='spin_win'?37:r.game==='dice'?11:80},(_,i)=>i+(r.game==='spin_win'?0:r.game==='dice'?2:1)).map(n=><button key={n} aria-pressed={picks.includes(n)} aria-label={`Number ${n}`} disabled={!open || !!mine?.ready || busy} onClick={()=>toggle(n)} className={`min-h-10 rounded-lg border text-sm font-bold ${picks.includes(n)?'border-amber-100 bg-amber-300 text-amber-950':'border-white/15 bg-white/5 hover:bg-white/15'} disabled:cursor-not-allowed`}>{n}</button>)}</div></>}
           {mine?.ready && <p className="rounded-xl bg-emerald-900/60 p-3 text-sm">Your confirmed numbers: {mine.selection?.join(', ')}</p>}
-          {r.settlement && <div role="status" className="rounded-2xl border border-amber-300/30 bg-black/15 p-5"><h3 className="text-xl font-bold">{r.state==='VOID'?'Full refunds completed':'Winners paid'}</h3>{r.settlement.prizes.map(w=><p key={w.userId} className="mt-3 flex justify-between gap-3"><span>@{w.username}</span><strong>+{w.amount.toLocaleString()} points</strong></p>)}{r.state==='VOID' && <p className="mt-2 text-sm">{r.settlement.reason==='NO_WINNER'?'Nobody matched the winning result.':'This round was cancelled or expired.'} Every confirmed entry was returned. No fee was charged.</p>}<p className="mt-3 text-xs text-emerald-100">Platform fee: {r.settlement.platformFee} points</p></div>}
+          {r.settlement && <div role="status" className="rounded-2xl border border-amber-300/30 bg-black/15 p-5"><h3 className="text-xl font-bold">{r.state==='VOID'?'Full refunds completed':'Winners paid'}</h3>{r.settlement.prizes.map(w=><p key={w.userId} className="mt-3 flex justify-between gap-3"><span>@{w.username}</span><span className="text-right"><strong>{w.amount.toLocaleString()} points returned</strong><small className="block text-xs text-emerald-100">{w.amount-r.entryAmount>=0?'+':''}{(w.amount-r.entryAmount).toLocaleString()} net · {r.entryAmount} entry</small></span></p>)}{r.state==='VOID' && <p className="mt-2 text-sm">{r.settlement.reason==='NO_WINNER'?'Nobody matched the winning result.':'This round was cancelled or expired.'} Every confirmed entry was returned. No fee was charged.</p>}<p className="mt-3 text-xs text-emerald-100">Platform fee: {r.settlement.platformFee} points</p></div>}
         </div>
         <aside className="space-y-4">
-          <div className="rounded-2xl bg-black/20 p-5"><p className="text-xs uppercase tracking-widest text-emerald-100/70">Confirmed prize pool</p><p className="mt-2 text-4xl font-bold text-amber-200">{(funded*Number(quote!.prizeContribution)).toLocaleString()}</p><p className="mt-1 text-xs">Game Points · after the 7% completion fee</p><dl className="mt-5 space-y-2 text-sm"><div className="flex justify-between"><dt>Your entry</dt><dd>{r.entryAmount}</dd></div><div className="flex justify-between"><dt>Fee if completed</dt><dd>{quote!.platformFee}</dd></div><div className="flex justify-between"><dt>To the prize pool</dt><dd>{quote!.prizeContribution}</dd></div></dl></div>
+          <div className="rounded-2xl bg-black/20 p-5"><p className="text-xs uppercase tracking-widest text-emerald-100/70">Confirmed prize pool</p><p className="mt-2 text-4xl font-bold text-amber-200">{(funded*Number(quote!.prizeContribution)).toLocaleString()}</p><p className="mt-1 text-xs">Game Points · after the 7% completion fee</p><dl className="mt-5 space-y-2 text-sm"><div className="flex justify-between"><dt>Entry per player</dt><dd>{r.entryAmount}</dd></div><div className="flex justify-between"><dt>Fee if completed</dt><dd>{quote!.platformFee}</dd></div><div className="flex justify-between"><dt>To the prize pool</dt><dd>{quote!.prizeContribution}</dd></div></dl></div>
           <div className="rounded-2xl bg-black/20 p-5"><h3 className="font-bold">Players · {funded}/{r.entries.length} ready</h3><ul className="mt-3 space-y-3">{r.entries.map(e=><li key={e.userId} className="flex justify-between gap-2 text-sm"><span className="truncate">@{e.username}</span><span className={e.ready?'text-emerald-300':'text-amber-200'}>{e.ready?'Ready':'Choosing'}</span></li>)}</ul></div>
           {open && !mine && <Button className="w-full" disabled={busy} onClick={()=>act('join')}>Join round</Button>}
-          {open && mine && !mine.ready && <Button className="w-full" disabled={busy || picks.length!==(r.game==='spin_win'?1:5) || s.balance<r.entryAmount} onClick={()=>submit({path:`${endpoint}/${r.id}/ready`,body:{selection:picks,entryAmount:r.entryAmount,policyId:r.policyId}})}>Confirm {r.entryAmount} points · Ready</Button>}
+          {open && mine && !mine.ready && <Button className="w-full" disabled={busy || picks.length!==(r.game==='turbo_keno'?5:1) || s.balance<r.entryAmount} onClick={()=>submit({path:`${endpoint}/${r.id}/ready`,body:{selection:picks,entryAmount:r.entryAmount,policyId:r.policyId}})}>Confirm {r.entryAmount} points · Ready</Button>}
           {open && mine && <Button variant="outline" className="w-full bg-transparent text-white" disabled={busy} onClick={()=>act('withdraw')}>{mine.ready?'Leave and refund entry':'Leave round'}</Button>}
           {open && own && <><Button className="w-full bg-amber-300 text-amber-950 hover:bg-amber-200" disabled={busy || r.entries.length<2 || funded!==r.entries.length} onClick={()=>act('start')}>Start 30-second countdown</Button><Button variant="ghost" className="w-full text-emerald-100" disabled={busy} onClick={()=>act('cancel')}>Cancel round · full refunds</Button></>}
-          <p className="text-xs leading-relaxed text-emerald-100/70">The owner can start once every joined player confirms. No entries or cancellations after start. No winner means a full refund. The lobby expires after 15 minutes.</p>
+          <p className="text-xs leading-relaxed text-emerald-100/70">The owner can start once every joined player confirms. No entries or cancellations after start. No winner means a full refund. The lobby expires after 15 minutes or when the group closes. The game and entry amount are fixed for this round. Paid players cannot be removed.</p>
         </aside>
       </div>
     </section>}

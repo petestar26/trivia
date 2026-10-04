@@ -1,3 +1,4 @@
+import { lockSocialGroup } from '../groups/lifecycle.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware';
 import { storage, generateStorageKey } from '@socialplay/storage';
@@ -103,12 +104,13 @@ const MESSAGE_INCLUDE = {
   voiceMessage: true,
 } as const;
 
-export function serializeMessage(message: any) {
+export function serializeMessage(message: any): any {
   const base = {
     id: message.id,
+    clientRequestId: message.clientRequestId ?? null,
     groupId: message.groupId,
     userId: message.userId,
-    content: message.content,
+    content: message.isDeleted ? '' : message.content,
     type: message.type.toLowerCase(),
     sender: message.user,
     replyTo: message.replyTo ? serializeMessage(message.replyTo) : null,
@@ -124,7 +126,6 @@ export function serializeMessage(message: any) {
       ...base,
       voiceMessage: {
         id: message.voiceMessage.id,
-        storageKey: message.voiceMessage.storageKey,
         mimeType: message.voiceMessage.mimeType,
         duration: message.voiceMessage.duration,
         size: message.voiceMessage.size,
@@ -140,48 +141,34 @@ export interface CreateMessageArgs {
   userId: string;
   content: string;
   replyToId?: string;
+  clientRequestId?: string;
 }
 
 // Validates and persists a message. Returns the canonical serialized message.
 export async function createMessage(args: CreateMessageArgs) {
-  const { groupId, userId, content, replyToId } = args;
-
-  if (!content.trim()) {
-    throw ApiError.badRequest('Message cannot be whitespace only');
-  }
-
-  await getGroupOrThrow(groupId);
-  await assertActiveMember(groupId, userId);
-
-  const data: { content: string; type: 'TEXT'; replyToId?: string } = {
-    content,
-    type: 'TEXT',
-  };
-
-  if (replyToId) {
-    const parent = await prisma.message.findUnique({
-      where: { id: replyToId },
-    });
-
-    if (!parent || parent.groupId !== groupId || parent.isDeleted) {
-      throw ApiError.badRequest('Parent message not found in this group');
+  const { groupId, userId, replyToId, clientRequestId } = args;
+  const content = args.content.trim();
+  if (!content || content.length > 5000) throw ApiError.badRequest('Write a message between 1 and 5,000 characters');
+  if (clientRequestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientRequestId)) throw ApiError.badRequest('Invalid message receipt');
+  return prisma.$transaction(async tx => {
+    // Receipt lock precedes account/group locks and serializes exact retries.
+    if (clientRequestId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`chat:${groupId}:${userId}:${clientRequestId}`},0))`;
+    const {group}=await lockSocialGroup(tx,groupId,userId,false);
+    if (clientRequestId) {
+      const previous=await tx.message.findUnique({where:{groupId_userId_clientRequestId:{groupId,userId,clientRequestId}},include:MESSAGE_INCLUDE});
+      if(previous) {
+        if(previous.content!==content || previous.replyToId!==(replyToId??null)) throw ApiError.conflict('This receipt belongs to a different message');
+        return {...serializeMessage(previous),isReplay:true};
+      }
     }
-
-    data.replyToId = replyToId;
-  }
-
-  const message = await prisma.message.create({
-    data: {
-      groupId,
-      userId,
-      content: data.content,
-      type: data.type,
-      replyToId: data.replyToId,
-    },
-    include: MESSAGE_INCLUDE,
+    if(group.status!=='ACTIVE' || group.now>=group.expiresAt) throw ApiError.conflict('This group has closed. Its conversation is read-only.');
+    if(replyToId) {
+      const [parent]=await tx.$queryRaw<{id:string}[]>`SELECT id FROM messages WHERE id=${replyToId} AND "groupId"=${groupId} AND NOT "isDeleted" FOR SHARE`;
+      if(!parent) throw ApiError.badRequest('Parent message not found in this group');
+    }
+    const message=await tx.message.create({data:{groupId,userId,content,type:'TEXT',replyToId,clientRequestId},include:MESSAGE_INCLUDE});
+    return {...serializeMessage(message),isReplay:false};
   });
-
-  return serializeMessage(message);
 }
 
 export interface CreateVoiceMessageArgs {
@@ -198,7 +185,7 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
   const { groupId, userId, file, fileName, mimeType, duration } = args;
 
   // Validate file type
-  if (!FILE_UPLOAD.ALLOWED_AUDIO_TYPES.includes(mimeType)) {
+  if (!(FILE_UPLOAD.ALLOWED_AUDIO_TYPES as readonly string[]).includes(mimeType)) {
     throw ApiError.badRequest(`Audio type ${mimeType} not allowed. Supported: ${FILE_UPLOAD.ALLOWED_AUDIO_TYPES.join(', ')}`);
   }
 
@@ -210,12 +197,11 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
 
   // Validate duration (max 5 minutes = 300 seconds)
   const MAX_VOICE_DURATION = 300;
-  if (duration > MAX_VOICE_DURATION) {
+  if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_VOICE_DURATION) {
     throw ApiError.badRequest(`Duration exceeds maximum of ${MAX_VOICE_DURATION} seconds`);
   }
 
-  await getGroupOrThrow(groupId);
-  await assertActiveMember(groupId, userId);
+  await prisma.$transaction(tx=>lockSocialGroup(tx,groupId,userId));
 
   // Generate server-side storage key
   const storageKey = generateStorageKey(
@@ -233,10 +219,11 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
     originalName: fileName,
   });
 
-  let stored: { message: any; voiceMessage: any };
+  let stored: { message: any };
   try {
     // Create Message + VoiceMessage atomically
     stored = await prisma.$transaction(async (tx) => {
+      await lockSocialGroup(tx,groupId,userId);
       const message = await tx.message.create({
         data: {
           groupId,
