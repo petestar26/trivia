@@ -3,7 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: m, unwrapData: (r: { data: unknown }) => r.data }));
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  api: m,
+}));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'admin' } }) }));
 import { WalletSetupAdmin } from './wallet-setup-admin';
 import { WalletAgentSetupPage } from './wallet-agent-setup';
@@ -39,6 +42,7 @@ beforeEach(() => {
   sessionStorage.clear();
   vi.clearAllMocks();
   m.get.mockImplementation(async (path: string) => ({
+    success: true,
     data:
       path === '/agent-config/admin/countries'
         ? [country]
@@ -114,3 +118,15 @@ it('does not offer an application when profile lookup failed', async () => {
     screen.queryByRole('button', { name: 'Submit agent application' })
   ).not.toBeInTheDocument();
 });
+
+it.each([{ success: true }, { success: false, data: null, error: { message: 'Access denied' } }])(
+  'does not turn a malformed or failed profile response into a new application: %j',
+  async (response) => {
+    m.get.mockResolvedValue(response);
+    mount(true);
+    await screen.findByText(/Could not check your agent status/);
+    expect(
+      screen.queryByRole('button', { name: 'Submit agent application' })
+    ).not.toBeInTheDocument();
+  }
+);

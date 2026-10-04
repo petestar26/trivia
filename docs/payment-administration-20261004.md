@@ -21,7 +21,12 @@ API review suite: 98 passed across 12 files. Focused wallet/admin/onboarding/fro
 
 All PostgreSQL 13, 16 and 18 jobs completed successfully in [run 37209045858](https://github.com/petestar26/trivia/actions/runs/37209045858) for application commit `fbe9a7c07211739cc482394428fe73c9518d9e85` (local `1519bca`, identical tree `747c7209cd2929db7a0a015d40ca632b28d74179`). The matrix includes payment lifecycle, concurrency, legacy compatibility, ledger, migration, financial settlement/refund, frontend and builds.
 
-Deployment was attempted after every matrix job passed, but Railway returned “Cancelled — the user did not approve this action. No changes were made.” Non-destructive staging patch `75dba602-e7a5-4442-a1db-31692aaa33f1` remains prepared: five serialized source changes across API and web, targeting the tested commit. No variables, migrations, financial activation flags or production settings are included. The live API/web remain on the previous verified release `c1877db`. Browser verification of this new candidate is pending actual deployment.
+The user applied the staging patch. API deployment `7aef126c-e25d-44d9-958e-d7104c2bc19a` and web deployment `2f7a1931-7fc1-4724-963d-e791a7f16adf` succeeded at `bc9251151dd8bba68555527b6f0bd2828385f278` (documentation-only changes after tested application `fbe9a7c`). No staged changes remained after that rollout.
+
+Browser verification retained the signed-in session after the app-update reload, displayed all five unavailable crypto options, and denied an ordinary user's access to the processing desk. Agent onboarding exposed a frontend response-contract defect: `/agents/me/setup` returned HTTP 200 with `data:null` for no existing profile, but shared `unwrapData` rejects null. The original test mock incorrectly bypassed that real decoder.
+
+A frontend-only correction now accepts explicitly successful null on this one endpoint, preserves errors for unsuccessful/missing data, and uses the real response decoder in regression tests. Thirty focused frontend/API-client tests passed, as did web strict typecheck and production build. Backend and schema are unchanged from the successful native matrix. The corrective web release is not yet deployed or browser verified. Full admin controls cannot be browser-verified with the current ordinary-user session; no privileges were changed.
+
 
 ## Configuration still needed
 

@@ -17,7 +17,13 @@ function AgentSetup({ userId }: { userId: string }) {
   const cache = useQueryClient();
   const agent = useQuery({
     queryKey: ['payments', 'own-agent', userId],
-    queryFn: () => get<Agent | null>('/agents/me/setup'),
+    queryFn: async () => {
+      const response = await api.get<Agent | null>('/agents/me/setup');
+      // This endpoint explicitly returns null for a user with no agent profile.
+      // Missing data and failed responses must still fail closed.
+      if (response.success && response.data === null) return null;
+      return unwrapData(response);
+    },
   });
   const countries = useQuery({
     queryKey: ['payments', 'active-countries', userId],
