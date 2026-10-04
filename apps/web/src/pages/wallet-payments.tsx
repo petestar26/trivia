@@ -488,7 +488,7 @@ function Payments({ userId }: { userId: string }) {
                           !paymentAccountId ||
                           !confirm ||
                           country?.agentPaymentEnabled === false ||
-                          (!!country?.usdPricingEnabled && !pricing.data?.preview)
+                          (!!country?.usdPricingEnabled && (pricing.isError || !pricing.data?.preview))
                         }
                         onClick={() => {
                           setConfirm(false);

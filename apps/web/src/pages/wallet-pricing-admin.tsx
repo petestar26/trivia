@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
-import { currencyMinorDigits } from '@/lib/payment-money';
+import { currencyMinorDigits, inputToMinor } from '@/lib/payment-money';
 import { walletError } from '@/hooks/use-wallet-action';
 
 type Country = { id: string; name: string; currencyCode: string; usdPricingEnabled: boolean };
@@ -54,8 +54,8 @@ export function WalletPricingAdmin() {
             source,
             observedAt,
             expiresAt: new Date(Date.parse(observedAt) + 86400000).toISOString(),
-            p2pDepositMinUsdCents: Number(depositMin) * 100,
-            p2pWithdrawalAboveUsdCents: Number(withdrawAbove) * 100,
+            p2pDepositMinUsdCents: inputToMinor(depositMin, 2),
+            p2pWithdrawalAboveUsdCents: inputToMinor(withdrawAbove, 2),
             cryptoDepositMinUsdCents: 1000,
             cryptoWithdrawalAboveUsdCents: 2000,
             feeMinor: 0,
