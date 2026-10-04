@@ -19,7 +19,7 @@ it('requires country, agent, approved method and confirmation before an idempote
  const button=screen.getByRole('button',{name:'Create deposit request'});expect(button).toBeDisabled();
  fireEvent.click(screen.getByRole('checkbox'));m.post.mockResolvedValue({success:true,data:{id:'order'}});fireEvent.click(button);
  await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));expect(m.post.mock.calls[0][0]).toBe('/agent-orders');
- expect(m.post.mock.calls[0][1]).toMatchObject({agentId:'agent',countryId:'country',paymentAccountId:'account',fiatAmount:100,idempotencyKey:expect.any(String)});
+ expect(m.post.mock.calls[0][1]).toMatchObject({agentId:'agent',countryId:'country',paymentAccountId:'account',fiatAmount:10000,idempotencyKey:expect.any(String)});
  await waitFor(()=>expect(button).toBeDisabled());
 });
 it('uses the server quote and only IDs when confirming a withdrawal',async()=>{
@@ -27,7 +27,7 @@ it('uses the server quote and only IDs when confirming a withdrawal',async()=>{
  fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'100'}});
  fireEvent.change(screen.getByLabelText('Payout account'),{target:{value:'payout'}});
  m.post.mockResolvedValueOnce({data:{id:'quote',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',expiresAt:new Date(Date.now()+300000).toISOString()}}).mockResolvedValue({success:true});
- fireEvent.click(screen.getByRole('button',{name:'Get withdrawal quote'}));await screen.findByText('100 Coins → 25 USD');
+ fireEvent.click(screen.getByRole('button',{name:'Get withdrawal quote'}));await screen.findByText('100 Coins → 0.25 USD');
  fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Confirm withdrawal'}));
  await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(2));expect(m.post.mock.calls[1][1]).toEqual({quoteId:'quote',payoutAccountId:'payout',idempotencyKey:expect.any(String)});
 });

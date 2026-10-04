@@ -1,3 +1,7 @@
+import { publishUsdRate, saveCoinPackage, listCoinPackages, selectPaymentRate } from './usd-config-service.js';
+import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
+import { prisma } from '@socialplay/database';
+import { ApiError } from '../middleware/index.js';
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { authenticate, requirePermission } from '../middleware/index.js';
 import {
@@ -21,6 +25,31 @@ function requestContext(request: FastifyRequest) {
 export async function agentConfigRoutes(server: FastifyInstance): Promise<void> {
   const auth = [authenticate];
   const admin = [authenticate, requirePermission('agent:review')];
+
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
+  server.get('/coin-packages', { preHandler: auth }, async () => ({ success: true, data: await listCoinPackages() }));
+  server.get('/admin/coin-packages', { preHandler: admin }, async () => ({ success: true, data: await listCoinPackages(true) }));
+  server.post('/admin/coin-packages', { preHandler: admin }, async (request, reply) =>
+    reply.status(201).send({ success: true, data: await saveCoinPackage(request.user!.sub, undefined, request.body) }));
+  server.post<{ Params: { id: string } }>('/admin/coin-packages/:id', { preHandler: admin }, async request =>
+    ({ success: true, data: await saveCoinPackage(request.user!.sub, request.params.id, request.body) }));
+  server.post<{ Params: { countryId: string } }>('/countries/:countryId/usd-rates', { preHandler: admin }, async (request, reply) =>
+    reply.status(201).send({ success: true, data: await publishUsdRate(request.user!.sub, request.params.countryId, request.body) }));
+  server.get<{ Params: { countryId: string }; Querystring: { fiatAmount?: string } }>(
+    '/countries/:countryId/deposit-preview', { preHandler: auth }, async request => {
+      const country = await prisma.country.findUnique({ where: { id: request.params.countryId } });
+      if (!country?.isActive || !country.agentPaymentEnabled || !country.usdPricingEnabled) {
+        throw ApiError.badRequest('USD agent pricing is not available for this country');
+      }
+      const rate = await selectPaymentRate(prisma, country);
+      const policy = parseUsdPolicy(rate.pricingPolicy);
+      const price = request.query.fiatAmount === undefined ? null
+        : priceUsdPayment(policy, 'deposit', Number(request.query.fiatAmount));
+      return { success: true, data: { rateId: rate.id, policy, preview: price?.snapshot ?? null } };
+    });
 
   // ── Countries ─────────────────────────────────────────────────
   // Read access to ACTIVE countries is any authenticated user (agents/

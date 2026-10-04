@@ -428,6 +428,7 @@ export async function createWithdrawal(
             exchangeRateConfigId: quote!.exchangeRateConfigId,
             exchangeRateValue: quote!.exchangeRateValue,
             coinAmount: quote!.coinAmount,
+            ...(quote!.pricingSnapshot ? { pricingSnapshot: quote!.pricingSnapshot as Prisma.InputJsonValue } : {}),
             status: 'HELD',
             quoteExpiresAt: quote!.expiresAt,
             paymentSubmissionDeadlineAt: new Date(now.getTime() + DEFAULT_PAYMENT_SUBMISSION_WINDOW_MS),

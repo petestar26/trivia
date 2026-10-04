@@ -1,3 +1,4 @@
+import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
 import { useState } from 'react';
 import { Link, NavLink, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -7,7 +8,13 @@ import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import './wallet-payments.css';
 
-type Country = { id: string; name: string; currencyCode: string };
+type Country = {
+  id: string;
+  name: string;
+  currencyCode: string;
+  agentPaymentEnabled?: boolean;
+  usdPricingEnabled?: boolean;
+};
 type Agent = {
   id: string;
   countryId: string;
@@ -26,6 +33,13 @@ type Payment = {
   fiatCurrency: string;
   createdAt: string;
   paymentSnapshot?: Record<string, unknown>;
+  pricingSnapshot?: {
+    minorDigits: number;
+    source: string;
+    localPerUsd: string;
+    observedAt: string;
+    feeMinor: number;
+  };
 };
 type Account = {
   id: string;
@@ -115,13 +129,51 @@ function Payments({ userId }: { userId: string }) {
     enabled: !!countryId,
   });
   const method = methods.data?.find((m) => m.id === methodId);
+  const minorDigits = country ? currencyMinorDigits(country.currencyCode) : 2;
+  const depositMinor = inputToMinor(amount, minorDigits);
   const validAmount =
-    /^\d+$/.test(amount) &&
-    Number.isSafeInteger(Number(amount)) &&
-    Number(amount) > 0 &&
-    Number(amount) <= 1_000_000_000;
+    section === 'deposit'
+      ? depositMinor !== null
+      : /^\d+$/.test(amount) &&
+        Number.isSafeInteger(Number(amount)) &&
+        Number(amount) > 0 &&
+        Number(amount) <= 1_000_000_000;
+  const pricing = useQuery({
+    queryKey: ['payments', 'usd-preview', countryId, section, depositMinor],
+    queryFn: () =>
+      get<{
+        policy: {
+          localPerUsd: string;
+          observedAt: string;
+          expiresAt: string;
+          p2pDepositMinUsdCents: number;
+          p2pWithdrawalAboveUsdCents: number;
+        };
+        preview: { coinAmount: number } | null;
+      }>(
+        `/agent-config/countries/${countryId}/deposit-preview${section === 'deposit' && depositMinor ? `?fiatAmount=${depositMinor}` : ''}`
+      ),
+    enabled: !!country?.usdPricingEnabled && country.agentPaymentEnabled !== false,
+    retry: false,
+    refetchInterval: 30000,
+  });
+  const packages = useQuery({
+    queryKey: ['payments', 'coin-packages'],
+    queryFn: () =>
+      get<
+        Array<{
+          id: string;
+          name: string;
+          coinAmount: number;
+          usdDisplay: string;
+          featured: boolean;
+        }>
+      >('/agent-config/coin-packages'),
+    enabled: section === 'deposit' && !!country?.usdPricingEnabled,
+  });
   function changeCountry(value: string) {
     setCountry(value);
+    setAmount('');
     setAgent('');
     setPaymentAccount('');
     setAccount('');
@@ -279,12 +331,70 @@ function Payments({ userId }: { userId: string }) {
                       ))}
                     </select>
                   </label>
+                  {country && (
+                    <p>
+                      Agent P2P:{' '}
+                      {country.agentPaymentEnabled === false ? 'unavailable' : 'available'} ·
+                      Crypto: not yet available
+                    </p>
+                  )}
+                  {country?.usdPricingEnabled && (
+                    <div className="payment-disclosure">
+                      <strong>96 Coins = USD 1</strong>
+                      {pricing.isPending ? (
+                        <p>Loading current rate…</p>
+                      ) : pricing.isError ? (
+                        <p role="alert">{walletError(pricing.error)}</p>
+                      ) : (
+                        pricing.data && (
+                          <>
+                            <p>
+                              USD 1 = {pricing.data.policy.localPerUsd} {country.currencyCode}. Fee:
+                              0.
+                            </p>
+                            <p>
+                              Deposit minimum: USD{' '}
+                              {(pricing.data.policy.p2pDepositMinUsdCents / 100).toFixed(2)}.
+                              Withdrawal must exceed USD{' '}
+                              {(pricing.data.policy.p2pWithdrawalAboveUsdCents / 100).toFixed(2)}.
+                            </p>
+                            {pricing.data.preview && (
+                              <p>
+                                You receive {pricing.data.preview.coinAmount.toLocaleString()}{' '}
+                                Coins. Final amount is fixed when the order is created.
+                              </p>
+                            )}
+                            <p>
+                              Rate observed{' '}
+                              {new Date(pricing.data.policy.observedAt).toLocaleString()}; expires{' '}
+                              {new Date(pricing.data.policy.expiresAt).toLocaleString()}.
+                            </p>
+                          </>
+                        )
+                      )}
+                      {section === 'deposit' && packages.data && (
+                        <details>
+                          <summary>Coin bundle reference prices</summary>
+                          <p>
+                            Prices are approximate USD equivalents. Enter your payment amount below;
+                            the server calculates Coins using the current rate. Route minimums
+                            apply.
+                          </p>
+                          {packages.data.map((p) => (
+                            <p key={p.id}>
+                              {p.name}: {p.coinAmount.toLocaleString()} Coins ≈ USD {p.usdDisplay}
+                            </p>
+                          ))}
+                        </details>
+                      )}
+                    </div>
+                  )}
                   <label>
                     {section === 'deposit'
                       ? `Amount to pay${country ? ' · ' + country.currencyCode : ''}`
                       : 'Coins to withdraw'}
                     <input
-                      inputMode="numeric"
+                      inputMode={section === 'deposit' ? 'decimal' : 'numeric'}
                       value={amount}
                       onChange={(e) => {
                         setAmount(e.target.value);
@@ -295,7 +405,10 @@ function Payments({ userId }: { userId: string }) {
                     />
                   </label>
                   {amount && !validAmount && (
-                    <p role="alert">Enter a positive whole amount up to 1,000,000,000.</p>
+                    <p role="alert">
+                      Enter a valid positive amount. Deposits use local currency; withdrawals use
+                      whole Coins.
+                    </p>
                   )}
                   {section === 'deposit' ? (
                     <>
@@ -326,9 +439,11 @@ function Payments({ userId }: { userId: string }) {
                       {agent && (
                         <>
                           <p>
-                            Order limits: {agent.minOrderAmount ?? 1}–
-                            {agent.maxOrderAmount ?? 'subject to available inventory'}{' '}
-                            {country?.currencyCode}
+                            Order limits:{' '}
+                            {formatMinor(agent.minOrderAmount ?? 1, country!.currencyCode)}–
+                            {agent.maxOrderAmount
+                              ? formatMinor(agent.maxOrderAmount, country!.currencyCode)
+                              : 'subject to available inventory'}
                           </p>
                           <label>
                             Payment method
@@ -366,14 +481,22 @@ function Payments({ userId }: { userId: string }) {
                       </label>
                       <button
                         className="payment-primary"
-                        disabled={busy || !validAmount || !agent || !paymentAccountId || !confirm}
+                        disabled={
+                          busy ||
+                          !validAmount ||
+                          !agent ||
+                          !paymentAccountId ||
+                          !confirm ||
+                          country?.agentPaymentEnabled === false ||
+                          (!!country?.usdPricingEnabled && !pricing.data?.preview)
+                        }
                         onClick={() => {
                           setConfirm(false);
                           void action.run('/agent-orders', {
                             countryId,
                             agentId,
                             paymentAccountId,
-                            fiatAmount: Number(amount),
+                            fiatAmount: depositMinor,
                           });
                         }}
                       >
@@ -474,7 +597,8 @@ function Payments({ userId }: { userId: string }) {
                         <div className="payment-quote">
                           <h3>Review your withdrawal</h3>
                           <p>
-                            {quote.coinAmount} Coins → {quote.fiatAmount} {quote.fiatCurrency}
+                            {quote.coinAmount} Coins →{' '}
+                            {formatMinor(quote.fiatAmount, quote.fiatCurrency)}
                           </p>
                           <p>
                             Quote expires {new Date(quote.expiresAt).toLocaleTimeString()}. The
@@ -704,8 +828,16 @@ export function PaymentCard({
         <span className="payment-status">{p.status.replaceAll('_', ' ')}</span>
       </div>
       <p>
-        {p.coinAmount.toLocaleString()} Coins · {p.fiatAmount} {p.fiatCurrency}
+        {p.coinAmount.toLocaleString()} Coins ·{' '}
+        {formatMinor(p.fiatAmount, p.fiatCurrency, p.pricingSnapshot?.minorDigits)}
       </p>
+      {p.pricingSnapshot && (
+        <p>
+          USD 1 = {p.pricingSnapshot.localPerUsd} {p.fiatCurrency} · fee{' '}
+          {formatMinor(p.pricingSnapshot.feeMinor, p.fiatCurrency, p.pricingSnapshot.minorDigits)} ·
+          rate {new Date(p.pricingSnapshot.observedAt).toLocaleString()}
+        </p>
+      )}
       <time>{new Date(p.createdAt).toLocaleString()}</time>
       {p.paymentSnapshot && (
         <details>

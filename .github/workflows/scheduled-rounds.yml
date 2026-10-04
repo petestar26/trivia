@@ -37,6 +37,7 @@ on:
       - 'apps/web/src/pages/group-detail*'
       - 'apps/web/src/pages/messages*'
       - 'apps/web/src/lib/bounded-request*'
+      - 'apps/web/src/lib/payment-money*'
       - 'apps/web/src/hooks/use-voice-recorder*'
       - 'apps/web/src/components/app-update-notice*'
       - 'apps/web/src/main.tsx'
@@ -276,7 +277,7 @@ jobs:
       - name: Group game room and chat contracts
         run: >-
           pnpm --filter web exec vitest run
-          src/components/app-update-notice.test.tsx src/pages/wallet-payments.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/lib/payment-money.test.ts src/components/app-update-notice.test.tsx src/pages/wallet-payments.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
           src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
           src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts

@@ -16,9 +16,9 @@ const PLATFORM_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
  * first line of defense, this is the second, and neither is optional.
  */
 export async function assertPlatformAdmin(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
   if (!user) throw ApiError.unauthorized('Authentication required');
-  if (!PLATFORM_ADMIN_ROLES.includes(user.role)) {
+  if (user.status !== 'ACTIVE' || !PLATFORM_ADMIN_ROLES.includes(user.role)) {
     throw ApiError.forbidden('Admin privileges required');
   }
   return user;

@@ -15,8 +15,8 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
     const [user, ownAgent, countries, agents] = await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { role: true } }),
       prisma.agent.findUnique({ where: { userId }, select: { status: true } }),
-      prisma.country.findMany({ where: { isActive: true, agentPaymentEnabled: true },
-        select: { id: true, name: true, currencyCode: true }, orderBy: { displayOrder: 'asc' } }),
+      prisma.country.findMany({ where: { isActive: true },
+        select: { id: true, name: true, currencyCode: true, agentPaymentEnabled: true, usdPricingEnabled: true }, orderBy: { displayOrder: 'asc' } }),
       prisma.agent.findMany({ where: { status: 'ACTIVE', userId: { not: userId },
           country: { isActive: true, agentPaymentEnabled: true }, user: { status: 'ACTIVE' } },
         select: { id: true, countryId: true, displayName: true, minOrderAmount: true, maxOrderAmount: true,
@@ -25,7 +25,7 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
         orderBy: { displayName: 'asc' }, take: 100 }),
     ]);
     return { success: true, data: {
-      countries, isAgent: ownAgent?.status === 'ACTIVE', isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
+      countries, crypto: { available: false, reason: 'Provider integration is not configured' }, isAgent: ownAgent?.status === 'ACTIVE', isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
       agents: agents.map(a => ({ ...a, paymentAccounts: a.paymentAccounts.filter(p =>
         p.countryId === a.countryId && p.methodDef.countryId === a.countryId) })),
     } };

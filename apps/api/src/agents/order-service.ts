@@ -1,3 +1,5 @@
+import { selectPaymentRate } from './usd-config-service.js';
+import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
 import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
@@ -141,17 +143,10 @@ export async function createAgentOrder(
   // comment on ExchangeRateConfig): country + fiatCurrency + isActive=true +
   // effectiveAt <= now(), ordered by effectiveAt DESC, take 1. Copied into
   // the order and never re-read.
-  const rateConfig = await prisma.exchangeRateConfig.findFirst({
-    where: { countryId: args.countryId, fiatCurrency, isActive: true, effectiveAt: { lte: new Date() } },
-    orderBy: { effectiveAt: 'desc' },
-  });
-  if (!rateConfig) {
-    throw ApiError.badRequest('No active exchange rate is configured for this country/currency');
-  }
-
-  // Schema: "coinAmount Int // floor(fiatAmount * exchangeRateValue), fixed
-  // forever" — used verbatim, via Decimal arithmetic to avoid float error.
-  const coinAmount = rateConfig.coinsPerUnit.mul(args.fiatAmount).floor().toNumber();
+  const rateConfig = await selectPaymentRate(prisma, country);
+  const usdPrice = country.usdPricingEnabled
+    ? priceUsdPayment(parseUsdPolicy(rateConfig.pricingPolicy), 'deposit', args.fiatAmount) : null;
+  const coinAmount = usdPrice?.coinAmount ?? rateConfig.coinsPerUnit.mul(args.fiatAmount).floor().toNumber();
   if (!Number.isSafeInteger(coinAmount) || coinAmount <= 0 || coinAmount > 1_000_000_000) {
     throw ApiError.badRequest('Computed coin amount must be positive');
   }
@@ -172,8 +167,8 @@ export async function createAgentOrder(
             (currentAgent.maxOrderAmount !== null && args.fiatAmount > currentAgent.maxOrderAmount)) {
           throw ApiError.conflict('Agent availability or order limits changed; review the order again');
         }
-        const [currentCountry] = await tx.$queryRaw<Array<{isActive:boolean;agentPaymentEnabled:boolean;currencyCode:string}>>`
-          SELECT "isActive", "agentPaymentEnabled", "currencyCode" FROM countries WHERE id=${args.countryId} FOR SHARE`;
+        const [currentCountry] = await tx.$queryRaw<Array<{isActive:boolean;agentPaymentEnabled:boolean;currencyCode:string;usdPricingEnabled:boolean}>>`
+          SELECT "isActive", "agentPaymentEnabled", "currencyCode", "usdPricingEnabled" FROM countries WHERE id=${args.countryId} FOR SHARE`;
         if (!currentCountry?.isActive || !currentCountry.agentPaymentEnabled || currentCountry.currencyCode !== fiatCurrency) {
           throw ApiError.conflict('Country payment availability changed');
         }
@@ -186,6 +181,15 @@ export async function createAgentOrder(
         const [currentMethod] = await tx.$queryRaw<Array<{isActive:boolean;countryId:string}>>`
           SELECT "isActive", "countryId" FROM payment_method_definitions WHERE id=${paymentAccount.methodDefId} FOR SHARE`;
         if (!currentMethod?.isActive || currentMethod.countryId !== args.countryId) throw ApiError.conflict('Payment method is no longer available');
+        if (currentCountry.usdPricingEnabled !== country.usdPricingEnabled) {
+          throw ApiError.conflict('Pricing policy changed; review the order again');
+        }
+        if (usdPrice) {
+          const [lockedRate] = await tx.$queryRaw<Array<{ isActive: boolean }>>`
+            SELECT "isActive" FROM exchange_rate_configs WHERE id=${rateConfig.id} FOR SHARE`;
+          if (!lockedRate?.isActive) throw ApiError.conflict('Exchange rate was disabled; request a fresh price');
+          parseUsdPolicy(rateConfig.pricingPolicy);
+        }
         const orderNumber = await nextOrderNumber(tx);
 
         const order = await tx.agentOrder.create({
@@ -202,6 +206,7 @@ export async function createAgentOrder(
             exchangeRateConfigId: rateConfig.id,
             exchangeRateValue: rateConfig.coinsPerUnit,
             coinAmount,
+            ...(usdPrice ? { pricingSnapshot: usdPrice.snapshot } : {}),
             status: 'CREATED',
             idempotencyKey: args.idempotencyKey,
           },

@@ -254,3 +254,33 @@ describeIf('withdrawals/quote-service', () => {
     expect(list.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describeIf('USD-priced withdrawal quotes', () => {
+  it('preserves older quotes and refuses fallback when the latest USD rate is disabled', async () => {
+    const { publishUsdRate } = await import('../agents/usd-config-service.js');
+    const tag = `usd-${Date.now()}`;
+    const admin = await createAdmin(tag), user = await createUser(tag + '-customer');
+    const country = await createCountry(tag);
+    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    const legacy = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 100 });
+    await prisma.country.update({ where: { id: country.id }, data: { currencyCode: 'ETB' } });
+    const rate = await publishUsdRate(admin.id, country.id, {
+      version: 'USD_V1', coinsPerUsd: 96, localPerUsd: '150', minorDigits: 2,
+      source: 'Native test rate', observedAt: new Date(Date.now() - 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 120000).toISOString(), feeMinor: 0,
+      p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400,
+      cryptoDepositMinUsdCents: 1000, cryptoWithdrawalAboveUsdCents: 2000,
+    });
+    await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 384 })).rejects.toThrow(/must exceed/);
+    const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 385 });
+    expect(quote.fiatAmount).toBe(60156n);
+    expect(quote.pricingSnapshot).toMatchObject({ coinAmount: 385, usdNumerator: '385', usdDenominator: '96' });
+    expect(quote.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 120000);
+    const old = await getOwnWithdrawalQuote(user.id, legacy.id);
+    expect(old.fiatAmount).toBe(50n);
+    expect(old.pricingSnapshot).toBeNull();
+    await prisma.exchangeRateConfig.update({ where: { id: rate.id }, data: { isActive: false } });
+    await expect(createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 385 })).rejects.toThrow(/No active exchange rate/);
+    expect((await getOwnWithdrawalQuote(user.id, quote.id)).fiatAmount).toBe(60156n);
+  });
+});

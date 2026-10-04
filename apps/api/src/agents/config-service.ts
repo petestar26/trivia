@@ -1,3 +1,4 @@
+import { selectPaymentRate } from './usd-config-service.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
 import { assertPlatformAdmin } from './agent-service.js';
@@ -258,6 +259,7 @@ export async function createExchangeRate(
 
   const country = await prisma.country.findUnique({ where: { id: args.countryId } });
   if (!country) throw ApiError.badRequest('Invalid countryId');
+  if (country.usdPricingEnabled) throw ApiError.badRequest('Use the USD rate endpoint for this country');
   if (!CURRENCY_CODE_RE.test(args.fiatCurrency)) {
     throw ApiError.badRequest('fiatCurrency must be a 3-letter ISO 4217 code (e.g. "NGN")');
   }
@@ -326,6 +328,10 @@ export async function getActiveExchangeRate(countryId: string, fiatCurrency: str
   const country = await prisma.country.findUnique({ where: { id: countryId } });
   if (!country) throw ApiError.notFound('Country not found');
 
+  if (country.usdPricingEnabled) {
+    if (country.currencyCode !== fiatCurrency) throw ApiError.badRequest('Currency does not match country');
+    return selectPaymentRate(prisma, country);
+  }
   return prisma.exchangeRateConfig.findFirst({
     where: { countryId, fiatCurrency, isActive: true, effectiveAt: { lte: new Date() } },
     orderBy: { effectiveAt: 'desc' },
