@@ -6,7 +6,7 @@ Application candidate: `5bb4fbcc2520ff0e09c780be0cb3d00d9476fe5f`.
 Local application: `446b5f79185cc41a4753d6fd123c035043e4ba41`.
 Verified identical tree: `cfcbdd80abd4e91695837fddce7a8afd0be173c7`.
 **All required PostgreSQL 13/16/18 jobs passed** in [run 37197251003](https://github.com/petestar26/trivia/actions/runs/37197251003).
-**This candidate has not been deployed.** Railway returned “Cancelled — the user did not approve this action. No changes were made.” The staged upgrade remains pending. No migration was applied to staging and API/web remain on the earlier verified application `6377b040da935e88e52cb01ffbd055c9210a31a9`. Production and live financial activation remain unchanged.
+**Staging database upgrade completed; API/web rollout remains pending.** The user applied the first staging patch. Deployment `10340471-b1a2-4ebb-b6b3-f02279d6dc91` succeeded and emitted `USD_STAGING_SCHEMA_VERIFIED` at 2026-10-04T12:54:16Z: all three migrations applied, runtime grants verified, six packages present, zero enabled payment countries. Its deployed commit `5e772a4d29eaf07b6b3253b70420bfdbf08b2c73` adds documentation only to tested application `5bb4fbcc`. API/web remain on `6377b040da935e88e52cb01ffbd055c9210a31a9`. The subsequent application deployment request was cancelled by the Railway connector with “the user did not approve this action.” Production and live financial activation remain unchanged.
 
 ## Implemented
 
@@ -66,15 +66,15 @@ The independent final review should follow completion of the remaining provider 
 
 Three forward-only migrations add USD metadata, packages and guard protection. The staging-only operator validates the exact isolated database and migration checksums, refuses unrelated pending migrations, applies the USD migrations and adds only the required package-table/new-country-column permissions. Production is refused by the operator.
 
-The pending staging patch is `6fb331da-a762-412b-88a5-a279b933d4eb` in project PlayQuibe, environment `staging`. It updates only `spin-practice-setup-20261002`:
+The initial schema patch `6fb331da-a762-412b-88a5-a279b933d4eb` was applied and verified successfully. The next pending staging patch is `3316909e-b137-46b1-8e74-cc30cf29237a` in project PlayQuibe, environment `staging`. It contains nine serialized configuration changes across three services:
 
-1. Source branch: `feat/casino-wallet-review`.
-2. Source commit: the tested `5bb4fbcc2520ff0e09c780be0cb3d00d9476fe5f`.
-3. Start command: `node apps/api/dist/scripts/staging-usd-payment-upgrade.js --apply`.
+1. API source: pin `spin-practice-api-20261002` to tested `5bb4fbcc2520ff0e09c780be0cb3d00d9476fe5f` on `feat/casino-wallet-review` (four source fields, including unchanged repo/branch and empty image removal).
+2. Web source: the same tested pin for `spin-practice-web-20261002` (four source fields).
+3. Setup helper: switch start command from `--apply` to `node apps/api/dist/scripts/staging-usd-payment-upgrade.js --verify`.
 
-Railway reports the patch as non-destructive; it contains no service, volume or data deletion. Its deployment approval was cancelled. Approve this staging-only action to continue.
+Railway reports the pending patch as non-destructive; it contains no service, volume or data deletion. Its deployment approval was cancelled. No API/web deployment was triggered by that request.
 
-After approval, verify the schema upgrade, switch the owner helper to `--verify`, deploy API/web at the tested commit, then perform browser smoke checks. The new candidate has **not** received post-deployment browser verification yet. The existing signed-in staging wallet was observed healthy before rollout.
+Next: apply this staging-only patch, verify helper/API/web deployment logs and actual deployed revisions, then perform browser smoke checks. The new API/web candidate has **not** received post-deployment browser verification yet. The existing signed-in staging wallet was observed healthy before rollout.
 
 Production has a separate pending deletion which is not part of this patch. Live payment availability additionally needs configured country/method/rate policy, approved agents and inventory/liquidity, account eligibility and an operator-supervised settlement rehearsal.
 
