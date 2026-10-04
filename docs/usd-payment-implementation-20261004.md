@@ -6,7 +6,7 @@ Application candidate: `5bb4fbcc2520ff0e09c780be0cb3d00d9476fe5f`.
 Local application: `446b5f79185cc41a4753d6fd123c035043e4ba41`.
 Verified identical tree: `cfcbdd80abd4e91695837fddce7a8afd0be173c7`.
 **All required PostgreSQL 13/16/18 jobs passed** in [run 37197251003](https://github.com/petestar26/trivia/actions/runs/37197251003).
-**Staging database upgrade completed; API/web rollout remains pending.** The user applied the first staging patch. Deployment `10340471-b1a2-4ebb-b6b3-f02279d6dc91` succeeded and emitted `USD_STAGING_SCHEMA_VERIFIED` at 2026-10-04T12:54:16Z: all three migrations applied, runtime grants verified, six packages present, zero enabled payment countries. Its deployed commit `5e772a4d29eaf07b6b3253b70420bfdbf08b2c73` adds documentation only to tested application `5bb4fbcc`. API/web remain on `6377b040da935e88e52cb01ffbd055c9210a31a9`. The subsequent application deployment request was cancelled by the Railway connector with “the user did not approve this action.” Production and live financial activation remain unchanged.
+**Staging schema, API and web deployment completed and browser smoke checks passed.** Actual deployed revision `c1877db48281249ae7ffd46d39b509eeeef6f815` contains only documentation changes after tested application `5bb4fbcc`. API deployment `13291fe9-3f0a-46b2-981e-d1685cd47afd`, web `f4246f43-54ec-412e-80fb-4f4104793009` and verification helper `08463597-c304-4a63-88f9-5c247c0690d7` all report SUCCESS. Production and live financial activation remain unchanged.
 
 ## Implemented
 
@@ -66,15 +66,16 @@ The independent final review should follow completion of the remaining provider 
 
 Three forward-only migrations add USD metadata, packages and guard protection. The staging-only operator validates the exact isolated database and migration checksums, refuses unrelated pending migrations, applies the USD migrations and adds only the required package-table/new-country-column permissions. Production is refused by the operator.
 
-The initial schema patch `6fb331da-a762-412b-88a5-a279b933d4eb` was applied and verified successfully. The next pending staging patch is `3316909e-b137-46b1-8e74-cc30cf29237a` in project PlayQuibe, environment `staging`. It contains nine serialized configuration changes across three services:
+The schema patch `6fb331da-a762-412b-88a5-a279b933d4eb` was applied and verified successfully by deployment `10340471-b1a2-4ebb-b6b3-f02279d6dc91`. The subsequent application patch `3316909e-b137-46b1-8e74-cc30cf29237a` was applied by the user. No staged changes remain in staging.
 
-1. API source: pin `spin-practice-api-20261002` to tested `5bb4fbcc2520ff0e09c780be0cb3d00d9476fe5f` on `feat/casino-wallet-review` (four source fields, including unchanged repo/branch and empty image removal).
-2. Web source: the same tested pin for `spin-practice-web-20261002` (four source fields).
-3. Setup helper: switch start command from `--apply` to `node apps/api/dist/scripts/staging-usd-payment-upgrade.js --verify`.
+- API deployment: `13291fe9-3f0a-46b2-981e-d1685cd47afd` — SUCCESS.
+- Web deployment: `f4246f43-54ec-412e-80fb-4f4104793009` — SUCCESS.
+- Setup helper: `08463597-c304-4a63-88f9-5c247c0690d7` — SUCCESS in `--verify` mode, reporting `USD_STAGING_SCHEMA_VERIFIED`, `applied:false`, six packages and zero enabled payment countries.
+- Actual deployed source is `c1877db48281249ae7ffd46d39b509eeeef6f815`, rather than the configured application pin; the intervening commits change only this report. Application source therefore matches tested `5bb4fbcc`. Future rollouts must continue checking actual deployed metadata instead of relying on the configured pin alone.
 
-Railway reports the pending patch as non-destructive; it contains no service, volume or data deletion. Its deployment approval was cancelled. No API/web deployment was triggered by that request.
+Browser verification after deployment: accepted the app-update reload, retained the signed-in user session, opened deposit, withdrawal, request history and wallet overview. Balance categories and empty histories rendered correctly. Both payment-entry screens correctly refuse new requests while no countries are enabled. Wallet/payment-options/payout-account API requests returned HTTP 200. Desktop wallet layout was visually inspected. Captured browser warnings/errors were extension metadata errors, not app-origin errors. No transaction or wager was submitted. Admin pricing forms, enabled-country settlement, mobile-device behavior and provider checkout were not exercised in this browser smoke test.
 
-Next: apply this staging-only patch, verify helper/API/web deployment logs and actual deployed revisions, then perform browser smoke checks. The new API/web candidate has **not** received post-deployment browser verification yet. The existing signed-in staging wallet was observed healthy before rollout.
+The prior PostgreSQL 13/16/18 matrix remains the test evidence for the unchanged application code; no new test run is claimed for these documentation-only commits.
 
 Production has a separate pending deletion which is not part of this patch. Live payment availability additionally needs configured country/method/rate policy, approved agents and inventory/liquidity, account eligibility and an operator-supervised settlement rehearsal.
 
