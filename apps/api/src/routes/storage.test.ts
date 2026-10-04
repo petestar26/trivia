@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import Fastify from 'fastify';
-import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 vi.mock('@socialplay/config',()=>({config:{STORAGE_LOCAL_PATH:''}}));
@@ -11,7 +11,7 @@ let server:ReturnType<typeof Fastify>;
 beforeEach(async()=>{
   root=await mkdtemp(join(tmpdir(),'storage-privacy-'));
   config.STORAGE_LOCAL_PATH=root;
-  for(const bucket of ['voice-messages','avatars']){
+  for(const bucket of ['voice-messages','voice-messages-copy','backup','avatars','group-images','gift-assets','game-assets']){
     await mkdir(join(root,bucket));
     await writeFile(join(root,bucket,'fixture.ogg'),'private-audio-fixture');
   }
@@ -26,8 +26,20 @@ it.each([{}, {authorization:'Bearer an-untrusted-token'}])('never serves a voice
   expect(missing.statusCode).toBe(response.statusCode);
   expect(missing.body).toBe(response.body);
 });
-it('retains the existing public avatar route',async()=>{
-  const response=await server.inject({url:'/storage/avatars/fixture.ogg'});
+it.each(['avatars','group-images','gift-assets','game-assets'])('retains public %s assets',async bucket=>{
+  const response=await server.inject({url:`/storage/${bucket}/fixture.ogg`});
   expect(response.statusCode).toBe(200);
   expect(response.body).toBe('private-audio-fixture');
+});
+
+it.each(['backup','voice-messages-copy','unknown','Voice-Messages','voice%2Dmessages'])('denies nonpublic bucket %s, including existing copies',async bucket=>{
+  const result=await server.inject({url:`/storage/${bucket}/fixture.ogg`});
+  expect(result.statusCode).toBe(404);
+  expect(result.body).not.toContain('private-audio-fixture');
+});
+it('does not follow a public-bucket symlink to private audio',async()=>{
+  await symlink(join(root,'voice-messages','fixture.ogg'),join(root,'avatars','linked.ogg'));
+  const result=await server.inject({url:'/storage/avatars/linked.ogg'});
+  expect(result.statusCode).toBe(404);
+  expect(result.body).not.toContain('private-audio-fixture');
 });

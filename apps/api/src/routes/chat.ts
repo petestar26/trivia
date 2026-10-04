@@ -589,7 +589,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       reply.header('Content-Type', message.voiceMessage.mimeType);
       reply.header('Content-Length', buffer.length);
       reply.header('Accept-Ranges', 'bytes');
-      reply.header('Cache-Control', 'private, max-age=3600');
+      reply.header('Cache-Control', 'private, no-store');
 
       reply.send(buffer);
     }
