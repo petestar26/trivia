@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { parseSpinBets, parseSpin90Bets, SPIN_RULES_ID, SPIN90_RULES_ID } from '@socialplay/shared';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { getOrCreateWallet } from '../economy/wallet-service.js';
 import { creditCoins, settleWagerCoins } from '../economy/coin-ledger-service.js';
 import { resolveJurisdictionForPlay, requirePlayableJurisdiction, requirePlatformGate } from '../economy/jurisdiction-service.js';

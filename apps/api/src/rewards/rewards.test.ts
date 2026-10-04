@@ -1,17 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { activateVip, getVip } from '../vip/vip-service';
-import { addXp, getProgress, levelForXp } from '../progress/progress-service';
+import { activateVip, getVip } from '../vip/vip-service.js';
+import { addXp, getProgress, levelForXp } from '../progress/progress-service.js';
 import {
   recordTaskEvent,
   claimTaskReward,
   listTasks,
   ensureTasks,
-} from '../tasks/task-service';
-import { recordActivity as recordStreak } from '../tasks/streak-service';
-import { grantReward } from '../rewards/reward-service';
-import { unlockAchievement, ensureAchievements } from '../rewards/achievement-service';
-import { getOrCreateWallet, getWalletBalance, reconcileBalance } from '../economy/wallet-service';
+} from '../tasks/task-service.js';
+import { recordActivity as recordStreak } from '../tasks/streak-service.js';
+import { grantReward } from '../rewards/reward-service.js';
+import { unlockAchievement, ensureAchievements } from '../rewards/achievement-service.js';
+import { getOrCreateWallet, getWalletBalance, reconcileBalance } from '../economy/wallet-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 // These are integration tests requiring a live PostgreSQL database.
@@ -153,6 +153,27 @@ describeIf('Daily tasks', () => {
     await cleanFixtures();
     a = await createUser('task');
     await ensureTasks();
+  });
+
+  it('serializes one-time task creation and grants its reward once', async () => {
+    const key = 'review_one_time_concurrent';
+    const definition = await prisma.taskDefinition.upsert({
+      where: { key },
+      update: { isActive: true },
+      create: { key, type: 'ONE_TIME', title: 'One-time fixture', target: 1, xpReward: 0, coinReward: 0, gamePointReward: 10 },
+    });
+    try {
+      await Promise.all(Array.from({ length: 3 }, () => recordTaskEvent(a.id, key)));
+      const rows = await prisma.userTask.findMany({ where: { userId: a.id, taskId: definition.id, periodKey: null } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'COMPLETED', progress: 1 });
+      const before = (await getWalletBalance(a.id)).gamePointsBalance;
+      const claims = await Promise.all([claimTaskReward(a.id, definition.id), claimTaskReward(a.id, definition.id)]);
+      expect(claims.filter((claim) => claim.granted)).toHaveLength(1);
+      expect((await getWalletBalance(a.id)).gamePointsBalance).toBe(before + 10);
+    } finally {
+      await prisma.taskDefinition.update({ where: { id: definition.id }, data: { isActive: false } });
+    }
   });
 
   it('daily login task completes when server records the event', async () => {

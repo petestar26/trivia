@@ -53,15 +53,17 @@ export async function registerPlugins(server: FastifyInstance): Promise<void> {
   await server.register(jwt, {
     secret: config.JWT_ACCESS_SECRET,
     sign: {
-      issuer: config.JWT_ISSUER,
-      audience: config.JWT_AUDIENCE,
+      iss: config.JWT_ISSUER,
+      aud: config.JWT_AUDIENCE,
       expiresIn: config.JWT_ACCESS_EXPIRY,
+    },
+    verify: {
+      allowedIss: config.JWT_ISSUER, allowedAud: config.JWT_AUDIENCE,
+      requiredClaims: ['sub', 'iss', 'aud', 'exp'],
     },
     cookie: {
       cookieName: 'sp_access_token',
       signed: false,
-      secure: config.COOKIE_SECURE,
-      sameSite: config.COOKIE_SAME_SITE,
     },
   });
 

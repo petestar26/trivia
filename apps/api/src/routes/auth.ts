@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
 import { registerSchema, loginSchema, RefreshTokenPayload } from '@socialplay/shared';
-import { ApiError, authenticate } from '../middleware';
+import { ApiError, authenticate } from '../middleware/index.js';
 import { ErrorCode } from '@socialplay/shared';
-import { generateTokens, hashPassword, verifyPassword } from '../utils/auth';
-import { safeRecordActivity } from '../rewards/activity-service';
+import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
+import { safeRecordActivity } from '../rewards/activity-service.js';
 import {
   canonicalizeReferralCode,
   isValidReferralCode,

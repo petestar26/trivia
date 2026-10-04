@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { utcDayKey } from '../utils/dates';
-import { applyXp } from '../progress/progress-service';
+import { ApiError } from '../middleware/index.js';
+import { utcDayKey } from '../utils/dates.js';
+import { applyXp } from '../progress/progress-service.js';
 
 export type TaskType = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'ONE_TIME';
 export type TaskStatus = 'IN_PROGRESS' | 'COMPLETED' | 'CLAIMED';
@@ -84,40 +84,21 @@ export async function recordTaskEvent(
   const xpRefId = periodKey ? `${def.id}:${periodKey}` : def.id;
 
   await prisma.$transaction(async (tx) => {
-    // Read the current row first so we do not increment progress on a task
-    // that has already reached a terminal state. The upsert below is still
-    // used for the atomic create-or-update, but the status check must happen
-    // before any write to prevent completed/claimed tasks from accumulating
-    // progress across duplicate events.
-    const existing = await tx.userTask.findUnique({
-      where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
+    // Serialize creation even for one-time tasks, whose nullable period key
+    // cannot be used by Prisma's composite unique lookup.
+    const scope = `task:${userId}:${def.id}:${periodKey ?? 'once'}`;
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended(${scope}, 0))) AS lock_wait`;
+    const existing = await tx.userTask.findFirst({
+      where: { userId, taskId: def.id, periodKey },
     });
 
     if (existing && (existing.status === 'COMPLETED' || existing.status === 'CLAIMED')) {
       return;
     }
 
-    // Use atomic increment to avoid lost-update races under concurrent
-    // activity (previously read-then-write absolute value clobbered
-    // concurrent increments).
-    const task = await tx.userTask.upsert({
-      where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
-      update: { progress: { increment: increment } },
-      create: { userId, taskId: def.id, periodKey, progress: increment },
-    });
-
-    // If a concurrent transaction completed/claimed the task between our
-    // findUnique and the upsert, ensure progress never exceeds the target and
-    // do not re-run completion side effects.
-    if (task.status === 'COMPLETED' || task.status === 'CLAIMED') {
-      if (task.progress > def.target) {
-        await tx.userTask.update({
-          where: { id: task.id },
-          data: { progress: def.target },
-        });
-      }
-      return;
-    }
+    const task = existing
+      ? await tx.userTask.update({ where: { id: existing.id }, data: { progress: { increment } } })
+      : await tx.userTask.create({ data: { userId, taskId: def.id, periodKey, progress: increment } });
 
     const cappedProgress = Math.min(task.progress, def.target);
     const completed = cappedProgress >= def.target;
@@ -154,14 +135,14 @@ export async function recordTaskEvent(
  */
 export async function claimTaskReward(userId: string, taskDefId: string) {
   // The client receives `id = TaskDefinition.id` from listTasks (not the
-  // UserTask primary key). Resolve the UserTask via the composite unique key.
+  // UserTask primary key). Match the task and its nullable recurrence period.
   const def = await prisma.taskDefinition.findUnique({ where: { id: taskDefId } });
   if (!def) throw ApiError.notFound('Task not found');
 
   const periodKey = def.type === 'DAILY' ? utcDayKey() : null;
 
-  const task = await prisma.userTask.findUnique({
-    where: { userId_taskId_periodKey: { userId, taskId: def.id, periodKey } },
+  const task = await prisma.userTask.findFirst({
+    where: { userId, taskId: def.id, periodKey },
     include: { task: true },
   });
 
@@ -175,7 +156,7 @@ export async function claimTaskReward(userId: string, taskDefId: string) {
   // If already claimed, delegate to the RewardClaim unique guard so a second
   // attempt returns `alreadyClaimed` rather than erroring.
   const periodSuffix = task.periodKey ? `:${task.periodKey}` : '';
-  return import('../rewards/reward-service').then(async ({ grantReward }) => {
+  return import('../rewards/reward-service.js').then(async ({ grantReward }) => {
     const result = await grantReward(userId, {
       sourceType: 'TASK',
       sourceId: `${task.taskId}${periodSuffix}`,
@@ -206,13 +187,11 @@ export async function listTasks(userId: string) {
 
   const tasks = await Promise.all(
     defs.map(async (def) => {
-      const userTask = await prisma.userTask.findUnique({
+      const userTask = await prisma.userTask.findFirst({
         where: {
-          userId_taskId_periodKey: {
             userId,
             taskId: def.id,
             periodKey: def.type === 'DAILY' ? periodKey : null,
-          },
         },
       });
 

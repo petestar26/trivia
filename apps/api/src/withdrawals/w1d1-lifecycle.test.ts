@@ -1,17 +1,17 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
-import { fundAgentFiatLiquidity } from './liquidity-service';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal } from './withdrawal-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
+import { fundAgentFiatLiquidity } from './liquidity-service.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal } from './withdrawal-service.js';
 import {
   listAssignedWithdrawals,
   getAssignedWithdrawal,
   claimPayout,
   submitPayment,
   cancelHeldWithdrawal,
-} from './withdrawal-service';
+} from './withdrawal-service.js';
 import { getWalletBalance } from '../economy/wallet-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 

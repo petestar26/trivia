@@ -1,13 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, ApiError } from '../middleware/index.js';
 import {
   startTotpEnrollment,
   activateTotpFactor,
   disableTotpFactor,
   listOwnFactors,
-} from './totp-service';
-import { performStepUp, setOwnStepUpPolicy, requiresStepUp } from './step-up-service';
+} from './totp-service.js';
+import { performStepUp, setOwnStepUpPolicy, requiresStepUp } from './step-up-service.js';
 
 /**
  * W-0 security routes.

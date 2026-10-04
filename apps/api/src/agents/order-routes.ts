@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate } from '../middleware';
+import { authenticate } from '../middleware/index.js';
 import {
   createAgentOrder,
   getAgentOrderById,
@@ -8,7 +8,7 @@ import {
   submitOrderPayment,
   cancelAgentOrder,
   settleAgentOrder,
-} from './order-service';
+} from './order-service.js';
 
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };

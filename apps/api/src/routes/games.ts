@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
-import { authenticate } from '../middleware';
+import { authenticate } from '../middleware/index.js';
 import { listActiveGames } from '../games/game-catalog.js';
 import { registerPublicProofRoutes } from '../games/scheduled/public-proof-routes.js';
 import { registerPracticeRoutes } from '../games/scheduled/practice-routes.js';

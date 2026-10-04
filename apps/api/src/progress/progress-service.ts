@@ -1,5 +1,5 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 export interface XpAward {
   amount: number;

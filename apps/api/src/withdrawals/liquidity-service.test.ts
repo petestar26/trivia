@@ -1,13 +1,13 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
 import {
   fundAgentFiatLiquidity,
   adjustAgentFiatLiquidity,
   getAgentFiatLiquidity,
   listAgentFiatLiquidity,
   getAgentFiatLiquidityLedger,
-} from './liquidity-service';
+} from './liquidity-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

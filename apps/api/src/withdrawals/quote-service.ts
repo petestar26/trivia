@@ -1,6 +1,6 @@
-import { prisma, Prisma } from '@socialplay/database';
+import { prisma, Prisma, type WithdrawalQuote } from '@socialplay/database';
 import { createHash } from 'node:crypto';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 // W-1B Task A: withdrawal quote service.
 //
@@ -66,18 +66,7 @@ function computeQuoteRequestHash(userId: string, countryId: string, coinAmount: 
 export async function createWithdrawalQuote(
   actorUserId: string,
   args: CreateWithdrawalQuoteArgs
-): Promise<{
-  id: string;
-  userId: string;
-  countryId: string;
-  fiatCurrency: string;
-  coinAmount: number;
-  fiatAmount: bigint;
-  exchangeRateConfigId: string;
-  exchangeRateValue: Prisma.Decimal;
-  expiresAt: Date;
-  createdAt: Date;
-}> {
+): Promise<WithdrawalQuote> {
   validateArgs(args);
 
   const country = await prisma.country.findUnique({ where: { id: args.countryId } });

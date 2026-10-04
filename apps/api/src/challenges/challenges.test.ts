@@ -8,9 +8,9 @@ import {
   playChallengeTurn,
   getUserChallenges,
   getChallengeById,
-} from './challenge-service';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
-import { ApiError } from '../middleware';
+} from './challenge-service.js';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service.js';
+import { ApiError } from '../middleware/index.js';
 import { getGameHistory } from '../games/game-play.js';
 import { publishNextRulesVersion } from '../test/contest-rules-fixtures.js';
 
@@ -543,7 +543,7 @@ describeIf('Challenge accept/decline race hardening', () => {
     // Simulate a cancel that is mid-flight: lock the challenge row, refund
     // the challenger, set CANCELLED, and hold it all uncommitted while the
     // decline runs and blocks.
-    const outcome: { decline?: { ok: boolean; error?: unknown } } = {};
+    const outcome: { decline?: Promise<{ ok: boolean; error?: unknown }> } = {};
     await prisma.$transaction(async (ctlTx) => {
       await ctlTx.$queryRaw`SELECT "status" FROM "game_challenges" WHERE "id" = ${chal.id} FOR UPDATE`;
       await applyBalanceChanges(ctlTx, challenger.id, [

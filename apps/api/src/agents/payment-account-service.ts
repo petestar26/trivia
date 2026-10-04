@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { AGENT_SELF_SERVICE_STATUSES, assertPlatformAdmin } from './agent-service';
+import { ApiError } from '../middleware/index.js';
+import { AGENT_SELF_SERVICE_STATUSES, assertPlatformAdmin } from './agent-service.js';
 
 // ─── accountDetails validation against a method's fieldSchema ───
 //

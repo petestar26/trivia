@@ -1,14 +1,14 @@
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { ApiError } from '../middleware';
-import { encryptSecret, decryptSecret, isTotpEncryptionConfigured } from './crypto';
+import { ApiError } from '../middleware/index.js';
+import { encryptSecret, decryptSecret, isTotpEncryptionConfigured } from './crypto.js';
 import {
   generateTotpSecret,
   verifyTotpCode,
   buildOtpAuthUri,
   TOTP_DIGITS,
-} from './totp';
-import { issueChallenge, consumeChallenge } from './challenge-service';
+} from './totp.js';
+import { issueChallenge, consumeChallenge } from './challenge-service.js';
 
 /**
  * TOTP factor lifecycle (W-0).
@@ -124,7 +124,7 @@ export async function startTotpEnrollment(
   return {
     otpauthUri: buildOtpAuthUri({
       secret,
-      accountName: user.email,
+      accountName: user.email ?? userId,
       issuer: config.JWT_ISSUER,
     }),
     secret,

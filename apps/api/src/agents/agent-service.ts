@@ -1,5 +1,5 @@
-import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { prisma, type AgentStatus, type NotificationType } from '@socialplay/database';
+import { ApiError } from '../middleware/index.js';
 
 const PLATFORM_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
 
@@ -30,7 +30,7 @@ export async function assertPlatformAdmin(userId: string) {
 // Every status-changing function below claims a transition FROM this table,
 // never an ad-hoc check — this is what keeps "only legal transitions occur"
 // provable in one place rather than scattered per-function.
-const LEGAL_AGENT_TRANSITIONS: Record<string, string[]> = {
+const LEGAL_AGENT_TRANSITIONS: Record<AgentStatus, AgentStatus[]> = {
   PENDING_VERIFICATION: ['ACTIVE'], // via application approval only
   ACTIVE: ['TEMPORARILY_SUSPENDED', 'UNDER_REVIEW', 'DISABLED'],
   TEMPORARILY_SUSPENDED: ['ACTIVE', 'DISABLED'],
@@ -410,9 +410,9 @@ export async function rejectAgentApplication(
 async function changeAgentStatus(
   adminId: string,
   agentId: string,
-  targetStatus: string,
+  targetStatus: AgentStatus,
   action: string,
-  notificationType: string | null,
+  notificationType: NotificationType | null,
   notificationBody: string | null,
   reason: string | undefined,
   context?: { ip?: string; userAgent?: string }
@@ -426,9 +426,8 @@ async function changeAgentStatus(
       throw ApiError.forbidden('You cannot change the status of your own agent account');
     }
 
-    const legalFrom = Object.entries(LEGAL_AGENT_TRANSITIONS)
-      .filter(([, to]) => to.includes(targetStatus))
-      .map(([from]) => from);
+    const legalFrom = (Object.keys(LEGAL_AGENT_TRANSITIONS) as AgentStatus[])
+      .filter((from) => LEGAL_AGENT_TRANSITIONS[from].includes(targetStatus));
 
     if (!legalFrom.includes(before.status)) {
       throw ApiError.badRequest(

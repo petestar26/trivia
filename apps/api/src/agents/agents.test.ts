@@ -10,7 +10,7 @@ import {
   disableAgent,
   requireOwnAgent,
   getAgentApplicationHistory,
-} from './agent-service';
+} from './agent-service.js';
 import {
   createAgentPaymentAccount,
   updateAgentPaymentAccount,
@@ -18,7 +18,7 @@ import {
   rejectAgentPaymentAccount,
   disableOwnPaymentAccount,
   adminDisablePaymentAccount,
-} from './payment-account-service';
+} from './payment-account-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

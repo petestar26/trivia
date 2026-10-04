@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
-import { reserveInventory, releaseReservedInventory, consumeReservedInventory } from './inventory-service';
+import { reserveInventory, releaseReservedInventory, consumeReservedInventory } from './inventory-service.js';
 
 export interface CreateAgentOrderArgs {
   agentId: string;

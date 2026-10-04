@@ -1,9 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
-import { ApiError } from '../middleware/api-error';
+import { ApiError } from '../middleware/api-error.js';
 
 const db = vi.hoisted(() => ({ session: {
   findUnique: vi.fn(), delete: vi.fn(), create: vi.fn(), deleteMany: vi.fn(),
@@ -17,18 +17,18 @@ vi.mock('@socialplay/config', () => ({ config: {
   COOKIE_SECURE: true, COOKIE_SAME_SITE: 'lax', RATE_LIMIT_AUTH_MAX_REQUESTS: 10, RATE_LIMIT_AUTH_WINDOW_MS: 900000,
 } }));
 vi.mock('../middleware', async () => {
-  const { ApiError } = await import('../middleware/api-error');
+  const { ApiError } = await import('../middleware/api-error.js');
   return { ApiError, authenticate: async (request: any) => {
     try { request.user = await request.jwtVerify(); } catch { throw ApiError.unauthorized('Expired'); }
   } };
 });
 vi.mock('../rewards/activity-service', () => ({ safeRecordActivity: vi.fn() }));
 vi.mock('../referrals/referral-service.js', () => ({ canonicalizeReferralCode: vi.fn(), isValidReferralCode: vi.fn(), generateUniqueReferralCode: vi.fn() }));
-import { authRoutes } from './auth';
-import { generateTokens } from '../utils/auth';
+import { authRoutes } from './auth.js';
+import { generateTokens } from '../utils/auth.js';
 import { config } from '@socialplay/config';
 
-let server: ReturnType<typeof Fastify>;
+let server: FastifyInstance;
 let token: string;
 beforeEach(async () => {
   vi.resetAllMocks();

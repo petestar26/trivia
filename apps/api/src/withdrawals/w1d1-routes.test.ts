@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { buildServer } from '../server';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, claimPayout, submitPayment } from './withdrawal-service';
-import { fundAgentFiatLiquidity } from './liquidity-service';
+import { buildServer } from '../server.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal, claimPayout, submitPayment } from './withdrawal-service.js';
+import { fundAgentFiatLiquidity } from './liquidity-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
 
 // W-1D1 route-level tests.
 //

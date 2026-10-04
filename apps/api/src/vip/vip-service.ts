@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { unlockAchievement } from '../rewards/achievement-service';
+import { ApiError } from '../middleware/index.js';
+import { unlockAchievement } from '../rewards/achievement-service.js';
 
 export type VipTier = 'SILVER' | 'GOLD' | 'PLATINUM';
 export type VipStatus = 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'PENDING';

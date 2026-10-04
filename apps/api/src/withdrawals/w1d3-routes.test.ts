@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { buildServer } from '../server';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, claimPayout } from './withdrawal-service';
-import { fundAgentFiatLiquidity } from './liquidity-service';
+import { buildServer } from '../server.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal, claimPayout } from './withdrawal-service.js';
+import { fundAgentFiatLiquidity } from './liquidity-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
 
 // W-1D3 route-level tests.
 //
@@ -208,7 +208,7 @@ describe(`W-1D3: withdrawal timeout sweep / reconciliation routes ${PREFIX}`, ()
       const plainUser = await createUser(`plain-${tag}`);
       const plainToken = mintToken(plainUser);
 
-      const checks: Array<{ method: 'GET' | 'POST'; url: string; payload?: unknown }> = [
+      const checks: Array<{ method: 'GET' | 'POST'; url: string; payload?: Record<string, unknown> }> = [
         { method: 'POST', url: `${PREFIX}/admin/sweeps/timeouts`, payload: {} },
         { method: 'GET', url: `${PREFIX}/admin/reconciliation` },
       ];

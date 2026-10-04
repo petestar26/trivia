@@ -2,11 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@prisma/client';
 import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
-import { submitAgentApplication, approveAgentApplication } from './agent-service';
-import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
-import { fundAgentInventory, getAgentInventory } from './inventory-service';
-import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service';
-import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service';
+import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
+import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
+import { fundAgentInventory, getAgentInventory } from './inventory-service.js';
+import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service.js';
+import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

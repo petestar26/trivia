@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { utcDayKey, previousDayKey } from '../utils/dates';
+import { ApiError } from '../middleware/index.js';
+import { utcDayKey, previousDayKey } from '../utils/dates.js';
 
 export interface StreakSnapshot {
   userId: string;

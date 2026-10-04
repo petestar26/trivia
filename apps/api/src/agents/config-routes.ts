@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate, requirePermission } from '../middleware';
+import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   createCountry,
   setCountryFlags,
@@ -12,7 +12,7 @@ import {
   getActiveExchangeRate,
   listExchangeRates,
   PaymentMethodTypeValue,
-} from './config-service';
+} from './config-service.js';
 
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };

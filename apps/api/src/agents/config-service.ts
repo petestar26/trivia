@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { assertPlatformAdmin } from './agent-service';
+import { ApiError } from '../middleware/index.js';
+import { assertPlatformAdmin } from './agent-service.js';
 
 // Phase H scope: admin configuration management for Country,
 // PaymentMethodDefinition, and ExchangeRateConfig — the "─── Configuration

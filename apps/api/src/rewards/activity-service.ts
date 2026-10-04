@@ -1,7 +1,7 @@
-import { recordActivity as recordStreak, getStreak } from '../tasks/streak-service';
-import { recordTaskEvent } from '../tasks/task-service';
-import { unlockAchievement } from './achievement-service';
-import { getProgress } from '../progress/progress-service';
+import { recordActivity as recordStreak, getStreak } from '../tasks/streak-service.js';
+import { recordTaskEvent } from '../tasks/task-service.js';
+import { unlockAchievement } from './achievement-service.js';
+import { getProgress } from '../progress/progress-service.js';
 
 export type ActivityEventType =
   | 'LOGIN'

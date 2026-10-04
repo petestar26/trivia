@@ -1,12 +1,12 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
-import { fundAgentFiatLiquidity } from './liquidity-service';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal, claimPayout, submitPayment } from './withdrawal-service';
-import { escalateWithdrawalToDispute, claimWithdrawalDispute, resolveWithdrawalDispute } from './dispute-service';
-import { sweepWithdrawalTimeouts } from './timeout-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
+import { fundAgentFiatLiquidity } from './liquidity-service.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal, claimPayout, submitPayment } from './withdrawal-service.js';
+import { escalateWithdrawalToDispute, claimWithdrawalDispute, resolveWithdrawalDispute } from './dispute-service.js';
+import { sweepWithdrawalTimeouts } from './timeout-service.js';
 import { getWalletBalance } from '../economy/wallet-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 

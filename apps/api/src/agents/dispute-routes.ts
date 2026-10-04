@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate, requirePermission } from '../middleware';
+import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   openDispute,
   getDisputeById,
@@ -8,7 +8,7 @@ import {
   resolveDispute,
   DisputeReason,
   DisputeResolutionValue,
-} from './dispute-service';
+} from './dispute-service.js';
 
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };

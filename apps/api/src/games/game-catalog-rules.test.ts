@@ -11,7 +11,7 @@ vi.mock('@socialplay/database', () => ({
 }));
 
 describe('Spin Win catalog rule identity', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => { vi.resetAllMocks(); });
 
   it('reads the pinned rule identity so the client can select its payout table', async () => {
     db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: 2 }]);

@@ -11,7 +11,7 @@ import {
   deactivateExchangeRate,
   getActiveExchangeRate,
   listExchangeRates,
-} from './config-service';
+} from './config-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { assertPlatformAdmin } from '../agents/agent-service';
-import { assertSuperAdmin } from '../agents/inventory-service';
+import { ApiError } from '../middleware/index.js';
+import { assertPlatformAdmin } from '../agents/agent-service.js';
+import { assertSuperAdmin } from '../agents/inventory-service.js';
 
 // W-1B1 Task C: admin fiat liquidity service.
 //

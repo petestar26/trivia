@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
 import { FastifyInstance } from 'fastify';
-import { ApiError, authenticate } from '../middleware';
-import { getWalletBalance, getWalletTransactions } from '../economy/wallet-service';
+import { ApiError, authenticate } from '../middleware/index.js';
+import { getWalletBalance, getWalletTransactions } from '../economy/wallet-service.js';
 
 export async function walletRoutes(server: FastifyInstance): Promise<void> {
   server.addHook('onSend', async (_request, reply, payload) => {

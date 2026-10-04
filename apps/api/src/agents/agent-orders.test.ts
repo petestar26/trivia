@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from './agent-service';
-import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
-import { fundAgentInventory, adjustAgentInventory, getAgentInventory, getAgentInventoryLedger } from './inventory-service';
+import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
+import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
+import { fundAgentInventory, adjustAgentInventory, getAgentInventory, getAgentInventoryLedger } from './inventory-service.js';
 import {
   createAgentOrder,
   getAgentOrderById,
   submitOrderPayment,
   cancelAgentOrder,
   settleAgentOrder,
-} from './order-service';
+} from './order-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

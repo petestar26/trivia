@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import type { Prisma, WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { finalizeWithdrawalCoins, lockUserEconomicScope, releaseWithdrawalCoins } from '../economy/coin-ledger-service.js';
-import { consumeReservedLiquidity, releaseReservedLiquidity } from './liquidity-service';
+import { consumeReservedLiquidity, releaseReservedLiquidity } from './liquidity-service.js';
 import { lockWithdrawalParticipants } from './lock-order.js';
 
 type RequestContext = { ip?: string; userAgent?: string };

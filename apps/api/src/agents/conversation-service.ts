@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { emitToUser } from '../realtime/broadcast';
-import { assertPlatformAdmin, AGENT_SELF_SERVICE_STATUSES } from './agent-service';
+import { ApiError } from '../middleware/index.js';
+import { emitToUser } from '../realtime/broadcast.js';
+import { assertPlatformAdmin, AGENT_SELF_SERVICE_STATUSES } from './agent-service.js';
 
 // Phase G scope note: this implements exactly what the schema defines under
 // "Admin ↔ agent communication" — ONE conversation per agent

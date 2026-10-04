@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { randomUUID } from 'node:crypto';
-import { createWithdrawalQuote, getOwnWithdrawalQuote, listOwnWithdrawalQuotes } from './quote-service';
+import { createWithdrawalQuote, getOwnWithdrawalQuote, listOwnWithdrawalQuotes } from './quote-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
 
 const navigation = [
@@ -21,6 +21,10 @@ interface SidebarProps {
 
 export function Sidebar({ onNavigate }: SidebarProps = {}) {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
+  const casinoTable = ['/games/dice', '/games/turbo-keno', '/games/spin-win'].some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 h-full">
@@ -31,14 +35,20 @@ export function Sidebar({ onNavigate }: SidebarProps = {}) {
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {navigation.map((item) => {
+            const active = item.href === '/casino'
+              ? casinoTable || pathname === '/casino'
+              : item.href === '/games'
+                ? !casinoTable && (pathname === '/games' || pathname.startsWith('/games/'))
+                : pathname === item.href || (item.href !== '/' && pathname.startsWith(`${item.href}/`));
             return (
-              <NavLink
+              <Link
                 key={item.name}
                 to={item.href}
                 onClick={onNavigate}
-                className={({ isActive }) =>
+                aria-current={active ? 'page' : undefined}
+                className={
                   `flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors ${
-                    isActive
+                    active
                       ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                   }`
@@ -46,7 +56,7 @@ export function Sidebar({ onNavigate }: SidebarProps = {}) {
               >
                 <item.icon className="mr-3 h-5 w-5" aria-hidden="true" />
                 {item.name}
-              </NavLink>
+              </Link>
             );
           })}
         </nav>

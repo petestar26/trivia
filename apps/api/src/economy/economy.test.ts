@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import {
   getWalletBalance,
   getOrCreateWallet,
   executeBalanceChange,
   reconcileBalance,
-} from '../economy/wallet-service';
-import { sendGift, getGiftById } from '../economy/gift-service';
+} from '../economy/wallet-service.js';
+import { sendGift, getGiftById } from '../economy/gift-service.js';
 import { createUserPayoutAccount } from '../withdrawals/payout-account-service.js';
 import { executeTestAdjustment } from '../test/adjustment-fixtures.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
@@ -174,7 +174,7 @@ describeIf('Ledger', () => {
   it('credit creates a ledger entry with correct before/after', async () => {
     await primeCoins(a.id, 100);
 
-    const tx = await prisma.walletTransaction.findFirst({
+    const tx = await prisma.walletTransaction.findFirstOrThrow({
       where: { userId: a.id },
       orderBy: { createdAt: 'desc' },
     });
@@ -270,7 +270,7 @@ describeIf('Gifts', () => {
     expect(recipientAfter).toBe(recipientBefore + 50);
 
     // GiftTransaction + two WalletTransactions created
-    const gt = await prisma.giftTransaction.findFirst({ where: { senderId: a.id } });
+    const gt = await prisma.giftTransaction.findFirstOrThrow({ where: { senderId: a.id } });
     expect(gt.quantity).toBe(1);
     expect(gt.coinPriceAtTransaction).toBe(100);
     expect(gt.pointValueAtTransaction).toBe(50);

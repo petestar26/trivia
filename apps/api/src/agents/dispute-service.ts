@@ -1,8 +1,8 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
-import { assertPlatformAdmin } from './agent-service';
-import { releaseReservedInventory, consumeReservedInventory } from './inventory-service';
+import { assertPlatformAdmin } from './agent-service.js';
+import { releaseReservedInventory, consumeReservedInventory } from './inventory-service.js';
 
 // Phase F scope note: only the manually-initiated dispute path is
 // implemented here (customer or agent opens a dispute; an admin claims and

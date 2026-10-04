@@ -176,7 +176,10 @@ describe('dormant Spin Win draw and ticket settlement', () => {
       reservedAmount: 0, progressAmount: 0,
     });
     expect(lots.filter((lot) => lot.lotClass === 'WITHDRAWABLE')
-      .reduce((total, lot) => total + lot.availableAmount, 0)).toBe(2704);
+      .reduce((total, lot) => {
+        if (lot.availableAmount === null) throw new Error('Settled lot must have an available amount');
+        return total + lot.availableAmount;
+      }, 0)).toBe(2704);
     expect(lots.find((lot) => lot.parentLotId === f.bonusLotId)).toMatchObject({
       lotClass: 'WITHDRAWABLE', availableAmount: 1292,
     });

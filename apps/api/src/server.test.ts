@@ -1,4 +1,4 @@
-import { buildServer } from './server';
+import { buildServer } from './server.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 describe('API Server', () => {

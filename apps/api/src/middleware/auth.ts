@@ -1,7 +1,7 @@
 import { prisma } from '@socialplay/database';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { JwtPayload, ErrorCode } from '@socialplay/shared';
-import { ApiError } from './error-handler';
+import { ApiError } from './error-handler.js';
 
 // Canonical @fastify/jwt user augmentation. The plugin type-checks the
 // decoded access token against `FastifyJWT.user`; this replaces the previous

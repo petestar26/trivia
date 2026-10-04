@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate, requirePermission, ApiError } from '../middleware';
+import { authenticate, requirePermission, ApiError } from '../middleware/index.js';
 import {
   submitAgentApplication,
   approveAgentApplication,
@@ -11,7 +11,7 @@ import {
   requireOwnAgent,
   getAgentApplicationHistory,
   listSubmittedApplications,
-} from './agent-service';
+} from './agent-service.js';
 import {
   createAgentPaymentAccount,
   updateAgentPaymentAccount,
@@ -21,13 +21,13 @@ import {
   adminDisablePaymentAccount,
   listOwnPaymentAccounts,
   listPendingPaymentAccounts,
-} from './payment-account-service';
+} from './payment-account-service.js';
 import {
   fundAgentInventory,
   adjustAgentInventory,
   getAgentInventory,
   getAgentInventoryLedger,
-} from './inventory-service';
+} from './inventory-service.js';
 
 // Fields returned for an agent's OWN payment accounts: everything except
 // nothing is withheld from the owner, but accountDetails is still opaque

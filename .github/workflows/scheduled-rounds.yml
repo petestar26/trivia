@@ -172,6 +172,8 @@ jobs:
             status: 'REFUSED', stage: 'TARGET', reason: 'STAGING_REHEARSAL_FAILED',
           });
           NODE
+      - name: Full API TypeScript contracts
+        run: pnpm --filter api typecheck
       - name: Economics and embedded SQL contracts
         run: |
           # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
@@ -193,6 +195,16 @@ jobs:
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
         run: pnpm --filter api exec vitest run src/agents src/withdrawals --maxWorkers=1 --minWorkers=1
+      - name: Legacy API compatibility and task concurrency
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/rewards/rewards.test.ts src/rewards/level-milestone.test.ts
+          src/challenges/challenges.test.ts src/competitions/competitions.test.ts
+          src/economy/economy.test.ts src/economy/wallet-service.test.ts
+          src/routes/auth.test.ts src/security/security.test.ts src/worker.test.ts
+          --maxWorkers=1 --minWorkers=1
       - name: Predeploy runtime identity guard
         run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Existing ledger guard regressions

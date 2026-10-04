@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma, type Prisma } from '@socialplay/database';
-import { ApiError, authenticate } from '../middleware';
+import { ApiError, authenticate } from '../middleware/index.js';
 import { ErrorCode } from '@socialplay/shared';
-import { safeRecordActivity } from '../rewards/activity-service';
+import { safeRecordActivity } from '../rewards/activity-service.js';
 import {
   ADMISSION_PERMITTED_GROUP_STATUSES,
   ADMISSION_PERMITTED_USER_STATUSES,

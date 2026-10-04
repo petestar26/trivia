@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 // W-1D3: withdrawal timeout sweep.
 //

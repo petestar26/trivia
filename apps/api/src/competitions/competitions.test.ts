@@ -9,8 +9,8 @@ import {
   finalizeCompetition,
   getCompetitionForGroup,
   listCompetitionsForGroup,
-} from './competition-service';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service';
+} from './competition-service.js';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges } from '../economy/wallet-service.js';
 import { getGameHistory } from '../games/game-play.js';
 import { publishNextRulesVersion } from '../test/contest-rules-fixtures.js';
 
@@ -711,17 +711,24 @@ describeIf('Trivia competition', () => {
     const result = await playCompetition(player.id, competitionId);
     expect(result).toHaveProperty('phase', 'question');
     expect(result).toHaveProperty('question');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).toHaveProperty('id');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).toHaveProperty('question');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).toHaveProperty('choices');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).toHaveProperty('category');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).toHaveProperty('difficulty');
+    if (!('question' in result)) throw new Error('Expected a trivia question');
     expect(result.question).not.toHaveProperty('correctIndex');
   });
 
   it('Phase 2: scores a correct answer and increments score', async () => {
     // First, get a question
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     expect(phase1.phase).toBe('question');
     const questionId = phase1.question!.id;
 
@@ -744,17 +751,21 @@ describeIf('Trivia competition', () => {
 
   it('Phase 2: wrong answer awards zero score', async () => {
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
-    const wrongAnswer = (q!.correctIndex + 1) % q!.choices.length;
+    if (!q || !Array.isArray(q.choices)) throw new Error('Expected trivia choices');
+    const wrongAnswer = (q!.correctIndex + 1) % q.choices.length;
 
     const result = await playCompetition(player.id, competitionId, {
       questionId,
       answerIndex: wrongAnswer,
     });
 
+    if (!('phase' in result)) throw new Error('Expected a trivia phase');
     expect(result.phase).toBe('answer');
     expect(result.score).toBe(0);
+    if (!result.result) throw new Error('Expected answer result');
     expect(result.result.correct).toBe(false);
     // Score should not increment, but gamesPlayed should increment
     expect(result.accumulatedScore).toBe(1000); // previous score
@@ -763,6 +774,7 @@ describeIf('Trivia competition', () => {
 
   it('rejects duplicate attempt on same question in same competition', async () => {
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
     const correctAnswer = q!.correctIndex;
@@ -817,6 +829,7 @@ describeIf('Trivia competition', () => {
     const { userId, competitionId: compId } = await freshTriviaParticipant('tdupe');
 
     const phase1 = await playCompetition(userId, compId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
     const correctAnswer = q!.correctIndex;
@@ -843,12 +856,14 @@ describeIf('Trivia competition', () => {
 
     // Answer first question
     let phase1 = await playCompetition(userId, compId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     let questionId = phase1.question!.id;
     const q1 = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
     await playCompetition(userId, compId, { questionId, answerIndex: q1!.correctIndex });
 
     // Get a different question (Phase 1 should skip already-answered)
     phase1 = await playCompetition(userId, compId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     expect(phase1.question!.id).not.toBe(q1!.id);
 
     const q2 = await prisma.triviaQuestion.findUnique({ where: { id: phase1.question!.id } });
@@ -922,6 +937,7 @@ describeIf('Trivia competition', () => {
 
   it('rejects fake score from client', async () => {
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = phase1.question!.id;
     // Derive a guaranteed-wrong answer from the actual question, matching the
     // pattern used by 'Phase 2: wrong answer awards zero score' above. The
@@ -930,7 +946,8 @@ describeIf('Trivia competition', () => {
     // correctIndex 0, and Phase 1 serves a random question, so this test
     // intermittently submitted a CORRECT answer and legitimately scored 1000.
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
-    const wrongAnswer = (q!.correctIndex + 1) % q!.choices.length;
+    if (!q || !Array.isArray(q.choices)) throw new Error('Expected trivia choices');
+    const wrongAnswer = (q!.correctIndex + 1) % q.choices.length;
 
     // Client tries to manipulate by sending fake score in clientData
     // (The backend ignores client-provided score and computes server-side)
@@ -1251,6 +1268,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
 
     const result = await finalizeCompetition(attacker.id, comp.id);
     expect(result.status).toBe('COMPLETED');
+    if (!('winnerIds' in result)) throw new Error('Expected finalized winners');
     expect(result.winnerIds).toEqual([]); // zero-play participant is not a winner
 
     // Escrow returns to the funder — net effect is exactly zero, NOT a mint.
@@ -1335,6 +1353,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
     await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
 
+    if (!('winnerIds' in result)) throw new Error('Expected finalized winners');
     expect(result.winnerIds).toContain(player1.id);
     const after = (await getWalletBalance(player1.id)).gamePointsBalance;
     expect(after).toBe(before + 300);
@@ -1360,6 +1379,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
     await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
 
+    if (!('winnerIds' in result)) throw new Error('Expected finalized winners');
     expect(result.winnerIds).toEqual([player1.id]);
     const after2 = (await getWalletBalance(player2.id)).gamePointsBalance;
     expect(after2).toBe(before2); // freeloader gets nothing
@@ -1383,6 +1403,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
 
     await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
+    if (!('winnerIds' in result)) throw new Error('Expected finalized winners');
     expect(result.winnerIds).toEqual([]);
 
     // Full escrow released — nothing stranded.
@@ -1424,6 +1445,7 @@ describeIf('Competition prize escrow and reward minting (P0)', () => {
 
     await forceEnd(comp.id);
     const result = await finalizeCompetition(owner.id, comp.id);
+    if (!('winnerIds' in result)) throw new Error('Expected finalized winners');
     expect(result.winnerIds.sort()).toEqual([player1.id, player2.id].sort());
 
     const a1 = (await getWalletBalance(player1.id)).gamePointsBalance;
@@ -2171,6 +2193,7 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
   it('accepts a valid integer guess', async () => {
     const comp = await newCompetition('number_challenge', 'Guess Integer OK');
     const result = await playCompetition(player.id, comp.id, { guess: 42 });
+    if (!result.result || !('guess' in result.result)) throw new Error('Expected guess result');
     expect(result.result.guess).toBe(42);
     expect(result.gamesPlayed).toBe(1);
   });
@@ -2211,6 +2234,7 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
   it('a missing guess still defaults to 50 (preserves prior valid behavior)', async () => {
     const comp = await newCompetition('number_challenge', 'Guess Default');
     const result = await playCompetition(player.id, comp.id, {});
+    if (!result.result || !('guess' in result.result)) throw new Error('Expected guess result');
     expect(result.result.guess).toBe(50);
   });
 
@@ -2240,12 +2264,14 @@ describeIf('Non-trivia competition play limit (P1-3)', () => {
     // never be gated by a play-count cap.
     for (let i = 0; i < MAX_PLAYS + 3; i++) {
       const phase1 = await playCompetition(player2.id, comp.id);
+      if (!('question' in phase1)) throw new Error('Expected a trivia question');
       expect(phase1.phase).toBe('question');
     }
 
     // Per-question anti-replay (Phase 6I) is still intact: answering the
     // same question twice is rejected.
     const phase1 = await playCompetition(player2.id, comp.id);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = phase1.question!.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
     const answer = await playCompetition(player2.id, comp.id, { questionId, answerIndex: q!.correctIndex });
@@ -2365,6 +2391,7 @@ describeIf('Trivia post-finalization scoring (P2 regression)', () => {
     const competitionId = await makeActiveTriviaComp('Trivia Finalize Sequential');
 
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = (phase1 as { question: { id: string } }).question.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
 
@@ -2394,6 +2421,7 @@ describeIf('Trivia post-finalization scoring (P2 regression)', () => {
       const competitionId = await makeActiveTriviaComp(`Trivia Finalize Race ${i}`);
 
       const phase1 = await playCompetition(player.id, competitionId);
+      if (!('question' in phase1)) throw new Error('Expected a trivia question');
       const questionId = (phase1 as { question: { id: string } }).question.id;
       const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
 
@@ -2434,6 +2462,7 @@ describeIf('Trivia post-finalization scoring (P2 regression)', () => {
     const competitionId = await makeActiveTriviaComp('Trivia Finalize Payout');
 
     const phase1 = await playCompetition(player.id, competitionId);
+    if (!('question' in phase1)) throw new Error('Expected a trivia question');
     const questionId = (phase1 as { question: { id: string } }).question.id;
     const q = await prisma.triviaQuestion.findUnique({ where: { id: questionId } });
 

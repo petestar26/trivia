@@ -1,8 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import { ApiError, authenticate } from '../middleware';
-import { listActiveGifts, sendGift, getGiftTransactions } from '../economy/gift-service';
-import { emitToUser } from '../realtime/broadcast';
-import { safeRecordActivity } from '../rewards/activity-service';
+import { ApiError, authenticate } from '../middleware/index.js';
+import { listActiveGifts, sendGift, getGiftTransactions } from '../economy/gift-service.js';
+import { emitToUser } from '../realtime/broadcast.js';
+import { safeRecordActivity } from '../rewards/activity-service.js';
 
 export async function giftRoutes(server: FastifyInstance): Promise<void> {
   // GET /gifts — list active gifts (catalog)
