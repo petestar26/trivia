@@ -243,9 +243,10 @@ class ApiClient {
     });
   }
 
-  async patch<T>(endpoint: string, body: unknown): Promise<ApiResponse<T>> {
+  async patch<T>(endpoint: string, body: unknown, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
       method: 'PATCH',
+      signal: options?.signal,
       body: JSON.stringify(body),
     });
   }

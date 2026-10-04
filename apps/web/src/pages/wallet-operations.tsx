@@ -1,3 +1,4 @@
+import { WalletSetupAdmin } from './wallet-setup-admin';
 import { WalletPricingAdmin } from './wallet-pricing-admin';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -110,7 +111,7 @@ function Operations({ userId }: { userId: string }) {
         <p>Confirm evidence and the exact request before changing its state.</p>
       </header>
       <PaymentNavigation />
-      {admin && <WalletPricingAdmin />}
+      {admin && <><WalletSetupAdmin /><WalletPricingAdmin /></>}
       {action.message && (
         <p role="status" className="payment-disclosure">
           {action.message}

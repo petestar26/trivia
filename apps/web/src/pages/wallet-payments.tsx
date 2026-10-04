@@ -23,7 +23,7 @@ type Agent = {
   maxOrderAmount: number | null;
   paymentAccounts: { id: string; methodDef: { name: string } }[];
 };
-type Options = { countries: Country[]; agents: Agent[]; isAgent: boolean; isAdmin: boolean };
+type Options = { countries: Country[]; agents: Agent[]; isAgent: boolean; isAdmin: boolean; crypto?: { assets: { symbol: string; name: string; network: string; available: boolean; reason: string }[] } };
 type Payment = {
   id: string;
   orderNumber?: string;
@@ -301,10 +301,23 @@ function Payments({ userId }: { userId: string }) {
         </div>
       ) : (
         <>
+          <Link className="payment-link" to="/wallet/agent-setup">Payment agent setup</Link>
           {(options.data?.isAgent || options.data?.isAdmin) && (
             <Link className="payment-link" to="/wallet/operations">
               Agent & admin processing →
             </Link>
+          )}
+          {section === 'deposit' && options.data?.crypto?.assets && (
+            <section className="payment-panel" aria-label="Crypto deposit options">
+              <h2>Crypto deposits</h2>
+              <p>Choose an asset once payment processing is connected. No crypto deposit addresses are available yet.</p>
+              <div className="payment-actions">{options.data.crypto.assets.map(asset => (
+                <article className="payment-record" key={asset.symbol}>
+                  <h3>{asset.name} · {asset.symbol}</h3><p>{asset.network}</p>
+                  <span>{asset.reason}</span>
+                </article>
+              ))}</div>
+            </section>
           )}
           {(section === 'deposit' || section === 'withdraw') && (
             <section className="payment-panel">

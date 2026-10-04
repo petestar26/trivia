@@ -225,3 +225,7 @@
   margin-top: 0.4rem;
   font-size: 1.6rem;
 }
+
+.payment-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.payment-panel details > summary { cursor: pointer; font-weight: 650; padding: .75rem 0; }
+.payment-panel details[open] > * + * { margin-top: .75rem; }

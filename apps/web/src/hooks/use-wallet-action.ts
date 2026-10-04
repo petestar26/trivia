@@ -24,7 +24,7 @@ export function validWalletAction(value: unknown): value is WalletAction {
   const v = value as WalletAction;
   return (
     typeof v.path === 'string' &&
-    /^\/(agent-orders|agent-disputes|withdrawals)(\/[a-zA-Z0-9/-]+)?$/.test(v.path) &&
+    (/^\/(agent-orders|agent-disputes|withdrawals)(\/[a-zA-Z0-9/-]+)?$/.test(v.path) || /^\/agents\/[a-zA-Z0-9-]+\/(inventory|liquidity)\/(fund|adjust)$/.test(v.path)) &&
     !!v.body &&
     typeof v.body === 'object' &&
     !Array.isArray(v.body) &&
@@ -32,9 +32,9 @@ export function validWalletAction(value: unknown): value is WalletAction {
     v.body.idempotencyKey.length >= 8
   );
 }
-export function useWalletAction() {
+export function useWalletAction(scope: 'wallet' | 'funding' = 'wallet') {
   const { user } = useAuth();
-  const key = `playqube.wallet-pending.${user?.id}`;
+  const key = `playqube.${scope}-pending.${user?.id}`;
   const cache = useQueryClient();
   const [initial] = useState(() => {
     try {

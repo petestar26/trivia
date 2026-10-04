@@ -56,3 +56,8 @@ it('keeps resolution disabled when the underlying financial request cannot be lo
  });mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Review resolution'}));await screen.findByText(/Request details could not load/);
  fireEvent.change(screen.getByLabelText('Outcome'),{target:{value:'CANCELLED'}});fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Review note'}});fireEvent.click(screen.getByRole('checkbox'));expect(screen.getByRole('button',{name:'Confirm action'})).toBeDisabled();expect(m.post).not.toHaveBeenCalled();
 });
+it('shows all requested crypto assets as unavailable without payment controls',async()=>{
+ const assets=['USDT','USDC','BTC','ETH','SOL'].map(symbol=>({symbol,name:symbol,network:'Network pending',available:false,reason:'Provider integration pending'}));
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],crypto:{assets}}:[]}));mount();
+ await screen.findByRole('heading',{name:'Crypto deposits'});for(const asset of assets)expect(screen.getByRole('heading',{name:`${asset.name} · ${asset.symbol}`})).toBeInTheDocument();expect(m.post).not.toHaveBeenCalled();
+});

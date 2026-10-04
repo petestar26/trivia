@@ -1,3 +1,4 @@
+import { getPaymentSetup } from './payment-setup.js';
 import { publishUsdRate, saveCoinPackage, listCoinPackages, selectPaymentRate } from './usd-config-service.js';
 import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
@@ -50,6 +51,13 @@ export async function agentConfigRoutes(server: FastifyInstance): Promise<void> 
         : priceUsdPayment(policy, 'deposit', Number(request.query.fiatAmount));
       return { success: true, data: { rateId: rate.id, policy, preview: price?.snapshot ?? null } };
     });
+
+  server.get<{ Params: { countryId: string } }>('/admin/setup/:countryId', { preHandler: admin }, async request =>
+    ({ success: true, data: await getPaymentSetup(request.user!.sub, request.params.countryId) }));
+  server.get('/admin/deposits', { preHandler: admin }, async () => ({ success: true,
+    data: await prisma.agentOrder.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
+      select: { id: true, orderNumber: true, status: true, fiatAmount: true, fiatCurrency: true,
+        coinAmount: true, createdAt: true, agent: { select: { displayName: true } } } }) }));
 
   // ── Countries ─────────────────────────────────────────────────
   // Read access to ACTIVE countries is any authenticated user (agents/

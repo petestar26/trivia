@@ -1,3 +1,4 @@
+import { WalletAgentSetupPage } from '@/pages/wallet-agent-setup';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { useAuth } from '@/providers/auth-provider';
@@ -81,6 +82,7 @@ export function App() {
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet" element={<WalletPage />} />
+        <Route path="wallet/agent-setup" element={<WalletAgentSetupPage />} />
         <Route path="wallet/operations" element={<WalletOperationsPage />} />
         <Route path="wallet/:section" element={<WalletPaymentsPage />} />
         <Route path="rewards" element={<RewardsPage />} />

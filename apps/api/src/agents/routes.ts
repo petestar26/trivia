@@ -1,3 +1,6 @@
+import { prisma } from '@socialplay/database';
+import { z } from 'zod';
+import { getAgentFiatLiquidity, fundAgentFiatLiquidity, adjustAgentFiatLiquidity } from '../withdrawals/liquidity-service.js';
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { authenticate, requirePermission, ApiError } from '../middleware/index.js';
 import {
@@ -39,6 +42,38 @@ function requestContext(request: FastifyRequest) {
 export async function agentRoutes(server: FastifyInstance): Promise<void> {
   const auth = [authenticate];
   const admin = [authenticate, requirePermission('agent:review')];
+
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
+  const liquiditySchema = z.object({
+    fiatCurrency: z.string().regex(/^[A-Z]{3}$/),
+    amountMinor: z.string().regex(/^-?[1-9]\d{0,15}$/),
+    idempotencyKey: z.string().min(8).max(120),
+    reason: z.string().trim().min(5).max(500).optional(),
+  }).strict();
+  server.get<{ Params: { id: string; currency: string } }>('/:id/liquidity/:currency', { preHandler: admin }, async request => {
+    const value = await getAgentFiatLiquidity(request.params.id, request.params.currency);
+    return { success: true, data: JSON.parse(JSON.stringify(value, (_k, v) => typeof v === 'bigint' ? v.toString() : v)) };
+  });
+  for (const mode of ['fund', 'adjust'] as const) {
+    server.post<{ Params: { id: string } }>(`/:id/liquidity/${mode}`, { preHandler: admin }, async request => {
+      const parsed = liquiditySchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('Currency, integer minor-unit amount and idempotency key are required');
+      const b = parsed.data;
+      if (mode === 'adjust' && !b.reason) throw ApiError.badRequest('Adjustment reason is required');
+      const amount = BigInt(b.amountMinor);
+      const value = mode === 'fund'
+        ? await fundAgentFiatLiquidity(request.user!.sub, request.params.id, b.fiatCurrency, amount, b.idempotencyKey, requestContext(request))
+        : await adjustAgentFiatLiquidity(request.user!.sub, request.params.id, b.fiatCurrency, amount, b.reason!, b.idempotencyKey, requestContext(request));
+      return { success: true, data: JSON.parse(JSON.stringify(value, (_k, v) => typeof v === 'bigint' ? v.toString() : v)) };
+    });
+  }
+
+  server.get('/me/setup', { preHandler: auth }, async request => ({ success: true,
+    data: await prisma.agent.findUnique({ where: { userId: request.user!.sub },
+      select: { id: true, countryId: true, displayName: true, status: true } }) }));
 
   // ── Application ──────────────────────────────────────────────
 

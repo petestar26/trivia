@@ -1,3 +1,4 @@
+import { cryptoPaymentCatalog } from '../agents/crypto-catalog.js';
 import { prisma } from '@socialplay/database';
 import { FastifyInstance } from 'fastify';
 import { ApiError, authenticate } from '../middleware/index.js';
@@ -25,7 +26,7 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
         orderBy: { displayName: 'asc' }, take: 100 }),
     ]);
     return { success: true, data: {
-      countries, crypto: { available: false, reason: 'Provider integration is not configured' }, isAgent: ownAgent?.status === 'ACTIVE', isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
+      countries, crypto: { available: false, reason: 'Provider integration is not configured', assets: cryptoPaymentCatalog }, isAgent: ownAgent?.status === 'ACTIVE', isAdmin: ['ADMIN', 'SUPER_ADMIN'].includes(user.role),
       agents: agents.map(a => ({ ...a, paymentAccounts: a.paymentAccounts.filter(p =>
         p.countryId === a.countryId && p.methodDef.countryId === a.countryId) })),
     } };

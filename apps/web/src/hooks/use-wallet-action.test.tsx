@@ -33,3 +33,11 @@ it('clears a definitively rejected request and rejects unrelated stored endpoint
  expect(validWalletAction({path:'https://example.test',body:{idempotencyKey:'12345678'}})).toBe(false);
  expect(validWalletAction({path:'/auth/login',body:{idempotencyKey:'12345678'}})).toBe(false);
 });
+it('keeps funding retries separate from customer requests and preserves the exact amount',async()=>{
+ sessionStorage.setItem('playqube.wallet-pending.wallet-test',JSON.stringify({path:'/withdrawals',body:{idempotencyKey:'customer-123',quoteId:'q'}}));
+ m.post.mockRejectedValueOnce(new Error('offline'));let v=renderHook(()=>useWalletAction('funding'),{wrapper});
+ await act(()=>v.result.current.run('/agents/agent-1/liquidity/fund',{fiatCurrency:'ETB',amountMinor:'12345'}));const first=m.post.mock.calls[0].slice(0,2);v.unmount();
+ v=renderHook(()=>useWalletAction('funding'),{wrapper});m.post.mockResolvedValueOnce({success:true});await act(()=>v.result.current.run('/agents/agent-1/liquidity/fund',{amountMinor:'99999'}));
+ expect(m.post.mock.calls[1].slice(0,2)).toEqual(first);expect(sessionStorage.getItem('playqube.wallet-pending.wallet-test')).toContain('customer-123');
+ expect(validWalletAction({path:'/agents/agent-1/reactivate',body:{idempotencyKey:'12345678'}})).toBe(false);
+});
