@@ -22,6 +22,8 @@ beforeAll(async () => {
       'utf8'
     )
   );
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261004121000_usd_pricing_guard_paths/migration.sql', import.meta.url), 'utf8'));
+
 });
 afterAll(async () => db.close());
 it('keeps all existing countries and historical rows on legacy pricing', async () => {
@@ -66,4 +68,11 @@ it('makes activation one-way and rate terms append-only while allowing emergency
   await expect(
     db.exec(`UPDATE exchange_rate_configs SET "coinsPerUnit"=99 WHERE id='rate'`)
   ).rejects.toThrow(/immutable/);
+});
+
+it('pins every new guard to the existing ledger search-path policy', async () => {
+  const { rows } = await db.query<{ proconfig: string[] }>(`SELECT proconfig FROM pg_proc WHERE proname IN
+    ('payment_protect_usd_snapshot','payment_protect_usd_rate','payment_protect_usd_activation')`);
+  expect(rows).toHaveLength(3);
+  for (const row of rows) expect(row.proconfig).toContain('search_path=pg_catalog, pg_temp');
 });

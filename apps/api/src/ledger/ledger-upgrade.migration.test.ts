@@ -42,6 +42,7 @@ const SOCIAL_GROUP_LIFECYCLE = '20261003180000_social_group_lifecycle';
 const REWARD_COIN_NET_WINNINGS = '20261003181000_reward_coin_net_winnings';
 const PRACTICE_REVIEW_GUARDS = '20261003203000_practice_review_guards';
 const KENO_INVARIANT_PATH = '20261003230000_keno_guard_invariant_path';
+const USD_PRICING_GUARD_PATHS = '20261004121000_usd_pricing_guard_paths';
 const USD_PAYMENT_PRICING = '20261004120000_usd_payment_pricing';
 const CLOSED_GROUP_MODERATION = '20261003231000_closed_group_moderation_and_lobby_cleanup';
 // Exact merged publication core 899cea6beea02b2871a4586928de632f44eafe37 (72 migrations).
@@ -66,7 +67,7 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
   '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
-  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING];
+  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -388,6 +389,7 @@ beforeAll(() => {
     KENO_INVARIANT_PATH,
     CLOSED_GROUP_MODERATION,
     USD_PAYMENT_PRICING,
+    USD_PRICING_GUARD_PATHS,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -658,7 +660,7 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -720,7 +722,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -773,7 +775,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT

@@ -32,3 +32,25 @@ and tested. A country selection is not proof of residence or eligibility.
 Nonzero fees require an approved settlement/accounting policy; the initial
 extension preserves existing zero-fee settlement instead of deducting money
 without a corresponding recipient and ledger entry.
+
+
+## Staging upgrade procedure
+
+`staging-usd-payment-upgrade.ts --apply` is owner-only and refuses every target
+except the existing isolated staging database. It verifies migration checksums,
+refuses unrelated pending migrations, applies the two additive USD migrations and grants
+the existing API role SELECT/INSERT/UPDATE on the new configuration table only.
+It does not change credentials, financial activation, countries, or agent funds.
+Use `--verify` afterward; API and web can then be pinned to the tested commit.
+Production is not an accepted target of this script.
+
+## External work still required
+
+Crypto deposits, withdrawals and direct purchase are not implemented settlement
+routes. Their proposed minimums are recorded in the USD policy but do not imply
+provider support. Choose/configure a provider and test signed callbacks, chain
+confirmations, under/overpayment, refunds, idempotent crediting, withdrawal holds,
+payout failure reconciliation and jurisdiction availability before enabling it.
+Automatic FX refresh likewise needs a verified source API. Manual publication is
+available, with a maximum 24-hour observation lifetime and no stale fallback.
+Nonzero fees and master-rate changes need separate approved accounting rules.
