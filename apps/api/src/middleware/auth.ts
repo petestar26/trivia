@@ -1,3 +1,4 @@
+import { prisma } from '@socialplay/database';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { JwtPayload, ErrorCode } from '@socialplay/shared';
 import { ApiError } from './error-handler';
@@ -61,7 +62,8 @@ export function requireRole(...allowedRoles: string[]) {
       throw ApiError.unauthorized('Authentication required');
     }
 
-    if (!allowedRoles.includes(request.user.roles[0])) {
+    const actor = await prisma.user.findUnique({ where: { id: request.user.sub }, select: { role: true, status: true } });
+    if (!actor || actor.status !== 'ACTIVE' || !allowedRoles.includes(actor.role)) {
       throw ApiError.forbidden('Insufficient permissions');
     }
   };
@@ -73,8 +75,10 @@ export function requirePermission(permission: string) {
       throw ApiError.unauthorized('Authentication required');
     }
 
-    // Prisma UserRole enum values are UPPERCASE ('ADMIN', 'SUPER_ADMIN').
-    if (!request.user.roles.includes('ADMIN') && !request.user.roles.includes('SUPER_ADMIN')) {
+    // A signed token can outlive demotion or suspension. Administrative reads
+    // must use current authority, just like the financial mutation services.
+    const actor = await prisma.user.findUnique({ where: { id: request.user.sub }, select: { role: true, status: true } });
+    if (!actor || actor.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
       throw ApiError.forbidden(`Permission required: ${permission}`);
     }
   };

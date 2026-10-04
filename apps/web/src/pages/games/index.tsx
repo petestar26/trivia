@@ -28,22 +28,6 @@ interface WalletData {
   gamePointsBalance: number;
 }
 
-const GAME_ICONS: Record<string, string> = {
-  dice: '🎲',
-  number_challenge: '🔢',
-  trivia: '🧠',
-  spin_win: '🎡',
-  thunder_derby_3d: '⚡',
-  neon_hounds_3d: '🐕',
-  turbo_circuit_3d: '🏎️',
-  starfall_nebula: '⭐',
-  jungle_dash_3d: '🌴',
-  turbo_keno: '🔢',
-  crystal_trail: '💎',
-  heat_vault: '🔥',
-  strait_rush: '🏁',
-};
-
 const GAME_ROUTES: Record<string, string> = {
   dice: 'dice',
   number_challenge: 'number-challenge',

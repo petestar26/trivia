@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from './agent-service';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
@@ -202,6 +202,34 @@ describeIf('Agent order creation', () => {
     expect(result.order.coinAmount).toBe(5000); // floor(500 * 10)
     expect(result.order.fiatCurrency).toBe(country.currencyCode);
     expect(result.order.orderNumber).toMatch(/^AG-\d{6}$/);
+  });
+
+  it('rechecks payment availability changed after preflight and creates no reservation', async () => {
+    const customer = await createUser('admission-race');
+    const request = args();
+    const before = await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } });
+    const findRate = prisma.exchangeRateConfig.findFirst.bind(prisma.exchangeRateConfig);
+    const spy = vi.spyOn(prisma.exchangeRateConfig, 'findFirst').mockImplementationOnce(async input => {
+      const rate = await findRate(input);
+      await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: false } });
+      return rate;
+    });
+    try {
+      await expect(createAgentOrder(customer.id, request)).rejects.toThrow('no longer available');
+      expect(await prisma.agentOrder.count({ where: { userId: customer.id, idempotencyKey: request.idempotencyKey } })).toBe(0);
+      expect(await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } })).toBe(before);
+    } finally {
+      spy.mockRestore();
+      await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: true } });
+    }
+  });
+
+  it('rejects malformed or overflowing amounts before touching inventory', async () => {
+    const customer = await createUser('amount-bounds');
+    for (const fiatAmount of [0.5, 2_147_483_648, Number.MAX_SAFE_INTEGER, NaN]) {
+      await expect(createAgentOrder(customer.id, args({fiatAmount}))).rejects.toThrow('positive integer');
+    }
+    await expect(createAgentOrder(customer.id, null as any)).rejects.toThrow('details are required');
   });
 
   it('3. invalid country is rejected', async () => {

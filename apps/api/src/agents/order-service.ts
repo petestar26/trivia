@@ -156,11 +156,36 @@ export async function createAgentOrder(
     throw ApiError.badRequest('Computed coin amount must be positive');
   }
 
-  const paymentSnapshot = paymentAccount.accountDetails;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        // Admission is revalidated under row locks. Preflight data alone can
+        // become stale while an agent/account/country is being disabled.
+        const [buyer] = await tx.$queryRaw<Array<{status:string}>>`
+          SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+        if (!buyer || buyer.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+        const [currentAgent] = await tx.$queryRaw<Array<{status:string;countryId:string;minOrderAmount:number|null;maxOrderAmount:number|null}>>`
+          SELECT status::text, "countryId", "minOrderAmount", "maxOrderAmount" FROM agents WHERE id=${agent.id} FOR SHARE`;
+        if (!currentAgent || currentAgent.status !== 'ACTIVE' || currentAgent.countryId !== args.countryId ||
+            (currentAgent.minOrderAmount !== null && args.fiatAmount < currentAgent.minOrderAmount) ||
+            (currentAgent.maxOrderAmount !== null && args.fiatAmount > currentAgent.maxOrderAmount)) {
+          throw ApiError.conflict('Agent availability or order limits changed; review the order again');
+        }
+        const [currentCountry] = await tx.$queryRaw<Array<{isActive:boolean;agentPaymentEnabled:boolean;currencyCode:string}>>`
+          SELECT "isActive", "agentPaymentEnabled", "currencyCode" FROM countries WHERE id=${args.countryId} FOR SHARE`;
+        if (!currentCountry?.isActive || !currentCountry.agentPaymentEnabled || currentCountry.currencyCode !== fiatCurrency) {
+          throw ApiError.conflict('Country payment availability changed');
+        }
+        const [currentAccount] = await tx.$queryRaw<Array<{status:string;agentId:string;countryId:string;methodDefId:string;accountDetails:unknown}>>`
+          SELECT status::text, "agentId", "countryId", "methodDefId", "accountDetails" FROM agent_payment_accounts WHERE id=${args.paymentAccountId} FOR SHARE`;
+        if (!currentAccount || currentAccount.status !== 'APPROVED' || currentAccount.agentId !== agent.id ||
+            currentAccount.countryId !== args.countryId || currentAccount.methodDefId !== paymentAccount.methodDefId) {
+          throw ApiError.conflict('Payment account changed; review the order again');
+        }
+        const [currentMethod] = await tx.$queryRaw<Array<{isActive:boolean;countryId:string}>>`
+          SELECT "isActive", "countryId" FROM payment_method_definitions WHERE id=${paymentAccount.methodDefId} FOR SHARE`;
+        if (!currentMethod?.isActive || currentMethod.countryId !== args.countryId) throw ApiError.conflict('Payment method is no longer available');
         const orderNumber = await nextOrderNumber(tx);
 
         const order = await tx.agentOrder.create({
@@ -171,7 +196,7 @@ export async function createAgentOrder(
             countryId: args.countryId,
             paymentMethodDefId: paymentAccount.methodDefId,
             paymentAccountId: args.paymentAccountId,
-            paymentSnapshot: paymentSnapshot as any,
+            paymentSnapshot: currentAccount.accountDetails as any,
             fiatAmount: args.fiatAmount,
             fiatCurrency,
             exchangeRateConfigId: rateConfig.id,

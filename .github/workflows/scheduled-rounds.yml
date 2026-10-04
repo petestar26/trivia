@@ -13,6 +13,8 @@ on:
       - 'apps/api/src/routes/groups.ts'
       - 'apps/api/src/routes/group-locks.ts'
       - 'apps/api/src/middleware/error-handler.ts'
+      - 'apps/api/src/middleware/auth.ts'
+      - 'apps/api/src/middleware/current-permission.test.ts'
       - 'apps/web/src/components/groups/**'
       - 'apps/web/src/pages/wallet*'
       - 'apps/api/src/gift-collection/**'
@@ -150,7 +152,7 @@ jobs:
       - name: Group PVP concurrency and recovery
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/economy/reward-coins.native.ts
       - name: Gateway identity and independent worker contracts
-        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts src/plugins/rate-limit-identity.test.ts src/scripts/group-worker-runtime.test.ts src/routes/storage.test.ts
+        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js

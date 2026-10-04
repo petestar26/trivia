@@ -15,6 +15,19 @@ async function fixture(closeIn=20000,userId=randomUUID()){
 }
 const balance=async(userId:string)=>Number((await db.$queryRaw<{balance:bigint}[]>`SELECT balance FROM system_dice_practice_accounts WHERE user_id=${userId}`)[0].balance);
 const afterCutoff=async(closes:Date)=>{const delay=closes.getTime()-Date.now()+60;if(delay>0)await new Promise(r=>setTimeout(r,delay));};
+it('hides the saved outcome until reveal and denies a fresh ticket after the draw',async()=>{
+ const f=await fixture(700);await service.enter(f.userId,f.roundId,35);await afterCutoff(f.closes);
+ await db.$executeRaw`UPDATE system_dice_practice_rounds SET die1=6,die2=6 WHERE id=${f.roundId}`;
+ const outsider=randomUUID();await fixture(15000,outsider);
+ await expect(service.enter(outsider,f.roundId,35)).rejects.toThrow('closed');
+ const hidden=(await service.snapshot(f.userId)).rounds.find(r=>r.id===f.roundId);
+ expect(hidden, 'the fixture round must be in the latest-round snapshot').toBeDefined();
+ expect(hidden?.outcome).toBeNull();expect(hidden?.ticket?.payout).toBeNull();
+ await new Promise(r=>setTimeout(r,Math.max(0,f.closes.getTime()+10050-Date.now())));
+ const revealed=(await service.snapshot(f.userId)).rounds.find(r=>r.id===f.roundId);
+ expect(revealed?.outcome).toEqual([6,6]);
+});
+
 it('serializes concurrent confirmations; retries debit once and changed amounts conflict',async()=>{
  const f=await fixture();const responses=await Promise.all([1,2].map(()=>service.enter(f.userId,f.roundId,35)));
  expect(responses.map(r=>r.isReplay).sort()).toEqual([false,true]);expect(await balance(f.userId)).toBe(965);
@@ -92,15 +105,4 @@ it('works using explicit restricted runtime grants, including row-lock privilege
 it('keeps legacy Coin Dice paused without rewriting its historical rule',async()=>{
  const game=await db.gameDefinition.findUniqueOrThrow({where:{key:'dice'}});expect(game.isActive).toBe(false);expect(game.catalogStatus).toBe('COMING_SOON');
  const old=await db.gameRules.findUniqueOrThrow({where:{gameId_version:{gameId:game.id,version:1}}});expect(old.rules).toMatchObject({winThreshold:7,multiplier:2});
-});
-it('hides the saved outcome until reveal and denies a fresh ticket after the draw',async()=>{
- const f=await fixture(700);await service.enter(f.userId,f.roundId,35);await afterCutoff(f.closes);
- await db.$executeRaw`UPDATE system_dice_practice_rounds SET die1=6,die2=6 WHERE id=${f.roundId}`;
- const outsider=randomUUID();await fixture(15000,outsider);
- await expect(service.enter(outsider,f.roundId,35)).rejects.toThrow('closed');
- const hidden=(await service.snapshot(f.userId)).rounds.find(r=>r.id===f.roundId);
- expect(hidden?.outcome).toBeNull();expect(hidden?.ticket?.payout).toBeNull();
- await new Promise(r=>setTimeout(r,Math.max(0,f.closes.getTime()+10050-Date.now())));
- const revealed=(await service.snapshot(f.userId)).rounds.find(r=>r.id===f.roundId);
- expect(revealed?.outcome).toEqual([6,6]);
 });
