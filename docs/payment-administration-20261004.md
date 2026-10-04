@@ -2,7 +2,7 @@
 
 ## Scope
 
-The user selected Ethiopia / ETB as the first country and an existing crypto provider. The provider name has not been supplied. No credentials should be sent in chat.
+The user selected Ethiopia / ETB as the first country, then clarified that no crypto provider account exists yet. Crypto remains disabled until a provider is chosen, configured and integrated. No credentials should be sent in chat.
 
 Implemented in this candidate:
 
@@ -19,7 +19,9 @@ Implemented in this candidate:
 
 API review suite: 98 passed across 12 files. Focused wallet/admin/onboarding/frontend suite: 18 passed across four files. API and web strict typechecks and production builds passed. Vite reports the existing large main bundle warning (approximately 511 kB minified); no build failure.
 
-Native PostgreSQL matrix and deployment status will be recorded after publication. No native CI result or browser deployment verification is claimed for this new candidate yet.
+All PostgreSQL 13, 16 and 18 jobs completed successfully in [run 37209045858](https://github.com/petestar26/trivia/actions/runs/37209045858) for application commit `fbe9a7c07211739cc482394428fe73c9518d9e85` (local `1519bca`, identical tree `747c7209cd2929db7a0a015d40ca632b28d74179`). The matrix includes payment lifecycle, concurrency, legacy compatibility, ledger, migration, financial settlement/refund, frontend and builds.
+
+Deployment was attempted after every matrix job passed, but Railway returned “Cancelled — the user did not approve this action. No changes were made.” Non-destructive staging patch `75dba602-e7a5-4442-a1db-31692aaa33f1` remains prepared: five serialized source changes across API and web, targeting the tested commit. No variables, migrations, financial activation flags or production settings are included. The live API/web remain on the previous verified release `c1877db`. Browser verification of this new candidate is pending actual deployment.
 
 ## Configuration still needed
 
@@ -29,6 +31,6 @@ Operational order: create country; activate its directory; configure/activate ba
 
 The live agent identity, verified account details, backing and rate source cannot be invented. Admin funding records represent backing; they do not transfer bank funds.
 
-Crypto integration is blocked on the user's existing provider name. Once identified, verify its supported asset/network pairs and sandbox API contract, then implement persisted payment intents, authenticated notifications, reconciliation, exact verified crediting, replay/race protection and admin exception handling against the existing Coin ledger. Provider credentials belong in secure deployment configuration. Actual crypto deposits/withdrawals are not implemented merely by listing these five assets.
+Crypto integration requires selecting and setting up a provider account. Once selected, verify its supported asset/network pairs and sandbox API contract, then implement persisted payment intents, authenticated notifications, reconciliation, exact verified crediting, replay/race protection and admin exception handling against the existing Coin ledger. Provider credentials belong in secure deployment configuration. Actual crypto deposits/withdrawals are not implemented merely by listing these five assets.
 
 No new database migration is required for this administration candidate. Existing schema/grants and service financial protections are reused. Production remains untouched.
