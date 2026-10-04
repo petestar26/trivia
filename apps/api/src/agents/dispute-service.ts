@@ -178,8 +178,9 @@ export async function getDisputeById(actorUserId: string, disputeId: string) {
   return dispute;
 }
 
-export async function listOpenDisputesForAdmin() {
-  return prisma.dispute.findMany({ where: { status: 'OPEN' }, orderBy: { openedAt: 'asc' } });
+export async function listOpenDisputesForAdmin(adminId: string) {
+  await assertPlatformAdmin(adminId);
+  return prisma.dispute.findMany({ where: { OR: [{ status: 'OPEN' }, { status: 'ASSIGNED', assignedAdminId: adminId }] }, orderBy: { openedAt: 'asc' } });
 }
 
 async function assertNotSelfDispute(adminId: string, orderId: string) {

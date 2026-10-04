@@ -33,8 +33,8 @@ export async function agentDisputeRoutes(server: FastifyInstance): Promise<void>
     }
   );
 
-  server.get('/pending', { preHandler: admin }, async (_request, reply) => {
-    const disputes = await listOpenDisputesForAdmin();
+  server.get('/pending', { preHandler: admin }, async (request, reply) => {
+    const disputes = await listOpenDisputesForAdmin(request.user!.sub);
     return reply.send({ success: true, data: disputes });
   });
 

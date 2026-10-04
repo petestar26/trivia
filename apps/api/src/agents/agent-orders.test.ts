@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from './agent-service';
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
@@ -208,18 +208,22 @@ describeIf('Agent order creation', () => {
     const customer = await createUser('admission-race');
     const request = args();
     const before = await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } });
-    const findRate = prisma.exchangeRateConfig.findFirst.bind(prisma.exchangeRateConfig);
-    const spy = vi.spyOn(prisma.exchangeRateConfig, 'findFirst').mockImplementationOnce(async input => {
+    const originalFindRate = prisma.exchangeRateConfig.findFirst;
+    const findRate = originalFindRate.bind(prisma.exchangeRateConfig);
+    // This test uses only the awaited query result, not Prisma relation chaining.
+    const rateReader = prisma.exchangeRateConfig as unknown as { findFirst: (input?: Parameters<typeof findRate>[0]) => Promise<Awaited<ReturnType<typeof findRate>>> };
+    rateReader.findFirst = async input => {
       const rate = await findRate(input);
       await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: false } });
       return rate;
-    });
+    };
     try {
       await expect(createAgentOrder(customer.id, request)).rejects.toThrow('no longer available');
       expect(await prisma.agentOrder.count({ where: { userId: customer.id, idempotencyKey: request.idempotencyKey } })).toBe(0);
       expect(await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } })).toBe(before);
     } finally {
-      spy.mockRestore();
+      // Prisma delegates are dynamic proxies; restore the original callable explicitly.
+      rateReader.findFirst = originalFindRate;
       await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: true } });
     }
   });

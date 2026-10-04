@@ -6,7 +6,7 @@ import { submitAgentApplication, approveAgentApplication } from './agent-service
 import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
 import { fundAgentInventory, getAgentInventory } from './inventory-service';
 import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service';
-import { openDispute, getDisputeById, claimDispute, resolveDispute } from './dispute-service';
+import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -401,6 +401,7 @@ describeIf('Dispute claim and resolution', () => {
   it('legal transition: OPEN -> ASSIGNED -> RESOLVED (RELEASE)', async () => {
     const { fixture, customer, order, dispute } = await makeOpenDispute('legal1');
     const claimResult = await claimDispute(admin.id, dispute.id);
+    expect((await listOpenDisputesForAdmin(admin.id)).some(row => row.id === dispute.id)).toBe(true);
     expect(claimResult.status).toBe('ASSIGNED');
 
     const walletBefore = await prisma.wallet.findUnique({ where: { userId: customer.id } });

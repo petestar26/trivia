@@ -1,7 +1,7 @@
 import {expect,it,vi} from 'vitest';
 const lookup=vi.hoisted(()=>vi.fn());
 vi.mock('@socialplay/database',()=>({prisma:{user:{findUnique:lookup}}}));
-import {requirePermission,requireRole} from './auth';
+import {requirePermission,requireRole} from './auth.js';
 it.each([{role:'USER',status:'ACTIVE'},{role:'ADMIN',status:'BANNED'},null])('rejects stale admin claims when current authority is %j',async actor=>{
  lookup.mockResolvedValue(actor);await expect(requirePermission('withdrawal:admin')({user:{sub:'u',roles:['ADMIN']}} as any,{} as any)).rejects.toThrow('Permission required');
 });

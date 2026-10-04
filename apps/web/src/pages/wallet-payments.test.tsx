@@ -38,3 +38,21 @@ it('shows disabled-country empty state without inventing payment availability',a
 it('does not load privileged queues for an ordinary customer',async()=>{
  mount('operations');await screen.findByText('Processing access required');expect(m.get.mock.calls.every(([p])=>p==='/wallet/payment-options')).toBe(true);
 });
+it('loads the assigned payout details and requires evidence before recording a transfer',async()=>{
+ const row={id:'withdrawal-one',status:'PAYOUT_IN_PROGRESS',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',createdAt:new Date().toISOString(),paymentSnapshot:{bank:'Test bank'}};
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,isAgent:true}:path==='/withdrawals/agent/assigned'?[row]:path==='/withdrawals/withdrawal-one'?row:[]}));
+ m.post.mockResolvedValue({success:true});mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Record completed transfer'}));
+ await waitFor(()=>expect(m.get).toHaveBeenCalledWith('/withdrawals/withdrawal-one'));
+ const button=screen.getByRole('button',{name:'Confirm action'});expect(button).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('Transfer reference'),{target:{value:'bank-ref-123'}});
+ fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Transfer checked against bank receipt'}});
+ fireEvent.click(screen.getByRole('checkbox'));await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
+ await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));expect(m.post.mock.calls[0][0]).toBe('/withdrawals/withdrawal-one/submit-payment');expect(m.post.mock.calls[0][1]).toMatchObject({referenceNumber:'bank-ref-123',note:'Transfer checked against bank receipt',idempotencyKey:expect.any(String)});
+});
+it('keeps resolution disabled when the underlying financial request cannot be loaded',async()=>{
+ m.get.mockImplementation(async(path:string)=>{
+  if(path==='/withdrawals/admin/disputes/dispute-one')throw new Error('Offline');
+  return {data:path==='/wallet/payment-options'?{...options,isAdmin:true}:path==='/withdrawals/admin/disputes'?[{id:'dispute-one',status:'ASSIGNED',reason:'OTHER',description:'Investigate',withdrawalId:'withdrawal-one'}]:[]};
+ });mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Review resolution'}));await screen.findByText(/Request details could not load/);
+ fireEvent.change(screen.getByLabelText('Outcome'),{target:{value:'CANCELLED'}});fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Review note'}});fireEvent.click(screen.getByRole('checkbox'));expect(screen.getByRole('button',{name:'Confirm action'})).toBeDisabled();expect(m.post).not.toHaveBeenCalled();
+});
