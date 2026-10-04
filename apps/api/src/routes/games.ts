@@ -34,7 +34,7 @@ export async function gameRoutes(server: FastifyInstance): Promise<void> {
     '/:gameKey/play',
     {
       preHandler: [authenticate],
-      rateLimit: { max: 30, timeWindow: '1 minute' },
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
       schema: {
         params: {
           type: 'object',

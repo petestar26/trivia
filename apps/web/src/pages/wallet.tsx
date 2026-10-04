@@ -70,6 +70,13 @@ export function WalletPage() {
         </Card>
       </div>
 
+      <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40">
+        <h2 className="font-semibold">Know your Coin balance</h2>
+        {wallet?.coinAvailability&&<dl className="mt-4 grid gap-3 sm:grid-cols-3">{[['Spendable Coins',wallet.coinAvailability.spendable],['Bet-only rewards',wallet.coinAvailability.betOnly],['Pending review / expiry',wallet.coinAvailability.pendingReview]].map(([label,amount])=><div key={label}><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-1 text-xl font-bold">{Number(amount).toLocaleString()}</dd></div>)}</dl>}
+        <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">Free reward Coins can fund eligible bets. They cannot buy gifts, be transferred, or be cashed out. Under the new reward rule, only your net winnings become spendable; the returned free stake stays bet-only. Earlier grants retain their original terms.</p>
+        <p className="mt-2 text-xs text-gray-500">Withdrawals still require account and country eligibility. Game Points and free practice credits are separate from Coins.</p>
+      </section>
+
       {/* Transaction history */}
       <Card>
         <CardHeader><CardTitle className="text-base">Transaction History</CardTitle></CardHeader>

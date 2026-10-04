@@ -78,6 +78,7 @@ function assertApplicantAdmissible(account: { status: string } | null): void {
  * been archived, deactivated or banned, or deleted, admits nobody.
  */
 function assertGroupActive(group: LockedGroup | null): asserts group is LockedGroup {
+  if (group?.expiresAt && group.expiresAt <= new Date()) throw ApiError.conflict('This group has closed');
   if (!group || !(ADMISSION_PERMITTED_GROUP_STATUSES as readonly string[]).includes(group.status)) {
     throw ApiError.badRequest('Group is not active');
   }
@@ -543,6 +544,15 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
           mustOwn: true,
         });
 
+        // The group UPDATE lock is held, so status is stable. Read the database
+        // clock after all lock waits; expired chat-only rooms retain history too.
+        const [lifecycle] = await tx.$queryRaw<{closed:boolean}[]>`SELECT
+          (status<>'ACTIVE' OR "expiresAt"<=clock_timestamp()) AS closed FROM groups WHERE id=${group.id}`;
+        if (lifecycle.closed) throw ApiError.conflict('This group has closed and cannot be deleted. Archive it for yourself; its conversation remains available.');
+        const [history] = await tx.$queryRaw<{exists:boolean}[]>`SELECT
+          EXISTS(SELECT 1 FROM group_pvp_rounds WHERE group_id=${group.id}) OR
+          EXISTS(SELECT 1 FROM collectible_gift_operations WHERE group_id=${group.id}) AS exists`;
+        if (history.exists) throw ApiError.conflict('This group has game or gift history and cannot be deleted. Archive it for yourself; its records remain available after the room closes.');
         await tx.groupMember.deleteMany({ where: { groupId: group.id } });
         await tx.group.delete({ where: { id: group.id } });
       });
@@ -596,6 +606,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
       // match.
       const where: Prisma.GroupWhereInput = {
         status: 'ACTIVE',
+        expiresAt: {gt:new Date()},
         ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
         ...(mine ? { members: { some: { userId, status: 'ACTIVE' } } } : {}),
       };

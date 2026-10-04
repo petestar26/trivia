@@ -40,7 +40,7 @@ type LockedLot = {
   availableAmount: number; reservedAmount: number; requirementAmount: number;
   progressAmount: number; countryPolicyId: string | null;
   countryPolicyVersion: number | null; mintedAt: Date; availableAt: Date | null;
-  expiresAt: Date | null; provenanceType: string;
+  expiresAt: Date | null; provenanceType: string; bonusRule: string | null;
 };
 
 type OperationArgs = {
@@ -91,7 +91,7 @@ async function lockLots(tx: EconomicTx, userId: string): Promise<LockedLot[]> {
     SELECT "id", "userId", "amount", "rootLotId", "lotClass"::text AS "lotClass", "state"::text AS "state",
            "availableAmount", "reservedAmount", "requirementAmount", "progressAmount",
            "countryPolicyId", "countryPolicyVersion", "mintedAt", "availableAt",
-           "expiresAt", "provenanceType"::text AS "provenanceType"
+           "expiresAt", "bonusRule", "provenanceType"::text AS "provenanceType"
     FROM "coin_provenance"
     WHERE "userId" = ${userId} AND "lotClass" IS NOT NULL
     ORDER BY "id" FOR UPDATE
@@ -195,6 +195,7 @@ export type CreditCoinsArgs = {
   lotClass?: LotClass; provenanceType?: CoinProvenanceType; policy?: PolicyPin | null;
   requirementAmount?: number; expiresAt?: Date | null; availableAt?: Date | null;
   originalGrantReferenceType?: string; originalGrantReferenceId?: string;
+  bonusRule?: 'NET_WINNINGS_V1';
   evidence?: Record<string, unknown>;
   /** ADMIN_ADJUST only: the approval this operation executes (see
    * admin-adjustment-service). The database binds the two exactly. */
@@ -243,7 +244,7 @@ export async function creditCoins(tx: EconomicTx, userId: string, amount: number
   );
   const lot = await tx.coinProvenance.create({
     data: {
-      userId, walletTransactionId, amount, provenanceType,
+      userId, walletTransactionId, amount, provenanceType, bonusRule: args.bonusRule,
       restrictionStatus: lotClass === 'WITHDRAWABLE' ? 'UNRESTRICTED' : 'RESTRICTED',
       originalSource: provenanceType,
       originalGrantReferenceType: args.originalGrantReferenceType ?? args.referenceType,
@@ -293,7 +294,7 @@ export type DebitCoinsArgs = {
   adjustmentApproval?: AdjustmentApprovalPin;
 };
 
-/** Spend all Coin classes by the contract's restricted-first order. */
+/** Gifts spend proven spendable Coins only; administrative debits retain their approved allocation. */
 export async function debitCoins(tx: EconomicTx, userId: string, amount: number, args: DebitCoinsArgs) {
   safePositive(amount, 'Coin debit');
   const { wallet, account } = await lockEconomicWallet(tx, userId);
@@ -302,9 +303,9 @@ export async function debitCoins(tx: EconomicTx, userId: string, amount: number,
   assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
   let funding: FundingShare[];
   try {
-    funding = allocateFunding(usableSpendLots(lots, new Date()), amount);
+    funding = allocateFunding(usableSpendLots(lots, new Date()).filter(lot=>args.type!=='GIFT_SPEND'||lot.lotClass==='WITHDRAWABLE'), amount);
   } catch (error) {
-    if (error instanceof RangeError) throw ApiError.badRequest('Insufficient tracked Coins');
+    if (error instanceof RangeError) throw ApiError.badRequest(args.type==='GIFT_SPEND'?'Insufficient spendable Coins. Free reward Coins are for betting only.':'Insufficient tracked Coins');
     throw error;
   }
   const balanceResult = await applyBalanceChanges(tx, userId, [{
@@ -360,6 +361,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
   const sourceById = new Map(lots.map((lot) => [lot.id, lot]));
   const payoutById = new Map(payoutShares.map((share) => [share.lotId, share.amount]));
   const progressById = new Map<string, number>();
+  const profitPlans: {lot:LockedLot;amount:number}[]=[];
   const conversionPlans: {
     lot: LockedLot; availableAfter: number; progressAfter: number;
     convertAmount: number; forfeitAmount: number;
@@ -370,6 +372,11 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
   for (const share of funding) {
     const lot = sourceById.get(share.lotId)!;
     if (lot.lotClass !== 'RESTRICTED') continue;
+    if(lot.bonusRule==='NET_WINNINGS_V1') {
+      const profit=Math.min(Math.max(0,(payoutById.get(lot.id)??0)-share.amount),Number(BigInt(Math.max(0,args.payout-args.stake))*BigInt(share.amount)/BigInt(args.stake)));
+      if(profit)profitPlans.push({lot,amount:profit});
+      continue;
+    }
     if (!lot.countryPolicyId || lot.countryPolicyVersion === null) {
       throw ApiError.internal('Restricted lot has no pinned country policy');
     }
@@ -465,6 +472,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
         sequence: payoutSequence++, entryType: 'RETURN', availableDelta: share.amount });
     }
   }
+  for(const {lot,amount} of profitPlans) await convertRewardProfit(tx,userId,lot,amount,args.sessionId,'GAME_SESSION',args.createdBy);
   for (const plan of conversionPlans) {
     const latest = await tx.coinProvenance.findUnique({ where: { id: plan.lot.id },
       select: { availableAmount: true, progressAmount: true, state: true,
@@ -517,6 +525,21 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
     walletTransactionIds: [...balanceResult.transactions.map((t) => t.id),
       ...forfeitureTransactions.values()],
     wagerOperationId: wager.id, payoutOperationId, funding, payoutShares };
+}
+
+
+async function convertRewardProfit(tx:EconomicTx,userId:string,lot:LockedLot,amount:number,settlementId:string,sourceKind:'GAME_SESSION'|'SCHEDULED_STAKE',createdBy?:string) {
+    const source=await tx.coinProvenance.findUniqueOrThrow({where:{id:lot.id}});
+    const conversion=await createOperation(tx,{type:'BONUS_CONVERSION',userId,scopeType:'BONUS_NET_WIN',scopeId:`${settlementId}:${lot.id}`,
+      policy:{id:lot.countryPolicyId!,version:lot.countryPolicyVersion!},createdBy,
+      snapshot:{rule:'NET_WINNINGS_V1',sourceLotId:lot.id,sessionId:settlementId,sourceKind}});
+    const successor=await tx.coinProvenance.create({data:{userId,amount,provenanceType:'CONVERSION',restrictionStatus:'UNRESTRICTED',
+      originalSource:source.originalSource,originalGrantReferenceType:source.originalGrantReferenceType,originalGrantReferenceId:source.originalGrantReferenceId,
+      countryPolicyId:lot.countryPolicyId,countryPolicyVersion:lot.countryPolicyVersion,lotClass:'WITHDRAWABLE',state:'OPEN',
+      availableAmount:0,reservedAmount:0,requirementAmount:0,progressAmount:0,mintedAt:new Date(),availableAt:new Date(),
+      sourceOperationId:conversion.id,parentLotId:lot.id,rootLotId:lot.rootLotId??lot.id}});
+    await entry(tx,{operationId:conversion.id,userId,lotId:lot.id,sequence:0,entryType:'CONVERT_OUT',availableDelta:-amount,counterpartyLotId:successor.id});
+    await entry(tx,{operationId:conversion.id,userId,lotId:successor.id,sequence:1,entryType:'CONVERT_IN',availableDelta:amount,counterpartyLotId:lot.id});
 }
 
 /** Exact integer floor for policy Decimal caps; never round withdrawability up. */
@@ -975,6 +998,16 @@ export async function resolveFinancialStakeCoins(
     for (const share of returns) if (share.amount > 0n) {
       await entry(tx, { operationId: operation.id, userId, lotId: share.lot_id,
         sequence: sequence++, entryType: 'RETURN', availableDelta: Number(share.amount) });
+    }
+  }
+  if(args.disposition==='SETTLED'&&args.payout>hold.amount) {
+    const returns=await tx.coinLotEntry.findMany({where:{operationId:operation.id,entryType:'RETURN'}});
+    for(const source of sources) {
+      const lot=lots.find(item=>item.id===source.lotId)!;
+      if(lot.bonusRule!=='NET_WINNINGS_V1')continue;
+      const returned=returns.find(item=>item.lotId===source.lotId)?.availableDelta??0;
+      const amount=Math.min(Math.max(0,returned-source.reservedDelta),Number(BigInt(args.payout-hold.amount)*BigInt(source.reservedDelta)/BigInt(hold.amount)));
+      if(amount)await convertRewardProfit(tx,userId,lot,amount,hold.id,'SCHEDULED_STAKE');
     }
   }
   await tx.scheduledStakeHold.update({ where: { id: hold.id }, data: args.disposition === 'CANCELLED'

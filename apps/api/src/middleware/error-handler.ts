@@ -98,6 +98,14 @@ export function errorHandler(
     });
   }
 
+  const databaseMessage = JSON.stringify((error as FastifyError & {meta?:unknown}).meta ?? {}) + error.message;
+  if ((['P2004','P2010'].includes(error.code) || error.name.startsWith('PrismaClient')) && /GROUP_CLOSED|PVP_MEMBER_PROTECTED/.test(databaseMessage)) {
+    const message = databaseMessage.includes('PVP_MEMBER_PROTECTED')
+      ? 'This member has a committed game entry. They must withdraw before the countdown or wait for settlement.'
+      : 'This group has closed. Its conversation and results are read-only.';
+    return reply.status(409).send({success:false,error:{code:ErrorCode.CONFLICT,message},meta:{requestId}});
+  }
+
   if (error.code === 'P2003') {
     return reply.status(400).send({
       success: false,

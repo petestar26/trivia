@@ -18,3 +18,12 @@ it('rejects invalid outcomes before choosing winners',()=>{
   expect(()=>pvpWinnerIds('spin_win',[],[37])).toThrow();
   expect(()=>pvpWinnerIds('turbo_keno',[],Array(20).fill(1))).toThrow();
 });
+
+it('Dice permits doubles, shares exact totals, and rejects malformed rolls',()=>{
+  const players=[{userId:'b',selection:[12]},{userId:'a',selection:[12]},{userId:'c',selection:[7]}];
+  expect(pvpWinnerIds('dice',players,[6,6])).toEqual(['a','b']);
+  expect(pvpWinnerIds('dice',players,[1,1])).toEqual([]);
+  expect(validatePvpSelection('dice',[7])).toEqual([7]);
+  for(const selection of [[1],[13],[7,8],[2.5]])expect(()=>validatePvpSelection('dice',selection)).toThrow();
+  for(const outcome of [[0,6],[6,7],[1],[1,2,3]])expect(()=>pvpWinnerIds('dice',players,outcome)).toThrow();
+});

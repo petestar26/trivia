@@ -29,7 +29,7 @@ export async function giftRoutes(server: FastifyInstance): Promise<void> {
     '/send',
     {
       preHandler: [authenticate],
-      rateLimit: { max: 20, timeWindow: '1 minute' },
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       schema: {
         body: {
           type: 'object',

@@ -3,16 +3,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GIFT_COLLECTION_POLICY } from '@socialplay/shared';
-const mocks = vi.hoisted(() => ({ send: vi.fn(), get: vi.fn() }));
+const mocks = vi.hoisted(() => ({ send: vi.fn(), get: vi.fn(), closed: false }));
 vi.mock('@/lib/api', () => ({ api: { get: mocks.get, postWithIdempotency: mocks.send,
   getGroupMembers: async () => ({ data: [{ user: { id: 'recipient', username: 'friend' }, status: 'ACTIVE' }] }) },
   unwrapData: (r: {data:unknown}) => r.data }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'owner' } }) }));
+vi.mock('@/components/groups/group-lifecycle', () => ({ GroupLifecycle: () => null, useGroupLifecycle: () => ({closed:mocks.closed}) }));
 import { GroupGiftsPage } from './group-gifts';
 const heart = { id:'golden-heart',name:'Golden Heart',emoji:'💛',description:'A thank-you',theme:'amber',faceValue:100 };
 const snapshot = () => ({ policyId:GIFT_COLLECTION_POLICY,balance:1000,catalog:[heart],owned:[],totalOwned:0,page:1,pageSize:12 });
 const success = { success:true,data:{kind:'BUY',amount:100,fee:0,gift:{recipientUsername:'friend'},messageId:null} };
-beforeEach(() => { mocks.send.mockReset(); mocks.get.mockReset(); mocks.get.mockResolvedValue({data:snapshot()}); sessionStorage.clear(); });
+beforeEach(() => { mocks.closed=false; mocks.send.mockReset(); mocks.get.mockReset(); mocks.get.mockResolvedValue({data:snapshot()}); sessionStorage.clear(); });
 afterEach(cleanup);
 async function mount() {
   const view=render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0},mutations:{retry:false}}})}><MemoryRouter initialEntries={['/groups/group/gifts']}><Routes><Route path="/groups/:id/gifts" element={<GroupGiftsPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
@@ -61,4 +62,13 @@ it('does not let an unmounted response erase a newer receipt',async()=>{
   await waitFor(()=>expect(mocks.send).toHaveBeenCalledTimes(1));cleanup();const newer={...JSON.parse(sessionStorage.getItem('playqube.pending-collectible.owner')!),key:'newer-request'};
   sessionStorage.setItem('playqube.pending-collectible.owner',JSON.stringify(newer));resolve(success);await new Promise(r=>setTimeout(r,10));
   expect(JSON.parse(sessionStorage.getItem('playqube.pending-collectible.owner')!).key).toBe('newer-request');
+});
+
+it('keeps owned gifts convertible after room closure while blocking new group gifts',async()=>{
+  mocks.closed=true;
+  mocks.get.mockResolvedValue({data:{...snapshot(),owned:[{...heart,id:'owned-gift',catalogId:heart.id,version:2}],totalOwned:1}});
+  await mount();expect(screen.getByRole('button',{name:'Choose Golden Heart'})).toBeDisabled();
+  fireEvent.click(screen.getByRole('tab',{name:'My gifts (1)'}));
+  expect(screen.getByRole('button',{name:/^Send$/})).toBeDisabled();
+  expect(screen.getByRole('button',{name:/^Convert$/})).toBeEnabled();
 });

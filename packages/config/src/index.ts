@@ -57,6 +57,8 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_AUTH_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
+  // Dedicated gateway identity key. Never share JWT signing keys with the web service.
+  WEB_GATEWAY_SECRET: z.string().min(32).optional(),
   STORAGE_PROVIDER: z.enum(['local', 's3', 'r2', 'minio']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./uploads'),
   STORAGE_S3_ENDPOINT: z.string().url().optional(),

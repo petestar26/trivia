@@ -2,33 +2,14 @@ import { prisma } from '@socialplay/database';
 import { createGroupPvpService } from '../games/group-pvp/service.js';
 import { createSystemDiceService } from '../games/group-pvp/system-dice.js';
 import { createSystemKenoService } from '../games/group-pvp/system-keno.js';
+import { enabledGroupWorkers, runGroupWorkerLoops } from './group-worker-runtime.js';
+import { expireSocialGroups } from '../groups/lifecycle.js';
 
-if(process.env.GROUP_PVP_GAME_POINTS_ENABLED !== 'true') throw new Error('Group PVP worker is disabled');
-const service = createGroupPvpService(prisma);
-const keno=createSystemKenoService(prisma);
-const dice=createSystemDiceService(prisma);
 let stopped = false;
 process.once('SIGTERM',()=>{stopped=true;});
 process.once('SIGINT',()=>{stopped=true;});
-async function pvpLoop(){
-  while(!stopped){
-    try { await service.tick((roundId)=>console.error(JSON.stringify({event:'PVP_PAYOUT_PENDING',roundId}))); }
-    catch { console.error(JSON.stringify({event:'PVP_WORKER_RETRY'})); }
-    await new Promise(resolve=>setTimeout(resolve,1000));
-  }
-}
-async function kenoLoop(){
-  if(process.env.SYSTEM_KENO_PRACTICE_ENABLED!=='true')return;
-  while(!stopped){
-    try{await keno.tick(id=>console.error(JSON.stringify({event:'KENO_PRACTICE_RETRY',id})));}catch{console.error(JSON.stringify({event:'KENO_PRACTICE_RETRY'}));}
-    await new Promise(resolve=>setTimeout(resolve,1000));
-  }
-}
-async function diceLoop(){
-  if(process.env.SYSTEM_DICE_PRACTICE_ENABLED!=='true')return;
-  while(!stopped){
-    try{await dice.tick(id=>console.error(JSON.stringify({event:'DICE_PRACTICE_RETRY',id})));}catch{console.error(JSON.stringify({event:'DICE_PRACTICE_RETRY'}));}
-    await new Promise(resolve=>setTimeout(resolve,1000));
-  }
-}
-try { await Promise.all([pvpLoop(),kenoLoop(),diceLoop()]); } finally { await prisma.$disconnect(); }
+try {
+  await runGroupWorkerLoops({enabled:enabledGroupWorkers(process.env),stopped:()=>stopped,
+    ticks:{SOCIAL_LIFECYCLE:async()=>{await expireSocialGroups(prisma);},PVP:createGroupPvpService(prisma).tick,KENO_PRACTICE:createSystemKenoService(prisma).tick,DICE_PRACTICE:createSystemDiceService(prisma).tick},
+    wait:()=>new Promise(resolve=>setTimeout(resolve,1000)),report:event=>console.error(JSON.stringify(event))});
+} finally { await prisma.$disconnect(); }

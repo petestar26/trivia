@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import { config } from '@socialplay/config';
+import { createRateLimitKey } from './rate-limit-identity.js';
 
 export async function registerPlugins(server: FastifyInstance): Promise<void> {
   await server.register(sensible);
@@ -41,7 +42,7 @@ export async function registerPlugins(server: FastifyInstance): Promise<void> {
     global: true,
     max: config.RATE_LIMIT_MAX_REQUESTS,
     timeWindow: config.RATE_LIMIT_WINDOW_MS,
-    errorMessage: 'Too many requests',
+    keyGenerator: createRateLimitKey(config.WEB_GATEWAY_SECRET),
     addHeaders: {
       'x-ratelimit-limit': true,
       'x-ratelimit-remaining': true,

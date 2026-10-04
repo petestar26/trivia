@@ -43,7 +43,7 @@ export function createSystemKenoService(db:PrismaClient) {
       return {accepted:true,isReplay:false};
     });
   }
-  async function tick(onError:(id:string)=>void=()=>{}) {
+  async function tick(onError:(id:string,error:unknown)=>void=()=>{}) {
     await db.$transaction(async tx=>{
       const now=await clock(tx);const opens=Math.floor(now.getTime()/60000)*60000;
       await tx.$executeRaw`INSERT INTO system_keno_practice_rounds(id,opens_at,closes_at,ends_at) VALUES(${`keno-minute-${opens/60000}`},${new Date(opens)},${new Date(opens+45000)},${new Date(opens+60000)}) ON CONFLICT DO NOTHING`;
@@ -57,7 +57,7 @@ export function createSystemKenoService(db:PrismaClient) {
         const balls=Array.from({length:80},(_,i)=>i+1);for(let i=0;i<20;i++){const j=randomInt(i,80);[balls[i],balls[j]]=[balls[j],balls[i]];}
         await tx.$executeRaw`UPDATE system_keno_practice_rounds SET outcome=${JSON.stringify(balls.slice(0,20))}::jsonb WHERE id=${r.id}`;
       });
-    }catch{onError(r.id);}
+    }catch(error){onError(r.id,error);}
     const tickets=await db.$queryRaw<{id:string}[]>`SELECT t.id FROM system_keno_practice_tickets t JOIN system_keno_practice_rounds r ON r.id=t.round_id WHERE t.payout IS NULL AND r.outcome IS NOT NULL AND t.retry_at<=clock_timestamp() ORDER BY t.retry_at,r.closes_at,t.id LIMIT 200`;
     for(const ticket of tickets)try{
       await db.$executeRaw`UPDATE system_keno_practice_tickets SET retry_at=clock_timestamp()+interval '10 seconds' WHERE id=${ticket.id} AND payout IS NULL`;
@@ -70,7 +70,7 @@ export function createSystemKenoService(db:PrismaClient) {
         await tx.$executeRaw`UPDATE system_keno_practice_tickets SET payout=${payout} WHERE id=${t.id}`;
         await tx.$executeRaw`UPDATE system_keno_practice_accounts SET balance=balance+${payout} WHERE user_id=${t.user_id}`;
       });
-    }catch{onError(ticket.id);}
+    }catch(error){onError(ticket.id,error);}
   }
   return {snapshot,enter,tick};
 }

@@ -47,7 +47,7 @@ export function createSystemDiceService(db: PrismaClient) {
       return {accepted:true,isReplay:false};
     });
   }
-  async function tick(onError: (id:string)=>void = ()=>{}) {
+  async function tick(onError: (id:string,error:unknown)=>void = ()=>{}) {
     await db.$transaction(async tx => {
       const now = await clock(tx), opens = Math.floor(now.getTime()/60000)*60000;
       await tx.$executeRaw`INSERT INTO system_dice_practice_rounds(id,opens_at,closes_at,ends_at)
@@ -61,7 +61,7 @@ export function createSystemDiceService(db: PrismaClient) {
         if (locked.die1 !== null) return;
         await tx.$executeRaw`UPDATE system_dice_practice_rounds SET die1=${randomInt(1,7)},die2=${randomInt(1,7)} WHERE id=${r.id}`;
       });
-    } catch { onError(r.id); }
+    } catch (error) { onError(r.id,error); }
     // Separate durable outcome and credits: a failed credit never causes a reroll.
     const tickets = await db.$queryRaw<{id:string}[]>`SELECT t.id FROM system_dice_practice_tickets t JOIN system_dice_practice_rounds r ON r.id=t.round_id
       WHERE t.payout IS NULL AND r.die1 IS NOT NULL AND t.retry_at<=clock_timestamp() ORDER BY t.retry_at,r.closes_at,t.id LIMIT 200`;
@@ -76,7 +76,7 @@ export function createSystemDiceService(db: PrismaClient) {
         await tx.$executeRaw`UPDATE system_dice_practice_tickets SET payout=${payout} WHERE id=${t.id}`;
         await tx.$executeRaw`UPDATE system_dice_practice_accounts SET balance=balance+${payout} WHERE user_id=${t.user_id}`;
       });
-    } catch { onError(ticket.id); }
+    } catch (error) { onError(ticket.id,error); }
   }
   return {snapshot,enter,tick};
 }

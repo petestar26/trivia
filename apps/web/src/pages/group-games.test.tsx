@@ -32,5 +32,11 @@ it('refreshes into the server countdown with entries locked and displays persist
   snapshot.round!.state='COUNTDOWN';snapshot.round!.startsAt=snapshot.serverTime+30000;
   const view=mount();expect(await screen.findByRole('timer')).toHaveTextContent('30');expect(screen.queryByRole('button',{name:'Join round'})).toBeNull();view.unmount();
   snapshot.round!.state='SETTLED';snapshot.round!.outcome=[7];snapshot.round!.settlement={platformFee:14,prizes:[{userId:'owner',username:'owner',amount:186}],refunds:[],reason:null};
-  mount();expect(await screen.findByText('Winners paid')).toBeInTheDocument();expect(screen.getByText('+186 points')).toBeInTheDocument();
+  mount();expect(await screen.findByText('Winners paid')).toBeInTheDocument();expect(screen.getByText('186 points returned')).toBeInTheDocument();
+});
+
+it('discloses a net loss when tied winners receive less than their entry',async()=>{
+ snapshot.round!.state='SETTLED';snapshot.round!.outcome=[7];snapshot.round!.settlement={platformFee:14,prizes:[{userId:'owner',username:'owner',amount:93},{userId:'other',username:'other',amount:93}],refunds:[],reason:null};
+ mount();expect(await screen.findAllByText('93 points returned')).toHaveLength(2);
+ expect(screen.getAllByText('-7 net · 100 entry')).toHaveLength(2);
 });

@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
+import rateLimit from '@fastify/rate-limit';
 import { ApiError } from '../middleware/api-error';
 
 const db = vi.hoisted(() => ({ session: {
@@ -30,10 +31,11 @@ import { config } from '@socialplay/config';
 let server: ReturnType<typeof Fastify>;
 let token: string;
 beforeEach(async () => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   server = Fastify();
   await server.register(cookie);
   await server.register(jwt, { secret: config.JWT_ACCESS_SECRET, cookie: { cookieName: 'sp_access_token', signed: false } });
+  await server.register(rateLimit, {max:1000});
   server.setErrorHandler((error, _request, reply) => {
     reply.code(error instanceof ApiError ? error.statusCode : error.statusCode ?? 500).send({ error: { message: error.message } });
   });
@@ -47,6 +49,53 @@ afterEach(async () => { await server.close(); });
 const headers = () => ({ origin: 'https://app.example.test', cookie: `sp_refresh_token=${token}` });
 
 describe('browser cookie renewal and logout', () => {
+  it.each(['cookie','json'])('a rotated %s token cannot exhaust the live account refresh quota',async mode=>{
+    let currentToken:string|null=token;
+    const staleToken=token;
+    const session={id:'live-session',userId:'alice',expiresAt:new Date(Date.now()+60000),
+      user:{id:'alice',username:'alice',role:'USER',status:'ACTIVE',tokenVersion:0}};
+    db.session.findUnique.mockImplementation(async({where})=>where.refreshToken===currentToken?session:null);
+    db.session.delete.mockImplementation(async()=>{currentToken=null;});
+    db.session.create.mockImplementation(async({data})=>{currentToken=data.refreshToken;return data;});
+    const refresh=(value:string)=>server.inject({method:'POST',url:'/auth/refresh',
+      payload:mode==='json'?{refreshToken:value}:{},
+      headers:mode==='cookie'?{origin:config.FRONTEND_URL,cookie:`sp_refresh_token=${value}`}:{}});
+    expect((await refresh(staleToken)).statusCode).toBe(200);
+    expect(currentToken).not.toBe(staleToken);
+    for(let i=0;i<10;i++)expect((await refresh(staleToken)).statusCode).toBe(401);
+    expect((await refresh(staleToken)).statusCode).toBe(429);
+    const valid=await refresh(currentToken!);
+    expect(valid.statusCode,valid.body).toBe(200);
+    expect(valid.cookies.some((c:{name:string})=>c.name==='sp_refresh_token')).toBe(true);
+  });
+  it('isolates 20 refresh accounts behind one proxy and retains the quota across token rotations', async () => {
+    const tokens=Array.from({length:20},(_,i)=>generateTokens(`user-${i}`,null,`user-${i}`,['USER'],0).refreshToken);
+    db.session.findUnique.mockImplementation(async({where})=>{
+      const decoded=server.jwt.verify(where.refreshToken,{key:config.JWT_REFRESH_SECRET}) as {sub:string};
+      return {id:`session-${decoded.sub}`,userId:decoded.sub,expiresAt:new Date(Date.now()+60000),
+        user:{id:decoded.sub,username:decoded.sub,role:'USER',status:'ACTIVE',tokenVersion:0}};
+    });
+    for(let i=0;i<tokens.length;i++){
+      const r=await server.inject({method:'POST',url:'/auth/refresh',payload:{refreshToken:tokens[i]}});
+      expect(r.statusCode,r.body).toBe(200);tokens[i]=r.json().data.refreshToken;
+    }
+    // Alternate JSON and cookie clients; fresh jti values keep the same bucket.
+    for(let i=1;i<10;i++){
+      const r=await server.inject({method:'POST',url:'/auth/refresh',payload:i%2?{}:{refreshToken:tokens[0]},headers:i%2?{origin:config.FRONTEND_URL,cookie:`sp_refresh_token=${tokens[0]}`}:{}});
+      expect(r.statusCode,r.body).toBe(200);tokens[0]=r.cookies.find((c:{name:string;value:string})=>c.name==='sp_refresh_token')!.value;
+    }
+    expect((await server.inject({method:'POST',url:'/auth/refresh',payload:{refreshToken:tokens[0]}})).statusCode).toBe(429);
+    expect((await server.inject({method:'POST',url:'/auth/refresh',payload:{refreshToken:tokens[1]}})).statusCode).toBe(200);
+  });
+  it('keeps forged, expired and access-only tokens in the anonymous refresh allowance', async () => {
+    db.session.findUnique.mockResolvedValue(null);
+    const access=generateTokens('alice',null,'alice',['USER']).accessToken;
+    const expired=server.jwt.sign({sub:'fake',tokenVersion:0,exp:1},{key:config.JWT_REFRESH_SECRET});
+    for(let i=0;i<11;i++){
+      const r=await server.inject({method:'POST',url:'/auth/refresh',payload:{refreshToken:i===0?access:i===1?expired:`forged-${i}`},headers:{'x-forwarded-for':`203.0.113.${i}`}});
+      expect(r.statusCode,r.body).toBe(i<10?401:429);
+    }
+  });
   it('rotates a valid HttpOnly session with no token in body or response', async () => {
     const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
     expect(r.statusCode).toBe(200);

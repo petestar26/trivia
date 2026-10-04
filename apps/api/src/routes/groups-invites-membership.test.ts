@@ -1585,11 +1585,12 @@ describeIf('groups/routes — hardening findings', () => {
         data: {
           ownerId: owner.id,
           name: `ArchivedT-${uniqueSuffix()}`,
-          status: 'ARCHIVED',
+          status: 'ACTIVE',
           isPrivate: true,
         },
       });
       await addMember(group.id, target.id, GroupMemberRole.MEMBER, GroupMemberStatus.ACTIVE);
+      await prisma.group.update({where:{id:group.id},data:{status:'ARCHIVED'}});
 
       const resp = await server.inject({
         method: 'POST',

@@ -26,7 +26,7 @@ function readPending(userId: string): { entry: Entry | null; error: string } {
 export function DiceFace({ value, hidden = false }: { value: number; hidden?: boolean }) {
   const pips: Record<number, number[]> = { 1:[4], 2:[0,8], 3:[0,4,8], 4:[0,2,6,8], 5:[0,2,4,6,8], 6:[0,2,3,5,6,8] };
   return <div className="system-die" role="img" aria-label={hidden ? 'Dice awaiting result' : `Die ${value}`}>
-    {Array.from({length:9},(_,i)=><span key={i} className={pips[value]?.includes(i)?'pip':'empty'} />)}
+    {Array.from({length:9},(_,i)=><span key={i} className={!hidden&&pips[value]?.includes(i)?'pip':'empty'} />)}
   </div>;
 }
 export function SystemDicePage() { const { user } = useAuth(); return user ? <SystemDice key={user.id} userId={user.id}/> : null; }

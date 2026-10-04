@@ -18,7 +18,7 @@ it('concurrent confirmations debit once and reject changed tickets',async()=>{
  expect(await balance(f.userId)).toBe(985);await expect(service.enter(f.userId,f.roundId,[4],5)).rejects.toThrow('confirmed');
 });
 it('recovers a stored draw and pays once across concurrent workers',async()=>{
- const f=await fixture();await service.enter(f.userId,f.roundId,[1,2,80],10);
+ const f=await fixture(1500);await service.enter(f.userId,f.roundId,[1,2,80],10);await new Promise(resolve=>setTimeout(resolve,1550));
  await db.$executeRaw`UPDATE system_keno_practice_rounds SET outcome=${JSON.stringify(Array.from({length:20},(_,i)=>i+1))}::jsonb WHERE id=${f.roundId}`;
  const errors:string[]=[];await Promise.all([service.tick(id=>errors.push(id)),service.tick(id=>errors.push(id))]);expect(errors).toEqual([]);
  expect(await balance(f.userId)).toBe(1042);await service.tick();expect(await balance(f.userId)).toBe(1042);
@@ -42,4 +42,19 @@ it('rechecks the cutoff after waiting for the wallet lock and never charges late
 it('refuses inactive accounts without changing practice balances',async()=>{
  const f=await fixture();await db.user.update({where:{id:f.userId},data:{status:'BANNED'}});
  await expect(service.snapshot(f.userId)).rejects.toThrow('active');await expect(service.enter(f.userId,f.roundId,[1],5)).rejects.toThrow('active');expect(await balance(f.userId)).toBe(1000);
+});
+it('database guards reject early or invalid draws, late tickets and wrong payouts',async()=>{
+ const f=await fixture(1500);await service.enter(f.userId,f.roundId,[1,2,80],10);
+ const draw=JSON.stringify(Array.from({length:20},(_,i)=>i+1));
+ await expect(db.$executeRaw`UPDATE system_keno_practice_rounds SET outcome=${draw}::jsonb WHERE id=${f.roundId}`).rejects.toThrow('before cutoff');
+ await new Promise(resolve=>setTimeout(resolve,1550));
+ await expect(db.$executeRaw`UPDATE system_keno_practice_rounds SET outcome=${JSON.stringify(Array(20).fill(1))}::jsonb WHERE id=${f.roundId}`).rejects.toThrow('Invalid Keno draw');
+ await expect(db.$executeRaw`INSERT INTO system_keno_practice_tickets(id,round_id,user_id,picks,stake_per_number,stake) VALUES(${randomUUID()},${f.roundId},${f.userId},'[1]',5,5)`).rejects.toThrow('closed');
+ await db.$executeRaw`UPDATE system_keno_practice_rounds SET outcome=${draw}::jsonb WHERE id=${f.roundId}`;
+ await expect(db.$executeRaw`UPDATE system_keno_practice_tickets SET payout=73 WHERE round_id=${f.roundId}`).rejects.toThrow('must match');
+ expect(await balance(f.userId)).toBe(970);await service.tick();expect(await balance(f.userId)).toBe(1042);
+});
+it('keeps the non-cascade Keno guard search path compliant with ledger I3',async()=>{
+  const [guard]=await db.$queryRaw<{proconfig:string[]}[]>`SELECT proconfig FROM pg_proc WHERE oid='public.system_keno_practice_guard()'::regprocedure`;
+  expect(guard.proconfig).toContain('search_path=public, pg_temp');
 });

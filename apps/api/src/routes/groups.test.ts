@@ -500,12 +500,16 @@ describeIf('groups/routes — GET /groups', () => {
       const prefix = `OpusStatusScope${Date.now()}`;
       const active = await createGroup(caller.id, `${prefix} Active Group`);
       await addMember(active.id, caller.id, GroupMemberRole.OWNER);
-      const inactive = await createGroup(caller.id, `${prefix} Inactive Group`, { status: GroupStatus.INACTIVE });
-      const archived = await createGroup(caller.id, `${prefix} Archived Group`, { status: GroupStatus.ARCHIVED });
-      const banned = await createGroup(caller.id, `${prefix} Banned Group`, { status: GroupStatus.BANNED });
+      const inactive = await createGroup(caller.id, `${prefix} Inactive Group`);
+      const archived = await createGroup(caller.id, `${prefix} Archived Group`);
+      const banned = await createGroup(caller.id, `${prefix} Banned Group`);
       await addMember(inactive.id, caller.id, GroupMemberRole.OWNER);
       await addMember(archived.id, caller.id, GroupMemberRole.OWNER);
       await addMember(banned.id, caller.id, GroupMemberRole.OWNER);
+
+      await prisma.group.update({where:{id:inactive.id},data:{status:GroupStatus.INACTIVE}});
+      await prisma.group.update({where:{id:archived.id},data:{status:GroupStatus.ARCHIVED}});
+      await prisma.group.update({where:{id:banned.id},data:{status:GroupStatus.BANNED}});
 
       // Only these scoped fixtures match the query, so `total` is deterministic
       // regardless of what other processes create or delete concurrently.

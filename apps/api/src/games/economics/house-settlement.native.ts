@@ -69,7 +69,7 @@ async function createRound() {
   return { streamId, roundId };
 }
 
-async function fixture(options: { bonus?: number; winning?: boolean; stake?: number } = {}) {
+async function fixture(options: { bonus?: number; winning?: boolean; stake?: number; netReward?: boolean } = {}) {
   const purchased = await purchasedFixture(120);
   const method = await prisma.paymentMethodDefinition.findFirstOrThrow({
     where: { countryId: purchased.country.id, type: 'BANK_TRANSFER', isActive: true },
@@ -89,6 +89,7 @@ async function fixture(options: { bonus?: number; winning?: boolean; stake?: num
       referenceType: 'GAME', referenceId: grantId, description: 'Restricted scheduled fixture',
       policy: { id: policy.id, version: policy.version }, requirementAmount: options.bonus! * 2,
       expiresAt: new Date(Date.now() + 86_400_000),
+      ...(options.netReward ? { bonusRule: 'NET_WINNINGS_V1' as const } : {}),
     }));
     bonusLotId = bonus.lotId;
   }
@@ -163,6 +164,29 @@ afterAll(async () => {
 });
 
 describe('dormant Spin Win draw and ticket settlement', () => {
+  it('unlocks only net reward profit after scheduled settlement, with exact retry', async () => {
+    const f = await fixture({ bonus: 40, stake: 80, netReward: true });
+    await waitForCutoff(f.roundId);
+    await drawDormantSpinRound(prisma, f.roundId);
+    const settled = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
+    expect(settled).toMatchObject({ payout: 2664, coinsBalance: 2744, isReplay: false });
+    const lots = await prisma.coinProvenance.findMany({ where: { userId: f.buyer.id } });
+    expect(lots.find((lot) => lot.id === f.bonusLotId)).toMatchObject({
+      lotClass: 'RESTRICTED', bonusRule: 'NET_WINNINGS_V1', availableAmount: 40,
+      reservedAmount: 0, progressAmount: 0,
+    });
+    expect(lots.filter((lot) => lot.lotClass === 'WITHDRAWABLE')
+      .reduce((total, lot) => total + lot.availableAmount, 0)).toBe(2704);
+    expect(lots.find((lot) => lot.parentLotId === f.bonusLotId)).toMatchObject({
+      lotClass: 'WITHDRAWABLE', availableAmount: 1292,
+    });
+    const beforeRetry = await financialSnapshot(f.buyer.id, f.holdId);
+    expect(await settleDormantSpinTicket(prisma, { holdId: f.holdId })).toMatchObject({
+      payout: 2664, coinsBalance: 2744, isReplay: true,
+    });
+    expect(await financialSnapshot(f.buyer.id, f.holdId)).toEqual(beforeRetry);
+  });
+
   it('requires a pre-admission commitment and rejects an early draw without financial writes', async () => {
     const f = await fixture();
     const empty = await createRound();

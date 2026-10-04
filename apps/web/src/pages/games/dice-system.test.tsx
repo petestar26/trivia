@@ -65,3 +65,10 @@ it('blocks an unavailable rules version and an unaffordable ticket',async()=>{
  s.balance=20;mount();await screen.findByRole('timer',{name:'Betting closes in'});expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();expect(screen.getByText('Not enough practice credits for this amount.')).toBeInTheDocument();
  cleanup();s.balance=1000;s.rulesId='unknown';mount();await screen.findByRole('timer',{name:'Next round in'});expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();
 });
+
+it('shows blank dice before a result rather than a winning placeholder',async()=>{
+ const {DiceFace}=await import('./dice-system');
+ const {container}=render(<DiceFace value={3} hidden/>);
+ expect(container.querySelectorAll('.pip')).toHaveLength(0);
+ expect(screen.getByRole('img',{name:'Dice awaiting result'})).toBeInTheDocument();
+});
