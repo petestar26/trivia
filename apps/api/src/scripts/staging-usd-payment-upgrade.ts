@@ -8,19 +8,8 @@ import { resolve } from 'node:path';
 
 const MIGRATIONS = ['20261004120000_usd_payment_pricing', '20261004121000_usd_pricing_guard_paths', '20261004122000_usd_activation_guard_path'];
 
-export function assertUsdStagingTarget(env: NodeJS.ProcessEnv) {
-  const url = new URL(env.DATABASE_URL ?? 'https://invalid');
-  if (
-    env.RAILWAY_ENVIRONMENT_ID !== '7de0c716-24df-4e97-a998-ed99abfa256f' ||
-    env.PRACTICE_STAGING_ACK !== 'spin-practice-rehearsal-20261002' ||
-    !['postgres:', 'postgresql:'].includes(url.protocol) ||
-    url.hostname !== 'spin-practice-db-20261002.railway.internal' ||
-    url.pathname !== '/playqube_spin_rehearsal_20261002' ||
-    !/^spin_rehearsal_api_[a-z0-9_]{1,32}$/.test(env.PRACTICE_API_ROLE ?? '')
-  ) {
-    throw new Error('STAGING_TARGET_REFUSED');
-  }
-}
+import { assertUsdStagingTarget } from './staging-payment-target.js';
+export { assertUsdStagingTarget } from './staging-payment-target.js';
 
 export async function runUsdStagingUpgrade(apply: boolean) {
   assertUsdStagingTarget(process.env);
