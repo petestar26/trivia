@@ -34,6 +34,7 @@ export function Sidebar({ onNavigate }: SidebarProps = {}) {
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+          {user && ['ADMIN', 'SUPER_ADMIN'].includes((user as typeof user & { role?: string }).role ?? '') && <Link to="/admin" onClick={onNavigate} className="block px-3 py-3 mb-3 rounded-lg bg-primary-50 text-primary-700 font-semibold">Administration dashboard →</Link>}
           {navigation.map((item) => {
             const active = item.href === '/casino'
               ? casinoTable || pathname === '/casino'

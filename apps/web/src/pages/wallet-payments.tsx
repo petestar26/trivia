@@ -303,8 +303,8 @@ function Payments({ userId }: { userId: string }) {
         <>
           <Link className="payment-link" to="/wallet/agent-setup">Payment agent setup</Link>
           {(options.data?.isAgent || options.data?.isAdmin) && (
-            <Link className="payment-link" to="/wallet/operations">
-              Agent & admin processing →
+            <Link className="payment-link" to={options.data?.isAdmin ? '/admin' : '/agent'}>
+              {options.data?.isAdmin ? 'Administration dashboard →' : 'Agent workspace →'}
             </Link>
           )}
           {section === 'deposit' && options.data?.crypto?.assets && (

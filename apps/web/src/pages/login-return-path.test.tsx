@@ -37,6 +37,8 @@ function renderApp(initialEntries: NonNullable<MemoryRouterProps['initialEntries
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin/login" element={<LoginPage workspace="admin" />} />
+            <Route path="/agent/login" element={<LoginPage workspace="agent" />} />
             <Route
               path="/*"
               element={
@@ -128,4 +130,19 @@ describe('ProtectedRoute -> login -> return', () => {
       await waitFor(() => expect(screen.getByTestId('destination').textContent).toBe('/'));
     });
   });
+});
+
+
+it.each(['admin', 'agent'] as const)('dedicated %s login lands in its own workspace', async kind => {
+  const user = userEvent.setup();
+  renderApp([`/${kind}/login`]);
+  expect(screen.queryByRole('link', { name: 'Sign up' })).not.toBeInTheDocument();
+  await signIn(user);
+  await waitFor(() => expect(screen.getByTestId('destination').textContent).toBe(`/${kind}`));
+});
+it('admin login preserves its protected deep link', async () => {
+  const user = userEvent.setup();
+  renderApp([{ pathname: '/admin/login', state: { from: { pathname: '/admin/accounts', search: '?page=2' } } }]);
+  await signIn(user);
+  await waitFor(() => expect(screen.getByTestId('destination').textContent).toBe('/admin/accounts?page=2'));
 });

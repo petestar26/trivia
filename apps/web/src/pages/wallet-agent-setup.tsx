@@ -9,11 +9,11 @@ import './wallet-payments.css';
 const get = async <T,>(path: string) => unwrapData(await api.get<T>(path));
 type Agent = { id: string; countryId: string; displayName: string; status: string };
 type Method = { id: string; name: string; fieldSchema: { requiredFields: string[] } };
-export function WalletAgentSetupPage() {
+export function WalletAgentSetupPage({ workspace = false }: { workspace?: boolean }) {
   const { user } = useAuth();
-  return user ? <AgentSetup key={user.id} userId={user.id} /> : null;
+  return user ? <AgentSetup key={user.id} userId={user.id} workspace={workspace} /> : null;
 }
-function AgentSetup({ userId }: { userId: string }) {
+function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean }) {
   const cache = useQueryClient();
   const agent = useQuery({
     queryKey: ['payments', 'own-agent', userId],
@@ -74,7 +74,7 @@ function AgentSetup({ userId }: { userId: string }) {
   return (
     <div className="payments-page">
       <h1>Payment agent setup</h1>
-      <PaymentNavigation />
+      {!workspace && <PaymentNavigation />}
       <section className="payment-panel">
         <p>
           Apply to serve a country and submit your payment destination for review. Approval,

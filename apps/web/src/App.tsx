@@ -1,3 +1,6 @@
+import { WorkspaceDestination, WorkspaceGate, WorkspaceLayout, AdminOverview, AdminAccounts, AdminRecords, AgentOverview, WorkspaceProcessing } from '@/pages/workspaces';
+import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
+import { WalletPricingAdmin } from '@/pages/wallet-pricing-admin';
 import { WalletAgentSetupPage } from '@/pages/wallet-agent-setup';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
@@ -30,7 +33,6 @@ import { MessagesPage } from '@/pages/messages';
 import { GroupGamesPage } from '@/pages/group-games';
 import { GroupGiftsPage } from '@/pages/group-gifts';
 import { WalletPaymentsPage } from '@/pages/wallet-payments';
-import { WalletOperationsPage } from '@/pages/wallet-operations';
 import { WalletPage } from '@/pages/wallet';
 import { RewardsPage } from '@/pages/rewards';
 import { ProfilePage } from '@/pages/profile';
@@ -62,6 +64,24 @@ export function App() {
           <SpinWinVerifyPage />
         </Suspense>
       } />
+      <Route path="/admin/login" element={<LoginPage workspace="admin" />} />
+      <Route path="/agent/login" element={<LoginPage workspace="agent" />} />
+      <Route path="/admin" element={<WorkspaceGate kind="admin"><WorkspaceLayout kind="admin" /></WorkspaceGate>}>
+        <Route index element={<AdminOverview />} />
+        <Route path="payments" element={<WalletSetupAdmin />} />
+        <Route path="pricing" element={<WalletPricingAdmin />} />
+        <Route path="disputes" element={<WorkspaceProcessing kind="admin" />} />
+        <Route path="accounts" element={<AdminAccounts />} />
+        <Route path="games" element={<AdminRecords kind="games" />} />
+        <Route path="activity" element={<AdminRecords kind="audit" />} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Route>
+      <Route path="/agent" element={<WorkspaceGate kind="agent"><WorkspaceLayout kind="agent" /></WorkspaceGate>}>
+        <Route index element={<AgentOverview />} />
+        <Route path="operations" element={<WorkspaceProcessing kind="agent" />} />
+        <Route path="accounts" element={<WalletAgentSetupPage workspace />} />
+        <Route path="*" element={<Navigate to="/agent" replace />} />
+      </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route
@@ -83,7 +103,7 @@ export function App() {
         <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet" element={<WalletPage />} />
         <Route path="wallet/agent-setup" element={<WalletAgentSetupPage />} />
-        <Route path="wallet/operations" element={<WalletOperationsPage />} />
+        <Route path="wallet/operations" element={<WorkspaceDestination />} />
         <Route path="wallet/:section" element={<WalletPaymentsPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />

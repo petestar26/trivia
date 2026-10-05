@@ -27,17 +27,17 @@ type Dispute = {
   withdrawalId?: string;
 };
 const get = async <T,>(path: string) => unwrapData(await api.get<T>(path));
-export function WalletOperationsPage() {
+export function WalletOperationsPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
   const { user } = useAuth();
-  return user ? <Operations key={user.id} userId={user.id} /> : null;
+  return user ? <Operations key={user.id} userId={user.id} workspace={workspace} /> : null;
 }
-function Operations({ userId }: { userId: string }) {
+function Operations({ userId, workspace }: { userId: string; workspace?: 'admin' | 'agent' }) {
   const options = useQuery({
     queryKey: ['payments', 'options', userId],
     queryFn: () => get<{ isAgent: boolean; isAdmin: boolean }>('/wallet/payment-options'),
   });
-  const agent = !!options.data?.isAgent,
-    admin = !!options.data?.isAdmin;
+  const agent = workspace !== 'admin' && !!options.data?.isAgent,
+    admin = workspace !== 'agent' && !!options.data?.isAdmin;
   const deposits = useQuery({
     queryKey: ['payments', 'agent-orders', userId],
     queryFn: () => get<Row[]>('/agent-orders/agent/me'),
@@ -110,8 +110,8 @@ function Operations({ userId }: { userId: string }) {
         <h1>Processing desk</h1>
         <p>Confirm evidence and the exact request before changing its state.</p>
       </header>
-      <PaymentNavigation />
-      {admin && <><WalletSetupAdmin /><WalletPricingAdmin /></>}
+      {!workspace && <PaymentNavigation />}
+      {admin && !workspace && <><WalletSetupAdmin /><WalletPricingAdmin /></>}
       {action.message && (
         <p role="status" className="payment-disclosure">
           {action.message}
