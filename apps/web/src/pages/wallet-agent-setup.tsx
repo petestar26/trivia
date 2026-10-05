@@ -21,10 +21,16 @@ type Account = {
   status: string;
   methodDefId: string;
   accountDetails: Record<string, unknown>;
-  updatedAt: string;
+  updatedAt?: string;
 };
 const editableStates = ['APPROVED', 'PENDING_APPROVAL', 'REJECTED'];
 const disableableStates = ['APPROVED', 'PENDING_APPROVAL'];
+const validEditVersion = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+    return false;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) && date.toISOString() === value;
+};
 const fieldLabel = (field: string) => {
   const known: Record<string, string> = {
     accountName: 'Account name',
@@ -100,7 +106,11 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; version: string } | null>(null);
+  const [editing, setEditing] = useState<{
+    id: string;
+    version: string;
+    expectedUpdatedAt: string;
+  } | null>(null);
   const [disabling, setDisabling] = useState('');
   const active = useRef(false);
   const method = methods.data?.find((m) => m.id === methodId);
@@ -124,6 +134,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
     (!editing ||
       (!!editedAccount &&
         editableStates.includes(editedAccount.status) &&
+        validEditVersion(editedAccount.updatedAt) &&
         accountVersion(editedAccount) === editing.version)) &&
     method.fieldSchema.requiredFields.every((field) => !!details[field]?.trim());
   function resetAccountForm() {
@@ -185,11 +196,16 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
       !accountsReady ||
       busy ||
       !editableStates.includes(account.status) ||
+      !validEditVersion(account.updatedAt) ||
       account.countryId !== agent.data?.countryId
     )
       return;
     const currentMethod = methods.data?.find((m) => m.id === account.methodDefId);
-    setEditing({ id: account.id, version: accountVersion(account) });
+    setEditing({
+      id: account.id,
+      version: accountVersion(account),
+      expectedUpdatedAt: account.updatedAt,
+    });
     setDisabling('');
     setMethod(currentMethod?.id ?? '');
     setDetails(
@@ -354,7 +370,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                   {editableStates.includes(a.status) && a.countryId === agent.data!.countryId && (
                     <button
                       type="button"
-                      disabled={busy || !accountsReady}
+                      disabled={busy || !accountsReady || !validEditVersion(a.updatedAt)}
                       onClick={() => editAccount(a)}
                     >
                       {a.status === 'REJECTED' ? 'Correct and resubmit' : 'Edit account'}
@@ -434,6 +450,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                   {
                     countryId: agent.data!.countryId,
                     methodDefId: methodId,
+                    ...(editing ? { expectedUpdatedAt: editing.expectedUpdatedAt } : {}),
                     accountDetails: Object.fromEntries(
                       method!.fieldSchema.requiredFields.map((field) => [
                         field,

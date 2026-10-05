@@ -47,6 +47,15 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     reply.header('Cache-Control', 'private, no-store');
     return payload;
   });
+  const displayedVersionSchema = z.string().datetime({ precision: 3 });
+  const accountEditSchema = z.object({
+    countryId: z.string().min(1),
+    methodDefId: z.string().min(1),
+    accountDetails: z.record(z.string()),
+    expectedUpdatedAt: displayedVersionSchema,
+  }).strict();
+  const accountReviewSchema = z.object({ expectedUpdatedAt: displayedVersionSchema }).strict();
+  const accountRejectSchema = accountReviewSchema.extend({ reviewNote: z.string().trim().min(1) });
   const liquiditySchema = z.object({
     fiatCurrency: z.string().regex(/^[A-Z]{3}$/),
     amountMinor: z.string().regex(/^-?[1-9]\d{0,15}$/),
@@ -216,15 +225,17 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
 
   server.patch<{
     Params: { id: string };
-    Body: { countryId: string; methodDefId: string; accountDetails: unknown };
+    Body: { countryId: string; methodDefId: string; accountDetails: unknown; expectedUpdatedAt: string };
   }>(
     '/me/payment-accounts/:id',
     { preHandler: auth },
     async (request, reply) => {
+      const parsed = accountEditSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('Account details and the displayed expectedUpdatedAt ISO timestamp are required');
       const account = await updateAgentPaymentAccount(
         request.user!.sub,
         request.params.id,
-        request.body,
+        parsed.data,
         requestContext(request)
       );
       return reply.send({ success: true, data: account });
@@ -251,27 +262,33 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: accounts });
   });
 
-  server.post<{ Params: { id: string } }>(
+  server.post<{ Params: { id: string }; Body: { expectedUpdatedAt: string } }>(
     '/payment-accounts/:id/approve',
     { preHandler: admin },
     async (request, reply) => {
+      const parsed = accountReviewSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('The displayed expectedUpdatedAt ISO timestamp is required');
       const result = await approveAgentPaymentAccount(
         request.user!.sub,
         request.params.id,
+        parsed.data.expectedUpdatedAt,
         requestContext(request)
       );
       return reply.send({ success: true, data: result });
     }
   );
 
-  server.post<{ Params: { id: string }; Body: { reviewNote: string } }>(
+  server.post<{ Params: { id: string }; Body: { reviewNote: string; expectedUpdatedAt: string } }>(
     '/payment-accounts/:id/reject',
     { preHandler: admin },
     async (request, reply) => {
+      const parsed = accountRejectSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('A review note and the displayed expectedUpdatedAt ISO timestamp are required');
       const result = await rejectAgentPaymentAccount(
         request.user!.sub,
         request.params.id,
-        request.body?.reviewNote,
+        parsed.data.reviewNote,
+        parsed.data.expectedUpdatedAt,
         requestContext(request)
       );
       return reply.send({ success: true, data: result });

@@ -38,6 +38,7 @@ type Setup = {
 };
 type Review = {
   id: string;
+  updatedAt?: string;
   agent: { displayName: string; countryId: string };
   submittedData?: Record<string, unknown>;
   accountDetails?: Record<string, unknown>;
@@ -52,31 +53,56 @@ type Deposit = {
   createdAt: string;
   agent: { displayName: string };
 };
-const get = async <T,>(path: string) => unwrapData(await api.get<T>(path));
+const get = async <T,>(path: string, signal?: AbortSignal) =>
+  unwrapData(
+    await boundedRequest(
+      (requestSignal) => api.get<T>(path, undefined, { signal: requestSignal }),
+      signal
+    )
+  );
+function displayedPaymentAccountVersion(record: Review): string | null {
+  if (typeof record.updatedAt !== 'string') return null;
+  const timestamp = new Date(record.updatedAt);
+  if (!Number.isFinite(timestamp.getTime()) || timestamp.toISOString() !== record.updatedAt)
+    return null;
+  if (
+    !record.accountDetails ||
+    typeof record.accountDetails !== 'object' ||
+    Array.isArray(record.accountDetails) ||
+    Object.keys(record.accountDetails).length === 0
+  )
+    return null;
+  return record.updatedAt;
+}
 
 export function WalletSetupAdmin() {
   const cache = useQueryClient();
   const countries = useQuery({
     queryKey: ['payments', 'admin-countries'],
-    queryFn: () => get<Country[]>('/agent-config/admin/countries'),
+    queryFn: ({ signal }) => get<Country[]>('/agent-config/admin/countries', signal),
+    retry: false,
   });
   const [countryId, setCountryId] = useState('');
   const setup = useQuery({
     queryKey: ['payments', 'setup', countryId],
-    queryFn: () => get<Setup>(`/agent-config/admin/setup/${countryId}`),
+    queryFn: ({ signal }) => get<Setup>(`/agent-config/admin/setup/${countryId}`, signal),
     enabled: !!countryId,
+    retry: false,
   });
   const applications = useQuery({
     queryKey: ['payments', 'applications'],
-    queryFn: () => get<Review[]>('/agents/applications/pending'),
+    queryFn: ({ signal }) => get<Review[]>('/agents/applications/pending', signal),
+    retry: false,
   });
   const accounts = useQuery({
     queryKey: ['payments', 'pending-accounts'],
-    queryFn: () => get<Review[]>('/agents/payment-accounts/pending'),
+    queryFn: ({ signal }) => get<Review[]>('/agents/payment-accounts/pending', signal),
+    retry: false,
   });
   const deposits = useQuery({
     queryKey: ['payments', 'all-deposits'],
-    queryFn: () => get<Deposit[]>('/agent-config/admin/deposits'),
+    queryFn: ({ signal }) => get<Deposit[]>('/agent-config/admin/deposits', signal),
+    retry: false,
   });
   const [newCountry, setNewCountry] = useState({
     code: 'ET',
@@ -103,16 +129,26 @@ export function WalletSetupAdmin() {
     setBusy(true);
     setMessage('');
     try {
-      await boundedRequest((signal) =>
-        patch ? api.patch(path, body, { signal }) : api.post(path, body, undefined, { signal })
+      unwrapData(
+        await boundedRequest((signal) =>
+          patch ? api.patch(path, body, { signal }) : api.post(path, body, undefined, { signal })
+        )
       );
       setMessage('Configuration updated.');
     } catch (e) {
       setMessage(`${walletError(e)} Check the refreshed records before retrying.`);
     } finally {
-      await cache.invalidateQueries({ queryKey: ['payments'] });
-      inFlight.current = false;
-      setBusy(false);
+      try {
+        await boundedRequest(() => cache.invalidateQueries({ queryKey: ['payments'] }));
+      } catch {
+        setMessage(
+          (current) =>
+            `${current} Some records could not refresh. Refresh the reviews before another action.`
+        );
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
     }
   }
   const c = setup.data?.country;
@@ -472,29 +508,61 @@ export function WalletSetupAdmin() {
           ) : !q.data?.length ? (
             <p>No pending reviews.</p>
           ) : (
-            q.data.map((r) => (
-              <article className="payment-record" key={r.id}>
-                <h3>{r.agent.displayName}</h3>
-                <p>
-                  Country:{' '}
-                  {countries.data?.find((c) => c.id === r.agent.countryId)?.name ??
-                    r.agent.countryId}
-                </p>
-                <pre className="payment-evidence">
-                  {JSON.stringify(r.submittedData ?? r.accountDetails, null, 2)}
-                </pre>
-                <ConfirmAction
-                  label="Approve verified record"
-                  disabled={busy}
-                  onConfirm={() => change(`/agents/${path}/${r.id}/approve`, { reviewNote: note })}
-                />
-                <ConfirmAction
-                  label="Reject with reason"
-                  disabled={busy || note.trim().length < 5}
-                  onConfirm={() => change(`/agents/${path}/${r.id}/reject`, { reviewNote: note })}
-                />
-              </article>
-            ))
+            q.data.map((r) => {
+              const paymentAccount = path === 'payment-accounts';
+              const expectedUpdatedAt = paymentAccount ? displayedPaymentAccountVersion(r) : null;
+              const reviewUnavailable = paymentAccount && (!expectedUpdatedAt || q.isFetching);
+              const approveBody = paymentAccount ? { expectedUpdatedAt } : { reviewNote: note };
+              const rejectBody = {
+                reviewNote: note,
+                ...(paymentAccount ? { expectedUpdatedAt } : {}),
+              };
+              return (
+                <article
+                  className="payment-record"
+                  key={
+                    paymentAccount ? JSON.stringify([r.id, r.updatedAt, r.accountDetails]) : r.id
+                  }
+                  aria-label={`${paymentAccount ? 'Payment account' : 'Agent application'} review ${r.id}`}
+                >
+                  <h3>{r.agent.displayName}</h3>
+                  <p>
+                    Country:{' '}
+                    {countries.data?.find((c) => c.id === r.agent.countryId)?.name ??
+                      r.agent.countryId}
+                  </p>
+                  <pre className="payment-evidence">
+                    {JSON.stringify(
+                      paymentAccount ? r.accountDetails : (r.submittedData ?? r.accountDetails),
+                      null,
+                      2
+                    )}
+                  </pre>
+                  {paymentAccount && !expectedUpdatedAt && (
+                    <p role="alert">
+                      Account details or review version are unavailable. Reload this review before
+                      making a decision.
+                    </p>
+                  )}
+                  <ConfirmAction
+                    label="Approve verified record"
+                    disabled={busy || reviewUnavailable}
+                    onConfirm={() => {
+                      if (busy || reviewUnavailable) return;
+                      void change(`/agents/${path}/${r.id}/approve`, approveBody);
+                    }}
+                  />
+                  <ConfirmAction
+                    label="Reject with reason"
+                    disabled={busy || reviewUnavailable || note.trim().length < 5}
+                    onConfirm={() => {
+                      if (busy || reviewUnavailable || note.trim().length < 5) return;
+                      void change(`/agents/${path}/${r.id}/reject`, rejectBody);
+                    }}
+                  />
+                </article>
+              );
+            })
           )}
         </details>
       ))}

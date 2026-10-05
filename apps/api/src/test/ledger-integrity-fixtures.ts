@@ -74,7 +74,7 @@ export async function purchasedFixture(amount: number) {
     countryId: country.id, methodDefId: method.id,
     accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' },
   });
-  await approveAgentPaymentAccount(admin.id, agentAccount.id);
+  await approveAgentPaymentAccount(admin.id, agentAccount.id, agentAccount.updatedAt.toISOString());
   await fundAgentInventory(superAdmin.id, agent.id, amount * 4, uid('inventory'));
   await fundAgentFiatLiquidity(superAdmin.id, agent.id, 'USD', BigInt(amount * 4), uid('liquidity'));
   const created = await createAgentOrder(buyer.id, {

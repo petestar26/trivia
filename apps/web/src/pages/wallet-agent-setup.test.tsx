@@ -32,7 +32,7 @@ function account(id = 'own-account', status = 'APPROVED') {
     methodDefId: 'mobile',
     status,
     accountDetails: { accountName: `${id} owner`, accountNumber: `${id} number` },
-    updatedAt: '2026-10-05T00:00:00Z',
+    updatedAt: '2026-10-05T00:00:00.000Z',
   };
 }
 let currentAccounts: ReturnType<typeof account>[];
@@ -109,7 +109,7 @@ it('edits the selected own account through PATCH and explains approval must be r
             ...a,
             accountDetails: body.accountDetails,
             status: 'PENDING_APPROVAL',
-            updatedAt: '2026-10-05T01:00:00Z',
+            updatedAt: '2026-10-05T01:00:00.000Z',
           }
         : a
     );
@@ -134,6 +134,7 @@ it('edits the selected own account through PATCH and explains approval must be r
     {
       countryId: 'et',
       methodDefId: 'mobile',
+      expectedUpdatedAt: '2026-10-05T00:00:00.000Z',
       accountDetails: { accountName: 'second-account owner', accountNumber: 'corrected-number' },
     },
   ]);
@@ -145,6 +146,66 @@ it('edits the selected own account through PATCH and explains approval must be r
     )
   ).toBeInTheDocument();
 });
+
+it('sends the displayed edit version and refreshes a conflict without retrying or keeping the old draft', async () => {
+  transport.patch.mockImplementation(async () => {
+    currentAccounts = [
+      {
+        ...account(),
+        accountDetails: { accountName: 'newer owner', accountNumber: 'newer destination' },
+        updatedAt: '2026-10-05T02:00:00.000Z',
+      },
+    ];
+    throw new Error(
+      JSON.stringify({ status: 409, message: 'Payment account changed. Reload before editing.' })
+    );
+  });
+  mount();
+  await loaded();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account' }));
+  fill('Account number', 'old draft destination');
+  fireEvent.click(screen.getByRole('button', { name: 'Save and resubmit for review' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Payment account changed');
+  await waitFor(() => expect(screen.getByLabelText('Account payment method')).toBeEnabled());
+  expect(transport.patch).toHaveBeenCalledTimes(1);
+  expect(transport.patch.mock.calls[0][1]).toMatchObject({
+    expectedUpdatedAt: '2026-10-05T00:00:00.000Z',
+    accountDetails: { accountNumber: 'old draft destination' },
+  });
+  expect(screen.getByText('newer destination')).toBeInTheDocument();
+  expect(screen.getByLabelText('Account payment method')).toHaveValue('');
+  expect(screen.queryByLabelText('Account number')).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Save and resubmit for review' })
+  ).not.toBeInTheDocument();
+  expect(
+    transport.get.mock.calls.filter(([path]) => path === '/agents/me/payment-accounts').length
+  ).toBeGreaterThan(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit account' }));
+  expect(screen.getByLabelText('Account number')).toHaveValue('newer destination');
+  expect(transport.patch).toHaveBeenCalledTimes(1);
+});
+
+it.each([undefined, '2026-10-05T00:00:00Z', '2026-02-30T00:00:00.000Z'])(
+  'blocks editing when the displayed account version is missing or invalid: %s',
+  async (updatedAt) => {
+    currentAccounts = [{ ...account(), updatedAt: updatedAt as string }];
+    mount();
+    await loaded();
+    const edit = screen.getByRole('button', { name: 'Edit account' });
+    expect(edit).toBeDisabled();
+    fireEvent.click(edit);
+    expect(
+      screen.queryByRole('button', { name: 'Save and resubmit for review' })
+    ).not.toBeInTheDocument();
+    expect(transport.patch).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Disable account' })).toBeEnabled();
+    fill('Account payment method', 'mobile');
+    fill('Account name', 'New destination owner');
+    fill('Account number', 'New destination');
+    expect(screen.getByRole('button', { name: 'Submit account for review' })).toBeEnabled();
+  }
+);
 
 it('requires explicit confirmation to disable the selected account and preserves its displayed history', async () => {
   transport.post.mockImplementation(async () => {
@@ -213,6 +274,7 @@ it('refreshes a timed-out create and clears its draft without automatically crea
   expect(screen.getByText('submitted-account number')).toBeInTheDocument();
   expect(screen.getByLabelText('Account payment method')).toHaveValue('');
   expect(transport.post.mock.calls[0][3].signal.aborted).toBe(true);
+  expect(transport.post.mock.calls[0][1]).not.toHaveProperty('expectedUpdatedAt');
   expect(
     transport.get.mock.calls.filter(([path]) => path === '/agents/me/payment-accounts').length
   ).toBeGreaterThan(1);

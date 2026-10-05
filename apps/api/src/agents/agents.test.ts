@@ -132,6 +132,11 @@ function validApplicationArgs(countryId: string, tag: string) {
   };
 }
 
+async function displayedPaymentAccountVersion(accountId: string) {
+  const account = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: accountId } });
+  return account.updatedAt.toISOString();
+}
+
 // ═══════════════════════════════════════════════════════════════
 // APPLICATION LIFECYCLE
 // ═══════════════════════════════════════════════════════════════
@@ -321,6 +326,7 @@ describeIf('Agent authorization', () => {
     // userB's OWN agent identity, never a client-supplied agentId.
     await expect(
       updateAgentPaymentAccount(userB.id, accountA.id, {
+        expectedUpdatedAt: await displayedPaymentAccountVersion(accountA.id),
         countryId: country.id,
         methodDefId: method.id,
         accountDetails: { bankName: 'Hacked Bank', accountNumber: '99999' },
@@ -491,9 +497,10 @@ describeIf('Agent payment account lifecycle', () => {
       accountDetails: details,
     });
     expect(account.status).toBe('PENDING_APPROVAL');
-    await approveAgentPaymentAccount(admin.id, account.id);
+    await approveAgentPaymentAccount(admin.id, account.id, await displayedPaymentAccountVersion(account.id));
 
     const edited = await updateAgentPaymentAccount(user.id, account.id, {
+      expectedUpdatedAt: await displayedPaymentAccountVersion(account.id),
       countryId: pausedCountry.id,
       methodDefId: pausedMethod.id,
       accountDetails: { ...details, accountNumber: 'edited-fixture-only-number' },
@@ -588,7 +595,7 @@ describeIf('Agent payment account lifecycle', () => {
       methodDefId: method.id,
       accountDetails: validDetails,
     });
-    const approved = await approveAgentPaymentAccount(admin.id, accApprove.id);
+    const approved = await approveAgentPaymentAccount(admin.id, accApprove.id, await displayedPaymentAccountVersion(accApprove.id));
     expect(approved.status).toBe('APPROVED');
 
     const { user: userReject } = await makeAgent('pm8');
@@ -597,7 +604,7 @@ describeIf('Agent payment account lifecycle', () => {
       methodDefId: method.id,
       accountDetails: validDetails,
     });
-    const rejected = await rejectAgentPaymentAccount(admin.id, accReject.id, 'illegible documents');
+    const rejected = await rejectAgentPaymentAccount(admin.id, accReject.id, 'illegible documents', await displayedPaymentAccountVersion(accReject.id));
     expect(rejected.status).toBe('REJECTED');
   });
 
@@ -608,9 +615,10 @@ describeIf('Agent payment account lifecycle', () => {
       methodDefId: method.id,
       accountDetails: validDetails,
     });
-    await approveAgentPaymentAccount(admin.id, account.id);
+    await approveAgentPaymentAccount(admin.id, account.id, await displayedPaymentAccountVersion(account.id));
 
     const edited = await updateAgentPaymentAccount(user.id, account.id, {
+      expectedUpdatedAt: await displayedPaymentAccountVersion(account.id),
       countryId: country.id,
       methodDefId: method.id,
       accountDetails: { ...validDetails, accountNumber: '999888777' },
@@ -627,7 +635,7 @@ describeIf('Agent payment account lifecycle', () => {
       methodDefId: method.id,
       accountDetails: validDetails,
     });
-    await approveAgentPaymentAccount(admin.id, account.id);
+    await approveAgentPaymentAccount(admin.id, account.id, await displayedPaymentAccountVersion(account.id));
     const disabled = await disableOwnPaymentAccount(user.id, account.id);
     expect(disabled.status).toBe('DISABLED');
 
@@ -656,8 +664,8 @@ describeIf('Agent payment account lifecycle', () => {
     });
 
     const results = await Promise.allSettled([
-      approveAgentPaymentAccount(admin.id, account.id),
-      rejectAgentPaymentAccount(admin.id, account.id, 'concurrent reject'),
+      approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString()),
+      rejectAgentPaymentAccount(admin.id, account.id, 'concurrent reject', account.updatedAt.toISOString()),
     ]);
 
     const genuineOutcomes = results
@@ -679,33 +687,74 @@ describeIf('Agent payment account lifecycle', () => {
 
     const results = await Promise.allSettled([
       updateAgentPaymentAccount(user.id, account.id, {
+        expectedUpdatedAt: account.updatedAt.toISOString(),
         countryId: country.id,
         methodDefId: method.id,
         accountDetails: { ...validDetails, accountNumber: '111222333' },
       }),
-      approveAgentPaymentAccount(admin.id, account.id),
+      approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString()),
     ]);
 
-    // approveAgentPaymentAccount pins its claim to the exact row version
-    // (status AND updatedAt) it read. Whichever order the two operations
-    // actually commit in, the edit's write always invalidates that pinned
-    // version — either by changing updatedAt out from under a still-pending
-    // approve (which then rejects with a "modified after being loaded"
-    // conflict instead of silently approving stale content), or by running
-    // after an approval that already committed and reverting it back to
-    // PENDING_APPROVAL with the new details. So the account can never end up
-    // APPROVED while holding content the admin never actually reviewed.
+    // Both actions use the same displayed version. The winner changes the
+    // version, and the loser must reload rather than act on the winner's data.
     const edit = results[0];
-    const approve = results[1];
-    expect(edit.status).toBe('fulfilled');
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ statusCode: 409 });
 
     const final = await prisma.agentPaymentAccount.findUnique({ where: { id: account.id } });
-    expect(final!.status).toBe('PENDING_APPROVAL');
-    expect((final!.accountDetails as any).accountNumber).toBe('111222333');
-
-    if (approve.status === 'rejected') {
-      expect(String((approve as PromiseRejectedResult).reason)).toMatch(/modified after being loaded for review/i);
+    if (edit.status === 'fulfilled') {
+      expect(final!.status).toBe('PENDING_APPROVAL');
+      expect((final!.accountDetails as any).accountNumber).toBe('111222333');
+    } else {
+      expect(final!.status).toBe('APPROVED');
+      expect(final!.accountDetails).toEqual(validDetails);
     }
+  });
+
+  it('concurrent edits of one displayed version have one winner and one audit', async () => {
+    const { user } = await makeAgent('pmcas');
+    const account = await createAgentPaymentAccount(user.id, {
+      countryId: country.id, methodDefId: method.id, accountDetails: validDetails,
+    });
+    const results = await Promise.allSettled(['first-fixture', 'second-fixture'].map((accountNumber) =>
+      updateAgentPaymentAccount(user.id, account.id, {
+        countryId: country.id, methodDefId: method.id,
+        expectedUpdatedAt: account.updatedAt.toISOString(),
+        accountDetails: { ...validDetails, accountNumber },
+      })
+    ));
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ statusCode: 409 });
+    const final = await prisma.agentPaymentAccount.findUniqueOrThrow({ where: { id: account.id } });
+    expect(final.updatedAt.getTime()).toBeGreaterThan(account.updatedAt.getTime());
+    expect(await prisma.auditLog.count({
+      where: { entityId: account.id, action: 'AGENT_PAYMENT_ACCOUNT_MODIFIED' },
+    })).toBe(1);
+  });
+
+  it('an edit committed after admin display rejects stale approval and rejection without side effects', async () => {
+    const { user } = await makeAgent('pmstale');
+    const displayed = await createAgentPaymentAccount(user.id, {
+      countryId: country.id, methodDefId: method.id, accountDetails: validDetails,
+    });
+    const edited = await updateAgentPaymentAccount(user.id, displayed.id, {
+      countryId: country.id, methodDefId: method.id,
+      expectedUpdatedAt: displayed.updatedAt.toISOString(),
+      accountDetails: { ...validDetails, accountNumber: 'changed-after-display' },
+    });
+    for (const action of [
+      () => approveAgentPaymentAccount(admin.id, displayed.id, displayed.updatedAt.toISOString()),
+      () => rejectAgentPaymentAccount(admin.id, displayed.id, 'Outdated review', displayed.updatedAt.toISOString()),
+    ]) {
+      await expect(action()).rejects.toMatchObject({ statusCode: 409 });
+    }
+    expect(await prisma.agentPaymentAccount.findUnique({ where: { id: displayed.id } })).toEqual(edited);
+    expect(await prisma.auditLog.count({
+      where: { entityId: displayed.id, action: { in: ['AGENT_PAYMENT_ACCOUNT_APPROVED', 'AGENT_PAYMENT_ACCOUNT_REJECTED'] } },
+    })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: user.id, type: { in: ['AGENT_PAYMENT_ACCOUNT_APPROVED', 'AGENT_PAYMENT_ACCOUNT_REJECTED'] } } })).toBe(0);
   });
 
   it('30. unauthorized user cannot read another agent\'s accountDetails via listOwnPaymentAccounts scoping', async () => {
@@ -797,6 +846,7 @@ describeIf('Agent audit logging', () => {
       accountDetails: details,
     });
     await updateAgentPaymentAccount(user.id, account.id, {
+      expectedUpdatedAt: await displayedPaymentAccountVersion(account.id),
       countryId: country.id,
       methodDefId: method.id,
       accountDetails: { bankName: 'Secret Bank 2', accountNumber: 'ANOTHER-SECRET-99999' },
@@ -863,7 +913,7 @@ describeIf('Agent notifications', () => {
       methodDefId: method.id,
       accountDetails: { bankName: 'X' },
     });
-    await approveAgentPaymentAccount(admin.id, account.id);
+    await approveAgentPaymentAccount(admin.id, account.id, await displayedPaymentAccountVersion(account.id));
     const n = await prisma.notification.findFirst({
       where: { userId: user.id, type: 'AGENT_PAYMENT_ACCOUNT_APPROVED' },
     });
@@ -878,7 +928,7 @@ describeIf('Agent notifications', () => {
       methodDefId: method.id,
       accountDetails: { bankName: 'X' },
     });
-    await rejectAgentPaymentAccount(admin.id, account.id, 'bad format');
+    await rejectAgentPaymentAccount(admin.id, account.id, 'bad format', await displayedPaymentAccountVersion(account.id));
     const n = await prisma.notification.findFirst({
       where: { userId: user.id, type: 'AGENT_PAYMENT_ACCOUNT_REJECTED' },
     });

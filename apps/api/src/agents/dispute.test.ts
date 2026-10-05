@@ -116,7 +116,7 @@ async function setupActiveAgent(
     methodDefId: methodId,
     accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' },
   });
-  await approveAgentPaymentAccount(admin.id, account.id);
+  await approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString());
   await fundAgentInventory(superAdmin.id, agent!.id, totalBalance, `fund-${tag}-${Date.now()}-${Math.random()}`);
 
   return { agentUser, agent: agent!, account };
