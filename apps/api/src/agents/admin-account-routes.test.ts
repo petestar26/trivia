@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyError, type FastifyRequest, type FastifyReply } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
@@ -35,7 +35,7 @@ beforeEach(async () => {
   m.reissue.mockResolvedValue({});
   m.activate.mockResolvedValue({ message: 'Done' });
   app = Fastify();
-  app.setErrorHandler((e, _req, reply) =>
+  app.setErrorHandler((e: FastifyError, _req: FastifyRequest, reply: FastifyReply) =>
     reply.status(e.statusCode ?? 500).send({ message: e.message })
   );
   await app.register(rateLimit, { global: false });
