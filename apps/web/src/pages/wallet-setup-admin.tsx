@@ -320,8 +320,8 @@ export function WalletSetupAdmin() {
             )}
             {!setup.data!.agents.length && (
               <p>
-                No agents registered for this country. An agent must submit an application before
-                approval.
+                No agents registered for this country. Create an agent from the administrator
+                workspace, or review a submitted agent application.
               </p>
             )}
             {setup.data!.agents.map((a) => (

@@ -55,7 +55,10 @@ function validateAccountDetails(fieldSchema: unknown, accountDetails: unknown): 
 async function loadAndValidateMethod(countryId: string, methodDefId: string) {
   const country = await prisma.country.findUnique({ where: { id: countryId } });
   if (!country) throw ApiError.badRequest('Invalid country');
-  if (!country.isActive || !country.agentPaymentEnabled) {
+  // Receiving-account setup must be possible before customer payments are
+  // enabled: an approved destination is itself a payment-readiness prerequisite.
+  // Order/withdrawal admission independently enforces agentPaymentEnabled.
+  if (!country.isActive) {
     throw ApiError.badRequest('Agent payments are not available for this country');
   }
 

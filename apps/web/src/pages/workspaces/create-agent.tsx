@@ -2,21 +2,51 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
+import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 
 const requirements =
   '8–72 characters, with uppercase, lowercase, a number and a symbol. Maximum 72 UTF-8 bytes.';
+type PendingAgentAccount = {
+  userId: string;
+  expiresAt: string;
+  user: { username: string; email: string };
+};
+function usePendingAgentAccounts(userId?: string) {
+  return useQuery({
+    queryKey: ['payments', 'pending-agent-activation', userId],
+    queryFn: async ({ signal }) =>
+      unwrapData(
+        await boundedRequest(
+          (requestSignal) =>
+            api.get<PendingAgentAccount[]>('/agents/admin/accounts/pending', undefined, {
+              signal: requestSignal,
+            }),
+          signal
+        )
+      ),
+    retry: false,
+  });
+}
 export function CreateAgentPage() {
   const { user } = useAuth();
   const cache = useQueryClient();
+  const pending = usePendingAgentAccounts(user?.id);
   const countries = useQuery({
     queryKey: ['payments', 'admin-countries'],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrapData(
-        await api.get<Array<{ id: string; name: string; isActive: boolean }>>(
-          '/agent-config/admin/countries'
+        await boundedRequest(
+          (requestSignal) =>
+            api.get<Array<{ id: string; name: string; isActive: boolean }>>(
+              '/agent-config/admin/countries',
+              undefined,
+              { signal: requestSignal }
+            ),
+          signal
         )
       ),
+    retry: false,
   });
   const [form, setForm] = useState({
     username: '',
@@ -27,15 +57,28 @@ export function CreateAgentPage() {
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const [refreshRequired, setRefreshRequired] = useState(false),
+    [checkingPending, setCheckingPending] = useState(false);
   const [result, setResult] = useState<{
     username: string;
     email: string;
     expiresAt: string;
   } | null>(null);
   const active = useRef(false);
+  async function refreshPendingAccounts() {
+    setCheckingPending(true);
+    const refreshed = await pending.refetch();
+    setRefreshRequired(!refreshed.isSuccess);
+    setError(
+      refreshed.isSuccess
+        ? 'Could not confirm account creation. Pending accounts have been refreshed below. Check them and the account directory before submitting again; the account may already exist. Usernames and emails must be unique, and the country must be active.'
+        : 'Could not confirm account creation or refresh pending accounts. The account may already exist. Refresh pending accounts and check the account directory before submitting again.'
+    );
+    setCheckingPending(false);
+  }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (active.current) return;
+    if (active.current || refreshRequired || checkingPending) return;
     active.current = true;
     setBusy(true);
     setError('');
@@ -45,9 +88,13 @@ export function CreateAgentPage() {
     setForm((current) => ({ ...current, temporaryPassword: '' }));
     try {
       const value = unwrapData(
-        await api.post<{ username: string; email: string; expiresAt: string }>(
-          '/agents/admin/accounts',
-          body
+        await boundedRequest((signal) =>
+          api.post<{ username: string; email: string; expiresAt: string }>(
+            '/agents/admin/accounts',
+            body,
+            undefined,
+            { signal }
+          )
         )
       );
       setResult(value);
@@ -58,13 +105,16 @@ export function CreateAgentPage() {
         countryId: body.countryId,
         temporaryPassword: '',
       });
-      await cache.invalidateQueries({ queryKey: ['admin-accounts', user?.id] });
-      await cache.invalidateQueries({ queryKey: ['admin-overview', user?.id] });
-      await cache.invalidateQueries({ queryKey: ['payments'] });
+      // Background refreshes must not leave a confirmed creation button stuck.
+      void cache.invalidateQueries({ queryKey: ['admin-accounts', user?.id] });
+      void cache.invalidateQueries({ queryKey: ['admin-overview', user?.id] });
+      void cache.invalidateQueries({ queryKey: ['payments'] });
     } catch {
+      setRefreshRequired(true);
       setError(
-        'Could not confirm account creation. Check the account directory before retrying. Usernames and emails must be unique, and the country must be active.'
+        'Could not confirm account creation. The account may already exist. Checking pending accounts before another submission…'
       );
+      await refreshPendingAccounts();
     } finally {
       active.current = false;
       setBusy(false);
@@ -178,13 +228,34 @@ export function CreateAgentPage() {
         {error && (
           <p role="alert">
             {error} <Link to="/admin/accounts">Check accounts</Link>
+            {refreshRequired && (
+              <button
+                type="button"
+                disabled={busy || checkingPending}
+                onClick={() => void refreshPendingAccounts()}
+              >
+                Refresh pending accounts
+              </button>
+            )}
           </p>
         )}
-        <button disabled={busy || countries.isError || !countries.data?.some((c) => c.isActive)}>
-          {busy ? 'Creating account…' : 'Create agent account'}
+        <button
+          disabled={
+            busy ||
+            refreshRequired ||
+            checkingPending ||
+            countries.isError ||
+            !countries.data?.some((c) => c.isActive)
+          }
+        >
+          {checkingPending
+            ? 'Checking pending accounts…'
+            : busy
+              ? 'Creating account…'
+              : 'Create agent account'}
         </button>
       </form>
-      <PendingAgentAccounts />
+      <PendingAgentAccounts pending={pending} />
     </>
   );
 }
@@ -220,11 +291,16 @@ export function ActivateAgentPage() {
     };
     setForm((current) => ({ ...current, temporaryPassword: '', newPassword: '', confirm: '' }));
     try {
-      unwrapData(await api.post('/agents/activate-account', body));
+      // Activation does not mint a session; sign-in remains a separate credential operation.
+      unwrapData(
+        await boundedRequest((signal) =>
+          api.post('/agents/activate-account', body, undefined, { signal })
+        )
+      );
       setDone(true);
     } catch {
       setMessage(
-        'Activation could not be confirmed. Temporary credentials may be invalid, expired or already used. If you already submitted successfully, sign in with your new password; otherwise contact your administrator.'
+        'Activation could not be confirmed. Your password may already have been set even if the response was lost. Try signing in with your new password before submitting again; otherwise contact your administrator. Temporary credentials may be invalid, expired or already used.'
       );
     } finally {
       active.current = false;
@@ -297,7 +373,14 @@ export function ActivateAgentPage() {
             />
           </label>
           <p>{requirements}</p>
-          {message && <p role="alert">{message}</p>}
+          {message && (
+            <p role="alert">
+              {message}{' '}
+              {message.startsWith('Activation could not be confirmed.') && (
+                <Link to="/agent/login">Sign in to check activation</Link>
+              )}
+            </p>
+          )}
           <button disabled={busy}>{busy ? 'Setting password…' : 'Set private password'}</button>
         </form>
       )}
@@ -306,45 +389,79 @@ export function ActivateAgentPage() {
   );
 }
 
-function PendingAgentAccounts() {
-  const { user } = useAuth();
-  const pending = useQuery({
-    queryKey: ['payments', 'pending-agent-activation', user?.id],
-    queryFn: async () =>
-      unwrapData(
-        await api.get<
-          Array<{ userId: string; expiresAt: string; user: { username: string; email: string } }>
-        >('/agents/admin/accounts/pending')
-      ),
-  });
+function PendingAgentAccounts({
+  pending,
+}: {
+  pending: ReturnType<typeof usePendingAgentAccounts>;
+}) {
   const [selected, setSelected] = useState(''),
     [password, setPassword] = useState(''),
     [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false);
+  const [refreshRequired, setRefreshRequired] = useState(false),
+    [checkingPending, setCheckingPending] = useState(false);
   const active = useRef(false);
+  const replacementConfirmed = useRef(false);
+  const selectedIsPending = pending.data?.some((account) => account.userId === selected);
+  async function refreshPendingAccounts() {
+    setCheckingPending(true);
+    const refreshed = await pending.refetch();
+    setRefreshRequired(!refreshed.isSuccess);
+    if (!refreshed.isSuccess) {
+      setMessage(
+        replacementConfirmed.current
+          ? 'Temporary password was replaced, but pending account status could not refresh. Refresh pending accounts before trying another replacement.'
+          : 'Could not confirm replacement or refresh account status. The previous temporary password may no longer work. Refresh pending accounts before trying another replacement.'
+      );
+    } else if (refreshRequired) {
+      setMessage(
+        replacementConfirmed.current
+          ? 'Temporary password was replaced. Pending accounts have been refreshed. The previous temporary password no longer works.'
+          : 'Could not confirm replacement. Pending accounts have been refreshed. Check the current account status before trying another replacement. The previous temporary password may no longer work.'
+      );
+    }
+    setCheckingPending(false);
+  }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (active.current) return;
+    if (
+      active.current ||
+      refreshRequired ||
+      checkingPending ||
+      !selectedIsPending ||
+      pending.isError
+    )
+      return;
     active.current = true;
     setBusy(true);
     setMessage('');
+    replacementConfirmed.current = false;
     const body = { temporaryPassword: password };
     setPassword('');
     try {
       const value = unwrapData(
-        await api.post<{ expiresAt: string }>(`/agents/admin/accounts/${selected}/reissue`, body)
+        await boundedRequest((signal) =>
+          api.post<{ expiresAt: string }>(
+            `/agents/admin/accounts/${selected}/reissue`,
+            body,
+            undefined,
+            { signal }
+          )
+        )
       );
+      replacementConfirmed.current = true;
       setMessage(
         `Temporary password replaced. The previous one no longer works. New expiry: ${new Date(value.expiresAt).toLocaleString()}.`
       );
     } catch {
+      setRefreshRequired(true);
       setMessage(
-        'Could not confirm replacement. Check account status before retrying. Activated accounts cannot be reset here.'
+        'Could not confirm replacement. The previous temporary password may no longer work. Check the refreshed account status before trying another replacement. Activated accounts cannot be reset here.'
       );
     } finally {
+      await refreshPendingAccounts();
       active.current = false;
       setBusy(false);
-      await pending.refetch();
     }
   }
   return (
@@ -395,8 +512,25 @@ function PendingAgentAccounts() {
       </label>
       <p>{requirements}</p>
       {message && <p role="status">{message}</p>}
-      <button disabled={busy || !selected || pending.isError}>
-        {busy ? 'Replacing…' : 'Replace temporary password'}
+      {refreshRequired && (
+        <button
+          type="button"
+          disabled={busy || checkingPending}
+          onClick={() => void refreshPendingAccounts()}
+        >
+          Refresh pending account status
+        </button>
+      )}
+      <button
+        disabled={
+          busy || refreshRequired || checkingPending || !selectedIsPending || pending.isError
+        }
+      >
+        {checkingPending
+          ? 'Checking account status…'
+          : busy
+            ? 'Replacing…'
+            : 'Replace temporary password'}
       </button>
     </form>
   );

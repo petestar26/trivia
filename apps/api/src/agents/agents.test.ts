@@ -477,6 +477,33 @@ describeIf('Agent payment account lifecycle', () => {
     expect(account.accountDetails).toEqual(validDetails);
   });
 
+  it('receiving-account setup and review work while customer payments are paused', async () => {
+    const pausedCountry = await createCountry('pmpause', { agentPaymentEnabled: false });
+    const pausedMethod = await createPaymentMethod(pausedCountry.id, 'pm-paused', ['accountName', 'accountNumber']);
+    const user = await createUser('pm-paused');
+    const { application } = await submitAgentApplication(user.id, validApplicationArgs(pausedCountry.id, 'pm-paused'));
+    await approveAgentApplication(admin.id, application.id, 'fixture agent approved');
+
+    const details = { accountName: 'Fixture Agent', accountNumber: 'fixture-only-number' };
+    const account = await createAgentPaymentAccount(user.id, {
+      countryId: pausedCountry.id,
+      methodDefId: pausedMethod.id,
+      accountDetails: details,
+    });
+    expect(account.status).toBe('PENDING_APPROVAL');
+    await approveAgentPaymentAccount(admin.id, account.id);
+
+    const edited = await updateAgentPaymentAccount(user.id, account.id, {
+      countryId: pausedCountry.id,
+      methodDefId: pausedMethod.id,
+      accountDetails: { ...details, accountNumber: 'edited-fixture-only-number' },
+    });
+    expect(edited).toMatchObject({ id: account.id, status: 'PENDING_APPROVAL', reviewedBy: null, reviewedAt: null });
+    expect(edited!.accountDetails).toEqual({ ...details, accountNumber: 'edited-fixture-only-number' });
+    expect(await prisma.country.findUnique({ where: { id: pausedCountry.id } }))
+      .toMatchObject({ isActive: true, agentPaymentEnabled: false });
+  });
+
   it('17. invalid country rejected', async () => {
     const { user } = await makeAgent('pm2');
     await expect(
