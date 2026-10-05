@@ -79,7 +79,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg">
+            <div role="alert" className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg">
               {error}
             </div>
           )}
@@ -94,6 +94,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
               <Input
                 id="email"
                 type="email"
+                autoComplete="username"
                 placeholder="you@example.com"
                 {...register('email')}
                 disabled={isLoading}
@@ -115,6 +116,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
               <Input
                 id="password"
                 type="password"
+                autoComplete="current-password"
                 placeholder="••••••••"
                 {...register('password')}
                 disabled={isLoading}

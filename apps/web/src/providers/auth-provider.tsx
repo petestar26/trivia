@@ -74,13 +74,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * possibly-stale initial probe) own completion.
    */
   const publishTransition = (nextUser: UserPublicProfile | null) => {
+    // A rejected anonymous sign-in must keep its form mounted so its caller
+    // can display the error. Real identity transitions still remount everything.
+    const crossesIdentity = userRef.current !== null || nextUser !== null;
     queryClient.clear();                 // (1) privacy before identity
     pubGenRef.current += 1;              // (2) invalidate in-flight passives
     setIsLoading(false);                 // (3) authoritative op owns completion
     userRef.current = nextUser;
     setSessionUser(nextUser?.id ?? null);
     setUser(nextUser);                   // (4) publish identity
-    setBoundaryRevision((r) => r + 1);   // (5) remount identity-dependent children
+    if (crossesIdentity) setBoundaryRevision((r) => r + 1); // (5) remount private identity boundaries
   };
 
   // Initial session probe — PASSIVE. It may publish an authenticated session
