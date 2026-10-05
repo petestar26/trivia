@@ -138,6 +138,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 Access is assigned by the platform. Signing in here does not change your
                 permissions.
               </p>
+              {workspace === 'agent' && <p><Link to="/agent/activate" className="text-primary-600">First sign-in? Set your private password</Link></p>}
               <Link to="/login" className="text-primary-600">
                 Member sign in
               </Link>

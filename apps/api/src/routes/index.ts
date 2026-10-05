@@ -1,3 +1,4 @@
+import { adminAgentAccountRoutes } from '../agents/admin-account-routes.js';
 import { workspaceRoutes } from './workspaces.js';
 import { socialGroupRoutes } from '../groups/routes.js';
 import { FastifyInstance } from 'fastify';
@@ -51,6 +52,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(gameRoutes, { prefix: '/games' });
   await server.register(challengeRoutes, { prefix: '/challenges' });
   await server.register(competitionRoutes, { prefix: '/competitions' });
+  await server.register(adminAgentAccountRoutes, { prefix: '/agents' });
   await server.register(agentRoutes, { prefix: '/agents' });
   await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });

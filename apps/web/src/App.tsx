@@ -1,3 +1,4 @@
+import { CreateAgentPage, ActivateAgentPage } from '@/pages/workspaces/create-agent';
 import { WorkspaceDestination, WorkspaceGate, WorkspaceLayout, AdminOverview, AdminAccounts, AdminRecords, AgentOverview, WorkspaceProcessing } from '@/pages/workspaces';
 import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
 import { WalletPricingAdmin } from '@/pages/wallet-pricing-admin';
@@ -65,10 +66,12 @@ export function App() {
         </Suspense>
       } />
       <Route path="/admin/login" element={<LoginPage workspace="admin" />} />
+      <Route path="/agent/activate" element={<ActivateAgentPage />} />
       <Route path="/agent/login" element={<LoginPage workspace="agent" />} />
       <Route path="/admin" element={<WorkspaceGate kind="admin"><WorkspaceLayout kind="admin" /></WorkspaceGate>}>
         <Route index element={<AdminOverview />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
+        <Route path="agents/new" element={<CreateAgentPage />} />
         <Route path="pricing" element={<WalletPricingAdmin />} />
         <Route path="disputes" element={<WorkspaceProcessing kind="admin" />} />
         <Route path="accounts" element={<AdminAccounts />} />

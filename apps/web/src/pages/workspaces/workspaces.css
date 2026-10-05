@@ -373,3 +373,4 @@
   background: #eaf2ff;
   color: #29476d;
 }
+.workspace-account-form{max-width:720px;display:grid;gap:16px}.workspace-account-form label{display:grid;gap:7px;font-size:14px;font-weight:600}.workspace-account-form input,.workspace-account-form select{width:100%;border:1px solid #b8c8dc;border-radius:8px;background:white;color:#14253c;padding:12px;font-weight:400}.workspace-account-form button{justify-self:start}.workspace-account-form a,.workspace-activation a{color:#2358a0;font-weight:600}.workspace-activation{max-width:760px;margin:auto;padding:40px 22px;min-height:100vh}

@@ -67,6 +67,7 @@ const adminLinks = [
   ['/admin/pricing', 'Rates & packages'],
   ['/admin/disputes', 'Disputes'],
   ['/admin/accounts', 'Accounts'],
+  ['/admin/agents/new', 'Create agent'],
   ['/admin/games', 'Game catalog'],
   ['/admin/activity', 'Audit history'],
 ];

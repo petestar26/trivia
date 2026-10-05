@@ -10,6 +10,7 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  agentAccountSetup AgentAccountSetup?
   scheduledStakeHolds ScheduledStakeHold[]
   scheduledPracticeTickets ScheduledPracticeTicket[]
   id           String     @id @default(uuid())
@@ -2894,4 +2895,18 @@ model CoinPackage {
   updatedAt    DateTime @updatedAt
 
   @@map("coin_packages")
+}
+
+
+/// Admin-issued temporary credentials never authenticate as a normal session.
+model AgentAccountSetup {
+  userId String @id
+  createdBy String
+  credentialHash String?
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("agent_account_setups")
 }
