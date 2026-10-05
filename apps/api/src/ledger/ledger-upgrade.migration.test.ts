@@ -392,6 +392,7 @@ beforeAll(() => {
     USD_PAYMENT_PRICING,
     USD_PRICING_GUARD_PATHS,
     USD_ACTIVATION_GUARD_PATH,
+    '20261005130000_admin_agent_onboarding',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
