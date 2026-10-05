@@ -25,3 +25,9 @@ Frontend: seven new workspace tests, 13 existing wallet/onboarding tests, and 25
 No migration or new secret is required. No payment country/method activation, liquidity funding, provider integration, live transaction or production change is included. Telebirr, M-Pesa and CBE Birr remain pending configuration. Existing payment account eligibility and backed operational setup still apply.
 
 This is a connected staff dashboard, not unlimited platform control. Account roles/password resets, member suspension/moderation, game-rule editing, advanced analytics and MFA are not implemented by this release. Super-admin-only financial operations retain that restriction. The account directory, game catalog and audit screens are read-only. Actual admin/agent mutation browser tests require appropriate signed-in sessions and approved operational data; no financial action should be fabricated for visual testing.
+
+## Staging rollout
+
+Application `cdc052619a3266432e89a62c0211e4167d03a98b` (local `4724492`, matching tree `0efde4e724aa25aeb8ec2620ebe5d3ceefd62957`) deployed successfully: API `be30f642-8ffa-4217-aac4-3c578d9629d2`, web `610f4b0b-34bb-4576-b139-3a75794f1fb7`. API healthcheck succeeded. Browser applied the app-update reload and retained the member session. Live `/admin` denied that member; `/agent` required an approved agent and showed Not registered. Dedicated admin and agent login pages displayed correctly; administrator login desktop appearance was inspected. The authenticated administrator dashboard, approved-agent workspace and mobile layouts still need live visual checks with suitable sessions. No passwords were entered or financial actions submitted.
+
+[Native CI run 37305135939](https://github.com/petestar26/trivia/actions/runs/37305135939) was still running across PostgreSQL 13/16/18 at the last check. Completed stages included migrations, API typecheck/build and gateway/worker contracts; the full matrix is not yet claimed passed.
