@@ -512,14 +512,15 @@ describeIf('Agent payment account lifecycle', () => {
   });
 
   it('17. invalid country rejected', async () => {
-    const { user } = await makeAgent('pm2');
+    const { user, agent } = await makeAgent('pm2');
     await expect(
       createAgentPaymentAccount(user.id, {
         countryId: 'not-a-real-country-id',
         methodDefId: method.id,
         accountDetails: validDetails,
       })
-    ).rejects.toThrow(/invalid country/i);
+    ).rejects.toThrow(/Receiving account country must match/i);
+    expect(await prisma.agentPaymentAccount.count({ where: { agentId: agent.id } })).toBe(0);
   });
 
   it('18. invalid payment method rejected', async () => {
