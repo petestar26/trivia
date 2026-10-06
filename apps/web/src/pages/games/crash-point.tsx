@@ -53,6 +53,7 @@ function CrashPoint({ userId }: { userId: string }) {
   const [stakeText, setStakeText] = useState('25'),
     [auto, setAuto] = useState(true),
     [autoText, setAutoText] = useState('2.00');
+  const [activityView, setActivityView] = useState<'current' | 'mine' | 'top'>('current');
   const [clock, setClock] = useState(performance.now()),
     mounted = useRef(true);
   const query = useQuery({
@@ -95,6 +96,9 @@ function CrashPoint({ userId }: { userId: string }) {
   const open = connected && !!round && now < round.startsAt;
   const flying = !!round && now >= round.startsAt && round.crashCents === null;
   const cents = shown?.crashCents ?? (flying ? crashMultiplier(now - round!.startsAt) : 100);
+  const remainingMs = round
+    ? Math.max(0, (now < round.startsAt ? round.startsAt : round.endsAt) - now)
+    : 0;
   const seconds = round
     ? Math.max(0, Math.ceil(((now < round.startsAt ? round.startsAt : round.endsAt) - now) / 1000))
     : 0;
@@ -210,7 +214,7 @@ function CrashPoint({ userId }: { userId: string }) {
     y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
   const result = shown?.ticket;
   return (
-    <main className="crash-page">
+    <div className="crash-page">
       <nav className="crash-nav">
         <Link to="/casino">
           <ArrowLeft size={16} />
@@ -244,273 +248,424 @@ function CrashPoint({ userId }: { userId: string }) {
         </div>
       </header>
       <div className="crash-layout">
-        <section
-          className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
-          aria-label="Live multiplier graph"
-        >
-          <div className="crash-arena-top">
-            <span>
-              <i />
-              {!connected
-                ? 'SYNCHRONIZING'
-                : open
-                  ? 'ENTRY OPEN'
-                  : flying
-                    ? 'ROUND RUNNING'
+        <div className="crash-table">
+          <section className="crash-history">
+            <div>
+              <h2>Recent crash points</h2>
+              <p>Previous rounds do not predict the next result.</p>
+            </div>
+            <div className="crash-history-row">
+              {s?.rounds
+                .filter((r) => r.crashCents !== null)
+                .map((r) => (
+                  <span key={r.id} className={r.crashCents! >= 200 ? 'high' : ''} title={r.id}>
+                    {(r.crashCents! / 100).toFixed(2)}×
+                  </span>
+                ))}
+              {!s?.rounds.some((r) => r.crashCents !== null) && (
+                <p>Completed rounds will appear here.</p>
+              )}
+            </div>
+          </section>
+
+          <section
+            className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
+            aria-label="Live multiplier graph"
+          >
+            <div className="crash-arena-top">
+              <span>
+                <i />
+                {!connected
+                  ? 'SYNCHRONIZING'
+                  : open
+                    ? 'ENTRY OPEN'
+                    : flying
+                      ? 'ROUND RUNNING'
+                      : shown?.crashCents
+                        ? 'ROUND COMPLETE'
+                        : 'WAITING FOR ROUND'}
+              </span>
+              <span role="timer">
+                {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
+              </span>
+            </div>
+            <div className="crash-multiplier">
+              <span>
+                {shown?.crashCents
+                  ? 'CRASH POINT'
+                  : open
+                    ? 'READY FOR THE RISE'
+                    : 'LIVE MULTIPLIER'}
+              </span>
+              <strong>
+                {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
+                <em>{open ? 's' : '×'}</em>
+              </strong>
+              <p>
+                {!connected
+                  ? 'Waiting for a fresh server update'
+                  : open
+                    ? 'Confirm your ticket before the round starts'
                     : shown?.crashCents
-                      ? 'ROUND COMPLETE'
-                      : 'WAITING FOR ROUND'}
-            </span>
-            <span role="timer">
-              {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
-            </span>
-          </div>
-          <div className="crash-multiplier">
-            <span>
-              {shown?.crashCents ? 'CRASH POINT' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
-            </span>
-            <strong>
-              {(cents / 100).toFixed(2)}
-              <em>×</em>
-            </strong>
-            <p>
-              {!connected
-                ? 'Waiting for a fresh server update'
-                : open
-                  ? 'Confirm your ticket before the round starts'
-                  : shown?.crashCents
-                    ? 'The server has revealed this round’s result'
-                    : 'Cash out before the curve stops'}
-            </p>
-          </div>
-          <div className="crash-graph-shell" aria-hidden="true">
-            <div className="crash-floor" />
-            <svg className="crash-graph" viewBox="0 0 800 390">
-              <defs>
-                <linearGradient id="crash-line">
-                  <stop stopColor="#b73e65" />
-                  <stop offset="1" stopColor="#f3d2b0" />
-                </linearGradient>
-                <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
-                  <stop stopColor="#cf5475" stopOpacity=".28" />
-                  <stop offset="1" stopColor="#cf5475" stopOpacity="0" />
-                </linearGradient>
-                <filter id="crash-glow">
-                  <feGaussianBlur stdDeviation="6" />
-                </filter>
-              </defs>
-              {[4, 3, 2, 1, 0].map((index) => {
-                const value = 1 + ((valueRange - 1) * index) / 4;
-                const v = 330 - (index / 4) * 260;
-                return (
+                      ? 'The server has revealed this round’s result'
+                      : 'Cash out before the curve stops'}
+              </p>
+            </div>
+            {open && (
+              <div className="crash-countdown-track" aria-hidden="true">
+                <div
+                  style={{ width: `${Math.min(100, (remainingMs / rules.bettingMs) * 100)}%` }}
+                />
+              </div>
+            )}
+            <div className="crash-graph-shell" aria-hidden="true">
+              <div className="crash-floor" />
+              <svg className="crash-graph" viewBox="0 0 800 390">
+                <defs>
+                  <linearGradient id="crash-line">
+                    <stop stopColor="#b73e65" />
+                    <stop offset="1" stopColor="#f3d2b0" />
+                  </linearGradient>
+                  <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
+                    <stop stopColor="#cf5475" stopOpacity=".28" />
+                    <stop offset="1" stopColor="#cf5475" stopOpacity="0" />
+                  </linearGradient>
+                  <filter id="crash-glow">
+                    <feGaussianBlur stdDeviation="6" />
+                  </filter>
+                </defs>
+                {[4, 3, 2, 1, 0].map((index) => {
+                  const value = 1 + ((valueRange - 1) * index) / 4;
+                  const v = 330 - (index / 4) * 260;
+                  return (
+                    <g key={v}>
+                      <path d={`M72 ${v}H745`} className="grid" />
+                      <text x="15" y={v + 5}>
+                        {Number(value.toFixed(2))}×
+                      </text>
+                    </g>
+                  );
+                })}
+                {[72, 235, 397, 560, 722].map((v, i) => (
                   <g key={v}>
-                    <path d={`M72 ${v}H745`} className="grid" />
-                    <text x="15" y={v + 5}>
-                      {Number(value.toFixed(2))}×
+                    <path d={`M${v} 60V330`} className="grid" />
+                    <text x={v - 8} y="365">
+                      {Math.round((i * timeRange) / 4000)}s
                     </text>
                   </g>
-                );
-              })}
-              {[72, 235, 397, 560, 722].map((v, i) => (
-                <g key={v}>
-                  <path d={`M${v} 60V330`} className="grid" />
-                  <text x={v - 8} y="365">
-                    {Math.round((i * timeRange) / 4000)}s
-                  </text>
-                </g>
-              ))}
-              <polygon points={`72,330 ${points} ${x},330`} fill="url(#crash-area)" />
-              <polyline points={points} className="curve depth" transform="translate(0 9)" />
-              <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
-              <polyline points={points} className="curve" />
-              <circle cx={x} cy={y} r="12" fill="#733147" />
-              <circle
-                cx={x}
-                cy={y}
-                r="6"
-                fill="#ffe0c3"
-                className={flying && connected ? 'crash-beacon' : ''}
-              />
-            </svg>
-          </div>
-          <div className="crash-result" role="status">
-            {result?.payout !== null && result?.payout !== undefined ? (
-              <>
-                <ShieldCheck size={18} />
-                {result.payout > 0
-                  ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
-                  : 'Round finished · no return for this ticket'}
-              </>
-            ) : (
-              <>
-                <TrendingUp size={18} />
-                {ticket
-                  ? 'Your ticket is live · auto cash-out stays active when you disconnect'
-                  : 'One shared round · one server-controlled result'}
-              </>
-            )}
-          </div>
-        </section>
-        <aside className="crash-controls" aria-label="Your Crash Point ticket">
-          <div className="crash-practice">
-            <div>
-              <span>PRACTICE BALANCE</span>
-              <strong>
-                {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
-              </strong>
+                ))}
+                <polygon points={`72,330 ${points} ${x},330`} fill="url(#crash-area)" />
+                <polyline points={points} className="curve depth" transform="translate(0 9)" />
+                <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
+                <polyline points={points} className="curve" />
+                <circle cx={x} cy={y} r="12" fill="#733147" />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="6"
+                  fill="#ffe0c3"
+                  className={flying && connected ? 'crash-beacon' : ''}
+                />
+              </svg>
             </div>
-            <ShieldCheck size={24} />
-          </div>
-          <p className="crash-credit-note">Free credits · no cash value</p>
-          <h2>Your next move</h2>
-          <label htmlFor="crash-stake">Bet amount</label>
-          <div className="crash-input">
-            <input
-              id="crash-stake"
-              inputMode="numeric"
-              value={ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText}
-              onChange={(e) => setStakeText(e.target.value)}
-              disabled={locked}
-            />
-            <span>credits</span>
-          </div>
-          <div className="crash-presets">
-            {[10, 25, 50, 100].map((v) => (
-              <button key={v} disabled={locked} onClick={() => setStakeText(String(v))}>
-                {v}
+            <div className="crash-result" role="status">
+              {result?.payout !== null && result?.payout !== undefined ? (
+                <>
+                  <ShieldCheck size={18} />
+                  {result.payout > 0
+                    ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
+                    : 'Round finished · no return for this ticket'}
+                </>
+              ) : (
+                <>
+                  <TrendingUp size={18} />
+                  {ticket
+                    ? ticket.autoCents !== null
+                      ? 'Your ticket is live · auto cash-out stays active when you disconnect'
+                      : 'Your ticket is live · manual cash-out requires a connection'
+                    : 'One shared round · one server-controlled result'}
+                </>
+              )}
+            </div>
+          </section>
+          <aside className="crash-controls" aria-label="Your Crash Point ticket">
+            <div className="crash-practice">
+              <div>
+                <span>PRACTICE BALANCE</span>
+                <strong>
+                  {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
+                </strong>
+              </div>
+              <ShieldCheck size={24} />
+            </div>
+            <p className="crash-credit-note">Free credits · no cash value</p>
+            <h2>Your next move</h2>
+            <div className="crash-bet-fields">
+              <div className="crash-stake-field">
+                <label htmlFor="crash-stake">Bet amount</label>
+                <div className="crash-input">
+                  <input
+                    id="crash-stake"
+                    inputMode="numeric"
+                    value={
+                      ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText
+                    }
+                    onChange={(e) => setStakeText(e.target.value)}
+                    disabled={locked}
+                  />
+                  <span>credits</span>
+                </div>
+                <div className="crash-presets">
+                  {[10, 25, 50, 100].map((v) => (
+                    <button key={v} disabled={locked} onClick={() => setStakeText(String(v))}>
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="crash-auto-field">
+                <label className="crash-auto">
+                  <span>Auto cash-out</span>
+                  <input
+                    type="checkbox"
+                    checked={
+                      ticket
+                        ? ticket.autoCents !== null
+                        : pending
+                          ? pending.autoCents !== null
+                          : auto
+                    }
+                    disabled={locked}
+                    onChange={(e) => setAuto(e.target.checked)}
+                  />
+                </label>
+                <div className="crash-input">
+                  <input
+                    aria-label="Auto cash-out multiplier"
+                    inputMode="decimal"
+                    disabled={locked || !auto}
+                    value={
+                      ticket
+                        ? ticket.autoCents === null
+                          ? ''
+                          : (ticket.autoCents / 100).toFixed(2)
+                        : pending
+                          ? pending.autoCents === null
+                            ? ''
+                            : (pending.autoCents / 100).toFixed(2)
+                          : autoText
+                    }
+                    onChange={(e) => setAutoText(e.target.value)}
+                  />
+                  <span>×</span>
+                </div>
+                <p className="crash-field-help">10–500 credits · auto cash-out 1.01×–20.00×</p>
+              </div>
+              <div className="crash-submit-field">
+                {ticket && ticket.payout === null && flying ? (
+                  <button
+                    className="crash-action cashout"
+                    disabled={!connected || cashout.isPending}
+                    onClick={() => cashout.mutate(round!.id)}
+                  >
+                    {cashout.isPending ? (
+                      'Confirming cash-out…'
+                    ) : (
+                      <>
+                        Cash out <ArrowUpRight size={20} />
+                      </>
+                    )}
+                    <small>Server confirms your final multiplier</small>
+                  </button>
+                ) : (
+                  <button
+                    className="crash-action"
+                    disabled={
+                      locked || !input || input.stake > (s?.balance ?? 0) || entryMutation.isPending
+                    }
+                    onClick={() => round && input && submit({ roundId: round.id, ...input })}
+                  >
+                    {ticket
+                      ? ticket.payout === null
+                        ? 'Ticket confirmed'
+                        : ticket.payout > 0
+                          ? 'Cashed out'
+                          : 'Round finished'
+                      : pending
+                        ? 'Checking saved ticket…'
+                        : open
+                          ? 'Confirm ticket'
+                          : 'Wait for next round'}
+                    <small>
+                      {ticket
+                        ? ticket.payout === null
+                          ? `${ticket.stake} credits locked`
+                          : `${ticket.payout} credits returned`
+                        : open
+                          ? `${input?.stake ?? '—'} practice credits`
+                          : `Next entry in ${seconds}s`}
+                    </small>
+                  </button>
+                )}
+              </div>
+            </div>
+            {pending && !entryMutation.isPending && (
+              <button className="crash-retry" disabled={!connected} onClick={() => submit(pending)}>
+                Retry saved ticket
+              </button>
+            )}
+            {!input && !ticket && !pending && (
+              <p role="alert" className="crash-error">
+                Enter a whole stake and a valid auto cash-out target.
+              </p>
+            )}
+            {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
+              <p role="alert" className="crash-error">
+                Not enough practice credits.
+              </p>
+            )}
+            {storageError && (
+              <p role="alert" className="crash-error">
+                {storageError}
+              </p>
+            )}
+            <p className="crash-notice" aria-live="polite">
+              {query.isError
+                ? requestStatus(query.error) === 403
+                  ? 'Crash Point practice is unavailable.'
+                  : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
+                : notice}
+            </p>
+            <div className="crash-summary">
+              <span>New round</span>
+              <b>Every minute</b>
+              <span>Entry window</span>
+              <b>15 seconds</b>
+              <span>Maximum cash-out</span>
+              <b>20.00×</b>
+            </div>
+          </aside>
+        </div>
+        <aside className="crash-activity" aria-label="Your round activity">
+          <div className="crash-activity-tabs" role="group" aria-label="Activity view">
+            {(
+              [
+                ['current', 'Current round'],
+                ['mine', 'My bets'],
+                ['top', 'My top returns'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                aria-pressed={activityView === key}
+                onClick={() => setActivityView(key)}
+              >
+                {label}
               </button>
             ))}
           </div>
-          <label className="crash-auto">
-            <span>Auto cash-out</span>
-            <input
-              type="checkbox"
-              checked={
-                ticket ? ticket.autoCents !== null : pending ? pending.autoCents !== null : auto
-              }
-              disabled={locked}
-              onChange={(e) => setAuto(e.target.checked)}
-            />
-          </label>
-          <div className="crash-input">
-            <input
-              aria-label="Auto cash-out multiplier"
-              inputMode="decimal"
-              disabled={locked || !auto}
-              value={
-                ticket
-                  ? ticket.autoCents === null
-                    ? ''
-                    : (ticket.autoCents / 100).toFixed(2)
-                  : pending
-                    ? pending.autoCents === null
-                      ? ''
-                      : (pending.autoCents / 100).toFixed(2)
-                    : autoText
-              }
-              onChange={(e) => setAutoText(e.target.value)}
-            />
-            <span>×</span>
-          </div>
-          <p className="crash-field-help">10–500 credits · auto cash-out 1.01×–20.00×</p>
-          {ticket && ticket.payout === null && flying ? (
-            <button
-              className="crash-action cashout"
-              disabled={!connected || cashout.isPending}
-              onClick={() => cashout.mutate(round!.id)}
-            >
-              {cashout.isPending ? (
-                'Confirming cash-out…'
-              ) : (
-                <>
-                  Cash out <ArrowUpRight size={20} />
-                </>
+          <p className="crash-activity-caption">Your practice activity · latest 12 rounds</p>
+          {activityView === 'current' ? (
+            <>
+              <h2>Round information</h2>
+              <dl className="crash-round-info">
+                <dt>Round</dt>
+                <dd>{shown?.id ?? 'Connecting…'}</dd>
+                <dt>Status</dt>
+                <dd>
+                  {!connected
+                    ? 'Reconnecting'
+                    : open
+                      ? 'Entry open'
+                      : flying
+                        ? 'Running'
+                        : 'Complete'}
+                </dd>
+                <dt>Your stake</dt>
+                <dd>{ticket ? `${ticket.stake} credits` : 'No ticket'}</dd>
+                <dt>Auto cash-out</dt>
+                <dd>{ticket?.autoCents ? `${(ticket.autoCents / 100).toFixed(2)}×` : 'Not set'}</dd>
+              </dl>
+              {shown && (
+                <div className="crash-commitment">
+                  <h3>Round commitment</h3>
+                  <code>{shown.commitment}</code>
+                  <p>
+                    {shown.seed
+                      ? 'Result revealed. Verify it in the round details below.'
+                      : 'Published before entry closes. The seed stays hidden until the crash.'}
+                  </p>
+                </div>
               )}
-              <small>Server confirms your final multiplier</small>
-            </button>
+              <p className="crash-activity-empty">
+                One confirmed ticket per round. This practice version does not offer dual bets or
+                autoplay.
+              </p>
+            </>
           ) : (
-            <button
-              className="crash-action"
-              disabled={
-                locked || !input || input.stake > (s?.balance ?? 0) || entryMutation.isPending
-              }
-              onClick={() => round && input && submit({ roundId: round.id, ...input })}
-            >
-              {ticket
-                ? ticket.payout === null
-                  ? 'Ticket confirmed'
-                  : ticket.payout > 0
-                    ? 'Cashed out'
-                    : 'Round finished'
-                : pending
-                  ? 'Checking saved ticket…'
-                  : open
-                    ? 'Confirm ticket'
-                    : 'Wait for next round'}
-              <small>
-                {ticket
-                  ? `${ticket.stake} credits locked`
-                  : open
-                    ? `${input?.stake ?? '—'} practice credits`
-                    : `Next entry in ${seconds}s`}
-              </small>
-            </button>
+            <>
+              <h2>{activityView === 'mine' ? 'My recent tickets' : 'My highest returns'}</h2>
+              <div className="crash-ticket-table">
+                <table>
+                  <caption className="sr-only">
+                    Your tickets from the latest 12 rounds, amounts in practice credits
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th>Round</th>
+                      <th>Stake</th>
+                      <th>Cash-out</th>
+                      <th>Return</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(s?.rounds ?? [])
+                      .filter(
+                        (r) => r.ticket && (activityView !== 'top' || (r.ticket.payout ?? 0) > 0)
+                      )
+                      .sort((a, b) =>
+                        activityView === 'top'
+                          ? (b.ticket!.payout ?? 0) - (a.ticket!.payout ?? 0)
+                          : b.opensAt - a.opensAt
+                      )
+                      .map((r) => (
+                        <tr key={r.id}>
+                          <td title={r.id}>
+                            {new Date(r.opensAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                          <td>{r.ticket!.stake}</td>
+                          <td>
+                            {r.ticket!.payout === null
+                              ? 'Pending'
+                              : r.ticket!.paidCents
+                                ? `${(r.ticket!.paidCents / 100).toFixed(2)}×`
+                                : '—'}
+                          </td>
+                          <td>{r.ticket!.payout === null ? 'Pending' : r.ticket!.payout}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+              {!(s?.rounds ?? []).some(
+                (r) => r.ticket && (activityView !== 'top' || (r.ticket.payout ?? 0) > 0)
+              ) && (
+                <p className="crash-activity-empty">
+                  {activityView === 'mine'
+                    ? 'No tickets in the latest 12 rounds.'
+                    : 'No winning returns in the latest 12 rounds.'}
+                </p>
+              )}
+            </>
           )}
-          {pending && !entryMutation.isPending && (
-            <button className="crash-retry" disabled={!connected} onClick={() => submit(pending)}>
-              Retry saved ticket
-            </button>
-          )}
-          {!input && !ticket && !pending && (
-            <p role="alert" className="crash-error">
-              Enter a whole stake and a valid auto cash-out target.
-            </p>
-          )}
-          {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
-            <p role="alert" className="crash-error">
-              Not enough practice credits.
-            </p>
-          )}
-          {storageError && (
-            <p role="alert" className="crash-error">
-              {storageError}
-            </p>
-          )}
-          <p className="crash-notice" aria-live="polite">
-            {query.isError
-              ? requestStatus(query.error) === 403
-                ? 'Crash Point practice is unavailable.'
-                : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
-              : notice}
-          </p>
-          <div className="crash-summary">
-            <span>New round</span>
-            <b>Every minute</b>
-            <span>Entry window</span>
-            <b>15 seconds</b>
-            <span>Maximum cash-out</span>
-            <b>20.00×</b>
+          <div className="crash-activity-foot">
+            <ShieldCheck size={17} /> Server-confirmed data · practice credits only
           </div>
         </aside>
       </div>
-      <section className="crash-history">
-        <div>
-          <h2>Recent crash points</h2>
-          <p>Previous rounds do not predict the next result.</p>
-        </div>
-        <div className="crash-history-row">
-          {s?.rounds
-            .filter((r) => r.crashCents !== null)
-            .map((r) => (
-              <span key={r.id} className={r.crashCents! >= 200 ? 'high' : ''} title={r.id}>
-                {(r.crashCents! / 100).toFixed(2)}×
-              </span>
-            ))}
-          {!s?.rounds.some((r) => r.crashCents !== null) && (
-            <p>Completed rounds will appear here.</p>
-          )}
-        </div>
-      </section>
       <section className="crash-guide">
         <article>
           <span>01</span>
@@ -559,7 +714,7 @@ function CrashPoint({ userId }: { userId: string }) {
             <RoundProof key={r.id} round={r} />
           ))}
       </details>
-    </main>
+    </div>
   );
 }
 function RoundProof({ round }: { round: CrashPointRound }) {

@@ -626,3 +626,298 @@
     transition: none !important;
   }
 }
+
+/* Reference-inspired table: history above the arena, ticket dock below, activity beside it. */
+.crash-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: stretch;
+}
+.crash-table {
+  min-width: 0;
+}
+.crash-heading {
+  margin-bottom: 20px;
+}
+.crash-heading h1 {
+  font-size: clamp(32px, 3vw, 44px);
+}
+.crash-table .crash-history {
+  padding: 0 0 14px;
+  border: 0;
+}
+.crash-table .crash-history h2 {
+  font: 11px system-ui;
+  letter-spacing: 0.08em;
+}
+.crash-table .crash-history p {
+  font-size: 10px;
+}
+.crash-table .crash-history-row {
+  margin-top: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+.crash-history-row span {
+  flex-shrink: 0;
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px #ffffff18,
+    0 3px 5px #0005;
+}
+.crash-table .crash-arena {
+  min-height: 450px;
+  border-radius: 18px;
+}
+.crash-table .crash-multiplier {
+  margin-top: 6px;
+}
+.crash-table .crash-graph-shell {
+  margin: -35px 12px 0;
+  min-height: 180px;
+}
+.crash-table .crash-result {
+  padding: 13px;
+  min-height: 44px;
+}
+.crash-countdown-track {
+  position: relative;
+  z-index: 2;
+  width: 180px;
+  height: 7px;
+  margin: 16px auto 0;
+  border: 1px solid #b5748666;
+  border-radius: 8px;
+  background: #261322;
+  overflow: hidden;
+}
+.crash-countdown-track > div {
+  height: 100%;
+  background: linear-gradient(90deg, #ad385e, #edc4a7);
+}
+.crash-table .crash-controls {
+  margin-top: 14px;
+  padding: 18px;
+  border-radius: 18px;
+}
+.crash-table .crash-practice strong {
+  font-size: 21px;
+  margin: 3px 0;
+}
+.crash-table .crash-credit-note {
+  border: 0;
+  padding: 0;
+  margin: 0 0 14px;
+}
+.crash-table .crash-controls h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.crash-bet-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(120px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+.crash-bet-fields > div {
+  min-width: 0;
+}
+.crash-table .crash-input {
+  margin: 8px 0;
+}
+.crash-table .crash-input input {
+  font-size: 18px;
+  padding: 10px 0;
+}
+.crash-table .crash-presets {
+  margin-bottom: 0;
+  gap: 4px;
+}
+.crash-table .crash-field-help {
+  margin: 5px 0 0;
+}
+.crash-submit-field {
+  padding-top: 23px;
+}
+.crash-submit-field .crash-action {
+  min-height: 88px;
+}
+.crash-table .crash-notice {
+  min-height: 0;
+  margin: 14px 0 0;
+}
+.crash-table .crash-summary {
+  margin-top: 14px;
+  grid-template-columns: repeat(3, auto auto);
+  gap: 8px;
+  font-size: 9px;
+}
+.crash-activity {
+  min-width: 0;
+  border: 1px solid #613846;
+  border-radius: 18px;
+  background: linear-gradient(160deg, #2f1927, #170e18);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.crash-activity-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #6a3f51;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.crash-activity-tabs button {
+  padding: 12px 6px;
+  font-size: 11px;
+  color: var(--dim);
+}
+.crash-activity-tabs button[aria-pressed='true'] {
+  background: #794358;
+  color: #fff0e6;
+  box-shadow: inset 0 1px #d5a19955;
+}
+.crash-activity-tabs button:focus-visible {
+  outline-offset: -3px;
+}
+.crash-activity-caption {
+  color: var(--dim);
+  font-size: 10px;
+  margin: 14px 0 22px;
+}
+.crash-activity h2 {
+  font:
+    20px Georgia,
+    serif;
+  margin-bottom: 18px;
+}
+.crash-round-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px 12px;
+  font-size: 11px;
+}
+.crash-round-info dt {
+  color: var(--dim);
+}
+.crash-round-info dd {
+  text-align: right;
+  overflow-wrap: anywhere;
+  color: #f4d6c5;
+}
+.crash-commitment {
+  margin-top: 25px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #100b13;
+  border: 1px solid #57313f;
+}
+.crash-commitment h3 {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.crash-commitment code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: #dda6b7;
+}
+.crash-commitment p,
+.crash-activity-empty {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--dim);
+  margin-top: 15px;
+}
+.crash-activity-empty {
+  padding: 16px 0;
+}
+.crash-ticket-table {
+  overflow-x: auto;
+}
+.crash-ticket-table table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 7px;
+  font-size: 10px;
+}
+.crash-ticket-table th {
+  color: var(--dim);
+  text-align: right;
+  font-weight: 400;
+  padding: 5px;
+}
+.crash-ticket-table th:first-child,
+.crash-ticket-table td:first-child {
+  text-align: left;
+}
+.crash-ticket-table td {
+  text-align: right;
+  padding: 12px 6px;
+  background: #49263877;
+  font-variant-numeric: tabular-nums;
+}
+.crash-ticket-table td:first-child {
+  border-radius: 7px 0 0 7px;
+}
+.crash-ticket-table td:last-child {
+  border-radius: 0 7px 7px 0;
+  color: #efd0ae;
+}
+.crash-activity-foot {
+  margin-top: auto;
+  padding-top: 25px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+  font-size: 10px;
+}
+@media (max-width: 1200px) {
+  .crash-layout {
+    grid-template-columns: minmax(0, 1fr) 285px;
+  }
+  .crash-bet-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crash-submit-field {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+  .crash-submit-field .crash-action {
+    min-height: 60px;
+  }
+}
+@media (max-width: 1000px) {
+  .crash-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .crash-activity {
+    min-height: 300px;
+  }
+  .crash-activity-foot {
+    margin-top: 20px;
+  }
+}
+@media (max-width: 600px) {
+  .crash-table .crash-arena {
+    min-height: 360px;
+  }
+  .crash-table .crash-graph-shell {
+    margin: -10px 2px 0;
+  }
+  .crash-bet-fields {
+    gap: 12px;
+  }
+  .crash-table .crash-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .crash-table .crash-controls {
+    padding: 14px;
+  }
+  .crash-table .crash-history p {
+    max-width: 100%;
+  }
+}

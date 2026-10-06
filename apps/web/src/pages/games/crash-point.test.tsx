@@ -107,3 +107,43 @@ it('blocks malformed saved receipts and pauses entry on API errors', async () =>
   await screen.findByText(/Connection interrupted/);
   expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
 });
+it('shows the commitment before reveal without claiming automatic cash-out for a manual ticket', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].ticket = { stake: 25, autoCents: null, payout: null, paidCents: null };
+  setup();
+  await screen.findByText('Your ticket is live · manual cash-out requires a connection');
+  expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
+  expect(screen.queryByText(/Revealed seed:/)).toBeNull();
+});
+it('shows personal returns and distinguishes pending receipts in the history views', async () => {
+  snapshot.rounds.push({
+    ...snapshot.rounds[0],
+    id: 'older',
+    opensAt: snapshot.serverTime - 61000,
+    startsAt: snapshot.serverTime - 46000,
+    endsAt: snapshot.serverTime - 1000,
+    crashCents: 250,
+    seed: 'b'.repeat(64),
+    ticket: { stake: 25, autoCents: 200, payout: 50, paidCents: 200 },
+  });
+  snapshot.rounds[0].ticket = { stake: 10, autoCents: null, payout: null, paidCents: null };
+  setup();
+  await screen.findByText('10 credits');
+  fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
+  expect(screen.getAllByText('Pending')).toHaveLength(2);
+  expect(screen.getByRole('table')).toHaveTextContent('50');
+  fireEvent.click(screen.getByRole('button', { name: 'My top returns' }));
+  expect(screen.queryByText('Pending')).toBeNull();
+  expect(screen.getByRole('table')).toHaveTextContent('2.00×');
+  expect(post).not.toHaveBeenCalled();
+});
+it('does not describe a settled ticket as locked', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 10000;
+  snapshot.rounds[0].crashCents = 150;
+  snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
+  setup();
+  expect(
+    await screen.findByRole('button', { name: /Cashed out 30 credits returned/ })
+  ).toBeDisabled();
+  expect(screen.queryByText('25 credits locked')).toBeNull();
+});
