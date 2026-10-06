@@ -144,9 +144,8 @@ export async function createAgentOrder(
   // effectiveAt <= now(), ordered by effectiveAt DESC, take 1. Copied into
   // the order and never re-read.
   const rateConfig = await selectPaymentRate(prisma, country);
-  const usdPrice = country.usdPricingEnabled
-    ? priceUsdPayment(parseUsdPolicy(rateConfig.pricingPolicy), 'deposit', args.fiatAmount) : null;
-  const coinAmount = usdPrice?.coinAmount ?? rateConfig.coinsPerUnit.mul(args.fiatAmount).floor().toNumber();
+  const usdPrice = priceUsdPayment(parseUsdPolicy(rateConfig.pricingPolicy), 'deposit', args.fiatAmount);
+  const coinAmount = usdPrice.coinAmount;
   if (!Number.isSafeInteger(coinAmount) || coinAmount <= 0 || coinAmount > 1_000_000_000) {
     throw ApiError.badRequest('Computed coin amount must be positive');
   }
@@ -185,6 +184,8 @@ export async function createAgentOrder(
           throw ApiError.conflict('Pricing policy changed; review the order again');
         }
         if (usdPrice) {
+          const selectedRate = await selectPaymentRate(tx, { ...currentCountry, id: args.countryId });
+          if (selectedRate.id !== rateConfig.id) throw ApiError.conflict('Exchange rate changed; request a fresh price');
           const [lockedRate] = await tx.$queryRaw<Array<{ isActive: boolean }>>`
             SELECT "isActive" FROM exchange_rate_configs WHERE id=${rateConfig.id} FOR SHARE`;
           if (!lockedRate?.isActive) throw ApiError.conflict('Exchange rate was disabled; request a fresh price');
@@ -438,6 +439,8 @@ export async function settleAgentOrder(
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
     if (before.agentId !== agent.id) throw ApiError.forbidden('Not your order');
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     // L1: buyer authority precedes the L4 order/inventory claim and L5 wallet.
     // A completed payment remains owed even if the buyer was later suspended.
     const buyerRows = await tx.$queryRaw<{ id: string }[]>`

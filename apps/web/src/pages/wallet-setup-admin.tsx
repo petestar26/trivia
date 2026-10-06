@@ -39,6 +39,9 @@ type Setup = {
 type Review = {
   id: string;
   updatedAt?: string;
+  countryId?: string;
+  country?: { name: string };
+  methodDef?: { name: string; type: string };
   agent: { displayName: string; countryId: string };
   submittedData?: Record<string, unknown>;
   accountDetails?: Record<string, unknown>;
@@ -115,6 +118,7 @@ export function WalletSetupAdmin() {
     fields: 'accountName,accountNumber',
   });
   const [note, setNote] = useState('');
+  const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState('');
   const inFlight = useRef(false);
@@ -175,7 +179,7 @@ export function WalletSetupAdmin() {
       : null;
   return (
     <section className="payment-panel" aria-label="Payment administration">
-      <h2>Payment setup & oversight</h2>
+      <h1>Payment setup & oversight</h1>
       <p>
         Configure a country, verified rate and payment methods, approve agents, then record backed
         Coin inventory and fiat liquidity. Existing account and jurisdiction checks still apply.
@@ -374,11 +378,28 @@ export function WalletSetupAdmin() {
                   </p>
                 ))}
                 {a.status === 'ACTIVE' && (
-                  <ConfirmAction
-                    label={`Suspend ${a.displayName}`}
-                    disabled={busy || note.trim().length < 5}
-                    onConfirm={() => change(`/agents/${a.id}/suspend`, { reason: note })}
-                  />
+                  <>
+                    <label>
+                      Suspension reason for {a.displayName}
+                      <textarea
+                        value={actionNotes[`suspend:${a.id}`] ?? ''}
+                        maxLength={500}
+                        disabled={busy}
+                        onChange={(e) =>
+                          setActionNotes((v) => ({ ...v, [`suspend:${a.id}`]: e.target.value }))
+                        }
+                      />
+                    </label>
+                    <ConfirmAction
+                      label={`Suspend ${a.displayName}`}
+                      disabled={busy || (actionNotes[`suspend:${a.id}`] ?? '').trim().length < 5}
+                      onConfirm={() =>
+                        change(`/agents/${a.id}/suspend`, {
+                          reason: actionNotes[`suspend:${a.id}`],
+                        })
+                      }
+                    />
+                  </>
                 )}
                 {(a.status === 'TEMPORARILY_SUSPENDED' || a.status === 'UNDER_REVIEW') && (
                   <ConfirmAction
@@ -483,7 +504,7 @@ export function WalletSetupAdmin() {
         </>
       )}
       <label>
-        Review / adjustment reason
+        Funding adjustment reason
         <textarea
           value={note}
           maxLength={500}
@@ -512,9 +533,11 @@ export function WalletSetupAdmin() {
               const paymentAccount = path === 'payment-accounts';
               const expectedUpdatedAt = paymentAccount ? displayedPaymentAccountVersion(r) : null;
               const reviewUnavailable = paymentAccount && (!expectedUpdatedAt || q.isFetching);
-              const approveBody = paymentAccount ? { expectedUpdatedAt } : { reviewNote: note };
+              const noteKey = `${path}:${r.id}:${r.updatedAt ?? ''}`;
+              const reviewNote = actionNotes[noteKey] ?? '';
+              const approveBody = paymentAccount ? { expectedUpdatedAt } : { reviewNote };
               const rejectBody = {
-                reviewNote: note,
+                reviewNote,
                 ...(paymentAccount ? { expectedUpdatedAt } : {}),
               };
               return (
@@ -528,9 +551,21 @@ export function WalletSetupAdmin() {
                   <h3>{r.agent.displayName}</h3>
                   <p>
                     Country:{' '}
-                    {countries.data?.find((c) => c.id === r.agent.countryId)?.name ??
-                      r.agent.countryId}
+                    {countries.data?.find(
+                      (c) => c.id === (paymentAccount ? r.countryId : r.agent.countryId)
+                    )?.name ??
+                      (paymentAccount ? (r.countryId ?? 'Unavailable') : r.agent.countryId)}
                   </p>
+                  {paymentAccount && <p>Payment method: {r.methodDef?.name ?? 'Unavailable'}</p>}
+                  <label>
+                    Review reason for {r.agent.displayName}
+                    <textarea
+                      value={reviewNote}
+                      maxLength={500}
+                      disabled={busy || reviewUnavailable}
+                      onChange={(e) => setActionNotes((v) => ({ ...v, [noteKey]: e.target.value }))}
+                    />
+                  </label>
                   <pre className="payment-evidence">
                     {JSON.stringify(
                       paymentAccount ? r.accountDetails : (r.submittedData ?? r.accountDetails),
@@ -554,9 +589,9 @@ export function WalletSetupAdmin() {
                   />
                   <ConfirmAction
                     label="Reject with reason"
-                    disabled={busy || reviewUnavailable || note.trim().length < 5}
+                    disabled={busy || reviewUnavailable || reviewNote.trim().length < 5}
                     onConfirm={() => {
-                      if (busy || reviewUnavailable || note.trim().length < 5) return;
+                      if (busy || reviewUnavailable || reviewNote.trim().length < 5) return;
                       void change(`/agents/${path}/${r.id}/reject`, rejectBody);
                     }}
                   />

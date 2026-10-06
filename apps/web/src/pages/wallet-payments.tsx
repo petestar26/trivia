@@ -628,6 +628,7 @@ function Payments({ userId }: { userId: string }) {
                           </label>
                           <details>
                             <summary>Account requires two-step verification?</summary>
+                            <p><Link to="/profile#security">Set up your authenticator in Profile</Link> if you haven’t enabled one yet.</p>
                             <label>
                               Authenticator code
                               <input

@@ -1,6 +1,6 @@
 import { selectPaymentRate } from '../agents/usd-config-service.js';
 import { parseUsdPolicy, priceUsdPayment } from '../agents/usd-pricing.js';
-import { prisma, Prisma, type WithdrawalQuote } from '@socialplay/database';
+import { prisma, type WithdrawalQuote } from '@socialplay/database';
 import { createHash } from 'node:crypto';
 import { ApiError } from '../middleware/index.js';
 
@@ -94,12 +94,8 @@ export async function createWithdrawalQuote(
     });
     if (!lockedRate.isActive)
       throw ApiError.conflict('Exchange rate was disabled; request a fresh price');
-    const usdPrice = country.usdPricingEnabled
-      ? priceUsdPayment(parseUsdPolicy(rateConfig.pricingPolicy), 'withdrawal', args.coinAmount)
-      : null;
-    const fiatAmount =
-      usdPrice?.fiatAmount ??
-      BigInt(new Prisma.Decimal(args.coinAmount).div(rateConfig.coinsPerUnit).floor().toFixed(0));
+    const usdPrice = priceUsdPayment(parseUsdPolicy(lockedRate.pricingPolicy), 'withdrawal', args.coinAmount);
+    const fiatAmount = usdPrice.fiatAmount;
     if (fiatAmount <= 0n) {
       throw ApiError.badRequest('Computed fiat amount must be positive');
     }

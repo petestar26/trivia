@@ -30,7 +30,7 @@ export function Sidebar({ onNavigate }: SidebarProps = {}) {
     <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center h-16 px-6 border-b border-gray-200 dark:border-gray-700">
-          <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">PlayQube</h1>
+          <span className="text-xl font-bold text-primary-600 dark:text-primary-400">PlayQube</span>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">

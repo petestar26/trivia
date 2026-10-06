@@ -99,7 +99,7 @@ export function WalletPricingAdmin() {
   }
   return (
     <section className="payment-panel">
-      <h2>Pricing configuration</h2>
+      <h1>Pricing configuration</h1>
       <p>
         96 Coins = USD 1. Fees remain zero. Crypto checkout and automated FX updates require a
         verified provider integration.

@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma, Prisma } from '@socialplay/database';
 import { randomUUID } from 'node:crypto';
@@ -66,9 +67,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `W1D2A Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -86,16 +87,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: {
+  return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
       coinsPerUnit,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-    },
-  });
+      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function createFundedAgent(tag: string, countryId: string, admin: { id: string }, superAdmin: { id: string }, liquidityUsd: bigint) {
@@ -107,7 +106,7 @@ async function createFundedAgent(tag: string, countryId: string, admin: { id: st
   });
   await approveAgentApplication(admin.id, application.id, undefined);
   const agent = await prisma.agent.findUnique({ where: { userId: agentUser.id } });
-  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'USD', liquidityUsd, `w1d2a-fund-${tag}-${Date.now()}-${Math.random()}`);
+  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'ETB', liquidityUsd, `w1d2a-fund-${tag}-${Date.now()}-${Math.random()}`);
   return { agentUser, agent: agent! };
 }
 
@@ -135,7 +134,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const country = await createCountry(tag);
   await activateTestWithdrawalPolicy(country.id, superAdmin.id);
   const method = await createPaymentMethod(country.id, tag);
-  await createExchangeRate(country.id, 'USD', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', 2, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -278,7 +277,7 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
     const country = await createCountry(tag);
     await activateTestWithdrawalPolicy(country.id, superAdmin.id);
     const method = await createPaymentMethod(country.id, tag);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
     // W-1D2A follow-up fix: both concurrency tests below race two
     // createWithdrawal calls against the SAME agent's liquidity row. The
     // different-key test is only meant to prove the one-live-withdrawal
@@ -462,7 +461,7 @@ describeIf('W-1D2A: consumeReservedLiquidity helper', () => {
 
     const reservation = await prisma.withdrawalLiquidityReservation.findUnique({ where: { withdrawalId: withdrawal.id } });
     const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidityBefore).not.toBeNull();
 
@@ -484,7 +483,7 @@ describeIf('W-1D2A: consumeReservedLiquidity helper', () => {
     expect(reservationAfter!.consumedAt).not.toBeNull();
 
     const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidityAfter!.totalBalance).toBe(liquidityBefore!.totalBalance - reservation!.amount);
     expect(liquidityAfter!.reservedBalance).toBe(liquidityBefore!.reservedBalance - reservation!.amount);

@@ -151,7 +151,7 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/economy/reward-coins.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Gateway identity and independent worker contracts
         run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
       - name: Build API and verify disposable staging setup
@@ -277,7 +277,7 @@ jobs:
       - name: Group game room and chat contracts
         run: >-
           pnpm --filter web exec vitest run
-          src/lib/payment-money.test.ts src/components/app-update-notice.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-agent-setup.test.tsx src/pages/wallet-setup-admin.test.tsx src/pages/workspaces/workspaces.test.tsx src/pages/workspaces/create-agent.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/lib/payment-money.test.ts src/components/app-update-notice.test.tsx src/components/security/authenticator-setup.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-agent-setup.test.tsx src/pages/wallet-setup-admin.test.tsx src/pages/workspaces/workspaces.test.tsx src/pages/workspaces/create-agent.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
           src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
           src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts

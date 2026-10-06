@@ -8,20 +8,21 @@ export async function selectPaymentRate(
   db: Pick<Prisma.TransactionClient, 'exchangeRateConfig'>,
   country: { id: string; currencyCode: string; usdPricingEnabled: boolean }
 ) {
+  if (!country.usdPricingEnabled) {
+    throw ApiError.badRequest('USD pricing must be configured before accepting payments');
+  }
   const rate = await db.exchangeRateConfig.findFirst({
     where: {
       countryId: country.id,
       fiatCurrency: country.currencyCode,
       effectiveAt: { lte: new Date() },
-      ...(country.usdPricingEnabled
-        ? { pricingPolicy: { not: Prisma.DbNull } }
-        : { isActive: true }),
+      pricingPolicy: { not: Prisma.DbNull },
     },
     orderBy: [{ effectiveAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
   });
   if (!rate || !rate.isActive)
     throw ApiError.badRequest('No active exchange rate is configured for this country/currency');
-  if (country.usdPricingEnabled) parseUsdPolicy(rate.pricingPolicy);
+  parseUsdPolicy(rate.pricingPolicy);
   return rate;
 }
 

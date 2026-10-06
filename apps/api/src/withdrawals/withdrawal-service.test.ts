@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -62,9 +63,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `Withdrawal Create Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -82,16 +83,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: {
+  return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
       coinsPerUnit,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-    },
-  });
+      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 /** ACTIVE agent with a funded USD fiat liquidity bucket. No AgentInventory
@@ -111,7 +110,7 @@ async function createFundedAgent(
   });
   await approveAgentApplication(admin.id, application.id, undefined);
   const agent = await prisma.agent.findUnique({ where: { userId: agentUser.id } });
-  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'USD', liquidityUsd, `fund-${tag}-${Date.now()}-${Math.random()}`);
+  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'ETB', liquidityUsd, `fund-${tag}-${Date.now()}-${Math.random()}`);
   return agent!;
 }
 
@@ -224,7 +223,7 @@ async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'USD', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -495,7 +494,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     // this is the real proof that a later wallet failure still rolls that
     // reservation back — not just that no reservation row was created.
     const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidityAfter!.reservedBalance).toBe(0n);
     // The quote itself must also roll back to ACTIVE, not stay CONSUMED —
@@ -692,7 +691,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect(fulfilled).toHaveLength(1);
 
     const liquidity = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidity!.reservedBalance).toBe(500n);
     expect(liquidity!.reservedBalance).toBeLessThanOrEqual(liquidity!.totalBalance);
@@ -771,7 +770,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     await adjustAgentFiatLiquidity(
       (await createSuperAdmin(`${tag}-super2`)).id,
       agent.id,
-      'USD',
+      'ETB',
       1_000_000n,
       'test top-up for retry',
       `topup-${tag}`
@@ -795,7 +794,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
 
     // The withdrawing user is ALSO this country's only funded agent.
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
@@ -809,7 +808,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     });
     await approveAgentApplication(admin.id, application.id, undefined);
     const selfAgent = await prisma.agent.findUnique({ where: { userId: selfUser.id } });
-    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'USD', 100_000n, `fund-self-${tag}`);
+    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'ETB', 100_000n, `fund-self-${tag}`);
 
     const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
     const quote = await createWithdrawalQuote(selfUser.id, { countryId: country.id, coinAmount: 1000 });
@@ -827,7 +826,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect(await prisma.withdrawal.count({ where: { userId: selfUser.id } })).toBe(0);
     // The self agent's liquidity must be untouched — no reservation leaked.
     const selfLiquidity = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'ETB' } },
     });
     expect(selfLiquidity!.reservedBalance).toBe(0n);
   });
@@ -840,7 +839,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
 
     // Distinct tag from `admin`'s — createUser() dedupes by email, so
     // reusing `tag` here would resolve to the SAME row as `admin` and
@@ -856,7 +855,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     // Self agent has FAR more liquidity than the other candidate — if
     // selection were merely deprioritizing self rather than excluding it
     // outright, the ORDER BY (available DESC) would still pick self here.
-    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'USD', 10_000_000n, `fund-self-${tag}`);
+    await fundAgentFiatLiquidity(superAdmin.id, selfAgent!.id, 'ETB', 10_000_000n, `fund-self-${tag}`);
     const otherAgent = await createFundedAgent(`${tag}-other`, country.id, admin, superAdmin, 100_000n);
 
     const payoutAccount = await createActivePayoutAccount(selfUser.id, country.id, method.id);
@@ -872,7 +871,7 @@ describeIf('withdrawals/withdrawal-service', () => {
     expect((withdrawal as any).agentId).not.toBe(selfAgent!.id);
 
     const selfLiquidity = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: selfAgent!.id, fiatCurrency: 'ETB' } },
     });
     expect(selfLiquidity!.reservedBalance).toBe(0n); // untouched
   });

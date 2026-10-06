@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
@@ -61,9 +62,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `Order Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -81,9 +82,7 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId },
-  });
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 /**
@@ -473,7 +472,7 @@ describeIf('Agent inventory reservation', () => {
   });
 
   it('CONCURRENCY Race C — concurrent orders cannot oversubscribe inventory', async () => {
-    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 100); // exactly 100 coins available
+    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 500); // two 300-Coin reservations cannot both fit
     const custA = await createUser('rescustA');
     const custB = await createUser('rescustB');
 
@@ -482,25 +481,25 @@ describeIf('Agent inventory reservation', () => {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 60, // coinAmount 60
+        fiatAmount: 300, // coinAmount 300
         idempotencyKey: `key-${Math.random()}`,
       }),
       createAgentOrder(custB.id, {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 60, // coinAmount 60 — 60+60=120 > 100 total
+        fiatAmount: 300, // coinAmount 300 — 60+60=120 > 100 total
         idempotencyKey: `key-${Math.random()}`,
       }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     // At most one of the two conflicting reservations can succeed.
-    expect(fulfilled.length).toBeLessThanOrEqual(1);
+    expect(fulfilled.length).toBe(1);
 
     const inventory = await getAgentInventory(fixture.agent.id);
     expect(inventory.reservedBalance).toBeLessThanOrEqual(inventory.totalBalance);
-    expect(inventory.reservedBalance).toBeLessThanOrEqual(60);
+    expect(inventory.reservedBalance).toBe(300);
   });
 });
 
@@ -854,7 +853,7 @@ describeIf('Admin inventory funding and adjustment', () => {
 
     // Reserve 400 via a real order so reservedBalance is genuinely non-zero.
     const methodForFund8 = await createPaymentMethod(country.id, 'fund8');
-    await createExchangeRate(country.id, 'USD', 1, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const account = await createAgentPaymentAccount(user.id, {
       countryId: country.id,
       methodDefId: methodForFund8.id,
@@ -1135,6 +1134,10 @@ describeIf('USD-priced agent orders', () => {
     expect((await createAgentOrder(customer.id, args)).order.id).toBe(order.id);
     await expect(createAgentOrder(customer.id, { ...args, idempotencyKey: args.idempotencyKey + '-new' })).rejects.toThrow(/No active exchange rate/);
     await submitOrderPayment(customer.id, order.id);
+    await prisma.user.update({ where: { id: fixture.agentUser.id }, data: { status: 'SUSPENDED' } });
+    await expect(settleAgentOrder(fixture.agentUser.id, order.id)).rejects.toThrow(/active user/);
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PAYMENT_SUBMITTED');
+    await prisma.user.update({ where: { id: fixture.agentUser.id }, data: { status: 'ACTIVE' } });
     await settleAgentOrder(fixture.agentUser.id, order.id);
     await expect(settleAgentOrder(fixture.agentUser.id, order.id)).rejects.toThrow();
     expect((await prisma.wallet.findUnique({ where: { userId: customer.id } }))!.coinsBalance).toBe(192);

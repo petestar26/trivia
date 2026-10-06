@@ -1,3 +1,4 @@
+import { parseUsdPolicy } from './usd-pricing.js';
 import { selectPaymentRate } from './usd-config-service.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
@@ -92,31 +93,45 @@ export async function setCountryFlags(
     throw ApiError.badRequest('At least one of isActive or agentPaymentEnabled must be supplied');
   }
 
-  const before = await prisma.country.findUnique({ where: { id: countryId } });
-  if (!before) throw ApiError.notFound('Country not found');
-
-  const country = await prisma.country.update({
-    where: { id: countryId },
-    data: {
-      ...(flags.isActive !== undefined ? { isActive: flags.isActive } : {}),
-      ...(flags.agentPaymentEnabled !== undefined ? { agentPaymentEnabled: flags.agentPaymentEnabled } : {}),
-    },
+  return prisma.$transaction(async (tx) => {
+    // Serialize activation with pricing publication and financial admission.
+    await tx.$queryRaw`SELECT id FROM countries WHERE id=${countryId} FOR UPDATE`;
+    const before = await tx.country.findUnique({ where: { id: countryId } });
+    if (!before) throw ApiError.notFound('Country not found');
+    const active = flags.isActive ?? before.isActive;
+    const payments = flags.agentPaymentEnabled ?? before.agentPaymentEnabled;
+    if (payments) {
+      if (!active) throw ApiError.badRequest('Activate the country before enabling payments');
+      const rate = await selectPaymentRate(tx, before);
+      await tx.$queryRaw`SELECT id FROM exchange_rate_configs WHERE id=${rate.id} FOR SHARE`;
+      const currentRate = await tx.exchangeRateConfig.findUniqueOrThrow({ where: { id: rate.id } });
+      if (!currentRate.isActive) throw ApiError.badRequest('A current USD rate is required');
+      parseUsdPolicy(currentRate.pricingPolicy);
+      const destinations = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT pa.id FROM agent_payment_accounts pa
+        JOIN agents a ON a.id=pa."agentId"
+        JOIN users u ON u.id=a."userId"
+        JOIN payment_method_definitions m ON m.id=pa."methodDefId"
+        WHERE pa."countryId"=${countryId} AND a."countryId"=${countryId}
+          AND m."countryId"=${countryId} AND m."isActive"=true
+          AND pa.status::text='APPROVED' AND a.status::text='ACTIVE'
+          AND u.status::text='ACTIVE'
+        LIMIT 1 FOR SHARE OF pa, a, u, m`;
+      if (!destinations.length) {
+        throw ApiError.badRequest('An active agent with an approved receiving account and active payment method is required');
+      }
+    }
+    const country = await tx.country.update({ where: { id: countryId }, data: flags });
+    await tx.auditLog.create({
+      data: {
+        userId: adminId, action: 'AGENT_CONFIG_COUNTRY_UPDATED', entity: 'Country', entityId: countryId,
+        oldData: { isActive: before.isActive, agentPaymentEnabled: before.agentPaymentEnabled },
+        newData: { isActive: country.isActive, agentPaymentEnabled: country.agentPaymentEnabled },
+        ip: context?.ip, userAgent: context?.userAgent,
+      },
+    });
+    return country;
   });
-
-  await prisma.auditLog.create({
-    data: {
-      userId: adminId,
-      action: 'AGENT_CONFIG_COUNTRY_UPDATED',
-      entity: 'Country',
-      entityId: countryId,
-      oldData: { isActive: before.isActive, agentPaymentEnabled: before.agentPaymentEnabled },
-      newData: { isActive: country.isActive, agentPaymentEnabled: country.agentPaymentEnabled },
-      ip: context?.ip,
-      userAgent: context?.userAgent,
-    },
-  });
-
-  return country;
 }
 
 export async function listCountries(includeInactive: boolean) {
@@ -257,39 +272,7 @@ export async function createExchangeRate(
 ) {
   await assertPlatformAdmin(adminId);
 
-  const country = await prisma.country.findUnique({ where: { id: args.countryId } });
-  if (!country) throw ApiError.badRequest('Invalid countryId');
-  if (country.usdPricingEnabled) throw ApiError.badRequest('Use the USD rate endpoint for this country');
-  if (!CURRENCY_CODE_RE.test(args.fiatCurrency)) {
-    throw ApiError.badRequest('fiatCurrency must be a 3-letter ISO 4217 code (e.g. "NGN")');
-  }
-  if (typeof args.coinsPerUnit !== 'number' || !Number.isFinite(args.coinsPerUnit) || args.coinsPerUnit <= 0) {
-    throw ApiError.badRequest('coinsPerUnit must be a positive number');
-  }
-
-  const rate = await prisma.exchangeRateConfig.create({
-    data: {
-      countryId: args.countryId,
-      fiatCurrency: args.fiatCurrency,
-      coinsPerUnit: args.coinsPerUnit,
-      setBy: adminId,
-      effectiveAt: args.effectiveAt ?? new Date(),
-    },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      userId: adminId,
-      action: 'AGENT_CONFIG_EXCHANGE_RATE_CREATED',
-      entity: 'ExchangeRateConfig',
-      entityId: rate.id,
-      newData: { countryId: args.countryId, fiatCurrency: args.fiatCurrency, coinsPerUnit: args.coinsPerUnit },
-      ip: context?.ip,
-      userAgent: context?.userAgent,
-    },
-  });
-
-  return rate;
+  throw ApiError.badRequest('Legacy exchange-rate creation is disabled; publish a versioned USD rate');
 }
 
 export async function deactivateExchangeRate(

@@ -20,7 +20,10 @@ it('hides the saved outcome until reveal and denies a fresh ticket after the dra
  await db.$executeRaw`UPDATE system_dice_practice_rounds SET die1=6,die2=6 WHERE id=${f.roundId}`;
  const outsider=randomUUID();await fixture(15000,outsider);
  await expect(service.enter(outsider,f.roundId,35)).rejects.toThrow('closed');
- const hidden=(await service.snapshot(f.userId)).rounds.find(r=>r.id===f.roundId);
+ await service.tick();
+ const snapshot = await service.snapshot(f.userId);
+ expect(snapshot.balance).toBe(await balance(f.userId)-54);
+ const hidden=snapshot.rounds.find(r=>r.id===f.roundId);
  expect(hidden, 'the fixture round must be in the latest-round snapshot').toBeDefined();
  expect(hidden?.outcome).toBeNull();expect(hidden?.ticket?.payout).toBeNull();
  await new Promise(r=>setTimeout(r,Math.max(0,f.closes.getTime()+10050-Date.now())));

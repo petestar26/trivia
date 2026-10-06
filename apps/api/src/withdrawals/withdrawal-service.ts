@@ -264,13 +264,18 @@ export async function createWithdrawal(
         // A quote can outlive a country-level payment disable. Serialize the
         // final hold with that flag change before pinning the country policy.
         const countries = await tx.$queryRaw<Array<{
-          id: string; isActive: boolean; agentPaymentEnabled: boolean;
+          id: string; isActive: boolean; agentPaymentEnabled: boolean; usdPricingEnabled: boolean;
         }>>`
-          SELECT id, "isActive", "agentPaymentEnabled"
+          SELECT id, "isActive", "agentPaymentEnabled", "usdPricingEnabled"
           FROM countries WHERE id = ${payoutAccount.countryId} FOR SHARE
         `;
         if (!countries[0]?.isActive || !countries[0]?.agentPaymentEnabled) {
           throw ApiError.forbidden('Withdrawals are not available for this country');
+        }
+
+        if (!countries[0].usdPricingEnabled ||
+            (quotePreview.pricingSnapshot as { version?: string } | null)?.version !== 'USD_V1') {
+          throw ApiError.badRequest('Request a new withdrawal quote using USD pricing');
         }
 
         const policy = await requireActiveWithdrawalPolicy(tx, actorUserId, payoutAccount.countryId);

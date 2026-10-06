@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
@@ -66,9 +67,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `W1D3 Reconciliation Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -86,16 +87,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: {
+  return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
       coinsPerUnit,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-    },
-  });
+      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function createFundedAgent(
@@ -116,7 +115,7 @@ async function createFundedAgent(
   await fundAgentFiatLiquidity(
     superAdmin.id,
     agent!.id,
-    'USD',
+    'ETB',
     liquidityUsd,
     `w1d3recon-fund-${tag}-${Date.now()}-${Math.random()}`
   );
@@ -146,7 +145,7 @@ async function createHeldWithdrawal(
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'USD', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', 2, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);

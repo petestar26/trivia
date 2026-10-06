@@ -23,7 +23,7 @@ function SystemKeno({userId}:{userId:string}) {
   const query=useQuery({queryKey:['system-keno',userId],queryFn:async({signal})=>{
     const sentAt=performance.now();const snapshot=unwrapData(await boundedRequest(s=>api.get<SystemKenoSnapshot>(endpoint,undefined,{signal:s}),signal));
     return {snapshot,sentAt,receivedAt:performance.now()};
-  },refetchInterval:1000,refetchOnWindowFocus:true,refetchOnReconnect:true,retry:false});
+  },refetchInterval:q=>[401,403,404].includes(requestStatus(q.state.error))?false:1000,refetchOnWindowFocus:true,refetchOnReconnect:true,retry:false});
   useEffect(()=>{const timer=setInterval(()=>setClock(performance.now()),100);return()=>{clearInterval(timer);pendingRef.current=null;};},[]);
   const s=query.data?.snapshot;const age=query.data?Math.max(clock,performance.now())-query.data.sentAt:Infinity;
   const connected=!!query.data&&!query.isError&&!query.isPaused&&age<5000&&query.data.receivedAt-query.data.sentAt<1000;
@@ -55,7 +55,7 @@ function SystemKeno({userId}:{userId:string}) {
       <header className="keno-header"><div><p className="keno-eyebrow">PLAYQUBE ORIGINALS · SYSTEM TABLE</p><h1>Turbo <span>Keno</span></h1><p>One new round every minute.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading?'Loading…':walletError?'Unavailable':`${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{s?.balance.toLocaleString()??'—'}</strong><small>credits · no cash value</small></div></div></header>
       <div className="keno-economics"><span>90% theoretical return</span><span>10% expected house edge</span><span>3.6× return per matching number</span></div>
       <div className="keno-practice-note">Server practice · No Coins, deposits or redeemable prizes · 45 seconds to enter, 15 seconds for results</div>
-      {!connected&&<p role="alert" className="px-6 py-3">{query.isPending?'Connecting to the system table…':'Reconnecting. Ticket entry is paused until a fresh server update arrives.'}</p>}
+      {!connected&&<p role="alert" className="px-6 py-3">{query.isPending?'Connecting to the system table…':requestStatus(query.error)===401?'Your session has expired. Sign in again to play.':[403,404].includes(requestStatus(query.error))?'This Keno table is currently unavailable. Please return to the casino.':'Reconnecting. Ticket entry is paused until a fresh server update arrives.'}</p>}
       {connected&&!round&&<p role="status" className="px-6 py-3">Waiting for the next scheduled round…</p>}
       <div className="keno-layout"><div className="keno-board-panel">
         <div className="keno-draw-heading"><h2>{open?'PLACE YOUR TICKET':round?'ENTRIES LOCKED':'SYSTEM TABLE'}</h2><span role="timer" aria-label={open?'Betting closes in':'Next round in'}>{String(seconds).padStart(2,'0')}s <b>{count}/20</b></span></div>

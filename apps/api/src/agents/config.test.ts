@@ -146,9 +146,8 @@ describeIf('Agent config — Country', () => {
     expect(activated.isActive).toBe(true);
     expect(activated.agentPaymentEnabled).toBe(false); // unaffected
 
-    const enabled = await setCountryFlags(admin.id, country.id, { agentPaymentEnabled: true });
-    expect(enabled.isActive).toBe(true); // unaffected
-    expect(enabled.agentPaymentEnabled).toBe(true);
+    await expect(setCountryFlags(admin.id, country.id, { agentPaymentEnabled: true })).rejects.toThrow(/USD pricing/);
+    expect((await prisma.country.findUniqueOrThrow({ where: { id: country.id } })).agentPaymentEnabled).toBe(false);
   });
 
   it('listCountries hides inactive countries unless includeInactive is requested', async () => {
@@ -311,37 +310,30 @@ describeIf('Agent config — ExchangeRateConfig', () => {
     });
   });
 
-  it('admin can create a valid exchange rate', async () => {
-    const rate = await createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 10 });
-    expect(rate.isActive).toBe(true);
-    expect(rate.setBy).toBe(admin.id);
-    expect(Number(rate.coinsPerUnit)).toBe(10);
+  it('legacy exchange-rate creation is disabled', async () => {
+    await expect(createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 10 })).rejects.toThrow(/Legacy/);
+    expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
   });
 
-  it('non-positive coinsPerUnit is rejected', async () => {
-    await expect(
-      createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 0 })
-    ).rejects.toThrow(/positive number/i);
-    await expect(
-      createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: -5 })
-    ).rejects.toThrow(/positive number/i);
-  });
+  // Historical records remain readable/deactivatable; new API creation is closed.
+  const historicalRate = (actorId: string, args: { countryId: string; fiatCurrency: string; coinsPerUnit: number; effectiveAt?: Date }) =>
+    prisma.exchangeRateConfig.create({ data: { ...args, setBy: actorId } });
 
   it('a newer rate is selected over an older one — matches the exact documented selection query', async () => {
-    await createExchangeRate(admin.id, {
+    await historicalRate(admin.id, {
       countryId: country.id,
       fiatCurrency: 'EUR',
       coinsPerUnit: 5,
       effectiveAt: new Date(Date.now() - 60_000),
     });
-    await createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'EUR', coinsPerUnit: 8 });
+    await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'EUR', coinsPerUnit: 8 });
 
     const active = await getActiveExchangeRate(country.id, 'EUR');
     expect(Number(active!.coinsPerUnit)).toBe(8);
   });
 
   it('a future-dated rate is not yet selected', async () => {
-    await createExchangeRate(admin.id, {
+    await historicalRate(admin.id, {
       countryId: country.id,
       fiatCurrency: 'GBP',
       coinsPerUnit: 20,
@@ -352,7 +344,7 @@ describeIf('Agent config — ExchangeRateConfig', () => {
   });
 
   it('deactivating a rate removes it from selection; creating never edits an existing row', async () => {
-    const rate = await createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'JPY', coinsPerUnit: 3 });
+    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'JPY', coinsPerUnit: 3 });
     await deactivateExchangeRate(admin.id, rate.id);
 
     const active = await getActiveExchangeRate(country.id, 'JPY');
@@ -365,7 +357,7 @@ describeIf('Agent config — ExchangeRateConfig', () => {
   });
 
   it('deactivating an already-inactive rate is rejected', async () => {
-    const rate = await createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'CAD', coinsPerUnit: 4 });
+    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'CAD', coinsPerUnit: 4 });
     await deactivateExchangeRate(admin.id, rate.id);
     await expect(deactivateExchangeRate(admin.id, rate.id)).rejects.toThrow(/already inactive/i);
   });
@@ -376,7 +368,7 @@ describeIf('Agent config — ExchangeRateConfig', () => {
       createExchangeRate(plainUser.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 1 })
     ).rejects.toThrow(/admin privileges required/i);
 
-    const rate = await createExchangeRate(admin.id, { countryId: country.id, fiatCurrency: 'AUD', coinsPerUnit: 6 });
+    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'AUD', coinsPerUnit: 6 });
     await expect(deactivateExchangeRate(plainUser.id, rate.id)).rejects.toThrow(/admin privileges required/i);
   });
 });

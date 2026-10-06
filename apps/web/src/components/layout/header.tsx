@@ -24,7 +24,7 @@ export function Header({ onMenuClick }: HeaderProps) {
               </svg>
             </button>
           )}
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">PlayQube</h1>
+          <span className="text-lg font-semibold text-gray-900 dark:text-white">PlayQube</span>
         </div>
 
         <div className="flex items-center space-x-2 sm:space-x-4">

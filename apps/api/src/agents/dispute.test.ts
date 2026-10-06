@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@prisma/client';
@@ -74,7 +75,7 @@ async function createCountry(tag: string) {
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
-    data: { code, name: `Dispute Test Country ${tag}`, currencyCode: 'USD', isActive: true, agentPaymentEnabled: true },
+    data: { code, name: `Dispute Test Country ${tag}`, currencyCode: 'ETB', isActive: true, agentPaymentEnabled: true, usdPricingEnabled: true },
   });
 }
 
@@ -91,7 +92,7 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId } });
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function setupActiveAgent(

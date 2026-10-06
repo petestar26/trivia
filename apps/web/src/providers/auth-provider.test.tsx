@@ -716,3 +716,13 @@ it('keeps a failed anonymous sign-in mounted so its error stays visible after se
   expect(client.getQueryData(['old-anonymous-cache'])).toBeUndefined();
   expect(authStore.current!.isAuthenticated).toBe(false);
 });
+
+it('keeps startup pending on 503 and restores the session when retry succeeds', async () => {
+  apiGet.mockRejectedValueOnce(authError(503, 'UNAVAILABLE', 'Try again')).mockResolvedValueOnce(meResponse(userA));
+  renderStack(makeClient());
+  await screen.findByRole('alert');
+  expect(screen.getByTestId('loading')).toHaveTextContent('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
+  await waitForAuth();
+  expect(authStore.current?.user?.id).toBe(userA.id);
+});

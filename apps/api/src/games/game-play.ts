@@ -5,7 +5,7 @@ import { ApiError } from '../middleware/index.js';
 import { getOrCreateWallet } from '../economy/wallet-service.js';
 import { creditCoins, settleWagerCoins } from '../economy/coin-ledger-service.js';
 import { resolveJurisdictionForPlay, requirePlayableJurisdiction, requirePlatformGate } from '../economy/jurisdiction-service.js';
-import { isApprovedGameKey } from './game-catalog.js';
+import { isCoinWagerPaused, isApprovedGameKey } from './game-catalog.js';
 import { fingerprintPlay } from './game-fingerprint.js';
 import { generateSpinWinResult } from './spin-win-engine.js';
 import { lockUserForPlay, lockGameForPlay } from './game-locks.js';
@@ -250,7 +250,7 @@ export async function playGame(args: PlayGameArgs): Promise<PlayResponse> {
     //    before this lock or wait behind this transaction.
     const game: LockedGame | null = await lockGameForPlay(tx, gameKey);
     if (!game || !isApprovedGameKey(gameKey)) throw ApiError.notFound('Game not found');
-    if (game.catalogStatus !== 'AVAILABLE' || !game.isActive) {
+    if (game.catalogStatus !== 'AVAILABLE' || !game.isActive || isCoinWagerPaused(game)) {
       throw ApiError.badRequest('This game is not available to play');
     }
 

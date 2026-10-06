@@ -137,10 +137,13 @@ export async function createAgentPaymentAccount(
 ) {
   const agent = await resolveOwnAgentForSelfService(actorUserId);
 
+  if (agent.countryId !== args.countryId) throw ApiError.badRequest('Receiving account country must match the agent service country');
   const { method } = await loadAndValidateMethod(args.countryId, args.methodDefId);
   const clean = validateAccountDetails(method.fieldSchema, args.accountDetails);
 
   return prisma.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     const account = await tx.agentPaymentAccount.create({
       data: {
         agentId: agent.id,
@@ -188,10 +191,13 @@ export async function updateAgentPaymentAccount(
   const expectedUpdatedAt = parseExpectedUpdatedAt(args?.expectedUpdatedAt);
   const agent = await resolveOwnAgentForSelfService(actorUserId);
 
+  if (agent.countryId !== args.countryId) throw ApiError.badRequest('Receiving account country must match the agent service country');
   const { method } = await loadAndValidateMethod(args.countryId, args.methodDefId);
   const clean = validateAccountDetails(method.fieldSchema, args.accountDetails);
 
   return prisma.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     const before = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agentId !== agent.id) throw ApiError.forbidden('Not your payment account');
@@ -251,7 +257,7 @@ export async function approveAgentPaymentAccount(
   return prisma.$transaction(async (tx) => {
     const before = await tx.agentPaymentAccount.findUnique({
       where: { id: accountId },
-      include: { agent: { select: { userId: true } } },
+      include: { agent: { select: { userId: true, countryId: true } } },
     });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agent.userId === adminId) {
@@ -263,7 +269,7 @@ export async function approveAgentPaymentAccount(
     // Phase D §7 — a defense-in-depth re-check, not trusting that it still
     // holds just because it held at creation.
     const method = await tx.paymentMethodDefinition.findUnique({ where: { id: before.methodDefId } });
-    if (!method || !method.isActive || method.countryId !== before.countryId) {
+    if (!method || !method.isActive || method.countryId !== before.countryId || before.agent.countryId !== before.countryId) {
       throw ApiError.conflict('Payment method/country relationship is no longer valid — cannot approve');
     }
 
@@ -326,7 +332,7 @@ export async function rejectAgentPaymentAccount(
   return prisma.$transaction(async (tx) => {
     const before = await tx.agentPaymentAccount.findUnique({
       where: { id: accountId },
-      include: { agent: { select: { userId: true } } },
+      include: { agent: { select: { userId: true, countryId: true } } },
     });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agent.userId === adminId) {
@@ -474,6 +480,6 @@ export async function listPendingPaymentAccounts() {
   return prisma.agentPaymentAccount.findMany({
     where: { status: 'PENDING_APPROVAL' },
     orderBy: { createdAt: 'asc' },
-    include: { agent: { select: { id: true, displayName: true, countryId: true } } },
+    include: { agent: { select: { id: true, displayName: true, countryId: true } }, country: { select: { name: true, code: true } }, methodDef: { select: { name: true, type: true } } },
   });
 }

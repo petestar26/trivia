@@ -136,6 +136,7 @@ const paymentReview = {
   id: 'payment-account',
   updatedAt: reviewVersion,
   agent: { displayName: 'Fixture agent', countryId: 'et' },
+  countryId: 'et', methodDef: { name: 'Telebirr', type: 'MOBILE_PAYMENT' },
   accountDetails: { accountName: 'Fixture recipient', accountNumber: 'destination-a' },
 };
 function mockPaymentReviews(read: () => unknown[]) {
@@ -160,7 +161,7 @@ it.each(['approve', 'reject'] as const)(
     mount();
     const card = await openPaymentReview();
     const note = 'Verified receiving-account documentation';
-    fireEvent.change(screen.getByLabelText('Review / adjustment reason'), {
+    fireEvent.change(screen.getByLabelText('Review reason for Fixture agent'), {
       target: { value: note },
     });
     fireEvent.click(
@@ -257,7 +258,7 @@ it.each([
     mockPaymentReviews(() => [record]);
     mount();
     const card = await openPaymentReview();
-    fireEvent.change(screen.getByLabelText('Review / adjustment reason'), {
+    fireEvent.change(screen.getByLabelText('Review reason for Fixture agent'), {
       target: { value: 'A valid review reason' },
     });
     expect(card.getByRole('alert')).toHaveTextContent(
@@ -290,7 +291,7 @@ it('keeps agent-application review payloads unchanged without requiring a paymen
   const card = within(
     await screen.findByRole('article', { name: 'Agent application review application' })
   );
-  fireEvent.change(screen.getByLabelText('Review / adjustment reason'), {
+  fireEvent.change(screen.getByLabelText('Review reason for Fixture agent'), {
     target: { value: 'Application checked' },
   });
   fireEvent.click(card.getByRole('button', { name: 'Approve verified record' }));
@@ -300,4 +301,16 @@ it('keeps agent-application review payloads unchanged without requiring a paymen
     '/agents/applications/application/approve',
     { reviewNote: 'Application checked' },
   ]);
+});
+
+it('shows destination method and country and keeps funding notes out of rejections', async () => {
+  mockPaymentReviews(() => [paymentReview]);
+  m.post.mockResolvedValue({ success: true, data: {} });
+  mount();
+  const card = await openPaymentReview();
+  expect(card.getByText('Payment method: Telebirr')).toBeInTheDocument();
+  expect(card.getByText(/Country:.*Ethiopia/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Funding adjustment reason'), { target: { value: 'Internal funding reconciliation' } });
+  expect(card.getByRole('button', { name: 'Reject with reason' })).toBeDisabled();
+  expect(card.getByLabelText('Review reason for Fixture agent')).toHaveValue('');
 });

@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -68,7 +69,7 @@ async function createSuperAdmin(tag: string) {
 async function createCountry(tag: string) {
   const code = await nextTestCountryCode();
   return prisma.country.create({
-    data: { code, name: `W1D1 Route Country ${tag}`, currencyCode: 'USD', isActive: true, agentPaymentEnabled: true },
+    data: { code, name: `W1D1 Route Country ${tag}`, currencyCode: 'ETB', isActive: true, agentPaymentEnabled: true, usdPricingEnabled: true },
   });
 }
 
@@ -81,7 +82,7 @@ async function createFundedAgent(tag: string, countryId: string, admin: { id: st
   });
   await approveAgentApplication(admin.id, application.id, undefined);
   const agent = await prisma.agent.findUnique({ where: { userId: agentUser.id } });
-  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'USD', 500_000n, `fund-${tag}-${randomUUID()}`);
+  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'ETB', 500_000n, `fund-${tag}-${randomUUID()}`);
   return { agentUser, agent: agent! };
 }
 
@@ -110,9 +111,7 @@ async function createHeldWithdrawal(tag: string, coinAmount = 10_000) {
       isActive: true,
     },
   });
-  await prisma.exchangeRateConfig.create({
-    data: { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) },
-  });
+  await prisma.exchangeRateConfig.create({ data: { countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, isActive: true, setBy: admin.id, effectiveAt: new Date(Date.now() - 1000) , pricingPolicy: fixtureUsdPolicy(2)} });
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin);
   const user = await createFundedUser(tag, 50_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {

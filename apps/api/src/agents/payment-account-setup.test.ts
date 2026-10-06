@@ -106,7 +106,7 @@ describe('displayed receiving-account versions', () => {
 
   function useVersionedRow() {
     let row = { ...existing, status: 'PENDING_APPROVAL', reviewedBy: null as string | null, reviewedAt: null as Date | null };
-    m.agentPaymentAccount.findUnique.mockImplementation(async () => ({ ...row, agent: { userId: 'agent-user' } }));
+    m.agentPaymentAccount.findUnique.mockImplementation(async () => ({ ...row, agent: { userId: 'agent-user', countryId: 'et' } }));
     m.agentPaymentAccount.updateMany.mockImplementation(async ({ where, data }) => {
       const states: string[] = typeof where.status === 'string' ? [where.status] : where.status.in;
       if (where.id !== row.id || (where.agentId && where.agentId !== row.agentId) ||
@@ -168,7 +168,7 @@ describe('displayed receiving-account versions', () => {
   });
 
   it.each(['edit', 'approve', 'reject'] as const)('%s cannot succeed after a concurrent change during its transaction', async (mode) => {
-    m.agentPaymentAccount.findUnique.mockResolvedValue({ ...existing, status: 'PENDING_APPROVAL', agent: { userId: 'agent-user' } });
+    m.agentPaymentAccount.findUnique.mockResolvedValue({ ...existing, status: 'PENDING_APPROVAL', agent: { userId: 'agent-user', countryId: 'et' } });
     m.agentPaymentAccount.updateMany.mockResolvedValue({ count: 0 });
     const action = actions.find(([name]) => name === mode)![1];
     await expect(action(args.expectedUpdatedAt)).rejects.toMatchObject({ statusCode: 409 });
@@ -209,7 +209,7 @@ describe('displayed receiving-account versions', () => {
   it.each(['edit', 'approve', 'reject'] as const)('%s route forwards the displayed token and returns409 for a stale record', async (mode) => {
     m.agentPaymentAccount.findUnique.mockResolvedValue({
       ...existing, status: 'PENDING_APPROVAL', updatedAt: new Date(displayedAt.getTime() + 1),
-      agent: { userId: 'agent-user' },
+      agent: { userId: 'agent-user', countryId: 'et' },
     });
     const app = Fastify();
     app.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) =>

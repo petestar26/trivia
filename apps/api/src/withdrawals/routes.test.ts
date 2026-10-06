@@ -1,3 +1,4 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
@@ -81,9 +82,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `Withdrawal Route Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -101,16 +102,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: {
+  return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
       coinsPerUnit,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-    },
-  });
+      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function createFundedAgent(
@@ -128,7 +127,7 @@ async function createFundedAgent(
   });
   await approveAgentApplication(admin.id, application.id, undefined);
   const agent = await prisma.agent.findUnique({ where: { userId: agentUser.id } });
-  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'USD', liquidityUsd, `fund-${tag}-${randomUUID()}`);
+  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'ETB', liquidityUsd, `fund-${tag}-${randomUUID()}`);
   return agent!;
 }
 
@@ -255,7 +254,7 @@ async function setupHappyPath(tag: string, opts: { coins?: number; liquidityUsd?
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'USD', opts.coinsPerUnit ?? 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', opts.coinsPerUnit ?? 2, admin.id);
   const agent = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 100_000n);
   const user = await createFundedUser(tag, opts.coins ?? 10_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -298,7 +297,7 @@ describeIf('withdrawals/routes', () => {
     const admin = await createAdmin(tag);
     const user = await createUser(tag);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({
@@ -329,7 +328,7 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
     const quote = await createWithdrawalQuote(user.id, { countryId: country.id, coinAmount: 1000 });
     const { token } = await mintToken(user);
     const { token: otherToken } = await mintToken(otherUser);
@@ -577,7 +576,7 @@ describeIf('withdrawals/routes', () => {
     const user = await createUser(tag);
     const otherUser = await createUser(`${tag}-other`);
     const country = await createCountry(tag);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
     const { token } = await mintToken(user);
 
     const response = await server.inject({

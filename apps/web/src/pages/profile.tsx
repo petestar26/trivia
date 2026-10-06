@@ -1,3 +1,4 @@
+import { AuthenticatorSetup } from '@/components/security/authenticator-setup';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ export function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+      <AuthenticatorSetup key={user.id}/>
     </div>
   );
 }
