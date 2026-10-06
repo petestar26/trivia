@@ -74,7 +74,16 @@ it('auto cashout survives disconnect and restart; the cutoff tie loses', async (
   await service.enter(win.userId, win.roundId, 100, 101);
   await wait(win.starts.getTime() + 150);
   const restart = createCrashPointService(db);
-  await Promise.all([restart.tick(), service.tick()]);
+  const errors: unknown[] = [];
+  await Promise.all([
+    restart.tick((_id, e) => errors.push(e)),
+    service.tick((_id, e) => errors.push(e)),
+  ]);
+  expect(errors).toEqual([]);
+  const [timing] = await db.$queryRaw<
+    { ready: boolean }[]
+  >`SELECT clock_timestamp()>=starts_at+interval '100 milliseconds' AS ready FROM crash_point_rounds WHERE id=${win.roundId}`;
+  expect(timing.ready).toBe(true);
   expect(await balance(win.userId)).toBe(1001);
   const loss = await fixture(400, 101);
   await service.enter(loss.userId, loss.roundId, 100, 101);

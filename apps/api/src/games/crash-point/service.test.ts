@@ -78,6 +78,16 @@ it('restores disconnected auto cashout and a losing tie through snapshots', asyn
   const start = await fixture('automatic', 250, 300);
   await service.enter('automatic', 'automatic', 100, 101);
   await wait(start + 160);
+  const errors: unknown[] = [];
+  await service.tick((_id, e) => errors.push(e));
+  expect(errors).toEqual([]);
+  expect(
+    (
+      await pg.query<{ payout: number }>(
+        "SELECT payout FROM crash_point_tickets WHERE id IN (SELECT id FROM crash_point_tickets WHERE user_id='automatic')"
+      )
+    ).rows[0].payout
+  ).toBe(101);
   expect((await service.snapshot('automatic')).balance).toBe(1001);
   await service.tick();
   expect((await service.snapshot('automatic')).balance).toBe(1001);
