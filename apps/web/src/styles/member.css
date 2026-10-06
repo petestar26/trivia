@@ -979,3 +979,25 @@ html.qube-member .system-dice-page .system-dice-policy b {
 html.qube-member .system-dice-page .system-dice-eyebrow {
   color: #bea0d9 !important;
 }
+/* Legacy primary shade classes inherit the member brand, including auth CTAs. */
+html.qube-member .bg-primary-600 {
+  background: linear-gradient(110deg, #cba6f4, #b58add);
+  color: #271737;
+  box-shadow:
+    inset 0 1px #ffffff35,
+    0 4px 15px #9c60d01a;
+}
+html.qube-member .hover\:bg-primary-700:hover {
+  background: #d4b0f8;
+  color: #271737;
+}
+html.qube-member .text-primary-600,
+html.qube-member .dark\:text-primary-400 {
+  color: #cba9ee;
+}
+html.qube-member .dark\:bg-primary-900 {
+  background: #3b2853;
+}
+html.qube-member .border-primary-500 {
+  border-color: #b18ada;
+}
