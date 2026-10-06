@@ -49,7 +49,7 @@ async function round() {
 }
 
 async function buyer() {
-  const bought = await purchasedFixture(120);
+  const bought = await purchasedFixture(240);
   const method = await owner.paymentMethodDefinition.findFirstOrThrow({ where: {
     countryId: bought.country.id, type: 'BANK_TRANSFER', isActive: true,
   } });
