@@ -1,0 +1,897 @@
+/* Root-scoped member theme includes portal dialogs; removed for staff routes. */
+html.qube-member {
+  color-scheme: dark;
+  --background: 240 24% 6%;
+  --foreground: 235 30% 95%;
+  --card: 238 23% 11%;
+  --card-foreground: 235 30% 95%;
+  --popover: 238 23% 11%;
+  --popover-foreground: 235 30% 95%;
+  --primary: 260 90% 74%;
+  --primary-foreground: 240 25% 9%;
+  --secondary: 239 22% 16%;
+  --muted: 239 22% 16%;
+  --muted-foreground: 234 16% 70%;
+  --accent: 250 30% 20%;
+  --border: 238 21% 22%;
+  --input: 238 21% 22%;
+  --ring: 260 90% 74%;
+  --radius: 0.85rem;
+}
+.qube-member body {
+  background: #0c0c14;
+  color: #eeeef7;
+}
+.qube-shell {
+  background: radial-gradient(ellipse at 80% 0%, #23153950, transparent 45%), #0c0c14;
+}
+.qube-main {
+  max-width: 1640px;
+  margin-inline: auto;
+  min-width: 0;
+  padding-bottom: 3rem;
+}
+.qube-member :is(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid #bd9aff;
+  outline-offset: 4px;
+}
+.qube-sidebar {
+  background: linear-gradient(160deg, #171521, #101018 60%);
+  border-right: 1px solid #ffffff0c;
+  display: flex;
+  flex-direction: column;
+  color: #aaa8bd;
+}
+.qube-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 84px;
+  padding: 0 24px;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: #faf8ff;
+  flex-shrink: 0;
+}
+.qube-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 39px;
+  border-radius: 12px;
+  color: #e0c9ff;
+  background: linear-gradient(150deg, #a76cff, #493278);
+  box-shadow:
+    0 6px 22px #8a4fff35,
+    inset 0 1px 1px #ffffff70;
+}
+.qube-brand-dot {
+  color: #ba93fa;
+  margin-left: -7px;
+}
+.qube-navigation {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 18px 20px;
+  scrollbar-width: thin;
+}
+.qube-nav-section + .qube-nav-section {
+  margin-top: 22px;
+}
+.qube-nav-section > p {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.17em;
+  color: #858297;
+  font-weight: 700;
+  margin: 12px 13px 8px;
+}
+.qube-nav-link {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  margin-bottom: 3px;
+  transition:
+    background 0.18s,
+    color 0.18s;
+}
+.qube-nav-link:hover {
+  background: #ffffff06;
+  color: #fff;
+}
+.qube-nav-link.is-active {
+  color: #e3d0ff;
+  background: linear-gradient(90deg, #9b61ed28, #9b61ed0a);
+  border-color: #b785ff25;
+  box-shadow: inset 3px 0 #b589f5;
+}
+.qube-account {
+  border-top: 1px solid #ffffff0b;
+  padding: 18px 24px;
+}
+.qube-account-profile {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  font-size: 13px;
+  color: #efedf6;
+}
+.qube-account-profile small {
+  font-size: 11px;
+  color: #9894ad;
+  margin-top: 3px;
+}
+.qube-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #635075, #30243d);
+  border: 1px solid #b899d747;
+  color: #f2e5ff;
+  font-size: 13px;
+  font-weight: 700;
+}
+.qube-signout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+  font-size: 12px;
+}
+.qube-signout:hover {
+  color: #fff;
+}
+.qube-staff-link {
+  display: block;
+  padding: 12px;
+  font-size: 12px;
+  color: #d4baff;
+}
+.qube-header {
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 32px;
+  background: #0d0d17e8;
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid #ffffff09;
+}
+.qube-header-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #898599;
+}
+.qube-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 3px;
+  color: #edeaf6;
+}
+.qube-icon-button,
+.qube-wallet-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid #ffffff13;
+  border-radius: 11px;
+  background: #1b1926;
+  color: #d3c2eb;
+}
+.qube-wallet-link {
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.qube-home {
+  display: grid;
+  gap: 32px;
+}
+.qube-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  min-height: 390px;
+  overflow: hidden;
+  border: 1px solid #b688fc23;
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 80% 60%, #733abb35, transparent 60%),
+    linear-gradient(120deg, #252032, #14111f 65%);
+}
+.qube-hero:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.3;
+  background-image:
+    linear-gradient(#b49cd00a 1px, transparent 1px),
+    linear-gradient(90deg, #b49cd00a 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(90deg, transparent, #000);
+}
+.qube-hero-copy {
+  padding: 42px 0 36px 42px;
+  z-index: 2;
+}
+.qube-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  color: #be9aec;
+}
+.qube-hero h1 {
+  font-size: clamp(36px, 4.4vw, 64px);
+  line-height: 1.08;
+  letter-spacing: -0.055em;
+  font-weight: 800;
+  color: #faf5ff;
+  margin-top: 21px;
+}
+.qube-hero h1 span {
+  background: linear-gradient(90deg, #d7b7ff, #bda1e7 65%, #eed6ff);
+  color: transparent;
+  background-clip: text;
+}
+.qube-hero-description {
+  max-width: 390px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: #b3adbf;
+  margin-top: 20px;
+}
+.qube-primary-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 46px;
+  padding: 0 20px;
+  margin-top: 25px;
+  background: linear-gradient(110deg, #d8b6ff, #b78ce9);
+  box-shadow:
+    0 6px 24px #9b62db20,
+    inset 0 1px #fff6;
+  border: 1px solid #debfff;
+  border-radius: 10px;
+  color: #251239;
+  font-size: 12px;
+  font-weight: 800;
+  transition:
+    filter 0.2s,
+    transform 0.2s;
+}
+.qube-primary-link:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+}
+.qube-hero-note {
+  font-size: 10px;
+  color: #a89eb6;
+  margin-top: 14px;
+}
+.qube-hero-visual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.qube-hero-word {
+  position: absolute;
+  bottom: 28px;
+  font-size: 95px;
+  letter-spacing: 0.1em;
+  font-weight: 900;
+  color: #b280e407;
+  -webkit-text-stroke: 1px #ad7cea13;
+  z-index: -1;
+}
+.qube-hero-chip {
+  position: absolute;
+  bottom: 65px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #cabbdc;
+  background: #211a30d9;
+  border: 1px solid #b38eea30;
+  border-radius: 30px;
+  padding: 10px 15px;
+  font-size: 10px;
+  box-shadow: 0 8px 30px #0005;
+}
+.qube-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.qube-section-heading h2 {
+  font-size: 24px;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  color: #f3eefb;
+  margin-top: 7px;
+}
+.qube-section-heading > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #b6abc9;
+  font-size: 12px;
+}
+.qube-featured-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.qube-game-tile,
+.qube-catalog-card {
+  display: block;
+  border: 1px solid #ffffff12;
+  border-radius: 19px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #24202f, #16141f);
+  transition:
+    transform 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.qube-game-tile:hover,
+.qube-catalog-card.is-playable:hover {
+  transform: translateY(-4px);
+  border-color: #b68ae76b;
+  box-shadow: 0 16px 32px #0004;
+}
+.qube-game-tile-copy,
+.qube-catalog-copy {
+  padding: 0 22px 22px;
+  position: relative;
+}
+.qube-game-tile h3 {
+  font-size: 25px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  color: #f8f2ff;
+  margin-top: 10px;
+}
+.qube-game-tile p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #a9a0b6;
+  margin-top: 5px;
+}
+.qube-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #d3b6f6;
+  background: #b284de13;
+  border: 1px solid #b284de26;
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+.qube-tile-arrow {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ffffff1a;
+  background: #ffffff05;
+  border-radius: 50%;
+  color: #d5c5e6;
+}
+.qube-disclosure {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #9c93ad;
+  margin-top: 14px;
+}
+.qube-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.qube-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 23px 18px;
+  border: 1px solid #ffffff0e;
+  border-radius: 15px;
+  background: linear-gradient(110deg, #1e1b29, #15131d);
+  position: relative;
+}
+.qube-quick-card:hover {
+  border-color: #b68ae760;
+}
+.qube-quick-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  color: #c5a4ee;
+  background: #b087dc10;
+}
+.qube-quick-card h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e8e0f2;
+}
+.qube-quick-card p {
+  font-size: 11px;
+  color: #a49aaf;
+  line-height: 1.7;
+  margin-top: 5px;
+}
+.qube-quick-arrow {
+  display: none;
+}
+.qube-catalog-header {
+  background: radial-gradient(ellipse at top right, #7245a845, transparent 70%), #1b1726;
+  border: 1px solid #b688fc23;
+  border-radius: 24px;
+}
+.qube-catalog-copy {
+  padding-top: 8px;
+}
+.qube-catalog-card {
+  height: 100%;
+}
+.qube-catalog-card.is-unavailable {
+  opacity: 0.7;
+}
+/* Decorative artwork never represents a game outcome. */
+.qube-art {
+  height: 190px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  background: radial-gradient(ellipse at center, #8957c425, transparent 68%);
+}
+.qube-art-orbit {
+  position: absolute;
+  width: 210px;
+  height: 210px;
+  border: 1px solid #ad86e214;
+  border-radius: 50%;
+  transform: rotateX(50deg) rotateZ(-25deg);
+}
+.qube-art-platform {
+  position: absolute;
+  bottom: 20px;
+  width: 140px;
+  height: 28px;
+  border-radius: 50%;
+  background: #05020b;
+  filter: blur(12px);
+  z-index: -1;
+}
+.qube-dice-scene {
+  perspective: 600px;
+  width: 95px;
+  height: 95px;
+  transform: translateY(-6px);
+}
+.qube-die {
+  position: relative;
+  width: 95px;
+  height: 95px;
+  transform-style: preserve-3d;
+  transform: rotateX(-24deg) rotateY(-33deg) rotateZ(12deg);
+}
+.qube-die > div {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #f9eeffab;
+  border-radius: 15px;
+  box-shadow: inset 0 0 15px #ffffff35;
+  display: grid;
+  padding: 17px;
+  gap: 8px;
+}
+.qube-die-front {
+  transform: translateZ(47px);
+  background: linear-gradient(140deg, #eedbff, #a27bcc);
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+}
+.qube-die-front i:nth-child(2) {
+  grid-column: 3;
+}
+.qube-die-front i:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+}
+.qube-die-front i:nth-child(4) {
+  grid-column: 1;
+  grid-row: 3;
+}
+.qube-die-front i:nth-child(5) {
+  grid-column: 3;
+  grid-row: 3;
+}
+.qube-die-top {
+  transform: rotateX(90deg) translateZ(47px);
+  background: linear-gradient(140deg, #fff4ff, #c3a0e8);
+  grid-template-columns: repeat(3, 1fr);
+  align-items: center;
+}
+.qube-die-side {
+  transform: rotateY(90deg) translateZ(47px);
+  background: linear-gradient(135deg, #a882cc, #60437e);
+  grid-template-columns: repeat(2, 1fr);
+  align-items: center;
+  padding: 23px !important;
+}
+.qube-die i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #3c2356;
+  box-shadow:
+    inset 1px 2px 3px #09020f,
+    0 1px 1px #fff8;
+}
+.qube-wheel {
+  position: relative;
+  width: 133px;
+  height: 133px;
+  border-radius: 50%;
+  border: 7px solid #d6b36f;
+  background: repeating-conic-gradient(
+    #7653a6 0deg 29deg,
+    #deb674 30deg 59deg,
+    #302039 60deg 89deg
+  );
+  box-shadow:
+    0 9px 0 #665038,
+    0 14px 16px #0007,
+    inset 0 0 0 3px #f4d48e;
+  transform: perspective(500px) rotateX(20deg) rotateZ(-12deg);
+  display: grid;
+  place-items: center;
+}
+.qube-wheel:after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 2px dashed #f9e1b190;
+  border-radius: 50%;
+}
+.qube-wheel-hub {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(130deg, #fff0ba, #c49044);
+  border: 3px solid #ffe3a0;
+  color: #6a4925;
+  box-shadow: 0 4px 8px #0008;
+  z-index: 1;
+}
+.qube-wheel-pointer {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 22px solid #fff3cb;
+  filter: drop-shadow(0 3px 2px #0008);
+  z-index: 2;
+}
+.qube-balls {
+  position: relative;
+  width: 165px;
+  height: 130px;
+}
+.qube-balls span {
+  position: absolute;
+  width: 83px;
+  height: 83px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: -2px;
+  color: #ece9ff;
+  background: radial-gradient(circle at 30% 23%, #d8b7ff, #885ec4 45%, #2a1744 90%);
+  box-shadow:
+    inset -8px -10px 20px #140b2880,
+    0 14px 18px #0006;
+}
+.qube-balls span:after {
+  content: '';
+  position: absolute;
+  inset: 16px;
+  border-radius: 50%;
+  border: 1px solid #f2ddff4d;
+}
+.qube-balls span:nth-child(1) {
+  left: 7px;
+  top: 4px;
+  transform: rotate(-18deg);
+}
+.qube-balls span:nth-child(2) {
+  right: 0;
+  top: 35px;
+  background: radial-gradient(circle at 30% 23%, #fff3c0, #cca864 45%, #543716 90%);
+  color: #4c311b;
+  transform: rotate(17deg);
+}
+.qube-balls span:nth-child(3) {
+  left: 17px;
+  bottom: -3px;
+  width: 68px;
+  height: 68px;
+  font-size: 24px;
+  background: radial-gradient(circle at 30% 23%, #9eeadf, #328c91 45%, #123a42 90%);
+  transform: rotate(-10deg);
+}
+.qube-art-symbol {
+  color: #c0a0ed;
+  padding: 25px;
+  border-radius: 25px;
+  background: linear-gradient(130deg, #594577, #292034);
+  border: 1px solid #d3baf252;
+  transform: rotate(-12deg);
+  box-shadow:
+    8px 12px 0 #100c18,
+    0 18px 24px #0006;
+}
+.qube-art--hero {
+  width: 100%;
+  height: 310px;
+  overflow: visible;
+  background: none;
+}
+.qube-art--hero .qube-dice-scene {
+  transform: scale(1.65) rotate(-9deg) translateY(-6px);
+}
+.qube-art--hero .qube-art-orbit {
+  width: 320px;
+  height: 320px;
+  box-shadow:
+    0 0 0 35px #9a64ca05,
+    0 0 0 70px #9a64ca03;
+}
+.qube-art--hero .qube-art-platform {
+  width: 210px;
+  height: 38px;
+  bottom: 40px;
+}
+/* Preserve status colors while harmonizing existing dark member surfaces. */
+.qube-member .dark\:bg-gray-800,
+.qube-member .dark\:bg-slate-800 {
+  background-color: #1b1927;
+}
+.qube-member .dark\:bg-gray-900,
+.qube-member .dark\:bg-slate-900 {
+  background-color: #13111d;
+}
+.qube-member .dark\:border-gray-700,
+.qube-member .dark\:border-slate-700 {
+  border-color: #353043;
+}
+.qube-member .payment-panel {
+  background: #1b1927;
+  border-color: #353043;
+  box-shadow: 0 10px 30px #0001;
+}
+.qube-member .payment-eyebrow {
+  color: #c2a1ed;
+}
+.qube-member .payment-tabs {
+  border-color: #353043;
+}
+.qube-member .payment-tabs a.active {
+  background: #a477d32b;
+  color: #e2c5ff;
+}
+@media (min-width: 1024px) {
+  .qube-header .qube-icon-button {
+    display: none;
+  }
+}
+@media (max-width: 1200px) {
+  .qube-hero-copy {
+    padding-left: 28px;
+  }
+  .qube-quick-grid {
+    grid-template-columns: 1fr;
+  }
+  .qube-quick-card {
+    padding: 17px 20px;
+  }
+  .qube-quick-arrow {
+    display: block;
+    margin-left: auto;
+    color: #b69bce;
+  }
+}
+@media (max-width: 640px) {
+  .qube-header {
+    height: 72px;
+    padding: 0 16px;
+  }
+  .qube-header-title {
+    font-size: 12px;
+  }
+  .qube-header-eyebrow {
+    font-size: 8px;
+  }
+  .qube-wallet-link {
+    padding: 0 10px;
+  }
+  .qube-hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .qube-hero-copy {
+    padding: 28px 24px 0;
+  }
+  .qube-hero h1 {
+    font-size: 43px;
+  }
+  .qube-hero-description {
+    font-size: 12px;
+  }
+  .qube-hero-visual {
+    height: 230px;
+  }
+  .qube-art--hero {
+    height: 210px;
+  }
+  .qube-art--hero .qube-dice-scene {
+    transform: scale(1.1) rotate(-9deg) translateY(-5px);
+  }
+  .qube-art--hero .qube-art-orbit {
+    width: 230px;
+    height: 230px;
+  }
+  .qube-hero-chip {
+    bottom: 20px;
+  }
+  .qube-hero-word {
+    font-size: 66px;
+    bottom: 10px;
+  }
+  .qube-featured-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .qube-game-tile {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    align-items: center;
+  }
+  .qube-game-tile .qube-art {
+    height: 160px;
+    transform: scale(0.85);
+  }
+  .qube-game-tile-copy {
+    padding: 20px 16px 20px 0;
+  }
+  .qube-game-tile h3 {
+    font-size: 23px;
+  }
+  .qube-game-tile p {
+    font-size: 10px;
+  }
+  .qube-section-heading h2 {
+    font-size: 22px;
+  }
+  .qube-home {
+    gap: 26px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qube-member *,
+  .qube-member *:before,
+  .qube-member *:after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .qube-game-tile:hover,
+  .qube-catalog-card.is-playable:hover,
+  .qube-primary-link:hover {
+    transform: none;
+  }
+}
+/* Table chrome uses the lounge palette; result, hit and selected states stay distinct. */
+.qube-member .system-dice-stage,
+.qube-member .system-dice-history article {
+  border-color: #393047;
+  background: #1b1725;
+}
+.qube-member .system-dice-header,
+.qube-member .system-dice-footer {
+  background: #1c1828;
+}
+.qube-member .system-dice-ticket {
+  background: #211b2e;
+}
+.qube-member .system-dice-input {
+  background: #15101f;
+  border-color: #625073;
+}
+.qube-member .system-dice-policy {
+  background: #251e31;
+  border-color: #3b314b;
+}
+.qube-member .system-dice-header h1 span,
+.qube-member .system-dice-nav a {
+  color: #c7a5f0;
+}
+.qube-member .system-dice-header p,
+.qube-member .system-dice-ticket dt,
+.qube-member .system-dice-footer p {
+  color: #afa4bd;
+}
+.qube-member .system-dice-footer strong {
+  color: #d0bfdc;
+}
+.qube-member .system-dice-presets button {
+  border-color: #51445e;
+  color: #d1bddf;
+}
+.qube-member .system-dice-presets button:hover:not(:disabled) {
+  background: #352842;
+}
+.qube-member .system-dice-confirm {
+  background: linear-gradient(110deg, #cda5f5, #b58ada);
+  color: #261531;
+}
+.qube-member .system-dice-confirm:hover:not(:disabled) {
+  background: #dbb8ff;
+}
+.qube-member .system-dice-table {
+  background: radial-gradient(ellipse at 50% 40%, #3c2b50, #21182f 70%);
+}
+.qube-member .keno-stage {
+  border-color: #4c3459;
+  background: radial-gradient(ellipse at 50% 0%, #58324e, #24192f 65%);
+  box-shadow: 0 20px 50px #0003;
+}
+.qube-member .keno-controls,
+.qube-member .keno-stake-panel {
+  background: #1a1225;
+  border-color: #69507166;
+}
+.qube-member .keno-stake-row input {
+  background: #251832;
+}
