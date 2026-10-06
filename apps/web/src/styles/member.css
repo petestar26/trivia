@@ -1001,3 +1001,9 @@ html.qube-member .dark\:bg-primary-900 {
 html.qube-member .border-primary-500 {
   border-color: #b18ada;
 }
+html.qube-member .keno-navigation a {
+  color: #c7a5f0;
+}
+html.qube-member .keno-navigation a:hover {
+  color: #e4ceff;
+}
