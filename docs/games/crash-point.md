@@ -51,4 +51,4 @@ Migration `20261006210000_crash_point_dual_tickets` preserves existing tickets i
 
 Each panel can explicitly start up to ten future entries using a fixed stake and automatic cash-out target. Autoplay exists only in the active page, never survives refresh, and stops on hidden tab, stale/disconnected data, storage failure, rejected/interrupted admission, or insufficient balance. Stop prevents future entries; it does not cancel an already sent request or accepted ticket. Each pending admission has a separate per-slot saved receipt and retains idempotent retry. No progression, loss-chasing, or unlimited autoplay is provided. The separate server auto cash-out on confirmed tickets survives disconnects.
 
-Follow-up migration `20261006210100_crash_point_slot_guard_path` pins the new slot trigger to `pg_catalog, pg_temp`, satisfying the platform trigger-hardening invariant.
+Follow-up migrations pin the slot trigger search path. `20261006210200_crash_point_invoker_guard_path` sets `public, pg_temp`, the platform invariant required for this invoker trigger; it does not run as an owner or on a cascading foreign-key action. Earlier applied migrations are preserved.
