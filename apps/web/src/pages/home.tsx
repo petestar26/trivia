@@ -95,7 +95,7 @@ export function HomePage() {
       <div className="ruby-welcome-strip">
         <div>
           <span className="ruby-status-dot" /> A new round every minute{' '}
-          <small>Spin · Keno · Dice practice</small>
+          <small>Spin · Keno · Dice · Crash Point practice</small>
         </div>
         <Link to="/wallet">
           <Wallet size={18} />

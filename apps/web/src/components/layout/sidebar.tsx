@@ -47,7 +47,7 @@ const sections = [
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
-  const casinoTable = ['/games/dice', '/games/turbo-keno', '/games/spin-win'].some(
+  const casinoTable = ['/games/crash-point', '/games/dice', '/games/turbo-keno', '/games/spin-win'].some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
   );
   return (

@@ -69,7 +69,7 @@ export function createCrashPointService(db: PrismaClient) {
       ${r.starts_at}::timestamptz+ceil(10000*ln(${r.crash_cents}::double precision/100))*interval '1 millisecond' AS crashed,
       ${r.starts_at}::timestamptz+ceil(10000*ln(${t.auto_cents}::double precision/100))*interval '1 millisecond' AS auto)
     SELECT CASE WHEN ${t.auto_cents}<${r.crash_cents} AND now>=auto THEN ${t.auto_cents}
-      WHEN now>=crashed THEN 0 ELSE least(2000,floor(100*exp(extract(epoch FROM now-${r.starts_at}::timestamptz)*1000/10000))::integer) END AS paid,
+      WHEN now>=crashed THEN 0 ELSE least(2000,floor(100*exp(extract(epoch FROM now-${r.starts_at}::timestamptz)*1000/10000))::integer) END::integer AS paid,
      CASE WHEN ${t.auto_cents}<${r.crash_cents} AND now>=auto THEN auto WHEN now>=crashed THEN crashed ELSE now END AS at,
      ((${t.auto_cents}<${r.crash_cents} AND now>=auto) OR now>=crashed OR (${manual} AND now>=${r.starts_at})) AS ready FROM timing`;
       if (!decision.ready) {

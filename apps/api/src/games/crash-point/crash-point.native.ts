@@ -85,6 +85,7 @@ it('auto cashout survives disconnect and restart; the cutoff tie loses', async (
   >`SELECT clock_timestamp()>=starts_at+interval '100 milliseconds' AS ready FROM crash_point_rounds WHERE id=${win.roundId}`;
   expect(timing.ready).toBe(true);
   expect(await balance(win.userId)).toBe(1001);
+  expect(await restart.cashout(win.userId, win.roundId)).toEqual({ payout: 101, paidCents: 101 });
   const loss = await fixture(400, 101);
   await service.enter(loss.userId, loss.roundId, 100, 101);
   await wait(loss.starts.getTime() + 160);

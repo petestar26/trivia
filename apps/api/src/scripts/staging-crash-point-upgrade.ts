@@ -92,7 +92,9 @@ async function run() {
     await db.$disconnect();
   }
 }
-run().catch(() => {
-  console.error('Crash Point staging upgrade refused or failed. Inspect owner migration state.');
+run().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : '';
+  const reason = /^[A-Z_]{1,64}$/.test(message) ? message : 'OPERATION_FAILED';
+  console.error(JSON.stringify({ event: 'CRASH_POINT_STAGING_REFUSED', reason }));
   process.exitCode = 1;
 });
