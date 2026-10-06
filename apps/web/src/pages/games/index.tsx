@@ -6,34 +6,16 @@ import { useAuth } from '@/providers/auth-provider';
 import { requestStatus } from '@/lib/request-error';
 import { useLocation } from 'react-router-dom';
 
-interface GameCatalogItem {
-  id: string;
-  key: string;
-  name: string;
-  description: string | null;
-  type: string;
-  mode: string;
-  family: string;
-  catalogStatus: string;
-  wagerCurrency: string | null;
-  rewardCurrency: string;
-  currentRulesVersion: number | null;
-  minBet: number;
-  maxBet: number;
-  isActive: boolean;
-}
+import {
+  memberGameDestination,
+  PRACTICE_ROUTES,
+  type MemberGame as GameCatalogItem,
+} from '@/lib/member-game-catalog';
 
 interface WalletData {
   coinsBalance: number;
   gamePointsBalance: number;
 }
-
-const GAME_ROUTES: Record<string, string> = {
-  dice: 'dice',
-  number_challenge: 'number-challenge',
-  spin_win: 'spin-win/play',
-  trivia: 'trivia',
-};
 
 interface GamesPageProps {
   mode?: 'WAGER' | 'BONUS';
@@ -118,11 +100,7 @@ export function GamesPage({
       </div>
     );
 
-  const practiceRoutes: Record<string, string> = {
-    dice: '/games/dice',
-    spin_win: '/games/spin-win',
-    turbo_keno: '/games/turbo-keno',
-  };
+  const practiceRoutes = PRACTICE_ROUTES;
   const publicGames = (games ?? [])
     .filter((g) => g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode))
     .sort((a, b) => Number(!!practiceRoutes[b.key]) - Number(!!practiceRoutes[a.key]));
@@ -173,9 +151,8 @@ export function GamesPage({
         {publicGames.map((game) => {
           const practice = practiceRoutes[game.key];
           const isComingSoon = game.catalogStatus === 'COMING_SOON';
-          const isPlayable =
-            !!practice ||
-            (game.isActive && game.catalogStatus === 'AVAILABLE' && GAME_ROUTES[game.key]);
+          const destination = memberGameDestination(game);
+          const isPlayable = !!destination;
           const isTrivia = game.key === 'trivia';
 
           const cardContent = (
@@ -219,7 +196,7 @@ export function GamesPage({
 
           if (isPlayable) {
             return (
-              <Link key={game.id} to={practice ?? `/games/${GAME_ROUTES[game.key]}`}>
+              <Link key={game.id} to={destination!}>
                 {cardContent}
               </Link>
             );

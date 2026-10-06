@@ -1,51 +1,48 @@
-import { Brain, Sparkles } from 'lucide-react';
+import {
+  Brain,
+  Gem,
+  Flame,
+  Flag,
+  Zap,
+  Orbit,
+  Compass,
+  Mountain,
+  Trophy,
+  Dog,
+  Hash,
+} from 'lucide-react';
 
-/** Decorative only: these illustrations never represent a live game outcome. */
+const images: Record<string, string> = { spin_win: 'spin', turbo_keno: 'keno', dice: 'dice' };
+const symbols: Record<string, typeof Brain> = {
+  trivia: Brain,
+  number_challenge: Hash,
+  thunder_derby_3d: Trophy,
+  neon_hounds_3d: Dog,
+  turbo_circuit_3d: Flag,
+  starfall_nebula: Orbit,
+  jungle_dash_3d: Mountain,
+  crystal_trail: Gem,
+  heat_vault: Flame,
+  strait_rush: Compass,
+};
+/** Decorative artwork only, never a live result or a promise that an upcoming game is ready. */
 export function GameArtwork({ kind, hero = false }: { kind: string; hero?: boolean }) {
-  return (
+  const asset = images[kind];
+  const Symbol = symbols[kind] || Zap;
+  return asset ? (
     <div
-      className={`qube-art qube-art--${kind} ${hero ? 'qube-art--hero' : ''}`}
+      className={`ruby-art ruby-art--${kind} ${hero ? 'ruby-art--hero' : ''}`}
       aria-hidden="true"
     >
-      <div className="qube-art-orbit" />
-      {kind === 'dice' ? (
-        <div className="qube-dice-scene">
-          <div className="qube-die">
-            <div className="qube-die-front">
-              {[0, 1, 2, 3, 4].map((n) => (
-                <i key={n} />
-              ))}
-            </div>
-            <div className="qube-die-top">
-              <i />
-              <i />
-              <i />
-            </div>
-            <div className="qube-die-side">
-              <i />
-              <i />
-            </div>
-          </div>
-        </div>
-      ) : kind === 'spin_win' ? (
-        <div className="qube-wheel">
-          <div className="qube-wheel-hub">
-            <Sparkles size={28} />
-          </div>
-          <i className="qube-wheel-pointer" />
-        </div>
-      ) : kind === 'turbo_keno' ? (
-        <div className="qube-balls">
-          <span>08</span>
-          <span>24</span>
-          <span>36</span>
-        </div>
-      ) : (
-        <div className="qube-art-symbol">
-          <Brain size={70} strokeWidth={1.3} />
-        </div>
-      )}
-      <div className="qube-art-platform" />
+      <img src={`/art/ruby-grand/${asset}.webp`} alt="" loading="lazy" decoding="async" />
+    </div>
+  ) : (
+    <div className={`ruby-art ruby-art--sculpture ruby-art--${kind}`} aria-hidden="true">
+      <div className="ruby-sculpture-orbit" />
+      <div className="ruby-sculpture">
+        <Symbol size={72} strokeWidth={1.05} />
+      </div>
+      <div className="ruby-sculpture-plinth" />
     </div>
   );
 }
