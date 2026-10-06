@@ -1386,3 +1386,10 @@ html.qube-member .system-dice-page .system-dice-confirm:hover:not(:disabled) {
 .ruby-shelf:is(:hover, :focus-within, .is-motion-paused) .ruby-sculpture {
   animation-play-state: paused;
 }
+/* Carousel contents must not set the outer dashboard grid's intrinsic width. */
+.ruby-home {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ruby-home > * {
+  min-width: 0;
+}

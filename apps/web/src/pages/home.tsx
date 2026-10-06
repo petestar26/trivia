@@ -143,7 +143,9 @@ export function HomePage() {
                       {PRACTICE_ROUTES[game.key]
                         ? 'One-minute rounds · practice credits only.'
                         : to
-                          ? 'Test your knowledge. Play for free.'
+                          ? game.mode === 'BONUS'
+                            ? 'Test your knowledge. Play for free.'
+                            : 'Explore the game and its published rules.'
                           : 'A new experience is on its way.'}
                     </p>
                     <span className="ruby-game-action">

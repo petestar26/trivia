@@ -22,6 +22,6 @@ export function memberGameDestination(game: MemberGame): string | undefined {
 
 export function memberGameLabel(game: MemberGame) {
   if (PRACTICE_ROUTES[game.key]) return 'Free practice';
-  if (memberGameDestination(game)) return 'Free game';
+  if (memberGameDestination(game)) return game.mode === 'BONUS' ? 'Free game' : 'Available';
   return game.catalogStatus === 'COMING_SOON' ? 'Coming soon' : 'Unavailable';
 }
