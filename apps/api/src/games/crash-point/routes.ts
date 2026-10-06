@@ -16,6 +16,11 @@ export async function crashPointRoutes(server: FastifyInstance) {
     { config: { rateLimit: { max: 150, timeWindow: '1 minute' } } },
     async (request) => ({ success: true, data: await service.snapshot(request.user.sub) })
   );
+  server.get(
+    '/leaderboard',
+    { config: { rateLimit: { max: 15, timeWindow: '1 minute' } } },
+    async (request) => ({ success: true, data: await service.leaderboard(request.user.sub) })
+  );
   const roundId = { type: 'string', minLength: 1, maxLength: 64 };
   server.get<{ Querystring: { roundId: string } }>(
     '/activity',
@@ -35,7 +40,9 @@ export async function crashPointRoutes(server: FastifyInstance) {
       data: await service.activity(request.user.sub, request.query.roundId),
     })
   );
-  server.post<{ Body: { roundId: string; stake: number; autoCents: number | null } }>(
+  server.post<{
+    Body: { roundId: string; stake: number; autoCents: number | null; slot?: number };
+  }>(
     '/tickets',
     {
       config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
@@ -46,6 +53,7 @@ export async function crashPointRoutes(server: FastifyInstance) {
           required: ['roundId', 'stake', 'autoCents'],
           properties: {
             roundId,
+            slot: { type: 'integer', minimum: 1, maximum: 2 },
             stake: { type: 'integer', minimum: 10, maximum: 500 },
             autoCents: {
               anyOf: [{ type: 'null' }, { type: 'integer', minimum: 101, maximum: 2000 }],
@@ -60,11 +68,12 @@ export async function crashPointRoutes(server: FastifyInstance) {
         request.user.sub,
         request.body.roundId,
         request.body.stake,
-        request.body.autoCents
+        request.body.autoCents,
+        request.body.slot ?? 1
       ),
     })
   );
-  server.post<{ Body: { roundId: string } }>(
+  server.post<{ Body: { roundId: string; slot?: number } }>(
     '/cashout',
     {
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
@@ -73,13 +82,13 @@ export async function crashPointRoutes(server: FastifyInstance) {
           type: 'object',
           additionalProperties: false,
           required: ['roundId'],
-          properties: { roundId },
+          properties: { roundId, slot: { type: 'integer', minimum: 1, maximum: 2 } },
         },
       },
     },
     async (request) => ({
       success: true,
-      data: await service.cashout(request.user.sub, request.body.roundId),
+      data: await service.cashout(request.user.sub, request.body.roundId, request.body.slot ?? 1),
     })
   );
 }

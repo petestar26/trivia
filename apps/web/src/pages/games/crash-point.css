@@ -952,3 +952,46 @@
   overflow-wrap: anywhere;
   max-width: 95px;
 }
+.crash-dual-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.crash-dual-controls .crash-bet-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.crash-dual-controls .crash-submit-field {
+  grid-column: 1/-1;
+  padding-top: 0;
+}
+.crash-dual-controls .crash-summary {
+  grid-template-columns: 1fr 1fr;
+}
+.crash-dual-controls .crash-input {
+  padding: 0 9px;
+}
+.crash-dual-controls .crash-action {
+  min-height: 62px;
+}
+.crash-autoplay-controls {
+  margin-top: 16px;
+}
+.crash-autoplay-controls button {
+  width: 100%;
+  border: 1px solid #a76b7c;
+  border-radius: 8px;
+  padding: 10px;
+  color: #efd0b4;
+  font-size: 11px;
+}
+.crash-autoplay-controls p {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--dim);
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .crash-dual-controls {
+    grid-template-columns: 1fr;
+  }
+}

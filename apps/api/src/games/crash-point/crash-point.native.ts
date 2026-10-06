@@ -130,3 +130,19 @@ it('database guards prevent fake credits and changed results', async () => {
     db.$executeRaw`UPDATE crash_point_rounds SET crash_cents=2000 WHERE id=${f.roundId}`
   ).rejects.toThrow();
 });
+it('concurrent dual-slot entry and settlement debit and credit each slot exactly once', async () => {
+  const f = await fixture(2000);
+  const entries = await Promise.all(
+    [1, 2, 1, 2].map((slot) =>
+      service.enter(f.userId, f.roundId, 100, slot === 1 ? 101 : 102, slot)
+    )
+  );
+  expect(entries.filter((e) => !e.isReplay)).toHaveLength(2);
+  expect(await balance(f.userId)).toBe(800);
+  await wait(f.starts.getTime() + 250);
+  const payouts = await Promise.all(
+    [1, 2, 1, 2].map((slot) => service.cashout(f.userId, f.roundId, slot))
+  );
+  expect(payouts.map((p) => p?.payout)).toEqual([101, 102, 101, 102]);
+  expect(await balance(f.userId)).toBe(1003);
+});

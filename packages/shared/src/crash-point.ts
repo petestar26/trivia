@@ -36,6 +36,13 @@ export interface CrashPointRound {
   commitment: string;
   crashCents: number | null;
   seed: string | null;
+  tickets?: Array<{
+    slot: number;
+    stake: number;
+    autoCents: number | null;
+    payout: number | null;
+    paidCents: number | null;
+  }>;
   ticket: {
     stake: number;
     autoCents: number | null;
@@ -45,6 +52,7 @@ export interface CrashPointRound {
 }
 export interface CrashPointSnapshot {
   rulesId: string;
+  maxTickets?: number;
   serverTime: number;
   balance: number;
   rounds: CrashPointRound[];
@@ -59,5 +67,16 @@ export interface CrashPointActivity {
     stake: number;
     payout: number | null;
     paidCents: number | null;
+  }>;
+}
+
+export interface CrashPointLeaderboard {
+  period: '24h';
+  tickets: Array<{
+    player: string;
+    roundId: string;
+    stake: number;
+    payout: number;
+    paidCents: number;
   }>;
 }

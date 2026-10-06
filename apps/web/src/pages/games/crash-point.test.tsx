@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -47,9 +47,11 @@ beforeEach(() => {
   };
   get.mockImplementation(async (path: string, params?: { roundId: string }) => ({
     success: true,
-    data: path.endsWith('/activity')
-      ? { roundId: params?.roundId, totalTickets: 0, tickets: [] }
-      : snapshot,
+    data: path.endsWith('/leaderboard')
+      ? { period: '24h', tickets: [] }
+      : path.endsWith('/activity')
+        ? { roundId: params?.roundId, totalTickets: 0, tickets: [] }
+        : snapshot,
   }));
   post.mockResolvedValue({ success: true, data: { accepted: true } });
 });
@@ -137,9 +139,9 @@ it('shows personal returns and distinguishes pending receipts in the history vie
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   expect(screen.getAllByText('Pending')).toHaveLength(2);
   expect(screen.getByRole('table')).toHaveTextContent('50');
-  fireEvent.click(screen.getByRole('button', { name: 'My top returns' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Top · 24h' }));
   expect(screen.queryByText('Pending')).toBeNull();
-  expect(screen.getByRole('table')).toHaveTextContent('2.00×');
+  await screen.findByText('No confirmed returns in the last 24 hours.');
   expect(post).not.toHaveBeenCalled();
 });
 it('does not describe a settled ticket as locked', async () => {
@@ -174,4 +176,78 @@ it('switches the public feed to the previous round without submitting a ticket',
   );
   expect(screen.getByRole('button', { name: 'Back to current' })).toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();
+});
+it('submits and cashes out the second slot independently', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.click(within(panel).getByRole('button', { name: /Confirm ticket/ }));
+  await waitFor(() =>
+    expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', stake: 25, autoCents: 200, slot: 2 })
+  );
+});
+it('autoplay stops future admission when stopped, retaining the submitted ticket', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  fireEvent.click(within(panel).getByRole('button', { name: /Stop autoplay/ }));
+  expect(within(panel).getByText(/Autoplay stopped/)).toBeInTheDocument();
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', stake: 25, autoCents: 200 });
+});
+it('autoplay admits at most ten distinct rounds and never repeats the current round', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  for (let i = 1; i <= 10; i++) {
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(i));
+    if (i < 10)
+      await act(async () => {
+        snapshot = { ...snapshot, rounds: [{ ...snapshot.rounds[0], id: `auto-${i + 1}` }] };
+        client.setQueryData(['crash-point', 'u1'], {
+          snapshot,
+          sent: performance.now(),
+          received: performance.now(),
+        });
+      });
+  }
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  expect(new Set(post.mock.calls.map((c) => c[1].roundId)).size).toBe(10);
+});
+it('stops autoplay on admission errors and preserves the exact retry payload', async () => {
+  snapshot.maxTickets = 2;
+  post.mockRejectedValue(new Error('Network interrupted'));
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await within(panel).findByRole('button', { name: 'Retry saved ticket' });
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  expect(readCrashReceipt('u1', 2)).toEqual({ roundId: 'r1', stake: 25, autoCents: 200, slot: 2 });
+});
+it('stops autoplay when the tab is hidden without cancelling confirmed bets', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  fireEvent(document, new Event('visibilitychange'));
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  visibility.mockRestore();
+  expect(post).toHaveBeenCalledTimes(1);
+});
+it('sends the slot when manually cashing out the second ticket', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].tickets = [
+    { slot: 2, stake: 25, autoCents: null, payout: null, paidCents: null },
+  ];
+  post.mockResolvedValue({ success: true, data: { payout: 27, paidCents: 110 } });
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: /Cash out/ }));
+  await waitFor(() => expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', slot: 2 }));
 });

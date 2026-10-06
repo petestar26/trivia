@@ -8,7 +8,7 @@ Practice only. Dedicated 1,000-credit accounts have no relationship to Coins, Ga
 
 ## Rules and outcome
 
-An epoch-minute round opens for 15 seconds, then its multiplier grows as exp(elapsedMs / 10000). One ticket per player/round, integer stakes 10–500. Optional auto target is an integer hundredth multiplier from 101 to 2000, persisted with admission. Amounts and targets cannot change afterward.
+An epoch-minute round opens for 15 seconds, then its multiplier grows as exp(elapsedMs / 10000). Up to two tickets per player/round, independently keyed by immutable slot 1 or 2, integer stakes 10–500. Optional auto target is an integer hundredth multiplier from 101 to 2000, persisted with admission. Amounts and targets cannot change afterward.
 
 The server uses a random 32-byte seed. SHA-256(seed + ':' + counter) is rejection-sampled from its first unsigned big-endian 32-bit word, accepting values below 4,000,000,000 and mapping modulo 1,000,000,000 plus one. Crash cents are clamp(ceil(90,000,000,000 / draw), 100, 2001). For a fixed allowed auto target c, survival probability is floor(90,000,000,000 / c) / 1,000,000,000, up to the vanishingly small exact-divisibility boundary; gross expected return is approximately 90% before credit rounding. An outcome equal to the target loses. Individual returns are floor(stake * paidCents / 100); small stakes have a larger rounding effect.
 
@@ -18,7 +18,7 @@ Manual acceptance uses database processing time after round, ticket and wallet l
 
 ## Persistence and integrity
 
-Round seed/outcome/commitment are immutable. Ticket uniqueness, immutable fields, exact payout checks, cutoff checks and deferred account-vs-ticket balance constraints run in PostgreSQL. One transaction transitions the ticket and credits its practice account. Retry returns the saved receipt. Tick and snapshot recovery settle pending tickets from the original round, never rerolling. Snapshot reads lock the account while reading the wallet and receipts. Pending browser entry receipts preserve the exact admission payload through interrupted requests.
+Round seed/outcome/commitment are immutable. Ticket uniqueness per round/user/slot, immutable fields, exact payout checks, cutoff checks and deferred account-vs-ticket balance constraints run in PostgreSQL. One transaction transitions the ticket and credits its practice account. Retry returns the saved receipt. Tick and snapshot recovery settle pending tickets from the original round, never rerolling. Snapshot reads lock the account while reading the wallet and receipts. Pending browser entry receipts preserve the exact admission payload through interrupted requests.
 
 The public snapshot reveals neither seed nor crash point until database time reaches the crash. Commitment is SHA-256(roundId + ':' + seed). The browser verifies commitment and recomputed crash result after reveal. This is a seed-commitment check, not independent entropy certification or protection against a malicious operator who chose a seed before commitment.
 
@@ -42,4 +42,11 @@ PGlite tests execute the actual service SQL and PostgreSQL triggers but serializ
 
 ## Public practice activity
 
-The authenticated, feature-gated `/games/crash-point/activity?roundId=...` endpoint returns up to 100 ticket receipts and an exact total from the same SQL statement snapshot. It requires an active account and an already-open round. Only stake, settled payout, and settled multiplier are selected; pending payouts remain null. Round-specific pseudonyms are derived from random ticket IDs; account IDs, names, auto targets, seeds, and crash points are not returned. The UI refreshes every three seconds, supports current/previous round selection, and reports empty/loading/error states without invented players. This is a practice activity feed, not a global leaderboard or dual-ticket/autoplay release.
+The authenticated, feature-gated `/games/crash-point/activity?roundId=...` endpoint returns up to 100 ticket receipts and an exact total from the same SQL statement snapshot. It requires an active account and an already-open round. Only stake, settled payout, and settled multiplier are selected; pending payouts remain null. Round-specific pseudonyms are derived from random ticket IDs; account IDs, names, auto targets, seeds, and crash points are not returned. The UI refreshes every three seconds, supports current/previous round selection, and reports empty/loading/error states without invented players. The public leaderboard lists the 50 highest confirmed ticket returns from the last 24 hours, with the same anonymous labels. Returns include stake; it is not net profit or a prediction.
+
+
+## Dual tickets and bounded autoplay
+
+Migration `20261006210000_crash_point_dual_tickets` preserves existing tickets in slot 1 and changes uniqueness to round/user/slot. Slot is constrained to 1 or 2 and immutable; all existing payout, cutoff, and account reconciliation guards remain. Missing API slot defaults to 1 for old clients. Snapshots retain legacy `ticket` for slot 1 and expose `tickets` plus `maxTickets: 2` for new clients. Deploy the upgraded worker after migration and before enabling the new API/UI to ensure both slots settle unattended.
+
+Each panel can explicitly start up to ten future entries using a fixed stake and automatic cash-out target. Autoplay exists only in the active page, never survives refresh, and stops on hidden tab, stale/disconnected data, storage failure, rejected/interrupted admission, or insufficient balance. Stop prevents future entries; it does not cancel an already sent request or accepted ticket. Each pending admission has a separate per-slot saved receipt and retains idempotent retry. No progression, loss-chasing, or unlimited autoplay is provided. The separate server auto cash-out on confirmed tickets survives disconnects.

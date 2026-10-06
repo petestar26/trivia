@@ -8,33 +8,52 @@ import {
   crashCrossingMs,
   parseCrashEntry,
 } from '@socialplay/shared';
-import type { CrashPointSnapshot, CrashPointRound, CrashPointActivity } from '@socialplay/shared';
+import type {
+  CrashPointSnapshot,
+  CrashPointRound,
+  CrashPointActivity,
+  CrashPointLeaderboard,
+} from '@socialplay/shared';
 import { useAuth } from '@/providers/auth-provider';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
 import './crash-point.css';
-type Entry = { roundId: string; stake: number; autoCents: number | null };
+type Entry = { roundId: string; stake: number; autoCents: number | null; slot?: number };
 const endpoint = '/games/crash-point';
-const receiptKey = (id: string) => `playqube.crash-point.pending.${id}`;
-export function readCrashReceipt(id: string): Entry | null {
-  const raw = sessionStorage.getItem(receiptKey(id));
+const receiptKey = (id: string, slot = 1) =>
+  `playqube.crash-point.pending.${id}${slot === 2 ? '.2' : ''}`;
+export function readCrashReceipt(id: string, slot = 1): Entry | null {
+  const raw = sessionStorage.getItem(receiptKey(id, slot));
   if (!raw) return null;
   const entry = JSON.parse(raw) as Entry;
   if (typeof entry.roundId !== 'string' || !entry.roundId || entry.roundId.length > 64)
     throw Error('Invalid saved ticket');
-  return { roundId: entry.roundId, ...parseCrashEntry(entry.stake, entry.autoCents) };
+  if ((entry.slot ?? 1) !== slot) throw Error('Invalid saved slot');
+  return {
+    roundId: entry.roundId,
+    ...parseCrashEntry(entry.stake, entry.autoCents),
+    ...(slot === 2 ? { slot } : {}),
+  };
 }
 export function CrashPointPage() {
   const { user } = useAuth();
   return user ? <CrashPoint key={user.id} userId={user.id} /> : null;
 }
-function CrashPoint({ userId }: { userId: string }) {
+function CrashPoint({
+  userId,
+  slot = 1,
+  controlsOnly = false,
+}: {
+  userId: string;
+  slot?: number;
+  controlsOnly?: boolean;
+}) {
   const { coinsBalance, walletLoading, walletError } = useCasino();
   const [initial] = useState(() => {
     try {
-      return { entry: readCrashReceipt(userId), error: '' };
+      return { entry: readCrashReceipt(userId, slot), error: '' };
     } catch {
       return {
         entry: null,
@@ -54,6 +73,12 @@ function CrashPoint({ userId }: { userId: string }) {
     [auto, setAuto] = useState(true),
     [autoText, setAutoText] = useState('2.00');
   const [activityView, setActivityView] = useState<'current' | 'mine' | 'top'>('current');
+  const [autoplay, setAutoplay] = useState<{
+    remaining: number;
+    stake: number;
+    autoCents: number;
+  } | null>(null);
+  const autoplayRound = useRef('');
   const [clock, setClock] = useState(performance.now()),
     mounted = useRef(true);
   const query = useQuery({
@@ -81,7 +106,20 @@ function CrashPoint({ userId }: { userId: string }) {
       clearInterval(timer);
     };
   }, []);
-  const s = query.data?.snapshot,
+  const raw = query.data?.snapshot;
+  const s = raw
+      ? {
+          ...raw,
+          rounds: raw.rounds.map((r) => ({
+            ...r,
+            ticket: r.tickets
+              ? (r.tickets.find((t) => t.slot === slot) ?? null)
+              : slot === 1
+                ? r.ticket
+                : null,
+          })),
+        }
+      : undefined,
     age = query.data ? Math.max(clock, performance.now()) - query.data.received : Infinity;
   const connected =
     !!s &&
@@ -113,7 +151,7 @@ function CrashPoint({ userId }: { userId: string }) {
   function clearReceipt(entry: Entry) {
     if (!mounted.current || pendingRef.current !== entry) return;
     try {
-      sessionStorage.removeItem(receiptKey(userId));
+      sessionStorage.removeItem(receiptKey(userId, slot));
       pendingRef.current = null;
       setPending(null);
       setStorageError('');
@@ -132,6 +170,7 @@ function CrashPoint({ userId }: { userId: string }) {
     },
     onError: async (error, entry) => {
       if (!mounted.current) return;
+      setAutoplay(null);
       const status = requestStatus(error);
       if ([400, 404, 409].includes(status ?? 0)) clearReceipt(entry);
       setNotice(
@@ -149,7 +188,7 @@ function CrashPoint({ userId }: { userId: string }) {
       boundedRequest((signal) =>
         api.post<{ payout: number; paidCents: number }>(
           `${endpoint}/cashout`,
-          { roundId },
+          { roundId, ...(slot === 2 ? { slot } : {}) },
           undefined,
           { signal }
         )
@@ -182,11 +221,13 @@ function CrashPoint({ userId }: { userId: string }) {
     }
   }, [query.data, connected]);
   function submit(entry: Entry) {
-    if (entryMutation.isPending) return;
+    if (entryMutation.isPending || (pendingRef.current && pendingRef.current !== entry)) return;
+    if (slot === 2) entry = { ...entry, slot };
     try {
-      sessionStorage.setItem(receiptKey(userId), JSON.stringify(entry));
+      sessionStorage.setItem(receiptKey(userId, slot), JSON.stringify(entry));
       setStorageError('');
     } catch {
+      setAutoplay(null);
       setStorageError('Enable browser storage before confirming. No ticket was sent.');
       return;
     }
@@ -194,7 +235,51 @@ function CrashPoint({ userId }: { userId: string }) {
     setPending(entry);
     entryMutation.mutate(entry);
   }
-  const locked = !open || !!ticket || !!pending || !!storageError;
+  useEffect(() => {
+    if (!autoplay) return;
+    if (!connected || storageError || document.visibilityState === 'hidden') {
+      setAutoplay(null);
+      setNotice('Autoplay stopped. Confirmed tickets keep their server auto cash-out.');
+      return;
+    }
+    if (
+      !open ||
+      !round ||
+      ticket ||
+      pending ||
+      entryMutation.isPending ||
+      autoplayRound.current === round.id
+    )
+      return;
+    if (autoplay.stake > (s?.balance ?? 0)) {
+      setAutoplay(null);
+      setNotice('Autoplay stopped: not enough practice credits.');
+      return;
+    }
+    autoplayRound.current = round.id;
+    submit({ roundId: round.id, stake: autoplay.stake, autoCents: autoplay.autoCents });
+    setAutoplay((plan) =>
+      plan && plan.remaining > 1 ? { ...plan, remaining: plan.remaining - 1 } : null
+    );
+  }, [
+    autoplay,
+    connected,
+    open,
+    round?.id,
+    ticket,
+    pending,
+    entryMutation.isPending,
+    storageError,
+    s?.balance,
+  ]);
+  useEffect(() => {
+    const stop = () => {
+      if (document.visibilityState === 'hidden') setAutoplay(null);
+    };
+    document.addEventListener('visibilitychange', stop);
+    return () => document.removeEventListener('visibilitychange', stop);
+  }, []);
+  const locked = !open || !!ticket || !!pending || !!storageError || !!autoplay;
   const elapsed = shown
     ? shown.crashCents !== null
       ? crashCrossingMs(shown.crashCents)
@@ -213,6 +298,196 @@ function CrashPoint({ userId }: { userId: string }) {
   const x = 72 + progress * 650,
     y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
   const result = shown?.ticket;
+  const controls = (
+    <aside className="crash-controls" aria-label={`Bet ${slot} controls`}>
+      <div className="crash-practice">
+        <div>
+          <span>PRACTICE BALANCE</span>
+          <strong>
+            {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
+          </strong>
+        </div>
+        <ShieldCheck size={24} />
+      </div>
+      <p className="crash-credit-note">Free credits · no cash value</p>
+      <h2>Bet {slot}</h2>
+      <div className="crash-bet-fields">
+        <div className="crash-stake-field">
+          <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
+          <div className="crash-input">
+            <input
+              id={`crash-stake-${slot}`}
+              inputMode="numeric"
+              value={ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText}
+              onChange={(e) => setStakeText(e.target.value)}
+              disabled={locked}
+            />
+            <span>credits</span>
+          </div>
+          <div className="crash-presets">
+            {[10, 25, 50, 100].map((v) => (
+              <button key={v} disabled={locked} onClick={() => setStakeText(String(v))}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="crash-auto-field">
+          <label className="crash-auto">
+            <span>Auto cash-out</span>
+            <input
+              type="checkbox"
+              checked={
+                ticket ? ticket.autoCents !== null : pending ? pending.autoCents !== null : auto
+              }
+              disabled={locked}
+              onChange={(e) => setAuto(e.target.checked)}
+            />
+          </label>
+          <div className="crash-input">
+            <input
+              aria-label="Auto cash-out multiplier"
+              inputMode="decimal"
+              disabled={locked || !auto}
+              value={
+                ticket
+                  ? ticket.autoCents === null
+                    ? ''
+                    : (ticket.autoCents / 100).toFixed(2)
+                  : pending
+                    ? pending.autoCents === null
+                      ? ''
+                      : (pending.autoCents / 100).toFixed(2)
+                    : autoText
+              }
+              onChange={(e) => setAutoText(e.target.value)}
+            />
+            <span>×</span>
+          </div>
+          <p className="crash-field-help">10–500 credits · auto cash-out 1.01×–20.00×</p>
+        </div>
+        <div className="crash-submit-field">
+          {ticket && ticket.payout === null && flying ? (
+            <button
+              className="crash-action cashout"
+              disabled={!connected || cashout.isPending}
+              onClick={() => cashout.mutate(round!.id)}
+            >
+              {cashout.isPending ? (
+                'Confirming cash-out…'
+              ) : (
+                <>
+                  Cash out <ArrowUpRight size={20} />
+                </>
+              )}
+              <small>Server confirms your final multiplier</small>
+            </button>
+          ) : (
+            <button
+              className="crash-action"
+              disabled={
+                locked || !input || input.stake > (s?.balance ?? 0) || entryMutation.isPending
+              }
+              onClick={() => round && input && submit({ roundId: round.id, ...input })}
+            >
+              {ticket
+                ? ticket.payout === null
+                  ? 'Ticket confirmed'
+                  : ticket.payout > 0
+                    ? 'Cashed out'
+                    : 'Round finished'
+                : pending
+                  ? 'Checking saved ticket…'
+                  : open
+                    ? 'Confirm ticket'
+                    : 'Wait for next round'}
+              <small>
+                {ticket
+                  ? ticket.payout === null
+                    ? `${ticket.stake} credits locked`
+                    : `${ticket.payout} credits returned`
+                  : open
+                    ? `${input?.stake ?? '—'} practice credits`
+                    : `Next entry in ${seconds}s`}
+              </small>
+            </button>
+          )}
+        </div>
+      </div>
+      {pending && !entryMutation.isPending && (
+        <button className="crash-retry" disabled={!connected} onClick={() => submit(pending)}>
+          Retry saved ticket
+        </button>
+      )}
+      {!input && !ticket && !pending && (
+        <p role="alert" className="crash-error">
+          Enter a whole stake and a valid auto cash-out target.
+        </p>
+      )}
+      {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
+        <p role="alert" className="crash-error">
+          Not enough practice credits.
+        </p>
+      )}
+      {storageError && (
+        <p role="alert" className="crash-error">
+          {storageError}
+        </p>
+      )}
+      <p className="crash-notice" aria-live="polite">
+        {query.isError
+          ? requestStatus(query.error) === 403
+            ? 'Crash Point practice is unavailable.'
+            : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
+          : notice}
+      </p>
+      {raw?.maxTickets === 2 && (
+        <div className="crash-autoplay-controls">
+          {autoplay ? (
+            <button
+              onClick={() => {
+                setAutoplay(null);
+                setNotice('Autoplay stopped. Already confirmed tickets remain active.');
+              }}
+            >
+              Stop autoplay · {autoplay.remaining} entries left
+            </button>
+          ) : (
+            <button
+              disabled={
+                !connected ||
+                !!pending ||
+                !!storageError ||
+                !input?.autoCents ||
+                (input?.stake ?? Infinity) > (s?.balance ?? 0)
+              }
+              onClick={() => {
+                if (input?.autoCents) {
+                  autoplayRound.current = '';
+                  setAutoplay({ remaining: 10, stake: input.stake, autoCents: input.autoCents });
+                }
+              }}
+            >
+              Start autoplay · 10 rounds
+            </button>
+          )}
+          <p>
+            Uses this amount and auto target for up to 10 new entries. Stops on error,
+            disconnection, hidden tab, or refresh. Stop does not cancel a confirmed ticket.
+          </p>
+        </div>
+      )}
+      <div className="crash-summary">
+        <span>New round</span>
+        <b>Every minute</b>
+        <span>Entry window</span>
+        <b>15 seconds</b>
+        <span>Maximum cash-out</span>
+        <b>20.00×</b>
+      </div>
+    </aside>
+  );
+  if (controlsOnly) return controls;
   return (
     <div className="crash-page">
       <nav className="crash-nav">
@@ -388,163 +663,10 @@ function CrashPoint({ userId }: { userId: string }) {
               )}
             </div>
           </section>
-          <aside className="crash-controls" aria-label="Your Crash Point ticket">
-            <div className="crash-practice">
-              <div>
-                <span>PRACTICE BALANCE</span>
-                <strong>
-                  {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
-                </strong>
-              </div>
-              <ShieldCheck size={24} />
-            </div>
-            <p className="crash-credit-note">Free credits · no cash value</p>
-            <h2>Your next move</h2>
-            <div className="crash-bet-fields">
-              <div className="crash-stake-field">
-                <label htmlFor="crash-stake">Bet amount</label>
-                <div className="crash-input">
-                  <input
-                    id="crash-stake"
-                    inputMode="numeric"
-                    value={
-                      ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText
-                    }
-                    onChange={(e) => setStakeText(e.target.value)}
-                    disabled={locked}
-                  />
-                  <span>credits</span>
-                </div>
-                <div className="crash-presets">
-                  {[10, 25, 50, 100].map((v) => (
-                    <button key={v} disabled={locked} onClick={() => setStakeText(String(v))}>
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="crash-auto-field">
-                <label className="crash-auto">
-                  <span>Auto cash-out</span>
-                  <input
-                    type="checkbox"
-                    checked={
-                      ticket
-                        ? ticket.autoCents !== null
-                        : pending
-                          ? pending.autoCents !== null
-                          : auto
-                    }
-                    disabled={locked}
-                    onChange={(e) => setAuto(e.target.checked)}
-                  />
-                </label>
-                <div className="crash-input">
-                  <input
-                    aria-label="Auto cash-out multiplier"
-                    inputMode="decimal"
-                    disabled={locked || !auto}
-                    value={
-                      ticket
-                        ? ticket.autoCents === null
-                          ? ''
-                          : (ticket.autoCents / 100).toFixed(2)
-                        : pending
-                          ? pending.autoCents === null
-                            ? ''
-                            : (pending.autoCents / 100).toFixed(2)
-                          : autoText
-                    }
-                    onChange={(e) => setAutoText(e.target.value)}
-                  />
-                  <span>×</span>
-                </div>
-                <p className="crash-field-help">10–500 credits · auto cash-out 1.01×–20.00×</p>
-              </div>
-              <div className="crash-submit-field">
-                {ticket && ticket.payout === null && flying ? (
-                  <button
-                    className="crash-action cashout"
-                    disabled={!connected || cashout.isPending}
-                    onClick={() => cashout.mutate(round!.id)}
-                  >
-                    {cashout.isPending ? (
-                      'Confirming cash-out…'
-                    ) : (
-                      <>
-                        Cash out <ArrowUpRight size={20} />
-                      </>
-                    )}
-                    <small>Server confirms your final multiplier</small>
-                  </button>
-                ) : (
-                  <button
-                    className="crash-action"
-                    disabled={
-                      locked || !input || input.stake > (s?.balance ?? 0) || entryMutation.isPending
-                    }
-                    onClick={() => round && input && submit({ roundId: round.id, ...input })}
-                  >
-                    {ticket
-                      ? ticket.payout === null
-                        ? 'Ticket confirmed'
-                        : ticket.payout > 0
-                          ? 'Cashed out'
-                          : 'Round finished'
-                      : pending
-                        ? 'Checking saved ticket…'
-                        : open
-                          ? 'Confirm ticket'
-                          : 'Wait for next round'}
-                    <small>
-                      {ticket
-                        ? ticket.payout === null
-                          ? `${ticket.stake} credits locked`
-                          : `${ticket.payout} credits returned`
-                        : open
-                          ? `${input?.stake ?? '—'} practice credits`
-                          : `Next entry in ${seconds}s`}
-                    </small>
-                  </button>
-                )}
-              </div>
-            </div>
-            {pending && !entryMutation.isPending && (
-              <button className="crash-retry" disabled={!connected} onClick={() => submit(pending)}>
-                Retry saved ticket
-              </button>
-            )}
-            {!input && !ticket && !pending && (
-              <p role="alert" className="crash-error">
-                Enter a whole stake and a valid auto cash-out target.
-              </p>
-            )}
-            {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
-              <p role="alert" className="crash-error">
-                Not enough practice credits.
-              </p>
-            )}
-            {storageError && (
-              <p role="alert" className="crash-error">
-                {storageError}
-              </p>
-            )}
-            <p className="crash-notice" aria-live="polite">
-              {query.isError
-                ? requestStatus(query.error) === 403
-                  ? 'Crash Point practice is unavailable.'
-                  : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
-                : notice}
-            </p>
-            <div className="crash-summary">
-              <span>New round</span>
-              <b>Every minute</b>
-              <span>Entry window</span>
-              <b>15 seconds</b>
-              <span>Maximum cash-out</span>
-              <b>20.00×</b>
-            </div>
-          </aside>
+          <div className="crash-dual-controls">
+            {controls}
+            {raw?.maxTickets === 2 && <CrashPoint userId={userId} slot={2} controlsOnly />}
+          </div>
         </div>
         <aside className="crash-activity" aria-label="Your round activity">
           <div className="crash-activity-tabs" role="group" aria-label="Activity view">
@@ -552,7 +674,7 @@ function CrashPoint({ userId }: { userId: string }) {
               [
                 ['current', 'Current round'],
                 ['mine', 'My bets'],
-                ['top', 'My top returns'],
+                ['top', 'Top · 24h'],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -603,13 +725,15 @@ function CrashPoint({ userId }: { userId: string }) {
                 </div>
               )}
               <p className="crash-activity-empty">
-                One confirmed ticket per round. This practice version does not offer dual bets or
-                autoplay.
+                Up to two independent tickets per round. Each bet has its own cash-out and autoplay
+                controls.
               </p>
             </>
+          ) : activityView === 'top' ? (
+            <PublicLeaderboard userId={userId} />
           ) : (
             <>
-              <h2>{activityView === 'mine' ? 'My recent tickets' : 'My highest returns'}</h2>
+              <h2>{'My recent tickets'}</h2>
               <div className="crash-ticket-table">
                 <table>
                   <caption className="sr-only">
@@ -624,15 +748,17 @@ function CrashPoint({ userId }: { userId: string }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(s?.rounds ?? [])
-                      .filter(
-                        (r) => r.ticket && (activityView !== 'top' || (r.ticket.payout ?? 0) > 0)
-                      )
-                      .sort((a, b) =>
-                        activityView === 'top'
-                          ? (b.ticket!.payout ?? 0) - (a.ticket!.payout ?? 0)
-                          : b.opensAt - a.opensAt
-                      )
+                    {(
+                      raw?.rounds.flatMap((r) =>
+                        (r.tickets ?? (r.ticket ? [{ ...r.ticket, slot: 1 }] : [])).map((t) => ({
+                          ...r,
+                          id: `${r.id}:${t.slot}`,
+                          ticket: t,
+                        }))
+                      ) ?? []
+                    )
+                      .filter((r) => r.ticket)
+                      .sort((a, b) => b.opensAt - a.opensAt)
                       .map((r) => (
                         <tr key={r.id}>
                           <td title={r.id}>
@@ -655,14 +781,16 @@ function CrashPoint({ userId }: { userId: string }) {
                   </tbody>
                 </table>
               </div>
-              {!(s?.rounds ?? []).some(
-                (r) => r.ticket && (activityView !== 'top' || (r.ticket.payout ?? 0) > 0)
-              ) && (
-                <p className="crash-activity-empty">
-                  {activityView === 'mine'
-                    ? 'No tickets in the latest 12 rounds.'
-                    : 'No winning returns in the latest 12 rounds.'}
-                </p>
+              {!(
+                raw?.rounds.flatMap((r) =>
+                  (r.tickets ?? (r.ticket ? [{ ...r.ticket, slot: 1 }] : [])).map((t) => ({
+                    ...r,
+                    id: `${r.id}:${t.slot}`,
+                    ticket: t,
+                  }))
+                ) ?? []
+              ).some((r) => r.ticket && true) && (
+                <p className="crash-activity-empty">{'No tickets in the latest 12 rounds.'}</p>
               )}
             </>
           )}
@@ -692,8 +820,8 @@ function CrashPoint({ userId }: { userId: string }) {
         <summary>Rules, timing and round verification</summary>
         <p>
           Practice starts with 1,000 nonredeemable credits, separate from Coins and Game Points. No
-          purchases, gifts, transfers or withdrawals. Confirm one immutable ticket per round. Auto
-          cash-out is handled by the server and survives disconnects.
+          purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per round.
+          Auto cash-out is handled by the server and survives disconnects.
         </p>
         <p>
           Manual cash-out is accepted at server processing time, after locks are acquired. At or
@@ -862,6 +990,60 @@ function PublicActivity({
       <p className="crash-activity-caption">
         Returns appear only after server settlement. Amounts are practice credits.
       </p>
+    </section>
+  );
+}
+
+function PublicLeaderboard({ userId }: { userId: string }) {
+  const feed = useQuery({
+    queryKey: ['crash-point-leaderboard', userId],
+    queryFn: async ({ signal }) =>
+      unwrapData(
+        await boundedRequest(
+          (s) =>
+            api.get<CrashPointLeaderboard>(`${endpoint}/leaderboard`, undefined, { signal: s }),
+          signal
+        )
+      ),
+    refetchInterval: 10000,
+    retry: false,
+  });
+  return (
+    <section aria-label="Public top returns">
+      <h2>Top returns · last 24 hours</h2>
+      <p className="crash-activity-caption">
+        Highest confirmed ticket returns · practice credits · includes stake
+      </p>
+      {feed.isError ? (
+        <p role="status">Leaderboard unavailable. Reconnecting…</p>
+      ) : feed.isPending ? (
+        <p role="status">Loading leaderboard…</p>
+      ) : feed.data.tickets.length ? (
+        <div className="crash-ticket-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Stake</th>
+                <th>Cash-out</th>
+                <th>Return</th>
+              </tr>
+            </thead>
+            <tbody>
+              {feed.data.tickets.map((t) => (
+                <tr key={`${t.roundId}:${t.player}`}>
+                  <td>{t.player}</td>
+                  <td>{t.stake}</td>
+                  <td>{(t.paidCents / 100).toFixed(2)}×</td>
+                  <td>{t.payout}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="crash-activity-empty">No confirmed returns in the last 24 hours.</p>
+      )}
     </section>
   );
 }

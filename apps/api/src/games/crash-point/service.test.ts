@@ -33,6 +33,12 @@ beforeAll(async () => {
       'utf8'
     )
   );
+  await pg.exec(
+    await readFile(
+      '../../packages/database/prisma/migrations/20261006210000_crash_point_dual_tickets/migration.sql',
+      'utf8'
+    )
+  );
   service = createCrashPointService({
     ...wrap(pg),
     $transaction: (run: (tx: unknown) => Promise<unknown>) => pg.transaction((tx) => run(wrap(tx))),
@@ -128,4 +134,26 @@ it('publishes bounded anonymous activity without private outcomes or automatic t
   });
   await expect(service.activity('missing-user', 'public-feed')).rejects.toThrow('active account');
   await expect(service.activity('public-feed', 'missing-round')).rejects.toThrow('not found');
+});
+it('keeps two slots independent and ranks only settled returns', async () => {
+  const start = await fixture('dual', 700, 300);
+  await service.enter('dual', 'dual', 100, 101, 1);
+  await service.enter('dual', 'dual', 200, 102, 2);
+  expect((await service.snapshot('dual')).balance).toBe(700);
+  expect(
+    (await service.snapshot('dual')).rounds.find((r) => r.id === 'dual')!.tickets
+  ).toHaveLength(2);
+  await expect(service.enter('dual', 'dual', 25, 101, 3)).rejects.toThrow('Invalid ticket slot');
+  await expect(
+    pg.query("UPDATE crash_point_tickets SET slot=2 WHERE user_id='dual' AND slot=1")
+  ).rejects.toThrow();
+  await wait(start + 250);
+  await service.tick();
+  expect(await service.cashout('dual', 'dual', 1)).toEqual({ payout: 101, paidCents: 101 });
+  expect(await service.cashout('dual', 'dual', 2)).toEqual({ payout: 204, paidCents: 102 });
+  expect((await service.snapshot('dual')).balance).toBe(1005);
+  const leaders = await service.leaderboard('dual');
+  expect(leaders.tickets[0].payout).toBeGreaterThanOrEqual(204);
+  expect(leaders.tickets.every((t) => t.payout > 0)).toBe(true);
+  expect(leaders.tickets.find((t) => t.roundId === 'dual' && t.stake === 200)?.paidCents).toBe(102);
 });

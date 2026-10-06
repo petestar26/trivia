@@ -6,7 +6,11 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertUsdStagingTarget } from './staging-payment-target.js';
-const allowed = ['20261006190000_crash_point_practice', '20261006190100_crash_point_catalog'];
+const allowed = [
+  '20261006190000_crash_point_practice',
+  '20261006190100_crash_point_catalog',
+  '20261006210000_crash_point_dual_tickets',
+];
 async function run() {
   assertUsdStagingTarget(process.env);
   const worker = new URL(process.env.SOCIAL_WORKER_DATABASE_URL ?? 'https://invalid'),
