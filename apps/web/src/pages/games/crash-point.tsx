@@ -89,7 +89,7 @@ function CrashPoint({ userId }: { userId: string }) {
     age < 3000 &&
     query.data!.received - query.data!.sent < 1200 &&
     s.rulesId === rules.id;
-  const now = s ? s.serverTime + age : 0,
+  const now = s ? s.serverTime + (connected ? age : Math.min(age, 3000)) : 0,
     round = s?.rounds.find((r) => r.opensAt <= now && now < r.endsAt),
     shown = round ?? s?.rounds[0];
   const open = connected && !!round && now < round.startsAt;
@@ -195,16 +195,19 @@ function CrashPoint({ userId }: { userId: string }) {
     ? shown.crashCents !== null
       ? crashCrossingMs(shown.crashCents)
       : flying
-        ? Math.max(0, now - shown.startsAt)
+        ? Math.min(crashCrossingMs(2001), Math.max(0, now - shown.startsAt))
         : 0
     : 0;
-  const progress = Math.min(1, elapsed / crashCrossingMs(2001));
+  const timeRange = Math.max(10000, elapsed * 1.2);
+  const valueRange =
+    [2, 5, 10, 20, 25].find((value) => value >= Math.exp(elapsed / 10000) * 1.15) ?? 25;
+  const progress = Math.min(1, elapsed / timeRange);
   const points = Array.from({ length: 61 }, (_, i) => {
     const t = (elapsed * i) / 60;
-    return `${72 + (t / crashCrossingMs(2001)) * 650},${330 - ((Math.exp(t / 10000) - 1) / 19.01) * 260}`;
+    return `${72 + (t / timeRange) * 650},${330 - ((Math.exp(t / 10000) - 1) / (valueRange - 1)) * 260}`;
   }).join(' ');
   const x = 72 + progress * 650,
-    y = 330 - ((Math.exp(elapsed / 10000) - 1) / 19.01) * 260;
+    y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
   const result = shown?.ticket;
   return (
     <main className="crash-page">
@@ -296,13 +299,14 @@ function CrashPoint({ userId }: { userId: string }) {
                   <feGaussianBlur stdDeviation="6" />
                 </filter>
               </defs>
-              {[20, 10, 5, 2, 1].map((value) => {
-                const v = 330 - ((value - 1) / 19.01) * 260;
+              {[4, 3, 2, 1, 0].map((index) => {
+                const value = 1 + ((valueRange - 1) * index) / 4;
+                const v = 330 - (index / 4) * 260;
                 return (
                   <g key={v}>
                     <path d={`M72 ${v}H745`} className="grid" />
                     <text x="15" y={v + 5}>
-                      {value}×
+                      {Number(value.toFixed(2))}×
                     </text>
                   </g>
                 );
@@ -311,7 +315,7 @@ function CrashPoint({ userId }: { userId: string }) {
                 <g key={v}>
                   <path d={`M${v} 60V330`} className="grid" />
                   <text x={v - 8} y="365">
-                    {Math.round(i * 7.5)}s
+                    {Math.round((i * timeRange) / 4000)}s
                   </text>
                 </g>
               ))}
@@ -433,7 +437,11 @@ function CrashPoint({ userId }: { userId: string }) {
               onClick={() => round && input && submit({ roundId: round.id, ...input })}
             >
               {ticket
-                ? 'Ticket confirmed'
+                ? ticket.payout === null
+                  ? 'Ticket confirmed'
+                  : ticket.payout > 0
+                    ? 'Cashed out'
+                    : 'Round finished'
                 : pending
                   ? 'Checking saved ticket…'
                   : open

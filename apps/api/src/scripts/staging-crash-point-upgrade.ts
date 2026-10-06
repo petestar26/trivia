@@ -74,7 +74,7 @@ async function run() {
       }
       const [grants] = await db.$queryRaw<
         { allowed: boolean }[]
-      >`SELECT has_table_privilege(${role},'public.crash_point_accounts','SELECT,INSERT,UPDATE') AND has_table_privilege(${role},'public.crash_point_tickets','SELECT,INSERT,UPDATE') AND has_table_privilege(${role},'public.crash_point_rounds','SELECT,INSERT') AS allowed`;
+      >`SELECT bool_and(has_table_privilege(${role},'public.'||t,p)) AS allowed FROM (VALUES ('crash_point_accounts','SELECT'),('crash_point_accounts','INSERT'),('crash_point_accounts','UPDATE'),('crash_point_tickets','SELECT'),('crash_point_tickets','INSERT'),('crash_point_tickets','UPDATE'),('crash_point_rounds','SELECT'),('crash_point_rounds','INSERT')) AS grants(t,p)`;
       if (!grants?.allowed) throw Error('CRASH_RUNTIME_GRANTS_MISSING');
     }
     const game = await db.gameDefinition.findUnique({ where: { key: 'crash_point' } });
