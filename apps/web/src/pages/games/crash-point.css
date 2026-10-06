@@ -921,3 +921,34 @@
     max-width: 100%;
   }
 }
+
+.crash-public-activity {
+  border-bottom: 1px solid #63404c;
+  margin-bottom: 24px;
+  padding-bottom: 10px;
+  font-size: 11px;
+}
+.crash-feed-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.crash-feed-heading button {
+  border: 1px solid #805062;
+  border-radius: 7px;
+  padding: 7px;
+  color: var(--rose);
+  font-size: 10px;
+}
+.crash-feed-heading button:disabled {
+  opacity: 0.5;
+}
+.crash-public-activity .crash-ticket-table {
+  max-height: 320px;
+  overflow: auto;
+}
+.crash-public-activity td:first-child {
+  overflow-wrap: anywhere;
+  max-width: 95px;
+}

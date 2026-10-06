@@ -49,3 +49,15 @@ export interface CrashPointSnapshot {
   balance: number;
   rounds: CrashPointRound[];
 }
+
+/** Public practice activity. No account IDs, auto targets, seeds or future outcomes. */
+export interface CrashPointActivity {
+  roundId: string;
+  totalTickets: number;
+  tickets: Array<{
+    player: string;
+    stake: number;
+    payout: number | null;
+    paidCents: number | null;
+  }>;
+}

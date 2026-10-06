@@ -45,7 +45,12 @@ beforeEach(() => {
       },
     ],
   };
-  get.mockImplementation(async () => ({ success: true, data: snapshot }));
+  get.mockImplementation(async (path: string, params?: { roundId: string }) => ({
+    success: true,
+    data: path.endsWith('/activity')
+      ? { roundId: params?.roundId, totalTickets: 0, tickets: [] }
+      : snapshot,
+  }));
   post.mockResolvedValue({ success: true, data: { accepted: true } });
 });
 afterEach(() => {
@@ -146,4 +151,27 @@ it('does not describe a settled ticket as locked', async () => {
     await screen.findByRole('button', { name: /Cashed out 30 credits returned/ })
   ).toBeDisabled();
   expect(screen.queryByText('25 credits locked')).toBeNull();
+});
+
+it('switches the public feed to the previous round without submitting a ticket', async () => {
+  snapshot.rounds.push({
+    ...snapshot.rounds[0],
+    id: 'previous',
+    opensAt: snapshot.serverTime - 61000,
+    startsAt: snapshot.serverTime - 46000,
+    endsAt: snapshot.serverTime - 1000,
+    crashCents: 150,
+  });
+  setup();
+  await screen.findByText('No tickets in this round.');
+  fireEvent.click(screen.getByRole('button', { name: 'Previous round' }));
+  await waitFor(() =>
+    expect(
+      get.mock.calls.some(
+        (call) => call[0] === '/games/crash-point/activity' && call[1]?.roundId === 'previous'
+      )
+    ).toBe(true)
+  );
+  expect(screen.getByRole('button', { name: 'Back to current' })).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
 });

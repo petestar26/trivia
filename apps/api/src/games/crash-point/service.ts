@@ -1,7 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@socialplay/database';
 import { CRASH_POINT_RULES, parseCrashEntry, crashCrossingMs } from '@socialplay/shared';
-import type { CrashPointSnapshot } from '@socialplay/shared';
+import type { CrashPointSnapshot, CrashPointActivity } from '@socialplay/shared';
 import { ApiError } from '../../middleware/api-error.js';
 import { crashCommitment, crashOutcome } from './math.js';
 type Tx = Prisma.TransactionClient;
@@ -183,5 +183,42 @@ export function createCrashPointService(db: PrismaClient) {
     return settle(roundId, userId, true);
   }
 
-  return { snapshot, enter, cashout, tick };
+  async function activity(userId: string, roundId: string): Promise<CrashPointActivity> {
+    return db.$transaction(async (tx) => {
+      const [user] = await tx.$queryRaw<
+        { status: string }[]
+      >`SELECT status::text FROM users WHERE id=${userId}`;
+      if (user?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+      const [round] = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM crash_point_rounds WHERE id=${roundId} AND opens_at<=clock_timestamp()`;
+      if (!round) throw ApiError.notFound('Round not found');
+      // Project only confirmed public receipt fields. Never read seed, outcome or auto target.
+      // Window count and bounded rows come from the same statement snapshot.
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          stake: number;
+          payout: number | null;
+          paid_cents: number | null;
+          total: bigint;
+        }>
+      >`SELECT id,stake,payout,paid_cents,count(*) OVER() AS total
+          FROM crash_point_tickets WHERE round_id=${roundId} ORDER BY id LIMIT 100`;
+      return {
+        roundId,
+        totalTickets: Number(rows[0]?.total ?? 0),
+        tickets: rows.map((t) => ({
+          player: `Player ${createHash('sha256')
+            .update(roundId + ':' + t.id)
+            .digest('hex')
+            .slice(0, 10)}`,
+          stake: t.stake,
+          payout: t.payout,
+          paidCents: t.paid_cents,
+        })),
+      };
+    });
+  }
+
+  return { snapshot, enter, cashout, tick, activity };
 }

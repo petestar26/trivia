@@ -8,7 +8,7 @@ import {
   crashCrossingMs,
   parseCrashEntry,
 } from '@socialplay/shared';
-import type { CrashPointSnapshot, CrashPointRound } from '@socialplay/shared';
+import type { CrashPointSnapshot, CrashPointRound, CrashPointActivity } from '@socialplay/shared';
 import { useAuth } from '@/providers/auth-provider';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { api, unwrapData } from '@/lib/api';
@@ -567,7 +567,12 @@ function CrashPoint({ userId }: { userId: string }) {
           <p className="crash-activity-caption">Your practice activity · latest 12 rounds</p>
           {activityView === 'current' ? (
             <>
-              <h2>Round information</h2>
+              <PublicActivity
+                current={shown}
+                previous={s?.rounds.find((r) => shown && r.opensAt < shown.opensAt)}
+                userId={userId}
+              />
+              <h2>Your current round</h2>
               <dl className="crash-round-info">
                 <dt>Round</dt>
                 <dd>{shown?.id ?? 'Connecting…'}</dd>
@@ -754,5 +759,109 @@ function RoundProof({ round }: { round: CrashPointRound }) {
       <button onClick={verify}>Verify round</button>
       <p role="status">{status}</p>
     </div>
+  );
+}
+
+function PublicActivity({
+  current,
+  previous,
+  userId,
+}: {
+  current?: CrashPointRound;
+  previous?: CrashPointRound;
+  userId: string;
+}) {
+  const [previousSelected, setPreviousSelected] = useState(false);
+  const selected = previousSelected ? previous : current;
+  const feed = useQuery({
+    queryKey: ['crash-point-activity', userId, selected?.id],
+    enabled: !!selected,
+    queryFn: async ({ signal }) =>
+      unwrapData(
+        await boundedRequest(
+          (s) =>
+            api.get<CrashPointActivity>(
+              `${endpoint}/activity`,
+              { roundId: selected!.id },
+              { signal: s }
+            ),
+          signal
+        )
+      ),
+    refetchInterval: 3000,
+    retry: false,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
+  });
+  return (
+    <section className="crash-public-activity" aria-label="Public practice tickets">
+      <div className="crash-feed-heading">
+        <strong>{previousSelected ? 'Previous round' : 'Current round'} tickets</strong>
+        <button
+          aria-pressed={previousSelected}
+          disabled={!previous}
+          onClick={() => setPreviousSelected((v) => !v)}
+        >
+          {previousSelected ? 'Back to current' : 'Previous round'}
+        </button>
+      </div>
+      <p className="crash-activity-caption">
+        {selected?.id ?? 'Waiting for round'} · anonymous practice players
+      </p>
+      {feed.isError ? (
+        <p role="status">Activity unavailable. Reconnecting…</p>
+      ) : feed.isPending ? (
+        <p role="status">Loading activity…</p>
+      ) : (
+        <>
+          <p>
+            Total tickets: <strong>{feed.data.totalTickets}</strong>
+          </p>
+          {feed.data.tickets.length ? (
+            <div className="crash-ticket-table">
+              <table>
+                <caption className="sr-only">
+                  Public practice tickets for {feed.data.roundId}
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Stake</th>
+                    <th>Cash-out</th>
+                    <th>Return</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feed.data.tickets.map((t) => (
+                    <tr key={t.player}>
+                      <td>{t.player}</td>
+                      <td>{t.stake}</td>
+                      <td>
+                        {t.payout === null
+                          ? 'Pending'
+                          : t.paidCents
+                            ? `${(t.paidCents / 100).toFixed(2)}×`
+                            : '—'}
+                      </td>
+                      <td>{t.payout === null ? 'Pending' : t.payout}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="crash-activity-empty">No tickets in this round.</p>
+          )}
+          {feed.data.totalTickets > feed.data.tickets.length && (
+            <p>
+              Showing {feed.data.tickets.length} of {feed.data.totalTickets} tickets.
+            </p>
+          )}
+        </>
+      )}
+      <p className="crash-activity-caption">
+        Returns appear only after server settlement. Amounts are practice credits.
+      </p>
+    </section>
   );
 }

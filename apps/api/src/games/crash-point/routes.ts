@@ -17,6 +17,24 @@ export async function crashPointRoutes(server: FastifyInstance) {
     async (request) => ({ success: true, data: await service.snapshot(request.user.sub) })
   );
   const roundId = { type: 'string', minLength: 1, maxLength: 64 };
+  server.get<{ Querystring: { roundId: string } }>(
+    '/activity',
+    {
+      config: { rateLimit: { max: 40, timeWindow: '1 minute' } },
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['roundId'],
+          properties: { roundId },
+        },
+      },
+    },
+    async (request) => ({
+      success: true,
+      data: await service.activity(request.user.sub, request.query.roundId),
+    })
+  );
   server.post<{ Body: { roundId: string; stake: number; autoCents: number | null } }>(
     '/tickets',
     {

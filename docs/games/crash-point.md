@@ -39,3 +39,7 @@ For other environments apply these migrations as database owner and grant the de
 ## Verification
 
 PGlite tests execute the actual service SQL and PostgreSQL triggers but serialize transactions. The native CI test suite uses acknowledged disposable PostgreSQL 13, 16 and 18 databases for concurrent entry, concurrent payout, cutoff after wallet-lock wait, ownership, missed worker, automatic restart recovery and immutable-history guards. React tests cover entry payload, cash-out payload without a client multiplier, interrupted admission replay, restored receipts and disconnected availability. Full web tests/typecheck/build cover surrounding navigation.
+
+## Public practice activity
+
+The authenticated, feature-gated `/games/crash-point/activity?roundId=...` endpoint returns up to 100 ticket receipts and an exact total from the same SQL statement snapshot. It requires an active account and an already-open round. Only stake, settled payout, and settled multiplier are selected; pending payouts remain null. Round-specific pseudonyms are derived from random ticket IDs; account IDs, names, auto targets, seeds, and crash points are not returned. The UI refreshes every three seconds, supports current/previous round selection, and reports empty/loading/error states without invented players. This is a practice activity feed, not a global leaderboard or dual-ticket/autoplay release.

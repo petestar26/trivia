@@ -105,3 +105,27 @@ it('denies a stranger cashout and late admission without debiting', async () => 
   expect((await service.snapshot('late')).balance).toBe(1000);
   await expect(service.cashout('late', 'manual')).rejects.toThrow('not found');
 });
+it('publishes bounded anonymous activity without private outcomes or automatic targets', async () => {
+  const start = await fixture('public-feed', 300, 300);
+  await service.enter('public-feed', 'public-feed', 25, 101);
+  const pending = await service.activity('public-feed', 'public-feed');
+  expect(pending.totalTickets).toBe(1);
+  expect(pending.tickets[0]).toEqual({
+    player: expect.stringMatching(/^Player [0-9a-f]{10}$/),
+    stake: 25,
+    payout: null,
+    paidCents: null,
+  });
+  expect(JSON.stringify(pending)).not.toContain('autoCents');
+  expect(JSON.stringify(pending)).not.toContain('seed');
+  expect(JSON.stringify(pending)).not.toContain('crashCents');
+  await wait(start + 160);
+  await service.tick();
+  expect((await service.activity('public-feed', 'public-feed')).tickets[0]).toEqual({
+    ...pending.tickets[0],
+    payout: 25,
+    paidCents: 101,
+  });
+  await expect(service.activity('missing-user', 'public-feed')).rejects.toThrow('active account');
+  await expect(service.activity('public-feed', 'missing-round')).rejects.toThrow('not found');
+});
