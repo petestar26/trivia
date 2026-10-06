@@ -1,3 +1,4 @@
+import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -25,6 +26,7 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
+  useMemberTheme(!workspace);
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
@@ -61,7 +63,9 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div
+      className={`${workspace ? '' : 'qube-auth'} min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4`}
+    >
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -79,7 +83,10 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div role="alert" className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg">
+            <div
+              role="alert"
+              className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -140,7 +147,13 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 Access is assigned by the platform. Signing in here does not change your
                 permissions.
               </p>
-              {workspace === 'agent' && <p><Link to="/agent/activate" className="text-primary-600">First sign-in? Set your private password</Link></p>}
+              {workspace === 'agent' && (
+                <p>
+                  <Link to="/agent/activate" className="text-primary-600">
+                    First sign-in? Set your private password
+                  </Link>
+                </p>
+              )}
               <Link to="/login" className="text-primary-600">
                 Member sign in
               </Link>

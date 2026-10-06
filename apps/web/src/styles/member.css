@@ -895,3 +895,68 @@ html.qube-member {
 .qube-member .keno-stake-row input {
   background: #251832;
 }
+.qube-member .bg-card {
+  background: linear-gradient(145deg, #211c2f, #171420);
+  border-color: #3d324d;
+  box-shadow:
+    0 10px 30px #0002,
+    inset 0 1px #ffffff05;
+}
+.qube-member .qube-auth {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 20% 20%, #71489b40, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, #7b58232a, transparent 40%), #100d19;
+}
+.qube-auth:before,
+.qube-auth:after {
+  content: '';
+  position: absolute;
+  width: 440px;
+  height: 440px;
+  border: 1px solid #b789e822;
+  border-radius: 60px;
+  transform: rotate(35deg);
+  z-index: -1;
+  box-shadow:
+    inset 0 0 80px #ad6bdd05,
+    0 0 0 40px #ad6bdd04;
+}
+.qube-auth:before {
+  top: -180px;
+  left: -160px;
+}
+.qube-auth:after {
+  bottom: -250px;
+  right: -120px;
+}
+.qube-auth > .bg-card {
+  border-radius: 24px;
+  box-shadow:
+    0 30px 80px #0005,
+    inset 0 1px #ffffff12;
+}
+.qube-chat {
+  border-color: #3c304b !important;
+  background: #17121f !important;
+  box-shadow: 0 15px 40px #0003;
+}
+.qube-member .qube-chat-thread {
+  background: radial-gradient(ellipse at top right, #6c438020, transparent 70%), #121019;
+}
+.qube-member .qube-chat-bubble.dark\:bg-emerald-900 {
+  background: linear-gradient(135deg, #49345f, #342444);
+  border: 1px solid #9b75b736;
+}
+.qube-member .qube-chat .dark\:bg-slate-950 {
+  background: #191320;
+}
+.qube-member .qube-chat button[aria-label='Send'] {
+  background: #b58bdc;
+  color: #251333;
+}
+.qube-member .qube-chat button[aria-label='Send']:hover:not(:disabled) {
+  background: #cfacf0;
+}

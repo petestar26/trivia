@@ -1,22 +1,12 @@
 import { Outlet } from 'react-router-dom';
-import { useState, useCallback, useLayoutEffect } from 'react';
+import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
-import '@/styles/member.css';
+import { useMemberTheme } from '@/components/member/use-member-theme';
 
 export function Layout() {
-  // Put the member theme on the root so portaled dialogs inherit it too.
-  // Restore the previous theme when entering the separate staff workspace.
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    const hadDark = root.classList.contains('dark');
-    root.classList.add('dark', 'qube-member');
-    return () => {
-      root.classList.remove('qube-member');
-      if (!hadDark) root.classList.remove('dark');
-    };
-  }, []);
+  useMemberTheme();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   return (
