@@ -1,0 +1,21 @@
+-- W-1A: Dedicated monotonic sequence for Withdrawal.withdrawalNumber
+-- ("WD-000123"), following the exact precedent of
+-- agent_order_number_seq (migration 20260902000000_agent_order_number_sequence):
+-- COUNT()/MAX()-based allocators are unsound because scoped deletes can
+-- drop a table's row count below a value it held when an earlier,
+-- still-surviving row was numbered — a Postgres sequence is immune, since
+-- nextval() is monotonic for the sequence's lifetime and is not
+-- transactional (a rolled-back transaction never returns its consumed
+-- value), so two concurrent callers can never collide.
+--
+-- Unlike agent_order_number_seq, no setval() seeding block is needed here:
+-- this migration runs immediately after 20260903010000_w1a_withdrawal_tables
+-- creates the (empty) "withdrawals" table, so there are no pre-existing
+-- rows to seed past.
+--
+-- W-1B service code must call nextval('withdrawal_number_seq') — never
+-- count(), MAX()+1, or any other read-then-write allocator — and format
+-- the result as "WD-" followed by the number zero-padded to 6 digits
+-- (e.g. "WD-000001"), matching nextOrderNumber() in
+-- apps/api/src/agents/order-service.ts.
+CREATE SEQUENCE "withdrawal_number_seq" START WITH 1 INCREMENT BY 1;

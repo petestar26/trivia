@@ -1,0 +1,2913 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User & Auth ────────────────────────────────────────────────
+
+model User {
+  agentAccountSetup AgentAccountSetup?
+  scheduledStakeHolds ScheduledStakeHold[]
+  scheduledPracticeTickets ScheduledPracticeTicket[]
+  id           String     @id @default(uuid())
+  email        String?    @unique
+  username     String     @unique
+  passwordHash String?
+  displayName  String?
+  bio          String?    @db.Text
+  avatarUrl    String?
+  isVerified   Boolean    @default(false)
+  status       UserStatus @default(ACTIVE)
+  role         UserRole   @default(USER)
+  tokenVersion Int        @default(0)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Set at most once, before the user's first agent order, and never
+  // overwritten thereafter (Phase B decision 4 / original spec §24: the
+  // relationship must be historically stable). Nullable relation — see
+  // Agent.referredUsers for the inverse side.
+  referredByAgentId String?
+  referredByAgent   Agent?  @relation("AgentReferrals", fields: [referredByAgentId], references: [id], onDelete: SetNull)
+
+  referralCode   String?    @unique
+  referralReceived Referral? @relation("ReferralReferred")
+  referralsMade    Referral[] @relation("ReferralReferrer")
+
+  identities UserAuthIdentity[]
+
+  profile                   Profile?
+  sessions                  Session[]
+  ownedGroups               Group[]                    @relation("GroupOwner")
+  groupMemberships          GroupMember[]
+  messages                  Message[]
+  messageReactions          MessageReaction[]
+  notifications             Notification[]
+  wallet                    Wallet?
+  economicOperations        EconomicOperation[]
+  coinLotEntries            CoinLotEntry[]
+  coinLedgerAccount         CoinLedgerAccount?
+  kycVerification           UserKycVerification?
+  legacyBalanceReviews      LegacyBalanceReview[]
+  adminAdjustmentApprovals  AdminAdjustmentApproval[]
+  vipMembership             VipMembership?
+  progress                  UserProgress?
+  xpEvents                  UserXpEvent[]
+  tasks                     UserTask[]
+  streak                    DailyStreak?
+  rewardClaims              RewardClaim[]
+  achievements              UserAchievement[]
+  gameSessions              GameSession[]
+  coinProvenances           CoinProvenance[]
+  coinAllocations           CoinAllocation[]
+  triviaAttempts            UserTriviaAttempt[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
+  challengesSent            GameChallenge[]            @relation("ChallengeSender")
+  challengesReceived        GameChallenge[]            @relation("ChallengeReceiver")
+  challengeWins             GameChallenge[]            @relation("ChallengeWinner")
+  competitionParticipations CompetitionParticipant[]
+  createdCompetitions       GroupCompetition[]         @relation("CompetitionCreator")
+  finalizedCompetitions     GroupCompetition[]         @relation("CompetitionFinalizer")
+  agentProfile              Agent?                     @relation("AgentIdentity")
+  agentOrders               AgentOrder[]
+  withdrawals               Withdrawal[]
+  withdrawalQuotes          WithdrawalQuote[]
+  payoutAccounts            UserPayoutAccount[]
+  withdrawalPaymentSubmissions WithdrawalPaymentSubmission[]
+
+  // W-0 security step-up foundation (inverse relation sides only — no
+  // existing User field is altered).
+  totpFactor          UserTotpFactor?
+  securityChallenges  SecurityChallenge[]
+  stepUpVerifications StepUpVerification[]
+  securityPolicy      UserSecurityPolicy?
+
+  @@index([email])
+  @@index([username])
+  @@index([status])
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+  PENDING_VERIFICATION
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+// A canonical PlayQube User owns zero or more authentication identities.
+// Each identity is scoped to one external identity provider and one subject
+// key within that provider. The `(provider, providerSubject)` pair is the
+// only ownership arbiter — never introduce email-based identity resolution.
+enum AuthProvider {
+  EMAIL
+  PHONE
+  GOOGLE
+  TELEGRAM
+}
+
+model UserAuthIdentity {
+  id              String       @id @default(uuid())
+  userId          String
+  provider        AuthProvider
+  providerSubject String
+  verifiedAt      DateTime?
+  lastUsedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+  @@map("user_auth_identities")
+}
+
+// ─── User→User Referral Foundation (Slice 5) ─────────────────
+// At most one Referral row per referred User (referredUserId @unique).
+// No reward amounts, verification status, or expiry — Slice 5 is attribution-only.
+// Self-referral is prevented by a raw CHECK constraint in the migration
+// (Prisma cannot express CHECK natively).
+
+model Referral {
+  id             String   @id @default(uuid())
+  referredUserId String   @unique
+  referrerUserId String
+  referralCode   String
+  createdAt      DateTime @default(now())
+
+  referredUser User @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referrerUser User @relation("ReferralReferrer", fields: [referrerUserId], references: [id], onDelete: Restrict)
+
+  @@index([referrerUserId])
+  @@map("referrals")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ip           String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Profile ────────────────────────────────────────────────────
+
+model Profile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  displayName String
+  bio         String?  @db.Text
+  avatarUrl   String?
+  coverUrl    String?
+  metadata    Json?
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+// ─── Groups ─────────────────────────────────────────────────────
+
+enum GroupStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+  BANNED
+}
+
+model Group {
+  id          String      @id @default(uuid())
+  ownerId     String
+  name        String
+  description String?     @db.Text
+  imageUrl    String?
+  coverUrl    String?
+  isPrivate   Boolean     @default(false)
+  status      GroupStatus @default(ACTIVE)
+  expiresAt   DateTime    @db.Timestamptz(3) @default(dbgenerated("(clock_timestamp() + interval '24 hours')"))
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  owner        User               @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members      GroupMember[]
+  messages     Message[]
+  competitions GroupCompetition[]
+  invites      GroupInvite[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("groups")
+}
+
+// ─── Group Members ──────────────────────────────────────────────
+
+enum GroupMemberRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum GroupMemberStatus {
+  ACTIVE
+  PENDING
+  BANNED
+  MUTED
+  LEFT
+}
+
+model GroupMember {
+  id        String            @id @default(uuid())
+  groupId   String
+  userId    String
+  role      GroupMemberRole   @default(MEMBER)
+  status    GroupMemberStatus @default(ACTIVE)
+  joinedAt  DateTime          @default(now())
+  archivedAt DateTime?
+  updatedAt DateTime          @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+  @@index([status])
+  @@map("group_members")
+}
+
+// ─── Group Invites ──────────────────────────────────────────────
+
+enum GroupInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model GroupInvite {
+  id        String             @id @default(uuid())
+  groupId   String
+  email     String
+  role      GroupMemberRole    @default(MEMBER)
+  status    GroupInviteStatus  @default(PENDING)
+  token     String             @unique
+  expiresAt DateTime
+  invitedBy String
+  acceptedBy String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([email])
+  @@index([token])
+  @@index([status])
+  @@map("group_invites")
+}
+
+// ─── Messages ───────────────────────────────────────────────────
+
+enum MessageType {
+  TEXT
+  VOICE
+  SYSTEM
+  GIFT
+}
+
+model Message {
+  id        String      @id @default(uuid())
+  groupId   String
+  userId    String
+  content   String      @db.Text
+  type      MessageType @default(TEXT)
+  replyToId String?
+  clientRequestId String?
+  isEdited  Boolean     @default(false)
+  isDeleted Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  group        Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  replyTo      Message?          @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      Message[]         @relation("MessageReplies")
+  reactions    MessageReaction[]
+  voiceMessage VoiceMessage?
+
+  @@unique([groupId, userId, clientRequestId], map: "messages_client_request")
+  @@index([groupId, createdAt])
+  @@index([userId])
+  @@index([replyToId])
+  @@map("messages")
+}
+
+// ─── Message Reactions ──────────────────────────────────────────
+
+enum ReactionType {
+  LIKE
+  LOVE
+  LAUGH
+  WOW
+  SAD
+  ANGRY
+}
+
+model MessageReaction {
+  id        String       @id @default(uuid())
+  messageId String
+  userId    String
+  type      ReactionType
+  createdAt DateTime     @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, type])
+  @@index([messageId])
+  @@index([userId])
+  @@map("message_reactions")
+}
+
+// ─── Voice Messages ─────────────────────────────────────────────
+
+model VoiceMessage {
+  id         String   @id @default(uuid())
+  messageId  String   @unique
+  storageKey String
+  mimeType   String   @default("audio/ogg")
+  duration   Int
+  size       Int
+  createdAt  DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("voice_messages")
+}
+
+// ─── Notifications ──────────────────────────────────────────────
+
+enum NotificationType {
+  MESSAGE
+  MENTION
+  REACTION
+  GIFT_RECEIVED
+  GROUP_INVITE
+  GROUP_INVITE_ACCEPTED
+  GROUP_JOIN_REQUEST
+  GROUP_APPROVED
+  GROUP_REJECTED
+  GROUP_OWNERSHIP_TRANSFERRED
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  ACHIEVEMENT_UNLOCKED
+  REWARD_CLAIMED
+  LEADERBOARD_UPDATE
+  VIP_EXPIRING
+  VIP_EXPIRED
+  SYSTEM
+  MODERATION
+  CHALLENGE_RECEIVED
+  CHALLENGE_ACCEPTED
+  CHALLENGE_DECLINED
+  CHALLENGE_COMPLETED
+  COMPETITION_CREATED
+  COMPETITION_STARTING
+  COMPETITION_ENDED
+  COMPETITION_RESULT
+  AGENT_ORDER_CREATED
+  AGENT_PAYMENT_SUBMITTED
+  AGENT_COINS_RELEASED
+  AGENT_ORDER_TIMEOUT
+  AGENT_DISPUTE_OPENED
+  AGENT_DISPUTE_RESOLVED
+  AGENT_APPLICATION_RECEIVED
+  AGENT_APPLICATION_APPROVED
+  AGENT_APPLICATION_REJECTED
+  AGENT_SUSPENDED
+  AGENT_PAYMENT_ACCOUNT_APPROVED
+  AGENT_PAYMENT_ACCOUNT_REJECTED
+  AGENT_ADMIN_MESSAGE
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  data      Json?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ─── Economy ────────────────────────────────────────────────────
+
+enum CurrencyType {
+  COINS
+  GAME_POINTS
+}
+
+enum LedgerType {
+  CREDIT
+  DEBIT
+}
+
+enum EconomyTransactionType {
+  COIN_CREDIT
+  COIN_DEBIT
+  GAME_POINT_CREDIT
+  GAME_POINT_DEBIT
+  GIFT_SEND
+  GIFT_RECEIVE
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REVERSED
+}
+
+enum TransactionReferenceType {
+  GIFT
+  REWARD
+  PURCHASE
+  GAME
+  ADMIN
+  TRANSFER
+  DAILY_REWARD
+  TASK
+  ACHIEVEMENT
+  REFUND
+  AGENT_ORDER
+  WITHDRAWAL
+}
+
+model Wallet {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  coinsBalance      Int      @default(0)
+  gamePointsBalance Int      @default(0)
+  version           Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  walletTransactions WalletTransaction[]
+  sentGifts          GiftTransaction[]   @relation("GiftSender")
+  receivedGifts      GiftTransaction[]   @relation("GiftRecipient")
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String                   @id @default(uuid())
+  walletId      String
+  userId        String
+  type          EconomyTransactionType
+  ledgerType    LedgerType
+  currency      CurrencyType
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  referenceType TransactionReferenceType
+  referenceId   String?
+  description   String
+  status        WalletTransactionStatus  @default(SUCCEEDED)
+  createdAt     DateTime                 @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  coinProvenances   CoinProvenance[]
+  adjustmentApproval AdminAdjustmentApproval?
+
+  @@index([walletId, createdAt])
+  @@index([userId, createdAt])
+  @@index([referenceType, referenceId])
+  @@map("wallet_transactions")
+}
+
+model Gift {
+  id                  String   @id @default(uuid())
+  name                String
+  description         String   @default("")
+  imageUrl            String?
+  coinPrice           Int
+  recipientPointValue Int
+  isAnimated          Boolean  @default(false)
+  isLimited           Boolean  @default(false)
+  limitedQuantity     Int?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  transactions GiftTransaction[]
+
+  @@index([isActive])
+  @@map("gifts")
+}
+
+model GiftTransaction {
+  id                      String   @id @default(uuid())
+  senderId                String
+  recipientId             String
+  giftId                  String
+  quantity                Int
+  totalCoins              Int
+  totalGamePoints         Int
+  coinPriceAtTransaction  Int
+  pointValueAtTransaction Int
+  senderWalletId          String
+  recipientWalletId       String
+  createdAt               DateTime @default(now())
+  // Immutable copy of the exact success response returned at send time
+  // (CORRECTION 3). Null on rows created before this column existed; those
+  // replay through a safe legacy path that never reads the live catalog.
+  responseSnapshot        Json?
+
+  sender    Wallet @relation("GiftSender", fields: [senderWalletId], references: [id], onDelete: Restrict)
+  recipient Wallet @relation("GiftRecipient", fields: [recipientWalletId], references: [id], onDelete: Restrict)
+  gift      Gift   @relation(fields: [giftId], references: [id], onDelete: Restrict)
+
+  @@index([senderId, createdAt])
+  @@index([recipientId, createdAt])
+  @@index([giftId])
+  @@index([createdAt])
+  @@map("gift_transactions")
+}
+
+model IdempotencyRecord {
+  id          String   @id @default(uuid())
+  userId      String
+  key         String
+  operation   String
+  status      String   @default("SUCCEEDED")
+  responseKey String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("idempotency_records")
+}
+
+// ─── VIP ────────────────────────────────────────────────────────
+
+enum VipTier {
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum VipStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model VipMembership {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  tier      VipTier
+  status    VipStatus @default(ACTIVE)
+  startedAt DateTime
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([status])
+  @@map("vip_memberships")
+}
+
+// ─── XP / Levels ────────────────────────────────────────────────
+
+model UserProgress {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  xp        Int      @default(0)
+  level     Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_progress")
+}
+
+model UserXpEvent {
+  id            String   @id @default(uuid())
+  userId        String
+  xp            Int
+  reason        String
+  referenceType String
+  referenceId   String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Prevents duplicate XP award for the same action/reference
+  @@unique([referenceType, referenceId, userId])
+  @@index([userId, createdAt])
+  @@map("user_xp_events")
+}
+
+// ─── Daily Tasks ────────────────────────────────────────────────
+
+enum TaskType {
+  DAILY
+  WEEKLY
+  MONTHLY
+  ONE_TIME
+  ACHIEVEMENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CLAIMED
+  EXPIRED
+}
+
+model TaskDefinition {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  type            TaskType
+  title           String
+  description     String?  @db.Text
+  target          Int      @default(1)
+  xpReward        Int      @default(0)
+  coinReward      Int      @default(0)
+  gamePointReward Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  userTasks UserTask[]
+
+  @@index([type])
+  @@index([isActive])
+  @@map("task_definitions")
+}
+
+model UserTask {
+  id          String     @id @default(uuid())
+  userId      String
+  taskId      String
+  progress    Int        @default(0)
+  status      TaskStatus @default(IN_PROGRESS)
+  periodKey   String? // canonical date (YYYY-MM-DD) for DAILY tasks
+  completedAt DateTime?
+  claimedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task TaskDefinition @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskId, periodKey])
+  @@index([userId, status])
+  @@index([taskId])
+  @@map("user_tasks")
+}
+
+// ─── Streaks ────────────────────────────────────────────────────
+
+model DailyStreak {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  currentStreak   Int      @default(0)
+  longestStreak   Int      @default(0)
+  lastActivityDay String? // canonical UTC date (YYYY-MM-DD)
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("daily_streaks")
+}
+
+// ─── Rewards ────────────────────────────────────────────────────
+
+model RewardClaim {
+  id              String   @id @default(uuid())
+  userId          String
+  sourceType      String
+  sourceId        String
+  xpReward        Int      @default(0)
+  coinReward      Int      @default(0)
+  gamePointReward Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // A given reward source can only be claimed once per user
+  @@unique([userId, sourceType, sourceId])
+  @@index([userId])
+  @@map("reward_claims")
+}
+
+// ─── Achievements ───────────────────────────────────────────────
+
+enum AchievementCategory {
+  SOCIAL
+  CHAT
+  ECONOMY
+  GAME
+  ENGAGEMENT
+  MILESTONE
+}
+
+model Achievement {
+  id              String              @id @default(uuid())
+  key             String              @unique
+  category        AchievementCategory
+  title           String
+  description     String?             @db.Text
+  xpReward        Int                 @default(0)
+  coinReward      Int                 @default(0)
+  gamePointReward Int                 @default(0)
+  iconUrl         String?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  userAchievements UserAchievement[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
+}
+
+// ─── Games ─────────────────────────────────────────────────────
+
+enum GameType {
+  CRASH_POINT
+  LUCKY_SPIN
+  DICE
+  TRIVIA
+  NUMBER_CHALLENGE
+  SPIN_WIN
+  THUNDER_DERBY_3D
+  NEON_HOUNDS_3D
+  TURBO_CIRCUIT_3D
+  STARFALL_NEBULA
+  JUNGLE_DASH_3D
+  TURBO_KENO
+  CRYSTAL_TRAIL
+  HEAT_VAULT
+  STRAIT_RUSH
+}
+
+enum GameSessionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum GameMode {
+  WAGER
+  BONUS
+  @@map("game_mode")
+}
+
+enum GameFamily {
+  INSTANT
+  SCHEDULED_DRAW
+  SCHEDULED_RACE
+  @@map("game_family")
+}
+
+enum GameCatalogStatus {
+  AVAILABLE
+  COMING_SOON
+  RETIRED
+  @@map("game_catalog_status")
+}
+
+enum PlayContext {
+  SOLO_WAGER
+  COMPETITION_ROUND
+  CHALLENGE_ROUND
+  BONUS
+  @@map("play_context")
+}
+
+enum CoinProvenanceType {
+  CONVERSION
+  PURCHASE
+  GAME_WIN
+  TRIVIA_REWARD
+  REFERRAL_REWARD
+  PROMOTION
+  GIFT_SENT
+  GIFT_RECEIVED
+  BONUS_UNLOCK
+  WITHDRAWAL
+  ADMIN_ADJUSTMENT
+  COMPETITION_PRIZE
+  TASK_REWARD
+  // Coins whose balance predates (or otherwise bypassed) provenance
+  // tracking. Minted defensively — never assumed unrestricted — by the
+  // legacy backfill migration and by the runtime allocator's gap-lot
+  // fallback in provenance-service.ts. See LEGACY_REQUIRED_PLAYTHROUGH.
+  LEGACY_UNTRACKED
+  @@map("coin_provenance_type")
+}
+
+enum CoinRestrictionStatus {
+  RESTRICTED
+  UNRESTRICTED
+  PLAYING_THROUGH
+  EXPIRED
+  @@map("coin_restriction_status")
+}
+
+enum CountryCasinoStatus {
+  ENABLED
+  DISABLED
+  RESTRICTED
+  @@map("country_casino_status")
+}
+
+enum LotClass {
+  WITHDRAWABLE
+  RESTRICTED
+  UNCLASSIFIED
+  @@map("lot_class")
+}
+
+enum LotState {
+  OPEN
+  CONVERTED
+  EXHAUSTED
+  EXPIRED
+  RECLASSIFIED
+  FORFEITED
+  @@map("lot_state")
+}
+
+enum PolicyState {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  DISABLED
+  @@map("policy_state")
+}
+
+enum OperationType {
+  SCHEDULED_STAKE_HOLD
+  SCHEDULED_STAKE_REFUND
+  SCHEDULED_STAKE_SETTLE
+  PURCHASE
+  BONUS_GRANT
+  WAGER
+  PAYOUT
+  GIFT_SPEND
+  P2P_TRANSFER
+  COMPETITION_ESCROW
+  COMPETITION_RELEASE
+  COMPETITION_PAYOUT
+  WITHDRAWAL_HOLD
+  WITHDRAWAL_RELEASE
+  WITHDRAWAL_FINALIZE
+  BONUS_CONVERSION
+  BONUS_EXPIRY
+  LEGACY_OPENING
+  LEGACY_RESOLVE
+  ADMIN_ADJUST
+  ADMIN_QUALIFY
+  COMPENSATION
+  @@map("operation_type")
+}
+
+enum EntryType {
+  MINT
+  CONSUME
+  RETURN
+  RESERVE
+  RELEASE
+  FINALIZE
+  TRANSFER_OUT
+  TRANSFER_IN
+  PROGRESS
+  CONVERT_OUT
+  CONVERT_IN
+  FORFEIT
+  RECLASS_OUT
+  RECLASS_IN
+  @@map("entry_type")
+}
+
+model GameDefinition {
+  id                   String               @id @default(uuid())
+  key                  String               @unique
+  name                 String
+  description          String?              @db.Text
+  type                 GameType
+  isActive             Boolean              @default(true)
+  minBet               Int                  @default(1)
+  maxBet               Int                  @default(1000)
+  configuration        Json                 // server-only: probabilities, outcomes, etc.
+  mode                 GameMode
+  family               GameFamily
+  catalogStatus        GameCatalogStatus
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  currentRulesVersion  Int?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  sessions             GameSession[]
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
+  rules                GameRules[]
+
+  @@index([isActive])
+  @@index([key])
+  @@index([catalogStatus])
+  @@map("game_definitions")
+}
+
+model GameRules {
+  id                   String       @id @default(uuid())
+  gameId               String
+  version              Int
+  mode                 GameMode
+  family               GameFamily
+  wagerCurrency        CurrencyType?
+  rewardCurrency       CurrencyType
+  rules                Json
+  resultSchemaVersion  Int
+  rulesHash            String
+  createdAt            DateTime     @default(now())
+
+  game                 GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenges           GameChallenge[]
+  competitions         GroupCompetition[]
+
+  @@unique([gameId, version])
+  @@index([gameId])
+  @@map("game_rules")
+}
+
+model CountryCasinoPolicy {
+  scheduledStakeHolds ScheduledStakeHold[]
+  id                      String             @id @default(uuid())
+  countryCode             String
+  version                 Int
+  status                  CountryCasinoStatus @default(DISABLED)
+  enabledAt               DateTime?
+  disabledAt              DateTime?
+  minWithdrawal           Int                @default(0)
+  maxWithdrawal           Int                @default(0)
+  dailyWithdrawalLimit    Int                @default(0)
+  monthlyWithdrawalLimit  Int                @default(0)
+  playthroughMultiplier   Decimal            @default(1.0) @db.Decimal(6, 2)
+  qualifyingGames         Json               @default("[]")
+  maxQualifyingStake      Int                @default(0)
+  holdingPeriodHours      Int                @default(0)
+  giftDailyLimit          Int                @default(0)
+  kycTierRequired         Int                @default(0)
+  supportedPaymentMethods Json               @default("[]")
+  withdrawalFeePercent    Decimal            @default(0) @db.Decimal(5, 4)
+  manualReviewThreshold   Int                @default(0)
+  notes                   String?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  state                   PolicyState?
+  thresholdsConfiguredAt  DateTime?
+  configurationAttestation Json?
+  configuredBy            String?
+  activatedAt             DateTime?
+  activatedBy             String?
+  maxConversionMultiple   Decimal?           @db.Decimal(10, 2)
+  bonusExpiryHours        Int?
+
+  coinProvenances         CoinProvenance[]
+  economicOperations      EconomicOperation[]
+  activeJurisdiction      CountryJurisdiction? @relation("ActiveCasinoPolicy")
+
+  @@unique([countryCode, version])
+  @@index([countryCode])
+  @@index([status])
+  @@map("country_casino_policies")
+}
+
+model CoinProvenance {
+  id                       String                  @id @default(uuid())
+  userId                   String
+  walletTransactionId      String?
+  amount                   Int
+  provenanceType           CoinProvenanceType
+  restrictionStatus        CoinRestrictionStatus   @default(RESTRICTED)
+  originalSource           CoinProvenanceType?
+  originalGrantReferenceType String?
+  originalGrantReferenceId String?
+  countryPolicyId          String?
+  countryPolicyVersion     Int?
+  requiredPlaythrough      Int                     @default(0)
+  completedPlaythrough     Int                     @default(0)
+  giftChainOriginId        String?
+  giftChainParentId        String?
+  expiresAt                DateTime?
+  unlockedAt               DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  bonusRule                String?
+  lotClass                 LotClass?
+  state                    LotState?
+  availableAmount          Int?
+  reservedAmount           Int?
+  requirementAmount        Int?
+  progressAmount           Int?
+  mintedAt                 DateTime?
+  availableAt              DateTime?
+  closedAt                 DateTime?
+  sourceOperationId        String?
+  parentLotId              String?
+  rootLotId                String?
+  reviewId                 String?
+
+  user                     User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  walletTransaction        WalletTransaction?      @relation(fields: [walletTransactionId], references: [id], onDelete: SetNull)
+  countryPolicy            CountryCasinoPolicy?    @relation(fields: [countryPolicyId], references: [id], onDelete: SetNull)
+  allocations              CoinAllocation[]
+  entries                  CoinLotEntry[] @relation("LotEntry")
+  counterpartyEntries      CoinLotEntry[] @relation("CounterpartyLotEntry")
+  sourceOperation          EconomicOperation? @relation("OperationSourceLot", fields: [sourceOperationId], references: [id], onDelete: Restrict, map: "coin_provenance_sourceOperation_fkey")
+  parentLot                CoinProvenance? @relation("CoinLotParent", fields: [parentLotId], references: [id], onDelete: Restrict, map: "coin_provenance_parentLot_fkey")
+  childLots                CoinProvenance[] @relation("CoinLotParent")
+  rootLot                  CoinProvenance? @relation("CoinLotRoot", fields: [rootLotId], references: [id], onDelete: Restrict, map: "coin_provenance_rootLot_fkey")
+  rootedLots               CoinProvenance[] @relation("CoinLotRoot")
+  review                   LegacyBalanceReview? @relation("LotSelectedReview", fields: [reviewId], references: [id], onDelete: Restrict, map: "coin_provenance_review_fkey")
+  reviews                  LegacyBalanceReview[] @relation("ReviewLot")
+
+  @@index([userId])
+  @@index([userId, restrictionStatus])
+  @@index([walletTransactionId])
+  @@map("coin_provenance")
+  @@index([userId, state, lotClass, id], map: "coin_provenance_funding_idx")
+  @@index([sourceOperationId], map: "coin_provenance_sourceOperation_idx")
+  @@index([reviewId], map: "coin_provenance_review_idx")
+}
+
+model EconomicOperation {
+  scheduledHold ScheduledStakeHold? @relation("ScheduledHoldOperation")
+  scheduledRefund ScheduledStakeHold? @relation("ScheduledRefundOperation")
+  scheduledSettlement ScheduledStakeHold? @relation("ScheduledSettlementOperation")
+  houseTicketResolution HouseTicketResolution?
+  id                   String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type                 OperationType
+  userId               String
+  scopeType            String
+  scopeId              String
+  idempotencyKey       String?
+  requestHash          String?
+  countryPolicyId      String?
+  countryPolicyVersion Int?
+  walletTransactionIds String[] @default([])
+  reversesOperationId  String? @unique
+  snapshot             Json?
+  createdBy            String
+  createdAt            DateTime @default(now())
+
+  user                 User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "economic_operations_user_fkey")
+  countryPolicy        CountryCasinoPolicy? @relation(fields: [countryPolicyId], references: [id], onDelete: Restrict, map: "economic_operations_policy_fkey")
+  reversesOperation    EconomicOperation? @relation("EconomicOperationReversal", fields: [reversesOperationId], references: [id], onDelete: Restrict, map: "economic_operations_reverses_fkey")
+  reversedByOperation  EconomicOperation? @relation("EconomicOperationReversal")
+  entries              CoinLotEntry[]
+  sourceLots           CoinProvenance[] @relation("OperationSourceLot")
+  reviewsResolved      LegacyBalanceReview[]
+  adjustmentApproval   AdminAdjustmentApproval?
+  withdrawalHolds      WithdrawalHold[]
+
+  @@unique([type, scopeType, scopeId], map: "economic_operations_scope_key")
+  @@index([userId, createdAt], map: "economic_operations_user_created_idx")
+  @@index([countryPolicyId, countryPolicyVersion], map: "economic_operations_policy_idx")
+  @@map("economic_operations")
+}
+
+model CoinLotEntry {
+  id                String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  operationId       String
+  lotId             String
+  userId            String
+  entryType         EntryType
+  availableDelta    Int @default(0)
+  reservedDelta     Int @default(0)
+  progressDelta     Int @default(0)
+  obligationDelta   Int @default(0)
+  obligationShare   Int?
+  counterpartyLotId String?
+  reversesEntryId   String? @unique
+  sequence          Int
+  createdAt         DateTime @default(now())
+
+  operation         EconomicOperation @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "coin_lot_entries_operation_fkey")
+  lot               CoinProvenance @relation("LotEntry", fields: [lotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_lot_fkey")
+  user              User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_lot_entries_user_fkey")
+  counterpartyLot   CoinProvenance? @relation("CounterpartyLotEntry", fields: [counterpartyLotId], references: [id], onDelete: Restrict, map: "coin_lot_entries_counterparty_fkey")
+  reversesEntry     CoinLotEntry? @relation("CoinEntryReversal", fields: [reversesEntryId], references: [id], onDelete: Restrict, map: "coin_lot_entries_reverses_fkey")
+  reversedByEntry   CoinLotEntry? @relation("CoinEntryReversal")
+
+  @@unique([operationId, sequence], map: "coin_lot_entries_operation_sequence_key")
+  @@index([lotId, createdAt, id], map: "coin_lot_entries_lot_idx")
+  @@index([userId, createdAt], map: "coin_lot_entries_user_idx")
+  @@index([operationId], map: "coin_lot_entries_operation_idx")
+  @@map("coin_lot_entries")
+}
+
+model CountryJurisdiction {
+  countryCode    String @id
+  activePolicyId String? @unique
+  updatedAt      DateTime @default(now())
+
+  country        Country @relation(fields: [countryCode], references: [code], onDelete: Restrict, map: "country_jurisdictions_country_fkey")
+  activePolicy   CountryCasinoPolicy? @relation("ActiveCasinoPolicy", fields: [activePolicyId], references: [id], onDelete: Restrict, map: "country_jurisdictions_activePolicy_fkey")
+
+  @@map("country_jurisdictions")
+}
+
+model UserKycVerification {
+  userId       String @id
+  verifiedTier Int @default(0)
+  verifiedAt   DateTime?
+  verifiedBy   String?
+  status       String @default("PENDING")
+
+  user         User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "user_kyc_verifications_user_fkey")
+
+  @@map("user_kyc_verifications")
+}
+
+model CoinLedgerAccount {
+  userId              String @id
+  classifiedAt        DateTime?
+  classificationRunId String?
+
+  user                User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "coin_ledger_accounts_user_fkey")
+
+  @@map("coin_ledger_accounts")
+}
+
+model LegacyBalanceReview {
+  id                    String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId                String
+  lotId                 String
+  amount                Int
+  evidence              Json @default("{}")
+  status                String @default("OPEN")
+  resolvedBy            String?
+  secondApproverId      String?
+  resolutionOperationId String? @unique
+  createdAt             DateTime @default(now())
+  resolvedAt            DateTime?
+
+  user                  User @relation(fields: [userId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_user_fkey")
+  lot                   CoinProvenance @relation("ReviewLot", fields: [lotId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_lot_fkey")
+  selectedByLots        CoinProvenance[] @relation("LotSelectedReview")
+  resolutionOperation   EconomicOperation? @relation(fields: [resolutionOperationId], references: [id], onDelete: Restrict, map: "legacy_balance_reviews_resolutionOperation_fkey")
+
+  @@index([userId, status], map: "legacy_balance_reviews_user_status_idx")
+  @@map("legacy_balance_reviews")
+}
+
+/// A signed Coin adjustment of one user, approved by two distinct SUPER_ADMINs
+/// before exactly one ADMIN_ADJUST operation executes it. Its lifecycle and the
+/// operation it authorizes are enforced by the database (migration
+/// 20260924010000_ledger_resolution_authorization).
+model AdminAdjustmentApproval {
+  id                  String    @id @default(uuid())
+  userId              String
+  /// Signed Coins: positive mints UNCLASSIFIED value, negative consumes lots.
+  amount              Int
+  caseId              String    @unique
+  evidence            Json
+  status              String    @default("PENDING")
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  firstApproverId     String?
+  firstApprovedAt     DateTime?
+  secondApproverId    String?
+  secondApprovedAt    DateTime?
+  operationId         String?   @unique
+  walletTransactionId String?   @unique
+  executedAt          DateTime?
+  closedBy            String?
+  closedAt            DateTime?
+  closeReason         String?
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_user_fkey")
+  operation         EconomicOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_operation_fkey")
+  walletTransaction WalletTransaction? @relation(fields: [walletTransactionId], references: [id], onDelete: Restrict, map: "admin_adjustment_approvals_walletTransaction_fkey")
+
+  @@index([userId, status])
+  @@map("admin_adjustment_approvals")
+}
+
+/// A key that verifies signed ledger approval assertions. Owner only: the
+/// runtime role can neither read nor write it (ledger_apply_runtime_grants).
+model LedgerApprovalKey {
+  keyId       String    @id
+  secret      Bytes
+  installedAt DateTime  @default(now())
+  retiredAt   DateTime?
+
+  assertions LedgerApprovalAssertion[]
+
+  @@map("ledger_approval_keys")
+  @@ignore
+}
+
+/// One approval decision, signed by the API for exactly these terms; append
+/// only, written only by the ledger_* approval procedures.
+model LedgerApprovalAssertion {
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  subjectType    String
+  subjectId      String
+  action         String
+  actorId        String
+  userId         String
+  amount         Decimal  @db.Decimal
+  caseId         String
+  evidenceDigest String
+  nonce          String   @unique
+  keyId          String
+  signature      String
+  recordedAt     DateTime @default(now())
+
+  key LedgerApprovalKey @relation(fields: [keyId], references: [keyId], onDelete: Restrict, onUpdate: Restrict, map: "ledger_approval_assertions_key_fkey") @ignore
+
+  @@index([subjectType, subjectId, action], map: "ledger_approval_assertions_subject_idx")
+  @@map("ledger_approval_assertions")
+}
+
+model InvariantCheckRun {
+  id         String @id @default(dbgenerated("(gen_random_uuid())::text"))
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  violations Json @default("[]")
+  passed     Boolean @default(false)
+
+  platformGates PlatformGate[]
+  @@map("invariant_check_runs")
+}
+
+model PlatformGate {
+  key                String @id
+  enabled            Boolean @default(false)
+  changedBy          String?
+  changedAt          DateTime @default(now())
+  lastInvariantRunId String?
+
+  lastInvariantRun InvariantCheckRun? @relation(fields: [lastInvariantRunId], references: [id], onDelete: Restrict, map: "platform_gates_lastInvariantRun_fkey")
+  @@map("platform_gates")
+}
+
+model CoinAllocation {
+  id              String          @id @default(uuid())
+  userId          String
+  gameSessionId   String?
+  provenanceId    String
+  allocatedAmount Int
+  provenanceType  CoinProvenanceType
+  wasRestricted   Boolean         @default(false)
+  allocationOrder Int             @default(0)
+  createdAt       DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provenance      CoinProvenance  @relation(fields: [provenanceId], references: [id], onDelete: Restrict)
+  gameSession     GameSession?    @relation(fields: [gameSessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([gameSessionId])
+  @@index([provenanceId])
+  @@map("coin_allocations")
+}
+
+model GameSession {
+  houseTicketResolution HouseTicketResolution?
+  id                      String             @id @default(uuid())
+  userId                  String
+  gameId                  String
+  challengeId             String?
+  status                  GameSessionStatus  @default(PENDING)
+  betAmount               Int
+  result                  Json               // server-generated canonical result
+  rewardAmount            Int                @default(0)
+  isWin                   Boolean            @default(false)
+  idempotencyKey          String?
+  createdAt               DateTime           @default(now())
+  completedAt             DateTime?
+
+  // Rule snapshots (populated for every new session)
+  mode                    GameMode?
+  family                  GameFamily?
+  wagerCurrency           CurrencyType?
+  rewardCurrency          CurrencyType?
+  rulesVersion            Int?
+  resultSchemaVersion     Int?
+
+  // Actual per-session wallet settlement currencies
+  settlementDebitCurrency CurrencyType?
+  settlementCreditCurrency CurrencyType?
+
+  // Immutable snapshots
+  requestSnapshot         Json?
+  responseSnapshot        Json?
+  fingerprint             String?
+  selections              Json?
+  playContext             PlayContext?
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  game      GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  challenge GameChallenge? @relation(fields: [challengeId], references: [id], onDelete: SetNull)
+  allocations CoinAllocation[]
+
+  @@unique([userId, idempotencyKey])
+  @@unique([challengeId, userId])
+  @@index([userId, createdAt])
+  @@index([gameId])
+  @@index([idempotencyKey])
+  @@index([challengeId])
+  @@index([gameId, rulesVersion])
+  @@index([userId, fingerprint])
+  @@map("game_sessions")
+}
+
+model TriviaQuestion {
+  id           String   @id @default(uuid())
+  question     String   @db.Text
+  choices      Json // string array of answer choices
+  correctIndex Int
+  category     String?
+  difficulty   Int      @default(1)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  attempts                  UserTriviaAttempt[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
+
+  @@index([isActive])
+  @@map("trivia_questions")
+}
+
+// Tracks each user's attempt on a trivia question so that a known-correct
+// answer cannot be replayed indefinitely to farm Game Points. The unique
+// constraint ensures one attempt per (user, question).
+model UserTriviaAttempt {
+  id         String   @id @default(uuid())
+  userId     String
+  questionId String
+  answeredAt DateTime @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question TriviaQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@index([userId, answeredAt])
+  @@map("user_trivia_attempts")
+}
+
+// Tracks each user's attempt on a trivia question within a competition.
+// This is separate from UserTriviaAttempt because competition trivia
+// has different replay boundaries (per competition, not global).
+model CompetitionTriviaAttempt {
+  id            String   @id @default(uuid())
+  userId        String
+  competitionId String
+  questionId    String
+  answeredAt    DateTime @default(now())
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competition GroupCompetition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  question    TriviaQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, competitionId, questionId])
+  @@index([userId, competitionId])
+  @@index([competitionId, questionId])
+  @@map("competition_trivia_attempts")
+}
+
+// ─── Friend Challenges ──────────────────────────────────────────
+
+enum ChallengeStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+model GameChallenge {
+  id           String          @id @default(uuid())
+  challengerId String
+  challengedId String
+  gameId       String
+  /// The immutable game_rules version this challenge was created under.
+  rulesVersion Int
+  entryAmount  Int
+  status       ChallengeStatus @default(PENDING)
+  winnerId     String?
+  resultMeta   Json?
+  expiresAt    DateTime
+  createdAt    DateTime        @default(now())
+  acceptedAt   DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  challenger   User           @relation("ChallengeSender", fields: [challengerId], references: [id], onDelete: Cascade)
+  challenged   User           @relation("ChallengeReceiver", fields: [challengedId], references: [id], onDelete: Cascade)
+  winner       User?          @relation("ChallengeWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  game         GameDefinition @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules        GameRules      @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "game_challenges_rules_fkey")
+  gameSessions GameSession[]
+
+  @@index([challengerId, createdAt])
+  @@index([challengedId, createdAt])
+  @@index([gameId])
+  @@index([status])
+  @@map("game_challenges")
+}
+
+// ─── Group Competitions ─────────────────────────────────────────
+
+enum CompetitionStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum CompetitionScoring {
+  DICE_SUM
+  NUMBER_DISTANCE
+  TRIVIA_CORRECT
+  SPIN_MULTIPLIER
+}
+
+model GroupCompetition {
+  id               String             @id @default(uuid())
+  groupId          String
+  gameId           String
+  /// The immutable game_rules version this competition was created under.
+  rulesVersion     Int
+  title            String
+  description      String?            @db.Text
+  status           CompetitionStatus  @default(SCHEDULED)
+  scoring          CompetitionScoring
+  entryAmount      Int                @default(0)
+  maxParticipants  Int?
+  participantCount Int                @default(0)
+  rewardGamePoints Int                @default(0)
+  rewardCoins      Int                @default(0)
+  startsAt         DateTime
+  endsAt           DateTime
+  createdBy        String
+  finalizerId      String?
+  finalizedAt      DateTime?
+  result           Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  group                     Group                      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  game                      GameDefinition             @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rules                     GameRules                  @relation(fields: [gameId, rulesVersion], references: [gameId, version], onDelete: Restrict, onUpdate: Cascade, map: "group_competitions_rules_fkey")
+  creator                   User                       @relation("CompetitionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  finalizer                 User?                      @relation("CompetitionFinalizer", fields: [finalizerId], references: [id], onDelete: SetNull)
+  participants              CompetitionParticipant[]
+  competitionTriviaAttempts CompetitionTriviaAttempt[]
+
+  @@index([groupId, status])
+  @@index([gameId])
+  @@index([status, startsAt])
+  @@map("group_competitions")
+}
+
+model CompetitionParticipant {
+  id            String   @id @default(uuid())
+  competitionId String
+  userId        String
+  // The entry fee ACTUALLY DEBITED from this participant at join time.
+  // Refunds (on cancel) MUST read this field, never the competition's live
+  // entryAmount — that field is mutable after join, so refunding from it
+  // instead of from what was actually collected can mint or destroy currency.
+  // Defaults to 0 so a `db push` against an existing database backfills
+  // pre-existing rows safely (see deployment note in competition-service.ts).
+  entryPaid     Int      @default(0)
+  score         Int      @default(0)
+  gamesPlayed   Int      @default(0)
+  joinedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  competition GroupCompetition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([competitionId, userId])
+  @@index([userId])
+  @@map("competition_participants")
+}
+
+// ─── Country Agent Payment System (Phase C) ──────────────────────
+//
+// Order + reservation + settlement + dispute system. User-side money
+// movement still goes exclusively through applyBalanceChanges /
+// WalletTransaction, unmodified below. Agent inventory is a distinct
+// asset class (sellable coin stock, not a user wallet) with its own
+// append-only ledger — never a second wallet, never a second ledger
+// that can disagree with the existing one.
+//
+// Design reference: Phase B "The Agent Ledger". Locked decisions:
+// no platform fee at launch: exchange-rate economics only (decision 1);
+// admin-only inventory allocation at launch (decision 2); one
+// platform-controlled rate per country/currency, not per-agent
+// (decision 3); referral link set once, before first order, never
+// overwritten (decision 4); single-admin dispute resolution at launch
+// (decision 5); SUPER_ADMIN is the intended authority for direct
+// inventory adjustment — enforced by the service layer in a later
+// phase, Prisma has no role-aware constraint mechanism (decision 6).
+
+enum PaymentMethodType {
+  BANK_TRANSFER
+  MOBILE_PAYMENT
+}
+
+enum AgentStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  TEMPORARILY_SUSPENDED
+  DISABLED
+  UNDER_REVIEW
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PaymentAccountStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  DISABLED
+}
+
+// Exact balance-equation semantics per type (Phase C correction E) —
+// the service layer implementing these belongs to a later phase; this
+// schema only needs to represent the resulting rows correctly.
+//   INITIAL_ALLOCATION:    totalBalance += amount, reservedBalance unchanged
+//   RESERVE:                totalBalance unchanged, reservedBalance += amount
+//   RELEASE_UNUSED:         totalBalance unchanged, reservedBalance -= amount
+//   CONSUME_ON_SETTLEMENT:  totalBalance -= amount, reservedBalance -= amount
+//   ADMIN_ADJUSTMENT:       explicit signed operation; a deduction must never
+//                           take totalBalance below the current reservedBalance
+//                           (cannot remove coins already promised to orders)
+enum InventoryLedgerType {
+  INITIAL_ALLOCATION
+  RESERVE
+  RELEASE_UNUSED
+  CONSUME_ON_SETTLEMENT
+  ADMIN_ADJUSTMENT
+}
+
+// CREATED subsumes "payment instructions shown" (a timestamp, not a status —
+// nothing about legal transitions changes between the two). COMPLETED
+// subsumes "coins released" the same way. ADMIN_REVIEW is a sub-state of
+// Dispute.status, not a top-level order status. See Phase B §7 for the full
+// reasoning behind this seven-state (not ten-state) machine.
+enum AgentOrderStatus {
+  CREATED
+  PAYMENT_SUBMITTED
+  AGENT_TIMEOUT
+  DISPUTE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum SettlementOrigin {
+  AGENT_RELEASE
+  ADMIN_DISPUTE_RESOLUTION
+}
+
+enum DisputeReason {
+  PAYMENT_NOT_RECEIVED
+  WRONG_AMOUNT
+  AGENT_UNRESPONSIVE
+  OTHER
+}
+
+// A partial UNIQUE index (order_id WHERE status IN ('OPEN','ASSIGNED')) is
+// added directly in the migration SQL to enforce "at most one active dispute
+// per order" — Prisma's @@unique cannot express a conditional constraint.
+// See Phase C correction B and the migration file for the exact DDL.
+enum DisputeStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+}
+
+enum DisputeResolution {
+  RELEASE
+  CANCEL
+}
+
+enum MessageSenderRole {
+  ADMIN
+  AGENT
+}
+
+// ─── Withdrawal ──────────────────────────────────────────────────
+
+enum WithdrawalStatus {
+  CREATED
+  HELD
+  // W-1D0: added ahead of W-1D1 lifecycle routes. No transition logic
+  // consumes this value yet — see the migration header for why the
+  // ADD VALUE still lives in its own migration file regardless.
+  PAYOUT_IN_PROGRESS
+  PAYMENT_SUBMITTED
+  DISPUTED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum WithdrawalHoldStatus {
+  ACTIVE
+  CONSUMED
+  REFUNDED
+}
+
+enum WithdrawalSettlementOrigin {
+  USER_CONFIRMED
+  ADMIN_DISPUTE_RESOLUTION
+  DIRECT
+}
+
+// W-1D2A: distinguishes a settlement that completed the payout from one
+// that recorded an admin cancellation/refund. WithdrawalSettlement previously
+// modelled successful completion only; CANCELLED lets it unambiguously record
+// an admin cancellation/refund (refundWalletTransactionId must be present —
+// see the migration's CHECK).
+enum WithdrawalSettlementOutcome {
+  COMPLETED
+  CANCELLED
+}
+
+// W-1D2A: traces where a payment-submission record came from. Every existing
+// (agent-submitted) row defaults to AGENT_SUBMITTED; a future admin-verified
+// evidence path sets ADMIN_VERIFIED. paymentOccurredAt carries when the
+// external fiat payment actually occurred (or was admin-verified to have), so
+// a COMPLETED withdrawal can satisfy the "payment submitted" invariant without
+// relying on the agent-supplied referenceNumber alone.
+enum PaymentSubmissionSource {
+  AGENT_SUBMITTED
+  ADMIN_VERIFIED
+}
+
+enum FiatLiquidityType {
+  INITIAL_FUNDING
+  RESERVE
+  RELEASE
+  CONSUME
+  ADMIN_ADJUSTMENT
+  AGENT_CREDIT
+  AGENT_DEBIT
+}
+
+enum WithdrawalDisputeStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+}
+
+enum WithdrawalDisputeReason {
+  FIAT_NOT_RECEIVED
+  WRONG_FIAT_AMOUNT
+  AGENT_UNRESPONSIVE
+  OTHER
+}
+
+enum WithdrawalDisputeResolution {
+  // Dispute resolved as PAID: consumes the coin hold (coins do NOT
+  // return to the user — they were already exchanged for fiat) and
+  // consumes the fiat reservation. The name is a holdover from an
+  // earlier draft and is potentially misleading in isolation; kept
+  // as-is in W-1D0 rather than renamed, per instruction, since renaming
+  // an already-deployed enum value is out of scope for this hardening
+  // slice.
+  RELEASE_COINS
+  CANCEL_WITHDRAWAL
+}
+
+// ─── Configuration ────────────────────────────────────────────────
+
+model Country {
+  id                  String   @id @default(uuid())
+  code                String   @unique // ISO 3166-1 alpha-2
+  name                String
+  currencyCode        String // ISO 4217, e.g. "NGN"
+  isActive            Boolean  @default(false)
+  agentPaymentEnabled Boolean  @default(false)
+  usdPricingEnabled   Boolean  @default(false) // One-way activation; no fallback to legacy rates
+  displayOrder        Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  paymentMethods       PaymentMethodDefinition[]
+  exchangeRates        ExchangeRateConfig[]
+  agents               Agent[]
+  agentPaymentAccounts AgentPaymentAccount[]
+  withdrawalQuotes     WithdrawalQuote[]
+  userPayoutAccounts   UserPayoutAccount[]
+  casinoJurisdiction   CountryJurisdiction?
+
+  @@index([isActive])
+  @@map("countries")
+}
+
+model PaymentMethodDefinition {
+  id          String            @id @default(uuid())
+  countryId   String
+  type        PaymentMethodType
+  name        String // e.g. "M-Pesa", "GTBank Transfer"
+  fieldSchema Json // which AgentPaymentAccount fields this type requires
+  isActive    Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  country       Country               @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  agentAccounts AgentPaymentAccount[]
+  userPayoutAccounts UserPayoutAccount[]
+
+  @@unique([countryId, type, name])
+  @@index([countryId, isActive])
+  @@map("payment_method_definitions")
+}
+
+model ExchangeRateConfig {
+  id           String   @id @default(uuid())
+  countryId    String
+  fiatCurrency String
+  coinsPerUnit Decimal  @db.Decimal(18, 6) // legacy Coins per smallest fiat unit; display-only for USD pricing
+  pricingPolicy Json? // immutable USD_V1 terms, including observation source/time and expiry
+  isActive     Boolean  @default(true)
+  setBy        String // admin userId
+  effectiveAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+
+  // Selection query the later service layer must use (Phase C correction D):
+  //   country + fiatCurrency + isActive=true + effectiveAt <= now(),
+  //   ordered by effectiveAt DESC, take 1. The resulting value is then
+  //   copied into AgentOrder.exchangeRateValue and never re-read.
+  @@index([countryId, fiatCurrency, isActive, effectiveAt])
+  @@map("exchange_rate_configs")
+}
+
+// ─── Agent identity ───────────────────────────────────────────────
+
+model Agent {
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  countryId       String
+  status          AgentStatus @default(PENDING_VERIFICATION)
+  displayName     String
+  contactEmail    String
+  contactPhone    String?
+  minOrderAmount  Int? // overrides Agent-level default if set
+  maxOrderAmount  Int?
+  suspendedAt     DateTime?
+  suspendedReason String?
+  disabledAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User                   @relation("AgentIdentity", fields: [userId], references: [id], onDelete: Restrict)
+  country         Country                @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  referredUsers   User[]                 @relation("AgentReferrals")
+  applications    AgentApplication[]
+  paymentAccounts AgentPaymentAccount[]
+  inventory       AgentInventory?
+  inventoryLedger AgentInventoryLedger[]
+  orders          AgentOrder[]
+  reservations    AgentReservation[]
+  conversation    AgentConversation?
+  withdrawals     Withdrawal[]
+  // One row per (agent, fiatCurrency) — no longer a to-one relation now
+  // that agentId alone isn't unique (see AgentFiatLiquidity.@@unique).
+  fiatLiquidity   AgentFiatLiquidity[]
+  fiatLiquidityLedger  AgentFiatLiquidityLedger[]
+  withdrawalReservations  WithdrawalLiquidityReservation[]
+  withdrawalPaymentSubmissions WithdrawalPaymentSubmission[]
+
+  @@index([countryId, status])
+  @@map("agents")
+}
+
+model AgentApplication {
+  id            String            @id @default(uuid())
+  agentId       String
+  submittedData Json // only what the platform actually needs — Phase B §7
+  status        ApplicationStatus @default(SUBMITTED)
+  reviewedBy    String? // admin userId
+  reviewNote    String?
+  submittedAt   DateTime          @default(now())
+  reviewedAt    DateTime?
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, submittedAt])
+  @@map("agent_applications")
+}
+
+model AgentPaymentAccount {
+  id             String               @id @default(uuid())
+  agentId        String
+  countryId      String
+  methodDefId    String
+  status         PaymentAccountStatus @default(PENDING_APPROVAL)
+  accountDetails Json // shape validated against methodDef.fieldSchema
+  reviewedBy     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  agent     Agent                   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  country   Country                 @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  methodDef PaymentMethodDefinition @relation(fields: [methodDefId], references: [id], onDelete: Restrict)
+
+  // Phase C correction C: an AgentPaymentAccount's countryId must equal its
+  // methodDef's countryId, and an order's selected account must belong to
+  // the order's own country. Prisma cannot express a cross-field equality
+  // constraint between two foreign keys — the later service layer MUST
+  // verify countryId == methodDef.countryId before approval, and
+  // orderCountryId == account.countryId at order creation. Documented here
+  // rather than forced into unrelated schema complexity, per instruction.
+  @@index([agentId, status])
+  @@map("agent_payment_accounts")
+}
+
+// ─── Agent finance ────────────────────────────────────────────────
+
+model AgentInventory {
+  id              String   @id @default(uuid())
+  agentId         String   @unique
+  totalBalance    Int      @default(0)
+  reservedBalance Int      @default(0)
+  // availableBalance is deliberately NOT a stored column — it is always
+  // totalBalance - reservedBalance, computed at read time. Storing it would
+  // create a second value that could drift from the two that actually matter.
+  version         Int      @default(0) // defense-in-depth, mirrors Wallet.version
+  updatedAt       DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@map("agent_inventories")
+}
+
+model AgentInventoryLedger {
+  id                 String              @id @default(uuid())
+  agentId            String
+  type               InventoryLedgerType
+  amount             Int // always positive; direction implied by type
+  totalBefore        Int
+  totalAfter         Int
+  reservedBefore     Int
+  reservedAfter      Int
+  reservationId      String? // set for RESERVE / RELEASE_UNUSED / CONSUME_ON_SETTLEMENT
+  orderId            String? // denormalized for fast lookup
+  reason             String? // populated only for ADMIN_ADJUSTMENT
+  performedByAdminId String? // populated only for ADMIN_ADJUSTMENT — SUPER_ADMIN only, enforced by the service layer (decision 6)
+  idempotencyKey     String? // admin-supplied, adjustments only
+  createdAt          DateTime            @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@index([orderId])
+  @@index([reservationId])
+  @@map("agent_inventory_ledger")
+}
+
+// ─── Order / settlement ───────────────────────────────────────────
+
+model AgentOrder {
+  id                         String           @id @default(uuid())
+  orderNumber                String           @unique // "AG-000123", human-facing
+  userId                     String
+  agentId                    String
+  // The four fields below are IMMUTABLE SNAPSHOTS, not live foreign keys —
+  // deliberately plain scalars with no Prisma relation, matching the
+  // existing precedent of WalletTransaction.referenceId. An order must
+  // never depend on a country/method/account/rate row that could change or
+  // be disabled after the fact (Phase D exploit lesson, generalized).
+  countryId                  String
+  paymentMethodDefId         String
+  paymentAccountId           String // reference only, non-authoritative — see paymentSnapshot
+  paymentSnapshot            Json // AUTHORITATIVE: exact payment details shown to the user
+  fiatAmount                 Int // smallest fiat unit (e.g. cents), integer
+  fiatCurrency               String
+  exchangeRateConfigId       String
+  exchangeRateValue          Decimal          @db.Decimal(18, 6) // snapshot of the rate itself
+  coinAmount                 Int // floor(fiatAmount * exchangeRateValue), fixed forever
+  status                     AgentOrderStatus @default(CREATED)
+  idempotencyKey             String
+  paymentInstructionsShownAt DateTime         @default(now())
+  paymentSubmittedAt         DateTime?
+  releaseDeadlineAt          DateTime?
+  agentTimeoutAt             DateTime?
+  completedAt                DateTime?
+  cancelledAt                DateTime?
+  expiredAt                  DateTime?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agent       Agent                 @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  reservation AgentReservation?
+  settlement  AgentOrderSettlement?
+  evidence    PaymentEvidence[]
+  disputes    Dispute[]
+
+  // Phase C correction A: the idempotency key identifies the user's
+  // order-creation REQUEST, not the selected agent — a retry of the same
+  // request must resolve to the same order even if agent selection would
+  // otherwise produce a different candidate. Deliberately [userId, key],
+  // not [userId, agentId, key].
+  @@unique([userId, idempotencyKey])
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([status, releaseDeadlineAt]) // the timeout-sweep query
+  @@map("agent_orders")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
+}
+
+model AgentReservation {
+  id         String            @id @default(uuid())
+  orderId    String            @unique // 1:1 — enforces "an order has at most one reservation, a reservation belongs to exactly one order" together
+  agentId    String
+  amount     Int // = order.coinAmount at creation, never independently set — invariant 6
+  status     ReservationStatus @default(ACTIVE)
+  createdAt  DateTime          @default(now())
+  releasedAt DateTime?
+  consumedAt DateTime?
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  agent Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, status])
+  @@map("agent_reservations")
+}
+
+model AgentOrderSettlement {
+  id                  String           @id @default(uuid())
+  orderId             String           @unique // hard backstop against double settlement — mirrors MultiplayerSettlement.roomId
+  reservationId       String // reference only, not a live relation
+  coinAmount          Int
+  walletTransactionId String // the WalletTransaction row applyBalanceChanges produced — soft reference, WalletTransaction is not modified
+  resolvedVia         SettlementOrigin
+  releasedBy          String // agent userId or admin userId
+  settledAt           DateTime         @default(now())
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@map("agent_order_settlements")
+}
+
+// ─── Evidence / dispute ───────────────────────────────────────────
+
+model PaymentEvidence {
+  id               String    @id @default(uuid())
+  orderId          String
+  submittedBy      String // always the order's userId
+  referenceNumber  String?
+  paymentTimestamp DateTime?
+  note             String?
+  fileBucket       String // e.g. "payment-evidence" — served via a NEW authenticated
+  fileKey          String // route in a later phase, never the existing public /storage/:bucket/* path
+  mimeType         String
+  fileSize         Int
+  createdAt        DateTime  @default(now())
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("payment_evidence")
+}
+
+model Dispute {
+  id              String             @id @default(uuid())
+  orderId         String
+  openedBy        String // userId (user, agent, or "SYSTEM" for auto-open on timeout)
+  reason          DisputeReason
+  description     String             @db.Text
+  status          DisputeStatus      @default(OPEN)
+  assignedAdminId String?
+  resolution      DisputeResolution?
+  resolutionNote  String?
+  resolvedBy      String?
+  idempotencyKey  String?
+  openedAt        DateTime           @default(now())
+  assignedAt      DateTime?
+  resolvedAt      DateTime?
+
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // At-most-one-active-dispute-per-order is enforced by a partial unique
+  // index added directly in the migration SQL (Phase C correction B) —
+  // Prisma's @@unique cannot express the required WHERE status IN (...)
+  // condition.
+  @@unique([orderId, idempotencyKey])
+  @@index([orderId, status])
+  @@index([status, openedAt]) // admin queue query
+  @@map("disputes")
+}
+
+// ─── Admin ↔ agent communication ──────────────────────────────────
+
+model AgentConversation {
+  id        String   @id @default(uuid())
+  agentId   String   @unique
+  createdAt DateTime @default(now())
+
+  agent    Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages AgentMessage[]
+
+  @@map("agent_conversations")
+}
+
+model AgentMessage {
+  id               String            @id @default(uuid())
+  conversationId   String
+  senderId         String // admin userId or agent userId
+  senderRole       MessageSenderRole
+  body             String            @db.Text
+  relatedOrderId   String?
+  relatedDisputeId String?
+  readAt           DateTime?
+  createdAt        DateTime          @default(now())
+
+  conversation AgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("agent_messages")
+}
+
+// ─── W-1: Withdrawal ─────────────────────────────────────────────
+//
+// The withdrawal aggregate and its satellite models. Withdrawal is the
+// reverse economic direction of AgentOrder: user gives Coins, agent pays
+// local fiat, user confirms receipt.
+//
+// Lock ordering for every transaction touching both agent fiat liquidity
+// and user wallet:
+//
+//   Withdrawal
+//   → WithdrawalLiquidityReservation
+//   → AgentFiatLiquidity (AGENT RESOURCE)
+//   → WithdrawalHold → Wallet (USER WALLET)
+//
+// Never Wallet first and Agent liquidity second.
+//
+// Fiat minor-unit fields use BigInt (not Int) to support currencies
+// whose minor units exceed Int32 range. API serialization will later
+// expose BigInt values as strings — no service code exists in W-1A.
+
+// ─── W-1A2: Withdrawal quote / user payout destination ───────────
+//
+// W-1A2 correction: W-1A's Withdrawal.paymentAccountId had no backing
+// table and a misleading "agent's payout account" comment — a withdrawal
+// pays the USER, so the destination must be the user's own account, never
+// one of the agent's. UserPayoutAccount is deliberately NOT
+// AgentPaymentAccount reused: that table is agent-owned receiving
+// accounts for coin purchases, a different entity with a different
+// approval lifecycle.
+//
+// WithdrawalQuote is a distinct, persisted entity that exists BEFORE a
+// Withdrawal row and before a payout account is chosen — it is not a
+// wallet hold and does not reserve AgentFiatLiquidity; it only locks in
+// the coin/fiat/rate numbers a Withdrawal will later be created from.
+// Consumption is exactly-once, enforced the same way as every other
+// atomic claim in this schema: an application-level conditional
+// `updateMany(where: {id, status: 'ACTIVE'})` transition to CONSUMED,
+// backed here by Withdrawal.quoteId's own @unique as the structural
+// backstop (same pattern as WithdrawalHold.withdrawalId,
+// AgentOrderSettlement.orderId).
+
+enum WithdrawalQuoteStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+}
+
+model WithdrawalQuote {
+  id                     String                @id @default(uuid())
+  userId                 String
+  countryId              String
+  fiatCurrency           String                // ISO 4217
+  coinAmount             Int                    // coins the withdrawal will debit — locked in at quote time
+  fiatAmount             BigInt                 // smallest fiat unit — locked in at quote time
+  exchangeRateConfigId   String                 // reference to rate config used — never re-read
+  exchangeRateValue      Decimal                @db.Decimal(18, 6) // snapshot of the rate — never re-read
+  requestHash            String                 // SHA-256 of canonical request fields — NOT unique, see below
+  status                 WithdrawalQuoteStatus  @default(ACTIVE)
+  expiresAt              DateTime
+  consumedAt             DateTime?
+  // Denormalized for a fast, join-free "is this quote consumed, by what"
+  // lookup — set atomically in the same claim that flips status to
+  // CONSUMED. Not a live relation (Withdrawal.quoteId is the real FK
+  // driving referential integrity in the other direction).
+  consumedByWithdrawalId String?                @unique
+  createdAt              DateTime               @default(now())
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  country    Country     @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  withdrawal Withdrawal?
+
+  // requestHash is deliberately NOT unique — same reasoning as
+  // Withdrawal.requestHash: a unique constraint here would permanently
+  // block a user from ever requesting the same-shaped quote again (e.g.
+  // the same amount, priced fresh after the first one expired unused).
+  @@index([userId, createdAt])
+  @@index([status, expiresAt]) // sweep: unclaimed/expired quote cleanup
+  @@map("withdrawal_quotes")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
+}
+
+enum UserPayoutAccountStatus {
+  ACTIVE
+  DISABLED
+}
+
+model UserPayoutAccount {
+  id             String                  @id @default(uuid())
+  userId         String
+  countryId      String
+  methodDefId    String
+  accountDetails Json                    // shape validated against methodDef.fieldSchema — same pattern as AgentPaymentAccount
+  displayLabel   String?                 // user-facing label, e.g. "My M-Pesa"
+  status         UserPayoutAccountStatus @default(ACTIVE)
+  disabledAt     DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  country     Country                 @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  methodDef   PaymentMethodDefinition @relation(fields: [methodDefId], references: [id], onDelete: Restrict)
+  withdrawals Withdrawal[]
+
+  // No KYC fields here by design (W-1A2 scope) — see task instructions.
+  @@index([userId, status])
+  @@map("user_payout_accounts")
+}
+
+model Withdrawal {
+  id                     String           @id @default(uuid())
+  withdrawalNumber       String           @unique // "WD-000123", human-facing — via sequence
+  userId                 String
+  agentId                String?          // nullable until assigned at HELD transition
+  quoteId                String           @unique // WithdrawalQuote consumed to create this row — exactly-once backstop
+  requestHash            String           // SHA-256 of canonical request fields — creation idempotency
+  idempotencyKey         String           // client-side dedup — same pattern as AgentOrder
+  countryId              String           // immutable snapshot — never re-read
+  paymentMethodDefId     String           // immutable snapshot — never re-read
+  // W-1A2 correction: this is the USER's fiat payout destination (where the
+  // agent sends money TO), never an agent's own account — the original
+  // W-1A comment on this field was wrong. The Prisma field name reflects
+  // that; @map keeps the already-deployed physical column name unchanged,
+  // so this migration needs no ALTER/RENAME on it at all.
+  userPayoutAccountId    String           @map("paymentAccountId") // immutable snapshot
+  paymentSnapshot        Json             // AUTHORITATIVE: user's payout details — never live FK
+  fiatAmount             BigInt           // smallest fiat unit — immutable
+  fiatCurrency           String           // ISO 4217 — immutable
+  exchangeRateConfigId   String           // reference to rate config used — never re-read
+  exchangeRateValue      Decimal          @db.Decimal(18, 6) // snapshot of the rate — never re-read
+  coinAmount             Int              // coins debited from user — immutable
+  status                 WithdrawalStatus @default(CREATED)
+  quoteExpiresAt         DateTime         // CREATED → EXPIRED sweep
+  // W-1D0: deadline for the ASSIGNED AGENT to submit payment after HELD —
+  // distinct from confirmationDeadlineAt below (the USER's post-submission
+  // confirmation window). Set atomically at withdrawal creation (HELD) —
+  // see nextWithdrawalNumber's neighbor in withdrawal-service.ts. Not a
+  // repurposing of quoteExpiresAt, which stays dead code per the file
+  // header note in withdrawal-service.ts.
+  paymentSubmissionDeadlineAt DateTime?
+  confirmationDeadlineAt DateTime?        // set at PAYMENT_SUBMITTED; PAYMENT_SUBMITTED → DISPUTED sweep
+  paymentSubmittedAt     DateTime?
+  completedAt            DateTime?
+  cancelledAt            DateTime?
+  expiredAt              DateTime?
+  disputedAt             DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agent         Agent?                       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  quote         WithdrawalQuote              @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  payoutAccount UserPayoutAccount            @relation(fields: [userPayoutAccountId], references: [id], onDelete: Restrict)
+  hold        WithdrawalHold?
+  settlement  WithdrawalSettlement?
+  evidence    WithdrawalEvidence[]
+  disputes    WithdrawalDispute[]
+  liquidityReservation WithdrawalLiquidityReservation?
+  // W-1D0: model only — no route creates these yet (see WithdrawalPaymentSubmission / WithdrawalOperation below).
+  paymentSubmission WithdrawalPaymentSubmission?
+  operations        WithdrawalOperation[]
+
+  // Request-level idempotency (client retry) — mirrors AgentOrder pattern.
+  // requestHash is stored but deliberately NOT unique: W-1B compares it
+  // against the row already found by [userId, idempotencyKey] (same key,
+  // same hash => return existing; same key, different hash => 409). A
+  // unique constraint on requestHash alone would permanently block a user
+  // from ever making the same-shaped withdrawal again, which is the normal
+  // case for a saved payout account, not an edge case.
+  @@unique([userId, idempotencyKey])
+  @@index([agentId, status])
+  @@index([userId, status])
+  @@index([status, confirmationDeadlineAt]) // sweep: confirmation timeout
+  @@index([status, quoteExpiresAt])         // sweep: quote expiry
+  @@index([status, paymentSubmissionDeadlineAt]) // W-1D0: sweep: agent payment-submission timeout
+  @@map("withdrawals")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
+}
+
+model WithdrawalHold {
+  id                        String               @id @default(uuid())
+  withdrawalId              String               @unique // 1:1 — hard backstop
+  coinAmount                Int                  // coins held — matches WalletTransaction.amount
+  status                    WithdrawalHoldStatus @default(ACTIVE)
+  debitWalletTransactionId  String               @unique // WalletTransaction.id from COIN_DEBIT at HELD
+  refundWalletTransactionId String?              @unique // WalletTransaction.id from COIN_CREDIT at refund
+  holdOperationId           String?              @unique // economic_operations.id for WITHDRAWAL_HOLD
+  createdAt                 DateTime             @default(now())
+  consumedAt                DateTime?
+  releasedAt                DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+  holdOperation EconomicOperation? @relation(fields: [holdOperationId], references: [id], onDelete: Restrict, map: "withdrawal_holds_holdOperation_fkey")
+
+  @@map("withdrawal_holds")
+}
+
+model WithdrawalSettlement {
+  id                  String                             @id @default(uuid())
+  withdrawalId        String                             @unique // 1:1 hard backstop — mirrors AgentOrderSettlement.orderId
+  reservationId       String                             // reference to WithdrawalLiquidityReservation.id — soft reference
+  coinAmount          Int                                // coins consumed from hold
+  fiatAmount          BigInt                             // fiat amount settled
+  walletTransactionId String                             // the WalletTransaction.id from the hold debit — soft reference
+  resolvedVia         WithdrawalSettlementOrigin
+  // W-1D2A: outcome (COMPLETED vs CANCELLED) is required and must be supplied
+  // explicitly by every settlement write — no Prisma-level default, matching
+  // the migration which backfills pre-existing rows to COMPLETED (historically
+  // settlements only recorded successful completion) and then applies NOT NULL
+  // without a persisted default, so the DB never silently defaults a new row.
+  outcome             WithdrawalSettlementOutcome
+  // W-1D2A: soft reference (no relation/FK) to the dispute this settlement
+  // resolved, if any. Unique — one settlement per dispute. Nullable so a
+  // settlement can also arise directly (USER_CONFIRMED / DIRECT) without a
+  // dispute.
+  disputeId               String?                    @unique
+  // W-1D2A: for a CANCELLED outcome, the WalletTransaction.id from the refund
+  // COIN_CREDIT. Unique, nullable — must be present iff outcome = CANCELLED
+  // (enforced by the migration's CHECK). walletTransactionId above always
+  // stays the ORIGINAL hold debit.
+  refundWalletTransactionId String? @unique
+  // W-1D2A: Prisma-facing name for the user who confirmed or admin who
+  // resolved the settlement. @map keeps the already-deployed physical column
+  // name "completedByUserId" unchanged — no ALTER/RENAME on it.
+  resolvedByUserId    String                             @map("completedByUserId")
+  idempotencyKey      String?                            // per-operation, scoped to withdrawal — NOT per-user
+  createdAt           DateTime                           @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  // Operation-scoped idempotency — prevents duplicate settlement operations
+  // on the same withdrawal. The withdrawalId @unique is the hard backstop;
+  // this compound unique is the idempotency layer.
+  @@unique([withdrawalId, idempotencyKey])
+  @@map("withdrawal_settlements")
+}
+
+model WithdrawalEvidence {
+  id               String   @id @default(uuid())
+  withdrawalId     String
+  submittedBy      String   // userId of the agent who uploaded proof
+  referenceNumber  String?
+  paymentTimestamp DateTime?
+  note             String?  @db.Text
+  fileBucket       String   // served via authenticated route only — never public /storage
+  fileKey          String
+  mimeType         String
+  fileSize         Int
+  createdAt        DateTime @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@index([withdrawalId])
+  @@map("withdrawal_evidence")
+}
+
+model WithdrawalDispute {
+  id              String                    @id @default(uuid())
+  withdrawalId    String
+  openedBy        String                    // userId — user, agent, or "SYSTEM"
+  reason          WithdrawalDisputeReason
+  description     String                    @db.Text
+  status          WithdrawalDisputeStatus   @default(OPEN)
+  assignedAdminId String?
+  resolution      WithdrawalDisputeResolution?
+  resolutionNote  String?
+  resolvedBy      String?
+  // W-1D2A: the Withdrawal status the dispute was opened FROM (e.g. HELD,
+  // PAYOUT_IN_PROGRESS, PAYMENT_SUBMITTED). Nullable so pre-W-1D2A rows (and
+  // any SYSTEM-originated dispute) are not forced to fabricate an origin.
+  openedFromStatus  WithdrawalStatus?
+  // W-1D2A: optional admin escalation note/reason carried with the dispute.
+  escalationReason  String?                   @db.Text
+  idempotencyKey  String?
+  openedAt        DateTime                  @default(now())
+  assignedAt      DateTime?
+  resolvedAt      DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  // At-most-one-active-dispute-per-withdrawal enforced by partial unique
+  // index in migration SQL — same pattern as disputes_active_order_unique.
+  @@unique([withdrawalId, idempotencyKey])
+  @@index([withdrawalId, status])
+  @@index([status, openedAt]) // admin queue query
+  @@map("withdrawal_disputes")
+}
+
+// ─── W-1D0: withdrawal lifecycle hardening (models only) ─────────
+//
+// Both models below exist so W-1D1's lifecycle routes (submit-payment,
+// cancel, confirm-receipt, dispute) have a safe place to persist their
+// state — no route in this repository writes to either table yet, and
+// none of the transition logic that would populate WithdrawalStatus's
+// new PAYOUT_IN_PROGRESS value exists here either.
+
+// An agent's payment-submission record for a withdrawal. Reference-only
+// (referenceNumber/note) — no binary evidence upload here; that needs a
+// new authenticated storage route and is explicitly out of scope for
+// this hardening slice. Distinct from WithdrawalEvidence (fileBucket/
+// fileKey binary uploads) and from AuditLog: a future submit-payment
+// route must persist here, not into AuditLog.
+//
+// withdrawalId is 1:1 (an agent submits payment for a withdrawal at most
+// once) — the field-level @unique is the hard structural backstop, the
+// same role Withdrawal.quoteId's @unique plays for quote consumption.
+// The compound @@unique below is the idempotency-replay layer, mirroring
+// WithdrawalSettlement.@@unique([withdrawalId, idempotencyKey]) exactly:
+// a future route looks up by (withdrawalId, idempotencyKey) — a hit with
+// a matching requestHash is a replay (return the existing row), a hit
+// with a different requestHash is a 409 conflict.
+model WithdrawalPaymentSubmission {
+  id                String                  @id @default(uuid())
+  withdrawalId      String                  @unique
+  agentId           String
+  submittedByUserId String
+  submittedAt       DateTime
+  source            PaymentSubmissionSource @default(AGENT_SUBMITTED) // W-1D2A provenance
+  paymentOccurredAt DateTime?                                      // W-1D2A: when payment actually occurred
+  referenceNumber   String
+  note              String?
+  idempotencyKey    String
+  requestHash       String
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  withdrawal      Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+  agent           Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  submittedByUser User       @relation(fields: [submittedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@map("withdrawal_payment_submissions")
+}
+
+// Narrow, domain-scoped answer to design-doc risk #7 (docs/withdrawal-w1
+// -w2-design.md §10): the existing global IdempotencyRecord is keyed only
+// by (userId, key) with no operation dimension in its unique constraint,
+// so two DIFFERENT withdrawal lifecycle operations that happened to reuse
+// the same client-supplied key could collide. This table is scoped to
+// withdrawal lifecycle actions ONLY (submit-payment, cancel, confirm-
+// receipt, dispute, ...) — it does not replace IdempotencyRecord for any
+// other domain, and (like WithdrawalPaymentSubmission above) no route
+// writes to it yet.
+//
+// Intended future usage, inside a lifecycle route's own state-changing
+// transaction: look up by (withdrawalId, action, idempotencyKey) — a hit
+// with a matching requestHash is an idempotent replay (return the
+// original result via resultType/resultId), a hit with a different
+// requestHash is a 409 conflict, and no hit means the operation may
+// proceed and must insert its own row together with its state mutation.
+// One withdrawal has MANY operations over its lifetime — unlike
+// WithdrawalPaymentSubmission, withdrawalId here is deliberately NOT
+// @unique on its own.
+model WithdrawalOperation {
+  id             String   @id @default(uuid())
+  withdrawalId   String
+  actorUserId    String
+  action         String   // e.g. "SUBMIT_PAYMENT", "CANCEL", "CONFIRM_RECEIPT", "DISPUTE_OPEN"
+  idempotencyKey String
+  requestHash    String
+  resultType     String   // e.g. "Withdrawal", "WithdrawalPaymentSubmission", "WithdrawalDispute"
+  resultId       String   // id of the row this operation produced/affected
+  createdAt      DateTime @default(now())
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+
+  @@unique([withdrawalId, action, idempotencyKey])
+  @@index([withdrawalId, action])
+  @@map("withdrawal_operations")
+}
+
+// ─── Agent fiat liquidity (withdrawal payouts) ──────────────────
+//
+// Separate from AgentInventory (Coin stock). AgentFiatLiquidity tracks
+// local fiat the agent can pay out for withdrawals. Mirrors
+// AgentInventory exactly — same versioned-balance + ledger pattern.
+
+model AgentFiatLiquidity {
+  id              String   @id @default(uuid())
+  agentId         String   // one row per (agent, fiatCurrency) — not unique alone
+  fiatCurrency    String   // ISO 4217 — scopes the balance to a single currency
+  totalBalance    BigInt   @default(0) // fiat minor units
+  reservedBalance BigInt   @default(0) // fiat promised to live withdrawals
+  // availableBalance = totalBalance - reservedBalance — computed at read,
+  // never stored. Same principle as AgentInventory.
+  version         Int      @default(0) // optimistic lock — mirrors Wallet.version
+  updatedAt       DateTime @updatedAt
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, fiatCurrency])
+  @@map("agent_fiat_liquidities")
+}
+
+model AgentFiatLiquidityLedger {
+  id                 String             @id @default(uuid())
+  agentId            String
+  fiatCurrency       String             // matches the AgentFiatLiquidity row this entry moves
+  type               FiatLiquidityType
+  amount             BigInt             // always positive; direction implied by type
+  totalBefore        BigInt
+  totalAfter         BigInt
+  reservedBefore     BigInt
+  reservedAfter      BigInt
+  reservationId      String?            // set for RESERVE / RELEASE / CONSUME
+  withdrawalId       String?            // denormalized for fast lookup
+  reason             String?            // populated only for ADMIN_ADJUSTMENT
+  performedByAdminId String?            // populated only for ADMIN_ADJUSTMENT
+  idempotencyKey     String?            // admin-supplied, adjustments only
+  createdAt          DateTime           @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@unique([agentId, fiatCurrency, idempotencyKey])
+  @@index([agentId, createdAt])
+  @@index([withdrawalId])
+  @@index([reservationId])
+  @@map("agent_fiat_liquidity_ledger")
+}
+
+model WithdrawalLiquidityReservation {
+  id         String            @id @default(uuid())
+  withdrawalId String          @unique // 1:1 — mirrors AgentReservation.orderId
+  agentId    String
+  fiatCurrency String          // matches the AgentFiatLiquidity row reserved against
+  amount     BigInt            // fiat minor units reserved
+  status     ReservationStatus @default(ACTIVE) // reuses existing enum: ACTIVE/RELEASED/CONSUMED
+  createdAt  DateTime          @default(now())
+  releasedAt DateTime?
+  consumedAt DateTime?
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Restrict)
+  agent      Agent      @relation(fields: [agentId], references: [id], onDelete: Restrict)
+
+  @@index([agentId, status])
+  @@map("withdrawal_liquidity_reservations")
+}
+
+// ─── W-0: Security Step-Up Foundation ───────────────────────────
+//
+// Isolated security subsystem for optional step-up authentication on
+// sensitive account operations. Additive only — no existing financial,
+// agent, wallet, or auth model is modified by W-0.
+//
+// SCOPE NOTE: W-0 implements TOTP only. Passkey/WebAuthn credential
+// storage is deliberately NOT modelled here — it requires a WebAuthn
+// verification dependency that this repository does not currently have,
+// and modelling unused tables now would be speculative. The challenge and
+// step-up records below are factor-agnostic so a UserPasskey model can be
+// added later without reshaping them.
+
+enum SecurityFactorStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+  DISABLED
+}
+
+enum SecurityChallengePurpose {
+  TOTP_ENROLLMENT
+  STEP_UP
+}
+
+/// A user's TOTP (RFC 6238) authenticator factor. At most one per user.
+///
+/// `encryptedSecret` is AES-256-GCM ciphertext produced by
+/// apps/api/src/security/crypto.ts — the shared secret is NEVER stored,
+/// logged, audited, or returned in plaintext after enrollment starts.
+model UserTotpFactor {
+  id              String               @id @default(uuid())
+  userId          String               @unique
+  encryptedSecret String               @db.Text
+  status          SecurityFactorStatus @default(PENDING_ACTIVATION)
+  /// Highest RFC 6238 time-step counter already accepted for this factor.
+  /// A code whose time step is <= this value is rejected as a replay.
+  lastUsedTimeStep Int?
+  activatedAt     DateTime?
+  disabledAt      DateTime?
+  lastVerifiedAt  DateTime?
+  failedAttempts  Int                  @default(0)
+  lockedUntil     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("user_totp_factors")
+}
+
+/// Single-use, short-lived, user- and purpose-bound challenge.
+///
+/// `challenge` is high-entropy random and globally unique. Consumption is
+/// an atomic conditional claim (see challenge-service.ts) so a challenge
+/// can never be redeemed twice, even under concurrent requests.
+model SecurityChallenge {
+  id         String                   @id @default(uuid())
+  userId     String
+  purpose    SecurityChallengePurpose
+  challenge  String                   @unique
+  consumedAt DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime                 @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("security_challenges")
+}
+
+/// A bounded, non-reusable proof that a user recently completed step-up
+/// authentication for a specific purpose.
+///
+/// Deliberately NOT a "verified forever" flag: every record carries a
+/// purpose, an expiry, and the `iat` of the access token that was
+/// presented at verification time, so a step-up cannot be replayed for an
+/// unrelated action or carried across a token refresh.
+model StepUpVerification {
+  id         String   @id @default(uuid())
+  userId     String
+  /// Bounded action identifier, e.g. "SENSITIVE_ACCOUNT_OPERATION".
+  purpose    String
+  /// Which factor satisfied the step-up, e.g. "TOTP".
+  factorType String
+  /// `iat` claim of the access token presented at verification.
+  tokenIat   Int
+  verifiedAt DateTime @default(now())
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, expiresAt])
+  @@index([expiresAt])
+  @@map("step_up_verifications")
+}
+
+/// Per-user security policy.
+///
+/// `requiresStepUpForSensitiveOps` is future-facing: it is read by the
+/// step-up primitive but W-0 implements no sensitive operation that
+/// consumes it. It is deliberately NOT named for withdrawal — withdrawal
+/// is W-1 and is not implemented here.
+model UserSecurityPolicy {
+  id                            String   @id @default(uuid())
+  userId                        String   @unique
+  requiresStepUpForSensitiveOps Boolean  @default(false)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_security_policies")
+}
+
+/// Scheduled practice and dormant owner-only financial rounds.
+model ScheduledGameStream {
+  id         String @id
+  gameKey    String @map("game_key")
+  rulesId    String @map("rules_id")
+  mode       String @default("PRACTICE")
+  enabled    Boolean @default(false)
+  anchorMs   BigInt @map("anchor_ms")
+  bettingMs  Int @map("betting_ms")
+  revealMs   Int @map("reveal_ms")
+  resultMs   Int @map("result_ms")
+  rounds     ScheduledGameRound[]
+
+  @@map("scheduled_game_streams")
+}
+
+model ScheduledGameRound {
+  id            String @id
+  streamId      String @map("stream_id")
+  sequence      BigInt
+  gameKey       String @map("game_key")
+  rulesId       String @map("rules_id")
+  mode          String
+  opensMs       BigInt @map("opens_ms")
+  closesMs      BigInt @map("closes_ms")
+  revealEndsMs  BigInt @map("reveal_ends_ms")
+  endsMs        BigInt @map("ends_ms")
+  state         String @default("OPEN")
+  outcome       Int? @db.SmallInt
+  drawnAt       DateTime? @map("drawn_at") @db.Timestamptz(6)
+  cancelReason  String? @map("cancel_reason")
+  randomness    HouseRoundRandomness?
+  beaconPin     HouseRoundBeaconPin?
+  publicationRequest HousePublicationRequest?
+  resolutions   HouseTicketResolution[]
+  tickets       ScheduledPracticeTicket[]
+  stream        ScheduledGameStream @relation(fields: [streamId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([streamId, sequence], map: "scheduled_game_rounds_stream_id_sequence_key")
+  // Pending partial index is installed by SQL; Prisma cannot represent it.
+  @@map("scheduled_game_rounds")
+}
+
+model ScheduledPracticeTicket {
+  roundId    String @map("round_id")
+  userId     String @map("user_id")
+  bets       Json
+  acceptedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("accepted_at") @db.Timestamptz(6)
+  round      ScheduledGameRound @relation(fields: [roundId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  user       User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([roundId, userId])
+  @@index([userId, acceptedAt(sort: Desc)], map: "scheduled_practice_tickets_user")
+  @@map("scheduled_practice_tickets")
+}
+
+/// Dormant source-preserving hold; no public wager API.
+model ScheduledStakeHold {
+  id String @id
+  userId String @map("user_id")
+  amount Int
+  policyId String @map("policy_id")
+  policyVersion Int @map("policy_version")
+  gameKey String @map("game_key")
+  rulesId String @map("rules_id")
+  holdOperationId String @unique @map("hold_operation_id")
+  refundOperationId String? @unique @map("refund_operation_id")
+  settlementOperationId String? @unique @map("settlement_operation_id")
+  resolution HouseTicketResolution?
+  state String @default("HELD")
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  user User @relation(fields:[userId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  policy CountryCasinoPolicy @relation(fields:[policyId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  holdOperation EconomicOperation @relation("ScheduledHoldOperation",fields:[holdOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  refundOperation EconomicOperation? @relation("ScheduledRefundOperation",fields:[refundOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  settlementOperation EconomicOperation? @relation("ScheduledSettlementOperation",fields:[settlementOperationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@index([userId,state],map:"scheduled_stake_holds_user")
+  @@map("scheduled_stake_holds")
+}
+
+/// Dormant owner capital register; funding requires external asset verification.
+model HouseCapitalAccount {
+  currency       String @id
+  fundedAmount   BigInt @default(0) @map("funded_amount")
+  reservedAmount BigInt @default(0) @map("reserved_amount")
+  @@map("house_capital_accounts")
+}
+
+model HouseCapitalFunding {
+  externalReference String @id @map("external_reference")
+  amount            BigInt
+  evidenceSha256    String @map("evidence_sha256")
+  recordedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("recorded_at") @db.Timestamptz(6)
+  @@map("house_capital_fundings")
+}
+
+model HouseRoundReservation {
+  roundId        String @id @map("round_id")
+  stakeTotal     BigInt @map("stake_total")
+  payoutVector   Json @map("payout_vector")
+  drawCount      Int @map("draw_count")
+  maxGrossPayout BigInt @map("max_gross_payout")
+  reservedLoss   BigInt @map("reserved_loss")
+  createdAt      DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  @@map("house_round_reservations")
+}
+
+/// Secret seed is owner-only. Its commitment is pinned before the first ticket.
+model HouseRoundRandomness {
+  roundId String @id @map("round_id")
+  seedHex String @map("seed_hex")
+  commitmentSha256 String @map("commitment_sha256")
+  algorithm String
+  preparedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("prepared_at") @db.Timestamptz(6)
+  revealedAt DateTime? @map("revealed_at") @db.Timestamptz(6)
+  cancelledOutcome Int? @map("cancelled_outcome")
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_round_randomness")
+}
+
+/// Immutable terminal link between a source-preserving ticket and house capital.
+model HouseTicketResolution {
+  holdId String @id @map("hold_id")
+  roundId String @map("round_id")
+  operationId String @unique @map("operation_id")
+  sessionId String @unique @map("session_id")
+  disposition String
+  payout Int
+  houseDelta BigInt @map("house_delta")
+  releasedLoss BigInt @map("released_loss")
+  coinsBalance Int @map("coins_balance")
+  resolvedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("resolved_at") @db.Timestamptz(6)
+  hold ScheduledStakeHold @relation(fields:[holdId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  operation EconomicOperation @relation(fields:[operationId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  session GameSession @relation(fields:[sessionId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@index([roundId],map:"house_ticket_resolutions_round")
+  @@map("house_ticket_resolutions")
+}
+
+
+/// Public proof metadata for dormant future-beacon draws; contains no seed.
+model HouseRoundBeaconPin {
+  roundId String @id @map("round_id")
+  chainHash String @map("chain_hash")
+  beaconRound BigInt @map("beacon_round")
+  beaconTimeMs BigInt @map("beacon_time_ms")
+  pinnedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("pinned_at") @db.Timestamptz(6)
+  signatureHex String? @map("signature_hex")
+  randomnessHex String? @map("randomness_hex")
+  receivedAt DateTime? @map("received_at") @db.Timestamptz(6)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_round_beacon_pins")
+}
+
+/// Immutable public timestamp query. Trust is always supplied by reviewed source configuration.
+model HousePublicationRequest {
+  roundId String @id @map("round_id")
+  authorityId String @map("authority_id")
+  rootCertificateSha256 String @map("root_certificate_sha256")
+  signerCertificateSha256 String @map("signer_certificate_sha256")
+  policyOid String @map("policy_oid")
+  maxAccuracyMs Int @map("max_accuracy_ms")
+  commitment Json
+  commitmentHash String @map("commitment_hash")
+  queryDer Bytes @map("query_der")
+  querySha256 String @map("query_sha256")
+  nonceHex String @map("nonce_hex")
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  round ScheduledGameRound @relation(fields:[roundId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  receipt HousePublicationReceipt?
+  @@map("house_publication_requests")
+}
+
+/// Public DER evidence; stored metadata is reverified before public retrieval or use.
+model HousePublicationReceipt {
+  roundId String @id @map("round_id")
+  responseDer Bytes @map("response_der")
+  responseSha256 String @map("response_sha256")
+  serialHex String @map("serial_hex")
+  observedFromMs BigInt @map("observed_from_ms")
+  observedThroughMs BigInt @map("observed_through_ms")
+  recordedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("recorded_at") @db.Timestamptz(6)
+  request HousePublicationRequest @relation(fields:[roundId], references:[roundId], onDelete:Restrict, onUpdate:Restrict)
+  @@map("house_publication_receipts")
+}
+
+
+model CoinPackage {
+  id           String   @id @default(uuid())
+  name         String
+  coinAmount   Int
+  isActive     Boolean  @default(false)
+  displayOrder Int      @default(0)
+  featured     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("coin_packages")
+}
+
+
+/// Admin-issued temporary credentials never authenticate as a normal session.
+model AgentAccountSetup {
+  userId String @id
+  createdBy String
+  credentialHash String?
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("agent_account_setups")
+}

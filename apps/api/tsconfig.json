@@ -1,0 +1,24 @@
+{
+  "extends": "../../packages/tsconfig/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "declaration": true,
+    "declarationMap": true,
+    "paths": {
+      "@socialplay/shared": ["packages/shared/dist/index.d.ts"],
+      "@socialplay/shared/*": ["packages/shared/dist/*"],
+      "@socialplay/config": ["packages/config/dist/index.d.ts"],
+      "@socialplay/config/*": ["packages/config/dist/*"],
+      "@socialplay/database": ["packages/database/dist/index.d.ts"],
+      "@socialplay/database/*": ["packages/database/dist/*"],
+      "@socialplay/storage": ["packages/storage/dist/index.d.ts"],
+      "@socialplay/storage/*": ["packages/storage/dist/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "build.js"]
+}

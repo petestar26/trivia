@@ -1,0 +1,614 @@
+import { prisma } from '@socialplay/database';
+import { ApiError } from '../middleware/index.js';
+import { assertPlatformAdmin } from '../agents/agent-service.js';
+import { assertSuperAdmin } from '../agents/inventory-service.js';
+
+// W-1B1 Task C: admin fiat liquidity service.
+//
+// AgentFiatLiquidity tracks local fiat an agent can pay out for withdrawals
+// — it is completely separate from AgentInventory (Coin stock for agent
+// orders). This file never reads or writes AgentInventory or
+// AgentInventoryLedger. It mirrors inventory-service.ts's funding/adjustment
+// pattern exactly, scoped by (agentId, fiatCurrency) instead of agentId
+// alone, and using BigInt for every fiat minor-unit value (schema:
+// "Fiat minor-unit fields use BigInt ... to support currencies whose minor
+// units exceed Int32 range").
+
+const FIAT_CURRENCY_RE = /^[A-Z]{3}$/; // ISO 4217, matches Country.currencyCode's own convention
+
+function validateFiatCurrency(fiatCurrency: string) {
+  if (!FIAT_CURRENCY_RE.test(fiatCurrency)) {
+    throw ApiError.badRequest('fiatCurrency must be a 3-letter ISO 4217 code (e.g. "NGN")');
+  }
+}
+
+async function loadTargetAgent(agentId: string, adminId: string) {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+  if (!agent) throw ApiError.notFound('Agent not found');
+  if (agent.userId === adminId) {
+    throw ApiError.forbidden('You cannot fund or adjust your own agent fiat liquidity');
+  }
+  return agent;
+}
+
+// ─── Reads ──────────────────────────────────────────────────────
+
+/**
+ * A not-yet-funded (agent, currency) pair is a legitimate, common state —
+ * mirrors getAgentInventory's `exists: false` shape rather than throwing.
+ */
+export async function getAgentFiatLiquidity(agentId: string, fiatCurrency: string) {
+  validateFiatCurrency(fiatCurrency);
+  const liquidity = await prisma.agentFiatLiquidity.findUnique({
+    where: { agentId_fiatCurrency: { agentId, fiatCurrency } },
+  });
+  if (!liquidity) {
+    return {
+      agentId,
+      fiatCurrency,
+      totalBalance: 0n,
+      reservedBalance: 0n,
+      available: 0n,
+      version: 0,
+      exists: false,
+    };
+  }
+  return {
+    agentId,
+    fiatCurrency,
+    totalBalance: liquidity.totalBalance,
+    reservedBalance: liquidity.reservedBalance,
+    available: liquidity.totalBalance - liquidity.reservedBalance,
+    version: liquidity.version,
+    exists: true,
+  };
+}
+
+export async function listAgentFiatLiquidity(agentId: string) {
+  return prisma.agentFiatLiquidity.findMany({ where: { agentId }, orderBy: { fiatCurrency: 'asc' } });
+}
+
+export async function getAgentFiatLiquidityLedger(agentId: string, fiatCurrency?: string, limit = 50) {
+  return prisma.agentFiatLiquidityLedger.findMany({
+    where: fiatCurrency ? { agentId, fiatCurrency } : { agentId },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
+}
+
+// ─── Admin funding / adjustment ────────────────────────────────
+
+/**
+ * First-ever funding of an agent's fiat liquidity bucket for one currency.
+ * Legal exactly once per (agent, fiatCurrency) pair — subsequent changes go
+ * through adjustAgentFiatLiquidity. Idempotent via the ledger's
+ * @@unique([agentId, fiatCurrency, idempotencyKey]).
+ */
+export async function fundAgentFiatLiquidity(
+  adminId: string,
+  agentId: string,
+  fiatCurrency: string,
+  amount: bigint,
+  idempotencyKey: string,
+  context?: { ip?: string; userAgent?: string }
+) {
+  validateFiatCurrency(fiatCurrency);
+  if (typeof amount !== 'bigint' || amount <= 0n) {
+    throw ApiError.badRequest('Funding amount must be a positive integer (fiat minor units)');
+  }
+  if (!idempotencyKey) {
+    throw ApiError.badRequest('idempotencyKey is required');
+  }
+  await assertPlatformAdmin(adminId);
+  const agent = await loadTargetAgent(agentId, adminId);
+
+  const existingLedger = await prisma.agentFiatLiquidityLedger.findUnique({
+    where: { agentId_fiatCurrency_idempotencyKey: { agentId: agent.id, fiatCurrency, idempotencyKey } },
+  });
+  if (existingLedger) {
+    return prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency } },
+    });
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.agentFiatLiquidity.findUnique({
+        where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency } },
+      });
+      if (existing) {
+        throw ApiError.conflict(
+          'Agent fiat liquidity for this currency already exists — use the adjustment operation instead'
+        );
+      }
+
+      const liquidity = await tx.agentFiatLiquidity.create({
+        data: { agentId: agent.id, fiatCurrency, totalBalance: amount, reservedBalance: 0n },
+      });
+
+      await tx.agentFiatLiquidityLedger.create({
+        data: {
+          agentId: agent.id,
+          fiatCurrency,
+          type: 'INITIAL_FUNDING',
+          amount,
+          totalBefore: 0n,
+          totalAfter: amount,
+          reservedBefore: 0n,
+          reservedAfter: 0n,
+          performedByAdminId: adminId,
+          idempotencyKey,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: 'AGENT_FIAT_LIQUIDITY_FUNDED',
+          entity: 'AgentFiatLiquidity',
+          entityId: liquidity.id,
+          newData: { agentId: agent.id, fiatCurrency, amount: amount.toString(), totalAfter: amount.toString() },
+          ip: context?.ip,
+          userAgent: context?.userAgent,
+        },
+      });
+
+      return liquidity;
+    });
+  } catch (err) {
+    // Two concurrent first-time-funding attempts for the same (agent,
+    // currency) can both pass the existence check above before either
+    // commits — the @@unique([agentId, fiatCurrency]) constraint is the
+    // real backstop; this converts the resulting P2002 into the same
+    // friendly conflict the sequential check already produces.
+    if ((err as { code?: string }).code === 'P2002') {
+      throw ApiError.conflict(
+        'Agent fiat liquidity for this currency already exists — use the adjustment operation instead'
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Signed admin adjustment (credit or debit) for an existing bucket.
+ * SUPER_ADMIN-only, mirrors adjustAgentInventory's invariants exactly:
+ * totalBalance may never go negative, and a deduction may never take
+ * totalBalance below reservedBalance — fiat already promised to a live
+ * withdrawal cannot be clawed back out from under it. Version-pinned
+ * atomic update. Idempotent via the ledger's compound unique.
+ */
+export async function adjustAgentFiatLiquidity(
+  adminId: string,
+  agentId: string,
+  fiatCurrency: string,
+  signedAmount: bigint,
+  reason: string,
+  idempotencyKey: string,
+  context?: { ip?: string; userAgent?: string }
+) {
+  validateFiatCurrency(fiatCurrency);
+  if (typeof signedAmount !== 'bigint' || signedAmount === 0n) {
+    throw ApiError.badRequest('Adjustment amount must be a non-zero integer (fiat minor units)');
+  }
+  if (!reason || reason.trim().length === 0) {
+    throw ApiError.badRequest('A reason is required for a liquidity adjustment');
+  }
+  if (!idempotencyKey) {
+    throw ApiError.badRequest('idempotencyKey is required');
+  }
+  await assertSuperAdmin(adminId);
+  const agent = await loadTargetAgent(agentId, adminId);
+
+  const existingLedger = await prisma.agentFiatLiquidityLedger.findUnique({
+    where: { agentId_fiatCurrency_idempotencyKey: { agentId: agent.id, fiatCurrency, idempotencyKey } },
+  });
+  if (existingLedger) {
+    return prisma.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency } },
+    });
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const liquidity = await tx.agentFiatLiquidity.findUnique({
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency } },
+    });
+    if (!liquidity) {
+      throw ApiError.conflict('Agent has no fiat liquidity yet for this currency — use the funding operation first');
+    }
+
+    const newTotal = liquidity.totalBalance + signedAmount;
+    if (newTotal < 0n) {
+      throw ApiError.badRequest('Adjustment would take totalBalance negative');
+    }
+    if (newTotal < liquidity.reservedBalance) {
+      throw ApiError.badRequest(
+        'Adjustment would take totalBalance below reservedBalance — fiat already reserved for live withdrawals cannot be removed'
+      );
+    }
+
+    const claim = await tx.agentFiatLiquidity.updateMany({
+      where: { id: liquidity.id, version: liquidity.version },
+      data: { totalBalance: newTotal, version: { increment: 1 } },
+    });
+    if (claim.count === 0) {
+      throw ApiError.conflict('Concurrent liquidity modification — please retry');
+    }
+
+    await tx.agentFiatLiquidityLedger.create({
+      data: {
+        agentId: agent.id,
+        fiatCurrency,
+        // ADMIN_ADJUSTMENT covers both credit and debit — direction is
+        // recovered from totalBefore/totalAfter, exactly like
+        // AgentInventoryLedger's identical single-type adjustment
+        // precedent. AGENT_CREDIT/AGENT_DEBIT are distinct ledger types
+        // reserved for a non-admin-initiated flow this service does not
+        // implement.
+        type: 'ADMIN_ADJUSTMENT',
+        amount: signedAmount < 0n ? -signedAmount : signedAmount,
+        totalBefore: liquidity.totalBalance,
+        totalAfter: newTotal,
+        reservedBefore: liquidity.reservedBalance,
+        reservedAfter: liquidity.reservedBalance,
+        reason: reason.trim(),
+        performedByAdminId: adminId,
+        idempotencyKey,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: adminId,
+        action: 'AGENT_FIAT_LIQUIDITY_ADJUSTED',
+        entity: 'AgentFiatLiquidity',
+        entityId: liquidity.id,
+        oldData: { totalBalance: liquidity.totalBalance.toString() },
+        newData: { totalBalance: newTotal.toString(), signedAmount: signedAmount.toString(), reason: reason.trim() },
+        ip: context?.ip,
+        userAgent: context?.userAgent,
+      },
+    });
+
+    return tx.agentFiatLiquidity.findUnique({ where: { id: liquidity.id } });
+  });
+}
+
+// ─── W-1B Task D support: candidate selection + reservation ───────
+//
+// Added for withdrawal-service.ts. Withdrawal.agentId is nullable "until
+// assigned at HELD transition" (schema comment) — unlike AgentOrder,
+// where the caller picks an agent directly, a withdrawal's agent is
+// selected by the system from whichever agents in the withdrawal's
+// country hold enough of the right currency. Everything below must be
+// called from within the caller's own transaction; nothing here opens
+// its own. No release/consume functions exist yet — this phase only
+// creates reservations (ends at HELD); the settlement/cancellation flow
+// that would release or consume one is explicitly out of scope.
+
+/** Distinct from ApiError — see selectEligibleAgentLiquidity's doc comment. */
+export class LiquidityContentionError extends Error {
+  constructor() {
+    super('No eligible agent fiat liquidity currently available');
+    this.name = 'LiquidityContentionError';
+  }
+}
+
+interface LiquidityCandidateRow {
+  id: string;
+  agentId: string;
+  totalBalance: bigint;
+  reservedBalance: bigint;
+  version: number;
+}
+
+/**
+ * Ranks eligible AgentFiatLiquidity rows, then locks and rechecks each
+ * candidate's Agent FOR SHARE before taking its liquidity row FOR UPDATE
+ * SKIP LOCKED. This serializes assignment with agent suspension and keeps
+ * the Agent -> liquidity lock order used by claim/submit. A concurrent
+ * withdrawal holding one liquidity row is skipped in favor of the next
+ * eligible candidate.
+ *
+ * Throws LiquidityContentionError — not ApiError — when nothing matches.
+ * This is a deliberately distinct signal: zero rows can mean either
+ * "genuinely no agent has enough" or "the only eligible agent's row is
+ * momentarily locked by another concurrent withdrawal." The caller is
+ * expected to retry the WHOLE creation transaction a bounded number of
+ * times before concluding real INSUFFICIENT_LIQUIDITY.
+ *
+ * W-1D0: `withdrawingUserId` excludes the withdrawing user's own agent
+ * profile from candidacy (via `a."userId" != withdrawingUserId`) — an
+ * agent must never be assigned to pay out their own withdrawal, even as
+ * the sole liquid candidate for the country/currency. Rejected up front
+ * rather than left to a later step, since nothing downstream in the
+ * creation transaction would otherwise catch it.
+ */
+export async function selectEligibleAgentLiquidity(
+  tx: any,
+  countryId: string,
+  fiatCurrency: string,
+  amount: bigint,
+  withdrawingUserId: string
+): Promise<LiquidityCandidateRow> {
+  // Rank without taking a business lock, then lock the agent before its
+  // liquidity row. A concurrent status change must finish before we decide
+  // whether that agent can be assigned a new withdrawal. Locking afl first
+  // and only then checking Agent would reverse the claim/submit lock order.
+  const candidates = await tx.$queryRaw<Array<{ id: string; agentId: string }>>`
+    SELECT afl.id, afl."agentId"
+    FROM "agent_fiat_liquidities" afl
+    JOIN "agents" a ON a.id = afl."agentId"
+    WHERE a."countryId" = ${countryId}
+      AND a.status = 'ACTIVE'
+      AND a."userId" != ${withdrawingUserId}
+      AND afl."fiatCurrency" = ${fiatCurrency}
+      AND (afl."totalBalance" - afl."reservedBalance") >= ${amount}
+    ORDER BY (afl."totalBalance" - afl."reservedBalance") DESC, afl.id
+  `;
+  for (const candidate of candidates) {
+    const agents = await tx.$queryRaw<Array<{
+      id: string; userId: string; countryId: string; status: string;
+    }>>`
+      SELECT id, "userId", "countryId", status::text AS status
+      FROM agents WHERE id = ${candidate.agentId} FOR SHARE
+    `;
+    const agent = agents[0];
+    if (!agent || agent.status !== 'ACTIVE' || agent.countryId !== countryId
+        || agent.userId === withdrawingUserId) continue;
+
+    const liquidity = await tx.$queryRaw<LiquidityCandidateRow[]>`
+      SELECT id, "agentId", "totalBalance", "reservedBalance", version
+      FROM "agent_fiat_liquidities"
+      WHERE id = ${candidate.id} AND "agentId" = ${candidate.agentId}
+        AND "fiatCurrency" = ${fiatCurrency}
+        AND ("totalBalance" - "reservedBalance") >= ${amount}
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (liquidity[0]) return liquidity[0];
+  }
+  throw new LiquidityContentionError();
+}
+
+/**
+ * Reserves `amount` against an already-selected-and-locked candidate row
+ * (from selectEligibleAgentLiquidity, in the same transaction) — the
+ * version-pinned balance write only, no ledger entry and no
+ * WithdrawalLiquidityReservation row.
+ *
+ * Split from the ledger write (below) because of a real ordering
+ * constraint: the lock-order comment on Withdrawal in schema.prisma
+ * requires AgentFiatLiquidity to be locked/reserved BEFORE the wallet is
+ * touched, but WithdrawalLiquidityReservation.withdrawalId is a real FK
+ * to withdrawals.id, so that row — and the ledger entry that references
+ * it — can only be created AFTER the parent Withdrawal row exists.
+ * withdrawal-service.ts therefore calls this function early (before the
+ * wallet debit, before Withdrawal is created) and writeReserveLedgerEntry
+ * later (after Withdrawal and the reservation row both exist).
+ *
+ * The version-pinned updateMany should never see count === 0 given
+ * FOR UPDATE already holds this row's lock for the transaction's
+ * lifetime — checked anyway as defense-in-depth, converting to the same
+ * LiquidityContentionError so the caller's retry logic handles it
+ * uniformly.
+ */
+export async function incrementReservedLiquidity(
+  tx: any,
+  candidate: LiquidityCandidateRow,
+  amount: bigint
+): Promise<void> {
+  const claim = await tx.agentFiatLiquidity.updateMany({
+    where: { id: candidate.id, version: candidate.version },
+    data: { reservedBalance: { increment: amount }, version: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    throw new LiquidityContentionError();
+  }
+}
+
+/**
+ * Writes the RESERVE ledger entry for a reservation already applied by
+ * incrementReservedLiquidity — call once the WithdrawalLiquidityReservation
+ * row exists (see the ordering note above). `candidate`'s totalBefore/
+ * reservedBefore are the pre-reservation snapshot from the original
+ * selectEligibleAgentLiquidity read; totalAfter/reservedAfter are derived
+ * from it exactly as incrementReservedLiquidity applied them.
+ */
+export async function writeReserveLedgerEntry(
+  tx: any,
+  candidate: LiquidityCandidateRow,
+  amount: bigint,
+  fiatCurrency: string,
+  withdrawalId: string,
+  reservationId: string
+): Promise<void> {
+  await tx.agentFiatLiquidityLedger.create({
+    data: {
+      agentId: candidate.agentId,
+      fiatCurrency,
+      type: 'RESERVE',
+      amount,
+      totalBefore: candidate.totalBalance,
+      totalAfter: candidate.totalBalance,
+      reservedBefore: candidate.reservedBalance,
+      reservedAfter: candidate.reservedBalance + amount,
+      reservationId,
+      withdrawalId,
+    },
+  });
+}
+
+/**
+ * Releases a fiat reservation back to the agent's available balance.
+ * Called from cancelHeldWithdrawal (W-1D1) when the user cancels a HELD
+ * withdrawal before the agent begins payout.
+ *
+ * Invariants:
+ *   - AgentFiatLiquidity.reservedBalance decreases by reservation.amount.
+ *   - AgentFiatLiquidity.totalBalance is unchanged.
+ *   - An AgentFiatLiquidityLedger entry of type RELEASE is written.
+ *   - WithdrawalLiquidityReservation.status -> RELEASED.
+ *
+ * Must be called inside the caller's transaction.
+ */
+export async function releaseReservedLiquidity(
+  tx: any,
+  reservation: {
+    id: string;
+    agentId: string;
+    fiatCurrency: string;
+    amount: bigint;
+    withdrawalId: string;
+  }
+): Promise<void> {
+  // W-1D1 fix (Opus adversarial review R3): lock the row BEFORE reading
+  // it, mirroring selectEligibleAgentLiquidity's own FOR UPDATE. The
+  // prior unlocked findUnique() let two ordinary concurrent cancels
+  // against the SAME agent — two different users cancelling two
+  // different withdrawals assigned to that agent — both read the same
+  // starting version, so the loser's version-pinned updateMany below
+  // spuriously returned count === 0 and threw straight at the user under
+  // routine concurrency, not a real conflict. Locking here makes
+  // Postgres serialize the two releases instead.
+  const rows = await tx.$queryRaw<
+    { id: string; totalBalance: bigint; reservedBalance: bigint; version: number }[]
+  >`
+    SELECT id, "totalBalance", "reservedBalance", version
+    FROM "agent_fiat_liquidities"
+    WHERE "agentId" = ${reservation.agentId} AND "fiatCurrency" = ${reservation.fiatCurrency}
+    FOR UPDATE
+  `;
+  const liquidity = rows[0];
+  if (!liquidity) {
+    throw ApiError.internal('Agent fiat liquidity row not found during reservation release');
+  }
+
+  const newReserved = liquidity.reservedBalance - reservation.amount;
+  if (newReserved < 0n) {
+    throw ApiError.internal('Reservation release would take reservedBalance negative');
+  }
+
+  const claim = await tx.agentFiatLiquidity.updateMany({
+    where: { id: liquidity.id, version: liquidity.version },
+    data: { reservedBalance: newReserved, version: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    // Should be unreachable — FOR UPDATE above already holds this row's
+    // lock for the transaction's lifetime — kept as defense-in-depth,
+    // matching incrementReservedLiquidity's identical pattern.
+    throw ApiError.conflict('Concurrent liquidity modification during reservation release — please retry');
+  }
+
+  // Release exactly one ACTIVE reservation — never a consumed/released one.
+  const reservationClaim = await tx.withdrawalLiquidityReservation.updateMany({
+    where: { id: reservation.id, status: 'ACTIVE' },
+    data: { status: 'RELEASED', releasedAt: new Date() },
+  });
+  if (reservationClaim.count !== 1) {
+    throw ApiError.internal('Liquidity reservation is not ACTIVE and cannot be released');
+  }
+
+  await tx.agentFiatLiquidityLedger.create({
+    data: {
+      agentId: reservation.agentId,
+      fiatCurrency: reservation.fiatCurrency,
+      type: 'RELEASE',
+      amount: reservation.amount,
+      totalBefore: liquidity.totalBalance,
+      totalAfter: liquidity.totalBalance,
+      reservedBefore: liquidity.reservedBalance,
+      reservedAfter: newReserved,
+      reservationId: reservation.id,
+      withdrawalId: reservation.withdrawalId,
+    },
+  });
+}
+
+/**
+ * Consumes a fiat reservation when a withdrawal completes (payout delivered).
+ * Mirrors releaseReservedLiquidity, but for the COMPLETED path: the reserved
+ * fiat is disbursed, so BOTH totalBalance and reservedBalance decrease by the
+ * reservation amount, and the reservation transitions ACTIVE -> CONSUMED.
+ *
+ * Invariants:
+ *   - AgentFiatLiquidity.totalBalance decreases by reservation.amount.
+ *   - AgentFiatLiquidity.reservedBalance decreases by reservation.amount.
+ *   - An AgentFiatLiquidityLedger entry of type CONSUME is written.
+ *   - WithdrawalLiquidityReservation.status -> CONSUMED (never RELEASED).
+ *   - Neither the user's Wallet nor AgentInventory / AgentInventoryLedger is
+ *     touched.
+ *
+ * W-1D2A: no route calls this yet — it is a helper for the W-1D2 completion
+ * paths. Must be called inside the caller's transaction.
+ */
+export async function consumeReservedLiquidity(
+  tx: any,
+  reservation: {
+    id: string;
+    agentId: string;
+    fiatCurrency: string;
+    amount: bigint;
+    withdrawalId: string;
+  }
+): Promise<void> {
+  // Lock the liquidity row BEFORE reading it, mirroring releaseReservedLiquidity
+  // and selectEligibleAgentLiquidity: FOR UPDATE serializes concurrent
+  // consume/release against the SAME (agent, currency) row so the
+  // version-pinned updateMany below never spuriously returns count === 0 under
+  // routine concurrency.
+  const rows = await tx.$queryRaw<
+    { id: string; totalBalance: bigint; reservedBalance: bigint; version: number }[]
+  >`
+    SELECT id, "totalBalance", "reservedBalance", version
+    FROM "agent_fiat_liquidities"
+    WHERE "agentId" = ${reservation.agentId} AND "fiatCurrency" = ${reservation.fiatCurrency}
+    FOR UPDATE
+  `;
+  const liquidity = rows[0];
+  if (!liquidity) {
+    throw ApiError.internal('Agent fiat liquidity row not found during reservation consume');
+  }
+
+  const newTotal = liquidity.totalBalance - reservation.amount;
+  const newReserved = liquidity.reservedBalance - reservation.amount;
+  if (newTotal < 0n) {
+    throw ApiError.internal('Reservation consume would take totalBalance negative');
+  }
+  if (newReserved < 0n) {
+    throw ApiError.internal('Reservation consume would take reservedBalance negative');
+  }
+
+  const claim = await tx.agentFiatLiquidity.updateMany({
+    where: { id: liquidity.id, version: liquidity.version },
+    data: { totalBalance: newTotal, reservedBalance: newReserved, version: { increment: 1 } },
+  });
+  if (claim.count === 0) {
+    // Should be unreachable — FOR UPDATE above already holds this row's lock —
+    // kept as defense-in-depth, matching releaseReservedLiquidity.
+    throw ApiError.conflict('Concurrent liquidity modification during reservation consume — please retry');
+  }
+
+  // Consume exactly one ACTIVE reservation — never a RELEASED/consumed one.
+  const reservationClaim = await tx.withdrawalLiquidityReservation.updateMany({
+    where: { id: reservation.id, status: 'ACTIVE' },
+    data: { status: 'CONSUMED', consumedAt: new Date() },
+  });
+  if (reservationClaim.count !== 1) {
+    throw ApiError.internal('Liquidity reservation is not ACTIVE and cannot be consumed');
+  }
+
+  await tx.agentFiatLiquidityLedger.create({
+    data: {
+      agentId: reservation.agentId,
+      fiatCurrency: reservation.fiatCurrency,
+      type: 'CONSUME',
+      amount: reservation.amount,
+      totalBefore: liquidity.totalBalance,
+      totalAfter: newTotal,
+      reservedBefore: liquidity.reservedBalance,
+      reservedAfter: newReserved,
+      reservationId: reservation.id,
+      withdrawalId: reservation.withdrawalId,
+    },
+  });
+}

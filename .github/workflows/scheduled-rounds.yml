@@ -1,0 +1,298 @@
+name: Scheduled rounds PostgreSQL
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/scheduled-rounds.yml'
+      - 'apps/api/src/games/economics/**'
+      - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/games/crash-point/**'
+      - 'apps/web/src/pages/games/crash-point*'
+      - 'apps/api/vitest.crash-point.config.ts'
+      - 'apps/api/src/scripts/staging-crash-point-upgrade.ts'
+      - 'apps/api/src/groups/**'
+      - 'apps/api/src/realtime/**'
+      - 'apps/api/src/rewards/**'
+      - 'apps/api/src/games/game-play.ts'
+      - 'apps/api/src/routes/groups.ts'
+      - 'apps/api/src/routes/group-locks.ts'
+      - 'apps/api/src/middleware/error-handler.ts'
+      - 'apps/api/src/middleware/auth.ts'
+      - 'apps/api/src/middleware/current-permission.test.ts'
+      - 'apps/web/src/components/groups/**'
+      - 'apps/web/src/pages/wallet*'
+      - 'apps/api/src/gift-collection/**'
+      - 'apps/api/src/routes/chat.ts'
+      - 'apps/web/src/components/gifts/**'
+      - 'apps/api/src/scripts/group-pvp-worker.ts'
+      - 'apps/api/src/scripts/group-worker-runtime*'
+      - 'apps/api/src/plugins/**'
+      - 'apps/api/src/ws/**'
+      - 'apps/api/src/routes/auth*'
+      - 'apps/api/src/routes/groups*.test.ts'
+      - 'apps/api/src/routes/chat*.test.ts'
+      - 'apps/api/src/routes/storage*'
+      - 'packages/config/src/**'
+      - 'apps/api/src/routes/index.ts'
+      - 'apps/web/src/pages/group-games*'
+      - 'apps/web/src/pages/group-gifts*'
+      - 'apps/web/src/components/groups/group-social-nav.tsx'
+      - 'apps/web/src/pages/groups*'
+      - 'apps/web/src/pages/group-detail*'
+      - 'apps/web/src/pages/messages*'
+      - 'apps/web/src/lib/bounded-request*'
+      - 'apps/web/src/lib/payment-money*'
+      - 'apps/web/src/hooks/use-voice-recorder*'
+      - 'apps/web/src/components/app-update-notice*'
+      - 'apps/web/src/main.tsx'
+      - 'apps/api/src/games/scheduled/**'
+      - 'apps/api/src/routes/games.ts'
+      - 'apps/api/src/server.ts'
+      - 'apps/api/tsconfig.json'
+      - 'apps/api/scripts/check-shared-types.mjs'
+      - 'apps/api/scripts/spin-staging-rehearsal.cjs'
+      - 'apps/api/package.json'
+      - 'apps/api/src/economy/**'
+      - 'apps/api/src/agents/**'
+      - 'apps/api/src/withdrawals/**'
+      - 'apps/api/src/routes/wallet*'
+      - 'apps/web/src/hooks/use-wallet-action*'
+      - 'apps/web/src/components/layout/**'
+      - 'apps/web/src/pages/games/spin-win*'
+      - 'apps/web/src/pages/games/keno*'
+      - 'apps/web/src/pages/games/dice*'
+      - 'apps/web/src/pages/casino/index.tsx'
+      - 'apps/web/src/components/spin/**'
+      - 'apps/web/server*.mjs'
+      - 'apps/web/pwa.test.mjs'
+      - 'apps/web/vite.config.ts'
+      - 'apps/web/package.json'
+      - 'apps/web/src/lib/api-config.ts'
+      - 'apps/web/src/lib/api.test.ts'
+      - 'apps/web/src/lib/request-error.ts'
+      - 'apps/web/src/pages/games/index.tsx'
+      - 'apps/web/src/pages/casino/casino.test.tsx'
+      - 'apps/web/src/components/casino/CasinoProvider.tsx'
+      - 'deploy/railway/web/**'
+      - 'apps/web/src/lib/spin-proof-verifier*'
+      - 'apps/web/src/lib/spin-publication-archive*'
+      - 'apps/web/src/test/spin-publication-fixture.ts'
+      - 'apps/api/src/scripts/publication-receipt-verify.ts'
+      - 'apps/api/build.js'
+      - 'apps/web/src/App.tsx'
+      - 'packages/shared/src/**'
+      - 'apps/api/src/scripts/scheduled-practice-worker.ts'
+      - 'apps/api/src/scripts/staging-practice-owner.ts'
+      - 'apps/api/src/scripts/house-round-recovery.ts'
+      - 'apps/api/src/scripts/ledger-runtime-access.ts'
+      - 'docs/deployment/repair-practice-runtime-reads.sql'
+      - 'docs/deployment/scheduled-practice-worker.md'
+      - 'docs/games/scheduled-practice-rounds.md'
+      - 'apps/api/src/scripts/ledger-runtime-identity-check*'
+      - 'apps/api/src/ledger/ledger-upgrade.migration.test.ts'
+      - 'apps/api/vitest.scheduled-*.config.ts'
+      - 'apps/api/vitest.review-unit.config.ts'
+      - 'packages/database/prisma/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-rounds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [13, 16, 18]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:${{ matrix.version }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-ci-password
+          POSTGRES_DB: playqube_scheduled_throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:isolated-ci-password@127.0.0.1:5432/playqube_scheduled_throwaway?schema=public
+      SCHEDULED_NATIVE_DB_ACK: throwaway
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      JWT_ACCESS_SECRET: disposable-scheduled-ci-access-secret
+      JWT_REFRESH_SECRET: disposable-scheduled-ci-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pinned workspace dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+      - name: Build workspace packages
+        run: pnpm build:packages
+      - name: Check API shared declaration boundary
+        run: pnpm --filter api typecheck:shared-boundary
+      - name: Shared house and PVP policy contracts
+        run: pnpm --filter @socialplay/shared exec vitest run src/house-game-policy.test.ts src/pvp-entry.test.ts src/group-pvp.test.ts src/system-dice.test.ts --minWorkers=1 --maxWorkers=1
+      - name: Fresh migration deployment and replay
+        run: |
+          pnpm --filter @socialplay/database db:migrate:deploy
+          pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Crash Point SQL integrity and server receipts
+        run: pnpm --filter api exec vitest run --config vitest.crash-point.config.ts
+      - name: Group PVP concurrency and recovery
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
+      - name: Gateway identity and independent worker contracts
+        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
+      - name: Build API and verify disposable staging setup
+        run: |
+          pnpm --filter api exec node build.js
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/practice-staging.native.ts
+      - name: Private staging rehearsal syntax and refused production target
+        run: |
+          node --check apps/api/scripts/spin-staging-rehearsal.cjs
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import assert from 'node:assert/strict';
+          const result = spawnSync(process.execPath, ['apps/api/scripts/spin-staging-rehearsal.cjs'], {
+            env: { ...process.env, RAILWAY_ENVIRONMENT_ID: 'production' }, encoding: 'utf8',
+          });
+          assert.equal(result.status, 1);
+          assert.equal(result.stdout, '');
+          assert.deepEqual(JSON.parse(result.stderr), {
+            status: 'REFUSED', stage: 'TARGET', reason: 'STAGING_REHEARSAL_FAILED',
+          });
+          NODE
+      - name: Full API TypeScript contracts
+        run: pnpm --filter api typecheck
+      - name: Economics and embedded SQL contracts
+        run: |
+          # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
+          openssl version
+          pnpm --filter api test:economics
+          pnpm --filter api test:scheduled-practice
+      - name: Native two-connection runtime tests
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/scheduled/round-store.native.ts src/games/scheduled/stake-hold.native.ts src/games/economics/house-capital.native.ts
+      - name: Generate disposable ledger test keys
+        run: |
+          python3 - <<'PYKEYS'
+          import os, secrets
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for name in ('SECURITY_TOTP_ENCRYPTION_KEY', 'LEDGER_APPROVAL_SIGNING_KEY'):
+                  env.write(name + '=' + secrets.token_hex(32) + '\n')
+              env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
+          PYKEYS
+      - name: Payment lifecycle, authorization and recovery
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: pnpm --filter api exec vitest run src/agents src/withdrawals --maxWorkers=1 --minWorkers=1
+      - name: Legacy API compatibility and task concurrency
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/rewards/rewards.test.ts src/rewards/level-milestone.test.ts
+          src/challenges/challenges.test.ts src/competitions/competitions.test.ts
+          src/economy/economy.test.ts src/economy/wallet-service.test.ts
+          src/routes/auth.test.ts src/security/security.test.ts src/worker.test.ts
+          --maxWorkers=1 --minWorkers=1
+      - name: Predeploy runtime identity guard
+        run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
+      - name: Existing ledger guard regressions
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/ledger/allocator.contract.test.ts
+          src/ledger/ledger-integrity-guards.contract.test.ts
+          src/ledger/ledger-authorization-guards.contract.test.ts
+          src/ledger/flows.contract.test.ts
+      - name: Fresh and populated migration regression
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/ledger/ledger-upgrade.migration.test.ts
+      - name: Isolated financial admission, draw, settlement and refund
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/economics/house-ticket.native.ts
+          src/games/economics/house-settlement.native.ts
+          src/games/economics/house-entropy.native.ts
+          src/games/economics/house-recovery.native.ts
+          src/games/economics/house-public-proof.native.ts
+          src/games/economics/publication-store.native.ts
+          src/games/economics/publication-submission.native.ts
+      - name: Probe offline CLI entry
+        run: |
+          PUB_CLI_PROBE=$(mktemp -d)
+          trap 'rm -rf "$PUB_CLI_PROBE"' EXIT
+          ln -s "$PWD/apps/api/dist/scripts/publication-receipt-verify.js" "$PUB_CLI_PROBE/verify.js"
+          set +e
+          node "$PUB_CLI_PROBE/verify.js" --file=/dev/null --commitment=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$PUB_CLI_PROBE/result" 2>&1
+          PUB_CLI_STATUS=$?
+          set -e
+          test "$PUB_CLI_STATUS" -eq 1
+          test "$(cat "$PUB_CLI_PROBE/result")" = '{"status":"BLOCKED"}'
+
+      - name: Compiled practice worker lifecycle and restricted-role rehearsal
+        run: >-
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts
+          src/games/scheduled/practice-worker.native.ts
+
+      - name: Practice worker TypeScript contracts
+        run: >-
+          pnpm --filter api exec tsc --noEmit --strict --skipLibCheck
+          --target ES2022 --module NodeNext --moduleResolution NodeNext --types node
+          src/scripts/scheduled-practice-worker.ts
+          src/scripts/staging-practice-owner.ts
+          src/games/scheduled/practice-worker-runtime.test.ts
+          src/games/scheduled/practice-worker.native.ts
+          src/games/scheduled/practice-staging.native.ts
+
+      - name: Scheduled practice web contracts
+        run: >-
+          pnpm --filter web exec vitest run
+          src/pages/games/keno-system.test.tsx
+          src/pages/games/dice-system.test.tsx
+          src/pages/games/spin-win-scheduled.test.tsx
+          src/pages/games/spin-win.test.tsx
+          src/pages/games/spin-win-coins.test.tsx
+          src/pages/casino/casino.test.tsx
+          src/lib/api.test.ts
+          src/lib/session.test.ts
+          src/providers/auth-provider.test.tsx
+          src/pages/games/spin-win-verify.test.tsx
+          src/lib/spin-proof-verifier.test.ts
+          src/lib/spin-publication-archive.test.ts
+          --minWorkers=1 --maxWorkers=1
+      - name: Group game room and chat contracts
+        run: >-
+          pnpm --filter web exec vitest run
+          src/lib/payment-money.test.ts src/components/app-update-notice.test.tsx src/components/security/authenticator-setup.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-agent-setup.test.tsx src/pages/wallet-setup-admin.test.tsx src/pages/workspaces/workspaces.test.tsx src/pages/workspaces/create-agent.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
+          src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
+      - name: Cookie session renewal contracts
+        run: pnpm --filter api exec vitest run --config vitest.session.config.ts
+      - name: Build web and typecheck
+        env:
+          VITE_API_PROXY: 'true'
+        run: pnpm --filter web build
+      - name: Generated PWA navigation contracts
+        run: pnpm --filter web test:pwa
+      - name: First-party gateway and WebSocket contracts
+        run: pnpm --filter web test:gateway

@@ -1,0 +1,602 @@
+import { API_BASE, API_ORIGIN } from './api-config';
+import { assertSessionReadable, assertSessionRevision, credentialRequest, renewSession, sessionRevision, sessionSignedOut, waitForSession } from './session';
+import type {
+  CreatedGroupInviteInfo,
+  GroupBannedMemberInfo,
+  GroupDetailInfo,
+  GroupInviteInfo,
+  GroupInvitePreview,
+  GroupMemberInfo,
+  NotificationInfo,
+  NotificationListMeta,
+  PaginationMeta,
+  UserSearchResult,
+} from '@socialplay/shared';
+
+export type { UserSearchResult };
+
+export async function getApiHealth(): Promise<{ status: string }> {
+  const response = await fetch(`${API_ORIGIN}/health`);
+  if (!response.ok) throw new Error('API health check failed');
+  return response.json();
+}
+
+export interface ApiResponse<T, M = Record<string, unknown>> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+  meta?: M;
+}
+
+/** What every mutating group endpoint answers with. */
+export interface ApiMessage {
+  message: string;
+}
+
+interface RequestOptions extends RequestInit {
+  params?: Record<string, string | number | boolean | undefined>;
+}
+
+/**
+ * Full catalog entry returned by `GET /games` (excludes RETIRED games).
+ * Individual game pages can use the subset fields and play-eligibility flags.
+ */
+export interface GameCatalogEntry {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  type: string;
+  mode: string;
+  family: string;
+  catalogStatus: string;
+  wagerCurrency: string | null;
+  rewardCurrency: string;
+  currentRulesVersion: number | null;
+  currentRulesId?: string | null;
+  minBet: number;
+  maxBet: number;
+  isActive: boolean;
+}
+
+/** Result of a played round returned by `POST /games/:key/play`. */
+export interface GamePlayResult {
+  sessionId: string;
+  gameKey: string;
+  betAmount: number;
+  rewardAmount: number;
+  isWin: boolean;
+  result: Record<string, unknown>;
+  completedAt: string;
+  newBalance: number;
+  mode: string;
+  family: string;
+  wagerCurrency: string | null;
+  rewardCurrency: string;
+  rulesVersion: number | null;
+  resultSchemaVersion: number | null;
+  playContext: string;
+  settlementDebitCurrency?: string | null;
+  settlementCreditCurrency?: string | null;
+  /** True when the server answered from the stored result of this exact
+   * request (same idempotency key) instead of playing a new round. */
+  isReplay?: boolean;
+}
+
+/**
+ * Safely extract data from an ApiResponse, throwing a descriptive error if
+ * the response indicates failure or data is missing. This avoids the common
+ * pattern of `res.data?.property` which returns `undefined` at runtime when
+ * the server returns a success flag without data.
+ */
+export function unwrapData<T>(response: ApiResponse<T>, context?: string): T {
+  if (!response.success) {
+    const msg = response.error?.message || 'API request failed';
+    throw new Error(`${context ? `${context}: ` : ''}${msg}`);
+  }
+  if (response.data === undefined || response.data === null) {
+    throw new Error(`${context ? `${context}: ` : ''}API response missing data`);
+  }
+  return response.data;
+}
+
+/**
+ * Generate a client idempotency key for a play round. A fresh key per intent
+ * means a retried network request replays the same round instead of creating
+ * a second wager. Includes a time component to keep consecutive plays unique.
+ */
+export function newIdempotencyKey(): string {
+  return `play-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Play a round with a required idempotency key. The server answers
+ * `{ success, data }`, where `data.isReplay` tells a stored result (an exact
+ * retry of an already settled request) from a newly played round.
+ */
+export async function playGame<T extends GamePlayResult>(gameKey: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<ApiResponse<T>> {
+  return api.postWithIdempotency<T>(`/games/${gameKey}/play`, idempotencyKey ?? newIdempotencyKey(), body);
+}
+
+class ApiClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = API_BASE) {
+    this.baseUrl = baseUrl;
+  }
+
+  private buildUrl(endpoint: string, params?: Record<string, string | number | boolean | undefined>): string {
+    const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          url.searchParams.append(key, String(value));
+        }
+      });
+    }
+    return url.toString();
+  }
+
+  private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
+    if (['/auth/login', '/auth/register', '/auth/logout'].includes(endpoint)) {
+      return credentialRequest(endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
+    }
+    assertSessionReadable();
+    return this.performRequest<T, M>(endpoint, options);
+  }
+
+  private async performRequest<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
+    const { params, headers, ...fetchOptions } = options;
+    const url = this.buildUrl(endpoint, params);
+    const revision = sessionRevision();
+    const read = fetchOptions.method === 'GET';
+    if (read) assertSessionReadable();
+    if (read && endpoint === '/auth/me' && sessionSignedOut()) throw new Error(JSON.stringify({ status: 401, code: 'UNAUTHORIZED', message: 'Signed out' }));
+
+    // Only declare a JSON content type when a body is actually being sent.
+    // Fastify's default body parser rejects `Content-Type: application/json`
+    // on a request with an empty body (FST_ERR_CTP_EMPTY_JSON_BODY) — every
+    // bodyless call (e.g. POST /auth/logout) was hitting exactly that before
+    // its route handler ever ran. Caller-supplied headers still win either way.
+    const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
+
+    const execute = () => fetch(url, {
+      ...fetchOptions,
+      headers: {
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      credentials: read && sessionSignedOut() ? 'omit' : 'include',
+    });
+
+    let response = await execute();
+    // Only reads are retried. A wager, transfer or other mutation is never
+    // automatically resubmitted by session recovery.
+    if (read && response.status === 401 && (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')) {
+      try {
+        assertSessionRevision(revision);
+        await waitForSession(renewSession(this.buildUrl(''), revision), fetchOptions.signal);
+        assertSessionRevision(revision);
+        fetchOptions.signal?.throwIfAborted();
+        response = await execute();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err;
+        // Surface the original 401. No recursion or unbounded retry.
+      }
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (read) assertSessionRevision(revision);
+
+    if (!response.ok) {
+      const error = data.error || {
+        code: 'UNKNOWN_ERROR',
+        message: data.message || 'An unexpected error occurred',
+      };
+      throw new Error(JSON.stringify({ status: response.status, ...error }));
+    }
+
+    return data;
+  }
+
+  async get<T, M = Record<string, unknown>>(
+    endpoint: string,
+    params?: Record<string, string | number | boolean | undefined>,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<T, M>> {
+    return this.request<T, M>(endpoint, { method: 'GET', params, signal: options?.signal });
+  }
+
+  async post<T>(endpoint: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      params,
+      signal: options?.signal,
+    });
+  }
+
+  /**
+   * POST with a required Idempotency-Key header. The API rejects play requests
+   * (and any idempotency-requiring mutation) without a present key.
+   */
+  async postWithIdempotency<T>(
+    endpoint: string,
+    idempotencyKey: string,
+    body?: unknown
+  ): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: { 'idempotency-key': idempotencyKey },
+    });
+  }
+
+  async put<T>(endpoint: string, body: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async patch<T>(endpoint: string, body: unknown, options?: { signal?: AbortSignal }): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      signal: options?.signal,
+      body: JSON.stringify(body),
+    });
+  }
+
+  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, { method: 'DELETE' });
+  }
+
+  async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
+    assertSessionReadable();
+    const response = await fetch(this.buildUrl(endpoint), {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const error = data.error || {
+        code: 'UNKNOWN_ERROR',
+        message: data.message || 'An unexpected error occurred',
+      };
+      throw new Error(JSON.stringify({ status: response.status, ...error }));
+    }
+
+    return data;
+  }
+
+  // Challenge API
+  async createChallenge(body: CreateChallengeBody): Promise<ApiResponse<Challenge>> {
+    return this.post('/challenges', body);
+  }
+
+  async getUserChallenges(): Promise<ApiResponse<Challenge[]>> {
+    return this.get('/challenges');
+  }
+
+  async getChallengeById(challengeId: string): Promise<ApiResponse<Challenge>> {
+    return this.get(`/challenges/${challengeId}`);
+  }
+
+  async acceptChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string; acceptedAt: string }>> {
+    return this.post(`/challenges/${challengeId}/accept`);
+  }
+
+  async declineChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/challenges/${challengeId}/decline`);
+  }
+
+  async cancelChallenge(challengeId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/challenges/${challengeId}/cancel`);
+  }
+
+  async playChallengeTurn(challengeId: string, clientData?: Record<string, unknown>): Promise<ApiResponse<any>> {
+    return this.post(`/challenges/${challengeId}/play`, { clientData });
+  }
+
+  // Privacy-safe recipient search (exact username, username prefix, or exact
+  // stored email). Results carry only { id, username, displayName, avatarUrl }.
+  async searchUsers(q: string): Promise<ApiResponse<UserSearchResult[]>> {
+    return this.post('/users/search', { q });
+  }
+
+  // Competition API
+  async listCompetitionsForGroup(groupId: string): Promise<ApiResponse<Competition[]>> {
+    return this.get(`/competitions/${groupId}`);
+  }
+
+  async createCompetition(body: CreateCompetitionBody): Promise<ApiResponse<Competition>> {
+    return this.post(`/competitions/${body.groupId}`, body);
+  }
+
+  async getCompetitionForGroup(groupId: string, competitionId: string): Promise<ApiResponse<Competition>> {
+    return this.get(`/competitions/${groupId}/${competitionId}`);
+  }
+
+  async joinCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/join`);
+  }
+
+  async playCompetition<T = unknown>(
+    groupId: string,
+    competitionId: string,
+    clientData?: Record<string, unknown>
+  ): Promise<ApiResponse<T>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/play`, { clientData });
+  }
+
+  async finalizeCompetition(groupId: string, competitionId: string): Promise<ApiResponse<{ id: string; status: string }>> {
+    return this.post(`/competitions/${groupId}/${competitionId}/finalize`);
+  }
+
+  // Wallet / Economy
+  async getWallet(): Promise<ApiResponse<any>> {
+    return this.get('/wallet');
+  }
+
+  async getWalletTransactions(params?: { page?: number; limit?: number; currency?: string }): Promise<ApiResponse<any>> {
+    return this.get('/wallet/transactions', params);
+  }
+
+  // Groups
+  async listGroups(params?: { page?: number; limit?: number; query?: string; mine?: boolean }): Promise<ApiResponse<any>> {
+    return this.get('/groups', params);
+  }
+
+  async createGroup(body: { name: string; description?: string; isPrivate?: boolean }): Promise<ApiResponse<{
+    id: string;
+    ownerId: string;
+    name: string;
+    description: string | null;
+    imageUrl: string | null;
+    coverUrl: string | null;
+    isPrivate: boolean;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
+    return this.post('/groups', body);
+  }
+
+  async getGroup(groupId: string): Promise<ApiResponse<GroupDetailInfo>> {
+    return this.get(`/groups/${groupId}`);
+  }
+
+  async joinGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/join`);
+  }
+
+  async leaveGroup(groupId: string): Promise<ApiResponse<any>> {
+    return this.post(`/groups/${groupId}/leave`);
+  }
+
+  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number; latest?: boolean; before?: string }): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/messages`, params);
+  }
+
+  // Group members
+  async getGroupMembers(groupId: string): Promise<ApiResponse<GroupMemberInfo[]>> {
+    return this.get(`/groups/${groupId}/members`);
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.delete(`/groups/${groupId}/members/${userId}`);
+  }
+
+  async changeMemberRole(groupId: string, userId: string, role: string): Promise<ApiResponse<ApiMessage>> {
+    return this.patch(`/groups/${groupId}/members/${userId}/role`, { role });
+  }
+
+  // Group invites
+  async createGroupInvite(groupId: string, email: string, role?: string): Promise<ApiResponse<CreatedGroupInviteInfo>> {
+    return this.post(`/groups/${groupId}/invites`, { email, role });
+  }
+
+  async listGroupInvites(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupInviteInfo[], PaginationMeta>> {
+    return this.get<GroupInviteInfo[], PaginationMeta>(`/groups/${groupId}/invites`, params);
+  }
+
+  async revokeGroupInvite(groupId: string, inviteId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.delete(`/groups/${groupId}/invites/${inviteId}`);
+  }
+
+  async acceptGroupInvite(token: string): Promise<ApiResponse<ApiMessage & { groupId: string }>> {
+    return this.post('/groups/accept-invite', { token });
+  }
+
+  // Join requests (private groups)
+  async requestJoinGroup(groupId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/request`);
+  }
+
+  async listJoinRequests(groupId: string, params?: { page?: number; limit?: number }): Promise<ApiResponse<GroupMemberInfo[]>> {
+    return this.get(`/groups/${groupId}/requests`, params);
+  }
+
+  async resolveGroupInvite(token: string): Promise<ApiResponse<GroupInvitePreview>> {
+    return this.get(`/groups/invites/${token}`);
+  }
+
+  async banGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/members/${userId}/ban`);
+  }
+
+  async unbanGroupMember(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/members/${userId}/unban`);
+  }
+
+  async listBannedMembers(
+    groupId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<ApiResponse<GroupBannedMemberInfo[], PaginationMeta>> {
+    return this.get<GroupBannedMemberInfo[], PaginationMeta>(`/groups/${groupId}/banned-members`, params);
+  }
+
+  async approveJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/approve`);
+  }
+
+  async rejectJoinRequest(groupId: string, userId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/requests/${userId}/reject`);
+  }
+
+  // Ownership transfer
+  async transferOwnership(groupId: string, targetUserId: string): Promise<ApiResponse<ApiMessage>> {
+    return this.post(`/groups/${groupId}/transfer`, { targetUserId });
+  }
+
+  // Notifications
+  async listNotifications(
+    params?: { page?: number; limit?: number; unreadOnly?: boolean },
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<NotificationInfo[], NotificationListMeta>> {
+    return this.get<NotificationInfo[], NotificationListMeta>('/notifications', params, options);
+  }
+
+  async markNotificationRead(id: string): Promise<ApiResponse<NotificationInfo>> {
+    return this.patch(`/notifications/${id}/read`, {});
+  }
+
+  async markAllNotificationsRead(): Promise<ApiResponse<{ updated: number }>> {
+    return this.post('/notifications/read-all');
+  }
+
+  // VIP
+  async getVip(): Promise<ApiResponse<any>> {
+    return this.get('/vip');
+  }
+
+  // Progress (XP / Level)
+  async getProgress(): Promise<ApiResponse<any>> {
+    return this.get('/progress');
+  }
+
+  // Tasks
+  async listTasks(): Promise<ApiResponse<any>> {
+    return this.get('/tasks');
+  }
+
+  async claimTaskReward(taskId: string): Promise<ApiResponse<any>> {
+    return this.post(`/tasks/${taskId}/claim`);
+  }
+
+  // Achievements
+  async listAchievements(): Promise<ApiResponse<any>> {
+    return this.get('/achievements');
+  }
+
+  // Gifts
+  async listGifts(): Promise<ApiResponse<any>> {
+    return this.get('/gifts');
+  }
+
+  async sendGift(body: { recipientId: string; giftId: string; quantity: number }, idempotencyKey: string): Promise<ApiResponse<any>> {
+    return this.postWithIdempotency('/gifts/send', idempotencyKey, body);
+  }
+
+  async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {
+    return this.get('/gifts/transactions', params);
+  }
+}
+
+export const api = new ApiClient();
+
+export function voiceMessageUrl(groupId: string, messageId: string): string {
+  return `${API_BASE}/groups/${groupId}/voice-messages/${messageId}`;
+}
+
+// Challenge as returned by GET /challenges (list) — mapped shape.
+// Also used as base for GET /challenges/:id (detail) which returns the raw Prisma
+// record and additionally includes challengerId/challengedId as FK columns and
+// game: { key, name } instead of top-level gameKey/gameName.
+export interface Challenge {
+  id: string;
+  // Present in list response (mapped):
+  gameKey?: string;
+  gameName?: string;
+  // Present in detail response (raw Prisma + include):
+  game?: { key: string; name: string };
+  challengerId?: string;
+  challengedId?: string;
+  // Present in both:
+  challenger: { id: string; username?: string; displayName?: string };
+  challenged: { id: string; username?: string; displayName?: string };
+  entryAmount: number;
+  status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  winnerId?: string | null;
+  resultMeta?: {
+    challengerScore?: number;
+    challengedScore?: number;
+    winnerId?: string | null;
+    mySessionId?: string;
+  } | null;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface CreateChallengeBody {
+  challengedId: string;
+  gameKey: string;
+  entryAmount?: number;
+}
+
+// Competition as returned by the backend (Prisma include shape).
+// The backend uses { include: { game: { select: { key, name } } } }
+// so the game name is in competition.game.name, not competition.gameName.
+// phase is server-derived from startsAt/endsAt/status on every read.
+export type CompetitionPhase = 'UPCOMING' | 'OPEN' | 'ENDED' | 'COMPLETED' | 'CANCELLED';
+
+export interface Competition {
+  id: string;
+  groupId: string;
+  game: { key: string; name: string };
+  title: string;
+  description?: string | null;
+  status: 'SCHEDULED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  phase: CompetitionPhase;
+  isFull?: boolean;
+  participantCount?: number;
+  maxPlaysPerParticipant?: number | null;
+  scoring?: string;
+  entryAmount: number;
+  maxParticipants?: number | null;
+  rewardGamePoints: number;
+  rewardCoins: number;
+  startsAt: string;
+  endsAt: string;
+  createdAt: string;
+  createdBy?: string;
+  finalizedAt?: string | null;
+  finalizerId?: string | null;
+  result?: unknown;
+  participants?: { userId: string; score: number; gamesPlayed: number }[];
+}
+
+export interface CreateCompetitionBody {
+  groupId: string;
+  gameKey: string;
+  title: string;
+  description?: string;
+  startsAt: string;
+  endsAt: string;
+  entryAmount?: number;
+  maxParticipants?: number;
+  rewardGamePoints?: number;
+  rewardCoins?: number;
+}

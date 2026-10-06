@@ -1,0 +1,597 @@
+import { lockSocialGroup } from '../groups/lifecycle.js';
+import { FastifyInstance } from 'fastify';
+import { prisma } from '@socialplay/database';
+import { ApiError, authenticate } from '../middleware/index.js';
+import {
+  assertActiveMember,
+  createMessage,
+  createVoiceMessage,
+  getGroupOrThrow,
+  getMessageInGroup,
+  MESSAGE_SENDER_SELECT,
+  serializeMessage,
+} from '../realtime/chat-service.js';
+import { storage } from '@socialplay/storage';
+import { STORAGE_BUCKETS } from '@socialplay/shared';
+import { safeRecordActivity } from '../rewards/activity-service.js';
+import { emitToGroup } from '../realtime/broadcast.js';
+import { giftCardsForMessages } from '../gift-collection/service.js';
+import { setMessageReaction } from '../realtime/reaction-service.js';
+import type { ChatReactionType } from '@socialplay/shared';
+import { lockActorMembership, lockGroupForAdmission, lockGroupMessageForDeletion } from './group-locks.js';
+
+type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+
+const MANAGER_ROLES: GroupMemberRole[] = ['OWNER', 'ADMIN'];
+
+export async function chatRoutes(server: FastifyInstance): Promise<void> {
+  // Create message
+  server.post<{
+    Params: { id: string };
+    Body: { content: string; replyToId?: string; clientRequestId?: string };
+  }>(
+    '/:id/messages',
+    {
+      preHandler: [authenticate],
+      config: {rateLimit: { max: 30, timeWindow: '1 minute' }},
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['content'],
+          properties: {
+            content: { type: 'string', minLength: 1, maxLength: 5000 },
+            replyToId: { type: 'string', format: 'uuid' },
+            clientRequestId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const message = await createMessage({
+        groupId: request.params.id,
+        userId: request.user!.sub,
+        content: request.body.content,
+        replyToId: request.body.replyToId,
+        clientRequestId: request.body.clientRequestId,
+      });
+
+      reply.status(201).send({
+        success: true,
+        data: message,
+      });
+
+      // Broadcast to WS group room AFTER the commit (createMessage has
+      // already persisted). Clients should refetch authoritative state
+      // rather than trusting the realtime payload.
+      emitToGroup(request.params.id, 'message:created', message);
+
+      // Server-verified activity (post-commit, best-effort).
+      if (!message.isReplay) safeRecordActivity(request.user!.sub, { type: 'MESSAGE' });
+    }
+  );
+
+  // Get message history
+  server.get<{
+    Params: { id: string };
+    Querystring: { page?: number; limit?: number; latest?: boolean; before?: string };
+  }>(
+    '/:id/messages',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            page: { type: 'integer', minimum: 1, default: 1 },
+            latest: { type: 'boolean', default: false },
+            before: { type: 'string', format: 'uuid' },
+            limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const page = request.query.page ?? 1;
+      const limit = request.query.limit ?? 20;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, request.user!.sub);
+
+      const cursor=request.query.before?await prisma.message.findFirst({where:{id:request.query.before,groupId},select:{createdAt:true,id:true}}):null;
+      if(request.query.before&&!cursor)throw ApiError.badRequest('Message cursor is not in this group');
+      const where = { groupId, isDeleted: false,...(cursor?{OR:[{createdAt:{lt:cursor.createdAt}},{createdAt:cursor.createdAt,id:{lt:cursor.id}}]}:{}) };
+
+      const [messages, total] = await Promise.all([
+        prisma.message.findMany({
+          where,
+          orderBy: [{ createdAt: request.query.latest ? 'desc' : 'asc' }, { id: request.query.latest ? 'desc' : 'asc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            voiceMessage: true,
+            user: { select: MESSAGE_SENDER_SELECT },
+            replyTo: {
+              include: {
+                user: { select: MESSAGE_SENDER_SELECT },
+              },
+            },
+            reactions: {
+              select: {
+                userId: true,
+                type: true,
+              },
+            },
+          },
+        }),
+        prisma.message.count({ where }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const ordered = request.query.latest ? [...messages].reverse() : messages;
+      const cards = await giftCardsForMessages(prisma, messages.filter(message => message.type === 'GIFT').map(message => message.id));
+
+      return {
+        success: true,
+        data: ordered.map(message => ({ ...serializeMessage(message), gift: cards.get(message.id) ?? null })),
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      };
+    }
+  );
+
+  // Get single message
+  server.get<{ Params: { id: string; messageId: string } }>(
+    '/:id/messages/:messageId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, request.user!.sub);
+
+      const message = await getMessageInGroup(groupId, request.params.messageId);
+
+      return {
+        success: true,
+        data: { ...serializeMessage(message), gift: (await giftCardsForMessages(prisma, message.type === 'GIFT' ? [message.id] : [])).get(message.id) ?? null },
+      };
+    }
+  );
+
+  // Update message
+  server.put<{
+    Params: { id: string; messageId: string };
+    Body: { content: string };
+  }>(
+    '/:id/messages/:messageId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['content'],
+          properties: {
+            content: { type: 'string', minLength: 1, maxLength: 5000 },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+      const userId = request.user!.sub;
+
+      const content = request.body.content;
+      if (!content.trim()) {
+        throw ApiError.badRequest('Message cannot be whitespace only');
+      }
+
+      const updated=await prisma.$transaction(async tx=>{
+      await lockSocialGroup(tx,groupId,userId);
+      const message=await lockGroupMessageForDeletion(tx,groupId,messageId);
+      if(!message||message.isDeleted)throw ApiError.notFound('Message not found');
+
+      if (message.userId !== userId) {
+        throw ApiError.forbidden('You can only edit your own messages');
+      }
+
+      if (message.type !== 'TEXT') throw ApiError.badRequest('Only text messages can be edited');
+
+      return tx.message.update({
+        where: { id: message.id },
+        data: {
+          content,
+          isEdited: true,
+        },
+        include: {
+          user: { select: MESSAGE_SENDER_SELECT },
+          replyTo: {
+            include: {
+              user: { select: MESSAGE_SENDER_SELECT },
+            },
+          },
+          reactions: {
+            select: {
+              userId: true,
+              type: true,
+            },
+          },
+        },
+      });
+
+      });
+      const serialized = serializeMessage(updated);
+
+      // Broadcast the edit to the group room after commit.
+      emitToGroup(groupId, 'message:updated', serialized);
+
+      return {
+        success: true,
+        data: serialized,
+      };
+    }
+  );
+
+  // Delete message
+  server.delete<{ Params: { id: string; messageId: string } }>(
+    '/:id/messages/:messageId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+      const userId = request.user!.sub;
+
+      // FAST PATH ONLY. Cheap enough to skip opening a transaction for a group id
+      // that does not exist at all; the AUTHORITATIVE check below re-reads the
+      // group under its lock regardless, so a group deleted right after this
+      // still gets the right answer.
+      await getGroupOrThrow(groupId);
+
+      let voiceStorageKey: string | null = null;
+
+      await prisma.$transaction(async (tx) => {
+        // Keep moderation's account authority stable before taking group locks.
+        const [account] = await tx.$queryRaw<{status:string}[]>`SELECT status::text FROM users WHERE id=${userId} FOR SHARE`;
+        if (account?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+        // AUTHORITATIVE CHECKS — group-locks.ts, "delete message": the group row
+        // (level 2, FOR SHARE), then the ACTOR's own membership row (level 4, FOR
+        // SHARE), then the message row SCOPED TO THIS GROUP (level 5, FOR NO KEY
+        // UPDATE). A plain read taken before this transaction (or anywhere in it
+        // without a lock) can be stale by the time the write happens: the caller
+        // may since have been demoted, banned, muted or removed, and the message
+        // may since have been deleted by someone else. A message that belongs to
+        // ANOTHER group is indistinguishable from a missing one (404), so a
+        // cross-group id learns nothing about what exists there.
+        const group = await lockGroupForAdmission(tx, groupId);
+        if (!group) {
+          throw ApiError.notFound('Group not found');
+        }
+
+        const actor = await lockActorMembership(tx, groupId, userId);
+        // ACTIVE membership is required BEFORE the message is ever read — not just
+        // before deleting someone else's. A caller who is not an ACTIVE member gets
+        // this SAME refusal whether the message id is real, already deleted, or
+        // belongs to another group entirely: reading the message first would let a
+        // non-member learn which of those is true just from 403 vs 404, an
+        // existence oracle this route must not offer to someone who isn't even a
+        // member.
+        if (!actor || actor.status !== 'ACTIVE') {
+          throw ApiError.forbidden('You are not a member of this group');
+        }
+
+        const message = await lockGroupMessageForDeletion(tx, groupId, messageId);
+        if (!message || message.isDeleted) {
+          throw ApiError.notFound('Message not found');
+        }
+
+        // The message's own author may always delete it, now that ACTIVE
+        // membership is already established above. Anyone else must be, RIGHT
+        // NOW, an ACTIVE OWNER or ADMIN — a manager demoted, banned, muted or
+        // removed after the fast path a caller might have raced must not delete
+        // someone else's message on the strength of a stale read.
+        if (message.userId !== userId && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+          throw ApiError.forbidden('Insufficient permissions');
+        }
+
+        const [time] = await tx.$queryRaw<{now:Date}[]>`SELECT clock_timestamp() AS now`;
+        if ((group.status !== 'ACTIVE' || !group.expiresAt || group.expiresAt <= time.now) && !MANAGER_ROLES.includes(actor.role as GroupMemberRole)) {
+          throw ApiError.forbidden('Only a group owner or admin can moderate closed history');
+        }
+        // Transaction-local context for the database's narrow closed-room
+        // soft-delete exception. The locked authority checks above remain the
+        // security boundary; this setting never comes from a request field.
+        await tx.$executeRaw`SELECT set_config('playqube.moderator_id',${userId},true)`;
+
+        // Captured HERE, inside the transaction, while the message row is locked
+        // and the delete is already authorized — the ONLY database read that
+        // decides what storage cleanup acts on. Nothing outside this transaction
+        // ever has to look the voice message up again: a lookup that failed or
+        // errored after commit would otherwise be able to turn an already-
+        // committed deletion into an apparent failure for the caller.
+        const voiceMessage = await tx.voiceMessage.findUnique({ where: { messageId: message.id }, select: { storageKey: true } });
+        voiceStorageKey = voiceMessage?.storageKey ?? null;
+
+        await tx.message.update({
+          where: { id: message.id },
+          data: { isDeleted: true },
+        });
+      });
+
+      // Everything below runs only once the soft deletion has committed — a
+      // rejected or rolled-back transaction reaches neither line. The broadcast
+      // fires UNCONDITIONALLY and FIRST: nothing after it can suppress an event
+      // for a deletion that has already committed. Storage cleanup, if any, is
+      // wrapped in a COMPLETE error boundary of its own — it acts on the key
+      // captured above, not a fresh lookup, so the only thing that can still fail
+      // here is the storage call itself, and that failure must never surface as a
+      // 500 for a deletion (and event) that already succeeded.
+      emitToGroup(groupId, 'message:deleted', { messageId });
+      if (voiceStorageKey) {
+        try {
+          await storage.delete({ bucket: STORAGE_BUCKETS.VOICE_MESSAGES, key: voiceStorageKey });
+        } catch {
+          // Best-effort: cleanup failing (storage outage, provider error, a
+          // transient DB error on some future variant of this call) must not
+          // undo a committed, already-announced deletion.
+        }
+      }
+
+      return {
+        success: true,
+        data: { message: 'Message deleted' },
+      };
+    }
+  );
+
+  // Add reaction
+  server.post<{
+    Params: { id: string; messageId: string };
+    Body: { type: string };
+  }>(
+    '/:id/messages/:messageId/reactions',
+    {
+      preHandler: [authenticate],
+      config: { rateLimit: { max: 90, timeWindow: '1 minute' } },
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['type'],
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY'],
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+      const userId = request.user!.sub;
+      const type = request.body.type;
+
+      const result = await setMessageReaction(prisma, groupId, userId, messageId, type as ChatReactionType, true);
+      emitToGroup(groupId, 'reaction:added', result);
+      return reply.status(200).send({ success: true, data: result });
+    }
+  );
+
+  // Remove reaction
+  server.delete<{ Params: { id: string; messageId: string; type: string } }>(
+    '/:id/messages/:messageId/reactions/:type',
+    {
+      preHandler: [authenticate],
+      config: { rateLimit: { max: 90, timeWindow: '1 minute' } },
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId', 'type'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+            type: {
+              type: 'string',
+              enum: ['LIKE', 'LOVE', 'LAUGH', 'WOW', 'SAD', 'ANGRY'],
+            },
+          },
+        },
+      },
+    },
+    async (request) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+      const userId = request.user!.sub;
+      const type = request.params.type;
+
+      const result = await setMessageReaction(prisma, groupId, userId, messageId, type as ChatReactionType, false);
+      emitToGroup(groupId, 'reaction:removed', result);
+      return { success: true, data: result };
+    }
+  );
+
+  // ─── Voice Messages ─────────────────────────────────────────
+
+  // Upload voice message
+  server.post<{
+    Params: { id: string };
+  }>(
+    '/:id/voice-messages',
+    {
+      preHandler: [authenticate],
+      config: {rateLimit: { max: 10, timeWindow: '1 minute' }},
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const groupId = request.params.id;
+      const userId = request.user!.sub;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, userId);
+
+      // Parse multipart upload
+      const parts = request.parts();
+      let fileData: Buffer | null = null;
+      let fileName = 'voice-message.ogg';
+      let mimeType = 'audio/ogg';
+      let duration = 0;
+
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          // Collect file data into buffer
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) {
+            chunks.push(chunk);
+          }
+          fileData = Buffer.concat(chunks);
+          fileName = part.filename || fileName;
+          mimeType = part.mimetype || mimeType;
+        } else if (part.type === 'field' && part.fieldname === 'duration') {
+          const val = typeof part.value === 'string' ? parseInt(part.value, 10) : 0;
+          if (!isNaN(val) && val > 0) {
+            duration = val;
+          }
+        }
+      }
+
+      if (!fileData) {
+        throw ApiError.badRequest('Audio file is required');
+      }
+
+      const message = await createVoiceMessage({
+        groupId,
+        userId,
+        file: fileData,
+        fileName,
+        mimeType,
+        duration,
+      });
+
+      reply.status(201).send({
+        success: true,
+        data: message,
+      });
+
+      // Server-verified activity (post-commit, best-effort).
+      safeRecordActivity(request.user!.sub, { type: 'VOICE_MESSAGE' });
+    }
+  );
+
+  // Stream/download voice message audio
+  server.get<{
+    Params: { id: string; messageId: string };
+  }>(
+    '/:id/voice-messages/:messageId',
+    {
+      preHandler: [authenticate],
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id', 'messageId'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            messageId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const groupId = request.params.id;
+      const messageId = request.params.messageId;
+
+      await getGroupOrThrow(groupId);
+      await assertActiveMember(groupId, request.user!.sub);
+
+      const message = await getMessageInGroup(groupId, messageId);
+
+      if (!message.voiceMessage) {
+        throw ApiError.notFound('Voice message not found');
+      }
+
+      // Get the audio file from storage
+      const audioBuffer = await storage.download({
+        bucket: STORAGE_BUCKETS.VOICE_MESSAGES,
+        key: message.voiceMessage.storageKey,
+      });
+
+      const buffer = Buffer.isBuffer(audioBuffer) ? audioBuffer : Buffer.from(audioBuffer as any);
+
+      // Set appropriate headers for audio streaming
+      reply.header('Content-Type', message.voiceMessage.mimeType);
+      reply.header('Content-Length', buffer.length);
+      reply.header('Accept-Ranges', 'bytes');
+      reply.header('Cache-Control', 'private, no-store');
+
+      reply.send(buffer);
+    }
+  );
+}
