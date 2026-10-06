@@ -597,7 +597,7 @@ function Payments({ userId }: { userId: string }) {
                           </button>
                         </details>
                       )}
-                      <p>Minimum withdrawal: 100 Coins. Only eligible Coins can be withdrawn.</p>
+                      <p>Only eligible Coins can be withdrawn. Current country limits apply and are checked when requesting a quote.</p>
                       <button
                         disabled={
                           busy || !validAmount || Number(amount) < 100 || !countryId || !accountId

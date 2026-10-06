@@ -338,6 +338,8 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
       ]);
       expect(l1.statusCode).toBe(200);
       expect(l2.statusCode).toBe(200);
+      expect(l1.json().data.user.createdAt).toBe(res.json().data.user.createdAt);
+      expect(l2.json().data.user.createdAt).toBe(res.json().data.user.createdAt);
 
       const rt1 = l1.json().data.refreshToken;
       const rt2 = l2.json().data.refreshToken;

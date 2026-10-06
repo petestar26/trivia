@@ -41,7 +41,7 @@ export function ProfilePage() {
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Joined</p>
-              <p className="font-medium text-gray-900 dark:text-white">{new Date(user.createdAt).toLocaleDateString()}</p>
+              <p className="font-medium text-gray-900 dark:text-white">{Number.isNaN(new Date(user.createdAt).getTime()) ? 'Not available' : new Date(user.createdAt).toLocaleDateString()}</p>
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Verified</p>
