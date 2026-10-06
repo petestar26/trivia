@@ -18,7 +18,7 @@ html.qube-member {
   --ring: 260 90% 74%;
   --radius: 0.85rem;
 }
-.qube-member body {
+html.qube-member body {
   background: #0c0c14;
   color: #eeeef7;
 }
@@ -31,7 +31,7 @@ html.qube-member {
   min-width: 0;
   padding-bottom: 3rem;
 }
-.qube-member :is(a, button, input, select, textarea):focus-visible {
+html.qube-member :is(a, button, input, select, textarea):focus-visible {
   outline: 2px solid #bd9aff;
   outline-offset: 4px;
 }
@@ -693,30 +693,30 @@ html.qube-member {
   bottom: 40px;
 }
 /* Preserve status colors while harmonizing existing dark member surfaces. */
-.qube-member .dark\:bg-gray-800,
-.qube-member .dark\:bg-slate-800 {
+html.qube-member .dark\:bg-gray-800,
+html.qube-member .dark\:bg-slate-800 {
   background-color: #1b1927;
 }
-.qube-member .dark\:bg-gray-900,
-.qube-member .dark\:bg-slate-900 {
+html.qube-member .dark\:bg-gray-900,
+html.qube-member .dark\:bg-slate-900 {
   background-color: #13111d;
 }
-.qube-member .dark\:border-gray-700,
-.qube-member .dark\:border-slate-700 {
+html.qube-member .dark\:border-gray-700,
+html.qube-member .dark\:border-slate-700 {
   border-color: #353043;
 }
-.qube-member .payment-panel {
+html.qube-member .payment-panel {
   background: #1b1927;
   border-color: #353043;
   box-shadow: 0 10px 30px #0001;
 }
-.qube-member .payment-eyebrow {
+html.qube-member .payment-eyebrow {
   color: #c2a1ed;
 }
-.qube-member .payment-tabs {
+html.qube-member .payment-tabs {
   border-color: #353043;
 }
-.qube-member .payment-tabs a.active {
+html.qube-member .payment-tabs a.active {
   background: #a477d32b;
   color: #e2c5ff;
 }
@@ -818,9 +818,9 @@ html.qube-member {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .qube-member *,
-  .qube-member *:before,
-  .qube-member *:after {
+  html.qube-member *,
+  html.qube-member *:before,
+  html.qube-member *:after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
@@ -833,76 +833,76 @@ html.qube-member {
   }
 }
 /* Table chrome uses the lounge palette; result, hit and selected states stay distinct. */
-.qube-member .system-dice-page .system-dice-stage,
-.qube-member .system-dice-page .system-dice-history article {
+html.qube-member .system-dice-page .system-dice-stage,
+html.qube-member .system-dice-page .system-dice-history article {
   border-color: #393047;
   background: #1b1725;
 }
-.qube-member .system-dice-page .system-dice-header,
-.qube-member .system-dice-page .system-dice-footer {
+html.qube-member .system-dice-page .system-dice-header,
+html.qube-member .system-dice-page .system-dice-footer {
   background: #1c1828;
 }
-.qube-member .system-dice-page .system-dice-ticket {
+html.qube-member .system-dice-page .system-dice-ticket {
   background: #211b2e;
 }
-.qube-member .system-dice-page .system-dice-input {
+html.qube-member .system-dice-page .system-dice-input {
   background: #15101f;
   border-color: #625073;
 }
-.qube-member .system-dice-page .system-dice-policy {
+html.qube-member .system-dice-page .system-dice-policy {
   background: #251e31;
   border-color: #3b314b;
 }
-.qube-member .system-dice-page .system-dice-header h1 span,
-.qube-member .system-dice-page .system-dice-nav a {
+html.qube-member .system-dice-page .system-dice-header h1 span,
+html.qube-member .system-dice-page .system-dice-nav a {
   color: #c7a5f0;
 }
-.qube-member .system-dice-page .system-dice-header p,
-.qube-member .system-dice-page .system-dice-ticket dt,
-.qube-member .system-dice-page .system-dice-footer p {
+html.qube-member .system-dice-page .system-dice-header p,
+html.qube-member .system-dice-page .system-dice-ticket dt,
+html.qube-member .system-dice-page .system-dice-footer p {
   color: #afa4bd;
 }
-.qube-member .system-dice-page .system-dice-footer strong {
+html.qube-member .system-dice-page .system-dice-footer strong {
   color: #d0bfdc;
 }
-.qube-member .system-dice-page .system-dice-presets button {
+html.qube-member .system-dice-page .system-dice-presets button {
   border-color: #51445e;
   color: #d1bddf;
 }
-.qube-member .system-dice-page .system-dice-presets button:hover:not(:disabled) {
+html.qube-member .system-dice-page .system-dice-presets button:hover:not(:disabled) {
   background: #352842;
 }
-.qube-member .system-dice-page .system-dice-confirm {
+html.qube-member .system-dice-page .system-dice-confirm {
   background: linear-gradient(110deg, #cda5f5, #b58ada);
   color: #261531;
 }
-.qube-member .system-dice-page .system-dice-confirm:hover:not(:disabled) {
+html.qube-member .system-dice-page .system-dice-confirm:hover:not(:disabled) {
   background: #dbb8ff;
 }
-.qube-member .system-dice-page .system-dice-table {
+html.qube-member .system-dice-page .system-dice-table {
   background: radial-gradient(ellipse at 50% 40%, #3c2b50, #21182f 70%);
 }
-.qube-member .keno-stage {
+html.qube-member .keno-stage {
   border-color: #4c3459;
   background: radial-gradient(ellipse at 50% 0%, #58324e, #24192f 65%);
   box-shadow: 0 20px 50px #0003;
 }
-.qube-member .keno-controls,
-.qube-member .keno-stake-panel {
+html.qube-member .keno-controls,
+html.qube-member .keno-stake-panel {
   background: #1a1225;
   border-color: #69507166;
 }
-.qube-member .keno-stake-row input {
+html.qube-member .keno-stake-row input {
   background: #251832;
 }
-.qube-member .bg-card {
+html.qube-member .bg-card {
   background: linear-gradient(145deg, #211c2f, #171420);
   border-color: #3d324d;
   box-shadow:
     0 10px 30px #0002,
     inset 0 1px #ffffff05;
 }
-.qube-member .qube-auth {
+html.qube-member .qube-auth {
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -943,39 +943,39 @@ html.qube-member {
   background: #17121f !important;
   box-shadow: 0 15px 40px #0003;
 }
-.qube-member .qube-chat-thread {
+html.qube-member .qube-chat-thread {
   background: radial-gradient(ellipse at top right, #6c438020, transparent 70%), #121019;
 }
-.qube-member .qube-chat-bubble.dark\:bg-emerald-900 {
+html.qube-member .qube-chat-bubble.dark\:bg-emerald-900 {
   background: linear-gradient(135deg, #49345f, #342444);
   border: 1px solid #9b75b736;
 }
-.qube-member .qube-chat .dark\:bg-slate-950 {
+html.qube-member .qube-chat .dark\:bg-slate-950 {
   background: #191320;
 }
-.qube-member .qube-chat button[aria-label='Send'] {
+html.qube-member .qube-chat button[aria-label='Send'] {
   background: #b58bdc;
   color: #251333;
 }
-.qube-member .qube-chat button[aria-label='Send']:hover:not(:disabled) {
+html.qube-member .qube-chat button[aria-label='Send']:hover:not(:disabled) {
   background: #cfacf0;
 }
 
-.qube-member .system-dice-page .system-dice-balances > div {
+html.qube-member .system-dice-page .system-dice-balances > div {
   border-color: #5a486a;
   background: #22192e;
 }
-.qube-member .system-dice-page .system-dice-balances .practice {
+html.qube-member .system-dice-page .system-dice-balances .practice {
   border-color: #705783;
   background: #332240;
 }
-.qube-member .system-dice-page .system-dice-balances span,
-.qube-member .system-dice-page .system-dice-balances small {
+html.qube-member .system-dice-page .system-dice-balances span,
+html.qube-member .system-dice-page .system-dice-balances small {
   color: #b5a4c1;
 }
-.qube-member .system-dice-page .system-dice-policy b {
+html.qube-member .system-dice-page .system-dice-policy b {
   color: #d7b9f0;
 }
-.qube-member .system-dice-page .system-dice-eyebrow {
+html.qube-member .system-dice-page .system-dice-eyebrow {
   color: #bea0d9 !important;
 }
