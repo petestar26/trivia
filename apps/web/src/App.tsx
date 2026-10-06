@@ -14,6 +14,7 @@ import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
+import { CrashPointPage } from '@/pages/games/crash-point';
 import { SystemDicePage } from '@/pages/games/dice-system';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
@@ -124,6 +125,7 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinScheduledPage />} />
+        <Route path="games/crash-point" element={<CasinoProvider><CrashPointPage /></CasinoProvider>} />
         <Route path="games/turbo-keno" element={<CasinoProvider><SystemKenoPage /></CasinoProvider>} />
         <Route path="games/spin-win/play" element={<CasinoProvider><SpinWinCoinsPage /></CasinoProvider>} />
         <Route

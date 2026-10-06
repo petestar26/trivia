@@ -14,3 +14,4 @@ export * from './group-pvp.js';
 export * from './system-keno.js';
 export * from './gift-collection.js';
 export * from './system-dice.js';
+export * from './crash-point.js';

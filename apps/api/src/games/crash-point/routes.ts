@@ -1,0 +1,67 @@
+import type { FastifyInstance } from 'fastify';
+import { prisma } from '@socialplay/database';
+import { authenticate } from '../../middleware/auth.js';
+import { ApiError } from '../../middleware/api-error.js';
+import { createCrashPointService } from './service.js';
+export async function crashPointRoutes(server: FastifyInstance) {
+  const service = createCrashPointService(prisma);
+  server.addHook('preHandler', authenticate);
+  server.addHook('preHandler', async (_request, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    if (process.env.CRASH_POINT_PRACTICE_ENABLED !== 'true')
+      throw ApiError.forbidden('Crash Point practice is unavailable');
+  });
+  server.get(
+    '/',
+    { config: { rateLimit: { max: 150, timeWindow: '1 minute' } } },
+    async (request) => ({ success: true, data: await service.snapshot(request.user.sub) })
+  );
+  const roundId = { type: 'string', minLength: 1, maxLength: 64 };
+  server.post<{ Body: { roundId: string; stake: number; autoCents: number | null } }>(
+    '/tickets',
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['roundId', 'stake', 'autoCents'],
+          properties: {
+            roundId,
+            stake: { type: 'integer', minimum: 10, maximum: 500 },
+            autoCents: {
+              anyOf: [{ type: 'null' }, { type: 'integer', minimum: 101, maximum: 2000 }],
+            },
+          },
+        },
+      },
+    },
+    async (request) => ({
+      success: true,
+      data: await service.enter(
+        request.user.sub,
+        request.body.roundId,
+        request.body.stake,
+        request.body.autoCents
+      ),
+    })
+  );
+  server.post<{ Body: { roundId: string } }>(
+    '/cashout',
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['roundId'],
+          properties: { roundId },
+        },
+      },
+    },
+    async (request) => ({
+      success: true,
+      data: await service.cashout(request.user.sub, request.body.roundId),
+    })
+  );
+}

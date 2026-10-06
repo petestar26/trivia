@@ -1,3 +1,4 @@
+import { crashPointRoutes } from '../games/crash-point/routes.js';
 import { adminAgentAccountRoutes } from '../agents/admin-account-routes.js';
 import { workspaceRoutes } from './workspaces.js';
 import { socialGroupRoutes } from '../groups/routes.js';
@@ -38,6 +39,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
+  await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
   await server.register(systemKenoRoutes, { prefix: '/games/system-keno' });
   await server.register(chatRoutes, { prefix: '/groups' });

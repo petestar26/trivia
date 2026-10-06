@@ -36,6 +36,7 @@ async function buildApi() {
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
+      join(__dirname, 'src/scripts/staging-crash-point-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-payment-admin.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),
