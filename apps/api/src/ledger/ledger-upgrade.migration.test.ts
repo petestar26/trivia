@@ -674,7 +674,16 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
-      expect(await catalogRows()).toEqual(expectedCatalog);
+      const upgradedCatalog = await catalogRows();
+      expect(upgradedCatalog.filter(game => game.key !== 'crash_point')).toEqual(expectedCatalog);
+      expect(upgradedCatalog.filter(game => game.key === 'crash_point')).toEqual([
+        expect.objectContaining({
+          key: 'crash_point', name: 'Crash Point', type: 'CRASH_POINT',
+          mode: 'WAGER', family: 'INSTANT', catalogStatus: 'COMING_SOON', isActive: false,
+          minBet: 10, maxBet: 500, wagerCurrency: 'COINS', rewardCurrency: 'COINS',
+          configuration: { practiceRulesId: 'crash-point-practice90-v1' },
+        }),
+      ]);
       expect(await anomalies(db.client)).toEqual([]);
 
       const setup = await runtimeSetup(db);
@@ -688,7 +697,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
-      expect(await catalogRows()).toEqual(expectedCatalog);
+      expect(await catalogRows()).toEqual(upgradedCatalog);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
