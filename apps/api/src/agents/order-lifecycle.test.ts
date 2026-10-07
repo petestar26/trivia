@@ -3,7 +3,7 @@ import { assertDepositReady, depositEntryDeadline } from './order-lifecycle.js';
 const state = vi.hoisted(() => ({
   tx: {
     $queryRaw: vi.fn(),
-    agentOrder: { findUnique: vi.fn(), updateMany: vi.fn() },
+    agentOrder: { findUnique: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     agentReservation: { findUnique: vi.fn(), updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
   },
@@ -11,14 +11,14 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('@socialplay/database', async (original) => ({
   ...(await original<typeof import('@socialplay/database')>()),
-  prisma: { $transaction: (fn: any) => fn(state.tx) },
+  prisma: { agentOrder: state.tx.agentOrder, $transaction: (fn: any) => fn(state.tx) },
 }));
 vi.mock('./inventory-service.js', () => ({
   releaseReservedInventory: state.release,
   reserveInventory: vi.fn(),
   consumeReservedInventory: vi.fn(),
 }));
-import { cancelAgentOrder } from './order-service.js';
+import { cancelAgentOrder, sweepExpiredAgentOrders } from './order-service.js';
 const now = new Date('2026-10-07T12:00:00Z');
 const order = {
   id: 'order',
@@ -152,4 +152,13 @@ it.each(['late', 'missing', 'wrong-price'])('rejects %s settlement with a staff-
     pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000,
     coinAmount: kind === 'wrong-price' ? 193 : 192,
   }, 'settlement')).rejects.toMatchObject({statusCode: 409});
+});
+
+it('continues past an invalid expiry candidate and records a system actor', async () => {
+  state.tx.agentOrder.findMany.mockResolvedValue([{...order,id:'bad'}, {...order,id:'good'}]);
+  state.tx.agentOrder.findUnique.mockResolvedValueOnce({...order,id:'bad'}).mockResolvedValueOnce({...order,id:'good'});
+  state.tx.agentReservation.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({id:'reservation',amount:100});
+  expect(await sweepExpiredAgentOrders()).toEqual({examined:2,expired:1,failed:1});
+  expect(state.tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:null,action:'AGENT_ORDER_EXPIRED',entityId:'good'})}));
+  expect(state.release).toHaveBeenCalledOnce();
 });

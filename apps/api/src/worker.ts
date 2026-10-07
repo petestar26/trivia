@@ -36,7 +36,7 @@ export interface WorkerConfig {
 
 export interface WorkerDeps {
   sweep: () => Promise<TimeoutSweepSummary>;
-  expireDeposits?: () => Promise<{ examined: number; expired: number }>;
+  expireDeposits?: () => Promise<{ examined: number; expired: number; failed?: number }>;
   expireCoins?: () => Promise<{ examined: number; expired: number }>;
   reconcile: () => Promise<ReconciliationReport>;
   sleep: (ms: number) => Promise<void>;
@@ -173,7 +173,8 @@ export async function runWorkerCycle(
     const started = deps.now();
     try {
       const results = await deps.expireDeposits();
-      deps.log({ level: 'info', msg: 'deposit expiry sweep completed', durationMs: deps.now() - started, results });
+      if ((results.failed ?? 0) > 0) failed = true;
+      deps.log({ level: (results.failed ?? 0) > 0 ? 'error' : 'info', msg: 'deposit expiry sweep completed', durationMs: deps.now() - started, results });
     } catch (err) {
       failed = true;
       deps.log({ level: 'error', msg: 'deposit expiry sweep failed', durationMs: deps.now() - started, error: serializeError(err) });

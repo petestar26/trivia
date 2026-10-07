@@ -17,6 +17,7 @@ const allowed = [
   '20261007021000_late_payment_guard_paths',
   '20261007030000_late_payment_supervision',
   '20261007031000_recovery_reference_boundary',
+  '20261007032000_recovery_runtime_hardening',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);
@@ -95,6 +96,13 @@ async function run() {
     const [activation] = await db.$queryRaw<{ allowed: boolean }[]>`
       SELECT has_function_privilege(${apiRole}, 'public.activate_provisioned_agent(text,text,text)', 'EXECUTE') AS allowed`;
     if (!activation?.allowed) throw Error('AGENT_ACTIVATION_GRANT_MISSING');
+    const [recovery] = await db.$queryRaw<{allowed: boolean}[]>`
+      SELECT bool_and(has_table_privilege(${apiRole},'public.'||t,p)) AND
+        NOT has_table_privilege(${apiRole},'public.audit_logs','UPDATE,DELETE,TRUNCATE,TRIGGER') AND
+        NOT has_any_column_privilege(${apiRole},'public.audit_logs','UPDATE') AS allowed
+      FROM (VALUES ('late_payment_cases','SELECT'),('late_payment_cases','INSERT'),('late_payment_cases','UPDATE'),
+        ('late_payment_reference_claims','SELECT'),('late_payment_reference_claims','INSERT'),('audit_logs','SELECT'),('audit_logs','INSERT')) AS grants(t,p)`;
+    if (!recovery?.allowed) throw Error('RECOVERY_RUNTIME_GRANTS_INVALID');
     const game = await db.gameDefinition.findUnique({ where: { key: 'crash_point' } });
     if (!game || game.isActive || game.catalogStatus !== 'COMING_SOON')
       throw Error('FINANCIAL_GATE_INVALID');

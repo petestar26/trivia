@@ -18,6 +18,7 @@ beforeAll(async () => {
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007021000_late_payment_guard_paths/migration.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007030000_late_payment_supervision/migration.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007031000_recovery_reference_boundary/migration.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007032000_recovery_runtime_hardening/migration.sql', import.meta.url), 'utf8'));
   await db.exec(`INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
  VALUES ('case','order','customer','request-key','PAY123',100,CURRENT_TIMESTAMP,'Report');`);
 });
@@ -97,4 +98,9 @@ it('guards recovery references against normalized legacy evidence in both write 
   await db.exec(`INSERT INTO payment_evidence VALUES ('own','order','PAY123')`);
   await expect(db.exec(`INSERT INTO late_payment_reference_claims VALUES ('method','PAY123','case','REFUND')`)).rejects.toThrow();
   await expect(db.exec(`INSERT INTO late_payment_reference_claims VALUES ('wrong-method','UNIQUE','case','PAYMENT')`)).rejects.toThrow(/provider/);
+});
+
+it('pins the financial evidence guard to the ledger catalog-only search path', async () => {
+  const result=await db.query<{proconfig:string[]}>("SELECT proconfig FROM pg_proc WHERE proname='guard_evidence_recovery_reference'");
+  expect(result.rows[0].proconfig).toContain('search_path=pg_catalog, pg_temp');
 });

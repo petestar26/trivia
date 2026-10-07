@@ -433,7 +433,7 @@ export async function cancelAgentOrder(
 
     await tx.auditLog.create({
       data: {
-        userId: actorUserId,
+        userId: mode === 'expiry' ? null : actorUserId,
         action: mode === 'expiry' ? 'AGENT_ORDER_EXPIRED' : 'AGENT_ORDER_CANCELLED',
         entity: 'AgentOrder',
         entityId: orderId,
@@ -575,14 +575,16 @@ export async function settleAgentOrder(
 /** Expires only unsubmitted reservations; paid/disputed orders remain held for review. */
 export async function sweepExpiredAgentOrders() {
   const candidates = await prisma.agentOrder.findMany({ where: { status: 'CREATED' }, orderBy: { createdAt: 'asc' }, take: 200 });
-  let expired = 0;
+  let expired = 0, failed = 0;
   for (const order of candidates) {
     try {
       const result = await cancelAgentOrder(order.userId, order.id, undefined, 'expiry');
       if (result?.status === 'EXPIRED') expired++;
     } catch (error) {
-      if ((error as { statusCode?: number }).statusCode !== 409) throw error;
+      // Each cancellation owns its transaction; an invalid order must not
+      // starve the remaining candidates. Keep raw errors out of worker logs.
+      if ((error as { statusCode?: number }).statusCode !== 409) failed++;
     }
   }
-  return { examined: candidates.length, expired };
+  return { examined: candidates.length, expired, failed };
 }

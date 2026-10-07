@@ -51,6 +51,7 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['audit_logs', 'UPDATE'], ['audit_logs', 'DELETE'],
   ['house_publication_requests', 'INSERT'], ['house_publication_requests', 'UPDATE'], ['house_publication_requests', 'DELETE'],
   ['house_publication_receipts', 'INSERT'], ['house_publication_receipts', 'UPDATE'], ['house_publication_receipts', 'DELETE'],
   ['house_round_beacon_pins', 'INSERT'], ['house_round_beacon_pins', 'UPDATE'], ['house_round_beacon_pins', 'DELETE'],
@@ -119,6 +120,19 @@ async function requiredPrivileges(tx: Tx, role: string, requirePractice: boolean
         has_table_privilege(${role}, to_regclass(${'public.' + table}), 'SELECT') AS granted`;
     if ((requirePractice || row?.installed) && !row?.granted) {
       failures.push(`${role} lacks SELECT on ${table}, which the practice snapshot needs`);
+    }
+  }
+  for (const [table, privileges] of [
+    ['late_payment_cases', ['SELECT','INSERT','UPDATE']],
+    ['late_payment_reference_claims', ['SELECT','INSERT']],
+    ['audit_logs', ['SELECT','INSERT']],
+  ] as const) {
+    for (const privilege of privileges) {
+      const [row] = await tx.$queryRaw<{installed: boolean; granted: boolean | null}[]>`
+        SELECT to_regclass(${'public.' + table}) IS NOT NULL AS installed,
+          has_table_privilege(${role},to_regclass(${'public.' + table}),${privilege}) AS granted`;
+      if ((requirePractice || row?.installed) && !row?.granted)
+        failures.push(`${role} lacks ${privilege} on ${table}, which recovery needs`);
     }
   }
   const [activation] = await tx.$queryRaw<{ installed: boolean; granted: boolean | null }[]>`

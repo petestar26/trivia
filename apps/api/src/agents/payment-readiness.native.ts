@@ -384,3 +384,32 @@ it('legacy evidence conflict rolls back the refund and preserves its step-up aut
   const claims=await prisma.latePaymentReferenceClaim.count({where:{caseId:row.id,reference:racingReference}});
   expect(evidence+claims).toBe(1);
 });
+
+it('canonical runtime grants allow audit append/read but deny every mutation path', async () => {
+  const role=`audit_runtime_${randomUUID().replaceAll('-','')}`;
+  await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN`);
+  try {
+    await prisma.$executeRaw`SELECT public.ledger_apply_runtime_grants(${role})`;
+    const row=await prisma.$transaction(async tx=>{
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+      return tx.auditLog.create({data:{action:'RUNTIME_APPEND_TEST',entity:'Test'}});
+    });
+    const permissions=await prisma.$queryRaw<Array<{canRead:boolean;canInsert:boolean;canMutate:boolean;columnUpdate:boolean}>>`
+      SELECT has_table_privilege(${role},'public.audit_logs','SELECT') AS "canRead",
+      has_table_privilege(${role},'public.audit_logs','INSERT') AS "canInsert",
+      has_table_privilege(${role},'public.audit_logs','UPDATE,DELETE,TRUNCATE,TRIGGER') AS "canMutate",
+      has_any_column_privilege(${role},'public.audit_logs','UPDATE') AS "columnUpdate"`;
+    expect(permissions[0]).toEqual({canRead:true,canInsert:true,canMutate:false,columnUpdate:false});
+    for(const operation of ['update','delete'] as const) {
+      await expect(prisma.$transaction(async tx=>{
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
+        if(operation==='update') return tx.auditLog.update({where:{id:row.id},data:{action:'TAMPERED'}});
+        return tx.auditLog.delete({where:{id:row.id}});
+      })).rejects.toThrow();
+    }
+    expect((await prisma.auditLog.findUniqueOrThrow({where:{id:row.id}})).action).toBe('RUNTIME_APPEND_TEST');
+  } finally {
+    await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);
+    await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);
+  }
+});
