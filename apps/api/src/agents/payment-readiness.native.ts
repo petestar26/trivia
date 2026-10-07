@@ -233,7 +233,7 @@ it('settles on-time payment after rate expiry without repricing and rejects late
   const {order: paid} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
   const {order: late} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
   await submitOrderPayment(f.buyer.id, paid.id);
-  await prisma.$queryRaw`SELECT pg_sleep(6)`;
+  await prisma.$queryRaw`SELECT 1 AS waited FROM pg_sleep(6)`;
   await publishUsdRate(f.admin.id, f.country.id, {...fixtureUsdPolicy(1), localPerUsd: '2'});
   await expect(submitOrderPayment(f.buyer.id, late.id)).rejects.toMatchObject({statusCode: 409});
   const outcomes = await Promise.allSettled([
@@ -248,4 +248,66 @@ it('settles on-time payment after rate expiry without repricing and rejects late
   expect((await prisma.agentReservation.findUniqueOrThrow({where: {orderId: paid.id}})).status).toBe('CONSUMED');
   expect((await prisma.agentOrder.findUniqueOrThrow({where: {id: late.id}})).status).toBe('CREATED');
   expect(await prisma.agentOrderSettlement.count({where: {orderId: late.id}})).toBe(0);
+});
+
+it('supervisor releases a suspended assignee, rejects with a reason, and retries cannot release a new assignment', async () => {
+  const {reportLatePayment, claimLatePayment, superviseLatePayment, listLatePayments} = await import('./late-payment-service.js');
+  const f = await fundedFixture();
+  const supervisor = await prisma.user.create({data: {username: `super_${randomUUID()}`, role: 'SUPER_ADMIN'}});
+  const {order} = await createAgentOrder(f.buyer.id, f.args);
+  await cancelAgentOrder(f.buyer.id, order.id);
+  const row = await reportLatePayment(f.buyer.id, {orderId: order.id, idempotencyKey: randomUUID(), paymentReference:'IN-'+randomUUID(), paidAmount:500, paidAt:new Date().toISOString(), description:'Late transfer'});
+  await claimLatePayment(f.admin.id, row.id);
+  await prisma.user.update({where:{id:f.admin.id}, data:{status:'SUSPENDED'}});
+  const release = {idempotencyKey:randomUUID(), reason:'Previous reviewer is suspended'};
+  await expect(superviseLatePayment(f.agentUser.id,row.id,'release',release)).rejects.toThrow(/administrator/);
+  const ordinary=await prisma.user.create({data:{username:`ordinary_${randomUUID()}`,role:'ADMIN'}});
+  await expect(superviseLatePayment(ordinary.id,row.id,'release',release)).rejects.toThrow(/super administrator/);
+  const visible = await listLatePayments(supervisor.id,true);
+  expect(visible.some(c=>c.id===row.id)).toBe(true);
+  await superviseLatePayment(supervisor.id,row.id,'release',release);
+  await claimLatePayment(supervisor.id,row.id);
+  // Old request replay must not release a subsequently claimed assignment.
+  expect((await superviseLatePayment(supervisor.id,row.id,'release',release)).status).toBe('ASSIGNED');
+  const rejection={idempotencyKey:randomUUID(),reason:'Provider could not verify the transfer'};
+  const results=await Promise.all([superviseLatePayment(supervisor.id,row.id,'reject',rejection),superviseLatePayment(supervisor.id,row.id,'reject',rejection)]);
+  expect(results.every(c=>c.status==='REJECTED')).toBe(true);
+  expect(await prisma.auditLog.count({where:{entityId:row.id,action:'LATE_PAYMENT_REJECTED'}})).toBe(1);
+  await expect(superviseLatePayment(supervisor.id,row.id,'release',{...release,idempotencyKey:randomUUID()})).rejects.toThrow(/assigned/);
+  const member=(await listLatePayments(f.buyer.id))[0];
+  expect(member).not.toHaveProperty('assignedAdminId');
+  expect(member).not.toHaveProperty('resolutionKey');
+  expect(member.resolutionNote).toBe(rejection.reason);
+  expect(await prisma.agentOrderSettlement.count({where:{orderId:order.id}})).toBe(0);
+});
+
+it('paginates 101 member recovery cases without truncation or duplicate rows', async () => {
+  const {listLatePayments}=await import('./late-payment-service.js');
+  const f=await fundedFixture();
+  const {order}=await createAgentOrder(f.buyer.id,f.args);
+  const ids=Array.from({length:101},()=>randomUUID());
+  await prisma.agentOrder.createMany({data:ids.map((id,i)=>({...order,id,orderNumber:`PAGE-${id}`,idempotencyKey:randomUUID(),pricingSnapshot:order.pricingSnapshot as any,paymentSnapshot:order.paymentSnapshot as any}))});
+  await prisma.latePaymentCase.createMany({data:ids.map(orderId=>({orderId,openedBy:f.buyer.id,idempotencyKey:randomUUID(),paymentReference:'FIXTURE',paidAmount:500,paidAt:new Date(),description:'Pagination fixture'}))});
+  const pages=await Promise.all([0,1,2].map(page=>listLatePayments(f.buyer.id,false,{page})));
+  expect(pages.map(p=>p.length)).toEqual([50,50,1]);
+  expect(new Set(pages.flat().map(c=>c.id)).size).toBe(101);
+});
+
+it('records one refund after supervisor releases a suspended reviewer', async () => {
+  const {reportLatePayment,claimLatePayment,superviseLatePayment,recordLatePaymentRefund}=await import('./late-payment-service.js');
+  const f=await fundedFixture();
+  const supervisor=await prisma.user.create({data:{username:`recover_${randomUUID()}`,role:'SUPER_ADMIN'}});
+  const {order}=await createAgentOrder(f.buyer.id,f.args);
+  await cancelAgentOrder(f.buyer.id,order.id);
+  const row=await reportLatePayment(f.buyer.id,{orderId:order.id,idempotencyKey:randomUUID(),paymentReference:'IN-'+randomUUID(),paidAmount:500,paidAt:new Date().toISOString(),description:'Transfer after cancellation'});
+  await claimLatePayment(f.admin.id,row.id);
+  await prisma.user.update({where:{id:f.admin.id},data:{status:'SUSPENDED'}});
+  await superviseLatePayment(supervisor.id,row.id,'release',{idempotencyKey:randomUUID(),reason:'Inactive reviewer'});
+  await claimLatePayment(supervisor.id,row.id);
+  await prisma.stepUpVerification.create({data:{userId:supervisor.id,purpose:`LATE_PAYMENT_REFUND:${row.id}`,tokenIat:12345,factorType:'TOTP',expiresAt:new Date(Date.now()+60000)}});
+  const refund={idempotencyKey:randomUUID(),verifiedPaymentReference:row.paymentReference,verifiedAmount:500,refundReference:'OUT-'+randomUUID(),refundedAt:new Date().toISOString(),resolutionNote:'Verified full external refund',verified:true};
+  const results=await Promise.all([recordLatePaymentRefund(supervisor.id,12345,row.id,refund),recordLatePaymentRefund(supervisor.id,12345,row.id,refund)]);
+  expect(results.every(c=>c.status==='REFUNDED')).toBe(true);
+  expect(await prisma.auditLog.count({where:{entityId:row.id,action:'LATE_PAYMENT_EXTERNAL_REFUND_RECORDED'}})).toBe(1);
+  expect(await prisma.agentOrderSettlement.count({where:{orderId:order.id}})).toBe(0);
 });

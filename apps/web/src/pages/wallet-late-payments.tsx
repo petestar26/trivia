@@ -21,19 +21,22 @@ type Case = {
 };
 export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
   const { user } = useAuth();
+  const [page, setPage] = useState(0);
+  const [decision, setDecision] = useState<{item: Case; operation: 'release' | 'reject'} | null>(null);
   const cases = useQuery({
-    queryKey: ['payments', 'late', user?.id, admin],
+    queryKey: ['payments', 'late', user?.id, admin, page],
     queryFn: async () =>
-      unwrapData(await api.get<Case[]>(`/late-payments/${admin ? 'pending' : 'me'}`)),
+      unwrapData(await api.get<Case[]>(`/late-payments/${admin ? 'pending' : 'me'}${page ? `?page=${page}` : ''}`)),
     enabled: !!user,
     refetchInterval: 30000,
   });
+  const access = useQuery({queryKey: ['workspace-access', user?.id], queryFn: async () => unwrapData(await api.get<{role: string}>('/workspaces/access')), enabled: admin && !!user, retry: false});
   const action = useWalletAction('recovery-queue');
   const [selected, setSelected] = useState<Case | null>(null);
   return (
     <section className="payment-panel">
       <h2>Late-payment recovery</h2>
-      <p>Showing up to 100 cases, with open investigations first for staff.</p>
+      <p>Page {page + 1} · up to 50 cases. Staff queues show oldest reports first. Super administrators can review every assignment.</p>
       <p>
         Reports are investigated separately from deposit orders. A recorded refund means staff
         verified a transfer back to the payer; it does not add Coins.
@@ -64,6 +67,11 @@ export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
                 Refund reference: {c.refundReference}. {c.resolutionNote}
               </p>
             )}
+            {c.status === 'REJECTED' && <p>Reason: {c.resolutionNote}</p>}
+            {admin && access.data?.role === 'SUPER_ADMIN' && c.status === 'ASSIGNED' && <>
+              <button disabled={action.blocked} onClick={() => setDecision({item: c, operation: 'release'})}>Release assignment</button>
+              {c.assignedAdminId === user?.id && <button disabled={action.blocked} onClick={() => setDecision({item: c, operation: 'reject'})}>Reject claim</button>}
+            </>}
             {admin && c.status === 'OPEN' && (
               <button
                 disabled={action.blocked}
@@ -89,6 +97,11 @@ export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
           Retry saved request
         </button>
       )}
+      <nav aria-label="Recovery pages">
+        <button disabled={page === 0 || cases.isFetching} onClick={() => {setPage(page - 1); setSelected(null); setDecision(null);}}>Previous page</button>
+        <button disabled={cases.isFetching || cases.isError || (cases.data?.length ?? 0) < 50} onClick={() => {setPage(page + 1); setSelected(null); setDecision(null);}}>Next page</button>
+      </nav>
+      {decision && <SupervisionForm key={`${decision.item.id}-${decision.operation}`} {...decision} close={() => setDecision(null)} />}
       {selected && <RefundForm key={selected.id} item={selected} close={() => setSelected(null)} />}
     </section>
   );
@@ -287,4 +300,18 @@ function RefundForm({ item, close }: { item: Case; close: () => void }) {
       )}
     </fieldset>
   );
+}
+
+function SupervisionForm({item, operation, close}: {item: Case; operation: 'release' | 'reject'; close: () => void}) {
+  const [reason, setReason] = useState('');
+  const action = useWalletAction(`recovery-${operation}-${item.id}`);
+  return <fieldset>
+    <legend>{operation === 'release' ? 'Release investigation assignment' : 'Reject recovery claim'} · {item.order.orderNumber}</legend>
+    <p>{operation === 'release' ? 'The case returns to the open queue for another reviewer. No funds move.' : 'This closes the case without a refund or Coin credit. The member can read your reason. This decision cannot be undone.'}</p>
+    <label>Decision reason<textarea maxLength={4000} value={reason} onChange={e => setReason(e.target.value)} /></label>
+    <button disabled={action.blocked || reason.trim().length < 3} onClick={() => action.run(`/late-payments/${item.id}/${operation}`, {reason})}>Confirm {operation === 'release' ? 'release' : 'rejection'}</button>
+    <button disabled={action.busy} onClick={close}>Back</button>
+    {action.message && <p role="status">{action.message}</p>}
+    {action.pending && <button disabled={action.busy} onClick={() => action.run(action.pending!.path, action.pending!.body)}>Retry saved request</button>}
+  </fieldset>;
 }

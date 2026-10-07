@@ -2,9 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), role: 'ADMIN' }));
 vi.mock('@/lib/api', () => ({ api: m, unwrapData: (r: { data: unknown }) => r.data }));
-vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'admin' } }) }));
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'admin', role: m.role } }) }));
 import { LatePaymentCases, LatePaymentReport } from './wallet-late-payments';
 const item = {
   id: 'case',
@@ -18,10 +18,11 @@ const item = {
   order: { orderNumber: 'AG-123', fiatCurrency: 'ETB' },
 };
 beforeEach(() => {
+  m.role = 'ADMIN';
   sessionStorage.clear();
   m.get.mockReset();
   m.post.mockReset();
-  m.get.mockResolvedValue({ data: [item] });
+  m.get.mockImplementation((path: string) => Promise.resolve({data: path === '/workspaces/access' ? {role: m.role} : [item]}));
   m.post.mockResolvedValue({ data: {} });
 });
 afterEach(cleanup);
@@ -126,4 +127,30 @@ it('renders reported recovery amounts using the order currency precision', async
   });
   mount(<LatePaymentCases />);
   expect(await screen.findByText(/Reported transfer: IN123 · 5.251 KWD/)).toBeTruthy();
+});
+
+it('only supervisors see release/reject controls and decisions require a reason', async () => {
+  m.role = 'SUPER_ADMIN';
+  mount(<LatePaymentCases admin />);
+  fireEvent.click(await screen.findByRole('button', {name:'Reject claim'}));
+  const confirm = screen.getByRole('button', {name:'Confirm rejection'});
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Decision reason'), {target:{value:'No verified incoming transfer'}});
+  fireEvent.click(confirm);
+  await waitFor(()=>expect(m.post).toHaveBeenCalledWith('/late-payments/case/reject', expect.objectContaining({reason:'No verified incoming transfer',idempotencyKey:expect.any(String)}), undefined, expect.anything()));
+});
+it('ordinary admins cannot see supervisor decisions', async () => {
+  mount(<LatePaymentCases admin />);
+  await screen.findByRole('button', {name:'Record verified refund'});
+  expect(screen.queryByRole('button',{name:'Release assignment'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Reject claim'})).not.toBeInTheDocument();
+});
+it('requests the next page and shows a rejected reason', async () => {
+  m.get.mockImplementation((path: string) => Promise.resolve({data: path === '/workspaces/access' ? {role:'ADMIN'} : path.includes('?page=1') ? [{...item,status:'REJECTED',resolutionNote:'No transfer found'}] : Array.from({length:50},(_,i)=>({...item,id:`case-${i}`}))}));
+  mount(<LatePaymentCases admin />);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Next page'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button',{name:'Next page'}));
+  await screen.findByText('Reason: No transfer found');
+  expect(m.get).toHaveBeenCalledWith('/late-payments/pending?page=1');
+  expect(screen.getByRole('button',{name:'Previous page'})).toBeEnabled();
 });

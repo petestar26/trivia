@@ -48,6 +48,7 @@ async function actor(tx: Tx, userId: string, admin = false) {
       admin ? 'Active platform administrator required' : 'Active account required'
     );
   }
+  return u;
 }
 async function orderAccess(tx: Tx, userId: string, orderId: string, admin = false) {
   const order = await tx.agentOrder.findUnique({
@@ -107,17 +108,22 @@ export async function reportLatePayment(userId: string, raw: unknown) {
     return row;
   });
 }
-export async function listLatePayments(userId: string, admin = false) {
+export const queueSchema = z.object({ page: z.coerce.number().int().min(0).max(100000).default(0) }).strict();
+export const supervisionSchema = z.object({ idempotencyKey: key, reason: z.string().trim().min(3).max(4000) }).strict();
+export async function listLatePayments(userId: string, admin = false, raw: unknown = {}) {
+  const { page } = parse(queueSchema, raw);
   return prisma.$transaction(async (tx) => {
-    await actor(tx, userId, admin);
-    return tx.latePaymentCase.findMany({
+    const reviewer = await actor(tx, userId, admin);
+    const rows = await tx.latePaymentCase.findMany({
       where: admin
-        ? { OR: [{ status: 'OPEN' }, { assignedAdminId: userId }] }
+        ? (reviewer.role === 'SUPER_ADMIN' ? {} : { OR: [{ status: 'OPEN' }, { assignedAdminId: userId }] })
         : { openedBy: userId },
-      orderBy: admin ? [{ status: 'asc' }, { openedAt: 'asc' }] : [{ openedAt: 'desc' }],
-      take: 100,
+      orderBy: admin ? [{ openedAt: 'asc' }, { id: 'asc' }] : [{ openedAt: 'desc' }, { id: 'desc' }],
+      take: 50, skip: (page ?? 0) * 50,
       include: { order: { select: { orderNumber: true, fiatCurrency: true, fiatAmount: true } } },
     });
+    if (admin) return rows;
+    return rows.map(({ assignedAdminId, assignedAt, resolutionKey, idempotencyKey, ...member }) => member);
   });
 }
 export async function claimLatePayment(userId: string, id: string) {
@@ -203,6 +209,41 @@ export async function recordLatePaymentRefund(
     await audit(tx, userId, id, 'LATE_PAYMENT_EXTERNAL_REFUND_RECORDED');
     // Recording an externally verified full refund is not a bank transfer.
     // Never change the order, reservation, inventory or financial wallet here.
+    return result;
+  });
+}
+
+/** Supervisors release an assignment; the next reviewer claims it normally. */
+export async function superviseLatePayment(userId: string, id: string, operation: 'release' | 'reject', raw: unknown) {
+  const args = parse(supervisionSchema, raw);
+  return prisma.$transaction(async (tx) => {
+    const reviewer = await actor(tx, userId, true);
+    if (reviewer.role !== 'SUPER_ADMIN') throw ApiError.forbidden('Active super administrator required');
+    await tx.$queryRaw`SELECT id FROM late_payment_cases WHERE id=${id} FOR UPDATE`;
+    const row = await tx.latePaymentCase.findUnique({where: {id}});
+    if (!row) throw ApiError.notFound('Recovery case not found');
+    await orderAccess(tx, userId, row.orderId, true);
+    const action = operation === 'release' ? 'LATE_PAYMENT_ASSIGNMENT_RELEASED' : 'LATE_PAYMENT_REJECTED';
+    const previous = await tx.auditLog.findFirst({where: {
+      userId, entity: 'LatePaymentCase', entityId: id,
+      action: {in: ['LATE_PAYMENT_ASSIGNMENT_RELEASED','LATE_PAYMENT_REJECTED']},
+      newData: {path: ['idempotencyKey'], equals: args.idempotencyKey},
+    }});
+    if (previous) {
+      if (previous.action !== action || (previous.newData as {reason?: string})?.reason !== args.reason)
+        throw ApiError.conflict('Request key was already used for a different decision');
+      return row;
+    }
+    if (row.status !== 'ASSIGNED') throw ApiError.conflict('Only an assigned investigation can be released or rejected');
+    if (operation === 'reject' && row.assignedAdminId !== userId)
+      throw ApiError.forbidden('Release and claim the investigation before rejecting it');
+    const result = await tx.latePaymentCase.update({where: {id}, data: operation === 'release'
+      ? {status: 'OPEN', assignedAdminId: null, assignedAt: null}
+      : {status: 'REJECTED', resolutionKey: args.idempotencyKey, resolutionNote: args.reason, resolvedAt: new Date()},
+    });
+    await tx.auditLog.create({data: {userId, action, entity: 'LatePaymentCase', entityId: id,
+      newData: {idempotencyKey: args.idempotencyKey, reason: args.reason, previousAssignee: row.assignedAdminId},
+    }});
     return result;
   });
 }

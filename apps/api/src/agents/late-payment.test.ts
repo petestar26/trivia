@@ -16,6 +16,7 @@ beforeAll(async () => {
     )
   );
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007021000_late_payment_guard_paths/migration.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007030000_late_payment_supervision/migration.sql', import.meta.url), 'utf8'));
   await db.exec(`INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
  VALUES ('case','order','customer','request-key','PAY123',100,CURRENT_TIMESTAMP,'Report');`);
 });
@@ -72,4 +73,17 @@ it('pins invoker guards to the canonical platform search path', async () => {
  const result=await db.query<{prosecdef:boolean;proconfig:string[]}>("SELECT prosecdef,proconfig FROM pg_proc WHERE proname IN ('guard_late_payment_case','guard_late_payment_reference')");
  expect(result.rows).toHaveLength(2);
  for(const row of result.rows){expect(row.prosecdef).toBe(false);expect(row.proconfig).toContain('search_path=public, pg_temp');}
+});
+
+it('allows assignment release and reasoned rejection while keeping final history immutable', async () => {
+  await db.exec(`INSERT INTO agent_orders VALUES ('reject-order');
+    INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
+    VALUES ('reject-case','reject-order','customer','request-key2','PAY456',100,CURRENT_TIMESTAMP,'Report');
+    UPDATE late_payment_cases SET status='ASSIGNED',"assignedAdminId"='admin',"assignedAt"=CURRENT_TIMESTAMP WHERE id='reject-case';
+    UPDATE late_payment_cases SET status='OPEN',"assignedAdminId"=NULL,"assignedAt"=NULL WHERE id='reject-case';
+    UPDATE late_payment_cases SET status='ASSIGNED',"assignedAdminId"='admin',"assignedAt"=CURRENT_TIMESTAMP WHERE id='reject-case';`);
+  await expect(db.exec(`UPDATE late_payment_cases SET status='REJECTED' WHERE id='reject-case'`)).rejects.toThrow();
+  await db.exec(`UPDATE late_payment_cases SET status='REJECTED',"resolutionKey"='reject-key',"resolutionNote"='Transfer not verified',"resolvedAt"=CURRENT_TIMESTAMP WHERE id='reject-case'`);
+  await expect(db.exec(`UPDATE late_payment_cases SET status='OPEN',"assignedAdminId"=NULL,"assignedAt"=NULL WHERE id='reject-case'`)).rejects.toThrow(/transition/);
+  await expect(db.exec(`UPDATE late_payment_cases SET "resolutionNote"='Changed decision' WHERE id='reject-case'`)).rejects.toThrow(/transition/);
 });

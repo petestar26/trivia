@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { authenticate, requirePermission } from '../middleware/index.js';
 import {
+  superviseLatePayment,
   reportLatePayment,
   listLatePayments,
   claimLatePayment,
@@ -19,11 +20,11 @@ export async function latePaymentRoutes(server: FastifyInstance) {
   }));
   server.get('/me', { preHandler: auth }, async (req) => ({
     success: true,
-    data: await listLatePayments(req.user!.sub),
+    data: await listLatePayments(req.user!.sub, false, req.query),
   }));
   server.get('/pending', { preHandler: admin }, async (req) => ({
     success: true,
-    data: await listLatePayments(req.user!.sub, true),
+    data: await listLatePayments(req.user!.sub, true, req.query),
   }));
   server.post<{ Params: { id: string } }>('/:id/claim', { preHandler: admin }, async (req) => ({
     success: true,
@@ -33,4 +34,10 @@ export async function latePaymentRoutes(server: FastifyInstance) {
     success: true,
     data: await recordLatePaymentRefund(req.user!.sub, req.user!.iat!, req.params.id, req.body),
   }));
+  for (const operation of ['release', 'reject'] as const) {
+    server.post<{ Params: { id: string } }>(`/:id/${operation}`, { preHandler: admin }, async (req) => ({
+      success: true, data: await superviseLatePayment(req.user!.sub, req.params.id, operation, req.body),
+    }));
+  }
+
 }

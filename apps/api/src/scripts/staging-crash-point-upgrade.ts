@@ -15,6 +15,7 @@ const allowed = [
   '20261007010000_agent_activation_runtime_grant',
   '20261007020000_late_payment_cases',
   '20261007021000_late_payment_guard_paths',
+  '20261007030000_late_payment_supervision',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);
