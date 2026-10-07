@@ -40,7 +40,10 @@ it('serves private inboxes, personal archives and lifecycle through authenticate
   await server.inject({method:'POST',url:`${base}/${f.groupId}/archive`,headers:headers(f.users[0]),payload:{archived:false}});
   expect((await server.inject({url:`${base}/inbox`,headers:headers(f.users[0])})).json().data).toHaveLength(1);
   await db.user.update({where:{id:f.users[0]},data:{status:'SUSPENDED'}});
-  expect((await server.inject({url:`${base}/inbox`,headers:headers(f.users[0])})).json().data).toEqual([]);
+  const denied = await server.inject({url:`${base}/inbox`,headers:headers(f.users[0])});
+  expect(denied.statusCode).toBe(403);
+  expect(denied.json().data).toBeUndefined();
+  expect(denied.json().error.message).toBe('An active account is required');
 });
 it('returns a safe HTTP conflict when an owner tries to ban a paid player',async()=>{
   const f=await fixture();const service=createGroupPvpService(db);
