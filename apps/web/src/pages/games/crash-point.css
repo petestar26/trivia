@@ -1026,3 +1026,202 @@
     min-height: 44px;
   }
 }
+
+/* The flight arena has its own cool palette within the Ruby Grand shell. */
+.crash-table .crash-arena {
+  border-color: #427fa4;
+  background: radial-gradient(ellipse at 65% 45%, #154a59 0%, #101f39 48%, #080f20 100%);
+  box-shadow:
+    inset 0 2px 1px #b9edff30,
+    0 20px 50px #0006;
+}
+.crash-arena:before {
+  background: radial-gradient(circle at 20% 20%, #6387ff25, transparent 55%);
+}
+.crash-arena-top,
+.crash-multiplier > span,
+.crash-multiplier p {
+  color: #b3cadd;
+}
+.crash-arena-top > span:first-child {
+  color: #a3f5e6;
+}
+.crash-arena-top i {
+  background: #75ffe1;
+  box-shadow: 0 0 12px #42e9d0;
+}
+.crash-arena-top b {
+  color: #e7f5ff;
+}
+.crash-multiplier strong {
+  font-family: system-ui, sans-serif;
+  font-weight: 750;
+  color: #b1ffef;
+  text-shadow:
+    0 2px #246479,
+    0 5px #0b283e,
+    0 10px 22px #0008,
+    0 0 45px #4be2d633;
+}
+.crashed .crash-multiplier strong {
+  color: #ffc18d;
+  text-shadow:
+    0 3px #724d3c,
+    0 8px 22px #0008;
+}
+.crash-graph .grid {
+  stroke: #8ec6df18;
+}
+.crash-graph text {
+  fill: #adc8df;
+}
+.crash-graph .depth {
+  stroke: #133e69;
+}
+.crash-floor {
+  border-color: #72dce044;
+  background:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, #66d9d326 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, #669dd326 40px);
+  box-shadow:
+    0 22px 28px #0008,
+    inset 0 0 50px #132844;
+}
+.crash-arrow {
+  filter: drop-shadow(0 0 8px #64eddc88);
+}
+.crash-arrow-trail {
+  stroke: #6bffe1;
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+.crash-arrow.flying .crash-arrow-trail {
+  stroke-dasharray: 10 8;
+  animation: crash-thrust 0.6s linear infinite;
+}
+@keyframes crash-thrust {
+  to {
+    stroke-dashoffset: 36;
+  }
+}
+.crash-countdown-track {
+  background: #0b1831;
+  border-color: #5286a6;
+}
+.crash-countdown-track > div {
+  background: linear-gradient(90deg, #477aff, #75ffe1);
+}
+.crash-table .crash-result {
+  display: block;
+  margin: 0 16px 16px;
+  padding: 16px;
+  border: 1px solid #55809866;
+  border-radius: 14px;
+  background: linear-gradient(130deg, #203b4ee6, #0b192fe6);
+  box-shadow:
+    inset 0 1px #c1e9ff1a,
+    0 8px 20px #0003;
+  color: #d9edf7;
+}
+.crash-result-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #9ef3df;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+.crash-result-heading small {
+  display: block;
+  margin-top: 4px;
+  color: #b6c9dc;
+  font-size: 10px;
+  letter-spacing: normal;
+}
+.crash-result-content {
+  margin-top: 12px;
+  line-height: 1.6;
+  font-size: 13px;
+}
+.crash-result-content > svg {
+  display: none;
+}
+.crash-slot-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.crash-result-card {
+  display: block;
+  padding: 12px;
+  background: #09162c99;
+  border: 1px solid #8195b544;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.crash-result-card.returned {
+  border-color: #62eac37a;
+  color: #a8ffe2;
+}
+.crash-result-card.finished {
+  border-color: #f7b07766;
+  color: #ffcfaa;
+}
+.crash-targets {
+  margin-top: 10px;
+}
+.crash-targets button[aria-pressed='true'] {
+  border-color: #75dfce;
+  background: #173e43;
+  color: #b6fff0;
+}
+.crash-controls button:focus-visible,
+.crash-controls input:focus-visible {
+  outline: 2px solid #8af4e0;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crash-arrow.flying .crash-arrow-trail {
+    animation: none;
+  }
+}
+@media (max-width: 480px) {
+  .crash-table .crash-result {
+    margin: 0 10px 10px;
+    padding: 12px;
+  }
+  .crash-arena-top {
+    padding: 16px;
+    letter-spacing: 0.03em;
+  }
+}
+
+.crash-result-card > span {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+.crash-result-card strong {
+  display: block;
+  font-size: clamp(18px, 2vw, 25px);
+  margin: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.crash-result-card small {
+  display: block;
+  font-size: 11px;
+}
+.crash-targets button {
+  min-height: 44px;
+}
+
+.crash-table .crash-targets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.crash-targets button {
+  min-width: 0;
+  padding: 8px 4px;
+}

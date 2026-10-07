@@ -279,7 +279,8 @@ function CrashPoint({
     document.addEventListener('visibilitychange', stop);
     return () => document.removeEventListener('visibilitychange', stop);
   }, []);
-  const locked = !open || !!ticket || !!pending || !!storageError || !!autoplay;
+  // Draft choices remain available between rounds; admission still requires an open window.
+  const locked = !connected || !!ticket || !!pending || !!storageError || !!autoplay;
   const elapsed = shown
     ? shown.crashCents !== null
       ? crashCrossingMs(shown.crashCents)
@@ -365,7 +366,42 @@ function CrashPoint({
             />
             <span>×</span>
           </div>
-          <p className="crash-field-help">10–500 credits · auto cash-out 1.01×–20.00×</p>
+          <div
+            className="crash-presets crash-targets"
+            role="group"
+            aria-label="Auto cash-out targets"
+          >
+            {[1.5, 2, 3, 5].map((target) => (
+              <button
+                key={target}
+                disabled={locked}
+                aria-pressed={
+                  (ticket
+                    ? ticket.autoCents
+                    : pending
+                      ? pending.autoCents
+                      : auto
+                        ? Math.round(Number(autoText) * 100)
+                        : null) ===
+                  target * 100
+                }
+                onClick={() => {
+                  setAuto(true);
+                  setAutoText(target.toFixed(2));
+                }}
+              >
+                {target.toFixed(2)}×
+              </button>
+            ))}
+          </div>
+          <p className="crash-field-help">
+            Choose a cash-out target, not a prediction. 1.01×–20.00×.
+          </p>
+          {!open && !ticket && !pending && connected && (
+            <p className="crash-field-help">
+              Prepare your next ticket now. Confirm when entry opens.
+            </p>
+          )}
         </div>
         <div className="crash-submit-field">
           {ticket && ticket.payout === null && flying ? (
@@ -387,7 +423,11 @@ function CrashPoint({
             <button
               className="crash-action"
               disabled={
-                locked || !input || input.stake > (s?.balance ?? 0) || entryMutation.isPending
+                !open ||
+                locked ||
+                !input ||
+                input.stake > (s?.balance ?? 0) ||
+                entryMutation.isPending
               }
               onClick={() => round && input && submit({ roundId: round.id, ...input })}
             >
@@ -599,12 +639,12 @@ function CrashPoint({
               <svg className="crash-graph" viewBox="0 0 800 390">
                 <defs>
                   <linearGradient id="crash-line">
-                    <stop stopColor="#b73e65" />
-                    <stop offset="1" stopColor="#f3d2b0" />
+                    <stop stopColor="#3478ff" />
+                    <stop offset="1" stopColor="#75ffe1" />
                   </linearGradient>
                   <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
-                    <stop stopColor="#cf5475" stopOpacity=".28" />
-                    <stop offset="1" stopColor="#cf5475" stopOpacity="0" />
+                    <stop stopColor="#39dcc9" stopOpacity=".28" />
+                    <stop offset="1" stopColor="#39dcc9" stopOpacity="0" />
                   </linearGradient>
                   <filter id="crash-glow">
                     <feGaussianBlur stdDeviation="6" />
@@ -634,49 +674,83 @@ function CrashPoint({
                 <polyline points={points} className="curve depth" transform="translate(0 9)" />
                 <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
                 <polyline points={points} className="curve" />
-                <circle cx={x} cy={y} r="12" fill="#733147" />
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="6"
-                  fill="#ffe0c3"
-                  className={flying && connected ? 'crash-beacon' : ''}
-                />
+                <g transform={`translate(${x} ${y}) rotate(-30)`}>
+                  <ellipse cx="-8" cy="18" rx="27" ry="8" fill="#020b1b" opacity=".65" />
+                  <g className={flying && connected ? 'crash-arrow flying' : 'crash-arrow'}>
+                    <path className="crash-arrow-trail" d="M-18 0H-60" />
+                    <path
+                      d="M30 0L-23 -17L-12 0L-23 17Z"
+                      fill="#82ffe6"
+                      stroke="#d4fff7"
+                      strokeWidth="1.5"
+                    />
+                    <path d="M30 0L-12 0L-23 17Z" fill="#158aaf" />
+                    <path d="M-23 -17L-12 0L30 0" fill="none" stroke="white" strokeWidth="2" />
+                  </g>
+                </g>
               </svg>
             </div>
             <div className="crash-result" role="status">
-              {raw?.maxTickets === 2 && shownTickets.length > 0 ? (
-                <div className="crash-slot-results">
-                  {shownTickets.map((t) => (
-                    <span key={t.slot}>
-                      Bet {t.slot}:{' '}
-                      {t.payout === null
-                        ? t.autoCents === null
-                          ? 'confirmed · manual cash-out requires a connection'
-                          : 'confirmed · server auto cash-out remains active'
-                        : t.payout > 0
-                          ? `${t.payout} credits returned at ${((t.paidCents ?? 0) / 100).toFixed(2)}×`
-                          : 'finished · no return'}
-                    </span>
-                  ))}
-                </div>
-              ) : result?.payout !== null && result?.payout !== undefined ? (
-                <>
-                  <ShieldCheck size={18} />
-                  {result.payout > 0
-                    ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
-                    : 'Round finished · no return for this ticket'}
-                </>
-              ) : (
-                <>
-                  <TrendingUp size={18} />
-                  {ticket
-                    ? ticket.autoCents !== null
-                      ? 'Your ticket is live · auto cash-out stays active when you disconnect'
-                      : 'Your ticket is live · manual cash-out requires a connection'
-                    : 'One shared round · one server-controlled result'}
-                </>
-              )}
+              <div className="crash-result-heading">
+                <ShieldCheck size={18} />
+                <span>
+                  {shown?.crashCents != null ? 'ROUND RESULT' : 'YOUR FLIGHT'}
+                  <small>Practice credits · no cash value</small>
+                </span>
+              </div>
+              <div className="crash-result-content">
+                {raw?.maxTickets === 2 && shownTickets.length > 0 ? (
+                  <div className="crash-slot-results">
+                    {shownTickets.map((t) => (
+                      <span
+                        className={`crash-result-card ${t.payout === null ? 'pending' : t.payout > 0 ? 'returned' : 'finished'}`}
+                        key={t.slot}
+                        role="group"
+                        aria-label={`Bet ${t.slot} result`}
+                      >
+                        <span>
+                          BET {t.slot} ·{' '}
+                          {t.payout === null
+                            ? 'CONFIRMED'
+                            : t.payout > 0
+                              ? 'CASHED OUT'
+                              : 'FINISHED'}
+                        </span>
+                        <strong>
+                          {t.payout === null
+                            ? `${t.stake} credits in play`
+                            : `${t.payout} credits returned`}
+                        </strong>
+                        <small>
+                          {t.payout === null
+                            ? t.autoCents === null
+                              ? 'Manual cash-out requires a connection'
+                              : `Auto cash-out at ${(t.autoCents / 100).toFixed(2)}× remains active`
+                            : t.payout > 0
+                              ? `Confirmed at ${((t.paidCents ?? 0) / 100).toFixed(2)}× · includes stake`
+                              : 'No return for this ticket'}
+                        </small>
+                      </span>
+                    ))}
+                  </div>
+                ) : result?.payout !== null && result?.payout !== undefined ? (
+                  <>
+                    <ShieldCheck size={18} />
+                    {result.payout > 0
+                      ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
+                      : 'Round finished · no return for this ticket'}
+                  </>
+                ) : (
+                  <>
+                    <TrendingUp size={18} />
+                    {ticket
+                      ? ticket.autoCents !== null
+                        ? 'Your ticket is live · auto cash-out stays active when you disconnect'
+                        : 'Your ticket is live · manual cash-out requires a connection'
+                      : 'One shared round · one server-controlled result'}
+                  </>
+                )}
+              </div>
             </div>
           </section>
           <div className="crash-dual-controls">

@@ -214,7 +214,9 @@ it('autoplay admits at most ten distinct rounds and never repeats the current ro
         });
       });
   }
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   expect(new Set(post.mock.calls.map((c) => c[1].roundId)).size).toBe(10);
 });
 it('stops autoplay on admission errors and preserves the exact retry payload', async () => {
@@ -224,7 +226,9 @@ it('stops autoplay on admission errors and preserves the exact retry payload', a
   const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
   await within(panel).findByRole('button', { name: 'Retry saved ticket' });
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   expect(readCrashReceipt('u1', 2)).toEqual({ roundId: 'r1', stake: 25, autoCents: 200, slot: 2 });
 });
 it('stops autoplay when the tab is hidden without cancelling confirmed bets', async () => {
@@ -235,7 +239,9 @@ it('stops autoplay when the tab is hidden without cancelling confirmed bets', as
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   fireEvent(document, new Event('visibilitychange'));
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   visibility.mockRestore();
   expect(post).toHaveBeenCalledTimes(1);
 });
@@ -258,7 +264,9 @@ it('shows the second ticket in the shared result, summary and labelled history',
   snapshot.rounds[0].crashCents = 150;
   snapshot.rounds[0].tickets = [{ slot: 2, stake: 40, autoCents: 120, payout: 48, paidCents: 120 }];
   setup();
-  await screen.findByText('Bet 2: 48 credits returned at 1.20×');
+  const resultCard = await screen.findByRole('group', { name: 'Bet 2 result' });
+  expect(within(resultCard).getByText('48 credits returned')).toBeInTheDocument();
+  expect(within(resultCard).getByText('Confirmed at 1.20× · includes stake')).toBeInTheDocument();
   const receipt = screen.getByRole('region', { name: 'Bet 2 receipt' });
   expect(within(receipt).getByText('40 credits')).toBeInTheDocument();
   expect(within(receipt).getByText('48 credits')).toBeInTheDocument();
@@ -279,7 +287,9 @@ it('stops autoplay on disconnection and does not restart it when fresh data retu
   await act(async () => {
     await client.refetchQueries({ queryKey: ['crash-point', 'u1'] });
   });
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   await act(async () => {
     snapshot = { ...snapshot, rounds: [{ ...snapshot.rounds[0], id: 'after-reconnect' }] };
     client.setQueryData(['crash-point', 'u1'], {
@@ -292,4 +302,54 @@ it('stops autoplay on disconnection and does not restart it when fresh data retu
   expect(
     within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' })
   ).toBeInTheDocument();
+});
+
+it('allows preparing amount and target during a running round but cannot submit early', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  setup();
+  const amount = await screen.findByLabelText('Bet amount');
+  await waitFor(() => expect(amount).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
+  expect(amount).toHaveValue('50');
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  const waiting = screen.getByRole('button', { name: /Wait for next round/ });
+  expect(waiting).toBeDisabled();
+  fireEvent.click(waiting);
+  expect(post).not.toHaveBeenCalled();
+  snapshot = {
+    ...snapshot,
+    serverTime: Date.now(),
+    rounds: [
+      {
+        ...snapshot.rounds[0],
+        id: 'r2',
+        opensAt: Date.now() - 1000,
+        startsAt: Date.now() + 14000,
+        endsAt: Date.now() + 59000,
+      },
+    ],
+  };
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['crash-point', 'u1'] });
+  });
+  const confirm = await screen.findByRole('button', { name: /Confirm ticket/ });
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  await waitFor(() => expect(post).toHaveBeenCalled());
+  expect(post.mock.calls[0][1]).toEqual({ roundId: 'r2', stake: 50, autoCents: 300 });
+});
+it('target presets enable automatic cash-out and stay locked for a saved ticket', async () => {
+  setup();
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(screen.getByLabelText('Auto cash-out', { exact: true }));
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '1.50×' }));
+  expect(screen.getByLabelText('Auto cash-out', { exact: true })).toBeChecked();
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('1.50');
+  post.mockRejectedValue(new Error('Interrupted'));
+  fireEvent.click(screen.getByRole('button', { name: /Confirm ticket/ }));
+  await screen.findByRole('button', { name: 'Retry saved ticket' });
+  expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
+  expect(readCrashReceipt('u1')).toEqual({ roundId: 'r1', stake: 25, autoCents: 150 });
 });
