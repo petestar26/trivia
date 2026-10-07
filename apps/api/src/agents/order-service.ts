@@ -1,3 +1,5 @@
+import { depositEntryDeadline, depositClock, assertDepositReady, MAX_PENDING_DEPOSITS } from './order-lifecycle.js';
+import { assertPlatformAdmin } from './agent-service.js';
 import { selectPaymentRate } from './usd-config-service.js';
 import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
@@ -154,6 +156,17 @@ export async function createAgentOrder(
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        await lockUserEconomicScope(tx, `deposit-admission:${actorUserId}`);
+        const replay = await tx.agentOrder.findUnique({
+          where: { userId_idempotencyKey: { userId: actorUserId, idempotencyKey: args.idempotencyKey } },
+        });
+        if (replay) {
+          if (orderRequestFieldsMatch(replay, args)) return { order: replay, idempotent: true };
+          throw ApiError.conflict('An order already exists for this idempotency key with different request data');
+        }
+        if (await tx.agentOrder.count({ where: { userId: actorUserId, status: 'CREATED' } }) >= MAX_PENDING_DEPOSITS) {
+          throw ApiError.conflict('Finish or cancel your pending deposits before creating another (maximum 3)');
+        }
         // Admission is revalidated under row locks. Preflight data alone can
         // become stale while an agent/account/country is being disabled.
         const [buyer] = await tx.$queryRaw<Array<{status:string}>>`
@@ -315,9 +328,15 @@ export async function submitOrderPayment(
   context?: { ip?: string; userAgent?: string }
 ) {
   return prisma.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<{ status: string }[]>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+    await tx.$queryRaw`SELECT id FROM agent_orders WHERE id=${orderId} FOR UPDATE`;
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
     if (before.userId !== actorUserId) throw ApiError.forbidden('Not your order');
+    if (before.status !== 'CREATED') throw ApiError.conflict('Order is no longer awaiting payment');
+    await assertDepositReady(tx, before);
+    if (depositEntryDeadline(before) <= await depositClock(tx)) throw ApiError.conflict('Payment window expired. Do not send money; contact payment support if already paid.');
 
     const claim = await tx.agentOrder.updateMany({
       where: { id: orderId, userId: actorUserId, status: 'CREATED' },
@@ -358,26 +377,39 @@ export async function submitOrderPayment(
 }
 
 /**
- * Customer cancels their own order before payment is submitted. Releases
- * the reservation atomically in the same transaction — no time-based
- * expiry is implemented here (see Phase E report: timeout duration is not
- * recoverable from the repository), this is purely the customer-initiated
- * path, which is fully specified by AgentOrderStatus.CANCELLED and the
- * RELEASE_UNUSED ledger equation.
+ * Cancel only unpaid CREATED orders, or expire their 15-minute payment window.
+ * Order state, reservation release and ledger movement commit atomically.
+ * PAYMENT_SUBMITTED orders are never released by this path.
  */
+type OrderContext = { ip?: string; userAgent?: string };
+export function cancelAgentOrder(actorUserId: string, orderId: string, context?: OrderContext, mode?: 'customer' | 'staff', reason?: string): Promise<{ orderId: string; status: string }>;
+export function cancelAgentOrder(actorUserId: string, orderId: string, context: OrderContext | undefined, mode: 'expiry', reason?: string): Promise<{ orderId: string; status: string } | null>;
 export async function cancelAgentOrder(
   actorUserId: string,
   orderId: string,
-  context?: { ip?: string; userAgent?: string }
+  context?: { ip?: string; userAgent?: string },
+  mode: 'customer' | 'staff' | 'expiry' = 'customer',
+  reason?: string,
 ) {
+  if (mode === 'staff') {
+    await assertPlatformAdmin(actorUserId);
+    if (!reason?.trim()) throw ApiError.badRequest('A cancellation reason is required');
+  }
   return prisma.$transaction(async (tx) => {
+    if (mode === 'staff') {
+      const [admin] = await tx.$queryRaw<{ role: string; status: string }[]>`SELECT role::text, status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+      if (admin?.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(admin.role)) throw ApiError.forbidden('Active admin privileges required');
+    }
+    await tx.$queryRaw`SELECT id FROM agent_orders WHERE id=${orderId} FOR UPDATE`;
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
-    if (before.userId !== actorUserId) throw ApiError.forbidden('Not your order');
+    if (mode === 'customer' && before.userId !== actorUserId) throw ApiError.forbidden('Not your order');
+    const operationNow = await depositClock(tx);
+    if (mode === 'expiry' && depositEntryDeadline(before) > operationNow) return null;
 
     const claim = await tx.agentOrder.updateMany({
-      where: { id: orderId, userId: actorUserId, status: 'CREATED' },
-      data: { status: 'CANCELLED', cancelledAt: new Date() },
+      where: { id: orderId, status: 'CREATED' },
+      data: mode === 'expiry' ? { status: 'EXPIRED', expiredAt: operationNow } : { status: 'CANCELLED', cancelledAt: operationNow },
     });
     if (claim.count === 0) {
       const current = await tx.agentOrder.findUnique({ where: { id: orderId } });
@@ -400,17 +432,17 @@ export async function cancelAgentOrder(
     await tx.auditLog.create({
       data: {
         userId: actorUserId,
-        action: 'AGENT_ORDER_CANCELLED',
+        action: mode === 'expiry' ? 'AGENT_ORDER_EXPIRED' : 'AGENT_ORDER_CANCELLED',
         entity: 'AgentOrder',
         entityId: orderId,
         oldData: { status: 'CREATED' },
-        newData: { status: 'CANCELLED' },
+        newData: { status: mode === 'expiry' ? 'EXPIRED' : 'CANCELLED', mode, reason: reason?.trim() },
         ip: context?.ip,
         userAgent: context?.userAgent,
       },
     });
 
-    return { orderId, status: 'CANCELLED' };
+    return { orderId, status: mode === 'expiry' ? 'EXPIRED' : 'CANCELLED' };
   });
 }
 
@@ -462,6 +494,7 @@ export async function settleAgentOrder(
       throw ApiError.forbidden('Your agent account cannot settle orders in its current state');
     }
 
+    await assertDepositReady(tx, before);
     const claim = await tx.agentOrder.updateMany({
       where: { id: orderId, agentId: agent.id, status: 'PAYMENT_SUBMITTED' },
       data: { status: 'COMPLETED', completedAt: new Date() },
@@ -534,4 +567,19 @@ export async function settleAgentOrder(
 
     return { orderId, status: 'COMPLETED', settlementId };
   });
+}
+
+/** Expires only unsubmitted reservations; paid/disputed orders remain held for review. */
+export async function sweepExpiredAgentOrders() {
+  const candidates = await prisma.agentOrder.findMany({ where: { status: 'CREATED' }, orderBy: { createdAt: 'asc' }, take: 200 });
+  let expired = 0;
+  for (const order of candidates) {
+    try {
+      const result = await cancelAgentOrder(order.userId, order.id, undefined, 'expiry');
+      if (result?.status === 'EXPIRED') expired++;
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode !== 409) throw error;
+    }
+  }
+  return { examined: candidates.length, expired };
 }

@@ -179,6 +179,13 @@ export async function activateTotpFactor(
       throw ApiError.conflict('Two-factor enrollment is no longer pending');
     }
 
+    // Enrolling a factor also enables the protection promised by the UI.
+    // Keep activation and policy in the same transaction.
+    await tx.userSecurityPolicy.upsert({
+      where: { userId },
+      create: { userId, requiresStepUpForSensitiveOps: true },
+      update: { requiresStepUpForSensitiveOps: true },
+    });
     return tx.userTotpFactor.findUniqueOrThrow({ where: { userId } });
   });
 

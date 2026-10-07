@@ -128,6 +128,15 @@ describe('worker config parsing', () => {
 });
 
 describe('runWorkerCycle', () => {
+  it('keeps withdrawal reconciliation and bonus expiry running when deposit expiry fails', async () => {
+    const expireCoins = vi.fn().mockResolvedValue({ examined: 0, expired: 0 });
+    const deps = makeDeps({ expireDeposits: vi.fn().mockRejectedValue(new Error('deposit unavailable')), expireCoins });
+    const result = await runWorkerCycle(deps, baseConfig(), -1);
+    expect(result.failed).toBe(true);
+    expect(deps.sweep).toHaveBeenCalledOnce();
+    expect(expireCoins).toHaveBeenCalledOnce();
+    expect(deps.reconcile).toHaveBeenCalledOnce();
+  });
   it('runs one sweep and logs its duration', async () => {
     const deps = makeDeps();
     const result = await runWorkerCycle(deps, baseConfig(), -1);

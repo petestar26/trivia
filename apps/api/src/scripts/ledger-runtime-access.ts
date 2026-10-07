@@ -121,6 +121,10 @@ async function requiredPrivileges(tx: Tx, role: string, requirePractice: boolean
       failures.push(`${role} lacks SELECT on ${table}, which the practice snapshot needs`);
     }
   }
+  const [activation] = await tx.$queryRaw<{ installed: boolean; granted: boolean | null }[]>`
+    SELECT to_regprocedure('public.activate_provisioned_agent(text,text,text)') IS NOT NULL AS installed,
+      has_function_privilege(${role}, to_regprocedure('public.activate_provisioned_agent(text,text,text)'), 'EXECUTE') AS granted`;
+  if (activation?.installed && !activation.granted) failures.push(`${role} lacks EXECUTE on activate_provisioned_agent, which agent activation needs`);
   const [schema] = await tx.$queryRaw<{ granted: boolean }[]>`
     SELECT has_schema_privilege(${role}, 'public', 'USAGE') AS granted`;
   if (!schema?.granted) failures.push(`${role} lacks USAGE on schema public, which the API needs`);

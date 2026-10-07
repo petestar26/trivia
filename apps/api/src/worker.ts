@@ -1,3 +1,4 @@
+import { sweepExpiredAgentOrders } from './agents/order-service.js';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
@@ -35,6 +36,7 @@ export interface WorkerConfig {
 
 export interface WorkerDeps {
   sweep: () => Promise<TimeoutSweepSummary>;
+  expireDeposits?: () => Promise<{ examined: number; expired: number }>;
   expireCoins?: () => Promise<{ examined: number; expired: number }>;
   reconcile: () => Promise<ReconciliationReport>;
   sleep: (ms: number) => Promise<void>;
@@ -161,6 +163,17 @@ export async function runWorkerCycle(
     });
   }
 
+  if (deps.expireDeposits) {
+    const started = deps.now();
+    try {
+      const results = await deps.expireDeposits();
+      deps.log({ level: 'info', msg: 'deposit expiry sweep completed', durationMs: deps.now() - started, results });
+    } catch (err) {
+      failed = true;
+      deps.log({ level: 'error', msg: 'deposit expiry sweep failed', durationMs: deps.now() - started, error: serializeError(err) });
+    }
+  }
+
   if (deps.expireCoins) {
     const expiryStart = deps.now();
     try {
@@ -278,6 +291,7 @@ async function main(): Promise<number> {
 
   const deps: WorkerDeps = {
     sweep: () => sweepWithdrawalTimeouts(),
+    expireDeposits: () => sweepExpiredAgentOrders(),
     expireCoins: () => sweepExpiredCoinLots(),
     reconcile: () => runWithdrawalReconciliation(),
     sleep: createAbortableSleep(controller.signal),

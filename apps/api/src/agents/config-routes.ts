@@ -8,6 +8,7 @@ import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   createCountry,
   setCountryFlags,
+  parseCountryFlags,
   listCountries,
   createPaymentMethod,
   setPaymentMethodActive,
@@ -88,7 +89,7 @@ export async function agentConfigRoutes(server: FastifyInstance): Promise<void> 
     '/countries/:id',
     { preHandler: admin },
     async (request, reply) => {
-      const country = await setCountryFlags(request.user!.sub, request.params.id, request.body, requestContext(request));
+      const country = await setCountryFlags(request.user!.sub, request.params.id, parseCountryFlags(request.body), requestContext(request));
       return reply.send({ success: true, data: country });
     }
   );

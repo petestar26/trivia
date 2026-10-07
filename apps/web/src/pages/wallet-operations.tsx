@@ -17,6 +17,7 @@ type Row = {
   fiatCurrency: string;
   createdAt: string;
   paymentSnapshot?: Record<string, unknown>;
+  disputeOpenedFromStatus?: string;
 };
 type Dispute = {
   id: string;
@@ -67,26 +68,41 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
   const [note, setNote] = useState(''),
     [reference, setReference] = useState(''),
     [outcome, setOutcome] = useState(''),
-    [checked, setChecked] = useState(false);
+    [checked, setChecked] = useState(false),
+    [paymentOccurredAt, setPaymentOccurredAt] = useState('');
   const review = useQuery({
     queryKey: ['payments', 'review', userId, selection?.kind, selection?.id],
     enabled: !!selection && (agent || admin),
     queryFn: async () => {
-      if (selection!.kind === 'payout') return get<Row>(`/withdrawals/${selection!.id}`);
-      if (selection!.kind === 'withdrawal')
-        return (await get<{ withdrawal: Row }>(`/withdrawals/admin/disputes/${selection!.id}`))
-          .withdrawal;
+      if (selection!.kind === 'payout')
+        return get<Row>(`/withdrawals/agent/assigned/${selection!.id}`);
+      if (selection!.kind === 'withdrawal') {
+        const detail = await get<{ withdrawal: Row; dispute: { openedFromStatus: string } }>(
+          `/withdrawals/admin/disputes/${selection!.id}`
+        );
+        return { ...detail.withdrawal, disputeOpenedFromStatus: detail.dispute.openedFromStatus };
+      }
       const dispute = await get<Dispute>(`/agent-disputes/${selection!.id}`);
       return get<Row>(`/agent-orders/${dispute.orderId}`);
     },
   });
   const action = useWalletAction();
+  const needsVerifiedPayment =
+    selection?.kind === 'withdrawal' &&
+    outcome === 'COMPLETED' &&
+    review.data?.disputeOpenedFromStatus === 'PAYOUT_IN_PROGRESS';
+  const paymentTime = paymentOccurredAt ? new Date(paymentOccurredAt).getTime() : NaN;
+  const validPaymentTime =
+    Number.isFinite(paymentTime) &&
+    paymentTime <= Date.now() &&
+    paymentTime >= new Date(review.data?.createdAt ?? '').getTime();
   function choose(id: string, kind: 'payout' | 'deposit' | 'withdrawal') {
     setSelection({ id, kind });
     setNote('');
     setReference('');
     setOutcome('');
     setChecked(false);
+    setPaymentOccurredAt('');
   }
   if (options.isPending) return <p role="status">Checking processing access…</p>;
   if (options.isError)
@@ -111,7 +127,12 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
         <p>Confirm evidence and the exact request before changing its state.</p>
       </header>
       {!workspace && <PaymentNavigation />}
-      {admin && !workspace && <><WalletSetupAdmin /><WalletPricingAdmin /></>}
+      {admin && !workspace && (
+        <>
+          <WalletSetupAdmin />
+          <WalletPricingAdmin />
+        </>
+      )}
       {action.message && (
         <p role="status" className="payment-disclosure">
           {action.message}
@@ -277,6 +298,31 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
               </select>
             </label>
           )}
+          {needsVerifiedPayment && (
+            <fieldset>
+              <legend>Verified transfer evidence</legend>
+              <label>
+                Verified transfer reference
+                <input
+                  maxLength={256}
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                />
+              </label>
+              <label>
+                Payment occurred at (your local time)
+                <input
+                  type="datetime-local"
+                  value={paymentOccurredAt}
+                  onChange={(e) => setPaymentOccurredAt(e.target.value)}
+                />
+              </label>
+              <p>
+                Use the actual transfer record. Payment time must be after the request was created
+                and cannot be in the future.
+              </p>
+            </fieldset>
+          )}
           <label>
             Evidence and decision notes
             <textarea maxLength={4000} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -301,6 +347,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
               review.isError ||
               !checked ||
               !note.trim() ||
+              (needsVerifiedPayment && (!reference.trim() || !validPaymentTime)) ||
               (selection.kind === 'payout' ? !reference.trim() : !outcome)
             }
             onClick={() => {
@@ -315,7 +362,19 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                   ? { referenceNumber: reference, note: note.slice(0, 1024) }
                   : selection.kind === 'deposit'
                     ? { resolution: outcome, resolutionNote: note }
-                    : { outcome, resolutionNote: note };
+                    : {
+                        outcome,
+                        resolutionNote: note,
+                        ...(needsVerifiedPayment
+                          ? {
+                              adminVerifiedPayment: {
+                                referenceNumber: reference.trim(),
+                                paymentOccurredAt: new Date(paymentTime).toISOString(),
+                                note: note.slice(0, 1024),
+                              },
+                            }
+                          : {}),
+                      };
               void action.run(path, body);
               setSelection(null);
             }}

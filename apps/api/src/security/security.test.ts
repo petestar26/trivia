@@ -571,6 +571,7 @@ describeIf('Security policy', () => {
   it('can require step-up once a factor is active', async () => {
     const user = await createUser('policy3');
     await enrollActiveTotp(user.id);
+    expect(await requiresStepUp(user.id)).toBe(true);
     const policy = await setOwnStepUpPolicy(user.id, true);
     expect(policy.requiresStepUpForSensitiveOps).toBe(true);
     expect(await requiresStepUp(user.id)).toBe(true);

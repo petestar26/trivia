@@ -1,3 +1,4 @@
+import Fastify from 'fastify';
 import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   country: { findUnique: vi.fn(), update: vi.fn() },
@@ -11,6 +12,11 @@ vi.mock('@socialplay/database', async (original) => ({
   ...(await original<typeof import('@socialplay/database')>()),
   prisma: m,
 }));
+vi.mock('../middleware/index.js', async (original) => ({
+  ...(await original<typeof import('../middleware/index.js')>()),
+  authenticate: async (request: any) => { request.user = { sub: 'admin', roles: ['ADMIN'] }; },
+}));
+import { agentConfigRoutes } from './config-routes.js';
 import { setCountryFlags, createExchangeRate } from './config-service.js';
 import { selectPaymentRate } from './usd-config-service.js';
 const country = {
@@ -101,4 +107,49 @@ it('closes legacy rate creation without creating a row', async () => {
     createExchangeRate('admin', { countryId: 'et', fiatCurrency: 'ETB', coinsPerUnit: 1 })
   ).rejects.toThrow(/Legacy/);
   expect(m.exchangeRateConfig.create).not.toHaveBeenCalled();
+});
+
+it.each([
+  { isActive: true, currencyCode: 'USD' },
+  {
+    isActive: true,
+    agentPaymentAccounts: { updateMany: { where: {}, data: { status: 'APPROVED' } } },
+  },
+  {
+    isActive: true,
+    agents: { update: { where: { id: 'a' }, data: { user: { update: { role: 'SUPER_ADMIN' } } } } },
+  },
+  { isActive: 'true' },
+  { agentPaymentEnabled: 1 },
+])('rejects non-whitelisted country fields before any transaction: %j', async (payload) => {
+  await expect(setCountryFlags('admin', 'et', payload as any)).rejects.toMatchObject({
+    statusCode: 400,
+  });
+  expect(m.$transaction).not.toHaveBeenCalled();
+  expect(m.country.update).not.toHaveBeenCalled();
+  expect(m.auditLog.create).not.toHaveBeenCalled();
+});
+it('writes only the explicitly supplied country flags', async () => {
+  await setCountryFlags('admin', 'et', { agentPaymentEnabled: false });
+  expect(m.country.update).toHaveBeenCalledWith({
+    where: { id: 'et' },
+    data: { agentPaymentEnabled: false },
+  });
+});
+
+it('HTTP country PATCH rejects combined nested writes without transaction or audit', async () => {
+  const app = Fastify();
+  app.setErrorHandler((error, _request, reply) => reply.status(error.statusCode ?? 500).send({ message: error.message }));
+  await app.register(agentConfigRoutes, { prefix: '/agent-config' });
+  try {
+    const response = await app.inject({ method: 'PATCH', url: '/agent-config/countries/et', payload: {
+      isActive: true, currencyCode: 'USD',
+      agentPaymentAccounts: { updateMany: { where: {}, data: { status: 'APPROVED' } } },
+      agents: { update: { where: { id: 'a' }, data: { user: { update: { role: 'SUPER_ADMIN' } } } } },
+    } });
+    expect(response.statusCode).toBe(400);
+    expect(m.$transaction).not.toHaveBeenCalled();
+    expect(m.country.update).not.toHaveBeenCalled();
+    expect(m.auditLog.create).not.toHaveBeenCalled();
+  } finally { await app.close(); }
 });

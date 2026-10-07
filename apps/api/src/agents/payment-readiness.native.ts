@@ -1,9 +1,10 @@
+import { fundAgentInventory } from './inventory-service.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { setCountryFlags } from './config-service.js';
 import { publishUsdRate } from './usd-config-service.js';
-import { createAgentOrder } from './order-service.js';
+import { createAgentOrder, submitOrderPayment, settleAgentOrder, cancelAgentOrder } from './order-service.js';
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
 import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { createAgentPaymentAccount } from './payment-account-service.js';
@@ -139,4 +140,52 @@ it('rejects cross-country receiving accounts and suspended users', async () => {
       accountDetails: { accountNumber: 'fixture' },
     })
   ).rejects.toThrow(/active user/);
+});
+
+async function fundedFixture() {
+  const f = await fixture();
+  const rate = await publishUsdRate(f.admin.id, f.country.id, fixtureUsdPolicy(1));
+  await setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: true });
+  await fundAgentInventory(f.admin.id, f.agent.id, 100000, randomUUID());
+  const args = { agentId: f.agent.id, countryId: f.country.id, paymentAccountId: f.account.id, fiatAmount: 500, idempotencyKey: randomUUID() };
+  return { ...f, rate, args };
+}
+it('serializes the pending-order cap and preserves idempotent retries at the limit', async () => {
+  const f = await fundedFixture();
+  const results = await Promise.allSettled(Array.from({ length: 4 }, () => createAgentOrder(f.buyer.id, { ...f.args, idempotencyKey: randomUUID() })));
+  expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(3);
+  expect(results.filter(r => r.status === 'rejected')).toHaveLength(1);
+  const orders = await prisma.agentOrder.findMany({ where: { userId: f.buyer.id } });
+  expect(orders).toHaveLength(3);
+  expect((await createAgentOrder(f.buyer.id, { ...f.args, idempotencyKey: orders[0].idempotencyKey })).idempotent).toBe(true);
+  expect((await prisma.agentInventory.findUniqueOrThrow({ where: { agentId: f.agent.id } })).reservedBalance).toBe(1500);
+});
+it('rechecks paused country on submission and settlement, retaining paid reservations', async () => {
+  const f = await fundedFixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: false });
+  await expect(submitOrderPayment(f.buyer.id, order.id)).rejects.toThrow(/configuration changed/);
+  expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('CREATED');
+  await setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: true });
+  await submitOrderPayment(f.buyer.id, order.id);
+  await setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: false });
+  await expect(settleAgentOrder(f.agentUser.id, order.id)).rejects.toThrow(/configuration changed/);
+  await expect(cancelAgentOrder(f.buyer.id, order.id)).rejects.toThrow(/cannot be cancelled/);
+  expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PAYMENT_SUBMITTED');
+  expect((await prisma.agentReservation.findUniqueOrThrow({ where: { orderId: order.id } })).status).toBe('ACTIVE');
+  expect(await prisma.agentOrderSettlement.count({ where: { orderId: order.id } })).toBe(0);
+});
+it('concurrent expiry releases inventory once and never creates a customer credit', async () => {
+  const f = await fundedFixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await prisma.agentOrder.update({ where: { id: order.id }, data: { createdAt: new Date(Date.now() - 16 * 60_000) } });
+  const outcomes = await Promise.allSettled([
+    cancelAgentOrder(f.buyer.id, order.id, undefined, 'expiry'),
+    cancelAgentOrder(f.buyer.id, order.id, undefined, 'expiry'),
+  ]);
+  expect(outcomes.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+  expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('EXPIRED');
+  expect((await prisma.agentReservation.findUniqueOrThrow({ where: { orderId: order.id } })).status).toBe('RELEASED');
+  expect((await prisma.agentInventory.findUniqueOrThrow({ where: { agentId: f.agent.id } })).reservedBalance).toBe(0);
+  expect(await prisma.agentOrderSettlement.count({ where: { orderId: order.id } })).toBe(0);
 });
