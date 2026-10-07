@@ -93,7 +93,6 @@ function readinessRows() {
     [{ isActive: true, agentPaymentEnabled: true, usdPricingEnabled: true, currencyCode: 'ETB' }],
     [{ status: 'APPROVED', agentId: 'agent', countryId: 'country', methodDefId: 'method' }],
     [{ isActive: true, countryId: 'country' }],
-    [{ isActive: true }],
     [{ now }],
   ];
 }
@@ -113,7 +112,7 @@ function terms() {
     feeMinor: 0,
   };
 }
-it.each([0, 1, 2, 3, 4])('rejects removed payment prerequisite %i', async (missing) => {
+it.each([0, 1, 2, 3])('rejects removed payment prerequisite %i', async (missing) => {
   const rows = readinessRows();
   rows[missing] = [] as any;
   const tx = { $queryRaw: vi.fn() };

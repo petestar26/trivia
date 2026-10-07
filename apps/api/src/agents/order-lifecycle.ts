@@ -46,8 +46,6 @@ export async function assertDepositReady(
     SELECT status::text,"agentId","countryId","methodDefId" FROM agent_payment_accounts WHERE id=${order.paymentAccountId} FOR SHARE`;
   const [method] = await tx.$queryRaw<{ isActive: boolean; countryId: string }[]>`
     SELECT "isActive","countryId" FROM payment_method_definitions WHERE id=${order.paymentMethodDefId} FOR SHARE`;
-  const [rate] = await tx.$queryRaw<{ isActive: boolean }[]>`
-    SELECT "isActive" FROM exchange_rate_configs WHERE id=${order.exchangeRateConfigId} FOR SHARE`;
   if (
     agent?.status !== 'ACTIVE' ||
     agent.userStatus !== 'ACTIVE' ||
@@ -61,14 +59,15 @@ export async function assertDepositReady(
     account.countryId !== order.countryId ||
     account.methodDefId !== order.paymentMethodDefId ||
     !method?.isActive ||
-    method.countryId !== order.countryId ||
-    !rate?.isActive
+    method.countryId !== order.countryId
   ) {
     throw ApiError.conflict(
       'Payment configuration changed. Do not send money; contact payment support if you already paid.'
     );
   }
-  // Validate the original immutable terms, never reprice an existing order.
+  // Rate-row activation controls NEW quotes only. Publishing a replacement
+  // deactivates that row but must preserve already-promised immutable terms.
+  // Validate their own expiry, never reprice an existing order.
   const snapshot = order.pricingSnapshot as { version?: string } | null;
   if (snapshot?.version === 'USD_V1') {
     // Price snapshots also contain derived values; pick policy keys only.

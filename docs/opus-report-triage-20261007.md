@@ -13,7 +13,7 @@ These changes do not activate payments, run transactions, or change database str
 
 | Finding | Current assessment / follow-up |
 |---|---|
-| Deposit submit/settle readiness | Added locked current agent/user, country, account, method and rate checks plus original immutable pricing expiry validation. Rejected paid settlements keep their reservation for dispute review. Native cases added; CI pending. |
+| Deposit submit/settle readiness | Added locked current agent/user, country, account and method checks plus original immutable pricing expiry validation. Rejected paid settlements keep their reservation for dispute review. Native cases added; CI pending. |
 | CREATED order expiry/inventory reservation | Added 15-minute window bounded by original rate expiry, a serialized three-pending-order cap, idempotent replay before cap enforcement, audited staff cancellation and an independent expiry-worker step. Only CREATED orders expire. Native concurrency tests added; CI pending. |
 | Realtime membership revocation | Handshake checks current account status and token expiry; delivery rechecks every recipient's status/membership, evicts removed members and disconnects revoked/expired sessions. Fixed typing room/ID mismatch. Mocked delivery regressions pass; five actual Socket.IO handshake/delivery/expiry tests now pass locally (membership persistence is mocked). |
 | Suspended payout agents | Participant locks now enforce active actor status, while allowing an active staff member to recover suspended customer funds. Four focused tests pass; native lifecycle suite remains required. |
@@ -44,3 +44,5 @@ After remediation, prepare one consolidated independent-review prompt using the 
 Socket expiry follow-up: the member client now uses the existing cookie-session renewal coordinator for one bounded reconnect attempt after expiry/UNAUTHORIZED. It stops after a rejected recovery and never reconnects after unmount. Four socket-provider tests and fifteen existing session tests passed locally. Five actual Socket.IO integration tests additionally pass locally; database membership writes are mocked in that harness.
 
 The isolated staging owner helper now allows exactly the new activation-grant migration alongside the existing Crash Point migrations, applies canonical grants to the validated API role, and verifies the activation capability. Its production refusal, database target checks and migration-history checksum checks remain in place. The financial timeout worker is still a separate deployment task.
+
+Full PostgreSQL payment regression caught an overly strict rate-row activation check. Replacement-rate publication must not invalidate an existing immutable quote; that check was removed while preserving original snapshot expiry and all payment destination/actor availability checks. The existing native frozen-price/idempotency test remains unchanged and must pass before deployment.
