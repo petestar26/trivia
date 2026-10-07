@@ -285,6 +285,7 @@ jobs:
           src/pages/signup-return-path.test.tsx
           src/pages/games/crash-point.test.tsx
           src/pages/wallet-late-payments.test.tsx
+          src/components/app-error-boundary.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts

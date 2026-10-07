@@ -92,3 +92,13 @@ This supersedes the earlier “no recovery case flow” implementation note; it 
 - Local checks: 253 API tests across 26 files, 19 wallet/UI tests, API/web TypeScript and production builds passed. Native concurrency/duplicate-reference/no-credit regression added to payment-readiness.native.ts; full PostgreSQL CI must pass before deployment.
 - Additive migration: 20261007020000_late_payment_cases. Apply with the isolated owner upgrade first, reapply canonical runtime grants, then deploy API and web. Staging owner helper allowlist includes this migration. Current deployed services remain on their earlier verified commits until this rollout is performed.
 - Limits: this records a staff-verified external refund; it neither sends money nor credits Coins. Partial refunds, rejected/incorrect claims, evidence file upload, provider API verification and cross-checking references against legacy payment evidence remain follow-up work. There is at most one case per order. Live payment activation remains blocked on operational review and the remaining platform findings.
+
+
+## Additional security and regression corrections
+
+- Full native CI detected that the new invoker guard functions did not use the canonical `public, pg_temp` search path. Additive migration `20261007021000_late_payment_guard_paths` corrects both functions; the original migration remains unchanged. The explicit fresh/populated migration test inventory now includes both recovery migrations.
+- The complete local frontend suite passed 1,173 tests across 76 files after repairing obsolete socket mocks and waiting for the existing autoplay-disconnect effect in its assertions. CI now includes the previously omitted connection, login/signup return-path, Crash Point and recovery UI contracts.
+- Authenticated reads now recheck current ACTIVE account status. Optional authentication clears the decoded request identity after inactive-account rejection or lookup failure. Database failures on required authentication remain server errors rather than being reported as invalid credentials.
+- Malformed JSON parser messages and stacks are neither logged nor echoed; an actual HTTP/parser regression verifies that submitted password fragments remain absent. Production access/refresh cookie set/clear options always require Secure regardless of an omitted COOKIE_SECURE setting.
+- Added a root React error boundary with generic recovery controls and a reminder to reconcile confirmed requests before retrying. It never renders exception details.
+- Focused API review checks: 260 tests across 27 files passed locally. Two new error-boundary tests passed; the complete native matrix and staging verification of the final candidate remain required.

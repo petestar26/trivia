@@ -480,7 +480,7 @@ function requireCookieOrigin(request: FastifyRequest): void {
 function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refreshToken: string }): void {
   const cookieOptions = {
     httpOnly: true,
-    secure: config.COOKIE_SECURE,
+    secure: config.NODE_ENV === 'production' || config.COOKIE_SECURE,
     sameSite: config.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none',
     domain: config.COOKIE_DOMAIN,
     path: '/',
@@ -500,7 +500,7 @@ function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refr
 function clearAuthCookies(reply: FastifyReply): void {
   const cookieOptions = {
     httpOnly: true,
-    secure: config.COOKIE_SECURE,
+    secure: config.NODE_ENV === 'production' || config.COOKIE_SECURE,
     sameSite: config.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none',
     domain: config.COOKIE_DOMAIN,
     path: '/',
