@@ -15,6 +15,7 @@ beforeAll(async () => {
       'utf8'
     )
   );
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007021000_late_payment_guard_paths/migration.sql', import.meta.url), 'utf8'));
   await db.exec(`INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
  VALUES ('case','order','customer','request-key','PAY123',100,CURRENT_TIMESTAMP,'Report');`);
 });
@@ -65,4 +66,10 @@ it('prevents verified reference reuse and deletion', async () => {
     db.exec(`INSERT INTO late_payment_reference_claims VALUES ('method','PAY123','case','REFUND')`)
   ).rejects.toThrow(/duplicate key/);
   await expect(db.exec(`DELETE FROM late_payment_reference_claims`)).rejects.toThrow(/immutable/);
+});
+
+it('pins invoker guards to the canonical platform search path', async () => {
+ const result=await db.query<{prosecdef:boolean;proconfig:string[]}>("SELECT prosecdef,proconfig FROM pg_proc WHERE proname IN ('guard_late_payment_case','guard_late_payment_reference')");
+ expect(result.rows).toHaveLength(2);
+ for(const row of result.rows){expect(row.prosecdef).toBe(false);expect(row.proconfig).toContain('search_path=public, pg_temp');}
 });
