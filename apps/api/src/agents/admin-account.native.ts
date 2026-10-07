@@ -167,3 +167,19 @@ it('fails closed on suspended admin, inactive country and multibyte passwords ex
     createAdminAgent(adminId, { ...input('bytes'), temporaryPassword: 'Aa1!' + 'é'.repeat(35) })
   ).rejects.toMatchObject({ statusCode: 400 });
 });
+
+it.each(['UTC', 'America/Los_Angeles', 'Asia/Vientiane'])('enforces activation expiry through the runtime function in %s', async (zone) => {
+  for (const expired of [true, false]) {
+    const args = input(`tz_${randomUUID().slice(0,8)}`);
+    const result = await createAdminAgent(adminId, args);
+    const setup = await owner.agentAccountSetup.update({where:{userId:result.userId},data:{expiresAt:new Date(Date.now()+(expired ? -3600000 : 3600000))}});
+    const rows = await state.db.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT set_config('TimeZone',${zone},true)`;
+      return tx.$queryRaw`SELECT public.activate_provisioned_agent(${result.userId},${setup.credentialHash},${'$2b$12$'+'a'.repeat(53)}) AS allowed`;
+    });
+    expect(rows[0].allowed).toBe(!expired);
+    const after = await owner.agentAccountSetup.findUniqueOrThrow({where:{userId:result.userId}});
+    if (expired) expect(after.consumedAt).toBeNull();
+    else expect(Math.abs(after.consumedAt!.getTime()-Date.now())).toBeLessThan(5000);
+  }
+});

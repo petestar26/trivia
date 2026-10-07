@@ -155,6 +155,7 @@ function Payments({ userId }: { userId: string }) {
     queryFn: () =>
       get<{
         policy: {
+          coinsPerUsd: number;
           localPerUsd: string;
           observedAt: string;
           expiresAt: string;
@@ -169,6 +170,14 @@ function Payments({ userId }: { userId: string }) {
     retry: false,
     refetchInterval: 30000,
   });
+  const withdrawalPolicy = pricing.data?.policy;
+  const withdrawalMinimum = withdrawalPolicy
+    ? Math.floor(withdrawalPolicy.p2pWithdrawalAboveUsdCents * withdrawalPolicy.coinsPerUsd / 100) + 1
+    : null;
+  const withdrawalPricingReady = country?.agentPaymentEnabled !== false &&
+    (!country?.usdPricingEnabled || (!pricing.isError && withdrawalMinimum !== null &&
+      Number.isSafeInteger(withdrawalMinimum) &&
+      Date.parse(withdrawalPolicy!.expiresAt) > now && Number(amount) >= withdrawalMinimum));
   const packages = useQuery({
     queryKey: ['payments', 'coin-packages'],
     queryFn: () =>
@@ -612,9 +621,12 @@ function Payments({ userId }: { userId: string }) {
                         </details>
                       )}
                       <p>Only eligible Coins can be withdrawn. Current country limits apply and are checked when requesting a quote.</p>
+                      {country?.usdPricingEnabled && withdrawalMinimum !== null && Number.isSafeInteger(withdrawalMinimum) && (
+                        <p>Minimum for the current policy: {withdrawalMinimum.toLocaleString()} Coins.</p>
+                      )}
                       <button
                         disabled={
-                          busy || !validAmount || Number(amount) < 100 || !countryId || !accountId
+                          busy || !validAmount || !withdrawalPricingReady || !countryId || !accountId
                         }
                         onClick={prepare}
                       >
@@ -778,7 +790,10 @@ function Payments({ userId }: { userId: string }) {
                   onConfirm={() => action.run(`/withdrawals/${p.id}/confirm-receipt`)}
                 />
               )}
-              {['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED'].includes(p.status) && (
+              {p.status === 'PAYOUT_IN_PROGRESS' && (
+                <p>The agent is processing your payout. If it is delayed, contact payment support with this request number.</p>
+              )}
+              {p.status === 'PAYMENT_SUBMITTED' && (
                 <button
                   disabled={busy}
                   onClick={() => setDispute({ id: p.id, kind: 'withdrawal' })}

@@ -18,6 +18,7 @@ const allowed = [
   '20261007030000_late_payment_supervision',
   '20261007031000_recovery_reference_boundary',
   '20261007032000_recovery_runtime_hardening',
+  '20261007040000_agent_activation_utc',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);
