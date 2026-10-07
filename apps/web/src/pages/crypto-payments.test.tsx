@@ -116,6 +116,9 @@ it('admin sees member addresses and must verify transfer evidence before confirm
   await screen.findByText(row.address);
   fireEvent.click(screen.getByRole('button', { name: 'Record completed transfer' }));
   expect(screen.getByRole('button', { name: 'Confirm withdrawal' })).toBeDisabled();
+  expect(screen.getByText(/Never transfer a withdrawal/)).toHaveTextContent(
+    'including a retired address'
+  );
   expect(screen.queryByRole('button', { name: 'Cancel and return Coins' })).toBeNull();
   expect(m.post).not.toHaveBeenCalled();
 });

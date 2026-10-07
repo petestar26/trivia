@@ -94,16 +94,22 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   if (!r.success) throw ApiError.badRequest(r.error.issues[0]?.message ?? 'Invalid request');
   return r.data;
 }
-export async function actor(tx: Tx, id: string, admin = false, ownFundsReturn = false) {
+export async function actor(tx: Tx, id: string, admin = false) {
   const [u] = await tx.$queryRaw<
     Array<{ status: string; role: string }>
   >`SELECT status::text,role::text FROM users WHERE id=${id} FOR SHARE`;
-  if (
-    !u ||
-    (!ownFundsReturn && u.status !== 'ACTIVE') ||
-    (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role))
-  )
+  if (!u || u.status !== 'ACTIVE' || (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role)))
     throw ApiError.forbidden(admin ? 'Active administrator required' : 'Active account required');
+}
+// Serialize address registration against admission and payout checks, including absent rows.
+async function lockAddress(tx: Tx, address: string) {
+  await lockUserEconomicScope(tx, `crypto-address:${address}`);
+}
+async function requireExternalDestination(tx: Tx, address: string) {
+  await lockAddress(tx, address);
+  const [platform] = await tx.$queryRaw<Array<{ address: string }>>`
+    SELECT address FROM crypto_addresses WHERE address=${address}`;
+  if (platform) throw ApiError.badRequest('A platform deposit address cannot receive a withdrawal');
 }
 async function flush(tx: Tx) {
   await tx.$executeRawUnsafe(
@@ -281,6 +287,10 @@ export async function addAddress(adminId: string, tokenIat: number, body: unknow
   return prisma.$transaction(async (tx) => {
     await actor(tx, adminId, true);
     await requireStepUp({ userId: adminId, tokenIat }, 'CRYPTO_ADDRESS_ADD', tx);
+    await lockAddress(tx, b.address);
+    const [withdrawal] = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM crypto_withdrawals WHERE address=${b.address} AND status IN ('HELD','PAYOUT_IN_PROGRESS') LIMIT 1`;
+    if (withdrawal) throw ApiError.conflict('This address is reserved for an active withdrawal');
     const exists = await tx.$queryRaw<
       Array<{ address: string }>
     >`SELECT address FROM crypto_addresses WHERE address=${b.address}`;
@@ -367,6 +377,7 @@ export async function createWithdrawal(userId: string, tokenIat: number, body: u
         throw ApiError.conflict('Idempotency key has different withdrawal details');
       return paymentView(old);
     }
+    await requireExternalDestination(tx, b.address);
     const { pricing, policy, snapshot } = await context(tx, userId, b.countryId, 'withdrawal');
     if (amount <= BigInt(pricing.cryptoWithdrawalAboveUsdCents) * 10_000n)
       throw ApiError.badRequest(
@@ -426,7 +437,7 @@ export async function processWithdrawal(
     // User locks always precede business locks, including for suspended owners.
     for (const uid of [...new Set([actorId, preview.userId])].sort())
       await tx.$queryRaw`SELECT id FROM users WHERE id=${uid} FOR SHARE`;
-    await actor(tx, actorId, admin, !admin && action === 'cancel');
+    await actor(tx, actorId, admin);
     if (admin ? preview.userId === actorId : preview.userId !== actorId)
       throw ApiError.forbidden('You cannot process this withdrawal');
     if (!admin && action !== 'cancel') throw ApiError.forbidden('Administrator required');
@@ -434,6 +445,7 @@ export async function processWithdrawal(
       Withdrawal[]
     >`SELECT * FROM crypto_withdrawals WHERE id=${id} FOR UPDATE`;
     if (action === 'claim') {
+      await requireExternalDestination(tx, w.address);
       if (w.status === 'PAYOUT_IN_PROGRESS' && w.assignedAdminId === actorId) return paymentView(w);
       if (w.status !== 'HELD')
         throw ApiError.conflict('Withdrawal is no longer awaiting an administrator');
@@ -458,6 +470,7 @@ export async function processWithdrawal(
         return paymentView(w);
       if (w.status !== 'PAYOUT_IN_PROGRESS' || w.assignedAdminId !== actorId)
         throw ApiError.conflict('Only the assigned administrator can confirm this payout');
+      await requireExternalDestination(tx, w.address);
       await requireStepUp({ userId: actorId, tokenIat }, `CRYPTO_WITHDRAWAL_CONFIRM:${id}`, tx);
       const r = await finalizeWithdrawalCoins(tx, w.userId, id, {
         holdOperationId: w.holdOperationId,

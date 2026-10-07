@@ -488,6 +488,10 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               ? 'After claiming, verify the address and amount, then transfer USDT from your external wallet. Cancellation will be unavailable.'
               : 'Confirm only after checking the successful transfer on TRON. This action completes the held Coin withdrawal.'}
           </p>
+          <p className="crypto-warning">
+            Verify that the recipient controls the destination wallet. Never transfer a withdrawal
+            to a platform deposit address, including a retired address.
+          </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();

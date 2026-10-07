@@ -22,6 +22,12 @@ Only an independently approved release may enable `CRYPTO_DEPOSIT_CREATE`, `CRYP
 
 Before activation, verify the restricted API and worker identities, authenticator enrollment, address custody, provider key/rate limits, successful controlled deposit and manual payout, mismatch/expiry recovery, monitoring capacity and reconciliation. The first version requires operators to supply a new address for every invoice; it does not derive HD-wallet addresses or sweep balances. Monitor available address count and oldest `lastCheckedAt`: permanently monitored expired invoices increase scan load. Review deposits and uncertain externally started payouts require a separately audited recovery procedure; no force-credit/refund button is supplied. Extra transfers to an already credited address require support investigation and are not automatically credited or monitored by this worker.
 
+## Withdrawal safety follow-up
+
+All crypto actions, including member cancellation of a HELD withdrawal, require a currently ACTIVE actor. An active authorized administrator can still return a suspended owner's held funds. The PVP own-entry reversal exception does not apply to crypto withdrawals.
+
+Withdrawal creation and payout claim/confirmation reject any address in the platform deposit pool, including retired addresses. Address registration and withdrawal admission share a per-address transaction lock, and an address used by a HELD or PAYOUT_IN_PROGRESS withdrawal cannot be registered as a deposit address. Existing conflicting requests cannot be claimed or confirmed; HELD requests retain the normal authorized cancellation path. Exact successful completion retries remain idempotent. Operators must verify recipient control before an external transfer; these checks do not establish ownership of arbitrary external wallets.
+
 ## Source contracts
 
 - [Tether supported protocols and official TRON contract](https://tether.to/en/supported-protocols/)
