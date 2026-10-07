@@ -15,6 +15,7 @@ import { activateTestPolicy } from '../ledger/test-policy-fixture.js';
 import { nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { runLedgerInvariantCheck } from '../economy/ledger-invariant-checker.js';
+import { verifyCryptoVerifierAccessReadOnly } from '../scripts/ledger-runtime-access.js';
 import { assertWithdrawalPolicyLimits } from '../withdrawals/withdrawal-service.js';
 const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
 if (
@@ -326,6 +327,18 @@ it('API role cannot forge receipts; verifier can insert but cannot mutate eviden
       Array<{ insert: boolean; mutate: boolean }>
     >`SELECT has_table_privilege(${worker},'public.crypto_receipts','INSERT') AS insert,has_table_privilege(${worker},'public.crypto_receipts','UPDATE,DELETE,TRUNCATE,TRIGGER') AS mutate`;
     expect(w).toEqual({ insert: true, mutate: false });
+    const check = () => prisma.$transaction((tx) => verifyCryptoVerifierAccessReadOnly(tx, worker));
+    expect(await check()).toEqual([]);
+    await prisma.$executeRawUnsafe(`GRANT UPDATE ("amountMicro") ON crypto_receipts TO "${worker}"`);
+    expect((await check()).some((m) => m.includes('UPDATE on crypto_receipts.amountMicro'))).toBe(true);
+    await prisma.$executeRawUnsafe(`REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${worker}"`);
+    await prisma.$executeRawUnsafe(`ALTER ROLE "${worker}" NOINHERIT`);
+    await prisma.$executeRawUnsafe(`GRANT UPDATE ("amountMicro") ON crypto_receipts TO "${role}"`);
+    await prisma.$executeRawUnsafe(`GRANT "${role}" TO "${worker}"`);
+    expect((await check()).some((m) => m.includes('UPDATE on crypto_receipts.amountMicro') && m.includes('can become'))).toBe(true);
+    await prisma.$executeRawUnsafe(`REVOKE "${role}" FROM "${worker}"`);
+    await prisma.$executeRawUnsafe(`REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${role}"`);
+    expect(await check()).toEqual([]);
   } finally {
     for (const r of [role, worker]) {
       await prisma.$executeRawUnsafe(`DROP OWNED BY "${r}"`);
