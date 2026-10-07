@@ -253,6 +253,18 @@ describeIf('Dispute creation', () => {
     ).rejects.toThrow(/do not have access/i);
   });
 
+  it('rejects an unrelated replay of the exact dispute request without disclosing it', async () => {
+    const { customer, order } = await makeDisputableOrder('replayauth', country, method, admin, superAdmin);
+    const stranger = await createUser('strangerreplayauth');
+    const args = { orderId: order.id, reason: 'OTHER' as const, description: 'Private receipt details', idempotencyKey: `dk-${Math.random()}` };
+    const original = await openDispute(customer.id, args);
+    await expect(openDispute(stranger.id, args)).rejects.toMatchObject({ statusCode: 403 });
+    const replay = await openDispute(customer.id, args);
+    expect(replay.idempotent).toBe(true);
+    expect(replay.dispute.id).toBe(original.dispute.id);
+    expect(await prisma.dispute.count({ where: { orderId: order.id } })).toBe(1);
+  });
+
   it('invalid reason is rejected', async () => {
     const { customer, order } = await makeDisputableOrder('open4', country, method, admin, superAdmin);
     await expect(

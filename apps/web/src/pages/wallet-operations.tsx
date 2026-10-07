@@ -72,7 +72,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
     queryKey: ['payments', 'review', userId, selection?.kind, selection?.id],
     enabled: !!selection && (agent || admin),
     queryFn: async () => {
-      if (selection!.kind === 'payout') return get<Row>(`/withdrawals/${selection!.id}`);
+      if (selection!.kind === 'payout') return get<Row>(`/withdrawals/agent/assigned/${selection!.id}`);
       if (selection!.kind === 'withdrawal')
         return (await get<{ withdrawal: Row }>(`/withdrawals/admin/disputes/${selection!.id}`))
           .withdrawal;

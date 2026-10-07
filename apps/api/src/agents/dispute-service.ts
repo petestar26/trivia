@@ -23,6 +23,7 @@ export interface OpenDisputeArgs {
 }
 
 function validateOpenArgs(args: OpenDisputeArgs) {
+  if (!args || typeof args !== 'object') throw ApiError.badRequest('Dispute details are required');
   if (!args.orderId || typeof args.orderId !== 'string') throw ApiError.badRequest('orderId is required');
   const validReasons: DisputeReason[] = ['PAYMENT_NOT_RECEIVED', 'WRONG_AMOUNT', 'AGENT_UNRESPONSIVE', 'OTHER'];
   if (!validReasons.includes(args.reason)) throw ApiError.badRequest('Invalid dispute reason');
@@ -45,6 +46,8 @@ function disputeRequestFieldsMatch(dispute: { reason: string; description: strin
  * SYSTEM" — SYSTEM is out of scope here).
  */
 async function resolveDisputeParty(actorUserId: string, order: { userId: string; agentId: string }) {
+  const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { status: true } });
+  if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
   if (order.userId === actorUserId) return 'customer' as const;
   const agent = await prisma.agent.findUnique({ where: { id: order.agentId }, select: { userId: true } });
   if (agent && agent.userId === actorUserId) return 'agent' as const;
@@ -71,6 +74,12 @@ export async function openDispute(
   validateOpenArgs(rawArgs);
   const args = rawArgs;
 
+  // Idempotency is not authorization. Authenticate the current order party
+  // before returning a previous request's private description or status.
+  const order = await prisma.agentOrder.findUnique({ where: { id: args.orderId } });
+  if (!order) throw ApiError.notFound('Order not found');
+  const party = await resolveDisputeParty(actorUserId, order);
+
   const existing = await prisma.dispute.findUnique({
     where: { orderId_idempotencyKey: { orderId: args.orderId, idempotencyKey: args.idempotencyKey } },
   });
@@ -81,9 +90,6 @@ export async function openDispute(
     throw ApiError.conflict('A dispute already exists for this idempotency key with different request data');
   }
 
-  const order = await prisma.agentOrder.findUnique({ where: { id: args.orderId } });
-  if (!order) throw ApiError.notFound('Order not found');
-  const party = await resolveDisputeParty(actorUserId, order);
 
   const activeDispute = await prisma.dispute.findFirst({
     where: { orderId: args.orderId, status: { in: ['OPEN', 'ASSIGNED'] } },
@@ -94,6 +100,9 @@ export async function openDispute(
 
   try {
     return await prisma.$transaction(async (tx) => {
+      const [actor] = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+      if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
       const claim = await tx.agentOrder.updateMany({
         where: { id: args.orderId, status: 'PAYMENT_SUBMITTED' },
         data: { status: 'DISPUTE' },
@@ -151,6 +160,7 @@ export async function openDispute(
       where: { orderId_idempotencyKey: { orderId: args.orderId, idempotencyKey: args.idempotencyKey } },
     });
     if (winner) {
+      await resolveDisputeParty(actorUserId, order);
       if (disputeRequestFieldsMatch(winner, args)) {
         return { dispute: winner, idempotent: true };
       }
@@ -161,13 +171,14 @@ export async function openDispute(
 }
 
 async function requireDisputeAccess(actorUserId: string, dispute: { orderId: string }) {
+  const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { status: true, role: true } });
+  if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
   const order = await prisma.agentOrder.findUnique({ where: { id: dispute.orderId } });
   if (!order) throw ApiError.notFound('Order not found');
   if (order.userId === actorUserId) return 'customer';
   const agent = await prisma.agent.findUnique({ where: { id: order.agentId }, select: { userId: true } });
   if (agent && agent.userId === actorUserId) return 'agent';
-  const user = await prisma.user.findUnique({ where: { id: actorUserId }, select: { role: true } });
-  if (user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN')) return 'admin';
+  if (actor.role === 'ADMIN' || actor.role === 'SUPER_ADMIN') return 'admin';
   throw ApiError.forbidden('You do not have access to this dispute');
 }
 
