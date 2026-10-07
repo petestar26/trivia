@@ -182,7 +182,7 @@ describe('runWorkerCycle', () => {
     expect(deps.reconcile).toHaveBeenCalledTimes(1); // NOT suppressed by the sweep failure
     const sweepErrLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'timeout sweep failed');
     expect(sweepErrLog).toBeDefined();
-    expect(sweepErrLog![0].error.message).toBe('sweep exploded');
+    expect(sweepErrLog![0].error.message).toBe('Operation failed');
     expect(result.failed).toBe(true);
     expect(result.lastReconcileAt).not.toBe(-1); // reconciliation itself still succeeded
   });
@@ -196,7 +196,7 @@ describe('runWorkerCycle', () => {
     expect(deps.sweep).toHaveBeenCalledTimes(1); // sweep still ran normally
     const reconcileErrLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation failed');
     expect(reconcileErrLog).toBeDefined();
-    expect(reconcileErrLog![0].error.message).toBe('reconcile exploded');
+    expect(reconcileErrLog![0].error.message).toBe('Operation failed');
     expect(result.failed).toBe(true);
     expect(result.lastReconcileAt).toBe(-1); // unchanged sentinel — retried next cycle, not treated as having run
   });
@@ -232,7 +232,7 @@ describe('runWorkerLoop -- once mode', () => {
     expect(deps.reconcile).toHaveBeenCalledTimes(1); // not suppressed by the sweep failure
     const errLog = deps.log.mock.calls.find(([entry]) => entry.level === 'error' && entry.msg === 'timeout sweep failed');
     expect(errLog).toBeDefined();
-    expect(errLog![0].error.message).toBe('sweep exploded');
+    expect(errLog![0].error.message).toBe('Operation failed');
   });
 
   it('returns 1 when reconciliation fails in once mode, and logs the reconciliation error', async () => {
@@ -245,7 +245,7 @@ describe('runWorkerLoop -- once mode', () => {
     expect(deps.sweep).toHaveBeenCalledTimes(1); // sweep still ran normally
     const errLog = deps.log.mock.calls.find(([entry]) => entry.level === 'error' && entry.msg === 'reconciliation failed');
     expect(errLog).toBeDefined();
-    expect(errLog![0].error.message).toBe('reconcile exploded');
+    expect(errLog![0].error.message).toBe('Operation failed');
   });
 });
 
@@ -345,7 +345,7 @@ describe('runWorkerLoop -- continuous mode', () => {
     expect(deps.sweep).toHaveBeenCalledTimes(2); // sweep unaffected by reconciliation failing
     const errLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation failed');
     expect(errLog).toBeDefined();
-    expect(errLog![0].error.message).toBe('reconcile boom');
+    expect(errLog![0].error.message).toBe('Operation failed');
     // Retried on the next cycle after the failure, and succeeded.
     expect(deps.reconcile).toHaveBeenCalledTimes(2);
     const successLog = deps.log.mock.calls.find(([entry]) => entry.msg === 'reconciliation completed');
@@ -371,5 +371,24 @@ describe('createAbortableSleep', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+// Deployment logs must not contain raw database/client error data.
+describe('worker failure log redaction', () => {
+  it.each([
+    Object.assign(new Error('postgresql://secret-user:private-password@db/private receipt=ABC123'), { name: 'private-error-name', code: 'P2034' }),
+    { message: 'private receipt ABC123', code: 'private-password', stack: 'private stack' },
+    'private raw error ABC123',
+  ])('keeps failed-cycle handling without logging sensitive error content', async (error) => {
+    const deps = makeDeps({ sweep: vi.fn().mockRejectedValue(error) });
+    const result = await runWorkerCycle(deps, baseConfig(), -1);
+    expect(result.failed).toBe(true);
+    expect(deps.reconcile).toHaveBeenCalledTimes(1);
+    const entry = deps.log.mock.calls.find(([item]) => item.msg === 'timeout sweep failed')![0];
+    expect(entry.error.message).toBe('Operation failed');
+    const logs = JSON.stringify(deps.log.mock.calls);
+    expect(logs).not.toMatch(/private|ABC123|postgresql|secret-user/);
+    if (typeof error === 'object' && error.code === 'P2034') expect(entry.error.code).toBe('P2034');
+    else expect(entry.error.code).toBeUndefined();
   });
 });

@@ -65,3 +65,9 @@ Inspection of the late-payment recovery path found a separate dispute replay aut
 Validation: 213 focused API tests across 24 files passed, including nine new dispute access regressions; API TypeScript passed. A native PostgreSQL regression exercises an unrelated exact-key replay, verifies 403, and verifies that the legitimate owner still receives the single original dispute. Its CI result must be checked before deployment.
 
 Late-payment recovery remains unimplemented. Current disputes only transition PAYMENT_SUBMITTED orders and assume an ACTIVE reservation. Expired orders have RELEASED reservations with existing ledger entries; silently reactivating them would erase lifecycle meaning and conflict with the ledger's operation identity. Recovery needs a separate audited case with receipt verification, explicit external refund or separately funded settlement, duplicate-payment-reference protection and concurrent resolution tests. Do not extend the existing RELEASE action to expired orders without those controls.
+
+## Worker log redaction follow-up
+
+The financial worker previously logged raw exception messages, names and stacks. Those fields may contain database URLs, SQL parameters or payment evidence. They are now replaced by fixed error text and a small allowlist of database error codes; the operation label, failure result and independent reconciliation behavior are preserved. All 27 worker tests and API TypeScript passed. Three new redaction cases cover Error objects, plain objects and string throws containing synthetic sensitive values. This source fix does not verify the deployed worker identity or activate its rollout.
+
+The dispute authorization fix was also backported to PR #33 at `93024259082ceb43bd13af38af34b24028a031dd`; its nine focused access tests passed and full CI is tracked at https://github.com/petestar26/trivia/actions/runs/37562421424 .

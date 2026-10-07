@@ -91,10 +91,16 @@ export function parseWorkerConfig(args: string[], env: Record<string, string | u
 }
 
 function serializeError(err: unknown): Record<string, unknown> {
-  if (err instanceof Error) {
-    return { message: err.message, name: err.name, stack: err.stack };
-  }
-  return { message: String(err) };
+  // Database/client errors can embed credentials, SQL parameters, receipts or
+  // untrusted fields in their message, name and stack. Never forward them to
+  // deployment logs. Preserve only a small, known database error category.
+  const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
+  const allowedCodes = ['P1001', 'P1002', 'P2002', 'P2025', 'P2034'];
+  return {
+    name: 'WorkerOperationError',
+    message: 'Operation failed',
+    ...(typeof code === 'string' && allowedCodes.includes(code) ? { code } : {}),
+  };
 }
 
 export function createWorkerLogger(): (entry: Record<string, unknown>) => void {
