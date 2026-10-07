@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { reportSchema, refundSchema } from './late-payment-service.js';
 const db = new PGlite();
 beforeAll(async () => {
-  await db.exec(`CREATE TABLE users(id text PRIMARY KEY); CREATE TABLE agent_orders(id text PRIMARY KEY);
- INSERT INTO users VALUES ('customer'),('admin'); INSERT INTO agent_orders VALUES ('order');`);
+  await db.exec(`CREATE TABLE users(id text PRIMARY KEY); CREATE TABLE agent_orders(id text PRIMARY KEY, "paymentMethodDefId" text DEFAULT 'method'); CREATE TABLE payment_evidence(id text PRIMARY KEY, "orderId" text REFERENCES agent_orders(id), "referenceNumber" text);
+ INSERT INTO users VALUES ('customer'),('admin'); INSERT INTO agent_orders(id) VALUES ('order');`);
   await db.exec(
     readFileSync(
       new URL(
@@ -17,6 +17,7 @@ beforeAll(async () => {
   );
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007021000_late_payment_guard_paths/migration.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007030000_late_payment_supervision/migration.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../../../packages/database/prisma/migrations/20261007031000_recovery_reference_boundary/migration.sql', import.meta.url), 'utf8'));
   await db.exec(`INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
  VALUES ('case','order','customer','request-key','PAY123',100,CURRENT_TIMESTAMP,'Report');`);
 });
@@ -76,7 +77,7 @@ it('pins invoker guards to the canonical platform search path', async () => {
 });
 
 it('allows assignment release and reasoned rejection while keeping final history immutable', async () => {
-  await db.exec(`INSERT INTO agent_orders VALUES ('reject-order');
+  await db.exec(`INSERT INTO agent_orders(id) VALUES ('reject-order');
     INSERT INTO late_payment_cases(id,"orderId","openedBy","idempotencyKey","paymentReference","paidAmount","paidAt",description)
     VALUES ('reject-case','reject-order','customer','request-key2','PAY456',100,CURRENT_TIMESTAMP,'Report');
     UPDATE late_payment_cases SET status='ASSIGNED',"assignedAdminId"='admin',"assignedAt"=CURRENT_TIMESTAMP WHERE id='reject-case';
@@ -86,4 +87,14 @@ it('allows assignment release and reasoned rejection while keeping final history
   await db.exec(`UPDATE late_payment_cases SET status='REJECTED',"resolutionKey"='reject-key',"resolutionNote"='Transfer not verified',"resolvedAt"=CURRENT_TIMESTAMP WHERE id='reject-case'`);
   await expect(db.exec(`UPDATE late_payment_cases SET status='OPEN',"assignedAdminId"=NULL,"assignedAt"=NULL WHERE id='reject-case'`)).rejects.toThrow(/transition/);
   await expect(db.exec(`UPDATE late_payment_cases SET "resolutionNote"='Changed decision' WHERE id='reject-case'`)).rejects.toThrow(/transition/);
+});
+
+it('guards recovery references against normalized legacy evidence in both write directions', async () => {
+  await db.exec(`INSERT INTO agent_orders(id) VALUES ('legacy-order');
+    INSERT INTO payment_evidence VALUES ('legacy','legacy-order',' legacy-ref ');`);
+  await expect(db.exec(`INSERT INTO late_payment_reference_claims VALUES ('method','LEGACY-REF','case','PAYMENT')`)).rejects.toThrow(/existing deposit evidence/);
+  await expect(db.exec(`INSERT INTO payment_evidence VALUES ('reuse','legacy-order',' pay123 ')`)).rejects.toThrow(/already used/);
+  await db.exec(`INSERT INTO payment_evidence VALUES ('own','order','PAY123')`);
+  await expect(db.exec(`INSERT INTO late_payment_reference_claims VALUES ('method','PAY123','case','REFUND')`)).rejects.toThrow();
+  await expect(db.exec(`INSERT INTO late_payment_reference_claims VALUES ('wrong-method','UNIQUE','case','PAYMENT')`)).rejects.toThrow(/provider/);
 });

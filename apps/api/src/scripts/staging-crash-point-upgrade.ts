@@ -16,6 +16,7 @@ const allowed = [
   '20261007020000_late_payment_cases',
   '20261007021000_late_payment_guard_paths',
   '20261007030000_late_payment_supervision',
+  '20261007031000_recovery_reference_boundary',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);

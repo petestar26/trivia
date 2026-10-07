@@ -91,6 +91,8 @@ export async function reportLatePayment(userId: string, raw: unknown) {
         return existing;
       throw ApiError.conflict('A recovery case already exists for this order. Review its status.');
     }
+    if (await tx.dispute.findFirst({where: {orderId: order.id, status: 'RESOLVED'}, select: {id: true}}))
+      throw ApiError.conflict('This deposit already has a resolved dispute. Contact support about that decision; do not open a separate recovery case.');
     if (!['EXPIRED', 'CANCELLED'].includes(order.status))
       throw ApiError.conflict('Recovery requires an expired or cancelled deposit order');
     const reservation = await tx.agentReservation.findUnique({ where: { orderId: order.id } });
@@ -176,15 +178,25 @@ export async function recordLatePaymentRefund(
     }
     if (row.status !== 'ASSIGNED')
       throw ApiError.conflict('Claim the recovery case before resolution');
+    if (await tx.dispute.findFirst({where: {orderId: order.id, status: 'RESOLVED'}, select: {id: true}}))
+      throw ApiError.conflict('This deposit has a resolved dispute. Review that decision before any external refund.');
     if (args.refundReference === args.verifiedPaymentReference)
       throw ApiError.badRequest('Refund and incoming payment must be different transfers');
     // Mandatory, case-specific single-use verification; successful retries above
     // return the existing record without consuming a second verification.
     await requireStepUp({ userId, tokenIat }, `LATE_PAYMENT_REFUND:${id}`, tx);
-    for (const [ref, kind] of [
+    const references: Array<[string, 'PAYMENT' | 'REFUND']> = [
       [args.verifiedPaymentReference, 'PAYMENT'],
       [args.refundReference, 'REFUND'],
-    ] as const) {
+    ];
+    references.sort(([a], [b]) => a.localeCompare(b, 'en'));
+    for (const [ref, kind] of references) {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`recovery-reference:${order.paymentMethodDefId}:${ref}`},0))::text`;
+      const existing = await tx.$queryRaw<Array<{id: string}>>`
+        SELECT e.id FROM payment_evidence e JOIN agent_orders o ON o.id=e."orderId"
+        WHERE o."paymentMethodDefId"=${order.paymentMethodDefId} AND upper(btrim(e."referenceNumber"))=${ref}
+        AND (e."orderId"<>${order.id} OR ${kind}='REFUND') LIMIT 1`;
+      if (existing.length) throw ApiError.conflict('Transfer reference appears in existing deposit evidence. Staff reconciliation is required.');
       const inserted = await tx.$executeRaw`
         INSERT INTO late_payment_reference_claims ("methodId",reference,"caseId",kind)
         VALUES (${order.paymentMethodDefId},${ref},${id},${kind}) ON CONFLICT DO NOTHING`;

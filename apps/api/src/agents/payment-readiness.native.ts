@@ -343,3 +343,44 @@ it('rejects only genuine shortfalls without partial orders, reservations or ledg
   expect(await prisma.agentReservation.count({where:{agentId:f.agent.id}})).toBe(3);
   expect(await prisma.agentInventoryLedger.count({where:{agentId:f.agent.id,type:'RESERVE'}})).toBe(3);
 });
+
+it('refuses a recovery report on a deposit already cancelled through a resolved dispute', async () => {
+  const {openDispute,claimDispute,resolveDispute}=await import('./dispute-service.js');
+  const {reportLatePayment}=await import('./late-payment-service.js');
+  const f=await fundedFixture();
+  const {order}=await createAgentOrder(f.buyer.id,f.args);
+  await submitOrderPayment(f.buyer.id,order.id);
+  const {dispute}=await openDispute(f.buyer.id,{orderId:order.id,reason:'OTHER',description:'Investigate transfer',idempotencyKey:randomUUID()});
+  await claimDispute(f.admin.id,dispute.id);
+  await resolveDispute(f.admin.id,dispute.id,'CANCEL','Payment not verified');
+  await expect(reportLatePayment(f.buyer.id,{orderId:order.id,idempotencyKey:randomUUID(),paymentReference:'IN-'+randomUUID(),paidAmount:500,paidAt:new Date().toISOString(),description:'Retry as recovery'})).rejects.toMatchObject({statusCode:409});
+  expect(await prisma.latePaymentCase.count({where:{orderId:order.id}})).toBe(0);
+});
+
+it('legacy evidence conflict rolls back the refund and preserves its step-up authorization', async () => {
+  const {reportLatePayment,claimLatePayment,recordLatePaymentRefund}=await import('./late-payment-service.js');
+  const f=await fundedFixture();
+  const {order}=await createAgentOrder(f.buyer.id,f.args);
+  const {order:legacy}=await createAgentOrder(f.buyer.id,{...f.args,idempotencyKey:randomUUID()});
+  await cancelAgentOrder(f.buyer.id,order.id);
+  const reference='REF-'+randomUUID();
+  await prisma.paymentEvidence.create({data:{orderId:legacy.id,submittedBy:f.buyer.id,referenceNumber:` ${reference.toLowerCase()} `,fileBucket:'fixture',fileKey:'fixture',mimeType:'image/png',fileSize:1}});
+  const row=await reportLatePayment(f.buyer.id,{orderId:order.id,idempotencyKey:randomUUID(),paymentReference:reference,paidAmount:500,paidAt:new Date().toISOString(),description:'Late transfer'});
+  await claimLatePayment(f.admin.id,row.id);
+  const proof=await prisma.stepUpVerification.create({data:{userId:f.admin.id,purpose:`LATE_PAYMENT_REFUND:${row.id}`,tokenIat:12345,factorType:'TOTP',expiresAt:new Date(Date.now()+60000)}});
+  const refund={idempotencyKey:randomUUID(),verifiedPaymentReference:reference,verifiedAmount:500,refundReference:'OUT-'+randomUUID(),refundedAt:new Date().toISOString(),resolutionNote:'Verified external transfer',verified:true};
+  await expect(recordLatePaymentRefund(f.admin.id,12345,row.id,refund)).rejects.toMatchObject({statusCode:409});
+  expect((await prisma.stepUpVerification.findUniqueOrThrow({where:{id:proof.id}})).consumedAt).toBeNull();
+  expect((await prisma.latePaymentCase.findUniqueOrThrow({where:{id:row.id}})).status).toBe('ASSIGNED');
+  expect(await prisma.latePaymentReferenceClaim.count({where:{caseId:row.id}})).toBe(0);
+  // The evidence writer and recovery writer share the provider/reference lock.
+  const racingReference='RACE-'+randomUUID();
+  const outcomes=await Promise.allSettled([
+    recordLatePaymentRefund(f.admin.id,12345,row.id,{...refund,idempotencyKey:randomUUID(),verifiedPaymentReference:racingReference}),
+    prisma.paymentEvidence.create({data:{orderId:legacy.id,submittedBy:f.buyer.id,referenceNumber:racingReference,fileBucket:'fixture',fileKey:'race',mimeType:'image/png',fileSize:1}}),
+  ]);
+  expect(outcomes.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+  const evidence=await prisma.paymentEvidence.count({where:{orderId:legacy.id,referenceNumber:racingReference}});
+  const claims=await prisma.latePaymentReferenceClaim.count({where:{caseId:row.id,reference:racingReference}});
+  expect(evidence+claims).toBe(1);
+});
