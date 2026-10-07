@@ -57,3 +57,11 @@ Full PostgreSQL payment regression caught an overly strict rate-row activation c
 - API deployment `aa4e8f06-3919-4102-9517-39376271ac5b` and web deployment `eb6cb2f7-a8b6-49e5-b20e-0feaa69e053c` succeeded at the verified code commit in isolated staging.
 - Browser verification after the app update: Ethiopia now displays “Payments are paused in this country. New quotes are unavailable.” instead of the previous endless rate loader. Wallet requests loaded with truthful empty states. No transaction was submitted. Captured console errors were browser-extension metadata errors, not application errors. Physical mobile/tablet testing remains outstanding.
 - Production, financial activation and PR merges were not changed. The social/group worker remains on its prior verified Crash Point build.
+
+## Dispute recovery prerequisite — authorization follow-up
+
+Inspection of the late-payment recovery path found a separate dispute replay authorization defect: an exact order ID/idempotency key/payload replay returned an existing dispute before checking the caller's relationship to the order. The service now checks current active-account status and order participation before any replay, rechecks active status under a shared User lock before opening a dispute, and rejects inactive accounts on private dispute reads. The unique-conflict recovery path reauthorizes before returning a winner.
+
+Validation: 213 focused API tests across 24 files passed, including nine new dispute access regressions; API TypeScript passed. A native PostgreSQL regression exercises an unrelated exact-key replay, verifies 403, and verifies that the legitimate owner still receives the single original dispute. Its CI result must be checked before deployment.
+
+Late-payment recovery remains unimplemented. Current disputes only transition PAYMENT_SUBMITTED orders and assume an ACTIVE reservation. Expired orders have RELEASED reservations with existing ledger entries; silently reactivating them would erase lifecycle meaning and conflict with the ledger's operation identity. Recovery needs a separate audited case with receipt verification, explicit external refund or separately funded settlement, duplicate-payment-reference protection and concurrent resolution tests. Do not extend the existing RELEASE action to expired orders without those controls.
