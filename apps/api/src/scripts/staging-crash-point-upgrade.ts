@@ -13,6 +13,7 @@ const allowed = [
   '20261006210100_crash_point_slot_guard_path',
   '20261006210200_crash_point_invoker_guard_path',
   '20261007010000_agent_activation_runtime_grant',
+  '20261007020000_late_payment_cases',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);

@@ -189,3 +189,40 @@ it('concurrent expiry releases inventory once and never creates a customer credi
   expect((await prisma.agentInventory.findUniqueOrThrow({ where: { agentId: f.agent.id } })).reservedBalance).toBe(0);
   expect(await prisma.agentOrderSettlement.count({ where: { orderId: order.id } })).toBe(0);
 });
+
+// Recovery records external refunds; it must never resurrect a reservation.
+it('late payment recovery serializes reports/refunds, binds step-up, and leaves the financial records untouched', async () => {
+  const { reportLatePayment, claimLatePayment, recordLatePaymentRefund } = await import('./late-payment-service.js');
+  const f = await fundedFixture();
+  const { order } = await createAgentOrder(f.buyer.id, f.args);
+  await cancelAgentOrder(f.buyer.id, order.id);
+  const report = { orderId: order.id, idempotencyKey: randomUUID(), paymentReference: 'IN-'+randomUUID(), paidAmount: 500, paidAt: new Date().toISOString(), description: 'Sent after closure' };
+  const reports = await Promise.all([reportLatePayment(f.buyer.id, report), reportLatePayment(f.buyer.id, report)]);
+  expect(reports[0].id).toBe(reports[1].id);
+  const id = reports[0].id;
+  await expect(reportLatePayment(f.agentUser.id, report)).rejects.toThrow(/access/);
+  await expect(reportLatePayment(f.buyer.id, {...report,paidAmount:501})).rejects.toThrow(/already exists/);
+  await claimLatePayment(f.admin.id,id);
+  expect((await claimLatePayment(f.admin.id,id)).id).toBe(id);
+  const refund = { idempotencyKey: randomUUID(), verifiedPaymentReference: report.paymentReference, verifiedAmount:500,
+    refundReference:'OUT-'+randomUUID(),refundedAt:new Date().toISOString(),resolutionNote:'Verified full return to original payer',verified:true };
+  await expect(recordLatePaymentRefund(f.admin.id, 12345,id,refund)).rejects.toThrow(/Step-up/);
+  expect(await prisma.latePaymentReferenceClaim.count({where:{caseId:id}})).toBe(0);
+  await prisma.stepUpVerification.create({data:{userId:f.admin.id,purpose:`LATE_PAYMENT_REFUND:${id}`,tokenIat:12345,factorType:'TOTP',expiresAt:new Date(Date.now()+60000)}});
+  const outcomes=await Promise.all([recordLatePaymentRefund(f.admin.id,12345,id,refund),recordLatePaymentRefund(f.admin.id,12345,id,refund)]);
+  expect(outcomes.every(r=>r.status==='REFUNDED')).toBe(true);
+  expect(await prisma.latePaymentReferenceClaim.count({where:{caseId:id}})).toBe(2);
+  expect(await prisma.auditLog.count({where:{entityId:id,action:'LATE_PAYMENT_EXTERNAL_REFUND_RECORDED'}})).toBe(1);
+  expect((await prisma.agentOrder.findUniqueOrThrow({where:{id:order.id}})).status).toBe('CANCELLED');
+  expect((await prisma.agentReservation.findUniqueOrThrow({where:{orderId:order.id}})).status).toBe('RELEASED');
+  expect(await prisma.agentOrderSettlement.count({where:{orderId:order.id}})).toBe(0);
+  expect(await prisma.walletTransaction.count({where:{referenceType:'AGENT_ORDER',referenceId:order.id}})).toBe(0);
+  const {order: second}=await createAgentOrder(f.buyer.id,{...f.args,idempotencyKey:randomUUID()});
+  await cancelAgentOrder(f.buyer.id,second.id);
+  const secondCase=await reportLatePayment(f.buyer.id,{...report,orderId:second.id,idempotencyKey:randomUUID(),paidAt:new Date().toISOString()});
+  await claimLatePayment(f.admin.id,secondCase.id);
+  const verification=await prisma.stepUpVerification.create({data:{userId:f.admin.id,purpose:`LATE_PAYMENT_REFUND:${secondCase.id}`,tokenIat:12345,factorType:'TOTP',expiresAt:new Date(Date.now()+60000)}});
+  await expect(recordLatePaymentRefund(f.admin.id,12345,secondCase.id,{...refund,idempotencyKey:randomUUID(),refundedAt:new Date().toISOString()})).rejects.toThrow(/already recorded/);
+  expect((await prisma.stepUpVerification.findUniqueOrThrow({where:{id:verification.id}})).consumedAt).toBeNull();
+  expect((await prisma.latePaymentCase.findUniqueOrThrow({where:{id:secondCase.id}})).status).toBe('ASSIGNED');
+});

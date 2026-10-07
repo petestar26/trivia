@@ -90,6 +90,9 @@ model User {
   @@index([email])
   @@index([username])
   @@index([status])
+  latePaymentReports LatePaymentCase[] @relation("LatePaymentReporter")
+  latePaymentReviews LatePaymentCase[] @relation("LatePaymentReviewer")
+
   @@map("users")
 }
 
@@ -2013,6 +2016,7 @@ model AgentOrder {
   settlement  AgentOrderSettlement?
   evidence    PaymentEvidence[]
   disputes    Dispute[]
+  latePaymentCase LatePaymentCase?
 
   // Phase C correction A: the idempotency key identifies the user's
   // order-creation REQUEST, not the selected agent — a retry of the same
@@ -2910,4 +2914,43 @@ model AgentAccountSetup {
   user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@map("agent_account_setups")
+}
+
+// Non-financial support record: never reopens an order or credits a wallet.
+model LatePaymentCase {
+  id String @id @default(uuid())
+  orderId String @unique
+  openedBy String
+  idempotencyKey String
+  paymentReference String
+  paidAmount Int
+  paidAt DateTime
+  description String
+  status String @default("OPEN")
+  assignedAdminId String?
+  assignedAt DateTime?
+  resolutionKey String?
+  verifiedPaymentReference String?
+  verifiedAmount Int?
+  refundReference String?
+  refundedAt DateTime?
+  resolutionNote String?
+  resolvedAt DateTime?
+  openedAt DateTime @default(now())
+  order AgentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  reporter User @relation("LatePaymentReporter", fields: [openedBy], references: [id], onDelete: Restrict)
+  reviewer User? @relation("LatePaymentReviewer", fields: [assignedAdminId], references: [id], onDelete: Restrict)
+  references LatePaymentReferenceClaim[]
+  @@index([status, openedAt], map: "late_payment_cases_queue")
+  @@map("late_payment_cases")
+}
+
+model LatePaymentReferenceClaim {
+  methodId String
+  reference String
+  caseId String
+  kind String
+  recoveryCase LatePaymentCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  @@id([methodId, reference])
+  @@map("late_payment_reference_claims")
 }

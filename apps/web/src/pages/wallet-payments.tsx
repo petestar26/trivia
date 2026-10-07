@@ -1,3 +1,4 @@
+import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
 import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, useParams } from 'react-router-dom';
@@ -734,8 +735,8 @@ function Payments({ userId }: { userId: string }) {
                   />
                 </>
               )}
-              {p.status === 'EXPIRED' && (
-                <p>Unpaid order expired. If you already paid, contact payment support with this order number and your transfer receipt.</p>
+              {['EXPIRED', 'CANCELLED'].includes(p.status) && (
+                <LatePaymentReport orderId={p.id} currency={p.fiatCurrency} />
               )}
               {p.status === 'PAYMENT_SUBMITTED' && (
                 <button disabled={busy} onClick={() => setDispute({ id: p.id, kind: 'deposit' })}>
@@ -789,6 +790,7 @@ function Payments({ userId }: { userId: string }) {
           ))
         )}
       </section>
+      <LatePaymentCases />
       {dispute && (
         <section className="payment-panel">
           <h2>Report a payment problem</h2>

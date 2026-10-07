@@ -1,0 +1,101 @@
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: m, unwrapData: (r: { data: unknown }) => r.data }));
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'admin' } }) }));
+import { LatePaymentCases, LatePaymentReport } from './wallet-late-payments';
+const item = {
+  id: 'case',
+  orderId: 'order',
+  status: 'ASSIGNED',
+  assignedAdminId: 'admin',
+  paymentReference: 'IN123',
+  paidAmount: 500,
+  paidAt: '2020-01-01T00:00:00Z',
+  description: 'Paid late',
+  order: { orderNumber: 'AG-123', fiatCurrency: 'ETB' },
+};
+beforeEach(() => {
+  sessionStorage.clear();
+  m.get.mockReset();
+  m.post.mockReset();
+  m.get.mockResolvedValue({ data: [item] });
+  m.post.mockResolvedValue({ data: {} });
+});
+afterEach(cleanup);
+function mount(component: React.ReactNode) {
+  return render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
+    >
+      <MemoryRouter>{component}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+it('reports actual amount and time without client status or credit fields', async () => {
+  mount(<LatePaymentReport orderId="order" currency="ETB" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Already paid? Report transfer' }));
+  const submit = screen.getByRole('button', { name: 'Submit recovery report' });
+  expect(submit).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Transfer reference'), { target: { value: 'IN123' } });
+  fireEvent.change(screen.getByLabelText('Amount sent (ETB)'), { target: { value: '5.25' } });
+  fireEvent.change(screen.getByLabelText('Transfer time (local)'), {
+    target: { value: '2020-01-02T12:30' },
+  });
+  fireEvent.change(screen.getByLabelText('Details'), {
+    target: { value: 'Transfer after closure' },
+  });
+  fireEvent.click(submit);
+  await waitFor(() => expect(m.post).toHaveBeenCalledOnce());
+  expect(m.post.mock.calls[0][0]).toBe('/late-payments');
+  expect(m.post.mock.calls[0][1]).toEqual({
+    orderId: 'order',
+    paymentReference: 'IN123',
+    paidAmount: 525,
+    paidAt: new Date('2020-01-02T12:30').toISOString(),
+    description: 'Transfer after closure',
+    idempotencyKey: expect.any(String),
+  });
+});
+async function fillRefund() {
+  mount(<LatePaymentCases admin />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Record verified refund' }));
+  for (const [label, value] of [
+    ['Verified incoming reference', 'IN123'],
+    ['Verified amount received and fully refunded (ETB)', '5.00'],
+    ['Refund transfer reference', 'OUT123'],
+    ['Refund time (local)', '2020-01-02T12:30'],
+    ['Verification notes', 'Full refund verified'],
+    ['Authenticator code', '123456'],
+  ])
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const submit = screen.getByRole('button', { name: 'Confirm verified refund' });
+  expect(submit).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(submit);
+}
+it('requires case-scoped authenticator verification before refund and excludes the code from refund data', async () => {
+  await fillRefund();
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
+  expect(m.post.mock.calls[0][0]).toBe('/security/step-up/verify');
+  expect(m.post.mock.calls[0][1]).toEqual({
+    purpose: 'LATE_PAYMENT_REFUND:case',
+    factorType: 'TOTP',
+    code: '123456',
+  });
+  expect(m.post.mock.calls[1][0]).toBe('/late-payments/case/refund');
+  expect(m.post.mock.calls[1][1]).toMatchObject({
+    verifiedAmount: 500,
+    verified: true,
+    refundReference: 'OUT123',
+  });
+  expect(m.post.mock.calls[1][1]).not.toHaveProperty('code');
+});
+it('does not submit a refund after failed authenticator verification', async () => {
+  m.post.mockRejectedValue(new Error('Invalid authenticator'));
+  await fillRefund();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Invalid authenticator');
+  expect(m.post).toHaveBeenCalledOnce();
+});

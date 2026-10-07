@@ -1,3 +1,4 @@
+import { LatePaymentCases } from './wallet-late-payments';
 import { WalletSetupAdmin } from './wallet-setup-admin';
 import { WalletPricingAdmin } from './wallet-pricing-admin';
 import { useState } from 'react';
@@ -253,6 +254,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
             )}
           </section>
         ))}
+      {admin && <LatePaymentCases admin />}
       {selection && (
         <section className="payment-panel">
           <h2>{selection.kind === 'payout' ? 'Record transfer' : 'Resolve dispute'}</h2>
