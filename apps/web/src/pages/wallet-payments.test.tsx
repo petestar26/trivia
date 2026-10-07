@@ -40,9 +40,9 @@ it('does not load privileged queues for an ordinary customer',async()=>{
 });
 it('loads the assigned payout details and requires evidence before recording a transfer',async()=>{
  const row={id:'withdrawal-one',status:'PAYOUT_IN_PROGRESS',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',createdAt:new Date().toISOString(),paymentSnapshot:{bank:'Test bank'}};
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,isAgent:true}:path==='/withdrawals/agent/assigned'?[row]:path==='/withdrawals/withdrawal-one'?row:[]}));
+ m.get.mockImplementation(async(path:string)=>{if(path==='/withdrawals/withdrawal-one') throw Object.assign(new Error('Forbidden owner-only route'),{status:403});return ({data:path==='/wallet/payment-options'?{...options,isAgent:true}:path==='/withdrawals/agent/assigned'?[row]:path==='/withdrawals/agent/assigned/withdrawal-one'?row:[]});});
  m.post.mockResolvedValue({success:true});mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Record completed transfer'}));
- await waitFor(()=>expect(m.get).toHaveBeenCalledWith('/withdrawals/withdrawal-one'));
+ await waitFor(()=>expect(m.get).toHaveBeenCalledWith('/withdrawals/agent/assigned/withdrawal-one'));
  const button=screen.getByRole('button',{name:'Confirm action'});expect(button).toBeDisabled();
  fireEvent.change(screen.getByLabelText('Transfer reference'),{target:{value:'bank-ref-123'}});
  fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Transfer checked against bank receipt'}});

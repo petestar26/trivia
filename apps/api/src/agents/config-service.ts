@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { parseUsdPolicy } from './usd-pricing.js';
 import { selectPaymentRate } from './usd-config-service.js';
 import { prisma } from '@socialplay/database';
@@ -82,6 +83,17 @@ export async function createCountry(
  * without agent payments being enabled yet), so they are never conflated
  * into one "enabled" concept.
  */
+const countryFlagsSchema = z.object({
+  isActive: z.boolean().optional(),
+  agentPaymentEnabled: z.boolean().optional(),
+}).strict();
+
+export function parseCountryFlags(value: unknown) {
+  const parsed = countryFlagsSchema.safeParse(value);
+  if (!parsed.success) throw ApiError.badRequest('Only boolean country activation and payment flags are allowed');
+  return parsed.data;
+}
+
 export async function setCountryFlags(
   adminId: string,
   countryId: string,
@@ -89,6 +101,7 @@ export async function setCountryFlags(
   context?: { ip?: string; userAgent?: string }
 ) {
   await assertPlatformAdmin(adminId);
+  flags = parseCountryFlags(flags);
   if (flags.isActive === undefined && flags.agentPaymentEnabled === undefined) {
     throw ApiError.badRequest('At least one of isActive or agentPaymentEnabled must be supplied');
   }
@@ -121,7 +134,10 @@ export async function setCountryFlags(
         throw ApiError.badRequest('An active agent with an approved receiving account and active payment method is required');
       }
     }
-    const country = await tx.country.update({ where: { id: countryId }, data: flags });
+    const country = await tx.country.update({ where: { id: countryId }, data: {
+      ...(flags.isActive !== undefined ? { isActive: flags.isActive } : {}),
+      ...(flags.agentPaymentEnabled !== undefined ? { agentPaymentEnabled: flags.agentPaymentEnabled } : {}),
+    } });
     await tx.auditLog.create({
       data: {
         userId: adminId, action: 'AGENT_CONFIG_COUNTRY_UPDATED', entity: 'Country', entityId: countryId,
