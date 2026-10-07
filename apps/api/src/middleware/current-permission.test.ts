@@ -52,3 +52,41 @@ it('does not grant optional authenticated access to a suspended account', async 
   await optionalAuth(request, {} as any);
   expect(request.user).toBeUndefined();
 });
+
+it('permits a suspended identity only on a server-marked own-funds return route', async () => {
+  lookup.mockResolvedValue({ status: 'SUSPENDED' });
+  await expect(
+    authenticate(
+      {
+        jwtVerify: vi.fn(async () => ({ sub: 'u' })),
+        routeOptions: { config: { allowOwnFundsReturn: true } },
+      } as any,
+      {} as any
+    )
+  ).resolves.toBeUndefined();
+});
+it('does not allow a request header to enable the own-funds exception', async () => {
+  lookup.mockResolvedValue({ status: 'SUSPENDED' });
+  await expect(
+    authenticate(
+      {
+        jwtVerify: vi.fn(async () => ({ sub: 'u' })),
+        headers: { allowOwnFundsReturn: true },
+        routeOptions: { config: {} },
+      } as any,
+      {} as any
+    )
+  ).rejects.toMatchObject({ statusCode: 403 });
+});
+it('rejects a deleted identity even on an own-funds return route', async () => {
+  lookup.mockResolvedValue(null);
+  await expect(
+    authenticate(
+      {
+        jwtVerify: vi.fn(async () => ({ sub: 'u' })),
+        routeOptions: { config: { allowOwnFundsReturn: true } },
+      } as any,
+      {} as any
+    )
+  ).rejects.toMatchObject({ statusCode: 403 });
+});

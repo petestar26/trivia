@@ -7,6 +7,14 @@ import { ApiError } from './error-handler.js';
 // decoded access token against `FastifyJWT.user`; this replaces the previous
 // direct `FastifyRequest.user` augmentation (which conflicted with the
 // plugin's own declaration).
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    // Server-owned route metadata, never request input. Only operations that
+    // atomically return the caller's own held funds may use this exception.
+    allowOwnFundsReturn?: boolean;
+  }
+}
+
 declare module '@fastify/jwt' {
   interface FastifyJWT {
     user: JwtPayload;
@@ -35,7 +43,11 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     where: { id: request.user!.sub },
     select: { status: true },
   });
-  if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+  if (
+    !actor ||
+    (actor.status !== 'ACTIVE' && request.routeOptions?.config.allowOwnFundsReturn !== true)
+  )
+    throw ApiError.forbidden('An active account is required');
 }
 
 export function optionalAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {

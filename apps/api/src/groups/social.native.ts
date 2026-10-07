@@ -148,3 +148,23 @@ it('leaving an unpaid lobby cleans its entry without a debit or refund',async()=
   const [entry]=await db.$queryRaw<{state:string;debit_id:string|null;refund_id:string|null}[]>`SELECT state,debit_id,refund_id FROM group_pvp_entries WHERE round_id=${round} AND user_id=${f.users[1]}`;
   expect(entry).toEqual({state:'WITHDRAWN',debit_id:null,refund_id:null});
 });
+
+it('allows only the suspended player to reverse their own unstarted PVP entry through HTTP', async () => {
+ const f=await fixture(); const service=createGroupPvpService(db);
+ await db.$transaction(tx=>applyBalanceChanges(tx,f.users[1],[{currency:'GAME_POINTS',amount:500,ledgerType:'CREDIT',transactionType:'GAME_POINT_CREDIT',referenceType:'ADMIN',description:'Disposable refund fixture'}]));
+ const roundId=randomUUID();
+ await db.$executeRaw`INSERT INTO group_pvp_rounds(id,group_id,creator_id,request_id,game,rules_id,policy_id,entry_amount,expires_at) VALUES(${roundId},${f.groupId},${f.users[0]},${randomUUID()},'dice','group-pvp-dice-v1',${PVP_POLICY},100,clock_timestamp()+interval '15 minutes')`;
+ await service.join(f.groupId,f.users[1],roundId);
+ await service.ready(f.groupId,f.users[1],roundId,[7],PVP_POLICY,100);
+ await db.user.update({where:{id:f.users[1]},data:{status:'SUSPENDED'}});
+ const base=`/api/v1/groups/${f.groupId}/pvp/${roundId}`;
+ expect((await server.inject({method:'POST',url:`${base}/withdraw`})).statusCode).toBe(401);
+ expect((await server.inject({method:'POST',url:`${base}/join`,headers:headers(f.users[1])})).statusCode).toBe(403);
+ // An unrelated caller cannot select a different recipient to return funds to.
+ await server.inject({method:'POST',url:`${base}/withdraw`,headers:headers(f.users[2])});
+ expect((await db.wallet.findUniqueOrThrow({where:{userId:f.users[1]}})).gamePointsBalance).toBe(400);
+ const responses=await Promise.all([0,1].map(()=>server.inject({method:'POST',url:`${base}/withdraw`,headers:headers(f.users[1])})));
+ expect(responses.map(r=>r.statusCode)).toEqual([200,200]);
+ expect((await db.wallet.findUniqueOrThrow({where:{userId:f.users[1]}})).gamePointsBalance).toBe(500);
+ expect((await server.inject({url:`/api/v1/groups/${f.groupId}/pvp`,headers:headers(f.users[1])})).statusCode).toBe(403);
+});

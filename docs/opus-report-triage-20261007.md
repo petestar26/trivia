@@ -102,3 +102,8 @@ This supersedes the earlier “no recovery case flow” implementation note; it 
 - Malformed JSON parser messages and stacks are neither logged nor echoed; an actual HTTP/parser regression verifies that submitted password fragments remain absent. Production access/refresh cookie set/clear options always require Secure regardless of an omitted COOKIE_SECURE setting.
 - Added a root React error boundary with generic recovery controls and a reminder to reconcile confirmed requests before retrying. It never renders exception details.
 - Focused API review checks: 260 tests across 27 files passed locally. Two new error-boundary tests passed; the complete native matrix and staging verification of the final candidate remain required.
+
+
+The current-account guard retains the existing narrow PVP reversal policy: the server marks only the own-entry withdraw route, which uses locked owner-specific entry lookup and can only return an unstarted entry to its original owner. Suspended actors remain unable to read private group snapshots or join/play. A native HTTP regression verifies unauthenticated rejection, unrelated-caller no-credit, duplicate reversal exactly once and denied normal access. Held financial withdrawal cancellation already required an ACTIVE actor under its participant lock before this change; that policy is preserved and is not bypassed.
+
+Native CI caught an obsolete social inbox assertion expecting 200/empty data for a suspended user. It now requires 403 and no private data. The corresponding pre-admission invitation test expects the new earlier generic rejection; transaction-race tests retain their locked-service assertions. Focused API suite now passes 263 tests.
