@@ -1,7 +1,9 @@
+import { selectPaymentRate } from './usd-config-service.js';
+import { parseUsdPolicy, priceUsdPayment } from './usd-pricing.js';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-service.js';
-import { reserveInventory, releaseReservedInventory, consumeReservedInventory } from './inventory-service';
+import { reserveInventory, releaseReservedInventory, consumeReservedInventory } from './inventory-service.js';
 
 export interface CreateAgentOrderArgs {
   agentId: string;
@@ -21,15 +23,16 @@ function orderRequestFieldsMatch(order: { agentId: string; countryId: string; pa
 }
 
 function validateCreateArgs(args: CreateAgentOrderArgs) {
+  if (!args || typeof args !== 'object') throw ApiError.badRequest('Order details are required');
   if (!args.agentId || typeof args.agentId !== 'string') throw ApiError.badRequest('agentId is required');
   if (!args.countryId || typeof args.countryId !== 'string') throw ApiError.badRequest('countryId is required');
   if (!args.paymentAccountId || typeof args.paymentAccountId !== 'string') {
     throw ApiError.badRequest('paymentAccountId is required');
   }
-  if (!Number.isInteger(args.fiatAmount) || args.fiatAmount <= 0) {
+  if (!Number.isSafeInteger(args.fiatAmount) || args.fiatAmount <= 0 || args.fiatAmount > 2_147_483_647) {
     throw ApiError.badRequest('fiatAmount must be a positive integer');
   }
-  if (!args.idempotencyKey || typeof args.idempotencyKey !== 'string') {
+  if (!args.idempotencyKey || typeof args.idempotencyKey !== 'string' || args.idempotencyKey.length > 128) {
     throw ApiError.badRequest('idempotencyKey is required');
   }
 }
@@ -140,26 +143,54 @@ export async function createAgentOrder(
   // comment on ExchangeRateConfig): country + fiatCurrency + isActive=true +
   // effectiveAt <= now(), ordered by effectiveAt DESC, take 1. Copied into
   // the order and never re-read.
-  const rateConfig = await prisma.exchangeRateConfig.findFirst({
-    where: { countryId: args.countryId, fiatCurrency, isActive: true, effectiveAt: { lte: new Date() } },
-    orderBy: { effectiveAt: 'desc' },
-  });
-  if (!rateConfig) {
-    throw ApiError.badRequest('No active exchange rate is configured for this country/currency');
-  }
-
-  // Schema: "coinAmount Int // floor(fiatAmount * exchangeRateValue), fixed
-  // forever" — used verbatim, via Decimal arithmetic to avoid float error.
-  const coinAmount = rateConfig.coinsPerUnit.mul(args.fiatAmount).floor().toNumber();
-  if (coinAmount <= 0) {
+  const rateConfig = await selectPaymentRate(prisma, country);
+  const usdPrice = priceUsdPayment(parseUsdPolicy(rateConfig.pricingPolicy), 'deposit', args.fiatAmount);
+  const coinAmount = usdPrice.coinAmount;
+  if (!Number.isSafeInteger(coinAmount) || coinAmount <= 0 || coinAmount > 1_000_000_000) {
     throw ApiError.badRequest('Computed coin amount must be positive');
   }
 
-  const paymentSnapshot = paymentAccount.accountDetails;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        // Admission is revalidated under row locks. Preflight data alone can
+        // become stale while an agent/account/country is being disabled.
+        const [buyer] = await tx.$queryRaw<Array<{status:string}>>`
+          SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+        if (!buyer || buyer.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+        const [currentAgent] = await tx.$queryRaw<Array<{status:string;countryId:string;minOrderAmount:number|null;maxOrderAmount:number|null}>>`
+          SELECT status::text, "countryId", "minOrderAmount", "maxOrderAmount" FROM agents WHERE id=${agent.id} FOR SHARE`;
+        if (!currentAgent || currentAgent.status !== 'ACTIVE' || currentAgent.countryId !== args.countryId ||
+            (currentAgent.minOrderAmount !== null && args.fiatAmount < currentAgent.minOrderAmount) ||
+            (currentAgent.maxOrderAmount !== null && args.fiatAmount > currentAgent.maxOrderAmount)) {
+          throw ApiError.conflict('Agent availability or order limits changed; review the order again');
+        }
+        const [currentCountry] = await tx.$queryRaw<Array<{isActive:boolean;agentPaymentEnabled:boolean;currencyCode:string;usdPricingEnabled:boolean}>>`
+          SELECT "isActive", "agentPaymentEnabled", "currencyCode", "usdPricingEnabled" FROM countries WHERE id=${args.countryId} FOR SHARE`;
+        if (!currentCountry?.isActive || !currentCountry.agentPaymentEnabled || currentCountry.currencyCode !== fiatCurrency) {
+          throw ApiError.conflict('Country payment availability changed');
+        }
+        const [currentAccount] = await tx.$queryRaw<Array<{status:string;agentId:string;countryId:string;methodDefId:string;accountDetails:unknown}>>`
+          SELECT status::text, "agentId", "countryId", "methodDefId", "accountDetails" FROM agent_payment_accounts WHERE id=${args.paymentAccountId} FOR SHARE`;
+        if (!currentAccount || currentAccount.status !== 'APPROVED' || currentAccount.agentId !== agent.id ||
+            currentAccount.countryId !== args.countryId || currentAccount.methodDefId !== paymentAccount.methodDefId) {
+          throw ApiError.conflict('Payment account changed; review the order again');
+        }
+        const [currentMethod] = await tx.$queryRaw<Array<{isActive:boolean;countryId:string}>>`
+          SELECT "isActive", "countryId" FROM payment_method_definitions WHERE id=${paymentAccount.methodDefId} FOR SHARE`;
+        if (!currentMethod?.isActive || currentMethod.countryId !== args.countryId) throw ApiError.conflict('Payment method is no longer available');
+        if (currentCountry.usdPricingEnabled !== country.usdPricingEnabled) {
+          throw ApiError.conflict('Pricing policy changed; review the order again');
+        }
+        if (usdPrice) {
+          const selectedRate = await selectPaymentRate(tx, { ...currentCountry, id: args.countryId });
+          if (selectedRate.id !== rateConfig.id) throw ApiError.conflict('Exchange rate changed; request a fresh price');
+          const [lockedRate] = await tx.$queryRaw<Array<{ isActive: boolean }>>`
+            SELECT "isActive" FROM exchange_rate_configs WHERE id=${rateConfig.id} FOR SHARE`;
+          if (!lockedRate?.isActive) throw ApiError.conflict('Exchange rate was disabled; request a fresh price');
+          parseUsdPolicy(rateConfig.pricingPolicy);
+        }
         const orderNumber = await nextOrderNumber(tx);
 
         const order = await tx.agentOrder.create({
@@ -170,12 +201,13 @@ export async function createAgentOrder(
             countryId: args.countryId,
             paymentMethodDefId: paymentAccount.methodDefId,
             paymentAccountId: args.paymentAccountId,
-            paymentSnapshot: paymentSnapshot as any,
+            paymentSnapshot: currentAccount.accountDetails as any,
             fiatAmount: args.fiatAmount,
             fiatCurrency,
             exchangeRateConfigId: rateConfig.id,
             exchangeRateValue: rateConfig.coinsPerUnit,
             coinAmount,
+            ...(usdPrice ? { pricingSnapshot: usdPrice.snapshot } : {}),
             status: 'CREATED',
             idempotencyKey: args.idempotencyKey,
           },
@@ -407,6 +439,8 @@ export async function settleAgentOrder(
     const before = await tx.agentOrder.findUnique({ where: { id: orderId } });
     if (!before) throw ApiError.notFound('Order not found');
     if (before.agentId !== agent.id) throw ApiError.forbidden('Not your order');
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     // L1: buyer authority precedes the L4 order/inventory claim and L5 wallet.
     // A completed payment remains owed even if the buyer was later suspended.
     const buyerRows = await tx.$queryRaw<{ id: string }[]>`

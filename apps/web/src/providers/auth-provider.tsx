@@ -1,3 +1,5 @@
+import { requestStatus } from '@/lib/request-error';
+import { boundedRequest } from '@/lib/bounded-request';
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, Fragment } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -9,7 +11,12 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (data: { username: string; email: string; password: string; displayName?: string }) => Promise<void>;
+  register: (data: {
+    username: string;
+    email: string;
+    password: string;
+    displayName?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -51,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<UserPublicProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState(false);
+  const [probeRevision, setProbeRevision] = useState(0);
   const [boundaryRevision, setBoundaryRevision] = useState(0);
 
   const credGenRef = useRef(0);
@@ -74,13 +83,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * possibly-stale initial probe) own completion.
    */
   const publishTransition = (nextUser: UserPublicProfile | null) => {
-    queryClient.clear();                 // (1) privacy before identity
-    pubGenRef.current += 1;              // (2) invalidate in-flight passives
-    setIsLoading(false);                 // (3) authoritative op owns completion
+    // A rejected anonymous sign-in must keep its form mounted so its caller
+    // can display the error. Real identity transitions still remount everything.
+    const crossesIdentity = userRef.current !== null || nextUser !== null;
+    queryClient.clear(); // (1) privacy before identity
+    pubGenRef.current += 1; // (2) invalidate in-flight passives
+    setSessionError(false);
+    setIsLoading(false); // (3) authoritative op owns completion
     userRef.current = nextUser;
     setSessionUser(nextUser?.id ?? null);
-    setUser(nextUser);                   // (4) publish identity
-    setBoundaryRevision((r) => r + 1);   // (5) remount identity-dependent children
+    setUser(nextUser); // (4) publish identity
+    if (crossesIdentity) setBoundaryRevision((r) => r + 1); // (5) remount private identity boundaries
   };
 
   // Initial session probe — PASSIVE. It may publish an authenticated session
@@ -98,30 +111,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     const pubSnapshot = pubGenRef.current;
     const credSnapshot = credGenRef.current;
-    (async () => {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    let attempts = 0;
+    const probe = async () => {
       try {
-        const response = await api.get<{ user: UserPublicProfile }>('/auth/me');
+        const response = await boundedRequest(
+          (signal) => api.get<{ user: UserPublicProfile }>('/auth/me', undefined, { signal }),
+          controller.signal
+        );
         if (!active || !passiveIsValid(pubSnapshot, credSnapshot)) return;
         if (response.success && response.data?.user) {
-          publishTransition(response.data.user); // null → user: full boundary
-        } else {
-          setIsLoading(false);                  // null → null: no boundary churn
-        }
-      } catch {
+          publishTransition(response.data.user);
+        } else if (response.success) {
+          setSessionError(false);
+          setIsLoading(false);
+        } else throw new Error('Session check unavailable');
+      } catch (error) {
         if (!active || !passiveIsValid(pubSnapshot, credSnapshot)) return;
-        setIsLoading(false);                    // anonymous stays anonymous
+        if (requestStatus(error) === 401) {
+          setSessionError(false);
+          setIsLoading(false);
+          return;
+        }
+        setSessionError(true);
+        if (++attempts < 4)
+          retryTimer = setTimeout(probe, Math.min(1000 * 2 ** (attempts - 1), 8000));
       }
-    })();
+    };
+    void probe();
     return () => {
       active = false;
+      controller.abort();
+      clearTimeout(retryTimer);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [probeRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email: string, password: string) => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
     try {
-      const response = await api.post<{ user: UserPublicProfile }>('/auth/login', { email, password });
+      const response = await api.post<{ user: UserPublicProfile }>('/auth/login', {
+        email,
+        password,
+      });
       if (claim !== credGenRef.current) return; // superseded — silently ignore
       if (!response.success || !response.data?.user) {
         // Current but failed (e.g. 2xx with success:false): surface it.
@@ -130,8 +163,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       publishTransition(response.data.user);
     } catch (err) {
       if (claim !== credGenRef.current) return; // stale failure — ignore
-      setIsLoading(false);                      // current failure owns loading
-      throw err;                                // propagate to caller
+      setIsLoading(false); // current failure owns loading
+      throw err; // propagate to caller
     } finally {
       pendingCredRef.current -= 1;
     }
@@ -139,7 +172,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Registration is the SAME identity boundary as login — a brand-new signed
   // identity must not observe any previous user's cached data.
-  const register = async (data: { username: string; email: string; password: string; displayName?: string }) => {
+  const register = async (data: {
+    username: string;
+    email: string;
+    password: string;
+    displayName?: string;
+  }) => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
     try {
@@ -196,11 +234,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         publishTransition(null);
       }
       // anonymous → anonymous: no-op.
-    } catch {
+    } catch (error) {
       if (!passiveIsValid(pubSnapshot, credSnapshot)) return;
-      // Authenticated refresh failure → treated as logged out (boundary), so
-      // stale private data cannot linger under a possibly-expired session.
-      if (current) publishTransition(null);
+      if (current && requestStatus(error) === 401) publishTransition(null);
     }
   };
 
@@ -216,6 +252,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshUser,
       }}
     >
+      {sessionError && isLoading && (
+        <div role="alert" className="p-6 text-center">
+          <p>We couldn’t check your session. Reconnecting…</p>
+          <button
+            onClick={() => {
+              setSessionError(false);
+              setProbeRevision((v) => v + 1);
+            }}
+          >
+            Retry connection
+          </button>
+        </div>
+      )}
       {/* Keying the child subtree by the identity-boundary revision forces a
           remount at every identity transition: query observers, page-local
           state, and SocketProvider all restart against the new identity. */}

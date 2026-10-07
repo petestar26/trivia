@@ -6,15 +6,15 @@ import {
   verifyTotpForUser,
   disableTotpFactor,
   listOwnFactors,
-} from './totp-service';
+} from './totp-service.js';
 import {
   performStepUp,
   requireStepUp,
   requiresStepUp,
   setOwnStepUpPolicy,
-} from './step-up-service';
-import { issueChallenge, consumeChallenge } from './challenge-service';
-import { encryptSecret, decryptSecret } from './crypto';
+} from './step-up-service.js';
+import { issueChallenge, consumeChallenge } from './challenge-service.js';
+import { encryptSecret, decryptSecret } from './crypto.js';
 import {
   generateTotpSecret,
   generateTotpCode,
@@ -22,7 +22,7 @@ import {
   timeStepFor,
   base32Encode,
   base32Decode,
-} from './totp';
+} from './totp.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { config } from '@socialplay/config';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 /**
  * Envelope encryption for TOTP shared secrets at rest (W-0).

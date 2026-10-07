@@ -1,6 +1,6 @@
 import { lockSocialGroup } from '../groups/lifecycle.js';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 import { storage, generateStorageKey } from '@socialplay/storage';
 import { STORAGE_BUCKETS, FILE_UPLOAD } from '@socialplay/shared';
 

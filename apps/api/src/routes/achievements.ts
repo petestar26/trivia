@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware';
-import { listUnlocked } from '../rewards/achievement-service';
+import { authenticate } from '../middleware/index.js';
+import { listUnlocked } from '../rewards/achievement-service.js';
 
 export async function achievementRoutes(server: FastifyInstance): Promise<void> {
   // GET /achievements — list the authenticated user's unlocked achievements

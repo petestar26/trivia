@@ -70,7 +70,7 @@ async function createRound() {
 }
 
 async function fixture(options: { bonus?: number; winning?: boolean; stake?: number; netReward?: boolean } = {}) {
-  const purchased = await purchasedFixture(120);
+  const purchased = await purchasedFixture(240);
   const method = await prisma.paymentMethodDefinition.findFirstOrThrow({
     where: { countryId: purchased.country.id, type: 'BANK_TRANSFER', isActive: true },
   });
@@ -169,20 +169,23 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     await waitForCutoff(f.roundId);
     await drawDormantSpinRound(prisma, f.roundId);
     const settled = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
-    expect(settled).toMatchObject({ payout: 2664, coinsBalance: 2744, isReplay: false });
+    expect(settled).toMatchObject({ payout: 2664, coinsBalance: 2864, isReplay: false });
     const lots = await prisma.coinProvenance.findMany({ where: { userId: f.buyer.id } });
     expect(lots.find((lot) => lot.id === f.bonusLotId)).toMatchObject({
       lotClass: 'RESTRICTED', bonusRule: 'NET_WINNINGS_V1', availableAmount: 40,
       reservedAmount: 0, progressAmount: 0,
     });
     expect(lots.filter((lot) => lot.lotClass === 'WITHDRAWABLE')
-      .reduce((total, lot) => total + lot.availableAmount, 0)).toBe(2704);
+      .reduce((total, lot) => {
+        if (lot.availableAmount === null) throw new Error('Settled lot must have an available amount');
+        return total + lot.availableAmount;
+      }, 0)).toBe(2824);
     expect(lots.find((lot) => lot.parentLotId === f.bonusLotId)).toMatchObject({
       lotClass: 'WITHDRAWABLE', availableAmount: 1292,
     });
     const beforeRetry = await financialSnapshot(f.buyer.id, f.holdId);
     expect(await settleDormantSpinTicket(prisma, { holdId: f.holdId })).toMatchObject({
-      payout: 2664, coinsBalance: 2744, isReplay: true,
+      payout: 2664, coinsBalance: 2864, isReplay: true,
     });
     expect(await financialSnapshot(f.buyer.id, f.holdId)).toEqual(beforeRetry);
   });
@@ -206,19 +209,19 @@ describe('dormant Spin Win draw and ticket settlement', () => {
   it('credits a mixed-funded win to its original restricted and purchased lots without progress', async () => {
     const f = await fixture({ bonus: 40, stake: 80 });
     const afterHold = await prisma.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } });
-    expect(afterHold.coinsBalance).toBe(80);
+    expect(afterHold.coinsBalance).toBe(200);
     expect(f.accepted.lossReserve).toBe(2584n);
     await waitForCutoff(f.roundId);
     const draw = await drawDormantSpinRound(prisma, f.roundId);
     expect(draw.outcome).toBe(f.outcome);
     const settled = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
     expect(settled).toMatchObject({ holdId: f.holdId, roundId: f.roundId,
-      payout: 2664, coinsBalance: 2744, disposition: 'SETTLED', isReplay: false });
+      payout: 2664, coinsBalance: 2864, disposition: 'SETTLED', isReplay: false });
     const afterLots = await prisma.coinProvenance.findMany({ where: { userId: f.buyer.id } });
     expect(afterLots).toHaveLength(f.lotsBefore.length);
     const purchased = afterLots.find((lot) => lot.id === f.purchaseLot.id)!;
     const bonus = afterLots.find((lot) => lot.id === f.bonusLotId)!;
-    expect(purchased).toMatchObject({ lotClass: 'WITHDRAWABLE', availableAmount: 1412, reservedAmount: 0 });
+    expect(purchased).toMatchObject({ lotClass: 'WITHDRAWABLE', availableAmount: 1532, reservedAmount: 0 });
     expect(bonus).toMatchObject({ lotClass: 'RESTRICTED', availableAmount: 1332, reservedAmount: 0,
       requirementAmount: 80, progressAmount: 0 });
     for (const before of f.lotsBefore) {
@@ -248,7 +251,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     await waitForCutoff(f.roundId);
     await drawDormantSpinRound(prisma, f.roundId);
     const result = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
-    expect(result).toMatchObject({ payout: 0, coinsBalance: 80, disposition: 'SETTLED' });
+    expect(result).toMatchObject({ payout: 0, coinsBalance: 200, disposition: 'SETTLED' });
     const after = await financialSnapshot(f.buyer.id, f.holdId);
     expect(after.wallet.coinsBalance).toBe(afterHold.wallet.coinsBalance);
     expect(after.transactions).toHaveLength(afterHold.transactions.length);
@@ -288,7 +291,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     expect(await cancelDormantSpinRound(prisma, { roundId: f.roundId, reason }))
       .toEqual({ ...cancellation, isReplay: true });
     const result = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
-    expect(result).toMatchObject({ payout: 80, coinsBalance: 160, disposition: 'CANCELLED', isReplay: false });
+    expect(result).toMatchObject({ payout: 80, coinsBalance: 280, disposition: 'CANCELLED', isReplay: false });
     const after = await financialSnapshot(f.buyer.id, f.holdId);
     for (const before of f.lotsBefore) {
       const lot = after.lots.find((row) => row.id === before.id)!;
@@ -398,7 +401,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     expect(results[0].operationId).toBe(results[1].operationId);
     expect(results[0].coinsBalance).toBe(results[1].coinsBalance);
     expect(await resolution(f.holdId)).toHaveLength(1);
-    expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } })).coinsBalance).toBe(1412);
+    expect((await prisma.wallet.findUniqueOrThrow({ where: { userId: f.buyer.id } })).coinsBalance).toBe(1532);
   });
 
   it('concurrent draws reveal the same committed seed and result exactly once', async () => {
@@ -436,7 +439,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
       await prisma.$executeRawUnsafe(`DROP FUNCTION public.${fn}()`);
     }
     const retried = await settleDormantSpinTicket(prisma, { holdId: f.holdId });
-    expect(retried).toMatchObject({ payout: 1332, coinsBalance: 1412, isReplay: false });
+    expect(retried).toMatchObject({ payout: 1332, coinsBalance: 1532, isReplay: false });
   });
 
   it('rejects forged resolution and a terminal hold without its relational proof', async () => {
@@ -446,7 +449,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
     await expect(prisma.$transaction(async (tx) => {
       await tx.$executeRaw`INSERT INTO public.house_ticket_resolutions
         (hold_id,round_id,operation_id,disposition,payout,house_delta,released_loss,coins_balance)
-        VALUES (${f.holdId},${f.roundId},${hold.holdOperationId},'SETTLED',1332,-1292,1292,1412)`;
+        VALUES (${f.holdId},${f.roundId},${hold.holdOperationId},'SETTLED',1332,-1292,1292,1532)`;
       await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
     })).rejects.toThrow();
     await expect(prisma.$transaction(async (tx) => {
@@ -471,7 +474,7 @@ describe('dormant Spin Win draw and ticket settlement', () => {
         await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
         await tx.$executeRaw`INSERT INTO public.house_ticket_resolutions
           (hold_id,round_id,operation_id,disposition,payout,house_delta,released_loss,coins_balance)
-          VALUES (${f.holdId},${f.roundId},${hold.holdOperationId},'SETTLED',1332,-1292,1292,1412)`;
+          VALUES (${f.holdId},${f.roundId},${hold.holdOperationId},'SETTLED',1332,-1292,1292,1532)`;
       })).rejects.toThrow();
       expect(await resolution(f.holdId)).toHaveLength(0);
     } finally {

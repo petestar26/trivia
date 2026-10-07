@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
-import { sweepWithdrawalTimeouts, TimeoutSweepSummary } from './withdrawals/timeout-service';
-import { runWithdrawalReconciliation, ReconciliationReport } from './withdrawals/reconciliation-service';
+import { sweepWithdrawalTimeouts, TimeoutSweepSummary } from './withdrawals/timeout-service.js';
+import { runWithdrawalReconciliation, ReconciliationReport } from './withdrawals/reconciliation-service.js';
 import { sweepExpiredCoinLots } from './economy/coin-expiry-service.js';
 
 // W-1D4: withdrawal worker entrypoint.

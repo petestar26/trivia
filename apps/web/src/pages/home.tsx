@@ -1,65 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
-import { getApiHealth } from '@/lib/api';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
-import { useSocket } from '@/providers/socket-provider';
-
+import { Dice5, Users, Wallet, MessageCircle, ArrowUpRight } from 'lucide-react';
 export function HomePage() {
-  const { user } = useAuth();
-  const { isConnected } = useSocket();
-
-  const { data: health, isLoading: healthLoading } = useQuery({
-    queryKey: ['health'],
-    queryFn: getApiHealth,
-  });
-
-  return (
-    <div className="space-y-8">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-          Welcome to SocialPlay
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          {user
-            ? `You're signed in as ${user.displayName || user.username}.`
-            : 'Sign in to get started.'}
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
-            System Status
-          </h3>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600 dark:text-gray-300">API Server</span>
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              health?.status === 'ok'
-                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                : healthLoading
-                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                  : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-            }`}>
-              {healthLoading ? 'Checking...' : health?.status || 'Offline'}
-            </span>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">
-            Realtime Connection
-          </h3>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-600 dark:text-gray-300">Socket</span>
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              isConnected
-                ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-            }`}>
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+ const {user}=useAuth();
+ return <div className="mx-auto max-w-6xl space-y-8"><section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 p-7 text-white sm:p-12"><p className="text-xs font-bold uppercase tracking-[.2em] text-emerald-300">PlayQube</p><h1 className="mt-4 max-w-2xl text-3xl font-bold leading-tight tracking-tight sm:text-5xl">Your table. Your community.</h1><p className="mt-5 max-w-xl leading-7 text-slate-300">Welcome back, {user?.displayName||user?.username}. Explore scheduled practice tables, catch up with your group, or review your wallet.</p><Link to="/casino" className="mt-7 inline-flex min-h-12 items-center gap-3 rounded-xl bg-emerald-400 px-6 font-bold text-emerald-950 hover:bg-emerald-300">Explore the casino <ArrowUpRight size={20}/></Link><p className="mt-4 text-xs text-slate-400">Practice credits have no cash value. Group games use Game Points.</p></section>
+ <section aria-label="Quick access" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[{to:'/casino',title:'Casino',text:'Spin, Keno and Dice practice tables.',Icon:Dice5},{to:'/groups',title:'Your groups',text:'Meet up and choose a PVP game together.',Icon:Users},{to:'/messages',title:'Messages',text:'Conversations, reactions and gifts.',Icon:MessageCircle},{to:'/wallet',title:'Wallet',text:'Balances, payment requests and history.',Icon:Wallet}].map(({to,title,text,Icon})=><Link key={to} to={to} className="group rounded-2xl border border-slate-200 bg-white p-6 transition-colors hover:border-emerald-400 dark:border-slate-700 dark:bg-slate-800"><Icon className="mb-5 text-emerald-600" size={26}/><h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2><p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{text}</p></Link>)}</section></div>;
 }

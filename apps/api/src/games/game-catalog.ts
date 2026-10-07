@@ -51,6 +51,13 @@ const APPROVED_CATALOG_KEYS: readonly string[] = [
   'strait_rush',
 ];
 
+// These legacy payout models have not passed the agreed 90% RTP review.
+// Keep the server gate even if an old deployment/admin changes catalog status.
+export function isCoinWagerPaused(game: { key: string; mode: string; wagerCurrency: string | null }) {
+  return game.mode === 'WAGER' && game.wagerCurrency === 'COINS' &&
+    ['number_challenge', 'dice'].includes(game.key);
+}
+
 export function isApprovedGameKey(key: string): boolean {
   return APPROVED_CATALOG_KEYS.includes(key);
 }
@@ -92,6 +99,7 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
     : null;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
+    isCoinWagerPaused(row) ? { ...row, catalogStatus: 'COMING_SOON' as const } :
     row.key === 'spin_win'
       ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
       : row

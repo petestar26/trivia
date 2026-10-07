@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware';
-import { listTasks, claimTaskReward } from '../tasks/task-service';
+import { authenticate } from '../middleware/index.js';
+import { listTasks, claimTaskReward } from '../tasks/task-service.js';
 
 export async function taskRoutes(server: FastifyInstance): Promise<void> {
   // GET /tasks — list task definitions + the user's progress (read-only)

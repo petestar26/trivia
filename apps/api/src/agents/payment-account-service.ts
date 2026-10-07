@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { AGENT_SELF_SERVICE_STATUSES, assertPlatformAdmin } from './agent-service';
+import { ApiError } from '../middleware/index.js';
+import { AGENT_SELF_SERVICE_STATUSES, assertPlatformAdmin } from './agent-service.js';
 
 // ─── accountDetails validation against a method's fieldSchema ───
 //
@@ -55,7 +55,10 @@ function validateAccountDetails(fieldSchema: unknown, accountDetails: unknown): 
 async function loadAndValidateMethod(countryId: string, methodDefId: string) {
   const country = await prisma.country.findUnique({ where: { id: countryId } });
   if (!country) throw ApiError.badRequest('Invalid country');
-  if (!country.isActive || !country.agentPaymentEnabled) {
+  // Receiving-account setup must be possible before customer payments are
+  // enabled: an approved destination is itself a payment-readiness prerequisite.
+  // Order/withdrawal admission independently enforces agentPaymentEnabled.
+  if (!country.isActive) {
     throw ApiError.badRequest('Agent payments are not available for this country');
   }
 
@@ -73,6 +76,35 @@ export interface CreatePaymentAccountArgs {
   countryId: string;
   methodDefId: string;
   accountDetails: unknown;
+}
+
+export interface UpdatePaymentAccountArgs extends CreatePaymentAccountArgs {
+  expectedUpdatedAt: string;
+}
+
+const PAYMENT_ACCOUNT_CHANGED = 'Payment account changed since it was loaded. Reload and review the latest details.';
+
+/** The token is the UTC ISO timestamp returned with the displayed record. */
+function parseExpectedUpdatedAt(value: unknown): Date {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    throw ApiError.badRequest('expectedUpdatedAt must be the displayed account’s ISO timestamp');
+  }
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime()) || date.toISOString() !== value) {
+    throw ApiError.badRequest('expectedUpdatedAt must be a valid ISO timestamp');
+  }
+  return date;
+}
+
+function assertDisplayedVersion(updatedAt: Date, expectedUpdatedAt: Date): void {
+  if (updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+    throw ApiError.conflict(PAYMENT_ACCOUNT_CHANGED);
+  }
+}
+
+/** A successful same-millisecond change must still invalidate its old token. */
+function nextAccountVersion(updatedAt: Date): Date {
+  return new Date(Math.max(Date.now(), updatedAt.getTime() + 1));
 }
 
 /**
@@ -105,10 +137,13 @@ export async function createAgentPaymentAccount(
 ) {
   const agent = await resolveOwnAgentForSelfService(actorUserId);
 
+  if (agent.countryId !== args.countryId) throw ApiError.badRequest('Receiving account country must match the agent service country');
   const { method } = await loadAndValidateMethod(args.countryId, args.methodDefId);
   const clean = validateAccountDetails(method.fieldSchema, args.accountDetails);
 
   return prisma.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     const account = await tx.agentPaymentAccount.create({
       data: {
         agentId: agent.id,
@@ -143,31 +178,36 @@ export async function createAgentPaymentAccount(
  * (Phase B never defined a re-enable-via-edit path, so none is invented
  * here).
  *
- * Concurrency: the conditional claim's WHERE targets the account's CURRENT
- * status among the legal-to-edit set, so two concurrent edits, or an edit
- * racing an admin approval/rejection, resolve to exactly one winner — the
- * loser's claim affects zero rows.
+ * Concurrency: the claim matches the exact version displayed to the caller
+ * and a legal current status. Only one edit/review of that version can win;
+ * any later caller must reload before acting on the changed details.
  */
 export async function updateAgentPaymentAccount(
   actorUserId: string,
   accountId: string,
-  args: CreatePaymentAccountArgs,
+  args: UpdatePaymentAccountArgs,
   context?: { ip?: string; userAgent?: string }
 ) {
+  const expectedUpdatedAt = parseExpectedUpdatedAt(args?.expectedUpdatedAt);
   const agent = await resolveOwnAgentForSelfService(actorUserId);
 
+  if (agent.countryId !== args.countryId) throw ApiError.badRequest('Receiving account country must match the agent service country');
   const { method } = await loadAndValidateMethod(args.countryId, args.methodDefId);
   const clean = validateAccountDetails(method.fieldSchema, args.accountDetails);
 
   return prisma.$transaction(async (tx) => {
+    const [actor] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
+    if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active user account is required');
     const before = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agentId !== agent.id) throw ApiError.forbidden('Not your payment account');
+    assertDisplayedVersion(before.updatedAt, expectedUpdatedAt);
 
     const claim = await tx.agentPaymentAccount.updateMany({
       where: {
         id: accountId,
         agentId: agent.id,
+        updatedAt: expectedUpdatedAt,
         status: { in: ['APPROVED', 'PENDING_APPROVAL', 'REJECTED'] },
       },
       data: {
@@ -177,14 +217,12 @@ export async function updateAgentPaymentAccount(
         status: 'PENDING_APPROVAL',
         reviewedBy: null,
         reviewedAt: null,
+        updatedAt: nextAccountVersion(before.updatedAt),
       },
     });
 
     if (claim.count === 0) {
-      const current = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
-      throw ApiError.conflict(
-        `Payment account cannot be edited in its current state (${current?.status})`
-      );
+      throw ApiError.conflict(PAYMENT_ACCOUNT_CHANGED);
     }
 
     await tx.auditLog.create({
@@ -210,49 +248,43 @@ export async function updateAgentPaymentAccount(
 export async function approveAgentPaymentAccount(
   adminId: string,
   accountId: string,
+  expectedUpdatedAtValue: string,
   context?: { ip?: string; userAgent?: string }
 ) {
+  const expectedUpdatedAt = parseExpectedUpdatedAt(expectedUpdatedAtValue);
   await assertPlatformAdmin(adminId);
 
   return prisma.$transaction(async (tx) => {
     const before = await tx.agentPaymentAccount.findUnique({
       where: { id: accountId },
-      include: { agent: { select: { userId: true } } },
+      include: { agent: { select: { userId: true, countryId: true } } },
     });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agent.userId === adminId) {
       throw ApiError.forbidden('You cannot review your own payment account');
     }
+    assertDisplayedVersion(before.updatedAt, expectedUpdatedAt);
 
     // Re-verify the country/method relationship at approval time too, per
     // Phase D §7 — a defense-in-depth re-check, not trusting that it still
     // holds just because it held at creation.
     const method = await tx.paymentMethodDefinition.findUnique({ where: { id: before.methodDefId } });
-    if (!method || !method.isActive || method.countryId !== before.countryId) {
+    if (!method || !method.isActive || method.countryId !== before.countryId || before.agent.countryId !== before.countryId) {
       throw ApiError.conflict('Payment method/country relationship is no longer valid — cannot approve');
     }
 
-    // Pin the claim to the exact row version just read (updatedAt), not only
-    // its status. Without this, an agent editing accountDetails between the
-    // admin's read above and this UPDATE would still satisfy
-    // status='PENDING_APPROVAL' and get silently approved with content the
-    // admin never actually reviewed — status alone is not a strong enough
-    // gate here the way it is for the application/agent-status transitions,
-    // because editing a payment account does not change its status away from
-    // PENDING_APPROVAL the way a competing approve/reject would.
+    // Match the version the administrator actually viewed, including edits
+    // committed before this request began as well as races during the request.
     const claim = await tx.agentPaymentAccount.updateMany({
-      where: { id: accountId, status: 'PENDING_APPROVAL', updatedAt: before.updatedAt },
-      data: { status: 'APPROVED', reviewedBy: adminId, reviewedAt: new Date() },
+      where: { id: accountId, status: 'PENDING_APPROVAL', updatedAt: expectedUpdatedAt },
+      data: {
+        status: 'APPROVED', reviewedBy: adminId, reviewedAt: new Date(),
+        updatedAt: nextAccountVersion(before.updatedAt),
+      },
     });
 
     if (claim.count === 0) {
-      const current = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
-      if (current && current.status === 'PENDING_APPROVAL') {
-        throw ApiError.conflict(
-          'Payment account was modified after being loaded for review — please reload and try again'
-        );
-      }
-      return { accountId, alreadyReviewed: true, status: current?.status ?? 'UNKNOWN' };
+      throw ApiError.conflict(PAYMENT_ACCOUNT_CHANGED);
     }
 
     const agent = await tx.agent.findUnique({ where: { id: before.agentId } });
@@ -288,8 +320,10 @@ export async function rejectAgentPaymentAccount(
   adminId: string,
   accountId: string,
   reviewNote: string,
+  expectedUpdatedAtValue: string,
   context?: { ip?: string; userAgent?: string }
 ) {
+  const expectedUpdatedAt = parseExpectedUpdatedAt(expectedUpdatedAtValue);
   if (!reviewNote || reviewNote.trim().length === 0) {
     throw ApiError.badRequest('A review note is required to reject a payment account');
   }
@@ -298,29 +332,27 @@ export async function rejectAgentPaymentAccount(
   return prisma.$transaction(async (tx) => {
     const before = await tx.agentPaymentAccount.findUnique({
       where: { id: accountId },
-      include: { agent: { select: { userId: true } } },
+      include: { agent: { select: { userId: true, countryId: true } } },
     });
     if (!before) throw ApiError.notFound('Payment account not found');
     if (before.agent.userId === adminId) {
       throw ApiError.forbidden('You cannot review your own payment account');
     }
+    assertDisplayedVersion(before.updatedAt, expectedUpdatedAt);
 
     // Same optimistic-version pin as approveAgentPaymentAccount, for the same
     // reason: a status-only claim cannot distinguish "already reviewed" from
     // "edited since I loaded it".
     const claim = await tx.agentPaymentAccount.updateMany({
-      where: { id: accountId, status: 'PENDING_APPROVAL', updatedAt: before.updatedAt },
-      data: { status: 'REJECTED', reviewedBy: adminId, reviewedAt: new Date() },
+      where: { id: accountId, status: 'PENDING_APPROVAL', updatedAt: expectedUpdatedAt },
+      data: {
+        status: 'REJECTED', reviewedBy: adminId, reviewedAt: new Date(),
+        updatedAt: nextAccountVersion(before.updatedAt),
+      },
     });
 
     if (claim.count === 0) {
-      const current = await tx.agentPaymentAccount.findUnique({ where: { id: accountId } });
-      if (current && current.status === 'PENDING_APPROVAL') {
-        throw ApiError.conflict(
-          'Payment account was modified after being loaded for review — please reload and try again'
-        );
-      }
-      return { accountId, alreadyReviewed: true, status: current?.status ?? 'UNKNOWN' };
+      throw ApiError.conflict(PAYMENT_ACCOUNT_CHANGED);
     }
 
     const agent = await tx.agent.findUnique({ where: { id: before.agentId } });
@@ -448,6 +480,6 @@ export async function listPendingPaymentAccounts() {
   return prisma.agentPaymentAccount.findMany({
     where: { status: 'PENDING_APPROVAL' },
     orderBy: { createdAt: 'asc' },
-    include: { agent: { select: { id: true, displayName: true, countryId: true } } },
+    include: { agent: { select: { id: true, displayName: true, countryId: true } }, country: { select: { name: true, code: true } }, methodDef: { select: { name: true, type: true } } },
   });
 }

@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate, requirePermission } from '../middleware';
+import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   sendMessageAsAgent,
   sendMessageAsAdmin,
@@ -7,7 +7,7 @@ import {
   getConversationForAgent,
   listMessages,
   listConversationsWithUnreadForAdmin,
-} from './conversation-service';
+} from './conversation-service.js';
 
 export async function agentConversationRoutes(server: FastifyInstance): Promise<void> {
   const auth = [authenticate];

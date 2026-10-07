@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { PaymentNavigation } from './wallet-payments';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -22,14 +24,16 @@ interface WalletTransaction {
 }
 
 export function WalletPage() {
-  const { data: wallet, isLoading: walletLoading, isError: walletError } = useQuery<any>({
+  const [page, setPage] = useState(1);
+  const [currency, setCurrency] = useState<'coins' | 'gamePoints' | undefined>();
+  const { data: wallet, isLoading: walletLoading, isError: walletError, refetch: refetchWallet } = useQuery<any>({
     queryKey: ['wallet'],
     queryFn: async () => (await api.getWallet()).data,
   });
 
-  const { data: transactions = [], isLoading: txLoading, isError: txError } = useQuery<WalletTransaction[]>({
-    queryKey: ['wallet-transactions'],
-    queryFn: async () => (await api.getWalletTransactions({ limit: 50 })).data ?? [],
+  const { data: transactions = [], isLoading: txLoading, isError: txError, refetch: refetchTransactions } = useQuery<WalletTransaction[]>({
+    queryKey: ['wallet-transactions', page, currency],
+    queryFn: async () => (await api.getWalletTransactions({ limit: 20, page, currency })).data ?? [],
   });
 
   const loading = walletLoading || txLoading;
@@ -46,7 +50,7 @@ export function WalletPage() {
   if (error) {
     return (
       <div className="max-w-2xl mx-auto p-4">
-        <Card><CardContent className="py-8 text-center text-red-600 dark:text-red-400">Failed to load wallet.</CardContent></Card>
+        <Card><CardContent className="py-8 text-center text-red-600 dark:text-red-400">Failed to load wallet. <button className="ml-3 underline" onClick={() => { void refetchWallet(); void refetchTransactions(); }}>Retry</button></CardContent></Card>
       </div>
     );
   }
@@ -57,6 +61,7 @@ export function WalletPage() {
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Wallet</h1>
+      <PaymentNavigation />
 
       {/* Balance cards */}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -77,12 +82,17 @@ export function WalletPage() {
         <p className="mt-2 text-xs text-gray-500">Withdrawals still require account and country eligibility. Game Points and free practice credits are separate from Coins.</p>
       </section>
 
+      <label className="block text-sm font-medium">Transaction currency
+        <select className="ml-3 rounded-lg border p-2 dark:bg-gray-800" value={currency ?? ''} onChange={e => { setCurrency((e.target.value || undefined) as 'coins' | 'gamePoints' | undefined); setPage(1); }}>
+          <option value="">All currencies</option><option value="coins">Coins</option><option value="gamePoints">Game Points</option>
+        </select>
+      </label>
       {/* Transaction history */}
       <Card>
         <CardHeader><CardTitle className="text-base">Transaction History</CardTitle></CardHeader>
         <CardContent>
           {transactions.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No transactions yet.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">{page === 1 ? 'No transactions yet.' : 'No transactions on this page.'}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -125,6 +135,10 @@ export function WalletPage() {
           )}
         </CardContent>
       </Card>
+      <nav aria-label="Transaction pages" className="flex items-center justify-between gap-4">
+        <button disabled={page===1} onClick={()=>setPage(p=>p-1)} className="rounded-lg border px-4 py-2 disabled:opacity-40">Previous</button>
+        <span>Page {page}</span><button disabled={transactions.length<20} onClick={()=>setPage(p=>p+1)} className="rounded-lg border px-4 py-2 disabled:opacity-40">Next</button>
+      </nav>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import {
   getOwnPayoutAccount,
   loadOwnActivePayoutAccountForWithdrawal,
   disableOwnPayoutAccount,
-} from './payout-account-service';
+} from './payout-account-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

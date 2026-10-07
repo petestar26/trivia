@@ -2,14 +2,14 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { WithdrawalStatus } from '@socialplay/database';
 import type { Withdrawal } from '@socialplay/database';
-import { authenticate, requirePermission, ApiError } from '../middleware';
-import { createWithdrawalQuote, getOwnWithdrawalQuote } from './quote-service';
+import { authenticate, requirePermission, ApiError } from '../middleware/index.js';
+import { createWithdrawalQuote, getOwnWithdrawalQuote } from './quote-service.js';
 import {
   createUserPayoutAccount,
   listOwnPayoutAccounts,
   getOwnPayoutAccount,
   disableOwnPayoutAccount,
-} from './payout-account-service';
+} from './payout-account-service.js';
 import {
   createWithdrawal,
   getOwnWithdrawalById,
@@ -19,7 +19,7 @@ import {
   claimPayout,
   submitPayment,
   cancelHeldWithdrawal,
-} from './withdrawal-service';
+} from './withdrawal-service.js';
 import {
   claimWithdrawalDispute,
   confirmWithdrawalReceipt,
@@ -29,15 +29,15 @@ import {
   listWithdrawalEscalationCandidates,
   openUserWithdrawalDispute,
   resolveWithdrawalDispute,
-} from './dispute-service';
+} from './dispute-service.js';
 import type {
   WithdrawalDisputeReasonValue,
   WithdrawalEscalationReason,
   WithdrawalResolutionOutcome,
-} from './dispute-service';
-import { serializeAdminWithdrawal, serializeQuote, serializeSettlement, serializeWithdrawal } from './dto';
-import { sweepWithdrawalTimeouts } from './timeout-service';
-import { runWithdrawalReconciliation } from './reconciliation-service';
+} from './dispute-service.js';
+import { serializeAdminWithdrawal, serializeQuote, serializeSettlement, serializeWithdrawal } from './dto.js';
+import { sweepWithdrawalTimeouts } from './timeout-service.js';
+import { runWithdrawalReconciliation } from './reconciliation-service.js';
 
 // W-1C withdrawal API routes.
 //
@@ -96,6 +96,10 @@ const idParamSchema = {
 } as const;
 
 export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const auth = [authenticate];
 
   // ── Quotes ───────────────────────────────────────────────────

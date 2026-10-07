@@ -1,17 +1,18 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service';
-import { fundAgentFiatLiquidity } from './liquidity-service';
-import { createWithdrawalQuote } from './quote-service';
-import { createUserPayoutAccount } from './payout-account-service';
-import { createWithdrawal } from './withdrawal-service';
+import { submitAgentApplication, approveAgentApplication } from '../agents/agent-service.js';
+import { fundAgentFiatLiquidity } from './liquidity-service.js';
+import { createWithdrawalQuote } from './quote-service.js';
+import { createUserPayoutAccount } from './payout-account-service.js';
+import { createWithdrawal } from './withdrawal-service.js';
 import {
   listAssignedWithdrawals,
   getAssignedWithdrawal,
   claimPayout,
   submitPayment,
   cancelHeldWithdrawal,
-} from './withdrawal-service';
+} from './withdrawal-service.js';
 import { getWalletBalance } from '../economy/wallet-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
@@ -76,9 +77,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `W1D1 Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -96,16 +97,14 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: {
+  return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
       coinsPerUnit,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-    },
-  });
+      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function createFundedAgent(
@@ -123,7 +122,7 @@ async function createFundedAgent(
   });
   await approveAgentApplication(admin.id, application.id, undefined);
   const agent = await prisma.agent.findUnique({ where: { userId: agentUser.id } });
-  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'USD', liquidityUsd, `w1d1-fund-${tag}-${Date.now()}-${Math.random()}`);
+  await fundAgentFiatLiquidity(superAdmin.id, agent!.id, 'ETB', liquidityUsd, `w1d1-fund-${tag}-${Date.now()}-${Math.random()}`);
   return { agentUser, agent: agent! };
 }
 
@@ -143,7 +142,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const country = await createCountry(tag);
   const method = await createPaymentMethod(country.id, tag);
   await activateTestWithdrawalPolicy(country.id, admin.id);
-  await createExchangeRate(country.id, 'USD', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', 2, admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createUserPayoutAccount(user.id, {
@@ -608,14 +607,14 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     const { agent, user, withdrawal } = await createHeldWithdrawal(tag);
 
     const liqBefore = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     const reservedBefore = liqBefore!.reservedBalance;
 
     await cancelHeldWithdrawal(user.id, withdrawal.id, { idempotencyKey: `cancel-res-${tag}` });
 
     const liqAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
 
     // totalBalance unchanged, reservedBalance decreased
@@ -705,7 +704,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     await claimPayout(agentUser.id, withdrawal.id, { idempotencyKey: `claim-${tag}` });
 
     const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     const walletBefore = await getWalletBalance(user.id);
 
@@ -729,7 +728,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     const walletAfter = await getWalletBalance(user.id);
     expect(walletAfter.coinsBalance).toBe(walletBefore.coinsBalance);
     const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidityAfter!.reservedBalance).toBe(liquidityBefore!.reservedBalance);
   });
@@ -783,7 +782,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     const country = await createCountry(tag);
     const method = await createPaymentMethod(country.id, tag);
     await activateTestWithdrawalPolicy(country.id, admin.id);
-    await createExchangeRate(country.id, 'USD', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', 2, admin.id);
     const { agent } = await createFundedAgent(tag, country.id, admin, superAdmin, 1_000_000n);
 
     const userA = await createFundedUser(`${tag}-a`, 50_000);
@@ -805,7 +804,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     );
 
     const liquidityBefore = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
 
     const [resultA, resultB] = await Promise.all([
@@ -822,7 +821,7 @@ describeIf('W-1D1: cancelHeldWithdrawal (HELD → CANCELLED)', () => {
     expect(reservationB!.status).toBe('RELEASED');
 
     const liquidityAfter = await prisma.agentFiatLiquidity.findUnique({
-      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'USD' } },
+      where: { agentId_fiatCurrency: { agentId: agent.id, fiatCurrency: 'ETB' } },
     });
     expect(liquidityAfter!.reservedBalance).toBe(
       liquidityBefore!.reservedBalance - reservationA!.amount - reservationB!.amount

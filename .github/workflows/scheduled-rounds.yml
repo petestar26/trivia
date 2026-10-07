@@ -13,6 +13,8 @@ on:
       - 'apps/api/src/routes/groups.ts'
       - 'apps/api/src/routes/group-locks.ts'
       - 'apps/api/src/middleware/error-handler.ts'
+      - 'apps/api/src/middleware/auth.ts'
+      - 'apps/api/src/middleware/current-permission.test.ts'
       - 'apps/web/src/components/groups/**'
       - 'apps/web/src/pages/wallet*'
       - 'apps/api/src/gift-collection/**'
@@ -35,6 +37,7 @@ on:
       - 'apps/web/src/pages/group-detail*'
       - 'apps/web/src/pages/messages*'
       - 'apps/web/src/lib/bounded-request*'
+      - 'apps/web/src/lib/payment-money*'
       - 'apps/web/src/hooks/use-voice-recorder*'
       - 'apps/web/src/components/app-update-notice*'
       - 'apps/web/src/main.tsx'
@@ -46,6 +49,11 @@ on:
       - 'apps/api/scripts/spin-staging-rehearsal.cjs'
       - 'apps/api/package.json'
       - 'apps/api/src/economy/**'
+      - 'apps/api/src/agents/**'
+      - 'apps/api/src/withdrawals/**'
+      - 'apps/api/src/routes/wallet*'
+      - 'apps/web/src/hooks/use-wallet-action*'
+      - 'apps/web/src/components/layout/**'
       - 'apps/web/src/pages/games/spin-win*'
       - 'apps/web/src/pages/games/keno*'
       - 'apps/web/src/pages/games/dice*'
@@ -143,9 +151,9 @@ jobs:
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/economy/reward-coins.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Gateway identity and independent worker contracts
-        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts src/plugins/rate-limit-identity.test.ts src/scripts/group-worker-runtime.test.ts src/routes/storage.test.ts
+        run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
       - name: Build API and verify disposable staging setup
         run: |
           pnpm --filter api exec node build.js
@@ -165,6 +173,8 @@ jobs:
             status: 'REFUSED', stage: 'TARGET', reason: 'STAGING_REHEARSAL_FAILED',
           });
           NODE
+      - name: Full API TypeScript contracts
+        run: pnpm --filter api typecheck
       - name: Economics and embedded SQL contracts
         run: |
           # The dormant RFC 3161 core uses real offline CMS/TSA fixtures.
@@ -182,6 +192,20 @@ jobs:
                   env.write(name + '=' + secrets.token_hex(32) + '\n')
               env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
           PYKEYS
+      - name: Payment lifecycle, authorization and recovery
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: pnpm --filter api exec vitest run src/agents src/withdrawals --maxWorkers=1 --minWorkers=1
+      - name: Legacy API compatibility and task concurrency
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: >-
+          pnpm --filter api exec vitest run
+          src/rewards/rewards.test.ts src/rewards/level-milestone.test.ts
+          src/challenges/challenges.test.ts src/competitions/competitions.test.ts
+          src/economy/economy.test.ts src/economy/wallet-service.test.ts
+          src/routes/auth.test.ts src/security/security.test.ts src/worker.test.ts
+          --maxWorkers=1 --minWorkers=1
       - name: Predeploy runtime identity guard
         run: pnpm --filter api exec vitest run src/scripts/ledger-runtime-identity-check.test.ts
       - name: Existing ledger guard regressions
@@ -253,7 +277,7 @@ jobs:
       - name: Group game room and chat contracts
         run: >-
           pnpm --filter web exec vitest run
-          src/components/app-update-notice.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
+          src/lib/payment-money.test.ts src/components/app-update-notice.test.tsx src/components/security/authenticator-setup.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-agent-setup.test.tsx src/pages/wallet-setup-admin.test.tsx src/pages/workspaces/workspaces.test.tsx src/pages/workspaces/create-agent.test.tsx src/hooks/use-wallet-action.test.tsx src/pages/group-games.test.tsx src/pages/group-gifts.test.tsx
           src/pages/groups.test.tsx src/pages/group-detail.test.tsx src/pages/messages.test.tsx src/pages/wallet.test.tsx
           src/lib/bounded-request.test.ts src/hooks/use-voice-recorder.test.ts src/components/gifts/message-reactions.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Cookie session renewal contracts

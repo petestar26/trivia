@@ -1,6 +1,8 @@
-import { prisma, Prisma } from '@socialplay/database';
+import { selectPaymentRate } from '../agents/usd-config-service.js';
+import { parseUsdPolicy, priceUsdPayment } from '../agents/usd-pricing.js';
+import { prisma, type WithdrawalQuote } from '@socialplay/database';
 import { createHash } from 'node:crypto';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 // W-1B Task A: withdrawal quote service.
 //
@@ -34,10 +36,14 @@ function validateArgs(args: CreateWithdrawalQuoteArgs) {
     throw ApiError.badRequest('coinAmount must be a positive integer');
   }
   if (args.coinAmount < MIN_WITHDRAWAL_COINS) {
-    throw ApiError.badRequest(`coinAmount is below the minimum withdrawal amount (${MIN_WITHDRAWAL_COINS})`);
+    throw ApiError.badRequest(
+      `coinAmount is below the minimum withdrawal amount (${MIN_WITHDRAWAL_COINS})`
+    );
   }
   if (args.coinAmount > MAX_WITHDRAWAL_COINS) {
-    throw ApiError.badRequest(`coinAmount exceeds the maximum withdrawal amount (${MAX_WITHDRAWAL_COINS})`);
+    throw ApiError.badRequest(
+      `coinAmount exceeds the maximum withdrawal amount (${MAX_WITHDRAWAL_COINS})`
+    );
   }
 }
 
@@ -66,69 +72,61 @@ function computeQuoteRequestHash(userId: string, countryId: string, coinAmount: 
 export async function createWithdrawalQuote(
   actorUserId: string,
   args: CreateWithdrawalQuoteArgs
-): Promise<{
-  id: string;
-  userId: string;
-  countryId: string;
-  fiatCurrency: string;
-  coinAmount: number;
-  fiatAmount: bigint;
-  exchangeRateConfigId: string;
-  exchangeRateValue: Prisma.Decimal;
-  expiresAt: Date;
-  createdAt: Date;
-}> {
+): Promise<WithdrawalQuote> {
   validateArgs(args);
 
-  const country = await prisma.country.findUnique({ where: { id: args.countryId } });
-  if (!country) throw ApiError.badRequest('Invalid country');
-  if (!country.isActive || !country.agentPaymentEnabled) {
-    throw ApiError.badRequest('Withdrawals are not available for this country');
-  }
-  const fiatCurrency = country.currencyCode;
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM countries WHERE id=${args.countryId} FOR SHARE`;
+    const country = await tx.country.findUnique({ where: { id: args.countryId } });
+    if (!country) throw ApiError.badRequest('Invalid country');
+    if (!country.isActive || !country.agentPaymentEnabled) {
+      throw ApiError.badRequest('Withdrawals are not available for this country');
+    }
+    const fiatCurrency = country.currencyCode;
 
-  // Same deterministic selection as order-service.ts's rate lookup:
-  // country + fiatCurrency + isActive=true + effectiveAt <= now, ordered
-  // by effectiveAt DESC, take 1. Copied into the quote and never re-read.
-  const rateConfig = await prisma.exchangeRateConfig.findFirst({
-    where: { countryId: args.countryId, fiatCurrency, isActive: true, effectiveAt: { lte: new Date() } },
-    orderBy: { effectiveAt: 'desc' },
+    // Same deterministic selection as order-service.ts's rate lookup:
+    // country + fiatCurrency + isActive=true + effectiveAt <= now, ordered
+    // by effectiveAt DESC, take 1. Copied into the quote and never re-read.
+    const rateConfig = await selectPaymentRate(tx, country);
+    await tx.$queryRaw`SELECT id FROM exchange_rate_configs WHERE id=${rateConfig.id} FOR SHARE`;
+    const lockedRate = await tx.exchangeRateConfig.findUniqueOrThrow({
+      where: { id: rateConfig.id },
+    });
+    if (!lockedRate.isActive)
+      throw ApiError.conflict('Exchange rate was disabled; request a fresh price');
+    const usdPrice = priceUsdPayment(parseUsdPolicy(lockedRate.pricingPolicy), 'withdrawal', args.coinAmount);
+    const fiatAmount = usdPrice.fiatAmount;
+    if (fiatAmount <= 0n) {
+      throw ApiError.badRequest('Computed fiat amount must be positive');
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(
+      Math.min(
+        now.getTime() + QUOTE_TTL_SECONDS * 1000,
+        usdPrice ? Date.parse(usdPrice.snapshot.expiresAt) : Infinity
+      )
+    );
+    const requestHash = computeQuoteRequestHash(actorUserId, args.countryId, args.coinAmount);
+
+    const quote = await tx.withdrawalQuote.create({
+      data: {
+        userId: actorUserId,
+        countryId: args.countryId,
+        fiatCurrency,
+        coinAmount: args.coinAmount,
+        ...(usdPrice ? { pricingSnapshot: usdPrice.snapshot } : {}),
+        fiatAmount,
+        exchangeRateConfigId: rateConfig.id,
+        exchangeRateValue: rateConfig.coinsPerUnit,
+        requestHash,
+        status: 'ACTIVE',
+        expiresAt,
+      },
+    });
+
+    return quote;
   });
-  if (!rateConfig) {
-    throw ApiError.badRequest('No active exchange rate is configured for this country/currency');
-  }
-
-  // Inverse of AgentOrder's coinAmount = floor(fiatAmount * coinsPerUnit):
-  // fiatAmount = floor(coinAmount / coinsPerUnit). Flooring here means the
-  // user receives slightly less fiat than the exact rate would give for a
-  // fractional remainder — the platform-favoring direction, consistent
-  // with AgentOrder's own floor().
-  const fiatAmountDecimal = new Prisma.Decimal(args.coinAmount).div(rateConfig.coinsPerUnit).floor();
-  const fiatAmount = BigInt(fiatAmountDecimal.toFixed(0));
-  if (fiatAmount <= 0n) {
-    throw ApiError.badRequest('Computed fiat amount must be positive');
-  }
-
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + QUOTE_TTL_SECONDS * 1000);
-  const requestHash = computeQuoteRequestHash(actorUserId, args.countryId, args.coinAmount);
-
-  const quote = await prisma.withdrawalQuote.create({
-    data: {
-      userId: actorUserId,
-      countryId: args.countryId,
-      fiatCurrency,
-      coinAmount: args.coinAmount,
-      fiatAmount,
-      exchangeRateConfigId: rateConfig.id,
-      exchangeRateValue: rateConfig.coinsPerUnit,
-      requestHash,
-      status: 'ACTIVE',
-      expiresAt,
-    },
-  });
-
-  return quote;
 }
 
 /**

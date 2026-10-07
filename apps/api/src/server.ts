@@ -2,12 +2,12 @@ import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
-import { registerPlugins } from './plugins';
-import { registerRoutes } from './routes';
-import { healthRoutes } from './routes/health';
-import { registerWebSocket } from './ws';
-import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler';
-import { requestLogger } from './middleware/request-logger';
+import { registerPlugins } from './plugins/index.js';
+import { registerRoutes } from './routes/index.js';
+import { healthRoutes } from './routes/health.js';
+import { registerWebSocket } from './ws/index.js';
+import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler.js';
+import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 
 /**

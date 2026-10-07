@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { grantReward } from './reward-service';
+import { ApiError } from '../middleware/index.js';
+import { grantReward } from './reward-service.js';
 
 export type AchievementCategory =
   | 'SOCIAL'

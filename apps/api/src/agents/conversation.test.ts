@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication, suspendAgent } from './agent-service';
-import * as broadcast from '../realtime/broadcast';
+import { submitAgentApplication, approveAgentApplication, suspendAgent } from './agent-service.js';
+import * as broadcast from '../realtime/broadcast.js';
 import {
   sendMessageAsAgent,
   sendMessageAsAdmin,
@@ -9,7 +9,7 @@ import {
   getConversationForAgent,
   listMessages,
   listConversationsWithUnreadForAdmin,
-} from './conversation-service';
+} from './conversation-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 

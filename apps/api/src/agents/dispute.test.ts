@@ -1,12 +1,13 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
 import type { Prisma } from '@prisma/client';
 import { waitForBlockedBackends, ROW_LOCK_WAITS } from '../test/pg-locks.js';
-import { submitAgentApplication, approveAgentApplication } from './agent-service';
-import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
-import { fundAgentInventory, getAgentInventory } from './inventory-service';
-import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service';
-import { openDispute, getDisputeById, claimDispute, resolveDispute } from './dispute-service';
+import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
+import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
+import { fundAgentInventory, getAgentInventory } from './inventory-service.js';
+import { createAgentOrder, submitOrderPayment, settleAgentOrder } from './order-service.js';
+import { openDispute, getDisputeById, claimDispute, resolveDispute, listOpenDisputesForAdmin } from './dispute-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -74,7 +75,7 @@ async function createCountry(tag: string) {
   const existing = await prisma.country.findUnique({ where: { code } });
   if (existing) return existing;
   return prisma.country.create({
-    data: { code, name: `Dispute Test Country ${tag}`, currencyCode: 'USD', isActive: true, agentPaymentEnabled: true },
+    data: { code, name: `Dispute Test Country ${tag}`, currencyCode: 'ETB', isActive: true, agentPaymentEnabled: true, usdPricingEnabled: true },
   });
 }
 
@@ -91,7 +92,7 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId } });
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 async function setupActiveAgent(
@@ -116,7 +117,7 @@ async function setupActiveAgent(
     methodDefId: methodId,
     accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' },
   });
-  await approveAgentPaymentAccount(admin.id, account.id);
+  await approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString());
   await fundAgentInventory(superAdmin.id, agent!.id, totalBalance, `fund-${tag}-${Date.now()}-${Math.random()}`);
 
   return { agentUser, agent: agent!, account };
@@ -250,6 +251,18 @@ describeIf('Dispute creation', () => {
         idempotencyKey: `dk-${Math.random()}`,
       })
     ).rejects.toThrow(/do not have access/i);
+  });
+
+  it('rejects an unrelated replay of the exact dispute request without disclosing it', async () => {
+    const { customer, order } = await makeDisputableOrder('replayauth', country, method, admin, superAdmin);
+    const stranger = await createUser('strangerreplayauth');
+    const args = { orderId: order.id, reason: 'OTHER' as const, description: 'Private receipt details', idempotencyKey: `dk-${Math.random()}` };
+    const original = await openDispute(customer.id, args);
+    await expect(openDispute(stranger.id, args)).rejects.toMatchObject({ statusCode: 403 });
+    const replay = await openDispute(customer.id, args);
+    expect(replay.idempotent).toBe(true);
+    expect(replay.dispute.id).toBe(original.dispute.id);
+    expect(await prisma.dispute.count({ where: { orderId: order.id } })).toBe(1);
   });
 
   it('invalid reason is rejected', async () => {
@@ -401,6 +414,7 @@ describeIf('Dispute claim and resolution', () => {
   it('legal transition: OPEN -> ASSIGNED -> RESOLVED (RELEASE)', async () => {
     const { fixture, customer, order, dispute } = await makeOpenDispute('legal1');
     const claimResult = await claimDispute(admin.id, dispute.id);
+    expect((await listOpenDisputesForAdmin(admin.id)).some((row: {id:string}) => row.id === dispute.id)).toBe(true);
     expect(claimResult.status).toBe('ASSIGNED');
 
     const walletBefore = await prisma.wallet.findUnique({ where: { userId: customer.id } });

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
+import { ApiError } from '../middleware/index.js';
 
 /**
  * Single-use, short-lived, user- and purpose-bound security challenges.

@@ -10,6 +10,7 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  agentAccountSetup AgentAccountSetup?
   scheduledStakeHolds ScheduledStakeHold[]
   scheduledPracticeTickets ScheduledPracticeTicket[]
   id           String     @id @default(uuid())
@@ -1789,6 +1790,7 @@ model Country {
   currencyCode        String // ISO 4217, e.g. "NGN"
   isActive            Boolean  @default(false)
   agentPaymentEnabled Boolean  @default(false)
+  usdPricingEnabled   Boolean  @default(false) // One-way activation; no fallback to legacy rates
   displayOrder        Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -1828,7 +1830,8 @@ model ExchangeRateConfig {
   id           String   @id @default(uuid())
   countryId    String
   fiatCurrency String
-  coinsPerUnit Decimal  @db.Decimal(18, 6) // coins per 1 unit of fiat currency
+  coinsPerUnit Decimal  @db.Decimal(18, 6) // legacy Coins per smallest fiat unit; display-only for USD pricing
+  pricingPolicy Json? // immutable USD_V1 terms, including observation source/time and expiry
   isActive     Boolean  @default(true)
   setBy        String // admin userId
   effectiveAt  DateTime @default(now())
@@ -2020,6 +2023,8 @@ model AgentOrder {
   @@index([userId, status])
   @@index([status, releaseDeadlineAt]) // the timeout-sweep query
   @@map("agent_orders")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
 }
 
 model AgentReservation {
@@ -2211,6 +2216,8 @@ model WithdrawalQuote {
   @@index([userId, createdAt])
   @@index([status, expiresAt]) // sweep: unclaimed/expired quote cleanup
   @@map("withdrawal_quotes")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
 }
 
 enum UserPayoutAccountStatus {
@@ -2307,6 +2314,8 @@ model Withdrawal {
   @@index([status, quoteExpiresAt])         // sweep: quote expiry
   @@index([status, paymentSubmissionDeadlineAt]) // W-1D0: sweep: agent payment-submission timeout
   @@map("withdrawals")
+  pricingSnapshot Json? // immutable USD terms and exact rational amounts; null for legacy transactions
+
 }
 
 model WithdrawalHold {
@@ -2872,4 +2881,32 @@ model HousePublicationReceipt {
   recordedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("recorded_at") @db.Timestamptz(6)
   request HousePublicationRequest @relation(fields:[roundId], references:[roundId], onDelete:Restrict, onUpdate:Restrict)
   @@map("house_publication_receipts")
+}
+
+
+model CoinPackage {
+  id           String   @id @default(uuid())
+  name         String
+  coinAmount   Int
+  isActive     Boolean  @default(false)
+  displayOrder Int      @default(0)
+  featured     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("coin_packages")
+}
+
+
+/// Admin-issued temporary credentials never authenticate as a normal session.
+model AgentAccountSetup {
+  userId String @id
+  createdBy String
+  credentialHash String?
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("agent_account_setups")
 }

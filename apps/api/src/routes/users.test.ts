@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { buildServer } from '../server';
+import { buildServer } from '../server.js';
 
 const PREFIX = `${config.API_PREFIX}/users`;
 

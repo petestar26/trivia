@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate } from '../middleware';
+import { authenticate } from '../middleware/index.js';
 import {
   createAgentOrder,
   getAgentOrderById,
@@ -8,13 +8,17 @@ import {
   submitOrderPayment,
   cancelAgentOrder,
   settleAgentOrder,
-} from './order-service';
+} from './order-service.js';
 
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };
 }
 
 export async function agentOrderRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const auth = [authenticate];
 
   // ── Customer ──────────────────────────────────────────────────
@@ -23,7 +27,11 @@ export async function agentOrderRoutes(server: FastifyInstance): Promise<void> {
     Body: { agentId: string; countryId: string; paymentAccountId: string; fiatAmount: number; idempotencyKey: string };
   }>(
     '/',
-    { preHandler: auth },
+    { preHandler: auth, schema: { body: { type: 'object', additionalProperties: false,
+      required: ['agentId', 'countryId', 'paymentAccountId', 'fiatAmount', 'idempotencyKey'],
+      properties: { agentId: {type:'string',format:'uuid'}, countryId: {type:'string',format:'uuid'},
+        paymentAccountId: {type:'string',format:'uuid'}, fiatAmount: {type:'integer',minimum:1,maximum:2147483647},
+        idempotencyKey: {type:'string',minLength:8,maxLength:128} } } } },
     async (request, reply) => {
       const result = await createAgentOrder(request.user!.sub, request.body, requestContext(request));
       return reply.status(result.idempotent ? 200 : 201).send({ success: true, data: result.order });

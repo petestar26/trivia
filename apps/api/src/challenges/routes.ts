@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, ApiError } from '../middleware/index.js';
 import {
   createChallenge,
   acceptChallenge,
@@ -8,7 +8,7 @@ import {
   playChallengeTurn,
   getUserChallenges,
   getChallengeById,
-} from './challenge-service';
+} from './challenge-service.js';
 
 export async function challengeRoutes(server: FastifyInstance): Promise<void> {
   const authHandler = [authenticate];

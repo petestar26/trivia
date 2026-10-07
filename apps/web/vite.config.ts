@@ -14,8 +14,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
       manifest: {
-        name: 'SocialPlay',
-        short_name: 'SocialPlay',
+        name: 'PlayQube',
+        short_name: 'PlayQube',
         description: 'Web-first social platform',
         theme_color: '#3b82f6',
         background_color: '#ffffff',

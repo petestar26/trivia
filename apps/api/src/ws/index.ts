@@ -2,8 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { Server } from 'socket.io';
 import { config } from '@socialplay/config';
 import { JwtPayload } from '@socialplay/shared';
-import { createMessage, getGroupMembership } from '../realtime/chat-service';
-import { setSocketServer } from '../realtime/broadcast';
+import { createMessage, getGroupMembership } from '../realtime/chat-service.js';
+import { setSocketServer } from '../realtime/broadcast.js';
 
 const GROUP_ROOM_PREFIX = 'group:';
 
@@ -67,8 +67,8 @@ export function registerWebSocket(server: FastifyInstance): void {
       }
 
       const decoded = await server.jwt.verify<JwtPayload>(token, {
-        issuer: config.JWT_ISSUER,
-        audience: config.JWT_AUDIENCE,
+        allowedIss: config.JWT_ISSUER,
+        allowedAud: config.JWT_AUDIENCE,
       });
 
       socket.data.user = {

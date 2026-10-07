@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ZodSchema } from 'zod';
-import { ApiError } from './error-handler';
+import { ApiError } from './error-handler.js';
 import { ErrorCode } from '@socialplay/shared';
 
 export function validateBody<T>(schema: ZodSchema<T>) {

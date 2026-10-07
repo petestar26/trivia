@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
-import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service';
+import { getOrCreateWallet, getWalletBalance, executeBalanceChange, applyBalanceChanges, COIN_LEDGER_INTENT } from './wallet-service.js';
 import { lockUserEconomicScope, reserveWithdrawalCoins, releaseWithdrawalCoins } from './coin-ledger-service.js';
 import { activateTestWithdrawalPolicy, mintTestPurchasedCoins, nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 
@@ -265,6 +265,7 @@ describeIf('economy/wallet-service — COIN_LEDGER_INTENT guard (review correcti
         applyBalanceChanges(tx, user.id, [
           { currency: 'COINS', amount: 1, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
             referenceType: 'ADMIN', description: 'coins credit with a look-alike intent' },
+        // @ts-expect-error Deliberately simulate an untyped caller with a forged capability.
         ], { coinLedgerIntent: FOREIGN_INTENT })
       )
     ).rejects.toThrow(/named economic ledger operation/);

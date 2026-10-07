@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '@socialplay/database';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, ApiError } from '../middleware/index.js';
 import { emailSchema } from '@socialplay/shared';
 
 // ─── LIKE-escaping helper ──────────────────────────────────────

@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate, requirePermission } from '../middleware';
+import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   openDispute,
   getDisputeById,
@@ -8,13 +8,17 @@ import {
   resolveDispute,
   DisputeReason,
   DisputeResolutionValue,
-} from './dispute-service';
+} from './dispute-service.js';
 
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };
 }
 
 export async function agentDisputeRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const auth = [authenticate];
   const admin = [authenticate, requirePermission('agent:review')];
 
@@ -29,8 +33,8 @@ export async function agentDisputeRoutes(server: FastifyInstance): Promise<void>
     }
   );
 
-  server.get('/pending', { preHandler: admin }, async (_request, reply) => {
-    const disputes = await listOpenDisputesForAdmin();
+  server.get('/pending', { preHandler: admin }, async (request, reply) => {
+    const disputes = await listOpenDisputesForAdmin(request.user!.sub);
     return reply.send({ success: true, data: disputes });
   });
 

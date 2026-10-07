@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { addXp, getProgress } from '../progress/progress-service';
-import { grantReward } from './reward-service';
-import { ensureAchievements } from './achievement-service';
-import { recordActivity } from './activity-service';
+import { addXp, getProgress } from '../progress/progress-service.js';
+import { grantReward } from './reward-service.js';
+import { ensureAchievements } from './achievement-service.js';
+import { recordActivity } from './activity-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 // Integration tests requiring a live PostgreSQL database.

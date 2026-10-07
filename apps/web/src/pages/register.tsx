@@ -79,7 +79,7 @@ export function RegisterPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">Create an account</CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            Join SocialPlay and start connecting
+            Join PlayQube and start connecting
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

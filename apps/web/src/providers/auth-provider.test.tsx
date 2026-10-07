@@ -1,6 +1,6 @@
-import { cleanup, render, screen, waitFor, act } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { StrictMode, useEffect } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { UserPublicProfile } from '@socialplay/shared';
@@ -690,4 +690,39 @@ describe('AuthProvider — rendered private-data isolation', () => {
     await flushAuth(async () => { bQuery.resolve('wallet-B'); });
     await waitFor(() => expect(screen.getByTestId('row-data')).toHaveTextContent('wallet-B'));
   });
+});
+
+it('keeps a failed anonymous sign-in mounted so its error stays visible after session invalidation', async () => {
+  apiGet.mockResolvedValue(meResponse(null));
+  const attempt = deferred<MeResponse>();
+  apiPost.mockReturnValue(attempt.promise);
+  function SignInProbe() {
+    const { login } = useAuth();
+    const [error, setError] = useState('');
+    return <><button onClick={() => login('fixture@example.invalid', 'fixture-only').catch(() => setError('Sign-in rejected'))}>Try sign in</button>{error && <p role="alert">{error}</p>}</>;
+  }
+  const client = makeClient();
+  renderStack(client, <SignInProbe />);
+  await waitForAuth();
+  client.setQueryData(['old-anonymous-cache'], 'discard');
+  const mounts = cumulativeMounts;
+  fireEvent.click(screen.getByRole('button', { name: 'Try sign in' }));
+  // credentialRequest dispatches this before rejecting a 401. Flush separately
+  // to cover the scheduling that discards the page's pending error handler.
+  await act(async () => { window.dispatchEvent(new Event('socialplay:session-invalidated')); });
+  await act(async () => { attempt.reject(authError(401, 'UNAUTHORIZED', 'Invalid credentials')); });
+  expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in rejected');
+  expect(cumulativeMounts).toBe(mounts);
+  expect(client.getQueryData(['old-anonymous-cache'])).toBeUndefined();
+  expect(authStore.current!.isAuthenticated).toBe(false);
+});
+
+it('keeps startup pending on 503 and restores the session when retry succeeds', async () => {
+  apiGet.mockRejectedValueOnce(authError(503, 'UNAVAILABLE', 'Try again')).mockResolvedValueOnce(meResponse(userA));
+  renderStack(makeClient());
+  await screen.findByRole('alert');
+  expect(screen.getByTestId('loading')).toHaveTextContent('true');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
+  await waitForAuth();
+  expect(authStore.current?.user?.id).toBe(userA.id);
 });

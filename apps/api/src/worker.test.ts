@@ -9,8 +9,8 @@ import {
   DEFAULT_SWEEP_INTERVAL_MS,
   DEFAULT_RECONCILIATION_INTERVAL_MS,
   MAX_TIMER_DELAY_MS,
-} from './worker';
-import type { WorkerConfig, WorkerDeps } from './worker';
+} from './worker.js';
+import type { WorkerConfig, WorkerDeps } from './worker.js';
 
 // W-1D4 worker tests. Pure unit tests: sweep/reconcile/sleep/clock are all
 // injected as mocks, so nothing here touches the database or spawns a process.
@@ -25,14 +25,15 @@ function makeDeps(overrides: Partial<WorkerDeps> = {}): WorkerDeps & {
   sleep: ReturnType<typeof vi.fn>;
   log: ReturnType<typeof vi.fn>;
   now: ReturnType<typeof vi.fn>;
+  advance: (ms: number) => void;
 } {
   const clock = { now: 0 };
   const deps = {
-    sweep: vi.fn<() => Promise<{ locked?: boolean }>>().mockResolvedValue({ locked: false }),
+    sweep: vi.fn<[], Promise<{ locked?: boolean }>>().mockResolvedValue({ locked: false }),
     reconcile: vi
-      .fn<() => Promise<{ totalIssues: number; ranAt: string }>>()
+      .fn<[], Promise<{ totalIssues: number; ranAt: string }>>()
       .mockResolvedValue({ totalIssues: 0, ranAt: '2026-09-05T00:00:00.000Z' }),
-    sleep: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    sleep: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
     log: vi.fn(),
     now: vi.fn(() => clock.now),
     advance: (ms: number) => {

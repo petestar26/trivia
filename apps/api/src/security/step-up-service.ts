@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { verifyTotpForUser } from './totp-service';
+import { ApiError } from '../middleware/index.js';
+import { verifyTotpForUser } from './totp-service.js';
 
 /**
  * Step-up authentication primitive (W-0).

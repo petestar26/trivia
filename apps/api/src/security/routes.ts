@@ -1,13 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, ApiError } from '../middleware/index.js';
 import {
   startTotpEnrollment,
   activateTotpFactor,
   disableTotpFactor,
   listOwnFactors,
-} from './totp-service';
-import { performStepUp, setOwnStepUpPolicy, requiresStepUp } from './step-up-service';
+} from './totp-service.js';
+import { performStepUp, setOwnStepUpPolicy, requiresStepUp } from './step-up-service.js';
 
 /**
  * W-0 security routes.
@@ -60,6 +60,10 @@ function requestContext(request: { ip?: string; headers: Record<string, unknown>
 }
 
 export async function securityRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   const authHandler = [authenticate];
 
   // GET /security/factors — the caller's own factors. Never another user's.

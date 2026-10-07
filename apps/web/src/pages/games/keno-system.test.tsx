@@ -29,3 +29,9 @@ it('disables entry on a failed server refresh',async()=>{
  mount();await screen.findByRole('timer',{name:'Betting closes in'});mocks.get.mockRejectedValue(new Error('offline'));
  await screen.findByRole('alert',{}, {timeout:3500});expect(screen.getByRole('button',{name:'Number 7'})).toBeDisabled();
 });
+it.each([403,404])('shows an unavailable table for HTTP %s',async(status)=>{
+ mocks.get.mockRejectedValue(new Error(JSON.stringify({status})));
+ mount();
+ await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('This Keno table is currently unavailable'));
+ expect(screen.getByRole('button',{name:'Number 7'})).toBeDisabled();
+});

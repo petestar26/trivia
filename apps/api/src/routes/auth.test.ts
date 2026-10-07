@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
-import { buildServer } from '../server';
-import * as authUtils from '../utils/auth';
+import { buildServer } from '../server.js';
+import * as authUtils from '../utils/auth.js';
 import {
   generateReferralCode,
   generateUniqueReferralCode,
@@ -338,6 +338,8 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
       ]);
       expect(l1.statusCode).toBe(200);
       expect(l2.statusCode).toBe(200);
+      expect(l1.json().data.user.createdAt).toBe(res.json().data.user.createdAt);
+      expect(l2.json().data.user.createdAt).toBe(res.json().data.user.createdAt);
 
       const rt1 = l1.json().data.refreshToken;
       const rt2 = l2.json().data.refreshToken;
@@ -373,8 +375,8 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
           exp?: number;
         }>(tok, {
           key: config.JWT_REFRESH_SECRET,
-          issuer: config.JWT_ISSUER,
-          audience: config.JWT_AUDIENCE,
+          allowedIss: config.JWT_ISSUER,
+          allowedAud: config.JWT_AUDIENCE,
         });
         expect(decoded.sub).toBe('j3-user');
         expect(decoded.tokenVersion).toBe(7);

@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate, ApiError } from '../middleware';
+import { authenticate, ApiError } from '../middleware/index.js';
 import {
   createCompetition,
   updateCompetition,
@@ -9,7 +9,7 @@ import {
   finalizeCompetition,
   getCompetitionForGroup,
   listCompetitionsForGroup,
-} from './competition-service';
+} from './competition-service.js';
 
 export async function competitionRoutes(server: FastifyInstance): Promise<void> {
   const authHandler = [authenticate];

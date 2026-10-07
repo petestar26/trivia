@@ -1,3 +1,4 @@
+import { AuthenticatorSetup } from '@/components/security/authenticator-setup';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,14 +34,14 @@ export function ProfilePage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {user.bio && <p className="text-sm text-gray-600 dark:text-gray-400">{user.bio}</p>}
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500 dark:text-gray-400">Email</p>
-              <p className="font-medium text-gray-900 dark:text-white">{user.email}</p>
+              <p className="font-medium text-gray-900 dark:text-white break-all">{user.email}</p>
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Joined</p>
-              <p className="font-medium text-gray-900 dark:text-white">{new Date(user.createdAt).toLocaleDateString()}</p>
+              <p className="font-medium text-gray-900 dark:text-white">{Number.isNaN(new Date(user.createdAt).getTime()) ? 'Not available' : new Date(user.createdAt).toLocaleDateString()}</p>
             </div>
             <div>
               <p className="text-gray-500 dark:text-gray-400">Verified</p>
@@ -52,6 +53,7 @@ export function ProfilePage() {
           </Button>
         </CardContent>
       </Card>
+      <AuthenticatorSetup key={user.id}/>
     </div>
   );
 }

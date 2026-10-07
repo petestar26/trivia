@@ -21,7 +21,7 @@ export type { AppError } from './api-error.js';
  * Used by the frameworkErrors hook in server.ts and, as defence in depth, by
  * errorHandler below should such an error ever reach it.
  */
-export function sendMalformedUrlResponse(request: FastifyRequest, reply: FastifyReply): void {
+export function sendMalformedUrlResponse(request: FastifyRequest, reply: FastifyReply): FastifyReply | void {
   request.log.warn({ url: redactUrl(request.url) }, 'Malformed request URL');
   reply.status(400).send({
     success: false,
@@ -37,7 +37,7 @@ export function errorHandler(
   error: FastifyError,
   request: FastifyRequest,
   reply: FastifyReply
-): void {
+): FastifyReply | void {
   // Before ANYTHING logs `error`: its message echoes the raw request URL.
   if (error.code === 'FST_ERR_BAD_URL') {
     sendMalformedUrlResponse(request, reply);

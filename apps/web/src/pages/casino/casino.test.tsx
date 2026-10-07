@@ -106,7 +106,7 @@ describe('Casino entry and catalog', () => {
     const casinoLink = screen.getByRole('link', { name: 'Casino' });
     expect(casinoLink).toHaveAttribute('href', '/casino');
     expect(casinoLink).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Games' })).not.toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Free games' })).not.toHaveAttribute('aria-current', 'page');
   });
 
   it('shows only non-retired WAGER games and keeps bonus Trivia under Games', async () => {
@@ -125,7 +125,8 @@ describe('Casino entry and catalog', () => {
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
+    expect(screen.getAllByText('Free practice').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', {name:/Dice/})).toHaveAttribute('href','/games/dice');
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/games'));
   });
 });

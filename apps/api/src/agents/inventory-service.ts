@@ -1,6 +1,6 @@
 import { prisma } from '@socialplay/database';
-import { ApiError } from '../middleware';
-import { assertPlatformAdmin } from './agent-service';
+import { ApiError } from '../middleware/index.js';
+import { assertPlatformAdmin } from './agent-service.js';
 
 /**
  * SUPER_ADMIN-only gate — stricter than assertPlatformAdmin, used
@@ -9,9 +9,9 @@ import { assertPlatformAdmin } from './agent-service';
  * User.role fresh, same as assertPlatformAdmin, never trusted from the caller.
  */
 export async function assertSuperAdmin(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, status: true } });
   if (!user) throw ApiError.unauthorized('Authentication required');
-  if (user.role !== 'SUPER_ADMIN') {
+  if (user.role !== 'SUPER_ADMIN' || user.status !== 'ACTIVE') {
     throw ApiError.forbidden('SUPER_ADMIN privileges required');
   }
   return user;

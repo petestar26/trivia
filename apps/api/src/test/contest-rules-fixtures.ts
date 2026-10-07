@@ -38,3 +38,26 @@ export async function publishNextRulesVersion(
     }),
   };
 }
+
+/**
+ * Exercise historical Game Point contest contracts independently of the live
+ * Coin-game admission pause. Restricted to an explicitly named, loopback,
+ * disposable database; never used by application seeding or deployment.
+ */
+export async function availableDiceContestFixture(): Promise<() => Promise<void>> {
+  const expected = process.env.TEST_LEDGER_DB_NAME;
+  const host = new URL(process.env.DATABASE_URL ?? '').hostname;
+  if (process.env.NODE_ENV !== 'test' || !expected || !/^playqube_[a-z0-9_]+_throwaway$/.test(expected)
+      || !['127.0.0.1', 'localhost', '::1'].includes(host)) {
+    throw new Error('Contest fixture requires an explicitly named loopback throwaway database');
+  }
+  const [database] = await prisma.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
+  if (database?.name !== expected) throw new Error('Contest fixture database identity mismatch');
+  const original = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
+  await prisma.gameDefinition.update({ where: { id: original.id }, data: { catalogStatus: 'AVAILABLE', isActive: true } });
+  return async () => {
+    await prisma.gameDefinition.update({ where: { id: original.id }, data: {
+      catalogStatus: original.catalogStatus, isActive: original.isActive,
+    } });
+  };
+}

@@ -1,7 +1,7 @@
 import { lockSocialGroup } from '../groups/lifecycle.js';
 import { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
-import { ApiError, authenticate } from '../middleware';
+import { ApiError, authenticate } from '../middleware/index.js';
 import {
   assertActiveMember,
   createMessage,
@@ -10,11 +10,11 @@ import {
   getMessageInGroup,
   MESSAGE_SENDER_SELECT,
   serializeMessage,
-} from '../realtime/chat-service';
+} from '../realtime/chat-service.js';
 import { storage } from '@socialplay/storage';
 import { STORAGE_BUCKETS } from '@socialplay/shared';
-import { safeRecordActivity } from '../rewards/activity-service';
-import { emitToGroup } from '../realtime/broadcast';
+import { safeRecordActivity } from '../rewards/activity-service.js';
+import { emitToGroup } from '../realtime/broadcast.js';
 import { giftCardsForMessages } from '../gift-collection/service.js';
 import { setMessageReaction } from '../realtime/reaction-service.js';
 import type { ChatReactionType } from '@socialplay/shared';

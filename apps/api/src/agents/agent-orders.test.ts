@@ -1,15 +1,16 @@
+import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
-import { submitAgentApplication, approveAgentApplication } from './agent-service';
-import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service';
-import { fundAgentInventory, adjustAgentInventory, getAgentInventory, getAgentInventoryLedger } from './inventory-service';
+import { submitAgentApplication, approveAgentApplication } from './agent-service.js';
+import { createAgentPaymentAccount, approveAgentPaymentAccount } from './payment-account-service.js';
+import { fundAgentInventory, adjustAgentInventory, getAgentInventory, getAgentInventoryLedger } from './inventory-service.js';
 import {
   createAgentOrder,
   getAgentOrderById,
   submitOrderPayment,
   cancelAgentOrder,
   settleAgentOrder,
-} from './order-service';
+} from './order-service.js';
 
 // ─── DB availability probe ─────────────────────────────────────
 
@@ -61,9 +62,9 @@ async function createCountry(tag: string) {
     data: {
       code,
       name: `Order Test Country ${tag}`,
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
-      agentPaymentEnabled: true,
+      agentPaymentEnabled: true, usdPricingEnabled: true,
     },
   });
 }
@@ -81,9 +82,7 @@ async function createPaymentMethod(countryId: string, tag: string) {
 }
 
 async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
-  return prisma.exchangeRateConfig.create({
-    data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId },
-  });
+  return prisma.exchangeRateConfig.create({ data: { countryId, fiatCurrency, coinsPerUnit, isActive: true, setBy: adminId , pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
 }
 
 /**
@@ -113,7 +112,7 @@ async function setupActiveAgent(
     methodDefId: methodId,
     accountDetails: { bankName: 'Test Bank', accountNumber: '000111222' },
   });
-  await approveAgentPaymentAccount(admin.id, account.id);
+  await approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString());
 
   await fundAgentInventory(superAdmin.id, agent!.id, totalBalance, `fund-${tag}-${Date.now()}-${Math.random()}`);
 
@@ -202,6 +201,38 @@ describeIf('Agent order creation', () => {
     expect(result.order.coinAmount).toBe(5000); // floor(500 * 10)
     expect(result.order.fiatCurrency).toBe(country.currencyCode);
     expect(result.order.orderNumber).toMatch(/^AG-\d{6}$/);
+  });
+
+  it('rechecks payment availability changed after preflight and creates no reservation', async () => {
+    const customer = await createUser('admission-race');
+    const request = args();
+    const before = await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } });
+    const originalFindRate = prisma.exchangeRateConfig.findFirst;
+    const findRate = originalFindRate.bind(prisma.exchangeRateConfig);
+    // This test uses only the awaited query result, not Prisma relation chaining.
+    const rateReader = prisma.exchangeRateConfig as unknown as { findFirst: (input?: Parameters<typeof findRate>[0]) => Promise<Awaited<ReturnType<typeof findRate>>> };
+    rateReader.findFirst = async input => {
+      const rate = await findRate(input);
+      await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: false } });
+      return rate;
+    };
+    try {
+      await expect(createAgentOrder(customer.id, request)).rejects.toThrow('no longer available');
+      expect(await prisma.agentOrder.count({ where: { userId: customer.id, idempotencyKey: request.idempotencyKey } })).toBe(0);
+      expect(await prisma.agentReservation.count({ where: { agentId: agentFixture.agent.id } })).toBe(before);
+    } finally {
+      // Prisma delegates are dynamic proxies; restore the original callable explicitly.
+      rateReader.findFirst = originalFindRate;
+      await prisma.paymentMethodDefinition.update({ where: { id: method.id }, data: { isActive: true } });
+    }
+  });
+
+  it('rejects malformed or overflowing amounts before touching inventory', async () => {
+    const customer = await createUser('amount-bounds');
+    for (const fiatAmount of [0.5, 2_147_483_648, Number.MAX_SAFE_INTEGER, NaN]) {
+      await expect(createAgentOrder(customer.id, args({fiatAmount}))).rejects.toThrow('positive integer');
+    }
+    await expect(createAgentOrder(customer.id, null as any)).rejects.toThrow('details are required');
   });
 
   it('3. invalid country is rejected', async () => {
@@ -441,7 +472,7 @@ describeIf('Agent inventory reservation', () => {
   });
 
   it('CONCURRENCY Race C — concurrent orders cannot oversubscribe inventory', async () => {
-    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 100); // exactly 100 coins available
+    const fixture = await setupActiveAgent('res5', country.id, method.id, admin, superAdmin, 500); // two 300-Coin reservations cannot both fit
     const custA = await createUser('rescustA');
     const custB = await createUser('rescustB');
 
@@ -450,25 +481,25 @@ describeIf('Agent inventory reservation', () => {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 60, // coinAmount 60
+        fiatAmount: 300, // coinAmount 300
         idempotencyKey: `key-${Math.random()}`,
       }),
       createAgentOrder(custB.id, {
         agentId: fixture.agent.id,
         countryId: country.id,
         paymentAccountId: fixture.account.id,
-        fiatAmount: 60, // coinAmount 60 — 60+60=120 > 100 total
+        fiatAmount: 300, // coinAmount 300 — 60+60=120 > 100 total
         idempotencyKey: `key-${Math.random()}`,
       }),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     // At most one of the two conflicting reservations can succeed.
-    expect(fulfilled.length).toBeLessThanOrEqual(1);
+    expect(fulfilled.length).toBe(1);
 
     const inventory = await getAgentInventory(fixture.agent.id);
     expect(inventory.reservedBalance).toBeLessThanOrEqual(inventory.totalBalance);
-    expect(inventory.reservedBalance).toBeLessThanOrEqual(60);
+    expect(inventory.reservedBalance).toBe(300);
   });
 });
 
@@ -822,13 +853,13 @@ describeIf('Admin inventory funding and adjustment', () => {
 
     // Reserve 400 via a real order so reservedBalance is genuinely non-zero.
     const methodForFund8 = await createPaymentMethod(country.id, 'fund8');
-    await createExchangeRate(country.id, 'USD', 1, admin.id);
+    await createExchangeRate(country.id, 'ETB', 1, admin.id);
     const account = await createAgentPaymentAccount(user.id, {
       countryId: country.id,
       methodDefId: methodForFund8.id,
       accountDetails: { bankName: 'X', accountNumber: 'Y' },
     });
-    await approveAgentPaymentAccount(admin.id, account.id);
+    await approveAgentPaymentAccount(admin.id, account.id, account.updatedAt.toISOString());
     const customer = await createUser('fund8customer');
     await createAgentOrder(customer.id, {
       agentId: agent.id,
@@ -1074,5 +1105,42 @@ describeIf('Phase E regression — unrelated systems untouched', () => {
 
     const after = await prisma.wallet.findUnique({ where: { userId: bystander.id } });
     expect(after).toBeNull();
+  });
+});
+
+describeIf('USD-priced agent orders', () => {
+  it('preserves idempotency, inventory and single settlement across rate disable', async () => {
+    const { publishUsdRate } = await import('./usd-config-service.js');
+    const tag = `usd${Date.now()}`;
+    const admin = await createAdmin(tag), owner = await createSuperAdmin(tag + 'owner');
+    const country = await createCountry(tag);
+    const method = await createPaymentMethod(country.id, tag);
+    const fixture = await setupActiveAgent(tag, country.id, method.id, admin, owner, 1000);
+    const customer = await createUser(tag + 'buyer');
+    const rate = await publishUsdRate(admin.id, country.id, {
+      version: 'USD_V1', coinsPerUsd: 96, localPerUsd: '1', minorDigits: 2,
+      source: 'Native test USD reference', observedAt: new Date(Date.now() - 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 3600000).toISOString(), feeMinor: 0,
+      p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400,
+      cryptoDepositMinUsdCents: 1000, cryptoWithdrawalAboveUsdCents: 2000,
+    });
+    const args = { agentId: fixture.agent.id, countryId: country.id, paymentAccountId: fixture.account.id,
+      fiatAmount: 200, idempotencyKey: `usd-order-${tag}` };
+    await expect(createAgentOrder(customer.id, { ...args, fiatAmount: 199 })).rejects.toThrow(/Minimum P2P deposit/);
+    const { order } = await createAgentOrder(customer.id, args);
+    expect(order.coinAmount).toBe(192);
+    expect(order.pricingSnapshot).toMatchObject({ coinsPerUsd: 96, fiatMinor: '200', coinAmount: 192 });
+    await prisma.exchangeRateConfig.update({ where: { id: rate.id }, data: { isActive: false } });
+    expect((await createAgentOrder(customer.id, args)).order.id).toBe(order.id);
+    await expect(createAgentOrder(customer.id, { ...args, idempotencyKey: args.idempotencyKey + '-new' })).rejects.toThrow(/No active exchange rate/);
+    await submitOrderPayment(customer.id, order.id);
+    await prisma.user.update({ where: { id: fixture.agentUser.id }, data: { status: 'SUSPENDED' } });
+    await expect(settleAgentOrder(fixture.agentUser.id, order.id)).rejects.toThrow(/active user/);
+    expect((await prisma.agentOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('PAYMENT_SUBMITTED');
+    await prisma.user.update({ where: { id: fixture.agentUser.id }, data: { status: 'ACTIVE' } });
+    await settleAgentOrder(fixture.agentUser.id, order.id);
+    await expect(settleAgentOrder(fixture.agentUser.id, order.id)).rejects.toThrow();
+    expect((await prisma.wallet.findUnique({ where: { userId: customer.id } }))!.coinsBalance).toBe(192);
+    expect((await getAgentInventory(fixture.agent.id)).reservedBalance).toBe(0);
   });
 });
