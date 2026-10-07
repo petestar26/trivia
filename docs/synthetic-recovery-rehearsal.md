@@ -1,0 +1,11 @@
+# Synthetic recovery rehearsal
+
+The explicit owner helper `staging-recovery-fixture.ts` supports `--seed` and `--verify`. It requires the existing isolated staging target guard plus `RECOVERY_FIXTURE_ACK=SYNTHETIC-RECOVERY-20261007`; it is never started by the API or worker. Do not use it against production. It creates no credentials, grants, wallet balances, inventory, destinations or enabled payment routes.
+
+The fixture has two suspended passwordless users, an inactive test country and method, a disabled agent, a canceled order, a released reservation and an OPEN recovery case. Its order number, reference and description explicitly identify it as synthetic. These are historical test snapshots, not evidence that the deposit admission or real provider paths were exercised. An append-only audit marker stores a fingerprint of the fixture's original records and zero financial counts. Repeating `--seed` verifies the existing fixture and never resets its status; `--verify` makes no data writes. All creation is transactional and identifier collisions abort.
+
+An unrelated existing administrator can claim the case through the normal staging UI. Inspect the populated refund form and leave it unsubmitted unless the operator has explicitly selected a synthetic simulation. Any simulation must use reference `SYNTHETIC-RECOVERY-20261007-OUT` and notes stating that no provider payment or refund occurred. Keep authentication and case-bound TOTP verification intact; never insert verification rows in staging. An actual external transfer is a separate operator action and is not authorized by creating this fixture.
+
+After any lifecycle check, run `--verify` and retain the case status, reference count, audit actions and baseline result. The canceled order, released reservation, zero settlement/wallet entries and inactive payment configuration must remain unchanged. The fixture audit and recovery record are intentionally retained as labeled staging history; do not bypass immutable-history guards to delete them.
+
+Native disposable-database tests cover seed retry, claim, completed simulated refund, exact refund retry, one final audit event, baseline preservation and drift refusal. These tests do not establish real provider settlement. Do not count the synthetic rehearsal as external-provider acceptance or production launch approval.

@@ -39,6 +39,7 @@ async function buildApi() {
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-crash-point-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-payment-admin.ts'),
+      join(__dirname, 'src/scripts/staging-recovery-fixture.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),
       // Offline player archive verification; no database or provider connection.

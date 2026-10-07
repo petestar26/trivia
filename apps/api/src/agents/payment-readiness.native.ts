@@ -8,6 +8,7 @@ import { createAgentOrder, submitOrderPayment, settleAgentOrder, cancelAgentOrde
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
 import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import { createAgentPaymentAccount } from './payment-account-service.js';
+import { fixtureIds, recoveryFixture } from '../scripts/staging-recovery-fixture.js';
 const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
 if (
   !['localhost', '127.0.0.1'].includes(url.hostname) ||
@@ -16,6 +17,30 @@ if (
 )
   throw Error('Throwaway database required');
 afterAll(() => prisma.$disconnect());
+it('seeds an inert synthetic recovery fixture once, preserves its baseline and detects drift', async () => {
+  const first = await prisma.$transaction(tx => recoveryFixture(tx, true));
+  const retry = await prisma.$transaction(tx => recoveryFixture(tx, true));
+  expect(retry).toEqual(first);
+  expect(first).toMatchObject({status:'OPEN', synthetic:true, baselineUnchanged:true, walletCount:0, inventoryCount:0, settlementCount:0, walletEntryCount:0, providerSettlementVerified:false});
+  const reviewer = await prisma.user.create({data:{username:`fixture_reviewer_${randomUUID()}`,role:'ADMIN'}});
+  const {claimLatePayment} = await import('./late-payment-service.js');
+  await claimLatePayment(reviewer.id, fixtureIds.recovery);
+  expect(await prisma.$transaction(tx => recoveryFixture(tx, false))).toMatchObject({status:'ASSIGNED',baselineUnchanged:true});
+  await expect(prisma.$transaction(async tx => {
+    await tx.country.update({where:{id:fixtureIds.country},data:{agentPaymentEnabled:true}});
+    return recoveryFixture(tx, false);
+  })).rejects.toThrow('SYNTHETIC_FIXTURE_BASELINE_CHANGED');
+  expect((await prisma.country.findUniqueOrThrow({where:{id:fixtureIds.country}})).agentPaymentEnabled).toBe(false);
+  expect(await prisma.$transaction(tx => recoveryFixture(tx, false))).toMatchObject({baselineUnchanged:true});
+  const {recordLatePaymentRefund} = await import('./late-payment-service.js');
+  await prisma.stepUpVerification.create({data:{userId:reviewer.id,purpose:`LATE_PAYMENT_REFUND:${fixtureIds.recovery}`,tokenIat:12345,factorType:'TOTP',expiresAt:new Date(Date.now()+60000)}});
+  const refund={idempotencyKey:'synthetic-fixture-refund',verifiedPaymentReference:'SYNTHETIC-RECOVERY-20261007-IN',verifiedAmount:100,
+    refundReference:'SYNTHETIC-RECOVERY-20261007-OUT',refundedAt:new Date().toISOString(),resolutionNote:'SYNTHETIC ONLY - no provider transfer',verified:true};
+  await recordLatePaymentRefund(reviewer.id,12345,fixtureIds.recovery,refund);
+  await recordLatePaymentRefund(reviewer.id,12345,fixtureIds.recovery,refund);
+  expect(await prisma.$transaction(tx => recoveryFixture(tx, true))).toMatchObject({status:'REFUNDED',baselineUnchanged:true,referenceClaims:2});
+  expect(await prisma.auditLog.count({where:{entityId:fixtureIds.recovery,action:'LATE_PAYMENT_EXTERNAL_REFUND_RECORDED'}})).toBe(1);
+});
 async function fixture() {
   const tag = randomUUID();
   const admin = await prisma.user.create({ data: { username: `adm_${tag}`, role: 'ADMIN' } });
