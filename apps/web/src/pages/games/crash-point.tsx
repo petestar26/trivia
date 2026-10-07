@@ -298,11 +298,12 @@ function CrashPoint({
   const x = 72 + progress * 650,
     y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
   const result = shown?.ticket;
+  const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   const controls = (
     <aside className="crash-controls" aria-label={`Bet ${slot} controls`}>
       <div className="crash-practice">
         <div>
-          <span>PRACTICE BALANCE</span>
+          <span>SHARED PRACTICE BALANCE</span>
           <strong>
             {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
           </strong>
@@ -644,7 +645,22 @@ function CrashPoint({
               </svg>
             </div>
             <div className="crash-result" role="status">
-              {result?.payout !== null && result?.payout !== undefined ? (
+              {raw?.maxTickets === 2 && shownTickets.length > 0 ? (
+                <div className="crash-slot-results">
+                  {shownTickets.map((t) => (
+                    <span key={t.slot}>
+                      Bet {t.slot}:{' '}
+                      {t.payout === null
+                        ? t.autoCents === null
+                          ? 'confirmed · manual cash-out requires a connection'
+                          : 'confirmed · server auto cash-out remains active'
+                        : t.payout > 0
+                          ? `${t.payout} credits returned at ${((t.paidCents ?? 0) / 100).toFixed(2)}×`
+                          : 'finished · no return'}
+                    </span>
+                  ))}
+                </div>
+              ) : result?.payout !== null && result?.payout !== undefined ? (
                 <>
                   <ShieldCheck size={18} />
                   {result.payout > 0
@@ -686,7 +702,11 @@ function CrashPoint({
               </button>
             ))}
           </div>
-          <p className="crash-activity-caption">Your practice activity · latest 12 rounds</p>
+          <p className="crash-activity-caption">
+            {activityView === 'top'
+              ? 'Public practice returns · last 24 hours'
+              : 'Your practice activity · latest 12 rounds'}
+          </p>
           {activityView === 'current' ? (
             <>
               <PublicActivity
@@ -708,11 +728,31 @@ function CrashPoint({
                         ? 'Running'
                         : 'Complete'}
                 </dd>
-                <dt>Your stake</dt>
-                <dd>{ticket ? `${ticket.stake} credits` : 'No ticket'}</dd>
-                <dt>Auto cash-out</dt>
-                <dd>{ticket?.autoCents ? `${(ticket.autoCents / 100).toFixed(2)}×` : 'Not set'}</dd>
+                <dt>Total stake</dt>
+                <dd>
+                  {shownTickets.length
+                    ? `${shownTickets.reduce((total, t) => total + t.stake, 0)} credits`
+                    : 'No tickets'}
+                </dd>
               </dl>
+              {shownTickets.map((t) => (
+                <section
+                  className="crash-ticket-summary"
+                  key={t.slot}
+                  aria-label={`Bet ${t.slot} receipt`}
+                >
+                  <h3>Bet {t.slot}</h3>
+                  <dl className="crash-round-info">
+                    <dt>Stake</dt>
+                    <dd>{t.stake} credits</dd>
+                    <dt>Auto cash-out</dt>
+                    <dd>{t.autoCents ? `${(t.autoCents / 100).toFixed(2)}×` : 'Manual only'}</dd>
+                    <dt>Return</dt>
+                    <dd>{t.payout === null ? 'Pending' : `${t.payout} credits`}</dd>
+                  </dl>
+                </section>
+              ))}
+
               {shown && (
                 <div className="crash-commitment">
                   <h3>Round commitment</h3>
@@ -742,6 +782,7 @@ function CrashPoint({
                   <thead>
                     <tr>
                       <th>Round</th>
+                      <th>Bet</th>
                       <th>Stake</th>
                       <th>Cash-out</th>
                       <th>Return</th>
@@ -767,6 +808,7 @@ function CrashPoint({
                               minute: '2-digit',
                             })}
                           </td>
+                          <td>{r.ticket!.slot}</td>
                           <td>{r.ticket!.stake}</td>
                           <td>
                             {r.ticket!.payout === null

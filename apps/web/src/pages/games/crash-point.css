@@ -954,7 +954,7 @@
 }
 .crash-dual-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 12px;
 }
 .crash-dual-controls .crash-bet-fields {
@@ -993,5 +993,36 @@
 @media (max-width: 700px) {
   .crash-dual-controls {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Fit the actual game column, including tablet layouts with a navigation sidebar. */
+.crash-controls {
+  min-width: 0;
+}
+.crash-slot-results {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+.crash-ticket-summary {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #63404c;
+}
+.crash-ticket-summary h3 {
+  margin-bottom: 12px;
+  color: var(--rose);
+}
+@media (pointer: coarse) {
+  .crash-presets button,
+  .crash-proof button,
+  .crash-feed-heading button,
+  .crash-autoplay-controls button,
+  .crash-retry {
+    min-height: 44px;
+  }
+  .crash-auto {
+    min-height: 44px;
   }
 }

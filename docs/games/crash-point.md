@@ -52,3 +52,13 @@ Migration `20261006210000_crash_point_dual_tickets` preserves existing tickets i
 Each panel can explicitly start up to ten future entries using a fixed stake and automatic cash-out target. Autoplay exists only in the active page, never survives refresh, and stops on hidden tab, stale/disconnected data, storage failure, rejected/interrupted admission, or insufficient balance. Stop prevents future entries; it does not cancel an already sent request or accepted ticket. Each pending admission has a separate per-slot saved receipt and retains idempotent retry. No progression, loss-chasing, or unlimited autoplay is provided. The separate server auto cash-out on confirmed tickets survives disconnects.
 
 Follow-up migrations pin the slot trigger search path. `20261006210200_crash_point_invoker_guard_path` sets `public, pg_temp`, the platform invariant required for this invoker trigger; it does not run as an owner or on a cascading foreign-key action. Earlier applied migrations are preserved.
+
+## Review follow-up: 2026-10-07
+
+The client review found that the shared arena status and current-round summary still described slot 1 only. They now show every accepted slot, total stake, individual targets and confirmed returns. Personal history identifies the bet slot. Both panels explicitly label their balance as shared. The public leaderboard caption now states its actual 24-hour window.
+
+Dual controls use the available game-column width when deciding whether to stack, avoiding cramped panels next to the desktop activity rail. Coarse-pointer presets and auxiliary controls have a 44px minimum touch height. This is a CSS review and correction; a real mobile/tablet browser pass remains outstanding because the available browser interface does not expose viewport emulation.
+
+Regression tests cover a Bet 2-only settled receipt across the arena, summary and history, and autoplay stopping on connection loss without silently restarting after reconnection. Existing tests cover dual admission/cash-out, ten-round bounds, interrupted retry, hidden-tab stopping, SQL concurrency and exactly-once settlement. No live browser wager is needed for these tests.
+
+For the later independent review, compare the reviewer’s original baseline with the current PR head and include Crash Point’s dual tickets, activity feed, leaderboard, bounded autoplay, forward migrations and this display/responsiveness follow-up. Preserve the practice-only boundary; do not infer financial readiness from passing practice tests. Review the original report first and consolidate its findings before preparing the next review prompt.

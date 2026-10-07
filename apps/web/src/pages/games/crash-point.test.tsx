@@ -135,7 +135,7 @@ it('shows personal returns and distinguishes pending receipts in the history vie
   });
   snapshot.rounds[0].ticket = { stake: 10, autoCents: null, payout: null, paidCents: null };
   setup();
-  await screen.findByText('10 credits');
+  await screen.findAllByText('10 credits');
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   expect(screen.getAllByText('Pending')).toHaveLength(2);
   expect(screen.getByRole('table')).toHaveTextContent('50');
@@ -250,4 +250,46 @@ it('sends the slot when manually cashing out the second ticket', async () => {
   const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: /Cash out/ }));
   await waitFor(() => expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', slot: 2 }));
+});
+
+it('shows the second ticket in the shared result, summary and labelled history', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 10000;
+  snapshot.rounds[0].crashCents = 150;
+  snapshot.rounds[0].tickets = [{ slot: 2, stake: 40, autoCents: 120, payout: 48, paidCents: 120 }];
+  setup();
+  await screen.findByText('Bet 2: 48 credits returned at 1.20×');
+  const receipt = screen.getByRole('region', { name: 'Bet 2 receipt' });
+  expect(within(receipt).getByText('40 credits')).toBeInTheDocument();
+  expect(within(receipt).getByText('48 credits')).toBeInTheDocument();
+  expect(screen.queryByText('No tickets')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
+  const table = screen.getByRole('table');
+  expect(within(table).getByRole('columnheader', { name: 'Bet' })).toBeInTheDocument();
+  expect(within(table).getByRole('cell', { name: '2' })).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+it('stops autoplay on disconnection and does not restart it when fresh data returns', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  get.mockRejectedValue(new Error('Offline'));
+  await act(async () => {
+    await client.refetchQueries({ queryKey: ['crash-point', 'u1'] });
+  });
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  await act(async () => {
+    snapshot = { ...snapshot, rounds: [{ ...snapshot.rounds[0], id: 'after-reconnect' }] };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(
+    within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' })
+  ).toBeInTheDocument();
 });
