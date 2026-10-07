@@ -89,7 +89,7 @@ async function signIn(user: ReturnType<typeof userEvent.setup>) {
 const destination = () => screen.getByTestId('destination');
 
 beforeEach(() => {
-  mocked.get.mockRejectedValue(new Error('401')); // the initial /auth/me probe: anonymous
+  mocked.get.mockRejectedValue(new Error(JSON.stringify({ status: 401, message: 'Unauthenticated' }))); // the initial /auth/me probe: anonymous
   mocked.post.mockImplementation(async (url: string) => {
     if (url === '/auth/register' || url === '/auth/login') return { success: true, data: { user: USER } };
     throw new Error(`unexpected POST ${url}`);

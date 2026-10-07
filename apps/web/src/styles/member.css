@@ -1,0 +1,1395 @@
+/* Root-scoped member theme includes portal dialogs; removed for staff routes. */
+html.qube-member {
+  color-scheme: dark;
+  --background: 345 24% 6%;
+  --foreground: 345 30% 95%;
+  --card: 345 23% 11%;
+  --card-foreground: 345 30% 95%;
+  --popover: 345 23% 11%;
+  --popover-foreground: 345 30% 95%;
+  --primary: 25 61% 73%;
+  --primary-foreground: 345 25% 9%;
+  --secondary: 345 22% 16%;
+  --muted: 345 22% 16%;
+  --muted-foreground: 345 16% 70%;
+  --accent: 345 30% 20%;
+  --border: 345 21% 22%;
+  --input: 345 21% 22%;
+  --ring: 25 61% 73%;
+  --radius: 0.85rem;
+}
+html.qube-member body {
+  background: #130d0f;
+  color: #f7f2ee;
+}
+.qube-shell {
+  background: radial-gradient(ellipse at 80% 0%, #341a2150, transparent 45%), #130d0f;
+}
+.qube-main {
+  max-width: 1640px;
+  margin-inline: auto;
+  min-width: 0;
+  padding-bottom: 3rem;
+}
+html.qube-member :is(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid #e5c8b4;
+  outline-offset: 4px;
+}
+.qube-sidebar {
+  background: linear-gradient(160deg, #1f1719, #171113 60%);
+  border-right: 1px solid #ffffff0c;
+  display: flex;
+  flex-direction: column;
+  color: #bdb1a8;
+}
+.qube-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 84px;
+  padding: 0 24px;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: #fdfbfa;
+  flex-shrink: 0;
+}
+.qube-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 39px;
+  border-radius: 12px;
+  color: #f1e2d7;
+  background: linear-gradient(150deg, #d9b092, #6e3c48);
+  box-shadow:
+    0 6px 22px #d1a07d35,
+    inset 0 1px 1px #ffffff70;
+}
+.qube-brand-dot {
+  color: #e2c2ab;
+  margin-left: -7px;
+}
+.qube-navigation {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 18px 20px;
+  scrollbar-width: thin;
+}
+.qube-nav-section + .qube-nav-section {
+  margin-top: 22px;
+}
+.qube-nav-section > p {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.17em;
+  color: #978b82;
+  font-weight: 700;
+  margin: 12px 13px 8px;
+}
+.qube-nav-link {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  margin-bottom: 3px;
+  transition:
+    background 0.18s,
+    color 0.18s;
+}
+.qube-nav-link:hover {
+  background: #ffffff06;
+  color: #fff;
+}
+.qube-nav-link.is-active {
+  color: #f3e6dc;
+  background: linear-gradient(90deg, #d1a07d28, #d1a07d0a);
+  border-color: #dfbda525;
+  box-shadow: inset 3px 0 #debaa0;
+}
+.qube-account {
+  border-top: 1px solid #ffffff0b;
+  padding: 18px 24px;
+}
+.qube-account-profile {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  font-size: 13px;
+  color: #f6f1ed;
+}
+.qube-account-profile small {
+  font-size: 11px;
+  color: #ad9e94;
+  margin-top: 3px;
+}
+.qube-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #70555c, #3a272c);
+  border: 1px solid #d7b39947;
+  color: #f8f1ec;
+  font-size: 13px;
+  font-weight: 700;
+}
+.qube-signout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 16px;
+  font-size: 12px;
+}
+.qube-signout:hover {
+  color: #fff;
+}
+.qube-staff-link {
+  display: block;
+  padding: 12px;
+  font-size: 12px;
+  color: #eddacc;
+}
+.qube-header {
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 32px;
+  background: #160e10e8;
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid #ffffff09;
+}
+.qube-header-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #998d85;
+}
+.qube-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 3px;
+  color: #f6efea;
+}
+.qube-icon-button,
+.qube-wallet-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid #ffffff13;
+  border-radius: 11px;
+  background: #241b1d;
+  color: #ead3c3;
+}
+.qube-wallet-link {
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.qube-home {
+  display: grid;
+  gap: 32px;
+}
+.qube-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  min-height: 390px;
+  overflow: hidden;
+  border: 1px solid #dfbda523;
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 80% 60%, #b5714035, transparent 60%),
+    linear-gradient(120deg, #2f2326, #1d1315 65%);
+}
+.qube-hero:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.3;
+  background-image:
+    linear-gradient(#d0b29c0a 1px, transparent 1px),
+    linear-gradient(90deg, #d0b29c0a 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(90deg, transparent, #000);
+}
+.qube-hero-copy {
+  padding: 42px 0 36px 42px;
+  z-index: 2;
+}
+.qube-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  color: #e0bea6;
+}
+.qube-hero h1 {
+  font-size: clamp(36px, 4.4vw, 64px);
+  line-height: 1.08;
+  letter-spacing: -0.055em;
+  font-weight: 800;
+  color: #fcfaf8;
+  margin-top: 21px;
+}
+.qube-hero h1 span {
+  background: linear-gradient(90deg, #ecd8ca, #e0bfa8 65%, #f4e9e1);
+  color: transparent;
+  background-clip: text;
+}
+.qube-hero-description {
+  max-width: 390px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: #bfb4ad;
+  margin-top: 20px;
+}
+.qube-primary-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 46px;
+  padding: 0 20px;
+  margin-top: 25px;
+  background: linear-gradient(110deg, #ecd8c9, #dbb59a);
+  box-shadow:
+    0 6px 24px #cd977020,
+    inset 0 1px #fff6;
+  border: 1px solid #eedcd0;
+  border-radius: 10px;
+  color: #34171e;
+  font-size: 12px;
+  font-weight: 800;
+  transition:
+    filter 0.2s,
+    transform 0.2s;
+}
+.qube-primary-link:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px);
+}
+.qube-hero-note {
+  font-size: 10px;
+  color: #b6a89e;
+  margin-top: 14px;
+}
+.qube-hero-visual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.qube-hero-word {
+  position: absolute;
+  bottom: 28px;
+  font-size: 95px;
+  letter-spacing: 0.1em;
+  font-weight: 900;
+  color: #d7ac8d07;
+  -webkit-text-stroke: 1px #d7ad8f13;
+  z-index: -1;
+}
+.qube-hero-chip {
+  position: absolute;
+  bottom: 65px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #dcc9bb;
+  background: #2d1d21d9;
+  border: 1px solid #dcb79c30;
+  border-radius: 30px;
+  padding: 10px 15px;
+  font-size: 10px;
+  box-shadow: 0 8px 30px #0005;
+}
+.qube-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.qube-section-heading h2 {
+  font-size: 24px;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  color: #faf4ef;
+  margin-top: 7px;
+}
+.qube-section-heading > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c9b8ab;
+  font-size: 12px;
+}
+.qube-featured-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.qube-game-tile,
+.qube-catalog-card {
+  display: block;
+  border: 1px solid #ffffff12;
+  border-radius: 19px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2d2225, #1d1618);
+  transition:
+    transform 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.qube-game-tile:hover,
+.qube-catalog-card.is-playable:hover {
+  transform: translateY(-4px);
+  border-color: #dab3976b;
+  box-shadow: 0 16px 32px #0004;
+}
+.qube-game-tile-copy,
+.qube-catalog-copy {
+  padding: 0 22px 22px;
+  position: relative;
+}
+.qube-game-tile h3 {
+  font-size: 25px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  color: #fcf8f5;
+  margin-top: 10px;
+}
+.qube-game-tile p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #b6a9a0;
+  margin-top: 5px;
+}
+.qube-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #ead3c2;
+  background: #d6ab8c13;
+  border: 1px solid #d6ab8c26;
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+.qube-tile-arrow {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ffffff1a;
+  background: #ffffff05;
+  border-radius: 50%;
+  color: #e6d3c5;
+}
+.qube-disclosure {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #ad9e93;
+  margin-top: 14px;
+}
+.qube-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.qube-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 23px 18px;
+  border: 1px solid #ffffff0e;
+  border-radius: 15px;
+  background: linear-gradient(110deg, #271d1f, #1c1416);
+  position: relative;
+}
+.qube-quick-card:hover {
+  border-color: #dab39760;
+}
+.qube-quick-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  color: #e3c5af;
+  background: #d7ab8c10;
+}
+.qube-quick-card h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2e8e0;
+}
+.qube-quick-card p {
+  font-size: 11px;
+  color: #afa39a;
+  line-height: 1.7;
+  margin-top: 5px;
+}
+.qube-quick-arrow {
+  display: none;
+}
+.qube-catalog-header {
+  background: radial-gradient(ellipse at top right, #9a536545, transparent 70%), #24191c;
+  border: 1px solid #dfbda523;
+  border-radius: 24px;
+}
+.qube-catalog-copy {
+  padding-top: 8px;
+}
+.qube-catalog-card {
+  height: 100%;
+}
+.qube-catalog-card.is-unavailable {
+  opacity: 0.7;
+}
+/* Decorative artwork never represents a game outcome. */
+html.qube-member .dark\:bg-gray-800,
+html.qube-member .dark\:bg-slate-800 {
+  background-color: #251b1d;
+}
+html.qube-member .dark\:bg-gray-900,
+html.qube-member .dark\:bg-slate-900 {
+  background-color: #1b1315;
+}
+html.qube-member .dark\:border-gray-700,
+html.qube-member .dark\:border-slate-700 {
+  border-color: #403336;
+}
+html.qube-member .payment-panel {
+  background: #251b1d;
+  border-color: #403336;
+  box-shadow: 0 10px 30px #0001;
+}
+html.qube-member .payment-eyebrow {
+  color: #e2c3ac;
+}
+html.qube-member .payment-tabs {
+  border-color: #403336;
+}
+html.qube-member .payment-tabs a.active {
+  background: #d09e7a2b;
+  color: #f0e0d4;
+}
+@media (min-width: 1024px) {
+  .qube-header .qube-icon-button {
+    display: none;
+  }
+}
+@media (max-width: 1200px) {
+  .qube-hero-copy {
+    padding-left: 28px;
+  }
+  .qube-quick-grid {
+    grid-template-columns: 1fr;
+  }
+  .qube-quick-card {
+    padding: 17px 20px;
+  }
+  .qube-quick-arrow {
+    display: block;
+    margin-left: auto;
+    color: #ceb09b;
+  }
+}
+@media (max-width: 640px) {
+  .qube-header {
+    height: 72px;
+    padding: 0 16px;
+  }
+  .qube-header-title {
+    font-size: 12px;
+  }
+  .qube-header-eyebrow {
+    font-size: 8px;
+  }
+  .qube-wallet-link {
+    padding: 0 10px;
+  }
+  .qube-hero {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .qube-hero-copy {
+    padding: 28px 24px 0;
+  }
+  .qube-hero h1 {
+    font-size: 43px;
+  }
+  .qube-hero-description {
+    font-size: 12px;
+  }
+  .qube-hero-visual {
+    height: 230px;
+  }
+  .qube-art--hero {
+    height: 210px;
+  }
+  .qube-art--hero .qube-dice-scene {
+    transform: scale(1.1) rotate(-9deg) translateY(-5px);
+  }
+  .qube-art--hero .qube-art-orbit {
+    width: 230px;
+    height: 230px;
+  }
+  .qube-hero-chip {
+    bottom: 20px;
+  }
+  .qube-hero-word {
+    font-size: 66px;
+    bottom: 10px;
+  }
+  .qube-featured-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .qube-game-tile {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    align-items: center;
+  }
+  .qube-game-tile .qube-art {
+    height: 160px;
+    transform: scale(0.85);
+  }
+  .qube-game-tile-copy {
+    padding: 20px 16px 20px 0;
+  }
+  .qube-game-tile h3 {
+    font-size: 23px;
+  }
+  .qube-game-tile p {
+    font-size: 10px;
+  }
+  .qube-section-heading h2 {
+    font-size: 22px;
+  }
+  .qube-home {
+    gap: 26px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.qube-member *,
+  html.qube-member *:before,
+  html.qube-member *:after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .qube-game-tile:hover,
+  .qube-catalog-card.is-playable:hover,
+  .qube-primary-link:hover {
+    transform: none;
+  }
+}
+/* Table chrome uses the lounge palette; result, hit and selected states stay distinct. */
+html.qube-member .system-dice-page .system-dice-stage,
+html.qube-member .system-dice-page .system-dice-history article {
+  border-color: #443337;
+  background: #23191b;
+}
+html.qube-member .system-dice-page .system-dice-header,
+html.qube-member .system-dice-page .system-dice-footer {
+  background: #261a1d;
+}
+html.qube-member .system-dice-page .system-dice-ticket {
+  background: #2b1e21;
+}
+html.qube-member .system-dice-page .system-dice-input {
+  background: #1d1215;
+  border-color: #6e555b;
+}
+html.qube-member .system-dice-page .system-dice-policy {
+  background: #2e2124;
+  border-color: #473539;
+}
+html.qube-member .system-dice-page .system-dice-header h1 span,
+html.qube-member .system-dice-page .system-dice-nav a {
+  color: #e4c6b1;
+}
+html.qube-member .system-dice-page .system-dice-header p,
+html.qube-member .system-dice-page .system-dice-ticket dt,
+html.qube-member .system-dice-page .system-dice-footer p {
+  color: #bdaea4;
+}
+html.qube-member .system-dice-page .system-dice-footer strong {
+  color: #dccbbf;
+}
+html.qube-member .system-dice-page .system-dice-presets button {
+  border-color: #5a484c;
+  color: #dfcbbd;
+}
+html.qube-member .system-dice-page .system-dice-presets button:hover:not(:disabled) {
+  background: #3e2c30;
+}
+html.qube-member .system-dice-page .system-dice-confirm {
+  background: linear-gradient(110deg, #e5c9b5, #d7ac8d);
+  color: #2d191e;
+}
+html.qube-member .system-dice-page .system-dice-confirm:hover:not(:disabled) {
+  background: #edd9ca;
+}
+html.qube-member .system-dice-page .system-dice-table {
+  background: radial-gradient(ellipse at 50% 40%, #4b3037, #2c1b1f 70%);
+}
+html.qube-member .keno-stage {
+  border-color: #543940;
+  background: radial-gradient(ellipse at 50% 0%, #58324e, #2c1c20 65%);
+  box-shadow: 0 20px 50px #0003;
+}
+html.qube-member .keno-controls,
+html.qube-member .keno-stake-panel {
+  background: #221518;
+  border-color: #6c555b66;
+}
+html.qube-member .keno-stake-row input {
+  background: #2e1c20;
+}
+html.qube-member .bg-card {
+  background: linear-gradient(145deg, #2c1f22, #1e1618);
+  border-color: #49363b;
+  box-shadow:
+    0 10px 30px #0002,
+    inset 0 1px #ffffff05;
+}
+html.qube-member .qube-auth {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 20% 20%, #8f546340, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, #7b58232a, transparent 40%), #170f11;
+}
+.qube-auth:before,
+.qube-auth:after {
+  content: '';
+  position: absolute;
+  width: 440px;
+  height: 440px;
+  border: 1px solid #dab39722;
+  border-radius: 60px;
+  transform: rotate(35deg);
+  z-index: -1;
+  box-shadow:
+    inset 0 0 80px #d09d7805,
+    0 0 0 40px #d09d7804;
+}
+.qube-auth:before {
+  top: -180px;
+  left: -160px;
+}
+.qube-auth:after {
+  bottom: -250px;
+  right: -120px;
+}
+.qube-auth > .bg-card {
+  border-radius: 24px;
+  box-shadow:
+    0 30px 80px #0005,
+    inset 0 1px #ffffff12;
+}
+.qube-chat {
+  border-color: #473439 !important;
+  background: #1d1416 !important;
+  box-shadow: 0 15px 40px #0003;
+}
+html.qube-member .qube-chat-thread {
+  background: radial-gradient(ellipse at top right, #774c5720, transparent 70%), #181113;
+}
+html.qube-member .qube-chat-bubble.dark\:bg-emerald-900 {
+  background: linear-gradient(135deg, #593a42, #40282e);
+  border: 1px solid #b7907536;
+}
+html.qube-member .qube-chat .dark\:bg-slate-950 {
+  background: #1e1517;
+}
+html.qube-member .qube-chat button[aria-label='Send'] {
+  background: #d8ad8f;
+  color: #2f171d;
+}
+html.qube-member .qube-chat button[aria-label='Send']:hover:not(:disabled) {
+  background: #e6cab6;
+}
+
+html.qube-member .system-dice-page .system-dice-balances > div {
+  border-color: #654d53;
+  background: #2b1c20;
+}
+html.qube-member .system-dice-page .system-dice-balances .practice {
+  border-color: #7d5d65;
+  background: #3c262c;
+}
+html.qube-member .system-dice-page .system-dice-balances span,
+html.qube-member .system-dice-page .system-dice-balances small {
+  color: #c1b0a4;
+}
+html.qube-member .system-dice-page .system-dice-policy b {
+  color: #e9d1c0;
+}
+html.qube-member .system-dice-page .system-dice-eyebrow {
+  color: #d9b8a0 !important;
+}
+/* Legacy primary shade classes inherit the member brand, including auth CTAs. */
+html.qube-member .bg-primary-600 {
+  background: linear-gradient(110deg, #e5c9b5, #d8ad8f);
+  color: #331b21;
+  box-shadow:
+    inset 0 1px #ffffff35,
+    0 4px 15px #c990671a;
+}
+html.qube-member .hover\:bg-primary-700:hover {
+  background: #e9d1bf;
+  color: #331b21;
+}
+html.qube-member .text-primary-600,
+html.qube-member .dark\:text-primary-400 {
+  color: #e4c7b3;
+}
+html.qube-member .dark\:bg-primary-900 {
+  background: #4d2e36;
+}
+html.qube-member .border-primary-500 {
+  border-color: #d7ac8d;
+}
+html.qube-member .keno-navigation a {
+  color: #e4c6b1;
+}
+html.qube-member .keno-navigation a:hover {
+  color: #f2e5db;
+}
+
+/* Ruby Grand: editorial rose gold, burgundy glass and cinematic artwork. */
+html.qube-member {
+  --background: 345 20% 5%;
+  --card: 345 22% 9%;
+  --popover: 345 22% 9%;
+  --primary: 25 61% 73%;
+  --primary-foreground: 345 25% 9%;
+  --ring: 25 61% 73%;
+}
+.qube-shell {
+  background: radial-gradient(ellipse at 80% 0%, #571a2440, transparent 55%), #100b0d;
+}
+.qube-sidebar {
+  background: linear-gradient(155deg, #231218, #120d10 70%);
+  border-color: #b7886420;
+}
+.qube-brand {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+}
+.qube-brand-mark {
+  color: #ffdec2;
+  background: linear-gradient(145deg, #c98968, #682f3b);
+  box-shadow:
+    0 6px 22px #b94a4020,
+    inset 0 1px #fff6;
+}
+.qube-header {
+  background: #120c0eee;
+  border-color: #b7886415;
+}
+.qube-nav-link.is-active {
+  color: #f1d1b7;
+  background: linear-gradient(90deg, #9f4c4033, #9f4c400c);
+  border-color: #dda18030;
+  box-shadow: inset 3px 0 #d4a384;
+}
+.qube-avatar {
+  background: linear-gradient(145deg, #6f3945, #2a151c);
+  color: #ffdfc5;
+  border-color: #c88f7145;
+}
+.qube-section-heading h2 {
+  font-family: Georgia, 'Times New Roman', serif;
+  letter-spacing: -0.025em;
+  font-size: 30px;
+  font-weight: 400;
+}
+.qube-primary-link {
+  background: linear-gradient(120deg, #f3d3b2, #cc9376);
+  color: #291410;
+  border-color: #f1c9a1;
+  box-shadow:
+    inset 0 1px #fff8,
+    0 8px 25px #b56f4220;
+  border-radius: 30px;
+  padding: 0 24px;
+  min-height: 48px;
+}
+.ruby-home {
+  gap: 30px;
+}
+.ruby-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 470px;
+  border-radius: 22px;
+  border: 1px solid #c38c6c40;
+  background: #210a0d;
+  box-shadow: 0 25px 50px #0004;
+}
+.ruby-hero-art {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+  object-position: center;
+  z-index: -2;
+}
+.ruby-hero:before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #150708d9 0%, #19090a70 40%, transparent 72%);
+  z-index: -1;
+}
+.ruby-hero-copy {
+  padding: 55px 45px;
+  max-width: 570px;
+}
+.ruby-hero h1 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(42px, 5.4vw, 76px);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  color: #fff5ed;
+  margin: 22px 0;
+}
+.ruby-hero h1 span {
+  color: #edc4a4;
+}
+.ruby-hero-copy > p:not(.qube-eyebrow) {
+  font-size: 14px;
+  line-height: 1.9;
+  max-width: 330px;
+  color: #d7c1b7;
+}
+.ruby-hero-copy .ruby-hero-note {
+  font-size: 11px;
+  margin-top: 18px;
+  color: #c5afa4;
+}
+.ruby-hero-seal {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  text-align: right;
+  font-size: 11px;
+  letter-spacing: 0.23em;
+  color: #f3cba7;
+}
+.ruby-hero-seal span {
+  display: block;
+  margin-top: 7px;
+  color: #bda293;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+}
+.ruby-welcome-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #c88d6925;
+  padding: 0 5px 24px;
+  font-size: 12px;
+  color: #ead4c6;
+}
+.ruby-welcome-strip > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ruby-welcome-strip small {
+  display: block;
+  color: #b19a91;
+  font-size: 10px;
+}
+.ruby-welcome-strip > a {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 15px;
+  border: 1px solid #c88d6930;
+  border-radius: 12px;
+  background: #30151c55;
+}
+.ruby-welcome-strip > a span {
+  font-size: 10px;
+  color: #baaaa0;
+}
+.ruby-welcome-strip b {
+  display: block;
+  color: #f8d6b7;
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 3px;
+}
+.ruby-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #b8d0bb;
+  box-shadow: 0 0 10px #b8d0bb30;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.ruby-shelf {
+  min-width: 0;
+}
+.ruby-shelf-controls {
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+  margin: -5px 0 14px;
+}
+.ruby-shelf-controls button,
+.ruby-empty button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 7px 11px;
+  font-size: 11px;
+  color: #e5c5af;
+  border: 1px solid #c6977735;
+  border-radius: 9px;
+  background: #29151b;
+}
+.ruby-shelf-controls button:hover,
+.ruby-empty button:hover {
+  background: #45232b;
+}
+.ruby-shelf-controls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ruby-shelf-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(250px, calc((100% - 36px) / 3));
+  gap: 18px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: #7e4b46 #211419;
+  padding: 3px 2px 16px;
+}
+.ruby-shelf-track > * {
+  scroll-snap-align: start;
+  min-width: 0;
+}
+.ruby-shelf-track.is-grid {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-columns: auto;
+  overflow: visible;
+}
+.ruby-game-card,
+.ruby-group-card,
+.ruby-future-card {
+  display: block;
+  border: 1px solid #b37c6038;
+  background: linear-gradient(150deg, #35121c, #1b1013);
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow:
+    0 10px 25px #0003,
+    inset 0 1px #fff5;
+}
+.ruby-game-card {
+  transition:
+    transform 0.25s,
+    border-color 0.25s;
+}
+.ruby-game-card:is(a):hover {
+  transform: translateY(-3px);
+  border-color: #d7a38288;
+}
+.ruby-art {
+  position: relative;
+  height: 205px;
+  overflow: hidden;
+  background: #240b10;
+}
+.ruby-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.7s;
+}
+.ruby-game-card:hover .ruby-art img,
+.qube-catalog-card:hover .ruby-art img {
+  transform: scale(1.045);
+}
+.ruby-game-copy {
+  padding: 20px;
+}
+.ruby-game-copy h3,
+.ruby-group-copy h3,
+.ruby-future-card h3 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 25px;
+  font-weight: 400;
+  color: #f9eade;
+  letter-spacing: -0.03em;
+  margin: 12px 0 9px;
+}
+.ruby-game-copy p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #c1a8a1;
+  min-height: 37px;
+}
+.ruby-game-status {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #c4afa4;
+  border: 1px solid #b98c732e;
+  border-radius: 20px;
+  padding: 5px 8px;
+}
+.ruby-game-status.is-ready {
+  color: #f2cca8;
+  background: #ab78481c;
+  border-color: #ba896c55;
+}
+.ruby-game-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  font-size: 11px;
+  color: #edc2a0;
+  margin-top: 17px;
+  padding-top: 14px;
+  border-top: 1px solid #b98c7324;
+}
+.is-upcoming .ruby-game-action {
+  justify-content: flex-start;
+  color: #c3a9a1;
+}
+.ruby-art--sculpture {
+  display: grid;
+  place-items: center;
+  perspective: 650px;
+  background: radial-gradient(ellipse at 50% 20%, #7d243847, #200e16 70%);
+}
+.ruby-sculpture {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 125px;
+  height: 125px;
+  border-radius: 25px;
+  transform: rotateX(10deg) rotateY(-18deg) rotateZ(-9deg);
+  color: #ffdbc0;
+  border: 1px solid #edb58c66;
+  background: linear-gradient(135deg, #ecbb8c38, #79303fbb 45%, #28111e);
+  box-shadow:
+    inset 3px 3px 12px #ffcfa035,
+    inset -4px -4px 9px #0007,
+    12px 18px 0 #12080c80,
+    20px 30px 30px #0005;
+  animation: ruby-float 7s ease-in-out infinite;
+}
+.ruby-sculpture svg {
+  filter: drop-shadow(2px 3px 0 #59241d);
+}
+.ruby-sculpture-orbit {
+  position: absolute;
+  width: 175px;
+  height: 175px;
+  border: 1px solid #d8966840;
+  border-radius: 50%;
+  transform: rotateX(65deg);
+  bottom: 12px;
+}
+.ruby-sculpture-plinth {
+  position: absolute;
+  bottom: 18px;
+  width: 135px;
+  height: 22px;
+  border-radius: 50%;
+  background: #08050855;
+  filter: blur(9px);
+}
+.ruby-art--neon_hounds_3d,
+.ruby-art--crystal_trail {
+  background: radial-gradient(ellipse at 50% 20%, #38505488, #151c1f 80%);
+}
+.ruby-art--starfall_nebula,
+.ruby-art--turbo_circuit_3d {
+  background: radial-gradient(ellipse at 50% 20%, #35455f88, #111823 80%);
+}
+.ruby-art--heat_vault,
+.ruby-art--thunder_derby_3d {
+  background: radial-gradient(ellipse at 50% 20%, #704b2c88, #24120e 80%);
+}
+.ruby-art--jungle_dash_3d,
+.ruby-art--strait_rush {
+  background: radial-gradient(ellipse at 50% 20%, #395a4788, #101b17 80%);
+}
+@keyframes ruby-float {
+  0%,
+  100% {
+    transform: translateY(0) rotateX(10deg) rotateY(-18deg) rotateZ(-9deg);
+  }
+  50% {
+    transform: translateY(-8px) rotateX(15deg) rotateY(-8deg) rotateZ(-5deg);
+  }
+}
+.ruby-future-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 30px;
+  border-style: dashed;
+  background: radial-gradient(ellipse at top, #58273544, #1a1114);
+  min-height: 350px;
+}
+.ruby-future-gem {
+  display: grid;
+  place-items: center;
+  border: 1px solid #d0a38260;
+  border-radius: 20px;
+  width: 76px;
+  height: 76px;
+  transform: rotate(-10deg);
+  box-shadow:
+    inset 0 0 20px #cf9d6e12,
+    9px 9px 0 #d0a3820c;
+  color: #edc2a0;
+  margin-bottom: 25px;
+}
+.ruby-future-card > span {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #d1a98d;
+}
+.ruby-future-card p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #b8a199;
+}
+.ruby-loading,
+.ruby-empty {
+  border: 1px solid #b98c732d;
+  border-radius: 16px;
+  padding: 30px;
+  color: #cdb7ab;
+  background: #23121955;
+  font-size: 13px;
+}
+.ruby-empty button {
+  margin-top: 15px;
+}
+.ruby-group-scene {
+  height: 130px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  color: #f2c9a5;
+  background: radial-gradient(ellipse at 50% 20%, #925a4855, #361723);
+}
+.ruby-group-scene > svg {
+  filter: drop-shadow(7px 8px 0 #1d0b18) drop-shadow(0 0 17px #e59b6260);
+  transform: perspective(300px) rotateY(-12deg);
+}
+.ruby-group-scene > span {
+  position: absolute;
+  bottom: 12px;
+  left: 20px;
+  font-size: 8px;
+  letter-spacing: 0.17em;
+  color: #d1b4a6;
+}
+.ruby-group-scene--1 {
+  background: radial-gradient(ellipse at top, #495f5060, #18291f);
+}
+.ruby-group-scene--2 {
+  background: radial-gradient(ellipse at top, #5c536360, #231d2c);
+}
+.ruby-group-copy {
+  padding: 20px;
+}
+.ruby-group-members {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: #bda79c;
+}
+.ruby-group-copy p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #bda79c;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 40px;
+}
+.ruby-group-empty {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+.ruby-group-empty > svg {
+  color: #d6a989;
+  flex-shrink: 0;
+}
+.ruby-group-empty h3 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 23px;
+  color: #f2e0d3;
+  margin-bottom: 8px;
+}
+.ruby-group-empty .qube-primary-link {
+  margin: 0 0 0 auto;
+  flex-shrink: 0;
+}
+html.qube-member .qube-catalog-header {
+  background: linear-gradient(110deg, #4a1926, #1c1115);
+}
+.qube-catalog-card .ruby-art {
+  height: 240px;
+}
+.qube-catalog-copy {
+  padding-top: 20px;
+}
+html.qube-member .bg-primary-600 {
+  background: linear-gradient(110deg, #f0c9a6, #d7a384);
+  color: #28120e;
+}
+html.qube-member .hover\:bg-primary-700:hover {
+  background: #f6d9ba;
+  color: #28120e;
+}
+html.qube-member .system-dice-page .system-dice-confirm {
+  background: linear-gradient(110deg, #edc3a0, #d39c7c);
+  color: #28120e;
+}
+html.qube-member .system-dice-page .system-dice-confirm:hover:not(:disabled) {
+  background: #f5d2b3;
+}
+@media (max-width: 1200px) {
+  .ruby-hero-copy {
+    padding: 40px 32px;
+    max-width: 450px;
+  }
+  .ruby-hero {
+    min-height: 420px;
+  }
+  .ruby-shelf-track.is-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .ruby-hero {
+    min-height: 490px;
+  }
+  .ruby-hero-art {
+    object-position: 65% center;
+    opacity: 0.62;
+  }
+  .ruby-hero:before {
+    background: linear-gradient(180deg, #16080b9c, #16080b6e);
+  }
+  .ruby-hero-copy {
+    padding: 65px 25px 35px;
+  }
+  .ruby-hero-copy > p:not(.qube-eyebrow) {
+    max-width: 260px;
+  }
+  .ruby-hero h1 {
+    font-size: 52px;
+  }
+  .ruby-hero-seal {
+    top: 18px;
+    right: 22px;
+  }
+  .ruby-welcome-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .ruby-welcome-strip > a {
+    justify-content: space-between;
+  }
+  .ruby-shelf-track {
+    grid-auto-columns: 85%;
+  }
+  .ruby-shelf-track.is-grid {
+    grid-template-columns: 1fr;
+  }
+  .ruby-group-empty {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .ruby-group-empty .qube-primary-link {
+    margin: 6px 0 0;
+  }
+  .qube-section-heading h2 {
+    font-size: 26px;
+  }
+  .ruby-shelf-controls {
+    flex-wrap: wrap;
+  }
+  .ruby-art {
+    height: 210px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ruby-sculpture {
+    animation: none;
+  }
+  .ruby-game-card:is(a):hover,
+  .ruby-game-card:hover .ruby-art img,
+  .qube-catalog-card:hover .ruby-art img {
+    transform: none;
+  }
+}
+
+.ruby-shelf:is(:hover, :focus-within, .is-motion-paused) .ruby-sculpture {
+  animation-play-state: paused;
+}
+/* Carousel contents must not set the outer dashboard grid's intrinsic width. */
+.ruby-home {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ruby-home > * {
+  min-width: 0;
+}

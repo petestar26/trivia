@@ -1,55 +1,50 @@
+import { Link, useLocation } from 'react-router-dom';
+import { Menu, Wallet } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 
-interface HeaderProps {
-  onMenuClick?: () => void;
-}
-
-export function Header({ onMenuClick }: HeaderProps) {
+export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user } = useAuth();
-
+  const { pathname } = useLocation();
+  const section = pathname.split('/')[1];
+  const labels: Record<string, string> = {
+    casino: 'Casino',
+    games: 'Games',
+    groups: 'Groups',
+    messages: 'Messages',
+    wallet: 'Wallet',
+    gifts: 'Gifts',
+    profile: 'Profile',
+    rewards: 'Rewards',
+    challenges: 'Challenges',
+    competitions: 'Competitions',
+  };
   return (
-    <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
-      <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          {/* Mobile menu toggle — only visible below lg */}
-          {onMenuClick && (
-            <button
-              onClick={onMenuClick}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              aria-label="Open navigation menu"
-            >
-              <svg className="h-6 w-6 text-gray-700 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-          )}
-          <span className="text-lg font-semibold text-gray-900 dark:text-white">PlayQube</span>
+    <header className="qube-header sticky top-0 z-40">
+      <div className="flex min-w-0 items-center gap-3">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="qube-icon-button lg:hidden"
+            aria-label="Open navigation menu"
+          >
+            <Menu size={22} />
+          </button>
+        )}
+        <div>
+          <span className="qube-header-eyebrow">MEMBER LOUNGE</span>
+          <p className="qube-header-title">{labels[section] || 'Welcome to PlayQube'}</p>
         </div>
-
-        <div className="flex items-center space-x-2 sm:space-x-4">
-          <NotificationBell />
-
-          <div className="hidden sm:flex items-center space-x-3">
-            <div className="relative">
-              <div className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
-                  <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
-                    {user?.displayName?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Show avatar on mobile too (smaller) */}
-          <div className="sm:hidden flex items-center">
-            <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
-              <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
-                {user?.displayName?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U'}
-              </span>
-            </div>
-          </div>
-        </div>
+      </div>
+      <div className="flex items-center gap-2 sm:gap-4">
+        <Link to="/wallet" className="qube-wallet-link">
+          <Wallet size={17} aria-hidden="true" />
+          <span className="hidden sm:inline">My wallet</span>
+        </Link>
+        <NotificationBell />
+        <Link to="/profile" aria-label="Your profile" className="qube-avatar">
+          {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
+        </Link>
       </div>
     </header>
   );

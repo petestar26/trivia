@@ -61,7 +61,7 @@ async function signIn(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
-  mocked.get.mockRejectedValue(new Error('401')); // the initial /auth/me probe: anonymous
+  mocked.get.mockRejectedValue(new Error(JSON.stringify({ status: 401, message: 'Unauthenticated' }))); // the initial /auth/me probe: anonymous
   mocked.post.mockResolvedValue({ success: true, data: { user: USER } });
 });
 

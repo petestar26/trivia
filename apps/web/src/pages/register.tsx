@@ -1,3 +1,4 @@
+import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -8,7 +9,14 @@ import { getErrorMessage } from '@/lib/error-message';
 import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 const registerSchema = z.object({
   username: z
@@ -36,6 +44,7 @@ const registerSchema = z.object({
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export function RegisterPage() {
+  useMemberTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const { register: registerUser } = useAuth();
@@ -74,10 +83,12 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-12">
+    <div className="qube-auth min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-12">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">Create an account</CardTitle>
+          <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
+            Create an account
+          </CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
             Join PlayQube and start connecting
           </CardDescription>
@@ -90,7 +101,10 @@ export function RegisterPage() {
           )}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="username"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Username
               </label>
               <Input
@@ -108,7 +122,10 @@ export function RegisterPage() {
               )}
             </div>
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="email"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Email
               </label>
               <Input
@@ -126,7 +143,10 @@ export function RegisterPage() {
               )}
             </div>
             <div className="space-y-2">
-              <label htmlFor="displayName" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="displayName"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Display Name (optional)
               </label>
               <Input
@@ -146,7 +166,10 @@ export function RegisterPage() {
               )}
             </div>
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Password
               </label>
               <Input
@@ -163,7 +186,8 @@ export function RegisterPage() {
                 </p>
               )}
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Must be at least 8 characters with uppercase, lowercase, number, and special character
+                Must be at least 8 characters with uppercase, lowercase, number, and special
+                character
               </p>
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
