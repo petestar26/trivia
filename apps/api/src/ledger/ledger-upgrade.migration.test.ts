@@ -666,9 +666,12 @@ describe('ledger upgrade migrations', () => {
       const economicFingerprint = async () => {
         const result: Record<string, string> = {};
         for (const table of economicTables) {
+          // Crypto adds three disabled controls; every pre-existing gate must be unchanged.
+          const filter = table === 'platform_gates'
+            ? " WHERE t.key NOT IN ('CRYPTO_DEPOSIT_CREATE','CRYPTO_DEPOSIT_CREDIT','CRYPTO_WITHDRAWAL_CREATE')" : '';
           const [row] = await db.client.$queryRawUnsafe<Array<{ fingerprint: string }>>(`
             SELECT count(*)::TEXT||':'||COALESCE(md5(string_agg(row_text,E'\\n' ORDER BY row_text)),'empty') AS fingerprint
-            FROM (SELECT pg_catalog.to_jsonb(t)::TEXT AS row_text FROM public."${table}" t) rows`);
+            FROM (SELECT pg_catalog.to_jsonb(t)::TEXT AS row_text FROM public."${table}" t${filter}) rows`);
           result[table] = row.fingerprint;
         }
         return result;
@@ -679,6 +682,16 @@ describe('ledger upgrade migrations', () => {
       expect(proofsBefore.every((proof) => JSON.parse(proof.randomness).algorithm === 'sha256-rejection-u32be-v1')).toBe(true);
       const customersBefore = await legacyFingerprint(db.client);
       const economicsBefore = await economicFingerprint();
+      const cryptoGates = () => db.client.platformGate.findMany({
+        where: { key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_DEPOSIT_CREDIT', 'CRYPTO_WITHDRAWAL_CREATE'] } },
+        select: { key: true, enabled: true }, orderBy: { key: 'asc' },
+      });
+      expect(await cryptoGates()).toEqual([]);
+      const expectedCryptoGates = [
+        { key: 'CRYPTO_DEPOSIT_CREATE', enabled: false },
+        { key: 'CRYPTO_DEPOSIT_CREDIT', enabled: false },
+        { key: 'CRYPTO_WITHDRAWAL_CREATE', enabled: false },
+      ];
       // This forward migration intentionally pauses only the legacy Dice entry.
       // Compare every catalog field separately so no unrelated change is hidden.
       const expectedCatalog = (await catalogRows()).map(game => game.key === 'dice'
@@ -696,6 +709,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await cryptoGates()).toEqual(expectedCryptoGates);
       const upgradedCatalog = await catalogRows();
       expect(upgradedCatalog.filter(game => game.key !== 'crash_point')).toEqual(expectedCatalog);
       expect(upgradedCatalog.filter(game => game.key === 'crash_point')).toEqual([
@@ -719,6 +733,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await cryptoGates()).toEqual(expectedCryptoGates);
       expect(await catalogRows()).toEqual(upgradedCatalog);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
