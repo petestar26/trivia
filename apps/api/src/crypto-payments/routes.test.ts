@@ -92,3 +92,15 @@ it('has no public route for claiming deposit verification or credit', async () =
     ).statusCode
   ).toBe(404);
 });
+it('refuses suspended member cancellation before calling the payment service', async () => {
+  m.process.mockClear();
+  m.lookup.mockResolvedValue({ status: 'SUSPENDED', role: 'USER' });
+  const response = await server.inject({
+    method: 'POST',
+    url: '/crypto-payments/withdrawals/held/cancel',
+    headers: { authorization: 'Bearer fixture' },
+    payload: {},
+  });
+  expect(response.statusCode).toBe(403);
+  expect(m.process).not.toHaveBeenCalled();
+});

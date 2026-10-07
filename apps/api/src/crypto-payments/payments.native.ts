@@ -292,13 +292,22 @@ it('requires assigned admin step-up, prevents cancellation after claim, and fina
   await expect(processWithdrawal(f.user.id, 12345, w.id, 'cancel', {}, false)).rejects.toThrow(
     'no longer available'
   );
-  const body = { txHash: 'fe'.repeat(32), transferred: true };
+  const body = { txHash: randomUUID().replaceAll('-', '').repeat(2), transferred: true };
   await expect(processWithdrawal(f.admin.id, 12345, w.id, 'confirm', body, true)).rejects.toThrow();
   await stepup(f.admin.id, `CRYPTO_WITHDRAWAL_CONFIRM:${w.id}`);
   await Promise.all([
     processWithdrawal(f.admin.id, 12345, w.id, 'confirm', body, true),
     processWithdrawal(f.admin.id, 12345, w.id, 'confirm', body, true),
   ]);
+  await stepup(f.admin.id, 'CRYPTO_ADDRESS_ADD');
+  await addAddress(f.admin.id, 12345, {
+    address: w.address,
+    label: 'Post-completion fixture',
+    unusedAddressConfirmed: true,
+  });
+  await expect(
+    processWithdrawal(f.admin.id, 12345, w.id, 'confirm', body, true)
+  ).resolves.toMatchObject({ status: 'COMPLETED' });
   expect((await listPayments(f.user.id)).withdrawals[0]).toMatchObject({
     status: 'COMPLETED',
     txHash: body.txHash,
@@ -329,15 +338,27 @@ it('API role cannot forge receipts; verifier can insert but cannot mutate eviden
     expect(w).toEqual({ insert: true, mutate: false });
     const check = () => prisma.$transaction((tx) => verifyCryptoVerifierAccessReadOnly(tx, worker));
     expect(await check()).toEqual([]);
-    await prisma.$executeRawUnsafe(`GRANT UPDATE ("amountMicro") ON crypto_receipts TO "${worker}"`);
-    expect((await check()).some((m) => m.includes('UPDATE on crypto_receipts.amountMicro'))).toBe(true);
-    await prisma.$executeRawUnsafe(`REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${worker}"`);
+    await prisma.$executeRawUnsafe(
+      `GRANT UPDATE ("amountMicro") ON crypto_receipts TO "${worker}"`
+    );
+    expect((await check()).some((m) => m.includes('UPDATE on crypto_receipts.amountMicro'))).toBe(
+      true
+    );
+    await prisma.$executeRawUnsafe(
+      `REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${worker}"`
+    );
     await prisma.$executeRawUnsafe(`ALTER ROLE "${worker}" NOINHERIT`);
     await prisma.$executeRawUnsafe(`GRANT UPDATE ("amountMicro") ON crypto_receipts TO "${role}"`);
     await prisma.$executeRawUnsafe(`GRANT "${role}" TO "${worker}"`);
-    expect((await check()).some((m) => m.includes('UPDATE on crypto_receipts.amountMicro') && m.includes('can become'))).toBe(true);
+    expect(
+      (await check()).some(
+        (m) => m.includes('UPDATE on crypto_receipts.amountMicro') && m.includes('can become')
+      )
+    ).toBe(true);
     await prisma.$executeRawUnsafe(`REVOKE "${role}" FROM "${worker}"`);
-    await prisma.$executeRawUnsafe(`REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${role}"`);
+    await prisma.$executeRawUnsafe(
+      `REVOKE UPDATE ("amountMicro") ON crypto_receipts FROM "${role}"`
+    );
     expect(await check()).toEqual([]);
   } finally {
     for (const r of [role, worker]) {
@@ -430,3 +451,136 @@ it('restricted verifier performs the real atomic credit while API forgery is den
     }
   }
 });
+it('refuses a suspended owner cancellation without releasing the hold, but permits active admin recovery', async () => {
+  const f = await fixture(),
+    d = await invoice(f);
+  await settleDeposit(d.id, [await transfer(d.id)]);
+  const w = await createWithdrawal(f.user.id, 12345, {
+    countryId: f.country.id,
+    coinAmount: 2016,
+    address: address(),
+    idempotencyKey: randomUUID(),
+  });
+  await prisma.user.update({ where: { id: f.user.id }, data: { status: 'SUSPENDED' } });
+  await expect(
+    processWithdrawal(f.user.id, 12345, w.id, 'cancel', {}, false)
+  ).rejects.toMatchObject({ statusCode: 403 });
+  expect(
+    (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.user.id } })).coinsBalance
+  ).toBe(2784);
+  expect(await prisma.$queryRaw`SELECT status FROM crypto_withdrawals WHERE id=${w.id}`).toEqual([
+    { status: 'HELD' },
+  ]);
+  expect(
+    await prisma.economicOperation.count({ where: { scopeId: w.id, type: 'WITHDRAWAL_RELEASE' } })
+  ).toBe(0);
+  await processWithdrawal(f.admin.id, 12345, w.id, 'cancel', {}, true);
+  expect(
+    (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.user.id } })).coinsBalance
+  ).toBe(4800);
+});
+it.each([false, true])(
+  'rejects platform deposit destinations including retired=%s without reserving Coins',
+  async (retired) => {
+    const f = await fixture(),
+      d = await invoice(f);
+    await settleDeposit(d.id, [await transfer(d.id)]);
+    if (retired)
+      await prisma.$executeRaw`UPDATE crypto_addresses SET retired=true WHERE address=${f.receive}`;
+    await expect(
+      createWithdrawal(f.user.id, 12345, {
+        countryId: f.country.id,
+        coinAmount: 2400,
+        address: f.receive,
+        idempotencyKey: randomUUID(),
+      })
+    ).rejects.toThrow('platform deposit address');
+    expect(
+      (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.user.id } })).coinsBalance
+    ).toBe(4800);
+    expect(
+      await prisma.$queryRaw`SELECT id FROM crypto_withdrawals WHERE "userId"=${f.user.id}`
+    ).toEqual([]);
+  }
+);
+it('serializes deposit-address registration against withdrawal admission', async () => {
+  const f = await fixture(),
+    d = await invoice(f),
+    target = address();
+  await settleDeposit(d.id, [await transfer(d.id)]);
+  await stepup(f.admin.id, 'CRYPTO_ADDRESS_ADD');
+  const outcomes = await Promise.allSettled([
+    addAddress(f.admin.id, 12345, {
+      address: target,
+      label: 'Concurrent synthetic fixture',
+      unusedAddressConfirmed: true,
+    }),
+    createWithdrawal(f.user.id, 12345, {
+      countryId: f.country.id,
+      coinAmount: 2400,
+      address: target,
+      idempotencyKey: randomUUID(),
+    }),
+  ]);
+  expect(outcomes.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  const [counts] = await prisma.$queryRaw<Array<{ pool: bigint; withdrawals: bigint }>>`
+    SELECT (SELECT count(*) FROM crypto_addresses WHERE address=${target}) AS pool,
+           (SELECT count(*) FROM crypto_withdrawals WHERE address=${target}) AS withdrawals`;
+  expect(counts.pool + counts.withdrawals).toBe(1n);
+  expect(
+    (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.user.id } })).coinsBalance
+  ).toBe(counts.withdrawals === 1n ? 2400 : 4800);
+});
+it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
+  'blocks legacy platform destinations at payout time (%s) without consuming step-up',
+  async (status) => {
+    const f = await fixture(),
+      d = await invoice(f),
+      target = address();
+    await settleDeposit(d.id, [await transfer(d.id)]);
+    const w = await createWithdrawal(f.user.id, 12345, {
+      countryId: f.country.id,
+      coinAmount: 2400,
+      address: target,
+      idempotencyKey: randomUUID(),
+    });
+    if (status === 'PAYOUT_IN_PROGRESS') {
+      await stepup(f.admin.id, `CRYPTO_WITHDRAWAL_CLAIM:${w.id}`);
+      await processWithdrawal(f.admin.id, 12345, w.id, 'claim', {}, true);
+    }
+    await stepup(f.admin.id, 'CRYPTO_ADDRESS_ADD');
+    await expect(
+      addAddress(f.admin.id, 12345, {
+        address: target,
+        label: 'Conflicting address',
+        unusedAddressConfirmed: true,
+      })
+    ).rejects.toThrow('reserved for an active withdrawal');
+    // Simulate conflicting data predating the application guard; no real chain transfer.
+    await prisma.$executeRaw`INSERT INTO crypto_addresses(address,label,"addedBy") VALUES(${target},'Legacy synthetic fixture',${f.admin.id})`;
+    const action = status === 'HELD' ? 'claim' : 'confirm';
+    const purpose = `CRYPTO_WITHDRAWAL_${action.toUpperCase()}:${w.id}`;
+    await stepup(f.admin.id, purpose);
+    await expect(
+      processWithdrawal(
+        f.admin.id,
+        12345,
+        w.id,
+        action,
+        { txHash: 'ab'.repeat(32), transferred: true },
+        true
+      )
+    ).rejects.toThrow('platform deposit address');
+    expect(await prisma.$queryRaw`SELECT status FROM crypto_withdrawals WHERE id=${w.id}`).toEqual([
+      { status },
+    ]);
+    expect(
+      (await prisma.wallet.findUniqueOrThrow({ where: { userId: f.user.id } })).coinsBalance
+    ).toBe(2400);
+    expect(
+      await prisma.stepUpVerification.count({
+        where: { userId: f.admin.id, purpose, consumedAt: null },
+      })
+    ).toBe(1);
+  }
+);

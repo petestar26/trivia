@@ -29,20 +29,17 @@ export async function cryptoPaymentRoutes(server: FastifyInstance) {
   server.post('/withdrawals', write, async (r) =>
     ok(await payments.createWithdrawal(r.user!.sub, r.user!.iat!, r.body))
   );
-  server.post<{ Params: { id: string } }>(
-    '/withdrawals/:id/cancel',
-    { ...write, config: { ...write.config, allowOwnFundsReturn: true } },
-    async (r) =>
-      ok(
-        await payments.processWithdrawal(
-          r.user!.sub,
-          r.user!.iat!,
-          r.params.id,
-          'cancel',
-          r.body,
-          false
-        )
+  server.post<{ Params: { id: string } }>('/withdrawals/:id/cancel', write, async (r) =>
+    ok(
+      await payments.processWithdrawal(
+        r.user!.sub,
+        r.user!.iat!,
+        r.params.id,
+        'cancel',
+        r.body,
+        false
       )
+    )
   );
   server.get('/admin', admin, async (r) =>
     ok(await payments.listPayments(r.user!.sub, true, r.query))
