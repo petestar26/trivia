@@ -72,6 +72,32 @@ function validTime(value: string, earliest: Date) {
 async function audit(tx: Tx, userId: string, id: string, action: string) {
   await tx.auditLog.create({ data: { userId, action, entity: 'LatePaymentCase', entityId: id } });
 }
+// Explicit member projection: new database fields must never become public by default.
+function memberCase(row: Prisma.LatePaymentCaseGetPayload<{}> & {
+  order?: { orderNumber: string; fiatCurrency: string; fiatAmount: number };
+}) {
+  return {
+    id: row.id,
+    orderId: row.orderId,
+    paymentReference: row.paymentReference,
+    paidAmount: row.paidAmount,
+    paidAt: row.paidAt,
+    description: row.description,
+    status: row.status,
+    verifiedPaymentReference: row.verifiedPaymentReference,
+    verifiedAmount: row.verifiedAmount,
+    refundReference: row.refundReference,
+    refundedAt: row.refundedAt,
+    resolutionNote: row.resolutionNote,
+    resolvedAt: row.resolvedAt,
+    openedAt: row.openedAt,
+    ...(row.order ? { order: {
+      orderNumber: row.order.orderNumber,
+      fiatCurrency: row.order.fiatCurrency,
+      fiatAmount: row.order.fiatAmount,
+    } } : {}),
+  };
+}
 export async function reportLatePayment(userId: string, raw: unknown) {
   const args = parse(reportSchema, raw);
   return prisma.$transaction(async (tx) => {
@@ -88,7 +114,7 @@ export async function reportLatePayment(userId: string, raw: unknown) {
         existing.paidAt.getTime() === new Date(args.paidAt).getTime() &&
         existing.description === args.description
       )
-        return existing;
+        return memberCase(existing);
       throw ApiError.conflict('A recovery case already exists for this order. Review its status.');
     }
     if (await tx.dispute.findFirst({where: {orderId: order.id, status: 'RESOLVED'}, select: {id: true}}))
@@ -107,7 +133,7 @@ export async function reportLatePayment(userId: string, raw: unknown) {
       },
     });
     await audit(tx, userId, row.id, 'LATE_PAYMENT_REPORTED');
-    return row;
+    return memberCase(row);
   });
 }
 export const queueSchema = z.object({ page: z.coerce.number().int().min(0).max(100000).default(0) }).strict();
@@ -125,7 +151,7 @@ export async function listLatePayments(userId: string, admin = false, raw: unkno
       include: { order: { select: { orderNumber: true, fiatCurrency: true, fiatAmount: true } } },
     });
     if (admin) return rows;
-    return rows.map(({ assignedAdminId, assignedAt, resolutionKey, idempotencyKey, ...member }) => member);
+    return rows.map(memberCase);
   });
 }
 export async function claimLatePayment(userId: string, id: string) {
