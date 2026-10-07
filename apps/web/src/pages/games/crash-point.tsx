@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUpRight, ShieldCheck, Wifi, WifiOff, TrendingUp } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUpRight,
+  History,
+  ShieldCheck,
+  Wifi,
+  WifiOff,
+  TrendingUp,
+  X,
+} from 'lucide-react';
 import {
   CRASH_POINT_RULES as rules,
   crashMultiplier,
@@ -15,7 +26,6 @@ import type {
   CrashPointLeaderboard,
 } from '@socialplay/shared';
 import { useAuth } from '@/providers/auth-provider';
-import { useCasino } from '@/components/casino/CasinoProvider';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
@@ -50,7 +60,7 @@ function CrashPoint({
   slot?: number;
   controlsOnly?: boolean;
 }) {
-  const { coinsBalance, walletLoading, walletError } = useCasino();
+  const betHeading = useRef<HTMLHeadingElement>(null);
   const [initial] = useState(() => {
     try {
       return { entry: readCrashReceipt(userId, slot), error: '' };
@@ -302,17 +312,23 @@ function CrashPoint({
   const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   const controls = (
     <aside className="crash-controls" aria-label={`Bet ${slot} controls`}>
-      <div className="crash-practice">
+      <div className="crash-ticket-header">
         <div>
-          <span>SHARED PRACTICE BALANCE</span>
-          <strong>
-            {s?.balance.toLocaleString() ?? '—'} <small>credits</small>
-          </strong>
+          <span>YOUR TICKET</span>
+          <h2>Bet {slot}</h2>
         </div>
-        <ShieldCheck size={24} />
+        <span className="crash-ticket-state">
+          {ticket
+            ? ticket.payout === null
+              ? 'Confirmed'
+              : 'Complete'
+            : pending
+              ? 'Checking ticket'
+              : open
+                ? 'Entry open'
+                : 'Next round'}
+        </span>
       </div>
-      <p className="crash-credit-note">Free credits · no cash value</p>
-      <h2>Bet {slot}</h2>
       <div className="crash-bet-fields">
         <div className="crash-stake-field">
           <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
@@ -328,7 +344,14 @@ function CrashPoint({
           </div>
           <div className="crash-presets">
             {[10, 25, 50, 100].map((v) => (
-              <button key={v} disabled={locked} onClick={() => setStakeText(String(v))}>
+              <button
+                key={v}
+                disabled={locked}
+                aria-pressed={
+                  Number(ticket ? ticket.stake : pending ? pending.stake : stakeText) === v
+                }
+                onClick={() => setStakeText(String(v))}
+              >
                 {v}
               </button>
             ))}
@@ -394,9 +417,7 @@ function CrashPoint({
               </button>
             ))}
           </div>
-          <p className="crash-field-help">
-            Choose a cash-out target, not a prediction. 1.01×–20.00×.
-          </p>
+          <p className="crash-field-help">Set your automatic cash-out target. 1.01×–20.00×.</p>
           {!open && !ticket && !pending && connected && (
             <p className="crash-field-help">
               Prepare your next ticket now. Confirm when entry opens.
@@ -513,19 +534,11 @@ function CrashPoint({
             </button>
           )}
           <p>
-            Uses this amount and auto target for up to 10 new entries. Stops on error,
-            disconnection, hidden tab, or refresh. Stop does not cancel a confirmed ticket.
+            Up to 10 entries using this amount and target. Stops on error, disconnection, hidden tab
+            or refresh. Confirmed tickets stay active.
           </p>
         </div>
       )}
-      <div className="crash-summary">
-        <span>New round</span>
-        <b>Every minute</b>
-        <span>Entry window</span>
-        <b>15 seconds</b>
-        <span>Maximum cash-out</span>
-        <b>20.00×</b>
-      </div>
     </aside>
   );
   if (controlsOnly) return controls;
@@ -552,38 +565,26 @@ function CrashPoint({
           <p>Follow the curve. Choose your moment.</p>
         </div>
         <div className="crash-wallet">
-          <span>ACCOUNT BALANCE</span>
-          <strong>
-            {walletLoading
-              ? 'Loading…'
-              : walletError
-                ? 'Unavailable'
-                : `${coinsBalance.toLocaleString()} Coins`}
-          </strong>
-          <small>Free practice uses a separate balance</small>
+          <span>PRACTICE BALANCE</span>
+          <strong>{s ? `${s.balance.toLocaleString()} credits` : 'Connecting…'}</strong>
+          <small>Free credits · no cash value</small>
         </div>
       </header>
+      <div className="crash-bet-navigation">
+        <p>Choose an amount and an auto cash-out target for your next ticket.</p>
+        <a
+          href="#crash-betting"
+          onClick={(event) => {
+            event.preventDefault();
+            betHeading.current?.scrollIntoView({ block: 'start' });
+            betHeading.current?.focus({ preventScroll: true });
+          }}
+        >
+          Choose your bet <ArrowDown size={16} />
+        </a>
+      </div>
       <div className="crash-layout">
         <div className="crash-table">
-          <section className="crash-history">
-            <div>
-              <h2>Recent crash points</h2>
-              <p>Previous rounds do not predict the next result.</p>
-            </div>
-            <div className="crash-history-row">
-              {s?.rounds
-                .filter((r) => r.crashCents !== null)
-                .map((r) => (
-                  <span key={r.id} className={r.crashCents! >= 200 ? 'high' : ''} title={r.id}>
-                    {(r.crashCents! / 100).toFixed(2)}×
-                  </span>
-                ))}
-              {!s?.rounds.some((r) => r.crashCents !== null) && (
-                <p>Completed rounds will appear here.</p>
-              )}
-            </div>
-          </section>
-
           <section
             className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
             aria-label="Live multiplier graph"
@@ -753,10 +754,29 @@ function CrashPoint({
               </div>
             </div>
           </section>
-          <div className="crash-dual-controls">
-            {controls}
-            {raw?.maxTickets === 2 && <CrashPoint userId={userId} slot={2} controlsOnly />}
-          </div>
+          <section
+            id="crash-betting"
+            className="crash-betting"
+            aria-labelledby="crash-betting-title"
+          >
+            <div className="crash-betting-heading">
+              <div>
+                <h2 id="crash-betting-title" tabIndex={-1} ref={betHeading}>
+                  Choose your bet
+                </h2>
+                <p>
+                  {raw?.maxTickets === 2 ? 'Up to two tickets' : 'One ticket'} per round · Confirm
+                  during the 15-second entry window.
+                </p>
+              </div>
+              <span>Practice credits</span>
+            </div>
+            <div className="crash-dual-controls">
+              {controls}
+              {raw?.maxTickets === 2 && <CrashPoint userId={userId} slot={2} controlsOnly />}
+            </div>
+          </section>
+          <RoundHistory rounds={raw?.rounds ?? []} />
         </div>
         <aside className="crash-activity" aria-label="Your round activity">
           <div className="crash-activity-tabs" role="group" aria-label="Activity view">
@@ -964,6 +984,124 @@ function CrashPoint({
           ))}
       </details>
     </div>
+  );
+}
+function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  const historyHeading = useRef<HTMLHeadingElement>(null);
+  const completed = rounds
+    .filter((r) => r.crashCents !== null)
+    .sort((a, b) => b.opensAt - a.opensAt);
+  const selected = completed.find((r) => r.id === selectedId);
+  const tickets = selected?.tickets ?? (selected?.ticket ? [{ ...selected.ticket, slot: 1 }] : []);
+  return (
+    <section className="crash-history" aria-labelledby="crash-history-title">
+      <div className="crash-history-heading">
+        <History size={18} />
+        <div>
+          <h2 id="crash-history-title" tabIndex={-1} ref={historyHeading}>
+            Round history
+          </h2>
+          <p>
+            Completed results · Tap a round for details. Previous rounds do not predict the next
+            result.
+          </p>
+        </div>
+      </div>
+      <div className="crash-history-grid">
+        {completed.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className={r.crashCents! >= 200 ? 'high' : ''}
+            aria-label={`View completed round ${r.id}: ${(r.crashCents! / 100).toFixed(2)}×`}
+            aria-haspopup="dialog"
+            onClick={(event) => {
+              opener.current = event.currentTarget;
+              setSelectedId(r.id);
+            }}
+          >
+            <strong>{(r.crashCents! / 100).toFixed(2)}×</strong>
+            <time dateTime={new Date(r.startsAt).toISOString()}>
+              {new Date(r.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </time>
+          </button>
+        ))}
+      </div>
+      {!completed.length && <p>Completed rounds will appear here.</p>}
+      <Dialog.Root
+        open={selectedId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="crash-history-overlay" />
+          <Dialog.Content
+            className="crash-history-dialog"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (opener.current?.isConnected) opener.current.focus();
+              else historyHeading.current?.focus();
+            }}
+          >
+            <p className="crash-history-eyebrow">COMPLETED ROUND</p>
+            <Dialog.Title>Round details</Dialog.Title>
+            <Dialog.Description>
+              Viewing a past result keeps your current ticket and cash-out target unchanged.
+            </Dialog.Description>
+            <Dialog.Close asChild>
+              <button className="crash-history-close" aria-label="Close round details">
+                <X size={20} />
+              </button>
+            </Dialog.Close>
+            {selected ? (
+              <>
+                <div className="crash-past-result">
+                  <span>Crash point</span>
+                  <strong>{(selected.crashCents! / 100).toFixed(2)}×</strong>
+                  <time dateTime={new Date(selected.startsAt).toISOString()}>
+                    {new Date(selected.startsAt).toLocaleString()}
+                  </time>
+                </div>
+                <h3>Your tickets in this round</h3>
+                {tickets.length ? (
+                  tickets.map((ticket) => (
+                    <dl
+                      key={ticket.slot}
+                      className="crash-past-ticket"
+                      aria-label={`Past bet ${ticket.slot} receipt`}
+                    >
+                      <dt>Bet {ticket.slot}</dt>
+                      <dd>{ticket.stake} credits staked</dd>
+                      <dt>Cash-out</dt>
+                      <dd>{ticket.paidCents ? `${(ticket.paidCents / 100).toFixed(2)}×` : '—'}</dd>
+                      <dt>Return</dt>
+                      <dd>
+                        {ticket.payout === null ? 'Pending settlement' : `${ticket.payout} credits`}
+                      </dd>
+                    </dl>
+                  ))
+                ) : (
+                  <p className="crash-history-empty">You did not enter this round.</p>
+                )}
+                {selected.seed && (
+                  <details className="crash-history-verification">
+                    <summary>Round verification</summary>
+                    <RoundProof key={selected.id} round={selected} />
+                  </details>
+                )}
+              </>
+            ) : (
+              <p className="crash-history-empty">
+                This round has left recent history. Close this view and select another result.
+              </p>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </section>
   );
 }
 function RoundProof({ round }: { round: CrashPointRound }) {

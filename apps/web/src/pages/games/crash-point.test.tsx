@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { CrashPointPage, readCrashReceipt } from './crash-point';
 import type { CrashPointSnapshot } from '@socialplay/shared';
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
@@ -352,4 +353,134 @@ it('target presets enable automatic cash-out and stay locked for a saved ticket'
   await screen.findByRole('button', { name: 'Retry saved ticket' });
   expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
   expect(readCrashReceipt('u1')).toEqual({ roundId: 'r1', stake: 25, autoCents: 150 });
+});
+
+function addHistoryRound() {
+  snapshot.rounds.push({
+    ...snapshot.rounds[0],
+    id: 'older',
+    opensAt: snapshot.serverTime - 61000,
+    startsAt: snapshot.serverTime - 46000,
+    endsAt: snapshot.serverTime - 1000,
+    crashCents: 297,
+    seed: 'b'.repeat(64),
+    tickets: [
+      { slot: 1, stake: 25, autoCents: 200, payout: 50, paidCents: 200 },
+      { slot: 2, stake: 40, autoCents: null, payout: 0, paidCents: null },
+    ],
+    ticket: null,
+  });
+}
+it('opens completed round details with both receipts without changing the draft or placing a bet', async () => {
+  addHistoryRound();
+  setup();
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
+  expect(screen.queryByRole('button', { name: /View completed round r1:/ })).toBeNull();
+  const history = screen.getByRole('button', { name: 'View completed round older: 2.97×' });
+  fireEvent.click(history);
+  const dialog = await screen.findByRole('dialog', { name: 'Round details' });
+  expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
+  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 credits');
+  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 credits');
+  fireEvent.click(within(dialog).getByText('Round verification'));
+  expect(within(dialog).getByText(/Revealed seed:/)).toHaveTextContent('b'.repeat(64));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByLabelText('Bet amount')).toHaveValue('50');
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+it('supports opening history with the keyboard and Escape returns focus to its button', async () => {
+  addHistoryRound();
+  setup();
+  const history = await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const user = userEvent.setup();
+  history.focus();
+  await act(async () => {
+    await user.keyboard('{Enter}');
+  });
+  await screen.findByRole('dialog', { name: 'Round details' });
+  await act(async () => {
+    await user.keyboard('{Escape}');
+  });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+it('history keeps saved ticket locks and the exact retry payload intact', async () => {
+  addHistoryRound();
+  const receipt = { roundId: 'r1', stake: 50, autoCents: 150 };
+  sessionStorage.setItem('playqube.crash-point.pending.u1', JSON.stringify(receipt));
+  post.mockRejectedValue(new Error('Interrupted'));
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
+  expect(readCrashReceipt('u1')).toEqual(receipt);
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry saved ticket' }));
+  await waitFor(() => expect(post.mock.calls[0][1]).toEqual(receipt));
+});
+it('cash-out remains bound to the live second ticket after viewing a past round', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].tickets = [
+    { slot: 2, stake: 25, autoCents: null, payout: null, paidCents: null },
+  ];
+  addHistoryRound();
+  post.mockResolvedValue({ success: true, data: { payout: 27, paidCents: 110 } });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  const panel = screen.getByRole('complementary', { name: 'Bet 2 controls' });
+  expect(within(panel).getByLabelText('Bet amount')).toBeDisabled();
+  fireEvent.click(within(panel).getByRole('button', { name: /Cash out/ }));
+  await waitFor(() => expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', slot: 2 }));
+});
+it('bet navigation reaches the real controls while entry remains closed', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  const scroll = vi.fn();
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    setup();
+    await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+    fireEvent.click(screen.getByRole('link', { name: 'Choose your bet' }));
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    expect(screen.getByRole('heading', { name: 'Choose your bet' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '100' }));
+    fireEvent.click(screen.getByRole('button', { name: '5.00×' }));
+    expect(screen.getByLabelText('Bet amount')).toHaveValue('100');
+    expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('5.00');
+    expect(screen.getByRole('button', { name: '100' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+it('handles a selected round leaving the snapshot without showing another result', async () => {
+  addHistoryRound();
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  await act(async () => {
+    snapshot = { ...snapshot, rounds: [snapshot.rounds[0]] };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  const dialog = screen.getByRole('dialog', { name: 'Round details' });
+  expect(await within(dialog).findByText(/This round has left recent history/)).toBeInTheDocument();
+  expect(within(dialog).queryByText('2.97×')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Round history' })).toHaveFocus());
 });
