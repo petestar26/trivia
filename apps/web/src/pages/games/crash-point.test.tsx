@@ -1,7 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+  act,
+  configure,
+  getConfig,
+} from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { CrashPointPage, readCrashReceipt } from './crash-point';
 import type { CrashPointSnapshot } from '@socialplay/shared';
@@ -16,6 +26,16 @@ vi.mock('@/lib/api', async (original) => ({
 }));
 let snapshot: CrashPointSnapshot;
 let client: QueryClient;
+let elapsedTime = 0;
+const originalAsyncTimeout = getConfig().asyncUtilTimeout;
+beforeAll(() => {
+  configure({ asyncUtilTimeout: 5000 });
+  vi.setConfig({ testTimeout: 15000 });
+});
+afterAll(() => {
+  configure({ asyncUtilTimeout: originalAsyncTimeout });
+  vi.resetConfig();
+});
 function setup() {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(
@@ -27,6 +47,8 @@ function setup() {
   );
 }
 beforeEach(() => {
+  elapsedTime = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => elapsedTime);
   sessionStorage.clear();
   const now = Date.now();
   snapshot = {
@@ -60,6 +82,7 @@ afterEach(() => {
   cleanup();
   client?.clear();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   sessionStorage.clear();
 });
 it('submits only a validated amount and locked auto target', async () => {
@@ -92,6 +115,8 @@ it('restores a confirmed ticket and presents its server return', async () => {
   await screen.findByText('Confirmed return · 30 credits at 1.20x');
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
   expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
 });
 it('preserves an interrupted entry so retry uses the same round and amount', async () => {
   post.mockRejectedValue(new Error('Interrupted'));
@@ -311,6 +336,7 @@ it('allows preparing amount and target during a running round but cannot submit 
   const amount = await screen.findByLabelText('Bet amount');
   await waitFor(() => expect(amount).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByText('Quick targets'));
   fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
   expect(amount).toHaveValue('50');
   expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
@@ -345,6 +371,7 @@ it('target presets enable automatic cash-out and stay locked for a saved ticket'
   await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
   fireEvent.click(screen.getByLabelText('Auto cash-out', { exact: true }));
   expect(screen.getByLabelText('Auto cash-out multiplier')).toBeDisabled();
+  fireEvent.click(screen.getByText('Quick targets'));
   fireEvent.click(screen.getByRole('button', { name: '1.50×' }));
   expect(screen.getByLabelText('Auto cash-out', { exact: true })).toBeChecked();
   expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('1.50');
@@ -376,6 +403,7 @@ it('opens completed round details with both receipts without changing the draft 
   setup();
   await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByText('Quick targets'));
   fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
   expect(screen.queryByRole('button', { name: /View completed round r1:/ })).toBeNull();
   const history = screen.getByRole('button', { name: 'View completed round older: 2.97×' });
@@ -420,8 +448,11 @@ it('history keeps saved ticket locks and the exact retry payload intact', async 
   fireEvent.click(screen.getByRole('button', { name: 'Close round details' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  fireEvent.click(screen.getByText('Quick targets'));
   expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
   expect(readCrashReceipt('u1')).toEqual(receipt);
+  expect(screen.getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
   expect(post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Retry saved ticket' }));
   await waitFor(() => expect(post.mock.calls[0][1]).toEqual(receipt));
@@ -455,6 +486,7 @@ it('bet navigation reaches the real controls while entry remains closed', async 
     expect(scroll).toHaveBeenCalledWith({ block: 'start' });
     expect(screen.getByRole('heading', { name: 'Choose your bet' })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: '100' }));
+    fireEvent.click(screen.getByText('Quick targets'));
     fireEvent.click(screen.getByRole('button', { name: '5.00×' }));
     expect(screen.getByLabelText('Bet amount')).toHaveValue('100');
     expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('5.00');
@@ -483,4 +515,75 @@ it('handles a selected round leaving the snapshot without showing another result
   expect(post).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Round history' })).toHaveFocus());
+});
+
+it('places completed history before the live chart and betting controls in reading order', async () => {
+  addHistoryRound();
+  setup();
+  await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const history = screen.getByRole('region', { name: 'Round history' });
+  const graph = screen.getByRole('region', { name: 'Live multiplier graph' });
+  const betting = screen.getByRole('region', { name: 'Choose your bet' });
+  expect(history.compareDocumentPosition(graph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(graph.compareDocumentPosition(betting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(post).not.toHaveBeenCalled();
+});
+it('adjusts only the selected slot amount within stake limits and the available balance', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.balance = 27;
+  setup();
+  const first = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  await waitFor(() => expect(within(first).getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(within(first).getByRole('button', { name: 'Increase bet amount' }));
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('27');
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  fireEvent.click(within(first).getByRole('button', { name: 'Decrease bet amount' }));
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('22');
+  expect(within(second).getByLabelText('Bet amount')).toHaveValue('25');
+  fireEvent.click(within(first).getByRole('button', { name: '10' }));
+  expect(within(first).getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  await act(async () => {
+    snapshot = { ...snapshot, balance: 1000 };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '500' } });
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: 'invalid' } });
+  expect(within(first).getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('keeps entry and autoplay disabled when a snapshot arrives too slowly', async () => {
+  snapshot.maxTickets = 2;
+  const normalGet = get.getMockImplementation()!;
+  get.mockImplementation(async (...args) => {
+    const response = await normalGet(...args);
+    if (args[0] === '/games/crash-point') elapsedTime += 1500;
+    return response;
+  });
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  expect(within(panel).getByLabelText('Bet amount')).toBeDisabled();
+  expect(within(panel).getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+  expect(within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+it('blocks entry and draft edits when cached server data becomes stale', async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole('button', { name: /Confirm ticket/ })).toBeEnabled());
+  get.mockImplementation(() => new Promise(() => {}));
+  elapsedTime = 4000;
+  await act(async () => {
+    client.setQueryData(['crash-point', 'u1'], { snapshot, sent: 0, received: 0 });
+  });
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeDisabled());
+  expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
 });

@@ -7,6 +7,8 @@ import {
   ArrowLeft,
   ArrowUpRight,
   History,
+  Minus,
+  Plus,
   ShieldCheck,
   Wifi,
   WifiOff,
@@ -308,6 +310,21 @@ function CrashPoint({
   }).join(' ');
   const x = 72 + progress * 650,
     y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
+  const arrowAngle =
+    (-Math.atan2(
+      (Math.exp(elapsed / rules.growthMs) * 260) / (rules.growthMs * (valueRange - 1)),
+      650 / timeRange
+    ) *
+      180) /
+    Math.PI;
+  const draftStake =
+    /^\d+$/.test(stakeText) &&
+    Number.isSafeInteger(Number(stakeText)) &&
+    Number(stakeText) >= rules.minStake &&
+    Number(stakeText) <= rules.maxStake
+      ? Number(stakeText)
+      : null;
+  const draftStakeLimit = Math.min(rules.maxStake, s?.balance ?? 0);
   const result = shown?.ticket;
   const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   const controls = (
@@ -330,33 +347,6 @@ function CrashPoint({
         </span>
       </div>
       <div className="crash-bet-fields">
-        <div className="crash-stake-field">
-          <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
-          <div className="crash-input">
-            <input
-              id={`crash-stake-${slot}`}
-              inputMode="numeric"
-              value={ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText}
-              onChange={(e) => setStakeText(e.target.value)}
-              disabled={locked}
-            />
-            <span>credits</span>
-          </div>
-          <div className="crash-presets">
-            {[10, 25, 50, 100].map((v) => (
-              <button
-                key={v}
-                disabled={locked}
-                aria-pressed={
-                  Number(ticket ? ticket.stake : pending ? pending.stake : stakeText) === v
-                }
-                onClick={() => setStakeText(String(v))}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="crash-auto-field">
           <label className="crash-auto">
             <span>Auto cash-out</span>
@@ -389,40 +379,75 @@ function CrashPoint({
             />
             <span>×</span>
           </div>
-          <div
-            className="crash-presets crash-targets"
-            role="group"
-            aria-label="Auto cash-out targets"
-          >
-            {[1.5, 2, 3, 5].map((target) => (
-              <button
-                key={target}
-                disabled={locked}
-                aria-pressed={
-                  (ticket
-                    ? ticket.autoCents
-                    : pending
-                      ? pending.autoCents
-                      : auto
-                        ? Math.round(Number(autoText) * 100)
-                        : null) ===
-                  target * 100
-                }
-                onClick={() => {
-                  setAuto(true);
-                  setAutoText(target.toFixed(2));
-                }}
-              >
-                {target.toFixed(2)}×
-              </button>
-            ))}
-          </div>
+          <details className="crash-target-options">
+            <summary>Quick targets</summary>
+            <div
+              className="crash-presets crash-targets"
+              role="group"
+              aria-label="Auto cash-out targets"
+            >
+              {[1.5, 2, 3, 5].map((target) => (
+                <button
+                  key={target}
+                  disabled={locked}
+                  aria-pressed={
+                    (ticket
+                      ? ticket.autoCents
+                      : pending
+                        ? pending.autoCents
+                        : auto
+                          ? Math.round(Number(autoText) * 100)
+                          : null) ===
+                    target * 100
+                  }
+                  onClick={() => {
+                    setAuto(true);
+                    setAutoText(target.toFixed(2));
+                  }}
+                >
+                  {target.toFixed(2)}×
+                </button>
+              ))}
+            </div>
+          </details>
           <p className="crash-field-help">Set your automatic cash-out target. 1.01×–20.00×.</p>
-          {!open && !ticket && !pending && connected && (
-            <p className="crash-field-help">
-              Prepare your next ticket now. Confirm when entry opens.
-            </p>
-          )}
+        </div>
+        <div className="crash-stake-field">
+          <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
+          <div className="crash-input crash-stake-adjustment">
+            <button
+              type="button"
+              className="crash-amount-adjust"
+              aria-label="Decrease bet amount"
+              disabled={locked || draftStake === null || draftStake <= rules.minStake}
+              onClick={() => {
+                if (!locked && draftStake !== null)
+                  setStakeText(String(Math.max(rules.minStake, draftStake - 5)));
+              }}
+            >
+              <Minus size={18} />
+            </button>
+            <input
+              id={`crash-stake-${slot}`}
+              inputMode="numeric"
+              value={ticket ? String(ticket.stake) : pending ? String(pending.stake) : stakeText}
+              onChange={(e) => setStakeText(e.target.value)}
+              disabled={locked}
+            />
+            <span>credits</span>
+            <button
+              type="button"
+              className="crash-amount-adjust"
+              aria-label="Increase bet amount"
+              disabled={locked || draftStake === null || draftStake >= draftStakeLimit}
+              onClick={() => {
+                if (!locked && draftStake !== null)
+                  setStakeText(String(Math.min(draftStakeLimit, draftStake + 5)));
+              }}
+            >
+              <Plus size={18} />
+            </button>
+          </div>
         </div>
         <div className="crash-submit-field">
           {ticket && ticket.payout === null && flying ? (
@@ -474,6 +499,24 @@ function CrashPoint({
               </small>
             </button>
           )}
+        </div>
+        <div
+          className="crash-presets crash-amount-presets"
+          role="group"
+          aria-label="Bet amount presets"
+        >
+          {[10, 25, 50, 100].map((v) => (
+            <button
+              key={v}
+              disabled={locked}
+              aria-pressed={
+                Number(ticket ? ticket.stake : pending ? pending.stake : stakeText) === v
+              }
+              onClick={() => setStakeText(String(v))}
+            >
+              {v}
+            </button>
+          ))}
         </div>
       </div>
       {pending && !entryMutation.isPending && (
@@ -533,17 +576,20 @@ function CrashPoint({
               Start autoplay · 10 rounds
             </button>
           )}
-          <p>
-            Up to 10 entries using this amount and target. Stops on error, disconnection, hidden tab
-            or refresh. Confirmed tickets stay active.
-          </p>
+          <details className="crash-autoplay-info">
+            <summary>Rules</summary>
+            <p>
+              Up to 10 entries using this amount and target. Stops on error, disconnection, hidden
+              tab or refresh. Confirmed tickets stay active.
+            </p>
+          </details>
         </div>
       )}
     </aside>
   );
   if (controlsOnly) return controls;
   return (
-    <div className="crash-page">
+    <div className="crash-page crash-reference">
       <nav className="crash-nav">
         <Link to="/casino">
           <ArrowLeft size={16} />
@@ -564,27 +610,29 @@ function CrashPoint({
           </h1>
           <p>Follow the curve. Choose your moment.</p>
         </div>
-        <div className="crash-wallet">
-          <span>PRACTICE BALANCE</span>
-          <strong>{s ? `${s.balance.toLocaleString()} credits` : 'Connecting…'}</strong>
-          <small>Free credits · no cash value</small>
+        <div className="crash-heading-actions">
+          <div className="crash-wallet">
+            <span>PRACTICE BALANCE</span>
+            <strong>{s ? `${s.balance.toLocaleString()} credits` : 'Connecting…'}</strong>
+            <small>Free credits · no cash value</small>
+          </div>
+          <div className="crash-bet-navigation">
+            <a
+              href="#crash-betting"
+              onClick={(event) => {
+                event.preventDefault();
+                betHeading.current?.scrollIntoView({ block: 'start' });
+                betHeading.current?.focus({ preventScroll: true });
+              }}
+            >
+              Choose your bet <ArrowDown size={16} />
+            </a>
+          </div>
         </div>
       </header>
-      <div className="crash-bet-navigation">
-        <p>Choose an amount and an auto cash-out target for your next ticket.</p>
-        <a
-          href="#crash-betting"
-          onClick={(event) => {
-            event.preventDefault();
-            betHeading.current?.scrollIntoView({ block: 'start' });
-            betHeading.current?.focus({ preventScroll: true });
-          }}
-        >
-          Choose your bet <ArrowDown size={16} />
-        </a>
-      </div>
       <div className="crash-layout">
         <div className="crash-table">
+          <RoundHistory rounds={raw?.rounds ?? []} />
           <section
             className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
             aria-label="Live multiplier graph"
@@ -640,12 +688,17 @@ function CrashPoint({
               <svg className="crash-graph" viewBox="0 0 800 390">
                 <defs>
                   <linearGradient id="crash-line">
-                    <stop stopColor="#3478ff" />
-                    <stop offset="1" stopColor="#75ffe1" />
+                    <stop stopColor="#8370ff" />
+                    <stop offset="0.55" stopColor="#3c94ff" />
+                    <stop offset="1" stopColor="#59e8dd" />
                   </linearGradient>
                   <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
                     <stop stopColor="#39dcc9" stopOpacity=".28" />
                     <stop offset="1" stopColor="#39dcc9" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="crash-arrow-face" x1="0" y1="0" x2="1" y2="1">
+                    <stop stopColor="#b6fff8" />
+                    <stop offset="1" stopColor="#28baca" />
                   </linearGradient>
                   <filter id="crash-glow">
                     <feGaussianBlur stdDeviation="6" />
@@ -675,13 +728,13 @@ function CrashPoint({
                 <polyline points={points} className="curve depth" transform="translate(0 9)" />
                 <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
                 <polyline points={points} className="curve" />
-                <g transform={`translate(${x} ${y}) rotate(-30)`}>
+                <g transform={`translate(${x} ${y}) rotate(${arrowAngle}) scale(1.25)`}>
                   <ellipse cx="-8" cy="18" rx="27" ry="8" fill="#020b1b" opacity=".65" />
                   <g className={flying && connected ? 'crash-arrow flying' : 'crash-arrow'}>
                     <path className="crash-arrow-trail" d="M-18 0H-60" />
                     <path
                       d="M30 0L-23 -17L-12 0L-23 17Z"
-                      fill="#82ffe6"
+                      fill="url(#crash-arrow-face)"
                       stroke="#d4fff7"
                       strokeWidth="1.5"
                     />
@@ -776,7 +829,6 @@ function CrashPoint({
               {raw?.maxTickets === 2 && <CrashPoint userId={userId} slot={2} controlsOnly />}
             </div>
           </section>
-          <RoundHistory rounds={raw?.rounds ?? []} />
         </div>
         <aside className="crash-activity" aria-label="Your round activity">
           <div className="crash-activity-tabs" role="group" aria-label="Activity view">
@@ -1014,8 +1066,9 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
           <button
             key={r.id}
             type="button"
-            className={r.crashCents! >= 200 ? 'high' : ''}
+            className={r.crashCents! >= 1000 ? 'peak' : r.crashCents! >= 200 ? 'high' : ''}
             aria-label={`View completed round ${r.id}: ${(r.crashCents! / 100).toFixed(2)}×`}
+            title={`${new Date(r.startsAt).toLocaleString()} · View round details`}
             aria-haspopup="dialog"
             onClick={(event) => {
               opener.current = event.currentTarget;
