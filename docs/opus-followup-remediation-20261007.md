@@ -25,3 +25,9 @@ Five focused unit regressions passed. A PostgreSQL test adds cookie-only refusal
 7. PVP cancelled-round start, fee accounting/history and remaining P3 items listed in the independent report: withdrawal threshold/HELD recovery, package eligibility, reveal timing, media/legacy gifts, activation timezone, country override and runtime-role suite.
 
 PR #33 requires separate backports and review. Financial provider integration, operational configuration and launch prerequisites remain separate from these fixes.
+
+## N1 — accepted deposit price survives expiry
+
+Settlement validates the saved USD policy at order creation time and recomputes the promised Coin amount from the saved fiat amount. It requires a recorded on-time submission and preserves operational country/account/method/agent checks. It neither selects a replacement quote nor extends the customer payment deadline. Submission timestamps now use the database clock, with a deadline check after readiness locks. Invalid paid terms return a 409 directing staff dispute review.
+
+Local API review suite: 272 tests across 28 files passed; TypeScript passed. Native regression added for submit-before-expiry, settle-after-expiry with a replacement rate, concurrent exactly-once settlement and late-submission rejection. PostgreSQL CI is required before deployment. N2 CI run 37591113302 was still in progress at this checkpoint. No staging or production deployment was performed for these follow-ups.

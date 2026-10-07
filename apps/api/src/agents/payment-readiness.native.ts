@@ -226,3 +226,26 @@ it('late payment recovery serializes reports/refunds, binds step-up, and leaves 
   expect((await prisma.stepUpVerification.findUniqueOrThrow({where:{id:verification.id}})).consumedAt).toBeNull();
   expect((await prisma.latePaymentCase.findUniqueOrThrow({where:{id:secondCase.id}})).status).toBe('ASSIGNED');
 });
+
+it('settles on-time payment after rate expiry without repricing and rejects late submission', async () => {
+  const f = await fundedFixture();
+  await publishUsdRate(f.admin.id, f.country.id, {...fixtureUsdPolicy(1), expiresAt: new Date(Date.now() + 6000).toISOString()});
+  const {order: paid} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
+  const {order: late} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
+  await submitOrderPayment(f.buyer.id, paid.id);
+  await prisma.$queryRaw`SELECT pg_sleep(6)`;
+  await publishUsdRate(f.admin.id, f.country.id, {...fixtureUsdPolicy(1), localPerUsd: '2'});
+  await expect(submitOrderPayment(f.buyer.id, late.id)).rejects.toMatchObject({statusCode: 409});
+  const outcomes = await Promise.allSettled([
+    settleAgentOrder(f.agentUser.id, paid.id), settleAgentOrder(f.agentUser.id, paid.id),
+  ]);
+  expect(outcomes.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+  const completed = await prisma.agentOrder.findUniqueOrThrow({where: {id: paid.id}});
+  expect(completed.status).toBe('COMPLETED');
+  expect(completed.coinAmount).toBe(paid.coinAmount);
+  expect(completed.pricingSnapshot).toEqual(paid.pricingSnapshot);
+  expect(await prisma.agentOrderSettlement.count({where: {orderId: paid.id}})).toBe(1);
+  expect((await prisma.agentReservation.findUniqueOrThrow({where: {orderId: paid.id}})).status).toBe('CONSUMED');
+  expect((await prisma.agentOrder.findUniqueOrThrow({where: {id: late.id}})).status).toBe('CREATED');
+  expect(await prisma.agentOrderSettlement.count({where: {orderId: late.id}})).toBe(0);
+});

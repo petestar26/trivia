@@ -129,7 +129,27 @@ it('checks original pricing at database time and rejects expired terms', async (
       ...order,
       pricingSnapshot: { ...terms(), expiresAt, derivedValue: 'ignored' },
     });
-    if (expiresAt === now.toISOString()) await expect(result).rejects.toThrow(/stale/);
+    if (expiresAt === now.toISOString()) await expect(result).rejects.toMatchObject({statusCode: 409});
     else await expect(result).resolves.toBeUndefined();
   }
+});
+
+it('settles an on-time submission after expiry using the original price', async () => {
+  const tx = { $queryRaw: vi.fn() };
+  for (const row of readinessRows()) tx.$queryRaw.mockResolvedValueOnce(row);
+  await expect(assertDepositReady(tx as any, {
+    ...order, createdAt: new Date(now.getTime() - 900),
+    status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: new Date(now.getTime() - 500),
+    pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000, coinAmount: 192,
+  }, 'settlement')).resolves.toBeUndefined();
+});
+it.each(['late', 'missing', 'wrong-price'])('rejects %s settlement with a staff-review conflict', async (kind) => {
+  const tx = { $queryRaw: vi.fn() };
+  for (const row of readinessRows()) tx.$queryRaw.mockResolvedValueOnce(row);
+  await expect(assertDepositReady(tx as any, {
+    ...order, createdAt: new Date(now.getTime() - 900), status: 'PAYMENT_SUBMITTED',
+    paymentSubmittedAt: kind === 'missing' ? null : new Date(now.getTime() - (kind === 'late' ? 0 : 500)),
+    pricingSnapshot: {...terms(), expiresAt: now.toISOString()}, fiatAmount: 30000,
+    coinAmount: kind === 'wrong-price' ? 193 : 192,
+  }, 'settlement')).rejects.toMatchObject({statusCode: 409});
 });

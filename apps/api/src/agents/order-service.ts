@@ -335,12 +335,14 @@ export async function submitOrderPayment(
     if (!before) throw ApiError.notFound('Order not found');
     if (before.userId !== actorUserId) throw ApiError.forbidden('Not your order');
     if (before.status !== 'CREATED') throw ApiError.conflict('Order is no longer awaiting payment');
+    if (depositEntryDeadline(before) <= await depositClock(tx)) throw ApiError.conflict('Payment window expired. Do not send money; open a deposit dispute if already paid.');
     await assertDepositReady(tx, before);
-    if (depositEntryDeadline(before) <= await depositClock(tx)) throw ApiError.conflict('Payment window expired. Do not send money; contact payment support if already paid.');
+    const submittedAt = await depositClock(tx);
+    if (depositEntryDeadline(before) <= submittedAt) throw ApiError.conflict('Payment window expired. Open a deposit dispute if already paid.');
 
     const claim = await tx.agentOrder.updateMany({
       where: { id: orderId, userId: actorUserId, status: 'CREATED' },
-      data: { status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: new Date() },
+      data: { status: 'PAYMENT_SUBMITTED', paymentSubmittedAt: submittedAt },
     });
     if (claim.count === 0) {
       const current = await tx.agentOrder.findUnique({ where: { id: orderId } });
@@ -494,7 +496,8 @@ export async function settleAgentOrder(
       throw ApiError.forbidden('Your agent account cannot settle orders in its current state');
     }
 
-    await assertDepositReady(tx, before);
+    if (before.status !== 'PAYMENT_SUBMITTED') throw ApiError.conflict(`Order cannot be settled in its current state (${before.status})`);
+    await assertDepositReady(tx, before, 'settlement');
     const claim = await tx.agentOrder.updateMany({
       where: { id: orderId, agentId: agent.id, status: 'PAYMENT_SUBMITTED' },
       data: { status: 'COMPLETED', completedAt: new Date() },
