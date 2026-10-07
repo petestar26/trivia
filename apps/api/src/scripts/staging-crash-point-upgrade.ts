@@ -12,6 +12,7 @@ const allowed = [
   '20261006210000_crash_point_dual_tickets',
   '20261006210100_crash_point_slot_guard_path',
   '20261006210200_crash_point_invoker_guard_path',
+  '20261007010000_agent_activation_runtime_grant',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);
@@ -83,6 +84,13 @@ async function run() {
       >`SELECT bool_and(has_table_privilege(${role},'public.'||t,p)) AS allowed FROM (VALUES ('crash_point_accounts','SELECT'),('crash_point_accounts','INSERT'),('crash_point_accounts','UPDATE'),('crash_point_tickets','SELECT'),('crash_point_tickets','INSERT'),('crash_point_tickets','UPDATE'),('crash_point_rounds','SELECT'),('crash_point_rounds','INSERT')) AS grants(t,p)`;
       if (!grants?.allowed) throw Error('CRASH_RUNTIME_GRANTS_MISSING');
     }
+    // Exercise the canonical owner-run grant path for the isolated API role.
+    // The social worker does not need the onboarding activation capability.
+    const apiRole = process.env.PRACTICE_API_ROLE!;
+    if (apply) await db.$executeRaw`SELECT public.ledger_apply_runtime_grants(${apiRole})`;
+    const [activation] = await db.$queryRaw<{ allowed: boolean }[]>`
+      SELECT has_function_privilege(${apiRole}, 'public.activate_provisioned_agent(text,text,text)', 'EXECUTE') AS allowed`;
+    if (!activation?.allowed) throw Error('AGENT_ACTIVATION_GRANT_MISSING');
     const game = await db.gameDefinition.findUnique({ where: { key: 'crash_point' } });
     if (!game || game.isActive || game.catalogStatus !== 'COMING_SOON')
       throw Error('FINANCIAL_GATE_INVALID');
