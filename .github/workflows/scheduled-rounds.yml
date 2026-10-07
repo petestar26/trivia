@@ -28,6 +28,9 @@ on:
       - 'apps/api/src/scripts/group-worker-runtime*'
       - 'apps/api/src/plugins/**'
       - 'apps/api/src/ws/**'
+      - 'apps/api/src/security/**'
+      - 'apps/api/src/worker*'
+      - 'apps/web/src/providers/socket-provider*'
       - 'apps/api/src/routes/auth*'
       - 'apps/api/src/routes/groups*.test.ts'
       - 'apps/api/src/routes/chat*.test.ts'
@@ -276,6 +279,7 @@ jobs:
           src/lib/api.test.ts
           src/lib/session.test.ts
           src/providers/auth-provider.test.tsx
+          src/providers/socket-provider.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts

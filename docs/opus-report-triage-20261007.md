@@ -40,3 +40,5 @@ After remediation, prepare one consolidated independent-review prompt using the 
 - The financial timeout worker must run the updated entrypoint for expiry to operate. Updating the social/group worker alone is insufficient.
 - Apply the new forward migration as the database owner and re-run canonical grants for the intended API runtime role. No existing migration is edited. Production and payment enablement remain unchanged.
 - The UI now shows the deposit payment deadline and disables expired payment confirmation. Client time is display-only; database time and locked state govern acceptance.
+
+Socket expiry follow-up: the member client now uses the existing cookie-session renewal coordinator for one bounded reconnect attempt after expiry/UNAUTHORIZED. It stops after a rejected recovery and never reconnects after unmount. Four socket-provider tests and fifteen existing session tests passed locally. Real socket integration remains an additional gate.

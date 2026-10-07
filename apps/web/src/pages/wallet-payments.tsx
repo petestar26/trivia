@@ -156,7 +156,6 @@ function Payments({ userId }: { userId: string }) {
         policy: {
           localPerUsd: string;
           observedAt: string;
-    expiresAt?: string;
           expiresAt: string;
           p2pDepositMinUsdCents: number;
           p2pWithdrawalAboveUsdCents: number;
