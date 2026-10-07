@@ -209,9 +209,10 @@ export type CreditCoinsArgs = {
 export async function creditCoins(tx: EconomicTx, userId: string, amount: number, args: CreditCoinsArgs) {
   safePositive(amount, 'Coin credit');
   if (args.type === 'PURCHASE' &&
-      (args.scopeType !== 'AGENT_ORDER' || args.referenceType !== 'AGENT_ORDER' ||
+      (!((args.scopeType === 'AGENT_ORDER' && args.referenceType === 'AGENT_ORDER') ||
+         (args.scopeType === 'CRYPTO_DEPOSIT' && args.referenceType === 'PURCHASE')) ||
        args.referenceId !== args.scopeId || !args.completePurchaseProof)) {
-    throw ApiError.forbidden('Purchase credit requires a settled Agent order proof');
+    throw ApiError.forbidden('Purchase credit requires an exact settlement proof');
   }
   const lotClass: LotClass = args.lotClass ?? (args.type === 'PURCHASE' ? 'WITHDRAWABLE' : args.type === 'BONUS_GRANT' ? 'RESTRICTED' : 'UNCLASSIFIED');
   if (lotClass === 'WITHDRAWABLE' && !['PURCHASE'].includes(args.type)) {

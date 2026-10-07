@@ -41,7 +41,7 @@ export async function requirePlatformGate(tx: Tx, key: string): Promise<void> {
   if (!rows[0]?.enabled) throw ApiError.forbidden('This financial service is not enabled');
 }
 
-async function activePolicyForCountry(tx: Tx, countryCode: string): Promise<ActiveCasinoPolicy | null> {
+export async function activePolicyForCountry(tx: Tx, countryCode: string): Promise<ActiveCasinoPolicy | null> {
   const pointers = (await tx.$queryRaw`
     SELECT "activePolicyId" FROM "country_jurisdictions"
     WHERE "countryCode" = ${countryCode} FOR SHARE

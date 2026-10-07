@@ -418,6 +418,7 @@ beforeAll(() => {
     RECOVERY_REFERENCE_BOUNDARY,
     RECOVERY_RUNTIME_HARDENING,
     AGENT_ACTIVATION_UTC,
+    '20261008010000_usdt_tron_payments',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));

@@ -59,6 +59,8 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
 // New scheduled functions also use only explicitly qualified objects. Require
 // their stronger pin rather than the legacy public-first default.
 const STRICT_SCHEDULED_FUNCTIONS = [
+  'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
+  'ledger_apply_runtime_grants_pre_crypto', 'purchase_settlement_proof_guard',
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
   'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
   'scheduled_stake_constraint', 'scheduled_stake_integrity_failures',
@@ -148,6 +150,8 @@ const checks: ReadonlyArray<[string, string]> = [
       ('economic_operations','economic_operations_append_only'),
       ('coin_lot_entries','coin_lot_entries_append_only'),
       ('coin_lot_entries','purchase_settlement_proof_guard'),
+      ('crypto_deposits','crypto_deposit_proof'), ('crypto_deposit_settlements','crypto_settlement_proof'),
+      ('crypto_withdrawals','crypto_withdrawal_proof'), ('crypto_receipts','crypto_receipts_append_only'),
       ('wallet_transactions','wallet_transactions_append_only'),
       ('coin_provenance','coin_provenance_no_delete'),
       ('coin_provenance','bonus_rule_pin'),
@@ -309,6 +313,17 @@ const checks: ReadonlyArray<[string, string]> = [
               AND p."walletTransactionId"=wt."id"
               AND (SELECT COUNT(*) FROM "coin_lot_entries" minted
                    WHERE minted."operationId"=o."id" AND minted."entryType"='MINT')=1
+          )) OR
+          (o."type"='PURCHASE' AND o."scopeType"='CRYPTO_DEPOSIT' AND e."entryType"='MINT' AND EXISTS (
+            SELECT 1 FROM public.crypto_deposits d JOIN public.crypto_deposit_settlements s ON s."depositId"=d.id
+            JOIN public.crypto_receipts r ON r.id=s."receiptId" JOIN public.wallet_transactions wt ON wt.id=s."walletTransactionId"
+            WHERE d.id=o."scopeId" AND d."userId"=o."userId" AND d.status='CREDITED' AND d."coinAmount"=e."availableDelta"
+              AND r."depositId"=d.id AND r.address=d.address AND r."amountMicro"=d."amountMicro" AND r."blockTime">=d."createdAt" AND r."blockTime"<=d."expiresAt"
+              AND o."walletTransactionIds"=ARRAY[wt.id] AND wt."userId"=d."userId" AND wt.currency='COINS' AND wt.type='COIN_CREDIT'
+              AND wt."ledgerType"='CREDIT' AND wt.status='SUCCEEDED' AND wt."referenceType"='PURCHASE' AND wt."referenceId"=d.id
+              AND wt.amount=d."coinAmount" AND wt."balanceAfter"-wt."balanceBefore"=d."coinAmount"
+              AND p."sourceOperationId"=o.id AND p."walletTransactionId"=wt.id AND p."userId"=d."userId"
+              AND (SELECT count(*) FROM public.coin_lot_entries x WHERE x."operationId"=o.id AND x."entryType"='MINT')=1
           )) OR
           (o."type"='BONUS_CONVERSION' AND e."entryType"='CONVERT_IN') OR
           (o."type" IN ('PAYOUT','SCHEDULED_STAKE_SETTLE') AND e."entryType"='RETURN') OR

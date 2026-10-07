@@ -328,16 +328,11 @@ function Payments({ userId }: { userId: string }) {
               {options.data?.isAdmin ? 'Administration dashboard →' : 'Agent workspace →'}
             </Link>
           )}
-          {section === 'deposit' && options.data?.crypto?.assets && (
+          {(section === 'deposit' || section === 'withdraw') && (
             <section className="payment-panel" aria-label="Crypto deposit options">
-              <h2>Crypto deposits</h2>
-              <p>Choose an asset once payment processing is connected. No crypto deposit addresses are available yet.</p>
-              <div className="payment-actions">{options.data.crypto.assets.map(asset => (
-                <article className="payment-record" key={asset.symbol}>
-                  <h3>{asset.name} · {asset.symbol}</h3><p>{asset.network}</p>
-                  <span>{asset.reason}</span>
-                </article>
-              ))}</div>
+              <h2>USDT · TRON (TRC20)</h2>
+              <p>Deposit USDT for automatic verification, or request a manual withdrawal to your TRON address. Availability depends on payment approval for your country.</p>
+              <Link className="payment-link" to="/wallet/crypto">Open crypto wallet →</Link>
             </section>
           )}
           {(section === 'deposit' || section === 'withdraw') && (
