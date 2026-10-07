@@ -1,4 +1,4 @@
-import {afterAll,beforeAll,expect,it} from 'vitest';
+import {afterAll,afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {prisma as db} from '@socialplay/database';
 import {createMessage} from '../realtime/chat-service.js';
@@ -12,6 +12,7 @@ if(!['localhost','127.0.0.1'].includes(url.hostname)||url.pathname!=='/playqube_
 let server:Awaited<ReturnType<typeof buildServer>>;
 beforeAll(async()=>{server=await buildServer();await server.ready();});
 afterAll(async()=>{await server?.close();await db.$disconnect();});
+afterEach(()=>{vi.unstubAllEnvs();});
 function headers(userId:string){return {authorization:`Bearer ${server.jwt.sign({sub:userId,roles:['USER']})}`};}
 async function fixture(lifetime=86400000){
   const users=[randomUUID(),randomUUID(),randomUUID()];const groupId=randomUUID();
@@ -150,6 +151,7 @@ it('leaving an unpaid lobby cleans its entry without a debit or refund',async()=
 });
 
 it('allows only the suspended player to reverse their own unstarted PVP entry through HTTP', async () => {
+ vi.stubEnv('GROUP_PVP_GAME_POINTS_ENABLED','true');
  const f=await fixture(); const service=createGroupPvpService(db);
  await db.$transaction(tx=>applyBalanceChanges(tx,f.users[1],[{currency:'GAME_POINTS',amount:500,ledgerType:'CREDIT',transactionType:'GAME_POINT_CREDIT',referenceType:'ADMIN',description:'Disposable refund fixture'}]));
  const roundId=randomUUID();
