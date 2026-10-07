@@ -44,6 +44,13 @@ export function errorHandler(
     return;
   }
 
+  // JSON parser errors may quote a password fragment in their message/stack.
+  // Keep both the response and all logging generic before touching that error.
+  if (error.statusCode === 400 && (error.name === 'SyntaxError' || error.code === 'FST_ERR_CTP_INVALID_JSON_BODY')) {
+    request.log.warn({ code: 'INVALID_JSON_BODY' }, 'Invalid JSON request');
+    return reply.status(400).send({ success: false, error: { code: ErrorCode.BAD_REQUEST, message: 'Invalid JSON body' } });
+  }
+
   const requestId = request.headers['x-request-id'] as string || crypto.randomUUID();
 
   request.log.error({ err: errorSafeToLog(error), requestId }, 'Request error');

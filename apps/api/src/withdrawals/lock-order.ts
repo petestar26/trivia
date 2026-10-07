@@ -16,9 +16,12 @@ export async function lockWithdrawalParticipants(
   if (!target) throw ApiError.notFound('Withdrawal not found');
   const userIds = [...new Set([target.userId, actorUserId])].sort();
   for (const userId of userIds) {
-    const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM users WHERE id = ${userId} FOR SHARE
+    const rows = await tx.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id, status::text AS status FROM users WHERE id = ${userId} FOR SHARE
     `;
     if (!rows[0]) throw ApiError.unauthorized('Authentication required');
+    if (userId === actorUserId && rows[0].status !== 'ACTIVE') {
+      throw ApiError.forbidden('An active account is required to process withdrawals');
+    }
   }
 }

@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import { config } from '@socialplay/config';
+import { protectCookieWrites } from './cookie-origin.js';
 import { createRateLimitKey } from './rate-limit-identity.js';
 
 export async function registerPlugins(server: FastifyInstance): Promise<void> {
@@ -16,6 +17,8 @@ export async function registerPlugins(server: FastifyInstance): Promise<void> {
     secret: config.JWT_ACCESS_SECRET,
     hook: 'onRequest',
   });
+
+  server.addHook('onRequest', protectCookieWrites);
 
   await server.register(helmet, {
     contentSecurityPolicy: {

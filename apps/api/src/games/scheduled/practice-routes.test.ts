@@ -4,7 +4,9 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import { registerPracticeRoutes } from './practice-routes.js';
 import type { RoundDatabase } from './round-store.js';
-// Only config is replaced; JWT authentication and the route/service are real.
+// Current account lookup and config use fixtures; JWT and route/service are real.
+const actorLookup = vi.hoisted(() => vi.fn());
+vi.mock('@socialplay/database', () => ({ prisma: { user: { findUnique: actorLookup } } }));
 vi.mock('@socialplay/config', () => ({ config: {} }));
 const app = Fastify();
 const calls: Array<{ sql: string; values: unknown[] }> = [];
@@ -26,11 +28,22 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   calls.length = 0;
+  actorLookup.mockReset().mockResolvedValue({ status: 'ACTIVE' });
 });
 afterAll(async () => {
   await app.close();
 });
 describe('scheduled practice HTTP boundary', () => {
+  it('rejects a suspended identity before querying practice storage', async () => {
+    actorLookup.mockResolvedValue({ status: 'SUSPENDED' });
+    const response = await app.inject({
+      url: '/scheduled/spin-win',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(actorLookup).toHaveBeenCalledWith({ where: { id: 'alice' }, select: { status: true } });
+    expect(calls).toHaveLength(0);
+  });
   it('rejects unauthenticated reads and writes before reaching storage', async () => {
     expect((await app.inject({ method: 'GET', url: '/scheduled/spin-win' })).statusCode).toBe(401);
     expect(

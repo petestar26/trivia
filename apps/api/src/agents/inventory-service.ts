@@ -204,11 +204,10 @@ export async function adjustAgentInventory(
 /**
  * Atomically reserve `amount` of an agent's inventory for a specific order.
  * Called from within the caller's own transaction (order creation), never
- * opens its own. Version-pinned, mirroring applyBalanceChanges exactly:
- * read, check `available = totalBalance - reservedBalance >= amount` in
- * application code, then a version-pinned updateMany. A lost race (someone
- * else changed the row between read and write) throws Conflict — the
- * caller's transaction rolls back, so no partial order/reservation survives.
+ * opens its own. Lock the inventory row before reading availability so
+ * independent customers serialize against the latest committed reservation.
+ * Retain the version predicate as a defensive invariant and keep reservation,
+ * order and ledger writes within the same transaction.
  */
 export async function reserveInventory(
   tx: any,
@@ -217,6 +216,7 @@ export async function reserveInventory(
   orderId: string,
   reservationId: string
 ) {
+  await tx.$queryRaw`SELECT id FROM agent_inventories WHERE "agentId"=${agentId} FOR UPDATE`;
   const inventory = await tx.agentInventory.findUnique({ where: { agentId } });
   if (!inventory) {
     throw ApiError.badRequest('This agent has no available inventory');

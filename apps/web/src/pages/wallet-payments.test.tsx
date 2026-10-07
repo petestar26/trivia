@@ -61,3 +61,40 @@ it('shows all requested crypto assets as unavailable without payment controls',a
  m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],crypto:{assets}}:[]}));mount();
  await screen.findByRole('heading',{name:'Crypto deposits'});for(const asset of assets)expect(screen.getByRole('heading',{name:`${asset.name} · ${asset.symbol}`})).toBeInTheDocument();expect(m.post).not.toHaveBeenCalled();
 });
+it('shows paused pricing without an endless rate loader or preview request',async()=>{
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[{...options.countries[0],usdPricingEnabled:true,agentPaymentEnabled:false}]}:[]}));
+ mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
+ expect(screen.getByText(/Payments are paused in this country/)).toBeInTheDocument();
+ expect(screen.queryByText('Loading current rate…')).toBeNull();
+ expect(m.get.mock.calls.some(c=>c[0].includes('deposit-preview'))).toBe(false);
+ expect(m.post).not.toHaveBeenCalled();
+});
+it.each(['PAYOUT_IN_PROGRESS','PAYMENT_SUBMITTED'])('requires verified evidence only for escalated %s disputes',async(openedFromStatus)=>{
+ const row={id:'withdrawal-one',status:'DISPUTED',coinAmount:500,fiatAmount:'500',fiatCurrency:'USD',createdAt:'2026-01-01T00:00:00Z'};
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,isAdmin:true}:path==='/withdrawals/admin/disputes'?[{id:'dispute-one',status:'ASSIGNED',reason:'OTHER',description:'Investigate',withdrawalId:row.id}]:path==='/withdrawals/admin/disputes/dispute-one'?{withdrawal:row,dispute:{openedFromStatus}}:[]}));
+ mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Review resolution'}));
+ await waitFor(()=>expect(screen.queryByText('Loading request details…')).toBeNull());
+ fireEvent.change(screen.getByLabelText('Outcome'),{target:{value:'COMPLETED'}});
+ fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Bank receipt verified'}});
+ fireEvent.click(screen.getByRole('checkbox'));
+ const button=screen.getByRole('button',{name:'Confirm action'});
+ if(openedFromStatus==='PAYOUT_IN_PROGRESS'){
+   expect(button).toBeDisabled();
+   fireEvent.change(screen.getByLabelText('Verified transfer reference'),{target:{value:'verified-bank-ref'}});
+   fireEvent.change(screen.getByLabelText('Payment occurred at (your local time)'),{target:{value:'2026-01-02T12:00'}});
+ } else expect(screen.queryByLabelText('Verified transfer reference')).toBeNull();
+ expect(button).toBeEnabled();m.post.mockResolvedValue({data:{}});fireEvent.click(button);
+ await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));
+ if(openedFromStatus==='PAYOUT_IN_PROGRESS') expect(m.post.mock.calls[0][1].adminVerifiedPayment).toMatchObject({referenceNumber:'verified-bank-ref',paymentOccurredAt:new Date('2026-01-02T12:00').toISOString()});
+ else expect(m.post.mock.calls[0][1]).not.toHaveProperty('adminVerifiedPayment');
+});
+
+it('blocks payment confirmation after the deposit window and preserves support guidance', async () => {
+ const row = { id: 'expired-order', orderNumber: 'AG-EXPIRED', status: 'CREATED', coinAmount: 500, fiatAmount: 500, fiatCurrency: 'USD', createdAt: new Date(Date.now()-16*60000).toISOString() };
+ m.get.mockImplementation(async (path: string) => ({ data: path === '/wallet/payment-options' ? options : path === '/agent-orders/me' ? [row] : [] }));
+ mount('activity');
+ expect(await screen.findByText(/Payment window expired. Do not send money/)).toBeInTheDocument();
+ expect(screen.getByRole('button', { name: 'I have sent the payment' })).toBeDisabled();
+ expect(screen.getByRole('button', { name: 'Cancel unpaid order' })).toBeEnabled();
+ expect(m.post).not.toHaveBeenCalled();
+});

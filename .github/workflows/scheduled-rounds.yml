@@ -6,6 +6,10 @@ on:
       - '.github/workflows/scheduled-rounds.yml'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/games/crash-point/**'
+      - 'apps/web/src/pages/games/crash-point*'
+      - 'apps/api/vitest.crash-point.config.ts'
+      - 'apps/api/src/scripts/staging-crash-point-upgrade.ts'
       - 'apps/api/src/groups/**'
       - 'apps/api/src/realtime/**'
       - 'apps/api/src/rewards/**'
@@ -24,6 +28,9 @@ on:
       - 'apps/api/src/scripts/group-worker-runtime*'
       - 'apps/api/src/plugins/**'
       - 'apps/api/src/ws/**'
+      - 'apps/api/src/security/**'
+      - 'apps/api/src/worker*'
+      - 'apps/web/src/providers/socket-provider*'
       - 'apps/api/src/routes/auth*'
       - 'apps/api/src/routes/groups*.test.ts'
       - 'apps/api/src/routes/chat*.test.ts'
@@ -150,8 +157,10 @@ jobs:
         run: |
           pnpm --filter @socialplay/database db:migrate:deploy
           pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Crash Point SQL integrity and server receipts
+        run: pnpm --filter api exec vitest run --config vitest.crash-point.config.ts
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Gateway identity and independent worker contracts
         run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
       - name: Build API and verify disposable staging setup
@@ -270,6 +279,13 @@ jobs:
           src/lib/api.test.ts
           src/lib/session.test.ts
           src/providers/auth-provider.test.tsx
+          src/providers/socket-provider.test.tsx
+          src/providers/connection.test.tsx
+          src/pages/login-return-path.test.tsx
+          src/pages/signup-return-path.test.tsx
+          src/pages/games/crash-point.test.tsx
+          src/pages/wallet-late-payments.test.tsx
+          src/components/app-error-boundary.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts

@@ -100,7 +100,7 @@ describe('browser cookie renewal and logout', () => {
     const r = await server.inject({ method: 'POST', url: '/auth/refresh', headers: headers(), payload: {} });
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ success: true, data: { expiresIn: 900 } });
-    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.headers['cache-control']).toBe('private, no-store');
     expect(r.cookies.map(c => c.name)).toEqual(['sp_access_token', 'sp_refresh_token']);
     expect(r.cookies.every(c => c.httpOnly && c.secure && c.sameSite === 'Lax')).toBe(true);
     expect(db.session.delete).toHaveBeenCalledWith({ where: { id: 'session' } });
@@ -145,4 +145,17 @@ describe('browser cookie renewal and logout', () => {
     const r = await server.inject({ method: 'POST', url: '/auth/logout', headers: { ...headers(), origin: 'https://evil.test' } });
     expect(r.statusCode).toBe(403); expect(db.session.deleteMany).not.toHaveBeenCalled(); expect(r.cookies).toHaveLength(0);
   });
+});
+
+it('does not expose refreshed tokens in browser JSON even with an explicit body token', async () => {
+  const r=await server.inject({method:'POST',url:'/auth/refresh',headers:{origin:config.FRONTEND_URL},payload:{refreshToken:token}});
+  expect(r.statusCode,r.body).toBe(200);
+  expect(r.json().data).not.toHaveProperty('accessToken');
+  expect(r.json().data).not.toHaveProperty('refreshToken');
+  expect(r.headers['cache-control']).toContain('no-store');
+});
+it('blocks browser login CSRF and applies no-store before credential lookup', async () => {
+  const r=await server.inject({method:'POST',url:'/auth/login',headers:{origin:'https://evil.example'},payload:{email:'fixture@example.test',password:'NotUsed1!'}});
+  expect(r.statusCode).toBe(403);
+  expect(r.headers['cache-control']).toContain('no-store');
 });

@@ -154,7 +154,7 @@ export async function securityRoutes(server: FastifyInstance): Promise<void> {
       const policy = await setOwnStepUpPolicy(
         request.user!.sub,
         body.requiresStepUpForSensitiveOps,
-        requestContext(request)
+        { ...requestContext(request), tokenIat: request.user!.iat }
       );
       return reply.send({ success: true, data: policy });
     }

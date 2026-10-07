@@ -11,7 +11,7 @@ vi.mock('@/lib/api-config', () => ({
   API_BASE: 'https://api.example.com/api/v1',
 }));
 vi.mock('socket.io-client', () => ({
-  io: vi.fn(() => ({ on: vi.fn(), disconnect: vi.fn() })),
+  io: vi.fn(() => ({ on: vi.fn(), removeAllListeners: vi.fn(), disconnect: vi.fn() })),
 }));
 
 const apiGet = vi.fn();
@@ -76,8 +76,8 @@ it('connects Socket.IO to the API origin with credentials and the root /ws path'
 // boundary remounting its child subtree (which includes SocketProvider).
 it('identity A → B: old socket disconnects and a new socket is created', async () => {
   apiGet.mockResolvedValue({ success: true, data: { user: testUser('a') } });
-  const socketA = { on: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
-  const socketB = { on: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
+  const socketA = { on: vi.fn(), removeAllListeners: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
+  const socketB = { on: vi.fn(), removeAllListeners: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
   vi.mocked(io).mockReturnValueOnce(socketA).mockReturnValueOnce(socketB);
 
   renderSocketStack();
@@ -95,7 +95,7 @@ it('identity A → B: old socket disconnects and a new socket is created', async
 // connection stays up exactly as it was (no teardown, no replacement).
 it('same-user refresh does not reconnect the socket', async () => {
   apiGet.mockResolvedValue({ success: true, data: { user: testUser('a') } });
-  const socketA = { on: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
+  const socketA = { on: vi.fn(), removeAllListeners: vi.fn(), disconnect: vi.fn() } as unknown as Socket;
   vi.mocked(io).mockReturnValueOnce(socketA);
 
   renderSocketStack();

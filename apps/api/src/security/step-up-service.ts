@@ -159,48 +159,57 @@ export async function requiresStepUp(userId: string): Promise<boolean> {
   return policy?.requiresStepUpForSensitiveOps ?? false;
 }
 
-/**
- * Sets the caller's own step-up policy.
- *
- * Enabling requires an ACTIVE factor — otherwise a user could lock
- * themselves out of future sensitive operations with no way to satisfy
- * the requirement.
- */
+/** Purpose is independent from withdrawals and bound to the current token. */
+export const DISABLE_STEP_UP_POLICY_PURPOSE = 'DISABLE_STEP_UP_POLICY';
+
+/** Disabling protection, its single-use authorization and notification are atomic. */
 export async function setOwnStepUpPolicy(
   userId: string,
   required: boolean,
-  context?: { ip?: string; userAgent?: string }
+  context?: { ip?: string; userAgent?: string; tokenIat?: number }
 ): Promise<{ requiresStepUpForSensitiveOps: boolean }> {
-  if (required) {
-    const factor = await prisma.userTotpFactor.findUnique({
-      where: { userId },
-      select: { status: true },
-    });
-    if (!factor || factor.status !== 'ACTIVE') {
-      throw ApiError.badRequest(
-        'Enable an authentication factor before requiring step-up verification'
+  return prisma.$transaction(async (tx) => {
+    if (required) {
+      const factor = await tx.userTotpFactor.findUnique({
+        where: { userId }, select: { status: true },
+      });
+      if (!factor || factor.status !== 'ACTIVE') {
+        throw ApiError.badRequest(
+          'Enable an authentication factor before requiring step-up verification'
+        );
+      }
+    } else {
+      // Fail closed even when no policy row exists. A cookie alone must never
+      // create an unprotected policy or bypass the dedicated authorization.
+      if (!Number.isInteger(context?.tokenIat)) {
+        throw ApiError.forbidden('Step-up authentication required', { code: 'STEP_UP_REQUIRED' });
+      }
+      await requireStepUp(
+        { userId, tokenIat: context!.tokenIat! }, DISABLE_STEP_UP_POLICY_PURPOSE, tx
       );
     }
-  }
-
-  const policy = await prisma.userSecurityPolicy.upsert({
-    where: { userId },
-    create: { userId, requiresStepUpForSensitiveOps: required },
-    update: { requiresStepUpForSensitiveOps: required },
-    select: { requiresStepUpForSensitiveOps: true },
+    const policy = await tx.userSecurityPolicy.upsert({
+      where: { userId },
+      create: { userId, requiresStepUpForSensitiveOps: required },
+      update: { requiresStepUpForSensitiveOps: required },
+      select: { requiresStepUpForSensitiveOps: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        userId, action: 'SECURITY_POLICY_UPDATED', entity: 'UserSecurityPolicy', entityId: userId,
+        newData: { requiresStepUpForSensitiveOps: required },
+        ip: context?.ip, userAgent: context?.userAgent,
+      },
+    });
+    if (!required) {
+      await tx.notification.create({
+        data: {
+          userId, type: 'SYSTEM', title: 'Withdrawal verification disabled',
+          body: 'Authenticator verification for sensitive operations was disabled. If this was not you, secure your account immediately.',
+          data: { securityEvent: 'STEP_UP_POLICY_DISABLED' },
+        },
+      });
+    }
+    return policy;
   });
-
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'SECURITY_POLICY_UPDATED',
-      entity: 'UserSecurityPolicy',
-      entityId: userId,
-      newData: { requiresStepUpForSensitiveOps: required },
-      ip: context?.ip,
-      userAgent: context?.userAgent,
-    },
-  });
-
-  return policy;
 }

@@ -31,6 +31,7 @@ function game(key: string, status = 'COMING_SOON', active = false): MemberGame {
   };
 }
 const keys = [
+  'crash_point',
   'dice',
   'spin_win',
   'turbo_keno',

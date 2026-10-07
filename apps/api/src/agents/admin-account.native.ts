@@ -48,9 +48,11 @@ beforeAll(async () => {
   await owner.$executeRawUnsafe(`GRANT UPDATE ("passwordHash") ON public.users TO "${role}"`);
   await owner.$executeRawUnsafe(`GRANT UPDATE (name) ON public.countries TO "${role}"`);
   await owner.$executeRawUnsafe(`GRANT UPDATE ON public.agent_account_setups TO "${role}"`);
-  await owner.$executeRawUnsafe(
-    `GRANT EXECUTE ON FUNCTION public.activate_provisioned_agent(text,text,text) TO "${role}"`
-  );
+  await owner.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+  await owner.$executeRaw`SELECT public.ledger_apply_runtime_grants(${role})`;
+  const [capability] = await owner.$queryRaw<{ allowed: boolean }[]>`
+    SELECT has_function_privilege(${role}, 'public.activate_provisioned_agent(text,text,text)', 'EXECUTE') AS allowed`;
+  expect(capability.allowed).toBe(true);
   const runtimeUrl = new URL(url);
   runtimeUrl.username = role;
   runtimeUrl.password = password;

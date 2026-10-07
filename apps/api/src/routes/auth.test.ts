@@ -87,6 +87,28 @@ describeIf('auth foundation slice 3 — session relation, atomic registration, a
     return { res, payload, email };
   }
 
+  it('browser registration and login return cookies without JSON tokens and forbid caching', async () => {
+    const tag=uniqueTag('browser');
+    const payload={username:tag.slice(0,30),email:`${tag}@test.local`,password:VALID_PASSWORD};
+    createdEmails.push(payload.email);
+    const headers={origin:new URL(config.FRONTEND_URL).origin};
+    const registered=await server.inject({method:'POST',url:`${PREFIX}/register`,headers,payload});
+    expect(registered.statusCode,registered.body).toBe(201);
+    const loggedIn=await server.inject({method:'POST',url:`${PREFIX}/login`,headers,payload:{email:payload.email,password:payload.password}});
+    expect(loggedIn.statusCode,loggedIn.body).toBe(200);
+    for(const response of [registered,loggedIn]) {
+      expect(response.json().data.user).toBeTruthy();
+      expect(response.json().data.expiresIn).toBeTruthy();
+      expect(response.json().data).not.toHaveProperty('accessToken');
+      expect(response.json().data).not.toHaveProperty('refreshToken');
+      expect(response.cookies.some(c=>c.name==='sp_access_token' && c.httpOnly)).toBe(true);
+      expect(response.headers['cache-control']).toContain('no-store');
+    }
+    const failure=await server.inject({method:'POST',url:`${PREFIX}/login`,headers,payload:{email:payload.email,password:'IncorrectPassword1!'}});
+    expect(failure.statusCode).toBe(401);
+    expect(failure.headers['cache-control']).toContain('no-store');
+  });
+
   // ─── A. REFRESH BASIC ──────────────────────────────────────
 
   it('A: refresh with a valid token returns 200 with replacement tokens', async () => {

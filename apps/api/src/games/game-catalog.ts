@@ -25,17 +25,18 @@ export interface GameCatalogItem {
 
 const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
 
-// The compliance-approved public catalog: exactly these 13 keys, each once,
+// The compliance-approved public catalog: these approved keys, each once,
 // per the seed migration (20260918020000_casino_foundation_seed) that
 // established them. This is an ALLOWLIST, not a denylist of the retired
 // `lucky_spin` row — a game row is never public just because its
 // catalogStatus happens to be AVAILABLE/COMING_SOON in the database. A row
 // that is AVAILABLE/COMING_SOON but NOT in this list (a rogue insert, a
 // migration mistake, a future draft row someone forgot to keep DRAFT) never
-// reaches a player. Adding a 14th approved game means adding its key here
+// reaches a player. Adding an approved game means adding its key here
 // AND shipping a forward-only migration for it — never just flipping a DB
 // column.
 const APPROVED_CATALOG_KEYS: readonly string[] = [
+  'crash_point',
   'dice',
   'number_challenge',
   'trivia',
@@ -55,7 +56,7 @@ const APPROVED_CATALOG_KEYS: readonly string[] = [
 // Keep the server gate even if an old deployment/admin changes catalog status.
 export function isCoinWagerPaused(game: { key: string; mode: string; wagerCurrency: string | null }) {
   return game.mode === 'WAGER' && game.wagerCurrency === 'COINS' &&
-    ['number_challenge', 'dice'].includes(game.key);
+    ['number_challenge', 'dice', 'crash_point'].includes(game.key);
 }
 
 export function isApprovedGameKey(key: string): boolean {

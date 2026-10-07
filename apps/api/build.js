@@ -20,6 +20,7 @@ async function buildApi() {
     entryPoints: [
       join(__dirname, 'src/server.ts'),
       join(__dirname, 'src/worker.ts'),
+      join(__dirname, 'src/scripts/staging-payment-worker.ts'),
       // Read-only ledger upgrade preflight, runnable where tsx is not installed.
       join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),
       // Rolled-back ledger invariant scan for the upgrade runbook.
@@ -36,6 +37,7 @@ async function buildApi() {
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
+      join(__dirname, 'src/scripts/staging-crash-point-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-payment-admin.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),

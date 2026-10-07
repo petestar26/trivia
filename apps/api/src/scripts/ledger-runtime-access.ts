@@ -51,6 +51,7 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['audit_logs', 'UPDATE'], ['audit_logs', 'DELETE'],
   ['house_publication_requests', 'INSERT'], ['house_publication_requests', 'UPDATE'], ['house_publication_requests', 'DELETE'],
   ['house_publication_receipts', 'INSERT'], ['house_publication_receipts', 'UPDATE'], ['house_publication_receipts', 'DELETE'],
   ['house_round_beacon_pins', 'INSERT'], ['house_round_beacon_pins', 'UPDATE'], ['house_round_beacon_pins', 'DELETE'],
@@ -121,6 +122,23 @@ async function requiredPrivileges(tx: Tx, role: string, requirePractice: boolean
       failures.push(`${role} lacks SELECT on ${table}, which the practice snapshot needs`);
     }
   }
+  for (const [table, privileges] of [
+    ['late_payment_cases', ['SELECT','INSERT','UPDATE']],
+    ['late_payment_reference_claims', ['SELECT','INSERT']],
+    ['audit_logs', ['SELECT','INSERT']],
+  ] as const) {
+    for (const privilege of privileges) {
+      const [row] = await tx.$queryRaw<{installed: boolean; granted: boolean | null}[]>`
+        SELECT to_regclass(${'public.' + table}) IS NOT NULL AS installed,
+          has_table_privilege(${role},to_regclass(${'public.' + table}),${privilege}) AS granted`;
+      if ((requirePractice || row?.installed) && !row?.granted)
+        failures.push(`${role} lacks ${privilege} on ${table}, which recovery needs`);
+    }
+  }
+  const [activation] = await tx.$queryRaw<{ installed: boolean; granted: boolean | null }[]>`
+    SELECT to_regprocedure('public.activate_provisioned_agent(text,text,text)') IS NOT NULL AS installed,
+      has_function_privilege(${role}, to_regprocedure('public.activate_provisioned_agent(text,text,text)'), 'EXECUTE') AS granted`;
+  if (activation?.installed && !activation.granted) failures.push(`${role} lacks EXECUTE on activate_provisioned_agent, which agent activation needs`);
   const [schema] = await tx.$queryRaw<{ granted: boolean }[]>`
     SELECT has_schema_privilege(${role}, 'public', 'USAGE') AS granted`;
   if (!schema?.granted) failures.push(`${role} lacks USAGE on schema public, which the API needs`);

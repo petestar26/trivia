@@ -7,16 +7,21 @@ import { ApiError } from './error-handler.js';
 // decoded access token against `FastifyJWT.user`; this replaces the previous
 // direct `FastifyRequest.user` augmentation (which conflicted with the
 // plugin's own declaration).
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    // Server-owned route metadata, never request input. Only operations that
+    // atomically return the caller's own held funds may use this exception.
+    allowOwnFundsReturn?: boolean;
+  }
+}
+
 declare module '@fastify/jwt' {
   interface FastifyJWT {
     user: JwtPayload;
   }
 }
 
-export async function authenticate(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   try {
     // request.jwtVerify() resolves the token from the Authorization header
     // (Bearer) OR from the configured cookie (sp_access_token) — see the
@@ -32,12 +37,20 @@ export async function authenticate(
     }
     throw ApiError.unauthorized('Invalid token', { code: ErrorCode.TOKEN_INVALID });
   }
+  // A still-valid token must not preserve access after suspension/deletion.
+  // Keep DB failures outside the token catch: an outage is not a bad credential.
+  const actor = await prisma.user.findUnique({
+    where: { id: request.user!.sub },
+    select: { status: true },
+  });
+  if (
+    !actor ||
+    (actor.status !== 'ACTIVE' && request.routeOptions?.config.allowOwnFundsReturn !== true)
+  )
+    throw ApiError.forbidden('An active account is required');
 }
 
-export function optionalAuth(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
+export function optionalAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -48,10 +61,16 @@ export function optionalAuth(
 
   return request
     .jwtVerify<JwtPayload>()
-    .then((decoded) => {
-      request.user = decoded;
+    .then(async (decoded) => {
+      const actor = await prisma.user.findUnique({
+        where: { id: decoded.sub },
+        select: { status: true },
+      });
+      if (actor?.status === 'ACTIVE') request.user = decoded;
+      else delete (request as Partial<FastifyRequest>).user;
     })
     .catch(() => {
+      delete (request as Partial<FastifyRequest>).user;
       // Ignore errors for optional auth
     });
 }
@@ -62,7 +81,10 @@ export function requireRole(...allowedRoles: string[]) {
       throw ApiError.unauthorized('Authentication required');
     }
 
-    const actor = await prisma.user.findUnique({ where: { id: request.user.sub }, select: { role: true, status: true } });
+    const actor = await prisma.user.findUnique({
+      where: { id: request.user.sub },
+      select: { role: true, status: true },
+    });
     if (!actor || actor.status !== 'ACTIVE' || !allowedRoles.includes(actor.role)) {
       throw ApiError.forbidden('Insufficient permissions');
     }
@@ -77,7 +99,10 @@ export function requirePermission(permission: string) {
 
     // A signed token can outlive demotion or suspension. Administrative reads
     // must use current authority, just like the financial mutation services.
-    const actor = await prisma.user.findUnique({ where: { id: request.user.sub }, select: { role: true, status: true } });
+    const actor = await prisma.user.findUnique({
+      where: { id: request.user.sub },
+      select: { role: true, status: true },
+    });
     if (!actor || actor.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
       throw ApiError.forbidden(`Permission required: ${permission}`);
     }

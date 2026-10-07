@@ -3,7 +3,8 @@ import { Server } from 'socket.io';
 import { config } from '@socialplay/config';
 import { JwtPayload } from '@socialplay/shared';
 import { createMessage, getGroupMembership } from '../realtime/chat-service.js';
-import { setSocketServer } from '../realtime/broadcast.js';
+import { prisma } from '@socialplay/database';
+import { emitToGroup, setSocketServer } from '../realtime/broadcast.js';
 
 const GROUP_ROOM_PREFIX = 'group:';
 
@@ -71,6 +72,10 @@ export function registerWebSocket(server: FastifyInstance): void {
         allowedAud: config.JWT_AUDIENCE,
       });
 
+      if (!Number.isFinite(decoded.exp) || decoded.exp! * 1000 <= Date.now()) throw new Error('UNAUTHORIZED');
+      const currentUser = await prisma.user.findUnique({ where: { id: decoded.sub }, select: { status: true } });
+      if (currentUser?.status !== 'ACTIVE') throw new Error('UNAUTHORIZED');
+      socket.data.expiresAt = decoded.exp! * 1000;
       socket.data.user = {
         id: decoded.sub,
         role: Array.isArray(decoded.roles) ? decoded.roles.join(',') : 'USER',
@@ -84,12 +89,19 @@ export function registerWebSocket(server: FastifyInstance): void {
 
   io.on('connection', (socket) => {
     const user = socket.data.user as SocketUser;
+    const expiryTimer = setTimeout(() => socket.disconnect(true), Math.min(2147483647, Math.max(0, socket.data.expiresAt - Date.now())));
+    expiryTimer.unref();
+    socket.use((_packet, next) => {
+      if (socket.data.expiresAt <= Date.now()) { socket.disconnect(true); next(new Error('UNAUTHORIZED')); }
+      else next();
+    });
 
     // Join user-specific room for private events (e.g. gift:received)
     socket.join(`user:${user.id}`);
 
     socket.on('group:join', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
       try {
+        if (socket.data.expiresAt <= Date.now()) { socket.disconnect(true); throw new Error('UNAUTHORIZED'); }
         await joinGroupRoom(socket, io, payload.groupId, user.id);
         ack?.({ success: true, groupId: payload.groupId });
       } catch (err) {
@@ -117,6 +129,8 @@ export function registerWebSocket(server: FastifyInstance): void {
           throw new SocketError('MESSAGE_INVALID', 'Invalid message payload');
         }
 
+        await assertCanReceive(payload.groupId, user.id);
+        if (socket.data.expiresAt <= Date.now()) { socket.disconnect(true); throw new Error('UNAUTHORIZED'); }
         const message = await createMessage({
           groupId: payload.groupId,
           userId: user.id,
@@ -125,7 +139,7 @@ export function registerWebSocket(server: FastifyInstance): void {
           clientRequestId: payload.clientRequestId,
         });
 
-        io.to(groupRoom(payload.groupId)).emit('message:created', message);
+        await emitToGroup(payload.groupId, 'message:created', message);
 
         ack?.({ success: true, data: message });
       } catch (err) {
@@ -140,11 +154,11 @@ export function registerWebSocket(server: FastifyInstance): void {
         }
 
         validateGroupId(payload.groupId);
-        await assertCanReceive(groupRoom(payload.groupId), user.id);
-        socket.to(groupRoom(payload.groupId)).emit('typing:start', {
+        await assertCanReceive(payload.groupId, user.id);
+        await emitToGroup(payload.groupId, 'typing:start', {
           groupId: payload.groupId,
           userId: user.id,
-        });
+        }, socket.id);
         ack?.({ success: true });
       } catch (err) {
         ack?.(socketError(err));
@@ -158,11 +172,11 @@ export function registerWebSocket(server: FastifyInstance): void {
         }
 
         validateGroupId(payload.groupId);
-        await assertCanReceive(groupRoom(payload.groupId), user.id);
-        socket.to(groupRoom(payload.groupId)).emit('typing:stop', {
+        await assertCanReceive(payload.groupId, user.id);
+        await emitToGroup(payload.groupId, 'typing:stop', {
           groupId: payload.groupId,
           userId: user.id,
-        });
+        }, socket.id);
         ack?.({ success: true });
       } catch (err) {
         ack?.(socketError(err));
@@ -170,7 +184,7 @@ export function registerWebSocket(server: FastifyInstance): void {
     });
 
     socket.on('disconnect', () => {
-      // No persistence needed. Socket disconnect does not affect auth session.
+      clearTimeout(expiryTimer);
     });
   });
 
@@ -205,6 +219,8 @@ async function joinGroupRoom(
 ): Promise<void> {
   validateGroupId(groupId);
 
+  const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+  if (currentUser?.status !== 'ACTIVE') throw new SocketError('FORBIDDEN', 'An active account is required');
   const membership = await getGroupMembership(groupId, userId);
 
   if (!membership || membership.status !== 'ACTIVE') {
@@ -217,6 +233,8 @@ async function joinGroupRoom(
 // Re-checks ACTIVE membership server-side before granting access to group events.
 async function assertCanReceive(groupId: string, userId: string): Promise<void> {
   validateGroupId(groupId);
+  const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+  if (currentUser?.status !== 'ACTIVE') throw new SocketError('FORBIDDEN', 'An active account is required');
   const membership = await getGroupMembership(groupId, userId);
 
   if (!membership || membership.status !== 'ACTIVE') {

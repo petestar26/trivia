@@ -93,6 +93,7 @@ export enum VipStatus {
 }
 
 export enum GameType {
+  CRASH_POINT = 'crash_point',
   LUCKY_SPIN = 'lucky_spin',
   DICE = 'dice',
   TRIVIA = 'trivia',

@@ -1,3 +1,4 @@
+import { sweepExpiredAgentOrders } from './agents/order-service.js';
 import { fileURLToPath } from 'node:url';
 import { config } from '@socialplay/config';
 import { prisma } from '@socialplay/database';
@@ -35,6 +36,7 @@ export interface WorkerConfig {
 
 export interface WorkerDeps {
   sweep: () => Promise<TimeoutSweepSummary>;
+  expireDeposits?: () => Promise<{ examined: number; expired: number; failed?: number }>;
   expireCoins?: () => Promise<{ examined: number; expired: number }>;
   reconcile: () => Promise<ReconciliationReport>;
   sleep: (ms: number) => Promise<void>;
@@ -89,10 +91,16 @@ export function parseWorkerConfig(args: string[], env: Record<string, string | u
 }
 
 function serializeError(err: unknown): Record<string, unknown> {
-  if (err instanceof Error) {
-    return { message: err.message, name: err.name, stack: err.stack };
-  }
-  return { message: String(err) };
+  // Database/client errors can embed credentials, SQL parameters, receipts or
+  // untrusted fields in their message, name and stack. Never forward them to
+  // deployment logs. Preserve only a small, known database error category.
+  const code = err && typeof err === 'object' && 'code' in err ? err.code : undefined;
+  const allowedCodes = ['P1001', 'P1002', 'P2002', 'P2025', 'P2034'];
+  return {
+    name: 'WorkerOperationError',
+    message: 'Operation failed',
+    ...(typeof code === 'string' && allowedCodes.includes(code) ? { code } : {}),
+  };
 }
 
 export function createWorkerLogger(): (entry: Record<string, unknown>) => void {
@@ -159,6 +167,18 @@ export async function runWorkerCycle(
       durationMs: deps.now() - sweepStart,
       error: serializeError(err),
     });
+  }
+
+  if (deps.expireDeposits) {
+    const started = deps.now();
+    try {
+      const results = await deps.expireDeposits();
+      if ((results.failed ?? 0) > 0) failed = true;
+      deps.log({ level: (results.failed ?? 0) > 0 ? 'error' : 'info', msg: 'deposit expiry sweep completed', durationMs: deps.now() - started, results });
+    } catch (err) {
+      failed = true;
+      deps.log({ level: 'error', msg: 'deposit expiry sweep failed', durationMs: deps.now() - started, error: serializeError(err) });
+    }
   }
 
   if (deps.expireCoins) {
@@ -278,6 +298,7 @@ async function main(): Promise<number> {
 
   const deps: WorkerDeps = {
     sweep: () => sweepWithdrawalTimeouts(),
+    expireDeposits: () => sweepExpiredAgentOrders(),
     expireCoins: () => sweepExpiredCoinLots(),
     reconcile: () => runWithdrawalReconciliation(),
     sleep: createAbortableSleep(controller.signal),

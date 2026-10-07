@@ -1,5 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
-import { authenticate } from '../middleware/index.js';
+import { z } from 'zod';
+import { ApiError } from '../middleware/api-error.js';
+import { authenticate, requirePermission } from '../middleware/index.js';
 import {
   createAgentOrder,
   getAgentOrderById,
@@ -21,6 +23,12 @@ export async function agentOrderRoutes(server: FastifyInstance): Promise<void> {
   });
   const auth = [authenticate];
 
+  server.post<{ Params: { id: string } }>('/:id/admin-cancel', { preHandler: [authenticate, requirePermission('agent:review')] }, async (request, reply) => {
+    const body = z.object({ reason: z.string().trim().min(3).max(1024) }).strict().safeParse(request.body);
+    if (!body.success) throw ApiError.badRequest('A cancellation reason is required');
+    const result = await cancelAgentOrder(request.user!.sub, request.params.id, requestContext(request), 'staff', body.data.reason);
+    return reply.send({ success: true, data: result });
+  });
   // ── Customer ──────────────────────────────────────────────────
 
   server.post<{

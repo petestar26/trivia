@@ -1,3 +1,4 @@
+import { isBrowserAuthRequest, requireCookieOrigin } from '../plugins/cookie-origin.js';
 import { anonymousRateLimitKey, createRefreshRateLimitKey } from '../plugins/rate-limit-identity.js';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -15,6 +16,14 @@ import {
 } from '../referrals/referral-service.js';
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
+  server.addHook('onRequest', async (request) => {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && isBrowserAuthRequest(request)) requireCookieOrigin(request);
+  });
+  server.addHook('onSend', async (_request, reply, payload) => {
+    reply.header('Cache-Control', 'private, no-store');
+    reply.header('Pragma', 'no-cache');
+    return payload;
+  });
   server.post<{ Body: z.infer<typeof registerSchema> }>(
     '/register',
     {
@@ -165,7 +174,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             success: true,
             data: {
               user,
-              ...tokens,
+              ...(isBrowserAuthRequest(request) ? { expiresIn: tokens.expiresIn } : tokens),
             },
           });
           return; // success — exit retry loop
@@ -275,7 +284,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             isVerified: user.isVerified,
             role: user.role,
           },
-          ...tokens,
+          ...(isBrowserAuthRequest(request) ? { expiresIn: tokens.expiresIn } : tokens),
         },
       });
 
@@ -308,7 +317,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store');
       const bodyToken = request.body?.refreshToken;
-      const cookieMode = bodyToken === undefined;
+      const cookieMode = bodyToken === undefined || isBrowserAuthRequest(request);
       if (cookieMode) requireCookieOrigin(request);
       const refreshToken = bodyToken ?? request.cookies.sp_refresh_token;
       if (!refreshToken) throw ApiError.unauthorized('Session unavailable');
@@ -469,18 +478,10 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   );
 }
 
-function requireCookieOrigin(request: FastifyRequest): void {
-  const origin = request.headers.origin;
-  const trusted = [new URL(config.FRONTEND_URL).origin, ...config.CORS_ORIGIN.split(',').map((v) => v.trim())];
-  if (!origin || origin === 'null' || origin === '*' || !trusted.includes(origin)) {
-    throw ApiError.forbidden('Untrusted session origin');
-  }
-}
-
 function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refreshToken: string }): void {
   const cookieOptions = {
     httpOnly: true,
-    secure: config.COOKIE_SECURE,
+    secure: config.NODE_ENV === 'production' || config.COOKIE_SECURE,
     sameSite: config.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none',
     domain: config.COOKIE_DOMAIN,
     path: '/',
@@ -500,7 +501,7 @@ function setAuthCookies(reply: FastifyReply, tokens: { accessToken: string; refr
 function clearAuthCookies(reply: FastifyReply): void {
   const cookieOptions = {
     httpOnly: true,
-    secure: config.COOKIE_SECURE,
+    secure: config.NODE_ENV === 'production' || config.COOKIE_SECURE,
     sameSite: config.COOKIE_SAME_SITE as 'lax' | 'strict' | 'none',
     domain: config.COOKIE_DOMAIN,
     path: '/',

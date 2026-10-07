@@ -222,27 +222,27 @@ describeIf('Game catalog (Phase G0)', () => {
     await cleanFixtures();
   });
 
-it('public catalog returns exactly 13 entries (AVAILABLE + COMING_SOON), excluding RETIRED lucky_spin', async () => {
+it('public catalog returns exactly 14 entries (AVAILABLE + COMING_SOON), excluding RETIRED lucky_spin', async () => {
      const games = await listActiveGames();
-     expect(games.length).toBe(13);
+     expect(games.length).toBe(14);
      const keys = games.map((g) => g.key);
      // Exact approved public key set — order-independent compare.
      const APPROVED_KEYS = new Set([
        'dice', 'number_challenge', 'trivia', // AVAILABLE
        'spin_win', 'thunder_derby_3d', 'neon_hounds_3d', 'turbo_circuit_3d',
        'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'crystal_trail',
-       'heat_vault', 'strait_rush', // COMING_SOON
+       'heat_vault', 'strait_rush', 'crash_point', // COMING_SOON
      ]);
-     expect(new Set(keys).size).toBe(13);
+     expect(new Set(keys).size).toBe(14);
      for (const k of keys) expect(APPROVED_KEYS.has(k)).toBe(true);
      expect([...APPROVED_KEYS].every((k) => keys.includes(k))).toBe(true);
      expect(keys).not.toContain('lucky_spin');
      expect(keys).not.toContain('coming_');
-     // Exact status split: 3 AVAILABLE + 10 COMING_SOON = 13 public.
+     // Only Trivia is available for rewards; financial models remain paused.
      expect(games.filter((g) => g.catalogStatus === 'AVAILABLE').map((g) => g.key).sort()).toEqual(
-       ['dice', 'number_challenge', 'trivia']
+       ['trivia']
      );
-     expect(games.filter((g) => g.catalogStatus === 'COMING_SOON').length).toBe(10);
+     expect(games.filter((g) => g.catalogStatus === 'COMING_SOON').length).toBe(13);
      expect(keys.filter((k) => k.startsWith('coming_')).length).toBe(0);
    });
 
@@ -292,7 +292,7 @@ it('public catalog returns exactly 13 entries (AVAILABLE + COMING_SOON), excludi
     try {
       const games = await listActiveGames();
       expect(games.map((g) => g.key)).not.toContain('lucky_spin');
-      expect(games.length).toBe(13); // still exactly the 13 approved keys
+      expect(games.length).toBe(14); // still exactly the 14 approved keys
     } finally {
       await prisma.gameDefinition.update({ where: { id: lucky!.id }, data: { catalogStatus: 'RETIRED' } });
     }
@@ -322,7 +322,7 @@ it('public catalog returns exactly 13 entries (AVAILABLE + COMING_SOON), excludi
     try {
       const games = await listActiveGames();
       expect(games.map((g) => g.key)).not.toContain('rogue_unapproved_game');
-      expect(games.length).toBe(13);
+      expect(games.length).toBe(14);
     } finally {
       await prisma.gameDefinition.delete({ where: { id: rogue.id } });
     }

@@ -1,3 +1,5 @@
+import { latePaymentRoutes } from '../agents/late-payment-routes.js';
+import { crashPointRoutes } from '../games/crash-point/routes.js';
 import { adminAgentAccountRoutes } from '../agents/admin-account-routes.js';
 import { workspaceRoutes } from './workspaces.js';
 import { socialGroupRoutes } from '../groups/routes.js';
@@ -38,6 +40,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
+  await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
   await server.register(systemKenoRoutes, { prefix: '/games/system-keno' });
   await server.register(chatRoutes, { prefix: '/groups' });
@@ -55,6 +58,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(adminAgentAccountRoutes, { prefix: '/agents' });
   await server.register(agentRoutes, { prefix: '/agents' });
   await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
+  await server.register(latePaymentRoutes, { prefix: '/late-payments' });
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });
   await server.register(agentConfigRoutes, { prefix: '/agent-config' });

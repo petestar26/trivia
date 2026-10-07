@@ -237,7 +237,7 @@ describeIf('invite acceptance vs account status — deterministic PostgreSQL sch
         const resp = await accept(f);
 
         expect(resp.statusCode).toBe(403);
-        expect(JSON.parse(resp.body).error.message).toBe(message);
+        expect(JSON.parse(resp.body).error.message).toBe('An active account is required');
         await expectNoSideEffects(f, null);
       });
 

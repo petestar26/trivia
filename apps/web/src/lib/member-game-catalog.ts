@@ -2,6 +2,7 @@ import type { GameCatalogEntry } from './api';
 export type MemberGame = GameCatalogEntry;
 
 export const PRACTICE_ROUTES: Record<string, string> = {
+  crash_point: '/games/crash-point',
   dice: '/games/dice',
   spin_win: '/games/spin-win',
   turbo_keno: '/games/turbo-keno',

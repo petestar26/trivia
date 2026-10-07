@@ -1,5 +1,6 @@
+import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
 import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { boundedRequest } from '@/lib/bounded-request';
@@ -38,9 +39,15 @@ type Payment = {
     source: string;
     localPerUsd: string;
     observedAt: string;
+    expiresAt?: string;
     feeMinor: number;
   };
 };
+function depositDeadline(payment: Payment): number {
+  const windowEnd = Date.parse(payment.createdAt) + 15 * 60 * 1000;
+  const rateEnd = Date.parse(payment.pricingSnapshot?.expiresAt ?? '');
+  return Math.min(windowEnd, Number.isFinite(rateEnd) ? rateEnd : Infinity);
+}
 type Account = {
   id: string;
   countryId: string;
@@ -79,6 +86,11 @@ export function WalletPaymentsPage() {
 }
 function Payments({ userId }: { userId: string }) {
   const { section = 'activity' } = useParams();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const options = useQuery({
     queryKey: ['payments', 'options', userId],
     queryFn: () => get<Options>('/wallet/payment-options'),
@@ -354,7 +366,9 @@ function Payments({ userId }: { userId: string }) {
                   {country?.usdPricingEnabled && (
                     <div className="payment-disclosure">
                       <strong>96 Coins = USD 1</strong>
-                      {pricing.isPending ? (
+                      {country.agentPaymentEnabled === false ? (
+                        <p role="status">Payments are paused in this country. New quotes are unavailable.</p>
+                      ) : pricing.isPending ? (
                         <p>Loading current rate…</p>
                       ) : pricing.isError ? (
                         <p role="alert">{walletError(pricing.error)}</p>
@@ -704,9 +718,14 @@ function Payments({ userId }: { userId: string }) {
             <PaymentCard key={p.id} payment={p}>
               {p.status === 'CREATED' && (
                 <>
+                  <p role="status">
+                    {depositDeadline(p) > now
+                      ? `Payment window closes at ${new Date(depositDeadline(p)).toLocaleTimeString()}. Send only while this window is open.`
+                      : 'Payment window expired. Do not send money. If you already paid, contact payment support with this order number and your transfer receipt.'}
+                  </p>
                   <ConfirmAction
                     label="I have sent the payment"
-                    disabled={busy}
+                    disabled={busy || depositDeadline(p) <= now}
                     onConfirm={() => action.run(`/agent-orders/${p.id}/submit-payment`)}
                   />
                   <ConfirmAction
@@ -715,6 +734,9 @@ function Payments({ userId }: { userId: string }) {
                     onConfirm={() => action.run(`/agent-orders/${p.id}/cancel`)}
                   />
                 </>
+              )}
+              {['EXPIRED', 'CANCELLED'].includes(p.status) && (
+                <LatePaymentReport orderId={p.id} currency={p.fiatCurrency} />
               )}
               {p.status === 'PAYMENT_SUBMITTED' && (
                 <button disabled={busy} onClick={() => setDispute({ id: p.id, kind: 'deposit' })}>
@@ -746,6 +768,9 @@ function Payments({ userId }: { userId: string }) {
                   onConfirm={() => action.run(`/withdrawals/${p.id}/cancel`)}
                 />
               )}
+              {p.status === 'EXPIRED' && (
+                <p>Unpaid order expired. If you already paid, contact payment support with this order number and your transfer receipt.</p>
+              )}
               {p.status === 'PAYMENT_SUBMITTED' && (
                 <ConfirmAction
                   label="Confirm money received"
@@ -765,6 +790,7 @@ function Payments({ userId }: { userId: string }) {
           ))
         )}
       </section>
+      <LatePaymentCases />
       {dispute && (
         <section className="payment-panel">
           <h2>Report a payment problem</h2>

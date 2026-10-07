@@ -24,13 +24,13 @@ export interface OpenDisputeArgs {
 
 function validateOpenArgs(args: OpenDisputeArgs) {
   if (!args || typeof args !== 'object') throw ApiError.badRequest('Dispute details are required');
-  if (!args.orderId || typeof args.orderId !== 'string') throw ApiError.badRequest('orderId is required');
+  if (typeof args.orderId !== 'string' || !args.orderId.trim() || args.orderId.length > 128) throw ApiError.badRequest('orderId is required');
   const validReasons: DisputeReason[] = ['PAYMENT_NOT_RECEIVED', 'WRONG_AMOUNT', 'AGENT_UNRESPONSIVE', 'OTHER'];
   if (!validReasons.includes(args.reason)) throw ApiError.badRequest('Invalid dispute reason');
-  if (!args.description || args.description.trim().length === 0) {
-    throw ApiError.badRequest('A description is required to open a dispute');
+  if (typeof args.description !== 'string' || !args.description.trim() || args.description.length > 4000) {
+    throw ApiError.badRequest('A description of 1–4000 characters is required');
   }
-  if (!args.idempotencyKey || typeof args.idempotencyKey !== 'string') {
+  if (typeof args.idempotencyKey !== 'string' || !args.idempotencyKey.trim() || args.idempotencyKey.length > 128) {
     throw ApiError.badRequest('idempotencyKey is required');
   }
 }
@@ -221,6 +221,16 @@ export async function claimDispute(
     const before = await tx.dispute.findUnique({ where: { id: disputeId } });
     if (!before) throw ApiError.notFound('Dispute not found');
     await assertNotSelfDispute(adminId, before.orderId);
+    // A preflight role check can become stale while the request waits.
+    // Hold the administrator's current identity through the claim commit.
+    const [currentAdmin] = await tx.$queryRaw<Array<{ role: string; status: string }>>`
+      SELECT role::text AS role, status::text AS status
+      FROM users WHERE id = ${adminId} FOR SHARE
+    `;
+    if (!currentAdmin || currentAdmin.status !== 'ACTIVE'
+        || !['ADMIN', 'SUPER_ADMIN'].includes(currentAdmin.role)) {
+      throw ApiError.forbidden('Active platform administrator required');
+    }
 
     const claim = await tx.dispute.updateMany({
       where: { id: disputeId, status: 'OPEN' },
@@ -277,8 +287,8 @@ export async function resolveDispute(
   if (resolution !== 'RELEASE' && resolution !== 'CANCEL') {
     throw ApiError.badRequest('resolution must be RELEASE or CANCEL');
   }
-  if (!resolutionNote || resolutionNote.trim().length === 0) {
-    throw ApiError.badRequest('A resolution note is required');
+  if (typeof resolutionNote !== 'string' || !resolutionNote.trim() || resolutionNote.length > 4000) {
+    throw ApiError.badRequest('A resolution note of 1–4000 characters is required');
   }
   await assertPlatformAdmin(adminId);
   const disputeTarget = await prisma.dispute.findUnique({

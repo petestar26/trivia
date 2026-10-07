@@ -571,9 +571,33 @@ describeIf('Security policy', () => {
   it('can require step-up once a factor is active', async () => {
     const user = await createUser('policy3');
     await enrollActiveTotp(user.id);
+    expect(await requiresStepUp(user.id)).toBe(true);
     const policy = await setOwnStepUpPolicy(user.id, true);
     expect(policy.requiresStepUpForSensitiveOps).toBe(true);
     expect(await requiresStepUp(user.id)).toBe(true);
+  });
+
+  it('requires single-use proof to disable protection and emits one notification', async () => {
+    const user = await createUser('policy-disable');
+    await enrollActiveTotp(user.id);
+    await expect(setOwnStepUpPolicy(user.id, false, { tokenIat: 123 })).rejects.toThrow(/step-up/i);
+    expect(await requiresStepUp(user.id)).toBe(true);
+    const proof = await prisma.stepUpVerification.create({ data: {
+      userId: user.id, purpose: 'DISABLE_STEP_UP_POLICY', factorType: 'TOTP', tokenIat: 123,
+      verifiedAt: new Date(), expiresAt: new Date(Date.now() + 60000),
+    }});
+    await expect(setOwnStepUpPolicy(user.id, false, { tokenIat: 124 })).rejects.toThrow(/step-up/i);
+    expect(await requiresStepUp(user.id)).toBe(true);
+    const results = await Promise.allSettled([
+      setOwnStepUpPolicy(user.id, false, { tokenIat: 123 }),
+      setOwnStepUpPolicy(user.id, false, { tokenIat: 123 }),
+    ]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(await requiresStepUp(user.id)).toBe(false);
+    expect((await prisma.stepUpVerification.findUniqueOrThrow({where: {id: proof.id}})).consumedAt).not.toBeNull();
+    const notices = await prisma.notification.findMany({where: {userId: user.id}});
+    expect(notices.filter(n => (n.data as Record<string, unknown>)?.securityEvent === 'STEP_UP_POLICY_DISABLED')).toHaveLength(1);
+    await expect(setOwnStepUpPolicy(user.id, false, { tokenIat: 123 })).rejects.toThrow(/step-up/i);
   });
 
   it('policy is per-user and never leaks across users', async () => {
