@@ -311,3 +311,35 @@ it('records one refund after supervisor releases a suspended reviewer', async ()
   expect(await prisma.auditLog.count({where:{entityId:row.id,action:'LATE_PAYMENT_EXTERNAL_REFUND_RECORDED'}})).toBe(1);
   expect(await prisma.agentOrderSettlement.count({where:{orderId:order.id}})).toBe(0);
 });
+
+it('admits eight simultaneous members with exact inventory reservations and retry replay', async () => {
+  for (let round=0; round<3; round++) {
+    const f=await fundedFixture();
+    const buyers=await Promise.all(Array.from({length:8},()=>prisma.user.create({data:{username:`parallel_${randomUUID()}`}})));
+    const args=buyers.map(()=>({...f.args,idempotencyKey:randomUUID()}));
+    const results=await Promise.all(buyers.map((buyer,i)=>createAgentOrder(buyer.id,args[i])));
+    expect(new Set(results.map(r=>r.order.id)).size).toBe(8);
+    const inventory=await prisma.agentInventory.findUniqueOrThrow({where:{agentId:f.agent.id}});
+    const total=results.reduce((n,r)=>n+r.order.coinAmount,0);
+    expect(inventory.totalBalance).toBe(100000);
+    expect(inventory.reservedBalance).toBe(total);
+    expect(await prisma.agentReservation.count({where:{agentId:f.agent.id,status:'ACTIVE'}})).toBe(8);
+    expect(await prisma.agentInventoryLedger.count({where:{agentId:f.agent.id,type:'RESERVE'}})).toBe(8);
+    const replay=await Promise.all(buyers.map((buyer,i)=>createAgentOrder(buyer.id,args[i])));
+    expect(replay.every(r=>r.idempotent)).toBe(true);
+    expect((await prisma.agentInventory.findUniqueOrThrow({where:{agentId:f.agent.id}})).reservedBalance).toBe(total);
+  }
+});
+it('rejects only genuine shortfalls without partial orders, reservations or ledger entries', async () => {
+  const f=await fundedFixture();
+  const buyers=await Promise.all(Array.from({length:8},()=>prisma.user.create({data:{username:`shortfall_${randomUUID()}`}})));
+  const outcomes=await Promise.allSettled(buyers.map(buyer=>createAgentOrder(buyer.id,{...f.args,fiatAmount:30000,idempotencyKey:randomUUID()})));
+  expect(outcomes.filter(r=>r.status==='fulfilled')).toHaveLength(3);
+  for(const result of outcomes) if(result.status==='rejected') expect(result.reason.message).toMatch(/Insufficient agent inventory/);
+  const inventory=await prisma.agentInventory.findUniqueOrThrow({where:{agentId:f.agent.id}});
+  expect(inventory.totalBalance).toBe(100000);
+  expect(inventory.reservedBalance).toBe(90000);
+  expect(await prisma.agentOrder.count({where:{agentId:f.agent.id}})).toBe(3);
+  expect(await prisma.agentReservation.count({where:{agentId:f.agent.id}})).toBe(3);
+  expect(await prisma.agentInventoryLedger.count({where:{agentId:f.agent.id,type:'RESERVE'}})).toBe(3);
+});
