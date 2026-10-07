@@ -50,6 +50,7 @@ const LATE_PAYMENT_CASES = '20261007020000_late_payment_cases';
 const LATE_PAYMENT_GUARD_PATHS = '20261007021000_late_payment_guard_paths';
 const LATE_PAYMENT_SUPERVISION = '20261007030000_late_payment_supervision';
 const RECOVERY_REFERENCE_BOUNDARY = '20261007031000_recovery_reference_boundary';
+const USDT_TRON_PAYMENTS = '20261008010000_usdt_tron_payments';
 const AGENT_ACTIVATION_UTC = '20261007040000_agent_activation_utc';
 const RECOVERY_RUNTIME_HARDENING = '20261007032000_recovery_runtime_hardening';
 const AGENT_ACTIVATION_RUNTIME_GRANT = '20261007010000_agent_activation_runtime_grant';
@@ -81,7 +82,7 @@ const ADDED_AFTER_PARENT = ['20260924050000_ledger_cascade_trigger_search_path',
   '20260930140000_scheduled_stake_holds', '20260930150000_scheduled_hold_backing',
   '20260930160000_house_capital_reservations', '20260930170000_dormant_financial_rounds',
   '20260930180000_scheduled_settlement_type', '20260930190000_dormant_financial_settlement',
-  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC];
+  CANCELLATION_AUDIT, FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS];
 // The migrations of the previous candidate (d2355e7): all but the membership-options one.
 const ORIGINAL_RELEASE = ALL.filter((name) => name <= WINDOW_CHECK);
 const PREVIOUS_CANDIDATE = ORIGINAL_RELEASE.filter((name) => name !== '20260924070000_ledger_runtime_grants_membership_options');
@@ -418,6 +419,7 @@ beforeAll(() => {
     RECOVERY_REFERENCE_BOUNDARY,
     RECOVERY_RUNTIME_HARDENING,
     AGENT_ACTIVATION_UTC,
+    USDT_TRON_PAYMENTS,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -664,9 +666,12 @@ describe('ledger upgrade migrations', () => {
       const economicFingerprint = async () => {
         const result: Record<string, string> = {};
         for (const table of economicTables) {
+          // Crypto adds three disabled controls; every pre-existing gate must be unchanged.
+          const filter = table === 'platform_gates'
+            ? " WHERE t.key NOT IN ('CRYPTO_DEPOSIT_CREATE','CRYPTO_DEPOSIT_CREDIT','CRYPTO_WITHDRAWAL_CREATE')" : '';
           const [row] = await db.client.$queryRawUnsafe<Array<{ fingerprint: string }>>(`
             SELECT count(*)::TEXT||':'||COALESCE(md5(string_agg(row_text,E'\\n' ORDER BY row_text)),'empty') AS fingerprint
-            FROM (SELECT pg_catalog.to_jsonb(t)::TEXT AS row_text FROM public."${table}" t) rows`);
+            FROM (SELECT pg_catalog.to_jsonb(t)::TEXT AS row_text FROM public."${table}" t${filter}) rows`);
           result[table] = row.fingerprint;
         }
         return result;
@@ -677,6 +682,16 @@ describe('ledger upgrade migrations', () => {
       expect(proofsBefore.every((proof) => JSON.parse(proof.randomness).algorithm === 'sha256-rejection-u32be-v1')).toBe(true);
       const customersBefore = await legacyFingerprint(db.client);
       const economicsBefore = await economicFingerprint();
+      const cryptoGates = () => db.client.platformGate.findMany({
+        where: { key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_DEPOSIT_CREDIT', 'CRYPTO_WITHDRAWAL_CREATE'] } },
+        select: { key: true, enabled: true }, orderBy: { key: 'asc' },
+      });
+      expect(await cryptoGates()).toEqual([]);
+      const expectedCryptoGates = [
+        { key: 'CRYPTO_DEPOSIT_CREATE', enabled: false },
+        { key: 'CRYPTO_DEPOSIT_CREDIT', enabled: false },
+        { key: 'CRYPTO_WITHDRAWAL_CREATE', enabled: false },
+      ];
       // This forward migration intentionally pauses only the legacy Dice entry.
       // Compare every catalog field separately so no unrelated change is hidden.
       const expectedCatalog = (await catalogRows()).map(game => game.key === 'dice'
@@ -688,12 +703,13 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await cryptoGates()).toEqual(expectedCryptoGates);
       const upgradedCatalog = await catalogRows();
       expect(upgradedCatalog.filter(game => game.key !== 'crash_point')).toEqual(expectedCatalog);
       expect(upgradedCatalog.filter(game => game.key === 'crash_point')).toEqual([
@@ -717,6 +733,7 @@ describe('ledger upgrade migrations', () => {
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
+      expect(await cryptoGates()).toEqual(expectedCryptoGates);
       expect(await catalogRows()).toEqual(upgradedCatalog);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
@@ -759,7 +776,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -812,7 +829,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT

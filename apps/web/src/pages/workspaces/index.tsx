@@ -65,6 +65,7 @@ const adminLinks = [
   ['/admin', 'Overview'],
   ['/admin/payments', 'Payment configuration'],
   ['/admin/pricing', 'Rates & packages'],
+  ['/admin/crypto', 'Crypto payments'],
   ['/admin/disputes', 'Disputes'],
   ['/admin/accounts', 'Accounts'],
   ['/admin/agents/new', 'Create agent'],

@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/scheduled-rounds.yml'
+      - 'apps/api/src/crypto-payments/**'
+      - 'apps/api/src/scripts/crypto-payment-worker.ts'
+      - 'apps/api/vitest.crypto.config.ts'
+      - 'apps/web/src/pages/crypto-payments*'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/group-pvp/**'
       - 'apps/api/src/games/crash-point/**'
@@ -161,6 +165,10 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.crash-point.config.ts
       - name: Group PVP concurrency and recovery
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
+      - name: Crypto payment receipt, ledger and concurrency contracts
+        run: |
+          pnpm --filter api exec vitest run --config vitest.crypto.config.ts
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/crypto-payments/payments.native.ts
       - name: Gateway identity and independent worker contracts
         run: pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
       - name: Build API and verify disposable staging setup

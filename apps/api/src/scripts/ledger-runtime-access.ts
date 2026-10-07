@@ -51,6 +51,8 @@ const USAGE = 'usage: ledger-runtime-access [--json]  (reads LEDGER_OWNER_DATABA
 
 /** What the runtime role must never be able to do, and what it needs. */
 const DENIED: [table: string, privilege: string][] = [
+  ['crypto_receipts','INSERT'], ['crypto_receipts','UPDATE'], ['crypto_receipts','DELETE'],
+  ['crypto_deposit_settlements','UPDATE'], ['crypto_deposit_settlements','DELETE'],
   ['audit_logs', 'UPDATE'], ['audit_logs', 'DELETE'],
   ['house_publication_requests', 'INSERT'], ['house_publication_requests', 'UPDATE'], ['house_publication_requests', 'DELETE'],
   ['house_publication_receipts', 'INSERT'], ['house_publication_receipts', 'UPDATE'], ['house_publication_receipts', 'DELETE'],
@@ -82,6 +84,7 @@ const DENIED_ON_EVERY_TABLE = ['TRUNCATE', 'TRIGGER'];
 const DENIED_USER_COLUMNS = ['role', 'status'];
 /** The owner's procedures: a key installed or retired, an assertion recorded, these grants applied. */
 const DENIED_FUNCTIONS = [
+  'ledger_apply_runtime_grants_pre_crypto(text)', 'crypto_apply_verifier_grants(text)',
   'ledger_apply_runtime_grants_pre_publication(text)',
   'ledger_apply_runtime_grants_seed_only(text)', 'ledger_install_approval_key(text,bytea)', 'ledger_retire_approval_key(text)', 'ledger_apply_runtime_grants(text)',
   'ledger_record_assertion(text,text,text,text,text,numeric,text,jsonb,text,text,text)',
@@ -286,7 +289,7 @@ async function unsafeRoles(tx: Tx, role: string, reached: Reached[]): Promise<st
  * user role and status, the owner's procedures, keys other tables follow by
  * cascade and, with `schemaCreate`, CREATE on the schema.
  */
-async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schemaCreate: boolean): Promise<string[]> {
+async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schemaCreate: boolean, cryptoVerifier = false): Promise<string[]> {
   const subjects = holders.map(({ name }) => name);
   const how = new Map(holders.map(({ name, how: held }) => [name, held]));
   /** Each denial found: who holds it, what it is, and its failure given how the runtime role holds it. */
@@ -311,6 +314,8 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
     CROSS JOIN unnest(${subjects}::text[]) WITH ORDINALITY AS s(subject, k)
     ORDER BY s.k, d.n, c.relname`;
   for (const { subject, privilege, table, whole, columns } of tables) {
+    // Only the dedicated verifier may append evidence; PUBLIC must never do so.
+    if (cryptoVerifier && subject !== 'public' && table === 'crypto_receipts' && privilege === 'INSERT') continue;
     const target = whole ? table : columns.map((column) => `${table}.${column}`).join(', ');
     if (target) found.push({ subject, what: `${privilege} ${target}`, failure: (via) => `${role} still holds ${privilege} on ${target}${via}` });
   }
@@ -389,6 +394,19 @@ export async function verifyRuntimeAccessReadOnly(tx: Tx, role: string): Promise
   const held = await deniedPrivileges(tx, role,
     [...subjects, { name: 'public', how: ' through PUBLIC' }], true);
   return [...unsafe, ...held, ...await requiredPrivileges(tx, role, true)];
+}
+
+/** Dedicated worker authority: canonical restrictions plus receipt INSERT only. */
+export async function verifyCryptoVerifierAccessReadOnly(tx: Tx, role: string): Promise<string[]> {
+  const reached = await reachableRoles(tx, role);
+  if (reached[0]?.name !== role) return ['verifier role is not installed'];
+  const unsafe = await unsafeRoles(tx, role, reached);
+  const held = await deniedPrivileges(tx, role,
+    [...subjectsOf(role, reached), { name: 'public', how: ' through PUBLIC' }], true, true);
+  const [receipt] = await tx.$queryRaw<{ insert: boolean }[]>`
+    SELECT has_table_privilege(${role},'public.crypto_receipts','INSERT') AS insert`;
+  return [...unsafe, ...held, ...await requiredPrivileges(tx, role, true),
+    ...(!receipt?.insert ? ['verifier cannot append crypto receipts'] : [])];
 }
 
 /**

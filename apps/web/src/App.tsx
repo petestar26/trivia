@@ -1,3 +1,4 @@
+import { CryptoPaymentsPage } from '@/pages/crypto-payments';
 import { CreateAgentPage, ActivateAgentPage } from '@/pages/workspaces/create-agent';
 import { WorkspaceDestination, WorkspaceGate, WorkspaceLayout, AdminOverview, AdminAccounts, AdminRecords, AgentOverview, WorkspaceProcessing } from '@/pages/workspaces';
 import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
@@ -73,6 +74,7 @@ export function App() {
         <Route index element={<AdminOverview />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
         <Route path="agents/new" element={<CreateAgentPage />} />
+        <Route path="crypto" element={<CryptoPaymentsPage admin />} />
         <Route path="pricing" element={<WalletPricingAdmin />} />
         <Route path="disputes" element={<WorkspaceProcessing kind="admin" />} />
         <Route path="accounts" element={<AdminAccounts />} />
@@ -108,6 +110,7 @@ export function App() {
         <Route path="wallet" element={<WalletPage />} />
         <Route path="wallet/agent-setup" element={<WalletAgentSetupPage />} />
         <Route path="wallet/operations" element={<WorkspaceDestination />} />
+        <Route path="wallet/crypto" element={<CryptoPaymentsPage />} />
         <Route path="wallet/:section" element={<WalletPaymentsPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />

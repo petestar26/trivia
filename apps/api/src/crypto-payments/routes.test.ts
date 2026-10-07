@@ -1,0 +1,106 @@
+import { afterAll, beforeAll, beforeEach, it, expect, vi } from 'vitest';
+import Fastify from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+const m = vi.hoisted(() => ({
+  lookup: vi.fn(),
+  list: vi.fn(async () => ({ deposits: [], withdrawals: [] })),
+  deposit: vi.fn(async () => ({ id: 'invoice' })),
+  withdrawal: vi.fn(),
+  process: vi.fn(),
+}));
+vi.mock('@socialplay/database', () => ({ prisma: { user: { findUnique: m.lookup } } }));
+vi.mock('./service.js', () => ({
+  options: vi.fn(),
+  listPayments: m.list,
+  createDeposit: m.deposit,
+  createWithdrawal: m.withdrawal,
+  processWithdrawal: m.process,
+  addAddress: vi.fn(),
+  retireAddress: vi.fn(),
+}));
+import { cryptoPaymentRoutes } from './routes.js';
+const server = Fastify();
+beforeAll(async () => {
+  server.decorateRequest('jwtVerify', async function (this: import('fastify').FastifyRequest) {
+    if (!this.headers.authorization) throw new Error('Missing token');
+    return { sub: 'member', iat: 123, roles: ['ADMIN'] };
+  });
+  await server.register(rateLimit, { max: 1000 });
+  await server.register(cryptoPaymentRoutes, { prefix: '/crypto-payments' });
+  await server.ready();
+});
+beforeEach(() => {
+  m.lookup.mockResolvedValue({ status: 'ACTIVE', role: 'USER' });
+  m.list.mockClear();
+});
+afterAll(() => server.close());
+it('denies missing authentication and stale administrator claims', async () => {
+  expect((await server.inject('/crypto-payments/me')).statusCode).toBe(401);
+  expect(
+    (
+      await server.inject({
+        url: '/crypto-payments/admin',
+        headers: { authorization: 'Bearer fixture' },
+      })
+    ).statusCode
+  ).toBe(403);
+  expect(m.list).not.toHaveBeenCalled();
+});
+it('uses current admin authority and prevents caching payment addresses', async () => {
+  m.lookup.mockResolvedValue({ status: 'ACTIVE', role: 'ADMIN' });
+  const r = await server.inject({
+    url: '/crypto-payments/admin?page=0',
+    headers: { authorization: 'Bearer fixture' },
+  });
+  expect(r.statusCode).toBe(200);
+  expect(r.headers['cache-control']).toBe('private, no-store');
+  expect(m.list).toHaveBeenCalledWith('member', true, { page: '0' });
+});
+it('caps address allocation requests before resource exhaustion', async () => {
+  for (let i = 0; i < 10; i++)
+    expect(
+      (
+        await server.inject({
+          method: 'POST',
+          url: '/crypto-payments/deposits',
+          headers: { authorization: 'Bearer fixture' },
+          payload: { amount: '10' },
+        })
+      ).statusCode
+    ).toBe(200);
+  expect(
+    (
+      await server.inject({
+        method: 'POST',
+        url: '/crypto-payments/deposits',
+        headers: { authorization: 'Bearer fixture' },
+        payload: {},
+      })
+    ).statusCode
+  ).toBe(429);
+  expect(m.deposit).toHaveBeenCalledTimes(10);
+});
+it('has no public route for claiming deposit verification or credit', async () => {
+  expect(
+    (
+      await server.inject({
+        method: 'POST',
+        url: '/crypto-payments/deposits/invoice/credit',
+        headers: { authorization: 'Bearer fixture' },
+        payload: { verified: true },
+      })
+    ).statusCode
+  ).toBe(404);
+});
+it('refuses suspended member cancellation before calling the payment service', async () => {
+  m.process.mockClear();
+  m.lookup.mockResolvedValue({ status: 'SUSPENDED', role: 'USER' });
+  const response = await server.inject({
+    method: 'POST',
+    url: '/crypto-payments/withdrawals/held/cancel',
+    headers: { authorization: 'Bearer fixture' },
+    payload: {},
+  });
+  expect(response.statusCode).toBe(403);
+  expect(m.process).not.toHaveBeenCalled();
+});

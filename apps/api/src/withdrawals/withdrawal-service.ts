@@ -71,7 +71,7 @@ function computeWithdrawalRequestHash(quoteId: string, payoutAccountId: string):
 
 /** Count open and finalized holds in UTC calendar windows. Cancelled holds no
  * longer count because their Coins have been returned to the original lots. */
-async function assertWithdrawalPolicyLimits(
+export async function assertWithdrawalPolicyLimits(
   tx: Prisma.TransactionClient,
   userId: string,
   coinAmount: number,
@@ -99,10 +99,14 @@ async function assertWithdrawalPolicyLimits(
       _sum: { coinAmount: true },
     }),
   ]);
-  if ((day._sum.coinAmount ?? 0) + coinAmount > policy.dailyWithdrawalLimit) {
+  const [crypto] = await tx.$queryRaw<Array<{day: bigint; month: bigint}>>`
+    SELECT coalesce(sum("coinAmount") FILTER (WHERE "createdAt">=${dayStart}),0)::bigint AS day,
+           coalesce(sum("coinAmount"),0)::bigint AS month
+    FROM crypto_withdrawals WHERE "userId"=${userId} AND status<>'CANCELLED' AND "createdAt">=${monthStart}`;
+  if ((day._sum.coinAmount ?? 0) + Number(crypto?.day ?? 0) + coinAmount > policy.dailyWithdrawalLimit) {
     throw ApiError.badRequest('Daily withdrawal limit exceeded');
   }
-  if ((month._sum.coinAmount ?? 0) + coinAmount > policy.monthlyWithdrawalLimit) {
+  if ((month._sum.coinAmount ?? 0) + Number(crypto?.month ?? 0) + coinAmount > policy.monthlyWithdrawalLimit) {
     throw ApiError.badRequest('Monthly withdrawal limit exceeded');
   }
 }
@@ -402,6 +406,9 @@ export async function createWithdrawal(
         // cancellation which releases its hold under the same wallet lock.
         await getOrCreateWallet(actorUserId, tx);
         await tx.$queryRaw`SELECT id FROM wallets WHERE "userId" = ${actorUserId} FOR UPDATE`;
+        const [cryptoLive] = await tx.$queryRaw<Array<{id:string}>>`
+          SELECT id FROM crypto_withdrawals WHERE "userId"=${actorUserId} AND status IN ('HELD','PAYOUT_IN_PROGRESS') LIMIT 1`;
+        if (cryptoLive) throw ApiError.conflict('You already have an active crypto withdrawal');
         await assertWithdrawalPolicyLimits(tx, actorUserId, quote!.coinAmount, policy, now);
         const coinHold = await reserveWithdrawalCoins(tx, actorUserId, quote!.coinAmount, {
           withdrawalId,

@@ -20,6 +20,7 @@ async function buildApi() {
     entryPoints: [
       join(__dirname, 'src/server.ts'),
       join(__dirname, 'src/worker.ts'),
+      join(__dirname, 'src/scripts/crypto-payment-worker.ts'),
       join(__dirname, 'src/scripts/staging-payment-worker.ts'),
       // Read-only ledger upgrade preflight, runnable where tsx is not installed.
       join(__dirname, 'src/scripts/ledger-upgrade-preflight.ts'),

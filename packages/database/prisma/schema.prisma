@@ -10,6 +10,10 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  cryptoDepositAddresses CryptoAddress[]
+  cryptoDeposits CryptoDeposit[]
+  cryptoWithdrawals CryptoWithdrawal[] @relation("CryptoWithdrawalOwner")
+  cryptoPayoutAssignments CryptoWithdrawal[] @relation("CryptoWithdrawalAdmin")
   agentAccountSetup AgentAccountSetup?
   scheduledStakeHolds ScheduledStakeHold[]
   scheduledPracticeTickets ScheduledPracticeTicket[]
@@ -520,6 +524,7 @@ model Wallet {
 }
 
 model WalletTransaction {
+  cryptoDepositSettlement CryptoDepositSettlement?
   id            String                   @id @default(uuid())
   walletId      String
   userId        String
@@ -1128,6 +1133,8 @@ model CoinProvenance {
 }
 
 model EconomicOperation {
+  cryptoWithdrawalHold CryptoWithdrawal? @relation("CryptoHold")
+  cryptoWithdrawalTerminal CryptoWithdrawal? @relation("CryptoTerminal")
   scheduledHold ScheduledStakeHold? @relation("ScheduledHoldOperation")
   scheduledRefund ScheduledStakeHold? @relation("ScheduledRefundOperation")
   scheduledSettlement ScheduledStakeHold? @relation("ScheduledSettlementOperation")
@@ -1788,6 +1795,8 @@ enum WithdrawalDisputeResolution {
 // ─── Configuration ────────────────────────────────────────────────
 
 model Country {
+  cryptoDeposits CryptoDeposit[]
+  cryptoWithdrawals CryptoWithdrawal[]
   id                  String   @id @default(uuid())
   code                String   @unique // ISO 3166-1 alpha-2
   name                String
@@ -2953,4 +2962,91 @@ model LatePaymentReferenceClaim {
   recoveryCase LatePaymentCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
   @@id([methodId, reference])
   @@map("late_payment_reference_claims")
+}
+
+// USDT is pinned to TRON mainnet by migration checks. Addresses are single-use.
+// Append-only evidence,  transition constraints and partial indexes live in SQL.
+model CryptoAddress {
+  address String @id
+  label String
+  addedBy String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  retired Boolean @default(false)
+  administrator User @relation(fields: [addedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deposit CryptoDeposit?
+  @@map("crypto_addresses")
+}
+model CryptoDeposit {
+  id String @id
+  userId String
+  countryId String
+  address String @unique
+  amountMicro BigInt
+  coinAmount Int
+  pricingSnapshot Json
+  requestKey String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  expiresAt DateTime @db.Timestamptz(6)
+  status String @default("WAITING")
+  lastCheckedAt DateTime? @db.Timestamptz(6)
+  checkError String?
+  reviewReason String?
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  country Country @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  destination CryptoAddress @relation(fields: [address], references: [address], onDelete: NoAction, onUpdate: NoAction)
+  receipts CryptoReceipt[]
+  settlement CryptoDepositSettlement?
+  @@unique([userId, requestKey])
+  @@map("crypto_deposits")
+}
+model CryptoReceipt {
+  id String @id
+  depositId String
+  txHash String
+  logIndex Int
+  contract String
+  address String
+  amountMicro BigInt
+  blockNumber BigInt
+  blockTime DateTime @db.Timestamptz(6)
+  verifiedAt DateTime @default(now()) @db.Timestamptz(6)
+  deposit CryptoDeposit @relation(fields: [depositId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  settlement CryptoDepositSettlement?
+  @@unique([txHash, logIndex])
+  @@map("crypto_receipts")
+}
+model CryptoDepositSettlement {
+  id String @id
+  depositId String @unique
+  receiptId String @unique
+  walletTransactionId String @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  deposit CryptoDeposit @relation(fields: [depositId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receipt CryptoReceipt @relation(fields: [receiptId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  walletTransaction WalletTransaction @relation(fields: [walletTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@map("crypto_deposit_settlements")
+}
+model CryptoWithdrawal {
+  id String @id
+  userId String
+  countryId String
+  address String
+  amountMicro BigInt
+  coinAmount Int
+  pricingSnapshot Json
+  requestKey String
+  holdOperationId String @unique
+  terminalOperationId String? @unique
+  status String @default("HELD")
+  assignedAdminId String?
+  txHash String? @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  completedAt DateTime? @db.Timestamptz(6)
+  user User @relation("CryptoWithdrawalOwner", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  administrator User? @relation("CryptoWithdrawalAdmin", fields: [assignedAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  country Country @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  holdOperation EconomicOperation @relation("CryptoHold", fields: [holdOperationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  terminalOperation EconomicOperation? @relation("CryptoTerminal", fields: [terminalOperationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([userId, requestKey])
+  @@map("crypto_withdrawals")
 }
