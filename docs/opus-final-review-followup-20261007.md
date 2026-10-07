@@ -1,0 +1,52 @@
+# Final independent review — follow-up scope (2026-10-07)
+
+Review the public `petestar26/trivia` repository, draft PR #35 (`feat/crash-point-practice`), and the attached release evidence. This is a review request, not permission to merge, deploy to production, activate payments, submit wagers or move funds.
+
+## Baseline and candidate
+
+- Original Opus report reviewed PR #33 at `57e094c3d9af50bec124c6a434e097db857b187b`; it did not cover the subsequent Ruby Grand / Crash Point implementation.
+- Current implementation candidate: `1362cac628263474685db0030d6154dc357b2f58`, tree `4e59d642777f5afefe75e8d6de0da16a584d2a1a`. Review this exact candidate; if HEAD differs, enumerate the additional commits separately.
+- Native CI candidate run: https://github.com/petestar26/trivia/actions/runs/37580045106 . Its result and the deployed commit must be verified independently. Do not infer success from the existence of this link.
+- Current release evidence: `docs/recovery-staging-release-20261007.md`.
+- Remediation chronology, limitations and earlier release evidence: `docs/opus-report-triage-20261007.md`. Earlier claims in that chronological document may be superseded by later entries.
+- PR #33 has only partial backports. Do not recommend releasing it based on PR #35 results.
+
+## Required review
+
+1. Reconcile every P0/P1/P2 finding and every P3 observation from your original report against this candidate. Mark fixed, partially fixed, still reproducible, not reproduced, or externally blocked; include exact file/line evidence and meaningful regression coverage. Independently challenge the implementation rather than accepting this document as proof.
+2. Review all post-baseline features: Ruby Grand member navigation/dashboard; Spin, Keno and Dice scheduled practice; Crash Point server-authoritative cash-out, automatic cash-out, refresh/reconnection and visual state; group owner controls, ready/entry locks, 30-second countdown, 24-hour expiry/archive, 7% PVP fee and settlement; chat/voice/reactions/gifts; restricted reward Coins and eligible winnings; separate member/agent/admin workspaces and account onboarding; agent deposits, withdrawals, USD pricing/readiness and recovery. Distinguish practice/GamePoints from financial Coins. Correct the ambiguous earlier Dice requirement: a player must be allowed to guess a number that later wins; never reject a valid prediction merely because it matches a hidden outcome. The actual requirements are server-controlled randomness/results, no early winning-result disclosure, immutable accepted selections after the deadline, correct payout and exactly-once settlement.
+   Preserve the approved business distinctions: the requested house-play target is 10% edge (90% RTP) only where a verified financial model is actually implemented; PVP uses a 7% pool fee, not an additional house edge; gift purchase has no platform fee and gift conversion uses the approved 10% fee. Verify these contracts rather than silently changing them. Restricted free reward Coins cannot buy gifts, transfer or cash out; test the current net-eligible-winnings rule explicitly.
+3. Trace late-payment reporting through staff claim and verified external-refund recording. Check active ownership, self-review rejection, exact-payload idempotency, row lock ordering, unique verified references, mandatory case-bound TOTP, transaction rollback, immutable audit/report history, and unchanged original order/reservation/wallet/inventory. Verify ETB, JPY and KWD precision uses exact minor units in member input, staff input and displayed case amounts. This flow records a staff-verified external refund; it does not send money or credit Coins.
+4. Inspect additive migrations `20261007020000_late_payment_cases` and `20261007021000_late_payment_guard_paths`, canonical runtime grants, invoker search paths, fresh/populated upgrade tests and PostgreSQL 13/16/18 native two-connection races. Verify historical migration digests remain unchanged and no owner identity is used by API/workers.
+5. Recheck current-account authorization on reads, role checks, optional authentication clearing decoded identity, JWT issuer/audience, expiry/reconnect, cookie Secure behavior, malformed-JSON redaction and generic frontend error recovery. Look specifically for regression in legitimate login, onboarding, refresh, demotion, suspension and refund access. The sole inactive-account HTTP exception is the server-marked own-entry PVP reversal; it must not admit play, expose private reads, select another recipient, or return funds twice. Financial withdrawal cancellation retains its existing active-actor transaction requirement.
+6. Review first-party gateway versus direct API protections, CSRF, origin handling, rate limits, uploads, validation, private group boundaries and stale-token behavior. Do not treat CORS as CSRF protection.
+7. Verify complete test evidence, failed/cancelled runs versus successful runs, deployed source commits and browser evidence. Separate native DB tests, mock tests, browser read-only checks, operator transaction rehearsal and physical-device testing.
+
+## Known unresolved items — verify, do not assume closed
+
+| Area | Current concern / limitation | Evidence location |
+|---|---|---|
+| Keno reveal | Snapshot exposes full outcome/payout and updated practice balance before the frontend finishes its ball animation. Betting is closed; this is still a reveal-contract issue. | `apps/api/src/games/group-pvp/system-keno.ts`, `apps/web/src/pages/games/keno-system.tsx` |
+| Spin reveal | Current result can appear in the center while rotation is still running. | `apps/web/src/pages/games/spin-win-scheduled.tsx` |
+| Legacy instant Coin path | Pausing selected catalog keys is not a capital reservation boundary for every possible instant Coin game. Financial activation requires a complete admission/exposure review. | `apps/api/src/games/game-play.ts`, `game-catalog.ts` |
+| PVP accounting/history | Fee is in settlement data but a dedicated platform-revenue ledger and previous-round history UI need review. Preserve the approved 7% policy; assess equal-stake and tie/remainder behavior explicitly. | `apps/api/src/games/group-pvp/service.ts` |
+| PVP VOID start | Original reported no-op is not reproduced by current source: only COUNTDOWN/DRAWN/SETTLED return early; `open()` rejects VOID. Confirm with a focused test. | same service |
+| Voice | MIME/duration come from the client; actual media validation is unfinished. Staging has persistent upload storage, which is not object storage or a backup guarantee. | `apps/api/src/realtime/chat-service.ts`, storage routes/service |
+| Legacy gifts | Legacy `/gifts/send` remains mounted alongside the newer gift model; assess bypass/retirement requirements. | `apps/api/src/routes/gifts.ts`, economy gift service |
+| Wallet quote UX | Withdrawal quote button has a legacy 100-Coin threshold despite current USD policy requiring more than USD 4. Server rejects invalid quotes; UI should derive the threshold from policy. | `apps/web/src/pages/wallet-payments.tsx` |
+| Withdrawal recovery | HELD has user cancellation but no automatic expiry sweep. Review Report-a-problem states against permitted backend transitions; current UI includes HELD. | wallet payments UI, `apps/api/src/withdrawals/timeout-service.ts` |
+| Deposit contention | Investigate simultaneous deposits against one agent and distinguish expected caps/insufficient capacity from serialization failures. Do not blindly retry financial writes. | agent order service/native tests |
+| CSRF | Gateway and auth-session origin protections are not proof of universal direct-API mutation protection. | `apps/web/server.mjs`, API plugins/auth routes |
+| Agent activation time | Existing onboarding function compares timestamp-without-time-zone expiry against clock_timestamp; review session-timezone dependence and use a forward migration if correcting it. | `20261005130000_admin_agent_onboarding/migration.sql` |
+| Package catalog | 30/70 Coin packages are below the current minimum P2P deposit; review presentation and eligibility rather than deleting historical references. | seed/package catalog and payment UI |
+| Recovery completeness | No receipt upload, partial refund, rejected/incorrect-claim transition, provider verification integration, or legacy-evidence reference cross-check. One case per order. | late-payment service/routes/UI |
+| External readiness | Crypto assets are catalog/options only, not completed provider settlement. Approved payment destinations, fresh exchange rates, backed liquidity, operator rehearsal, production backups and physical-device/24-hour checks remain prerequisites. | readiness configuration and deployment evidence |
+| Rewards | Referral rewards remain unimplemented. Restricted reward Coins and net eligible winnings policy must be reviewed separately from the requested future referral feature. | economy/rewards |
+
+## Review output
+
+Give a clear verdict for isolated staging and a separate verdict for production/live payments. For each finding include severity, affected path, concrete reproduction, impact, proposed repair and regression test. List what you actually ran and what you could not verify. Do not mark the platform production-ready merely because CI passes. Finish with an ordered implementation list and exact deployment/configuration prerequisites. Do not silently change payout rules, financial gates, historical migrations or production resources.
+
+## Release evidence
+
+Exact-candidate CI run 37580045106 completed successfully on PostgreSQL 13, 16 and 18. Owner migration, API and web staging deployments succeeded at candidate 1362cac628263474685db0030d6154dc357b2f58; deployment identities and runtime readiness evidence are in the release record. Post-deployment member checks confirmed the recovery empty state, preserved session/balances, paused Ethiopia payments and pending crypto providers. Administrator browser verification is pending an administrator sign-in; do not treat native or mock tests as a substitute. No browser wager, payment or refund was submitted. These documentation-only follow-up files do not change the tested/deployed implementation candidate.
