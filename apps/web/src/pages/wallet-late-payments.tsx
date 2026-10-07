@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { boundedRequest } from '@/lib/bounded-request';
+import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
@@ -52,8 +53,8 @@ export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
               {c.order.orderNumber} · {c.status}
             </strong>
             <p>
-              Reported transfer: {c.paymentReference} · {(c.paidAmount / 100).toFixed(2)}{' '}
-              {c.order.fiatCurrency}
+              Reported transfer: {c.paymentReference} ·{' '}
+              {formatMinor(c.paidAmount, c.order.fiatCurrency)}
             </p>
             <p>
               {new Date(c.paidAt).toLocaleString()} · {c.description}
@@ -99,11 +100,9 @@ export function LatePaymentReport({ orderId, currency }: { orderId: string; curr
     [time, setTime] = useState(''),
     [note, setNote] = useState('');
   const action = useWalletAction(`recovery-order-${orderId}`);
-  const cents = Math.round(Number(amount) * 100);
+  const cents = inputToMinor(amount, currencyMinorDigits(currency));
   const valid =
-    /^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount) &&
-    cents > 0 &&
-    cents <= 2147483647 &&
+    cents !== null &&
     !!time &&
     Number.isFinite(new Date(time).getTime()) &&
     new Date(time).getTime() <= Date.now() &&
@@ -180,14 +179,12 @@ function RefundForm({ item, close }: { item: Case; close: () => void }) {
     [checked, setChecked] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  const cents = Math.round(Number(amount) * 100),
+  const cents = inputToMinor(amount, currencyMinorDigits(item.order.fiatCurrency)),
     timestamp = new Date(time).getTime();
   const valid =
     checked &&
     /^[0-9]{6}$/.test(code) &&
-    /^[0-9]+(?:\.[0-9]{1,2})?$/.test(amount) &&
-    cents > 0 &&
-    cents <= 2147483647 &&
+    cents !== null &&
     incoming.trim().length >= 3 &&
     refund.trim().length >= 3 &&
     note.trim().length >= 3 &&

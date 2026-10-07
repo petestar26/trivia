@@ -34,37 +34,49 @@ function mount(component: React.ReactNode) {
     </QueryClientProvider>
   );
 }
-it('reports actual amount and time without client status or credit fields', async () => {
-  mount(<LatePaymentReport orderId="order" currency="ETB" />);
-  fireEvent.click(screen.getByRole('button', { name: 'Already paid? Report transfer' }));
-  const submit = screen.getByRole('button', { name: 'Submit recovery report' });
-  expect(submit).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Transfer reference'), { target: { value: 'IN123' } });
-  fireEvent.change(screen.getByLabelText('Amount sent (ETB)'), { target: { value: '5.25' } });
-  fireEvent.change(screen.getByLabelText('Transfer time (local)'), {
-    target: { value: '2020-01-02T12:30' },
+it.each([
+  ['ETB', '5.25', 525],
+  ['JPY', '525', 525],
+  ['KWD', '5.251', 5251],
+] as const)(
+  'reports exact %s minor units without client status or credit fields',
+  async (currency, amount, minor) => {
+    mount(<LatePaymentReport orderId="order" currency={currency} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Already paid? Report transfer' }));
+    const submit = screen.getByRole('button', { name: 'Submit recovery report' });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Transfer reference'), { target: { value: 'IN123' } });
+    fireEvent.change(screen.getByLabelText(`Amount sent (${currency})`), {
+      target: { value: amount },
+    });
+    fireEvent.change(screen.getByLabelText('Transfer time (local)'), {
+      target: { value: '2020-01-02T12:30' },
+    });
+    fireEvent.change(screen.getByLabelText('Details'), {
+      target: { value: 'Transfer after closure' },
+    });
+    fireEvent.click(submit);
+    await waitFor(() => expect(m.post).toHaveBeenCalledOnce());
+    expect(m.post.mock.calls[0][0]).toBe('/late-payments');
+    expect(m.post.mock.calls[0][1]).toEqual({
+      orderId: 'order',
+      paymentReference: 'IN123',
+      paidAmount: minor,
+      paidAt: new Date('2020-01-02T12:30').toISOString(),
+      description: 'Transfer after closure',
+      idempotencyKey: expect.any(String),
+    });
+  }
+);
+async function fillRefund(currency = 'ETB', amount = '5.00') {
+  m.get.mockResolvedValue({
+    data: [{ ...item, order: { ...item.order, fiatCurrency: currency } }],
   });
-  fireEvent.change(screen.getByLabelText('Details'), {
-    target: { value: 'Transfer after closure' },
-  });
-  fireEvent.click(submit);
-  await waitFor(() => expect(m.post).toHaveBeenCalledOnce());
-  expect(m.post.mock.calls[0][0]).toBe('/late-payments');
-  expect(m.post.mock.calls[0][1]).toEqual({
-    orderId: 'order',
-    paymentReference: 'IN123',
-    paidAmount: 525,
-    paidAt: new Date('2020-01-02T12:30').toISOString(),
-    description: 'Transfer after closure',
-    idempotencyKey: expect.any(String),
-  });
-});
-async function fillRefund() {
   mount(<LatePaymentCases admin />);
   fireEvent.click(await screen.findByRole('button', { name: 'Record verified refund' }));
   for (const [label, value] of [
     ['Verified incoming reference', 'IN123'],
-    ['Verified amount received and fully refunded (ETB)', '5.00'],
+    [`Verified amount received and fully refunded (${currency})`, amount],
     ['Refund transfer reference', 'OUT123'],
     ['Refund time (local)', '2020-01-02T12:30'],
     ['Verification notes', 'Full refund verified'],
@@ -98,4 +110,20 @@ it('does not submit a refund after failed authenticator verification', async () 
   await fillRefund();
   expect(await screen.findByRole('alert')).toHaveTextContent('Invalid authenticator');
   expect(m.post).toHaveBeenCalledOnce();
+});
+
+it.each([
+  ['JPY', '525', 525],
+  ['KWD', '5.251', 5251],
+] as const)('records exact verified %s refund minor units', async (currency, amount, minor) => {
+  await fillRefund(currency, amount);
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
+  expect(m.post.mock.calls[1][1]).toMatchObject({ verifiedAmount: minor });
+});
+it('renders reported recovery amounts using the order currency precision', async () => {
+  m.get.mockResolvedValue({
+    data: [{ ...item, paidAmount: 5251, order: { ...item.order, fiatCurrency: 'KWD' } }],
+  });
+  mount(<LatePaymentCases />);
+  expect(await screen.findByText(/Reported transfer: IN123 · 5.251 KWD/)).toBeTruthy();
 });
