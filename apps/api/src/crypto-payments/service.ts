@@ -98,7 +98,11 @@ export async function actor(tx: Tx, id: string, admin = false, ownFundsReturn = 
   const [u] = await tx.$queryRaw<
     Array<{ status: string; role: string }>
   >`SELECT status::text,role::text FROM users WHERE id=${id} FOR SHARE`;
-  if (!u || (!ownFundsReturn && u.status !== 'ACTIVE') || (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role)))
+  if (
+    !u ||
+    (!ownFundsReturn && u.status !== 'ACTIVE') ||
+    (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role))
+  )
     throw ApiError.forbidden(admin ? 'Active administrator required' : 'Active account required');
 }
 async function flush(tx: Tx) {
@@ -237,9 +241,31 @@ export async function listPayments(userId: string, admin = false, query: unknown
           Array<{ address: string; label: string; retired: boolean; used: boolean }>
         >`SELECT a.address,a.label,a.retired,EXISTS(SELECT 1 FROM crypto_deposits d WHERE d.address=a.address) AS used FROM crypto_addresses a ORDER BY (NOT a.retired AND NOT EXISTS(SELECT 1 FROM crypto_deposits d WHERE d.address=a.address)) DESC,a."createdAt" DESC LIMIT 50 OFFSET ${offset}`
       : undefined;
+    const receipts = await tx.cryptoReceipt.findMany({
+      take: 1000,
+      where: { depositId: { in: deposits.map((d) => d.id) } },
+      orderBy: [{ blockTime: 'asc' }, { logIndex: 'asc' }],
+      select: {
+        depositId: true,
+        txHash: true,
+        logIndex: true,
+        amountMicro: true,
+        blockNumber: true,
+        blockTime: true,
+      },
+    });
     return {
       deposits: deposits.map((d) => ({
         ...paymentView(d),
+        transfers: receipts
+          .filter((r) => r.depositId === d.id)
+          .map((r) => ({
+            txHash: r.txHash,
+            logIndex: r.logIndex,
+            amount: formatUsdt(r.amountMicro),
+            blockNumber: r.blockNumber.toString(),
+            blockTime: r.blockTime,
+          })),
         ...(admin ? { userId: d.userId, checkError: d.checkError } : {}),
       })),
       withdrawals: withdrawals.map((w) => ({
@@ -358,7 +384,14 @@ export async function createWithdrawal(userId: string, tokenIat: number, body: u
       Array<{ id: string }>
     >`SELECT id FROM crypto_withdrawals WHERE "userId"=${userId} AND status IN ('HELD','PAYOUT_IN_PROGRESS')`;
     if (live) throw ApiError.conflict('You already have an active crypto withdrawal');
-    if (await tx.withdrawal.count({where:{userId,status:{in:['HELD','PAYOUT_IN_PROGRESS','PAYMENT_SUBMITTED','DISPUTED']}}}))
+    if (
+      await tx.withdrawal.count({
+        where: {
+          userId,
+          status: { in: ['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED', 'DISPUTED'] },
+        },
+      })
+    )
       throw ApiError.conflict('You already have an active withdrawal');
     const id = randomUUID();
     const held = await reserveWithdrawalCoins(tx, userId, b.coinAmount, {
@@ -442,7 +475,11 @@ export async function processWithdrawal(
   });
 }
 /** Worker only. Its separate DB identity is the only runtime that can insert evidence. */
-export async function settleDeposit(id: string, transfers: Transfer[], db: { $transaction<T>(body: (tx: Tx) => Promise<T>): Promise<T> } = prisma) {
+export async function settleDeposit(
+  id: string,
+  transfers: Transfer[],
+  db: { $transaction<T>(body: (tx: Tx) => Promise<T>): Promise<T> } = prisma
+) {
   return db.$transaction(async (tx) => {
     const [preview] = await tx.$queryRaw<Deposit[]>`SELECT * FROM crypto_deposits WHERE id=${id}`;
     if (!preview) throw ApiError.notFound('Deposit not found');

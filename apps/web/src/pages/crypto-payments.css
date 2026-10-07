@@ -1,4 +1,7 @@
-.crypto-page, .crypto-page * { box-sizing: border-box; }
+.crypto-page,
+.crypto-page * {
+  box-sizing: border-box;
+}
 .crypto-page {
   max-width: 1120px;
   margin: auto;

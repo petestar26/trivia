@@ -59,7 +59,7 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
 // New scheduled functions also use only explicitly qualified objects. Require
 // their stronger pin rather than the legacy public-first default.
 const STRICT_SCHEDULED_FUNCTIONS = [
-  'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
+  'crypto_withdrawal_namespace_guard', 'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
   'ledger_apply_runtime_grants_pre_crypto', 'purchase_settlement_proof_guard',
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
   'scheduled_practice_ticket_guard', 'scheduled_stake_hold_guard',
@@ -151,6 +151,7 @@ const checks: ReadonlyArray<[string, string]> = [
       ('coin_lot_entries','coin_lot_entries_append_only'),
       ('coin_lot_entries','purchase_settlement_proof_guard'),
       ('crypto_deposits','crypto_deposit_proof'), ('crypto_deposit_settlements','crypto_settlement_proof'),
+      ('crypto_withdrawals','crypto_withdrawal_namespace'), ('withdrawals','withdrawal_crypto_namespace'),
       ('crypto_withdrawals','crypto_withdrawal_proof'), ('crypto_receipts','crypto_receipts_append_only'),
       ('wallet_transactions','wallet_transactions_append_only'),
       ('coin_provenance','coin_provenance_no_delete'),

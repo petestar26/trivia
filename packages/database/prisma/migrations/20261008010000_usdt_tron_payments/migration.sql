@@ -107,7 +107,7 @@ BEGIN
   SELECT * INTO w FROM public.crypto_withdrawals WHERE id=NEW.id;
   IF NOT EXISTS (SELECT 1 FROM public.economic_operations o JOIN public.wallet_transactions t ON t.id=o."walletTransactionIds"[1]
     WHERE o.id=w."holdOperationId" AND o.type='WITHDRAWAL_HOLD' AND o."scopeType"='WITHDRAWAL' AND o."scopeId"=w.id AND o."userId"=w."userId"
-      AND cardinality(o."walletTransactionIds")=1 AND t."userId"=w."userId" AND t.currency='COINS' AND t."ledgerType"='DEBIT'
+      AND cardinality(o."walletTransactionIds")=1 AND t."userId"=w."userId" AND t.currency='COINS' AND t.type='COIN_DEBIT' AND t.status='SUCCEEDED' AND t."ledgerType"='DEBIT'
       AND t."referenceType"='WITHDRAWAL' AND t."referenceId"=w.id AND t.amount=w."coinAmount" AND t."balanceBefore"-t."balanceAfter"=w."coinAmount"
       AND (SELECT coalesce(sum(e."reservedDelta"),0) FROM public.coin_lot_entries e WHERE e."operationId"=o.id AND e."entryType"='RESERVE')=w."coinAmount") THEN
     RAISE EXCEPTION 'Crypto withdrawal lacks exact hold'; END IF;
@@ -232,3 +232,18 @@ BEGIN
  EXECUTE format('GRANT INSERT ON public.crypto_receipts TO %I',verifier_role);
 END $$;
 REVOKE ALL ON FUNCTION public.crypto_apply_verifier_grants(text) FROM PUBLIC;
+
+-- Both payout channels use WITHDRAWAL ledger scopes. A scope may belong to only
+-- one channel, even if a runtime client attempts to reuse an existing hold ID.
+CREATE FUNCTION public.crypto_withdrawal_namespace_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended('withdrawal-namespace:'||NEW.id,0));
+ IF TG_TABLE_NAME='crypto_withdrawals' THEN
+  IF EXISTS(SELECT 1 FROM public.withdrawals WHERE id=NEW.id) THEN RAISE EXCEPTION 'Withdrawal scope already belongs to another payment channel'; END IF;
+ ELSE
+  IF EXISTS(SELECT 1 FROM public.crypto_withdrawals WHERE id=NEW.id) THEN RAISE EXCEPTION 'Withdrawal scope already belongs to another payment channel'; END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER crypto_withdrawal_namespace BEFORE INSERT ON public.crypto_withdrawals FOR EACH ROW EXECUTE FUNCTION public.crypto_withdrawal_namespace_guard();
+CREATE TRIGGER withdrawal_crypto_namespace BEFORE INSERT ON public.withdrawals FOR EACH ROW EXECUTE FUNCTION public.crypto_withdrawal_namespace_guard();

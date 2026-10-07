@@ -18,6 +18,13 @@ type Payment = {
   reviewReason?: string;
   verificationDelayed?: boolean;
   txHash?: string;
+  transfers?: {
+    txHash: string;
+    logIndex: number;
+    amount: string;
+    blockNumber: string;
+    blockTime: string;
+  }[];
   userId?: string;
   assignedAdminId?: string;
 };
@@ -101,9 +108,13 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
       <CopyAddress address={payment.address} />
       {payment.expiresAt && (
         <p>
-          {expired
-            ? 'The transfer window has ended. Do not send to this address. On-time transfers may still be confirming.'
-            : 'Send the exact amount in a single transfer. Exchange and network fees must not reduce the amount received.'}
+          {payment.status === 'CREDITED'
+            ? 'Your Coins have been credited. Do not send again or reuse this address.'
+            : payment.status === 'REVIEW'
+              ? 'This address is closed for new transfers. Your deposit needs support review.'
+              : expired
+                ? 'The transfer window has ended. Do not send to this address. On-time transfers may still be confirming.'
+                : 'Send the exact amount in a single transfer. Exchange and network fees must not reduce the amount received.'}
         </p>
       )}
       {payment.verificationDelayed && (
@@ -115,6 +126,18 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
           not send again.
         </p>
       )}
+      {payment.transfers?.map((t) => (
+        <p key={`${t.txHash}:${t.logIndex}`}>
+          Confirmed receipt: {t.amount} USDT · block {t.blockNumber} ·{' '}
+          <a
+            href={`https://tronscan.org/#/transaction/${t.txHash}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View deposit transfer
+          </a>
+        </p>
+      ))}
       {payment.txHash && (
         <p>
           Transfer:{' '}

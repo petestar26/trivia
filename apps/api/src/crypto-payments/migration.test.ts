@@ -4,7 +4,7 @@ import { afterAll, beforeAll, it, expect } from 'vitest';
 // Focused real PostgreSQL trigger tests. Native CI separately applies the full history.
 const db = new PGlite();
 beforeAll(async () => {
-  await db.exec(`CREATE TABLE users(id text PRIMARY KEY); CREATE TABLE countries(id text PRIMARY KEY);
+  await db.exec(`CREATE TABLE users(id text PRIMARY KEY); CREATE TABLE countries(id text PRIMARY KEY); CREATE TABLE withdrawals(id text PRIMARY KEY);
  CREATE TABLE platform_gates(key text PRIMARY KEY,enabled boolean,"changedAt" timestamp);
  CREATE TABLE wallet_transactions(id text PRIMARY KEY,"userId" text,currency text,type text,"ledgerType" text,status text,"referenceType" text,"referenceId" text,amount int,"balanceBefore" int,"balanceAfter" int);
  CREATE TABLE economic_operations(id text PRIMARY KEY,type text,"userId" text,"scopeType" text,"scopeId" text,"walletTransactionIds" text[],"reversesOperationId" text);
@@ -77,4 +77,12 @@ it('rejects completed withdrawal without exact hold backing', async () => {
       `INSERT INTO crypto_withdrawals(id,"userId","countryId",address,"amountMicro","coinAmount","pricingSnapshot","requestKey","holdOperationId") VALUES ('w','member','country','TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7',10000000,960,'{}','w','op')`
     )
   ).rejects.toThrow('exact hold');
+});
+it('refuses reusing an existing P2P withdrawal scope in the crypto channel', async () => {
+  await db.exec(`INSERT INTO withdrawals VALUES('existing-p2p')`);
+  await expect(
+    db.exec(
+      `INSERT INTO crypto_withdrawals(id,"userId","countryId",address,"amountMicro","coinAmount","pricingSnapshot","requestKey","holdOperationId") VALUES ('existing-p2p','member','country','TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7',10000000,960,'{}','w2','op')`
+    )
+  ).rejects.toThrow('another payment channel');
 });

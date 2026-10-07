@@ -125,3 +125,34 @@ it('formats exact decimal previews and a nonnegative countdown', () => {
   expect(cryptoEstimate('1e9')).toBe('');
   expect(timeRemaining(new Date(0).toISOString(), 100)).toBe('0:00');
 });
+it('never invites another transfer after credit and links the verified receipt', async () => {
+  m.get.mockImplementation(async (p: string) => ({
+    data: p.includes('options')
+      ? options
+      : {
+          deposits: [
+            {
+              ...row,
+              status: 'CREDITED',
+              transfers: [
+                {
+                  txHash: 'ab'.repeat(32),
+                  logIndex: 0,
+                  amount: '10.000000',
+                  blockNumber: '123',
+                  blockTime: new Date().toISOString(),
+                },
+              ],
+            },
+          ],
+          withdrawals: [],
+        },
+  }));
+  mount();
+  await screen.findByText(/Your Coins have been credited/);
+  expect(screen.queryByText(/Send the exact amount/)).toBeNull();
+  expect(screen.getByRole('link', { name: 'View deposit transfer' })).toHaveAttribute(
+    'href',
+    `https://tronscan.org/#/transaction/${'ab'.repeat(32)}`
+  );
+});

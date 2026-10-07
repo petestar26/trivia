@@ -77,17 +77,15 @@ it('accepts only exact USDT destination logs from a successful solidified receip
   expect(() => receiptTransfers(malformed, txHash, address)).toThrow();
 });
 it('pins endpoint, token, finality, time window and bounded provider errors', async () => {
-  const fetcher = vi
-    .fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>()
-    .mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          success: true,
-          data: [{ transaction_id: txHash }],
-          meta: { fingerprint: 'next' },
-        })
-      )
-    );
+  const fetcher = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        success: true,
+        data: [{ transaction_id: txHash }],
+        meta: { fingerprint: 'next' },
+      })
+    )
+  );
   const provider = new TronGrid('fixture-api-key', fetcher);
   const since = new Date(1000),
     until = new Date(2000);

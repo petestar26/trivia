@@ -17,6 +17,8 @@ export async function scanTransfers(
       if (!seen.has(hash)) {
         seen.add(hash);
         result.push(...(await provider.transfers(hash, deposit.address)));
+        if (result.length > 1000)
+          throw new Error('Transfer count exceeds automatic verification limit');
       }
     if (!data.next) return result;
     if (data.next === fingerprint) throw new Error('Provider pagination did not advance');
