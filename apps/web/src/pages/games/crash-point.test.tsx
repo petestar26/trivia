@@ -214,7 +214,7 @@ it('autoplay admits at most ten distinct rounds and never repeats the current ro
         });
       });
   }
-  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
   expect(new Set(post.mock.calls.map((c) => c[1].roundId)).size).toBe(10);
 });
 it('stops autoplay on admission errors and preserves the exact retry payload', async () => {
@@ -224,7 +224,7 @@ it('stops autoplay on admission errors and preserves the exact retry payload', a
   const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
   await within(panel).findByRole('button', { name: 'Retry saved ticket' });
-  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
   expect(readCrashReceipt('u1', 2)).toEqual({ roundId: 'r1', stake: 25, autoCents: 200, slot: 2 });
 });
 it('stops autoplay when the tab is hidden without cancelling confirmed bets', async () => {
@@ -235,7 +235,7 @@ it('stops autoplay when the tab is hidden without cancelling confirmed bets', as
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   fireEvent(document, new Event('visibilitychange'));
-  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
   visibility.mockRestore();
   expect(post).toHaveBeenCalledTimes(1);
 });
@@ -279,7 +279,7 @@ it('stops autoplay on disconnection and does not restart it when fresh data retu
   await act(async () => {
     await client.refetchQueries({ queryKey: ['crash-point', 'u1'] });
   });
-  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
   await act(async () => {
     snapshot = { ...snapshot, rounds: [{ ...snapshot.rounds[0], id: 'after-reconnect' }] };
     client.setQueryData(['crash-point', 'u1'], {

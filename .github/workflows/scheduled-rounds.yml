@@ -280,6 +280,11 @@ jobs:
           src/lib/session.test.ts
           src/providers/auth-provider.test.tsx
           src/providers/socket-provider.test.tsx
+          src/providers/connection.test.tsx
+          src/pages/login-return-path.test.tsx
+          src/pages/signup-return-path.test.tsx
+          src/pages/games/crash-point.test.tsx
+          src/pages/wallet-late-payments.test.tsx
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
