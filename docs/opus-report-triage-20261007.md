@@ -13,13 +13,13 @@ These changes do not activate payments, run transactions, or change database str
 
 | Finding | Current assessment / follow-up |
 |---|---|
-| Deposit submit/settle readiness | Added locked current agent/user, country, account and method checks plus original immutable pricing expiry validation. Rejected paid settlements keep their reservation for dispute review. Native cases added; CI pending. |
-| CREATED order expiry/inventory reservation | Added 15-minute window bounded by original rate expiry, a serialized three-pending-order cap, idempotent replay before cap enforcement, audited staff cancellation and an independent expiry-worker step. Only CREATED orders expire. Native concurrency tests added; CI pending. |
+| Deposit submit/settle readiness | Added locked current agent/user, country, account and method checks plus original immutable pricing expiry validation. Rejected paid settlements keep their reservation for dispute review. Native cases passed in the complete PostgreSQL 13/16/18 matrix. |
+| CREATED order expiry/inventory reservation | Added 15-minute window bounded by original rate expiry, a serialized three-pending-order cap, idempotent replay before cap enforcement, audited staff cancellation and an independent expiry-worker step. Only CREATED orders expire. Native concurrency tests passed in the complete PostgreSQL 13/16/18 matrix. |
 | Realtime membership revocation | Handshake checks current account status and token expiry; delivery rechecks every recipient's status/membership, evicts removed members and disconnects revoked/expired sessions. Fixed typing room/ID mismatch. Mocked delivery regressions pass; five actual Socket.IO handshake/delivery/expiry tests now pass locally (membership persistence is mocked). |
-| Suspended payout agents | Participant locks now enforce active actor status, while allowing an active staff member to recover suspended customer funds. Four focused tests pass; native lifecycle suite remains required. |
+| Suspended payout agents | Participant locks now enforce active actor status, while allowing an active staff member to recover suspended customer funds. Four focused tests pass; native lifecycle suite passed on PostgreSQL 13/16/18. |
 | TOTP policy | Activation atomically enables sensitive-operation step-up policy. Mocked transaction regressions pass; existing native enrollment contract extended. |
 | Admin dispute completion | UI now gathers reference and payment timestamp for escalated PAYOUT_IN_PROGRESS completion, with validation and evidence payload. Other outcomes retain existing behavior. UI regressions pass. |
-| Agent activation grants | New forward migration extends canonical grants with onboarding function execution; runtime verification checks capability and native activation uses canonical grants. Migration and restricted-role CI pending. |
+| Agent activation grants | New forward migration extends canonical grants with onboarding function execution; runtime verification checks capability and native activation uses canonical grants. Migration and restricted-role checks passed on PostgreSQL 13/16/18. |
 | Paused pricing UI | Added explicit paused feedback without an endless loading state or price-preview request. UI regression passes. |
 | P3 findings | Not independently re-run in this pass. Track separately; dormant financial bypasses, token expiry/logging, durable voice storage and worker identity need security prioritization, not merely cosmetic classification. |
 
@@ -27,7 +27,7 @@ The report's fee-policy question is partly resolved by the conversation: 7% PVP 
 
 ## Release status
 
-CHANGES REQUIRED remains the correct production verdict. Passing CI is not evidence that these uncovered paths are safe. The eight P2 paths now have source changes, but database, socket integration and deployment verification remain open. This does not establish production readiness. Crypto options remain catalog entries, not completed provider integrations. Runtime identity/grants, cookies, worker configuration, backups and actual deployment contents must be checked from current configuration rather than inferred from the older report.
+CHANGES REQUIRED remains the correct production verdict. Passing CI is not evidence that these uncovered paths are safe. The eight P2 paths have source changes and passing database/socket regression coverage; operational payment recovery and financial-worker rollout remain open. This does not establish production readiness. Crypto options remain catalog entries, not completed provider integrations. Runtime identity/grants, cookies, worker configuration, backups and actual deployment contents must be checked from current configuration rather than inferred from the older report.
 
 Patch reconciliation must cover PR #33 as well as descendant PR #35 before any merge: applying a fix only to the descendant does not make the older branch safe to release. No production merge/deployment or financial activation is authorized by the external report itself.
 
@@ -45,4 +45,15 @@ Socket expiry follow-up: the member client now uses the existing cookie-session 
 
 The isolated staging owner helper now allows exactly the new activation-grant migration alongside the existing Crash Point migrations, applies canonical grants to the validated API role, and verifies the activation capability. Its production refusal, database target checks and migration-history checksum checks remain in place. The financial timeout worker is still a separate deployment task.
 
-Full PostgreSQL payment regression caught an overly strict rate-row activation check. Replacement-rate publication must not invalidate an existing immutable quote; that check was removed while preserving original snapshot expiry and all payment destination/actor availability checks. The existing native frozen-price/idempotency test remains unchanged and must pass before deployment.
+Full PostgreSQL payment regression caught an overly strict rate-row activation check. Replacement-rate publication must not invalidate an existing immutable quote; that check was removed while preserving original snapshot expiry and all payment destination/actor availability checks. The existing native frozen-price/idempotency test remains unchanged and passed on PostgreSQL 13/16/18.
+
+## Verified remediation release evidence
+
+- Verified code commit: `147f74b3417e08809d1cf0910f9a20ca1a707906`. Full PostgreSQL 13/16/18 CI succeeded: https://github.com/petestar26/trivia/actions/runs/37559364354 .
+- P0/P1 backport on PR #33: `3bf48be483734108f08568d4b433e405c12a0895`. Its complete matrix also succeeded: https://github.com/petestar26/trivia/actions/runs/37558979635 . P2/P3 reconciliation on that older branch remains open.
+- Local focused checks: 204 API tests across 23 files, 13 wallet tests, 19 socket/session tests and completed API/web TypeScript checks passed.
+- Isolated staging owner deployment `87b7b232-b0a2-44c4-844a-762d26d0d136` succeeded, emitted `CRASH_POINT_STAGING_READY`, included the new activation-grant migration and confirmed `financialPlay: false`.
+- Financial timeout-worker deployment remains blocked on proving its database target is isolated. Existing worker credentials are redacted through the available connector; do not infer target identity or repurpose it blindly.
+- API deployment `aa4e8f06-3919-4102-9517-39376271ac5b` and web deployment `eb6cb2f7-a8b6-49e5-b20e-0feaa69e053c` succeeded at the verified code commit in isolated staging.
+- Browser verification after the app update: Ethiopia now displays “Payments are paused in this country. New quotes are unavailable.” instead of the previous endless rate loader. Wallet requests loaded with truthful empty states. No transaction was submitted. Captured console errors were browser-extension metadata errors, not application errors. Physical mobile/tablet testing remains outstanding.
+- Production, financial activation and PR merges were not changed. The social/group worker remains on its prior verified Crash Point build.
