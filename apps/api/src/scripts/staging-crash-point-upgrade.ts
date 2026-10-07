@@ -19,6 +19,7 @@ const allowed = [
   '20261007031000_recovery_reference_boundary',
   '20261007032000_recovery_runtime_hardening',
   '20261007040000_agent_activation_utc',
+  '20261008010000_usdt_tron_payments',
 ];
 async function run() {
   assertUsdStagingTarget(process.env);
@@ -104,6 +105,12 @@ async function run() {
       FROM (VALUES ('late_payment_cases','SELECT'),('late_payment_cases','INSERT'),('late_payment_cases','UPDATE'),
         ('late_payment_reference_claims','SELECT'),('late_payment_reference_claims','INSERT'),('audit_logs','SELECT'),('audit_logs','INSERT')) AS grants(t,p)`;
     if (!recovery?.allowed) throw Error('RECOVERY_RUNTIME_GRANTS_INVALID');
+    const cryptoGates = await db.platformGate.findMany({where:{key:{startsWith:'CRYPTO_'}}});
+    if (cryptoGates.length !== 3 || cryptoGates.some(g => g.enabled)) throw Error('CRYPTO_GATES_MUST_REMAIN_DISABLED');
+    const [cryptoAccess] = await db.$queryRaw<{allowed:boolean}[]>`
+      SELECT NOT has_table_privilege(${apiRole},'public.crypto_receipts','INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')
+        AND NOT has_any_column_privilege(${apiRole},'public.crypto_receipts','INSERT,UPDATE') AS allowed`;
+    if (!cryptoAccess?.allowed) throw Error('CRYPTO_API_EVIDENCE_ACCESS_INVALID');
     const game = await db.gameDefinition.findUnique({ where: { key: 'crash_point' } });
     if (!game || game.isActive || game.catalogStatus !== 'COMING_SOON')
       throw Error('FINANCIAL_GATE_INVALID');
@@ -113,6 +120,7 @@ async function run() {
         mode: 'PRACTICE',
         migrations: allowed,
         financialPlay: false,
+        cryptoPayments: false,
       })
     );
   } finally {

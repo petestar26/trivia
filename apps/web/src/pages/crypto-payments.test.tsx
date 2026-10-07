@@ -86,7 +86,7 @@ it('withdrawal request includes the member destination and exact Coin amount', a
   m.post.mockResolvedValue({ success: true });
   mount();
   await screen.findByLabelText('Deposit amount (USDT)');
-  fireEvent.click(screen.getByRole('button', { name: 'Withdraw', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
   fireEvent.change(screen.getByLabelText('Withdraw amount (Coins)'), { target: { value: '2017' } });
   fireEvent.change(screen.getByLabelText('Your TRON receiving address'), {
     target: { value: row.address },

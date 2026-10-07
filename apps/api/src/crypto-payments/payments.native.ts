@@ -332,3 +332,36 @@ it('API role cannot forge receipts; verifier can insert but cannot mutate eviden
     }
   }
 });
+
+it('credits an on-time solidified transfer discovered after expiry without reusing the address', async () => {
+  const f=await fixture();const createdAt=new Date(Date.now()-20*60_000),expiresAt=new Date(Date.now()-5*60_000);
+  const d=await prisma.cryptoDeposit.create({data:{id:randomUUID(),userId:f.user.id,countryId:f.country.id,address:f.receive,amountMicro:50_000_000n,coinAmount:4800,pricingSnapshot:{},requestKey:randomUUID(),createdAt,expiresAt,status:'EXPIRED'}});
+  await settleDeposit(d.id,[await transfer(d.id)]);
+  expect((await prisma.wallet.findUniqueOrThrow({where:{userId:f.user.id}})).coinsBalance).toBe(4800);
+  expect((await prisma.cryptoDeposit.findUniqueOrThrow({where:{id:d.id}})).address).toBe(f.receive);
+  await expect(prisma.cryptoDeposit.delete({where:{id:d.id}})).rejects.toThrow();
+});
+it('claim versus member cancellation has one winner and never both sends and refunds',async()=>{
+ const f=await fixture(),d=await invoice(f);await settleDeposit(d.id,[await transfer(d.id)]);
+ const w=await createWithdrawal(f.user.id,12345,{countryId:f.country.id,coinAmount:2016,address:address(),idempotencyKey:randomUUID()});
+ await stepup(f.admin.id,`CRYPTO_WITHDRAWAL_CLAIM:${w.id}`);
+ const results=await Promise.allSettled([processWithdrawal(f.admin.id,12345,w.id,'claim',{},true),processWithdrawal(f.user.id,12345,w.id,'cancel',{},false)]);
+ expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+ const current=await prisma.cryptoWithdrawal.findUniqueOrThrow({where:{id:w.id}});
+ expect(['PAYOUT_IN_PROGRESS','CANCELLED']).toContain(current.status);
+ expect((await prisma.wallet.findUniqueOrThrow({where:{userId:f.user.id}})).coinsBalance).toBe(current.status==='CANCELLED'?4800:2784);
+});
+it('restricted verifier performs the real atomic credit while API forgery is denied',async()=>{
+ const f=await fixture(),d=await invoice(f),t=await transfer(d.id);
+ const apiRole=`crypto_no_proof_${randomUUID().replaceAll('-','')}`,verifierRole=`crypto_with_proof_${randomUUID().replaceAll('-','')}`;
+ try {
+  for(const role of [apiRole,verifierRole])await prisma.$executeRawUnsafe(`CREATE ROLE "${role}" NOLOGIN`);
+  await prisma.$queryRaw`SELECT public.ledger_apply_runtime_grants(${apiRole})::text`;
+  await prisma.$queryRaw`SELECT public.crypto_apply_verifier_grants(${verifierRole})::text`;
+  const runner=(role:string)=>({$transaction:<T>(body:(tx:import('@socialplay/database').Prisma.TransactionClient)=>Promise<T>)=>prisma.$transaction(async tx=>{await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);return body(tx);})});
+  await expect(settleDeposit(d.id,[t],runner(apiRole))).rejects.toThrow(/permission denied/);
+  expect(await prisma.walletTransaction.count({where:{userId:f.user.id}})).toBe(0);
+  await settleDeposit(d.id,[t],runner(verifierRole));
+  expect((await prisma.wallet.findUniqueOrThrow({where:{userId:f.user.id}})).coinsBalance).toBe(4800);
+ }finally{for(const role of [apiRole,verifierRole]){await prisma.$executeRawUnsafe(`DROP OWNED BY "${role}"`);await prisma.$executeRawUnsafe(`DROP ROLE "${role}"`);}}
+});

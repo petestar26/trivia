@@ -94,11 +94,11 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   if (!r.success) throw ApiError.badRequest(r.error.issues[0]?.message ?? 'Invalid request');
   return r.data;
 }
-export async function actor(tx: Tx, id: string, admin = false) {
+export async function actor(tx: Tx, id: string, admin = false, ownFundsReturn = false) {
   const [u] = await tx.$queryRaw<
     Array<{ status: string; role: string }>
   >`SELECT status::text,role::text FROM users WHERE id=${id} FOR SHARE`;
-  if (u?.status !== 'ACTIVE' || (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role)))
+  if (!u || (!ownFundsReturn && u.status !== 'ACTIVE') || (admin && !['ADMIN', 'SUPER_ADMIN'].includes(u.role)))
     throw ApiError.forbidden(admin ? 'Active administrator required' : 'Active account required');
 }
 async function flush(tx: Tx) {
@@ -215,7 +215,7 @@ export async function listPayments(userId: string, admin = false, query: unknown
     z.object({ page: z.coerce.number().int().min(0).max(100000).default(0) }).strict(),
     query
   );
-  const offset = page * 50;
+  const offset = (page ?? 0) * 50;
   return prisma.$transaction(async (tx) => {
     await actor(tx, userId, admin);
     const deposits = admin
@@ -358,6 +358,8 @@ export async function createWithdrawal(userId: string, tokenIat: number, body: u
       Array<{ id: string }>
     >`SELECT id FROM crypto_withdrawals WHERE "userId"=${userId} AND status IN ('HELD','PAYOUT_IN_PROGRESS')`;
     if (live) throw ApiError.conflict('You already have an active crypto withdrawal');
+    if (await tx.withdrawal.count({where:{userId,status:{in:['HELD','PAYOUT_IN_PROGRESS','PAYMENT_SUBMITTED','DISPUTED']}}}))
+      throw ApiError.conflict('You already have an active withdrawal');
     const id = randomUUID();
     const held = await reserveWithdrawalCoins(tx, userId, b.coinAmount, {
       withdrawalId: id,
@@ -391,7 +393,7 @@ export async function processWithdrawal(
     // User locks always precede business locks, including for suspended owners.
     for (const uid of [...new Set([actorId, preview.userId])].sort())
       await tx.$queryRaw`SELECT id FROM users WHERE id=${uid} FOR SHARE`;
-    await actor(tx, actorId, admin);
+    await actor(tx, actorId, admin, !admin && action === 'cancel');
     if (admin ? preview.userId === actorId : preview.userId !== actorId)
       throw ApiError.forbidden('You cannot process this withdrawal');
     if (!admin && action !== 'cancel') throw ApiError.forbidden('Administrator required');
@@ -440,8 +442,8 @@ export async function processWithdrawal(
   });
 }
 /** Worker only. Its separate DB identity is the only runtime that can insert evidence. */
-export async function settleDeposit(id: string, transfers: Transfer[]) {
-  return prisma.$transaction(async (tx) => {
+export async function settleDeposit(id: string, transfers: Transfer[], db: { $transaction<T>(body: (tx: Tx) => Promise<T>): Promise<T> } = prisma) {
+  return db.$transaction(async (tx) => {
     const [preview] = await tx.$queryRaw<Deposit[]>`SELECT * FROM crypto_deposits WHERE id=${id}`;
     if (!preview) throw ApiError.notFound('Deposit not found');
     await lockUserEconomicScope(tx, `crypto:${preview.userId}`);

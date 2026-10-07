@@ -406,6 +406,9 @@ export async function createWithdrawal(
         // cancellation which releases its hold under the same wallet lock.
         await getOrCreateWallet(actorUserId, tx);
         await tx.$queryRaw`SELECT id FROM wallets WHERE "userId" = ${actorUserId} FOR UPDATE`;
+        const [cryptoLive] = await tx.$queryRaw<Array<{id:string}>>`
+          SELECT id FROM crypto_withdrawals WHERE "userId"=${actorUserId} AND status IN ('HELD','PAYOUT_IN_PROGRESS') LIMIT 1`;
+        if (cryptoLive) throw ApiError.conflict('You already have an active crypto withdrawal');
         await assertWithdrawalPolicyLimits(tx, actorUserId, quote!.coinAmount, policy, now);
         const coinHold = await reserveWithdrawalCoins(tx, actorUserId, quote!.coinAmount, {
           withdrawalId,
