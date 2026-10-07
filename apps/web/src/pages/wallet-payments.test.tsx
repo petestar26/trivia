@@ -10,6 +10,26 @@ import {WalletOperationsPage} from './wallet-operations';
 const options={countries:[{id:'country',name:'Test country',currencyCode:'USD'}],agents:[{id:'agent',countryId:'country',displayName:'Approved agent',minOrderAmount:1,maxOrderAmount:1000,paymentAccounts:[{id:'account',methodDef:{name:'Bank transfer'}}]}],isAgent:false,isAdmin:false};
 beforeEach(()=>{sessionStorage.clear();m.post.mockReset();m.get.mockReset();m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?options:path==='/withdrawals/payout-accounts'?[{id:'payout',countryId:'country',status:'ACTIVE',displayLabel:'My account',accountDetails:{number:'****1234'}}]:[]}));});
 afterEach(cleanup);
+it.each(['HELD', 'PAYOUT_IN_PROGRESS'])('does not offer an unsupported member dispute in %s', async (status) => {
+ const row = {id:'withdrawal',status,coinAmount:500,fiatAmount:500,fiatCurrency:'USD',createdAt:new Date().toISOString()};
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?options:path==='/withdrawals/me'?[row]:[]}));
+ mount('activity');
+ await screen.findByText('withdrawal');
+ expect(screen.queryByRole('button',{name:'Report a problem'})).toBeNull();
+ if(status==='HELD') expect(screen.getByRole('button',{name:'Cancel and return held Coins'})).toBeEnabled();
+ else expect(screen.getByText(/payment support/i)).toBeInTheDocument();
+});
+it.each([false,true])('uses the current USD withdrawal floor and paused-country state (paused=%s)',async(paused)=>{
+ m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[{...options.countries[0],usdPricingEnabled:true,agentPaymentEnabled:!paused}]}:path.includes('deposit-preview')?{policy:{coinsPerUsd:96,p2pWithdrawalAboveUsdCents:500,p2pDepositMinUsdCents:200,localPerUsd:'1',observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()},preview:null}:path==='/withdrawals/payout-accounts'?[{id:'payout',countryId:'country',status:'ACTIVE',displayLabel:'My account',accountDetails:{}}]:[]}));
+ mount('withdraw');fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
+ fireEvent.change(screen.getByLabelText('Payout account'),{target:{value:'payout'}});
+ if(!paused) await screen.findByText(/Withdrawal must exceed USD/);
+ fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'480'}});
+ expect(screen.getByRole('button',{name:'Get withdrawal quote'})).toBeDisabled();
+ fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'481'}});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Get withdrawal quote'})).toHaveProperty('disabled',paused));
+ expect(m.post).not.toHaveBeenCalled();
+});
 function mount(section='deposit'){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}><MemoryRouter initialEntries={['/wallet/'+section]}><Routes><Route path="/wallet/operations" element={<WalletOperationsPage/>}/><Route path="/wallet/:section" element={<WalletPaymentsPage/>}/></Routes></MemoryRouter></QueryClientProvider>);}
 it('requires country, agent, approved method and confirmation before an idempotent deposit',async()=>{
  mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
