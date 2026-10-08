@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Temporary staging update diagnostics</title><h1>Temporary staging update diagnostics</h1><p>Read-only service-worker lifecycle information. No registration, activation, storage clearing, or API requests.</p><pre id="state"></pre><script>
+async function show() {
+ const r=await navigator.serviceWorker.getRegistration('/'); const c=navigator.serviceWorker.controller;
+ document.getElementById('state').textContent=JSON.stringify({controller:c?.state??null,active:r?.active?.state??null,waiting:r?.waiting?.state??null,installing:r?.installing?.state??null,controllerIsActive:c===r?.active,controllerIsWaiting:c===r?.waiting},null,2);
+}
+show();setInterval(show,1000);
+</script>
