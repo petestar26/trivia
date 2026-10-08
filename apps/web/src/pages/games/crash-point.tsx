@@ -609,7 +609,7 @@ function CrashPoint({
             Crash <em>Point</em>
             <span>LIVE PRACTICE</span>
           </h1>
-          <p>Follow the curve. Choose your moment.</p>
+          <p>Follow the curve. Choose your moment. Staging update check.</p>
         </div>
         <div className="crash-heading-actions">
           <div className="crash-wallet">
