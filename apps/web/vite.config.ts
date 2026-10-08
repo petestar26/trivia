@@ -77,7 +77,7 @@ export default defineConfig({
       },
       workbox: {
         // Temporary unmerged staging lifecycle probe.
-        importScripts: ['/assets/worker-probe-A.js'],
+        importScripts: ['/assets/worker-probe-B.js'],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Gateway and asset URLs must reach the server, including direct navigation.
         navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
