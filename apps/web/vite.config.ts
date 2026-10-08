@@ -11,7 +11,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
       manifest: {
         name: 'PlayQube',
@@ -79,8 +80,8 @@ export default defineConfig({
         // Gateway and asset URLs must reach the server, including direct navigation.
         navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
         cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
+        clientsClaim: false,
+        skipWaiting: false,
       },
     }),
   ],

@@ -10,7 +10,18 @@ assert.ok(dependency, 'Build the PWA before running its routing contracts');
 const workbox = await readFile(new URL(`./dist/${dependency}.js`, import.meta.url), 'utf8');
 const exports = {};
 const routes = [];
-const workerScope = { define() {}, skipWaiting() {} };
+const messages = [];
+let skips = 0;
+let claims = 0;
+const workerScope = {
+  define() {},
+  skipWaiting() {
+    skips++;
+  },
+  addEventListener(type, listener) {
+    if (type === 'message') messages.push(listener);
+  },
+};
 const context = vm.createContext({
   self: workerScope,
   URL,
@@ -21,7 +32,9 @@ vm.runInContext(workbox, context, { filename: dependency });
 context.define = (_dependencies, factory) =>
   factory({
     ...exports,
-    clientsClaim() {},
+    clientsClaim() {
+      claims++;
+    },
     precacheAndRoute() {},
     cleanupOutdatedCaches() {},
     createHandlerBoundToURL: () => () => {},
@@ -38,6 +51,26 @@ const matches = (path, mode = 'navigate') =>
     })
   );
 
+test('updates wait for explicit activation instead of taking over during a page load', () => {
+  assert.equal(skips, 0);
+  assert.equal(claims, 0);
+  assert.equal(messages.length, 1);
+  messages[0]({ data: { type: 'UNRELATED' } });
+  assert.equal(skips, 0);
+  messages[0]({ data: { type: 'SKIP_WAITING' } });
+  assert.equal(skips, 1);
+});
+
+test('release HTML installs its recovery guard before the generated entry module', async () => {
+  const html = await readFile(new URL('./dist/index.html', import.meta.url), 'utf8');
+  const guardAt = html.indexOf('<script src="/app-recovery.js"');
+  const entryAt = html.search(/<script[^>]*type="module"/);
+  assert.ok(guardAt >= 0 && entryAt > guardAt);
+  assert.equal(
+    await readFile(new URL('./dist/app-recovery.js', import.meta.url), 'utf8'),
+    await readFile(new URL('./public/app-recovery.js', import.meta.url), 'utf8')
+  );
+});
 test('gateway and asset navigations reach the network instead of the app shell', () => {
   for (const path of [
     '/api',
