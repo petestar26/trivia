@@ -204,7 +204,9 @@ export function createWebServer({
         'content-length': bytes.length,
         'x-content-type-options': 'nosniff',
         'cache-control':
-          ext === '.html' || /(?:sw|workbox).*\.js$/.test(file)
+          ext === '.html' ||
+          path.basename(file) === 'app-recovery.js' ||
+          /(?:sw|workbox).*\.js$/.test(file)
             ? 'no-cache'
             : 'public, max-age=3600',
       });
