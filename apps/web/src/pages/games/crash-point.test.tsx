@@ -218,11 +218,80 @@ it('autoplay stops future admission when stopped, retaining the submitted ticket
   const panel = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    snapshot = {
+      ...snapshot,
+      rounds: [
+        {
+          ...snapshot.rounds[0],
+          tickets: [{ slot: 1, stake: 25, autoCents: 200, payout: null, paidCents: null }],
+        },
+      ],
+    };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  expect(within(panel).getByRole('button', { name: /Stop autoplay/ })).toBeEnabled();
   fireEvent.click(within(panel).getByRole('button', { name: /Stop autoplay/ }));
   expect(within(panel).getByText(/Autoplay stopped/)).toBeInTheDocument();
   expect(post).toHaveBeenCalledTimes(1);
   expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', stake: 25, autoCents: 200 });
 });
+it.each([1, 2])(
+  'does not start autoplay from a hidden draft behind a confirmed slot %s ticket',
+  async (slot) => {
+    snapshot.maxTickets = 2;
+    snapshot.rounds[0].tickets = [
+      { slot, stake: 30, autoCents: 300, payout: null, paidCents: null },
+    ];
+    setup();
+    const panel = await screen.findByRole('complementary', { name: `Bet ${slot} controls` });
+    const start = await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' });
+    expect(within(panel).getByLabelText('Bet amount')).toHaveValue('30');
+    expect(within(panel).getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+    expect(start).toBeDisabled();
+    const otherPanel = screen.getByRole('complementary', {
+      name: `Bet ${slot === 1 ? 2 : 1} controls`,
+    });
+    expect(
+      within(otherPanel).getByRole('button', { name: 'Start autoplay · 10 rounds' })
+    ).toBeEnabled();
+    fireEvent.click(start);
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+
+    await act(async () => {
+      snapshot = {
+        ...snapshot,
+        rounds: [{ ...snapshot.rounds[0], id: 'next', ticket: null, tickets: [] }],
+      };
+      client.setQueryData(['crash-point', 'u1'], {
+        snapshot,
+        sent: performance.now(),
+        received: performance.now(),
+      });
+    });
+    await waitFor(() => expect(start).toBeEnabled());
+    expect(within(panel).getByLabelText('Bet amount')).toHaveValue('25');
+    expect(within(panel).getByLabelText('Auto cash-out multiplier')).toHaveValue('2.00');
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.change(within(panel).getByLabelText('Bet amount'), { target: { value: '40' } });
+    fireEvent.change(within(panel).getByLabelText('Auto cash-out multiplier'), {
+      target: { value: '4.00' },
+    });
+    fireEvent.click(start);
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toEqual({
+      roundId: 'next',
+      stake: 40,
+      autoCents: 400,
+      ...(slot === 2 ? { slot } : {}),
+    });
+  }
+);
 it('autoplay admits at most ten distinct rounds and never repeats the current round', async () => {
   snapshot.maxTickets = 2;
   setup();

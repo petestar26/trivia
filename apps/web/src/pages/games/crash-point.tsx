@@ -561,13 +561,14 @@ function CrashPoint({
             <button
               disabled={
                 !connected ||
+                !!ticket ||
                 !!pending ||
                 !!storageError ||
                 !input?.autoCents ||
                 (input?.stake ?? Infinity) > (s?.balance ?? 0)
               }
               onClick={() => {
-                if (input?.autoCents) {
+                if (!ticket && input?.autoCents) {
                   autoplayRound.current = '';
                   setAutoplay({ remaining: 10, stake: input.stake, autoCents: input.autoCents });
                 }
@@ -579,8 +580,8 @@ function CrashPoint({
           <details className="crash-autoplay-info">
             <summary>Rules</summary>
             <p>
-              Up to 10 entries using this amount and target. Stops on error, disconnection, hidden
-              tab or refresh. Confirmed tickets stay active.
+              Up to 10 entries using this amount and target. Start before confirming a ticket. Stops
+              on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
             </p>
           </details>
         </div>
