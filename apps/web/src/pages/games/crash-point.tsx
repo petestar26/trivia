@@ -633,7 +633,13 @@ function CrashPoint({
       </header>
       <div className="crash-layout">
         <div className="crash-table">
-          <RoundHistory rounds={raw?.rounds ?? []} />
+          <div className="crash-stage-masthead">
+            <div className="crash-stage-brand">
+              <CrashPointMark />
+              <CrashRulesDialog />
+            </div>
+            <RoundHistory rounds={raw?.rounds ?? []} />
+          </div>
           <section
             className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
             aria-label="Live multiplier graph"
@@ -657,11 +663,7 @@ function CrashPoint({
             </div>
             <div className="crash-multiplier">
               <span>
-                {shown?.crashCents
-                  ? 'CRASH POINT'
-                  : open
-                    ? 'READY FOR THE RISE'
-                    : 'LIVE MULTIPLIER'}
+                {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
               </span>
               <strong>
                 {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
@@ -711,7 +713,7 @@ function CrashPoint({
                   return (
                     <g key={v}>
                       <path d={`M72 ${v}H745`} className="grid" />
-                      <text x="15" y={v + 5}>
+                      <text x="790" y={v + 5} textAnchor="end">
                         {Number(value.toFixed(2))}×
                       </text>
                     </g>
@@ -731,6 +733,7 @@ function CrashPoint({
                 <polyline points={points} className="curve" />
                 <g transform={`translate(${x} ${y}) rotate(${arrowAngle}) scale(1.25)`}>
                   <ellipse cx="-8" cy="18" rx="27" ry="8" fill="#020b1b" opacity=".65" />
+                  <path d="M30 0L-23 -17L-12 0L-23 17Z" fill="#0d4775" transform="translate(0 6)" />
                   <g className={flying && connected ? 'crash-arrow flying' : 'crash-arrow'}>
                     <path className="crash-arrow-trail" d="M-18 0H-60" />
                     <path
@@ -740,6 +743,7 @@ function CrashPoint({
                       strokeWidth="1.5"
                     />
                     <path d="M30 0L-12 0L-23 17Z" fill="#158aaf" />
+                    <path d="M-12 0L30 0" stroke="#bafff4" strokeWidth="1.2" />
                     <path d="M-23 -17L-12 0L30 0" fill="none" stroke="white" strokeWidth="2" />
                   </g>
                 </g>
@@ -749,7 +753,7 @@ function CrashPoint({
               <div className="crash-result-heading">
                 <ShieldCheck size={18} />
                 <span>
-                  {shown?.crashCents != null ? 'ROUND RESULT' : 'YOUR FLIGHT'}
+                  {shown?.crashCents != null ? 'ROUND RESULT' : 'YOUR ROUND'}
                   <small>Practice credits · no cash value</small>
                 </span>
               </div>
@@ -906,7 +910,7 @@ function CrashPoint({
                   <code>{shown.commitment}</code>
                   <p>
                     {shown.seed
-                      ? 'Result revealed. Verify it in the round details below.'
+                      ? 'Result revealed. Tap a result in the round history above to verify it.'
                       : 'Published before entry closes. The seed stays hidden until the crash.'}
                   </p>
                 </div>
@@ -1007,28 +1011,7 @@ function CrashPoint({
       </section>
       <details className="crash-rules">
         <summary>Rules, timing and round verification</summary>
-        <p>
-          Practice starts with 1,000 nonredeemable credits, separate from Coins and Game Points. No
-          purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per round.
-          Auto cash-out is handled by the server and survives disconnects.
-        </p>
-        <p>
-          Manual cash-out is accepted at server processing time, after locks are acquired. At or
-          after the crash cutoff it loses. Displayed multipliers are estimates between updates; only
-          a server-confirmed receipt is a return. A round can crash immediately at 1.00×. Cash-out
-          is capped at 20.00×, with a terminal crash at 20.01×.
-        </p>
-        <p>
-          The target gross return for a fixed auto cash-out is approximately 90%, before
-          whole-credit rounding. It is a long-run mathematical expectation, not a promise for a
-          session. Manual timing and rounding affect returns. There is no additional practice fee or
-          PVP mode.
-        </p>
-        <p>
-          Each round publishes a SHA-256 commitment before entry and reveals its seed after the
-          crash. This checks that the revealed seed matches the earlier commitment; it is not an
-          independent RNG certification.
-        </p>
+        <CrashRulesContent />
         {s?.rounds
           .filter((r) => r.seed)
           .slice(0, 3)
@@ -1037,6 +1020,161 @@ function CrashPoint({
           ))}
       </details>
     </div>
+  );
+}
+function CrashPointMark() {
+  return (
+    <svg
+      className="crash-brand-mark"
+      viewBox="0 0 280 106"
+      role="img"
+      aria-label="PlayQube Crash Point"
+    >
+      <defs>
+        <linearGradient id="cp-brand-face" x1="0" y1="0" x2="0" y2="1">
+          <stop stopColor="#f2fdff" />
+          <stop offset="0.5" stopColor="#bce9ff" />
+          <stop offset="1" stopColor="#6e9be9" />
+        </linearGradient>
+        <linearGradient id="cp-brand-arrow" x1="0" y1="1" x2="1" y2="0">
+          <stop stopColor="#5279ef" />
+          <stop offset="1" stopColor="#86ffec" />
+        </linearGradient>
+      </defs>
+      <path d="M12 72L12 41L38 18L65 33L65 64L38 89Z" fill="#111e3e" stroke="#638ab7" />
+      <path
+        d="M19 67L39 44L30 40L58 30L53 59L47 50L27 75Z"
+        fill="#1b518e"
+        transform="translate(0 5)"
+      />
+      <path d="M19 67L39 44L30 40L58 30L53 59L47 50L27 75Z" fill="url(#cp-brand-arrow)" />
+      <path d="M19 67L27 75L47 50L53 59L58 30L45 45Z" fill="#58b8d5" opacity=".6" />
+      <g
+        fontFamily="system-ui, sans-serif"
+        fontWeight="900"
+        fontStyle="italic"
+        fontSize="38"
+        letterSpacing="1"
+      >
+        <g fill="#203764" stroke="#203764" strokeWidth="2" transform="translate(0 5)">
+          <text x="80" y="46">
+            CRASH
+          </text>
+          <text x="80" y="84">
+            POINT
+          </text>
+        </g>
+        <g fill="url(#cp-brand-face)">
+          <text x="80" y="46">
+            CRASH
+          </text>
+          <text x="80" y="84">
+            POINT
+          </text>
+        </g>
+      </g>
+      <text
+        x="82"
+        y="101"
+        fill="#aabedb"
+        fontSize="9"
+        letterSpacing="3"
+        fontFamily="system-ui, sans-serif"
+      >
+        PLAYQUBE ORIGINAL
+      </text>
+    </svg>
+  );
+}
+function CrashRulesContent() {
+  return (
+    <>
+      <div className="crash-rule-limits" role="group" aria-label="Practice limits">
+        <span>
+          <strong>
+            {rules.minStake}–{rules.maxStake}
+          </strong>{' '}
+          credits per ticket
+        </span>
+        <span>
+          <strong>{rules.bettingMs / 1000} seconds</strong> to confirm your entry
+        </span>
+        <span>
+          <strong>{(rules.maxCashoutCents / 100).toFixed(2)}×</strong> maximum cash-out
+        </span>
+      </div>
+      <ol className="crash-rule-steps">
+        <li>
+          <strong>Choose your ticket.</strong> Set an amount and optional auto cash-out target. Each
+          panel is independent and shares the practice balance.
+        </li>
+        <li>
+          <strong>Confirm during entry.</strong> An accepted ticket locks its amount and target.
+          Changing a draft or tapping a past result never places a ticket.
+        </li>
+        <li>
+          <strong>Cash out before the crash.</strong> A return includes the stake. If the crash
+          happens first, that ticket returns zero. Matching the crash multiplier also loses.
+        </li>
+      </ol>
+      <p>
+        Practice starts with 1,000 nonredeemable credits, separate from Coins and Game Points. No
+        purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per round.
+        Auto cash-out is handled by the server and survives disconnects.
+      </p>
+      <p>
+        Manual cash-out is accepted at server processing time, after locks are acquired. At or after
+        the crash cutoff it loses. Displayed multipliers are estimates between updates; only a
+        server-confirmed receipt is a return. A round can crash immediately at 1.00×. Cash-out is
+        capped at 20.00×, with a terminal crash at 20.01×.
+      </p>
+      <p>
+        The target gross return for a fixed auto cash-out is approximately 90%, before whole-credit
+        rounding. It is a long-run mathematical expectation, not a promise for a session. Manual
+        timing and rounding affect returns. There is no additional practice fee or PVP mode.
+      </p>
+      <p>
+        Each round publishes a SHA-256 commitment before entry and reveals its seed after the crash.
+        This checks that the revealed seed matches the earlier commitment; it is not an independent
+        RNG certification.
+      </p>
+
+      <p>
+        Autoplay requires an auto cash-out target and runs for up to ten entries per panel. It stops
+        on a hidden tab, refresh, connection loss or an error. Stopping autoplay does not cancel an
+        accepted ticket.
+      </p>
+      <p>
+        Round history and My bets cover the latest 12 rounds. Top shows the highest confirmed
+        returns in the last 24 hours. Previous results cannot predict the next round.
+      </p>
+    </>
+  );
+}
+function CrashRulesDialog() {
+  return (
+    <Dialog.Root>
+      <Dialog.Trigger asChild>
+        <button type="button" className="crash-rules-trigger">
+          <ShieldCheck size={15} />
+          How to play
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="crash-history-overlay" />
+        <Dialog.Content className="crash-history-dialog crash-rules-dialog">
+          <Dialog.Close className="crash-history-close" aria-label="Close game rules">
+            <X size={20} />
+          </Dialog.Close>
+          <p className="crash-history-eyebrow">PLAYQUBE · PRACTICE ONLY</p>
+          <Dialog.Title>Crash Point rules</Dialog.Title>
+          <Dialog.Description>
+            Choose a stake, follow the rising multiplier, and cash out before the crash.
+          </Dialog.Description>
+          <CrashRulesContent />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {

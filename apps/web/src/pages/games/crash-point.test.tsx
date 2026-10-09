@@ -656,3 +656,33 @@ it('blocks entry and draft edits when cached server data becomes stale', async (
   expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
   expect(post).not.toHaveBeenCalled();
 });
+
+it('opens arena rules with keyboard access and preserves both independent drafts', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  await screen.findByRole('img', { name: 'PlayQube Crash Point' });
+  const first = screen.getByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '50' } });
+  fireEvent.change(within(second).getByLabelText('Auto cash-out multiplier'), {
+    target: { value: '3.00' },
+  });
+  const trigger = screen.getByRole('button', { name: 'How to play' });
+  trigger.focus();
+  const user = userEvent.setup();
+  await user.keyboard('{Enter}');
+  const dialog = await screen.findByRole('dialog', { name: 'Crash Point rules' });
+  const limits = within(dialog).getByRole('group', { name: 'Practice limits' });
+  expect(within(limits).getByText('10–500')).toBeInTheDocument();
+  expect(within(limits).getByText('20.00×')).toBeInTheDocument();
+  expect(within(dialog).getByText(/Matching the crash multiplier also loses/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Autoplay requires an auto cash-out target/)).toBeInTheDocument();
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(trigger).toHaveFocus();
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('50');
+  expect(within(first).getByLabelText('Auto cash-out multiplier')).toHaveValue('2.00');
+  expect(within(second).getByLabelText('Bet amount')).toHaveValue('25');
+  expect(within(second).getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  expect(post).not.toHaveBeenCalled();
+});

@@ -87,7 +87,7 @@
   padding: 10px 14px;
   border: 1px solid var(--crash-border);
   border-radius: 11px;
-  background: #252047;
+  background: linear-gradient(150deg, #263952, #162239);
 }
 .crash-wallet span {
   display: block;
@@ -131,9 +131,9 @@
   align-items: start;
   gap: 0;
   padding: 14px;
-  border: 1px solid #51417d85;
+  border: 1px solid #50658c;
   border-radius: 22px;
-  background: linear-gradient(135deg, #191438, #17132f);
+  background: linear-gradient(145deg, #162139, #0c1428 65%);
   box-shadow:
     inset 0 1px #c7b9ff0a,
     0 20px 50px #0004;
@@ -141,6 +141,141 @@
 .crash-table {
   min-width: 0;
   padding-right: 16px;
+}
+
+/* Original, resolution-independent arena branding and accessible rules entry. */
+.crash-stage-masthead {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.crash-stage-brand {
+  min-width: 0;
+}
+.crash-brand-mark {
+  display: block;
+  width: 172px;
+  max-width: 100%;
+  height: auto;
+  filter: drop-shadow(0 4px 3px #020819) drop-shadow(0 0 14px #6384dd25);
+}
+.crash-rules-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  border: 1px solid #577399;
+  border-radius: 10px;
+  background: linear-gradient(#263a56, #162238);
+  box-shadow:
+    inset 0 1px #d7edff22,
+    0 3px 0 #080f20;
+  color: #dcf4ff;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.crash-rules-trigger:hover {
+  background: #2a4465;
+}
+.crash-stage-masthead .crash-history {
+  padding: 0;
+}
+.crash-history-dialog.crash-rules-dialog {
+  max-width: 640px;
+}
+.crash-rules-dialog > p:not(.crash-history-eyebrow) {
+  color: #c6d3e7;
+  font-size: 13px;
+  line-height: 1.75;
+  margin-top: 16px;
+}
+.crash-rule-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0;
+}
+.crash-rule-limits > span {
+  padding: 12px;
+  border: 1px solid #486389;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #243c58, #111e33);
+  color: #c3d5e9;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.crash-rule-limits strong {
+  display: block;
+  color: #9af4e5;
+  font-size: 16px;
+}
+.crash-rule-steps {
+  list-style: decimal;
+  padding-left: 20px;
+  color: #c6d3e7;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.crash-rule-steps li {
+  padding: 4px 0 8px 5px;
+}
+.crash-rule-steps strong {
+  color: #f0f6ff;
+}
+@container crash (max-width: 780px) {
+  .crash-stage-masthead {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .crash-stage-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .crash-brand-mark {
+    width: 160px;
+    min-width: 0;
+  }
+  .crash-rules-trigger {
+    flex-shrink: 0;
+    margin-top: 0;
+    padding: 8px 10px;
+  }
+}
+@media (max-width: 600px) {
+  .crash-stage-masthead {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .crash-stage-brand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .crash-brand-mark {
+    width: 150px;
+    min-width: 0;
+  }
+  .crash-rules-trigger {
+    flex-shrink: 0;
+    margin-top: 0;
+    padding: 8px;
+    font-size: 11px;
+  }
+  .crash-rule-limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .crash-rule-limits > span {
+    padding: 9px 12px;
+  }
 }
 
 /* Completed outcomes stay above the live graph in one touch-friendly strip. */
@@ -234,8 +369,15 @@
   overflow: hidden;
   border: 1px solid #51407c75;
   border-radius: 14px;
-  background: radial-gradient(ellipse at 72% 65%, #28215790, transparent 65%), #171235;
-  box-shadow: inset 0 1px #b6a6ff0a;
+  background:
+    radial-gradient(ellipse at 75% 78%, #1d7b9550, transparent 56%),
+    radial-gradient(ellipse at 10% 0, #4a418a60, transparent 60%),
+    linear-gradient(160deg, #17253e, #090f25);
+  box-shadow:
+    inset 0 1px #b6dfff38,
+    inset 0 -6px 12px #02071980,
+    0 6px 0 #080d1e,
+    0 14px 28px #0004;
 }
 .crash-arena::before {
   content: '';
@@ -252,8 +394,8 @@
   justify-content: space-between;
   gap: 10px;
   padding: 14px 18px;
-  color: #b9addc;
-  font-size: 9px;
+  color: #c3d4ea;
+  font-size: 10px;
   letter-spacing: 0.08em;
 }
 .crash-arena-top > span:first-child {
@@ -265,7 +407,7 @@
 .crash-arena-top i {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 18px;
   background: #75eade;
   box-shadow: 0 0 10px #42d9ce;
 }
@@ -315,8 +457,8 @@
 .crash-multiplier p {
   max-width: 260px;
   margin-top: 8px;
-  color: #b9b1d9;
-  font-size: 11px;
+  color: #cad8ec;
+  font-size: 12px;
   line-height: 1.45;
 }
 .crashed .crash-multiplier strong {
@@ -339,11 +481,11 @@
   overflow: visible;
 }
 .crash-graph .grid {
-  stroke: #a89aca18;
+  stroke: #a9c9ef24;
   stroke-width: 1;
 }
 .crash-graph text {
-  fill: #aba0cf;
+  fill: #b8cce8;
   font: 16px system-ui;
 }
 .crash-graph .curve {
@@ -367,13 +509,13 @@
   inset: 52% 10% -16%;
   transform: perspective(650px) rotateX(66deg);
   border: 1px solid #7c71d41a;
-  border-radius: 50%;
+  border-radius: 18px;
   background:
-    repeating-linear-gradient(0deg, transparent, transparent 39px, #8b7fce0f 40px),
-    repeating-linear-gradient(90deg, transparent, transparent 39px, #8b7fce0f 40px);
+    repeating-linear-gradient(0deg, transparent, transparent 39px, #7bc8f02e 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, #7bc8f02e 40px);
   box-shadow:
     0 20px 28px #0003,
-    inset 0 0 50px #25204b;
+    inset 0 0 50px #15294b;
   pointer-events: none;
 }
 .crash-beacon {
