@@ -36,6 +36,7 @@ import { MarketPanel } from '@/components/football/markets';
 import { ReviewDialog, Slip } from '@/components/football/slip';
 import { ResultsPanel, StandingsPanel, TicketsPanel } from '@/components/football/results';
 import { RulesDialog } from '@/components/football/rules-dialog';
+import { createFootballAudio } from '@/lib/football/audio';
 import {
   createServerClock,
   ServerClockProvider,
@@ -150,7 +151,15 @@ function LiveCentre({ fixture, week }: { fixture: VfFixtureView; week: VfMatchwe
 }
 
 /** Where the matchweek is, in words, with the countdown that matters right now. */
-function PhaseBar({ week, live }: { week: VfMatchweekView; live: boolean }) {
+function PhaseBar({
+  week,
+  live,
+  nextOpensAt,
+}: {
+  week: VfMatchweekView;
+  live: boolean;
+  nextOpensAt: number | null;
+}) {
   const server = useServerNow(250) ?? week.opensAt;
   let label: string;
   let clockText = '';
@@ -158,6 +167,10 @@ function PhaseBar({ week, live }: { week: VfMatchweekView; live: boolean }) {
   if (!live) {
     phase = 'past';
     label = 'Last played matchweek';
+    if (nextOpensAt !== null && nextOpensAt > server) {
+      label += ' · next opens in';
+      clockText = formatClock(nextOpensAt - server);
+    }
   } else if (server < week.opensAt) {
     phase = 'wait';
     label = 'Next matchweek opens in';
@@ -218,6 +231,47 @@ function NextMatchweek({ endsAt }: { endsAt: number }) {
   );
 }
 
+/** Whistles at the moments the server clock crosses the phase boundaries (not on first load). */
+function usePhaseWhistles(
+  week: VfMatchweekView | null,
+  live: boolean,
+  audio: ReturnType<typeof createFootballAudio>,
+  sound: boolean
+) {
+  const server = useServerNow(250);
+  const phase =
+    !week || !live || server === null
+      ? null
+      : server < week.kickoffAt
+        ? 'open'
+        : server < week.halftimeAt
+          ? 'first'
+          : server < week.secondHalfAt
+            ? 'half'
+            : server < week.fullTimeAt
+              ? 'second'
+              : 'full';
+  const previous = useRef<{ id: string; phase: string | null } | null>(null);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = week ? { id: week.id, phase } : null;
+    if (
+      !sound ||
+      !week ||
+      !before ||
+      before.id !== week.id ||
+      before.phase === phase ||
+      phase === null ||
+      before.phase === null
+    )
+      return;
+    if (phase === 'first') audio.whistle('kickoff');
+    else if (phase === 'half') audio.whistle('half');
+    else if (phase === 'second') audio.whistle('half');
+    else if (phase === 'full') audio.whistle('full');
+  }, [phase, week, sound, audio]);
+}
+
 function FootballGame({ userId, clock }: { userId: string; clock: ServerClock }) {
   const serverNow = useServerNow(250);
   const [weekView, setWeekView] = useState<{ seasonNo: number; weekNo: number } | null>(null);
@@ -230,6 +284,8 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
   const [reviewOpen, setReviewOpen] = useState(false);
   const [text, setText] = useState(false);
   const [reduced, setReducedOverride] = useReducedMotion();
+  const audio = useMemo(() => createFootballAudio(), []);
+  const [sound, setSound] = useState(false);
   const busyRef = useRef(false);
   const autoTried = useRef(false);
 
@@ -287,6 +343,19 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     dispatch({ type: 'reset', matchweekId: liveWeek?.id ?? null });
     setReviewOpen(false);
   }, [liveWeek?.id]);
+
+  useEffect(() => () => audio.dispose(), [audio]);
+  usePhaseWhistles(stageWeek, !!liveWeek, audio, sound);
+  async function toggleSound() {
+    if (sound) {
+      audio.disable();
+      setSound(false);
+      return;
+    }
+    const ok = await audio.enable();
+    setSound(ok);
+    if (!ok) setNotice({ kind: 'info', text: 'Sound is not available in this browser.' });
+  }
 
   // --- unresolved receipt recovery ------------------------------------------------------------
   useEffect(() => {
@@ -456,6 +525,14 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     () => (clock.now() ?? kickoffRef.current) - kickoffRef.current,
     [clock]
   );
+  const onGoalMoment = useCallback(
+    (n: number) => {
+      // The renderer also reports goals that were already old when the page opened; stay silent for those.
+      const goal = fixture?.live.events.find((g) => g.n === n);
+      if (goal && getElapsed() - goal.atMs < 4500) audio.goal();
+    },
+    [fixture, getElapsed, audio]
+  );
   const matchKey = fixture
     ? `${fixture.id}|${fixture.live.events.length}|${fixture.live.fullTime ? 1 : 0}`
     : '';
@@ -558,7 +635,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       </header>
 
       <div className="vf-toolbar">
-        <PhaseBar week={stageWeek} live={!!liveWeek} />
+        <PhaseBar week={stageWeek} live={!!liveWeek} nextOpensAt={cycle?.endsAt ?? null} />
         <div className="vf-toolbar-actions">
           <button
             type="button"
@@ -567,6 +644,14 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             onClick={() => setText((v) => !v)}
           >
             {text ? 'Show 3D match' : 'Text match centre'}
+          </button>
+          <button
+            type="button"
+            className="vf-link"
+            aria-pressed={sound}
+            onClick={() => void toggleSound()}
+          >
+            {sound ? 'Sound on' : 'Sound off'}
           </button>
           <label>
             <input
@@ -642,6 +727,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                   getElapsed={getElapsed}
                   reduced={reduced}
                   label={`3D view of ${matchTitle(fixture)}`}
+                  onGoalMoment={onGoalMoment}
                   fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
                 />
               </Suspense>
