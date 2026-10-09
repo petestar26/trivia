@@ -199,3 +199,29 @@ rejected **before debit**. A limit breach is a refusal; a winning return is neve
   [`virtual-football-handoff.md`](./virtual-football-handoff.md).
 - Local, CI and live evidence are different things; this document asserts none of the staging, device or
   production acceptance steps has happened.
+
+## 8. Member client
+
+- **One clock.** Admission windows, phase labels and the match clock come from the server time carried by every snapshot,
+  advanced by the browser's monotonic timer (half the request round trip is compensated). The browser's wall clock is
+  never consulted, so a wrong system date cannot open or close selections. After a tab sleeps or the network returns
+  the clock is invalidated and nothing can be confirmed until a fresh snapshot arrives. The server still decides: it
+  re-checks the deadline on the database clock after taking the account lock and again before commit.
+- **Goals appear when the ball is in the net.** A goal is public on the server at its minute, but the broadcast shows a
+  short build-up first. Scores, minutes, half-time/full-time labels, the league table, ticket results and even the
+  displayed credit balance are held back until `atMs + 2.05 s` (`GOAL_REVEAL_MS`). The rule is pure time, so it holds
+  after a reload, with reduced motion, in the text match centre and if the 3D view is off or failed.
+- **Selections.** Prices come from the same shared function as the server; a selection priced outside 1.10–1000.00 is
+  shown as not offered. Every fixture's offer digest is recomputed from its public strength parameters and a mismatch
+  pauses selections. A slip pick remembers the price it showed; if the official price or digest later differs the ticket
+  is blocked until the member explicitly accepts the new prices. The slip freezes while a confirmation is unresolved.
+- **Receipts.** Confirming stores the exact request (including a 128-bit receipt key) in local storage _before_ it is
+  sent. A lost response leaves it there; "Check this confirmation" and an automatic re-check on reload resend the
+  identical payload, which the server answers with the same immutable receipt (`isReplay`), even after kick-off. Only a
+  definitive refusal (a 4xx, or a 5xx carrying a machine-readable reason) clears it, and every such message says nothing
+  was charged. A damaged saved receipt is discarded with a message, never guessed at.
+- **3D is optional.** The renderer is a lazy chunk (excluded from the PWA precache). No WebGL, a render error or a lost
+  context shows the text match centre with a retry; automatic rebuilds stop after three context losses a minute. The
+  text match centre is also available on demand. Sound is synthesised, off by default and created only after a click.
+- **Verification.** After the last goal of a matchweek is shown, "Verify these results in your browser" runs
+  `verifyMatchweek` with the revealed seed and the committed fixture parameters.

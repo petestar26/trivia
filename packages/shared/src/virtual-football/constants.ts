@@ -335,18 +335,30 @@ const NEUTRAL_KITS: readonly ClubKit[] = [
   k('#0f8b8d', '#fafaf7'),
 ];
 export const VF_MIN_KIT_DISTANCE = 110;
+/** Patterned kits also keep their stripe/hoop colour this far from the opponent's colours. */
+export const VF_MIN_PATTERN_DISTANCE = 90;
+
+const palette = (kit: ClubKit) =>
+  kit.pattern === 'solid' ? [kit.primary] : [kit.primary, kit.secondary];
+/** Smallest colour distance between anything one kit shows and anything the other shows. */
+export function kitSeparation(a: ClubKit, b: ClubKit) {
+  return Math.min(...palette(a).flatMap((x) => palette(b).map((y) => colourDistance(x, y))));
+}
 
 /**
  * The home club always wears its home kit. The away club wears its home kit unless that
- * clashes, then its away kit, then the most distinct neutral kit.
+ * clashes, then its away kit, then the most distinct neutral kit. A kit clashes when its
+ * main colour is too close to the opponent's, or (for stripes, hoops and the like) when any
+ * colour it shows is too close to anything the opponent shows, so teams read apart on the pitch.
  */
 export function matchKits(homeId: number, awayId: number): { home: ClubKit; away: ClubKit } {
   const home = clubById(homeId).home;
   const away = clubById(awayId);
   const options = [away.home, away.away, ...NEUTRAL_KITS];
-  const usable = options.find(
-    (kit) => colourDistance(kit.primary, home.primary) >= VF_MIN_KIT_DISTANCE
-  );
+  const mainOk = (kit: ClubKit) => colourDistance(kit.primary, home.primary) >= VF_MIN_KIT_DISTANCE;
+  const usable =
+    options.find((kit) => mainOk(kit) && kitSeparation(kit, home) >= VF_MIN_PATTERN_DISTANCE) ??
+    options.find(mainOk);
   const best =
     usable ??
     options.reduce((a, b) =>

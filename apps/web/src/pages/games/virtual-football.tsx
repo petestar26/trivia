@@ -357,6 +357,13 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     if (!ok) setNotice({ kind: 'info', text: 'Sound is not available in this browser.' });
   }
 
+  // A success message is a courtesy, not a record (the ticket stays under "My tickets").
+  useEffect(() => {
+    if (notice?.kind !== 'ok') return;
+    const id = window.setTimeout(() => setNotice(null), 9000);
+    return () => window.clearTimeout(id);
+  }, [notice]);
+
   // --- unresolved receipt recovery ------------------------------------------------------------
   useEffect(() => {
     const stored = loadPending(userId);

@@ -12,6 +12,8 @@ import {
   fixtureId,
   keeperColour,
   matchKits,
+  kitSeparation,
+  VF_MIN_PATTERN_DISTANCE,
   matchweekId,
   parseMatchweekId,
   phaseAt,
@@ -160,5 +162,27 @@ describe('clubs and kits', () => {
         expect(colourDistance(keeper, kits.home.primary)).toBeGreaterThan(80);
         expect(colourDistance(keeper, kits.away.primary)).toBeGreaterThan(80);
       }
+  });
+
+  it('keeps stripe and hoop colours away from the opponent whenever any kit allows it', () => {
+    let strict = 0;
+    for (let h = 1; h <= 20; h++)
+      for (let a = 1; a <= 20; a++) {
+        if (h === a) continue;
+        const kits = matchKits(h, a);
+        const options = [clubById(a).home, clubById(a).away];
+        const anyStrict = options.some(
+          (kit) =>
+            colourDistance(kit.primary, kits.home.primary) >= VF_MIN_KIT_DISTANCE &&
+            kitSeparation(kit, kits.home) >= VF_MIN_PATTERN_DISTANCE
+        );
+        if (anyStrict) {
+          expect(kitSeparation(kits.home, kits.away), `${h} v ${a}`).toBeGreaterThanOrEqual(
+            VF_MIN_PATTERN_DISTANCE
+          );
+          strict++;
+        }
+      }
+    expect(strict).toBeGreaterThan(300);
   });
 });
