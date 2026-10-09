@@ -247,7 +247,7 @@ describe('actors', () => {
           expect(
             toe.distanceTo(new THREE.Vector3(f.ball.x, f.ball.y, f.ball.z)),
             `actor ${i} at ${t.toFixed(2)}`
-          ).toBeLessThan(0.45);
+          ).toBeLessThan(0.3);
           checked++;
         }
       }

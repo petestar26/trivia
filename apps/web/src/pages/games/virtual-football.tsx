@@ -382,6 +382,15 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     serverNow >= liveWeek.opensAt &&
     serverNow < liveWeek.kickoffAt;
   const closing = !!liveWeek && serverNow !== null && serverNow >= liveWeek.kickoffAt - 1000;
+  const pauseReason = !rulesOk
+    ? 'These rules were updated. Refresh the page.'
+    : !selectionsOpen || closing
+      ? 'Selections are closed.'
+      : !fresh
+        ? 'Selections are paused while the connection recovers.'
+        : !pricesVerified
+          ? 'Prices could not be verified. Refresh the page.'
+          : null;
   const canSelect = selectionsOpen && fresh && rulesOk && pricesVerified && !closing && !pending;
 
   const fixture = fixtures.find((f) => f.slot === slot) ?? fixtures[0];
@@ -604,7 +613,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       dispatch={dispatch}
       fixtures={fixtures}
       balance={shownBalance}
-      closed={!canSelect}
+      closedReason={pauseReason}
       busy={busy}
       locked={!!pending}
       stale={stale}

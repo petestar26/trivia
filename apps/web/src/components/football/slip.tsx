@@ -90,7 +90,7 @@ export function Slip({
   dispatch,
   fixtures,
   balance,
-  closed,
+  closedReason,
   busy,
   locked,
   stale,
@@ -102,7 +102,8 @@ export function Slip({
   dispatch: Dispatch<SlipAction>;
   fixtures: VfFixtureView[];
   balance: number;
-  closed: boolean;
+  /** Why selections cannot change right now (closed, offline, rules changed), or null when open. */
+  closedReason: string | null;
   busy: boolean;
   /** An unresolved confirmation exists: the slip is frozen until it is resolved. */
   locked: boolean;
@@ -113,7 +114,7 @@ export function Slip({
 }) {
   const [chosen, setChosen] = useState<string[]>([]);
   const byId = new Map(fixtures.map((f) => [f.id, f]));
-  const frozen = closed || busy || locked;
+  const frozen = !!closedReason || busy || locked;
   const chosenFixtures = new Set(
     chosen.map((k) => slip.picks.find((p) => pickKey(p) === k)?.fixtureId)
   );
@@ -134,8 +135,8 @@ export function Slip({
     insufficient ||
     stale.length > 0 ||
     lineCount === 0;
-  const reason = closed
-    ? 'Selections are closed.'
+  const reason = closedReason
+    ? closedReason
     : locked
       ? 'Resolve your unconfirmed ticket first.'
       : stale.length
