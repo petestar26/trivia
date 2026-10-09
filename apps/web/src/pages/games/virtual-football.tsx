@@ -797,8 +797,11 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             {tab === 'markets' && fixture && (
               <>
                 <h2 className="vf-fixture-title">
-                  <ClubBadge club={fixture.homeClub} size={24} /> {matchTitle(fixture)}{' '}
-                  <ClubBadge club={fixture.awayClub} size={24} />
+                  <span className="vf-fixture-badges">
+                    <ClubBadge club={fixture.homeClub} size={24} />
+                    <ClubBadge club={fixture.awayClub} size={24} />
+                  </span>
+                  <span>{matchTitle(fixture)}</span>
                 </h2>
                 {!canSelect && (
                   <p className="vf-fine" role="status">

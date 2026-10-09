@@ -21,7 +21,7 @@ const args = Object.fromEntries(
     if (token.startsWith('--'))
       pairs.push([
         token.slice(2),
-        all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : 'true',
+        all[i + 1] !== undefined && !all[i + 1].startsWith('--') ? all[i + 1] : 'true',
       ]);
     return pairs;
   }, [])

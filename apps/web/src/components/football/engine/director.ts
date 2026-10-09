@@ -852,11 +852,11 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
 /* ------------------------------------------------------------------------------------- *
  * Frame
  * ------------------------------------------------------------------------------------- */
-const BROADCAST_Y = 18;
-const BROADCAST_Z = 58;
+const BROADCAST_Y = 15;
+const BROADCAST_Z = 47;
 function broadcastCamera(bx: number): Frame['camera'] {
   const x = clamp(bx * 0.9, -PITCH.halfLength + 17, PITCH.halfLength - 17);
-  return { x, y: BROADCAST_Y, z: BROADCAST_Z, lx: x * 0.97, ly: 0.9, lz: 3, fov: 30 };
+  return { x, y: BROADCAST_Y, z: BROADCAST_Z, lx: x * 0.97, ly: 0.9, lz: 2, fov: 31 };
 }
 
 function epochKey(matchKey: string, start: number, half: 1 | 2, team: TeamId) {

@@ -55,6 +55,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -121,6 +122,8 @@ describe('FootballScene lifecycle', () => {
 
   it('contains a render-time failure and offers the text match centre with a retry', () => {
     created.setMatchThrows = true;
+    // React logs the contained error in development; the assertion is the fallback.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(<FootballScene {...props} />);
     expect(screen.getByText('Text match centre')).toBeInTheDocument();
     expect(screen.getByText(/The 3D view stopped/)).toBeInTheDocument();

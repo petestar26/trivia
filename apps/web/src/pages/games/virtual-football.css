@@ -383,8 +383,10 @@
 }
 .vf-card {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   grid-template-areas: 'h s a' 'm m m';
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: 4px 6px;
   padding: 8px 10px;
@@ -482,6 +484,10 @@
 }
 .vf-tabpanel {
   padding: 16px;
+}
+.vf-fixture-badges {
+  display: inline-flex;
+  gap: 4px;
 }
 .vf-fixture-title {
   display: flex;
@@ -1113,7 +1119,7 @@ code {
   .vf-strip {
     grid-template-columns: none;
     grid-auto-flow: column;
-    grid-auto-columns: minmax(150px, 40%);
+    grid-auto-columns: minmax(176px, 46%);
     overflow-x: auto;
     scroll-snap-type: x proximity;
     padding-bottom: 6px;
@@ -1132,7 +1138,33 @@ code {
     border-radius: 0;
   }
   .vf-header {
-    align-items: flex-start;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .vf-header h1 {
+    margin-top: 4px;
+    font-size: 19px;
+    letter-spacing: 0.04em;
+  }
+  .vf-header h1 small,
+  .vf-credit p {
+    display: none;
+  }
+  .vf-credit strong {
+    font-size: 20px;
+  }
+  .vf-toolbar {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .vf-toolbar-actions {
+    width: 100%;
+    gap: 6px 14px;
+  }
+  .vf-credit span,
+  .vf-credit strong {
+    white-space: nowrap;
   }
   .vf-board {
     min-width: 0;

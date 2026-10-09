@@ -456,10 +456,12 @@ export function kitTexture(kit: KitLook): THREE.CanvasTexture {
   ctx.fillStyle = kit.primary;
   ctx.fillRect(0, 0, 256, h);
   ctx.fillStyle = kit.secondary;
+  // The club's primary colour stays dominant (two thirds) so two teams read apart from afar.
   if (kit.pattern === 'stripes')
-    for (let i = 0; i < 12; i += 2) ctx.fillRect((i * 256) / 12, 0, 256 / 12, h);
+    for (let i = 0; i < 6; i++)
+      ctx.fillRect(i * (256 / 6) + (256 / 6) * 0.34, 0, (256 / 6) * 0.33, h);
   else if (kit.pattern === 'hoops')
-    for (let i = 0; i < 8; i += 2) ctx.fillRect(0, (i * h) / 8, 256, h / 8);
+    for (let i = 0; i < 4; i++) ctx.fillRect(0, i * (h / 4) + (h / 4) * 0.34, 256, (h / 4) * 0.33);
   else if (kit.pattern === 'halves')
     ctx.fillRect(64, 0, 128, h); // the character's right half
   else if (kit.pattern === 'sash') {
