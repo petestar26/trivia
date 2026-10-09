@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { backdropSize } from './backdrop-fit';
 import { createRaceMotion } from './race-motion';
 import { createHorse } from './horse-model';
+import { createStrideClock } from './stride-clock';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** Original procedural assets: no external model, tracker, CDN or licensed race footage. */
@@ -21,8 +22,10 @@ export default function RaceScene({
   const live = useRef({ round, running, reduced });
   live.current = { round, running, reduced };
   const [failed, setFailed] = useState(false);
+  const [contextRevision, setContextRevision] = useState(0);
   useEffect(() => {
     if (!host.current) return;
+    setFailed(false);
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({
@@ -39,22 +42,30 @@ export default function RaceScene({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.0;
     container.appendChild(renderer.domElement);
     const lost = (event: Event) => {
       event.preventDefault();
+      disposed = true;
       setFailed(true);
     };
+    const restored = () => {
+      // Recreate GPU resources after the browser restores its context.
+      if (disposed) setContextRevision((revision) => revision + 1);
+    };
     renderer.domElement.addEventListener('webglcontextlost', lost);
+    renderer.domElement.addEventListener('webglcontextrestored', restored);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#bad1dc');
     scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
-    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 2.1));
-    const sun = new THREE.DirectionalLight('#ffe0a1', 3.2);
+    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 1.7));
+    const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
     sun.position.set(30, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.normalBias = 0.025;
+    sun.shadow.bias = -0.00015;
     sun.shadow.camera.left = -40;
     sun.shadow.camera.right = 40;
     sun.shadow.camera.top = 40;
@@ -271,6 +282,7 @@ export default function RaceScene({
     let sampleMotion = createRaceMotion(displayed);
     let renderedRound = round.id;
     const lastTravel = horses.map(() => -Infinity);
+    let strides = horses.map(() => createStrideClock());
     let fittedAspect = Number.NaN;
     const resize = () => {
       const w = container.clientWidth,
@@ -284,6 +296,7 @@ export default function RaceScene({
     observer.observe(container);
     resize();
     const draw = (time: number) => {
+      if (disposed) return;
       frame = requestAnimationFrame(draw);
       if (document.hidden || time - last < 33) return;
       last = time;
@@ -294,6 +307,8 @@ export default function RaceScene({
         renderedRound = state.round.id;
         displayed = state.round.positions.map((p) => p * 180);
         sampleMotion = createRaceMotion(displayed);
+        strides = horses.map(() => createStrideClock());
+        lastTravel.fill(-Infinity);
       }
       const previous = displayed;
       displayed = sampleMotion(
@@ -305,11 +320,14 @@ export default function RaceScene({
         horse.root.position.x = displayed[i];
         if (Math.abs(displayed[i] - previous[i]) > 0.00001) lastTravel[i] = time;
         // Brief polling jitter must not switch the rig to a standing pose each update.
-        horse.animate(time / 1000, moving && time - lastTravel[i] < 400);
+        horse.animate(
+          strides[i](displayed[i] - previous[i], moving),
+          moving && time - lastTravel[i] < 400
+        );
       });
       const lead = Math.max(...displayed),
         center = lead - 3;
-      camera.position.set(center + 13, 5.2, camera.aspect < 1.2 ? 25 : 21);
+      camera.position.set(center + 8, 6.2, camera.aspect < 1.2 ? 26 : round.field === 8 ? 21 : 18);
       camera.lookAt(center, 2.2, 0);
       backdrop.position.x = center - 35;
       if (fittedAspect !== camera.aspect) {
@@ -328,13 +346,14 @@ export default function RaceScene({
       cancelAnimationFrame(frame);
       observer.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', lost);
+      renderer.domElement.removeEventListener('webglcontextrestored', restored);
       renderer.dispose();
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
       renderer.domElement.remove();
     };
-  }, [round.field]);
+  }, [round.field, contextRevision]);
   return (
     <div
       className="derby-scene"
