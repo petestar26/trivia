@@ -426,6 +426,7 @@ beforeAll(() => {
     SKY_CRASH_PRACTICE,
     SKY_CRASH_DUAL,
     SKY_CRASH_CATALOG,
+    '20261009120000_thunder_derby_practice',
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));

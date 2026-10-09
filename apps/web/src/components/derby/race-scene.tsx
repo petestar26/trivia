@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { DerbyRound } from '@socialplay/shared';
 import { DERBY_HORSES } from '@socialplay/shared';
 import * as THREE from 'three';
+import { createRaceMotion } from './race-motion';
+import { createHorse } from './horse-model';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** Original procedural assets: no external model, tracker, CDN or licensed race footage. */
@@ -44,11 +46,11 @@ export default function RaceScene({
     };
     renderer.domElement.addEventListener('webglcontextlost', lost);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#c4d6d3');
-    scene.fog = new THREE.Fog('#c4d6d3', 65, 230);
+    scene.background = new THREE.Color('#bad1dc');
+    scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 350);
-    scene.add(new THREE.HemisphereLight('#e4f4ff', '#80613d', 2.5));
-    const sun = new THREE.DirectionalLight('#fff0cf', 3.5);
+    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 2.1));
+    const sun = new THREE.DirectionalLight('#ffe0a1', 3.2);
     sun.position.set(30, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -71,8 +73,8 @@ export default function RaceScene({
       materialCache.set(key, m);
       return m;
     }
-    const turf = mat('#476849'),
-      sand = mat('#b99468'),
+    const turf = mat('#bac89c'),
+      sand = mat('#aaba80'),
       white = mat('#f5eee1'),
       dark = mat('#292d30'),
       wood = mat('#b18b54');
@@ -145,7 +147,8 @@ export default function RaceScene({
       return texture;
     }
     turf.map = surfaceTexture(true);
-    sand.map = surfaceTexture(false);
+    sand.map = surfaceTexture(true);
+    sand.map.repeat.set(80, 8);
     box(scene, 80, -0.25, 0, 360, 0.5, 180, turf);
     box(scene, 85, 0.01, 0, 280, 0.05, 20, sand);
     for (let i = -20; i < 240; i += 4) {
@@ -155,32 +158,32 @@ export default function RaceScene({
         box(scene, i, 0.9, z, 4, 0.09, 0.1, white);
       }
     }
-    for (let i = 0; i < 8; i++) box(scene, 90, 0.05, -8.7 + i * 2.5, 240, 0.01, 0.035, wood);
-    // Grandstand terraces and roof, with a repeated restrained seat pattern.
-    for (let level = 0; level < 5; level++) {
-      box(
-        scene,
-        100,
-        level * 0.65 + 0.3,
-        -21 - level * 1.6,
-        240,
-        0.65,
-        1.7,
-        mat(level % 2 ? '#53665d' : '#75847a')
-      );
-    }
-    box(scene, 100, 6.4, -24, 240, 0.22, 13, dark);
-    for (let x = 15; x < 220; x += 15) box(scene, x, 3, -27, 0.22, 6, 0.22, white);
-    for (let i = 0; i < 90; i++) {
-      const x = 12 + (i % 30) * 3.6,
-        z = -21 - Math.floor(i / 30) * 2.5;
-      box(scene, x, 1.2 + Math.floor(i / 30), z, 1.3, 0.3, 0.6, i % 3 ? dark : wood);
-    }
-    for (let i = 0; i < 36; i++) {
-      const x = -20 + i * 8,
-        z = 23 + (i % 3) * 6;
-      mesh(scene, new THREE.CylinderGeometry(0.2, 0.35, 4, 6), wood, x, 2, z);
-      ell(scene, x, 5, z, 2.5, 3, 2.5, mat(i % 2 ? '#466452' : '#567454'));
+
+    // Original sunlit racecourse artwork sits behind the real geometry. It is
+    // decorative only; progress, runners and finish remain server-fed 3D objects.
+    let disposed = false;
+    const backdropMat = new THREE.MeshBasicMaterial({ color: '#ffffff', fog: false });
+    materials.push(backdropMat);
+    const backdrop = mesh(scene, new THREE.PlaneGeometry(200, 66.67), backdropMat, 90, 16, -65);
+    backdrop.castShadow = backdrop.receiveShadow = false;
+    const backgroundTexture = new THREE.TextureLoader().load(
+      '/art/ruby-grand/derby-racecourse.webp',
+      (texture) => {
+        if (disposed) texture.dispose();
+        else backdrop.visible = true;
+      },
+      undefined,
+      () => {
+        backdrop.visible = false;
+      }
+    );
+    backdrop.visible = false;
+    backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+    backdropMat.map = backgroundTexture;
+    textures.push(backgroundTexture);
+    // Nearby hedge and rail retain parallax as the camera tracks the field.
+    for (let i = -20; i < 240; i += 3) {
+      box(scene, i, 0.55, -16, 3, 1.1, 1.5, mat('#526a2e'));
     }
     // Finish line and its sculptural arch.
     for (let i = 0; i < 20; i++)
@@ -226,61 +229,15 @@ export default function RaceScene({
       '#d2c6b6',
     ];
     const horses = Array.from({ length: round.field }, (_, i) => {
-      const root = new THREE.Group();
+      const horse = createHorse(
+        coats[i],
+        DERBY_HORSES[i].color,
+        i,
+        { materials, geometries, textures },
+        mergeStatic
+      );
+      const { root } = horse;
       scene.add(root);
-      const coat = mat(coats[i], 0.4),
-        mane = mat('#211c19'),
-        silk = mat(DERBY_HORSES[i].color, 0.35),
-        skin = mat('#c99571');
-      // Muscular barrel, shoulder, haunches; raised tapered neck and a long head.
-      ell(root, 0, 1.75, 0, 1.08, 0.58, 0.43, coat);
-      ell(root, 0.65, 1.8, 0, 0.5, 0.63, 0.45, coat);
-      ell(root, -0.72, 1.76, 0, 0.56, 0.59, 0.46, coat);
-      const neck = ell(root, 0.95, 2.25, 0, 0.37, 0.8, 0.32, coat);
-      neck.rotation.z = -0.43;
-      const head = ell(root, 1.4, 2.85, 0, 0.53, 0.3, 0.25, coat);
-      head.rotation.z = 0.24;
-      ell(root, 1.75, 2.69, 0, 0.26, 0.2, 0.24, mane);
-      for (const z of [-0.17, 0.17]) {
-        const ear = mesh(root, new THREE.ConeGeometry(0.095, 0.35, 8), coat, 1.15, 3.2, z);
-        ear.rotation.z = 0.2;
-        ell(root, 1.47, 2.96, z * 1.5, 0.047, 0.047, 0.02, dark);
-      }
-      for (let n = 0; n < 9; n++)
-        ell(root, 0.72 + n * 0.055, 2.15 + n * 0.1, 0, 0.14, 0.17, 0.34, mane);
-      const tail = ell(root, -1.2, 1.8, 0, 0.7, 0.12, 0.12, mane);
-      tail.rotation.z = 0.4;
-      const legs: Array<{ upper: THREE.Group; lower: THREE.Group }> = [];
-      for (const x of [-0.72, 0.65])
-        for (const z of [-0.29, 0.29]) {
-          const upper = new THREE.Group();
-          upper.position.set(x, 1.5, z);
-          root.add(upper);
-          mesh(upper, new THREE.CapsuleGeometry(0.115, 0.58, 4, 8), coat, 0, -0.34, 0);
-          const lower = new THREE.Group();
-          lower.position.y = -0.72;
-          upper.add(lower);
-          mesh(lower, new THREE.CapsuleGeometry(0.072, 0.5, 4, 8), coat, 0, -0.3, 0);
-          box(lower, 0.045, -0.63, 0, 0.22, 0.14, 0.19, mane);
-          legs.push({ upper, lower });
-        }
-      // Saddlecloth, leather saddle and crouched jockey.
-      ell(root, -0.05, 2.21, 0, 0.52, 0.13, 0.49, silk);
-      ell(root, -0.1, 2.3, 0, 0.38, 0.12, 0.32, dark);
-      const rider = new THREE.Group();
-      root.add(rider);
-      const torso = ell(rider, 0.08, 2.7, 0, 0.22, 0.43, 0.25, silk);
-      torso.rotation.z = -0.8;
-      ell(rider, 0.43, 3.06, 0, 0.17, 0.19, 0.17, skin);
-      ell(rider, 0.43, 3.18, 0, 0.2, 0.13, 0.2, silk);
-      for (const z of [-0.35, 0.35]) {
-        const thigh = ell(rider, -0.17, 2.45, z, 0.32, 0.12, 0.13, white);
-        thigh.rotation.z = 0.4;
-        const boot = ell(rider, -0.29, 2.1, z, 0.11, 0.29, 0.1, dark);
-        boot.rotation.z = -0.3;
-        const arm = ell(rider, 0.46, 2.72, z * 0.6, 0.3, 0.075, 0.075, silk);
-        arm.rotation.z = -0.3;
-      }
       const labelCanvas = document.createElement('canvas');
       labelCanvas.width = 128;
       labelCanvas.height = 128;
@@ -305,16 +262,12 @@ export default function RaceScene({
       label.scale.set(0.9, 0.9, 1);
       root.add(label);
       root.position.set(0, 0, (i - (round.field - 1) / 2) * 2.15);
-      mergeStatic(rider);
-      // Keep the animated tail separate from static body geometry.
-      root.remove(tail);
-      mergeStatic(root);
-      root.add(tail);
-      return { root, legs, rider, tail };
+      return horse;
     });
     let frame = 0,
       last = 0;
-    const displayed = horses.map(() => 0);
+    let displayed = round.positions.map((p) => p * 180);
+    const sampleMotion = createRaceMotion(displayed);
     const resize = () => {
       const w = container.clientWidth,
         h = container.clientHeight;
@@ -332,29 +285,28 @@ export default function RaceScene({
       last = time;
       const state = live.current,
         moving = state.running && !state.reduced;
+      const previous = displayed;
+      displayed = sampleMotion(
+        time,
+        state.round.positions.map((p) => p * 180),
+        !moving
+      );
       horses.forEach((horse, i) => {
-        const target = (state.round.positions[i] ?? 0) * 180;
-        displayed[i] += (target - displayed[i]) * (state.reduced ? 1 : 0.1);
         horse.root.position.x = displayed[i];
-        horse.root.position.y = moving ? Math.abs(Math.sin(time * 0.008 + i)) * 0.13 : 0;
-        horse.legs.forEach((leg, j) => {
-          const phase = time * 0.012 + i + j * Math.PI * 0.77;
-          leg.upper.rotation.z = moving ? Math.sin(phase) * 0.65 : 0;
-          leg.lower.rotation.z = moving ? Math.max(0, Math.sin(phase + 1)) * 0.95 : 0;
-        });
-        horse.rider.rotation.z = moving ? Math.sin(time * 0.012 + i) * 0.055 : 0;
-        horse.tail.rotation.z = 0.4 + (moving ? Math.sin(time * 0.008 + i) * 0.12 : 0);
+        horse.animate(time / 1000, moving && Math.abs(displayed[i] - previous[i]) > 0.00001);
       });
       const lead = Math.max(...displayed),
         center = lead - 3;
-      camera.position.set(center + 10, 7, 20);
-      camera.lookAt(center, 1, 0);
+      camera.position.set(center + 5, 4.5, camera.aspect < 1.2 ? 27 : 23);
+      camera.lookAt(center, 2.2, 0);
+      backdrop.position.x = center + 25;
       sun.position.set(center + 30, 40, 20);
       sun.target.position.set(center, 0, 0);
       renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(draw);
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', lost);
