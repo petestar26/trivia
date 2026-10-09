@@ -57,10 +57,10 @@ export function parseFootballError(error: unknown): FootballError {
  * must be retried with the identical payload.
  */
 export function isDefinitiveRefusal(error: FootballError): boolean {
-  if (error.status === 0) return false;
-  if (error.status === 429) return false;
-  if (error.status >= 500) return error.reason !== null;
-  return error.status >= 400 && error.status < 500;
+  // Authentication, permissions and feature gates run before the receipt lookup.
+  // A refusal there cannot establish whether an earlier identical request was accepted.
+  if (error.status < 400 || [401, 403, 429].includes(error.status)) return false;
+  return error.reason !== null;
 }
 
 export function refusalMessage(error: FootballError): string {

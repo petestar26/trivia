@@ -566,6 +566,16 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [matchKey]
   );
+  const previousWeek =
+    snapshot?.latestCompleted && snapshot.latestCompleted.id !== stageWeek?.id
+      ? snapshot.latestCompleted
+      : null;
+  const previousFixture =
+    previousWeek?.fixtures.find((f) => f.slot === slot) ?? previousWeek?.fixtures[0];
+  const previousFinal =
+    previousWeek && previousFixture && serverNow !== null
+      ? displayFixture(previousFixture.live, serverNow - previousWeek.kickoffAt).fullTime
+      : null;
 
   if (!snapshot) {
     return (
@@ -723,6 +733,36 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             Check this confirmation
           </button>
         </div>
+      )}
+
+      {previousWeek && previousFixture && previousFinal && (
+        <section className="vf-previous-result" aria-label="Previous featured result">
+          <div>
+            <small>
+              Last completed matchweek · {weekLabel(previousWeek.seasonNo, previousWeek.weekNo)}
+            </small>
+            <strong>
+              {clubById(previousFixture.homeClub).name} {previousFinal.home} – {previousFinal.away}{' '}
+              {clubById(previousFixture.awayClub).name}
+            </strong>
+            <span>
+              Full time ·{' '}
+              {previousFinal.home === previousFinal.away
+                ? 'Draw'
+                : `${clubById(previousFinal.home > previousFinal.away ? previousFixture.homeClub : previousFixture.awayClub).name} wins`}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="vf-secondary"
+            onClick={() => {
+              setWeekView(null);
+              setTab('results');
+            }}
+          >
+            All results
+          </button>
+        </section>
       )}
 
       <section className="vf-stage" aria-label="Match view">

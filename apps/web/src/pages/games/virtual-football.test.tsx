@@ -5,6 +5,7 @@ import type * as ApiModule from '@/lib/api';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   VF_RULES_ID,
+  clubById,
   fixtureOffer,
   parseTicketInput,
   type VfAdmission,
@@ -12,6 +13,7 @@ import {
   type VfTicketView,
 } from '@socialplay/shared';
 import { VirtualFootballPage } from './virtual-football';
+import { VerifyResults } from '@/components/football/results';
 import { buildWeek, openAt, snapshotAt } from '@/test/football-fixtures';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
@@ -263,6 +265,37 @@ describe('Virtual Football page', () => {
     expect(localStorage.getItem('playqube.vf3d.pending.fan-1')).toBeNull();
   });
 
+  it.each([401, 403, 404])(
+    'preserves an unresolved accepted receipt through an ambiguous %i retry',
+    async (status) => {
+      mocks.post
+        .mockRejectedValueOnce(new Error('Accepted request response was lost'))
+        .mockRejectedValueOnce(wrongError(status))
+        .mockResolvedValueOnce(admission({}, true));
+      await setup();
+      pressPrice(/Full time: .* win, price/);
+      fireEvent.click(screen.getByRole('button', { name: /Review ticket/ }));
+      fireEvent.click(
+        within(await screen.findByRole('dialog')).getByRole('button', {
+          name: 'Confirm practice ticket',
+        })
+      );
+      fireEvent.click(await screen.findByRole('button', { name: 'Check this confirmation' }));
+      await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Check this confirmation' })).toBeEnabled()
+      );
+      const original = mocks.post.mock.calls[0][1];
+      expect(JSON.parse(localStorage.getItem('playqube.vf3d.pending.fan-1')!)).toEqual(original);
+      expect(screen.queryByText(/Nothing was charged/)).toBeNull();
+      expect(screen.getByRole('button', { name: /Review ticket/ })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Check this confirmation' }));
+      expect(await screen.findByText(/You were not charged twice/)).toBeInTheDocument();
+      expect(mocks.post.mock.calls.map((call) => call[1])).toEqual([original, original, original]);
+      expect(localStorage.getItem('playqube.vf3d.pending.fan-1')).toBeNull();
+    }
+  );
+
   it('refuses stale quotes: a changed price blocks the ticket until the member accepts it', async () => {
     await setup();
     pressPrice(/Full time: .* win, price/);
@@ -351,6 +384,58 @@ describe('Virtual Football page', () => {
     // Verification runs in the browser against the revealed seed.
     fireEvent.click(within(panel).getByRole('button', { name: /Verify these results/ }));
     expect(await within(panel).findByText(/Verified: all 10 matches/)).toBeInTheDocument();
+  });
+
+  it('keeps the previous featured final score and winner beside the pitch without opening results', async () => {
+    const previous = snapshotAt().latestCompleted!;
+    const fixture = previous.fixtures[0];
+    const final = fixture.live.fullTime!;
+    await setup();
+    expect(screen.getByRole('tab', { name: 'Markets' })).toHaveAttribute('aria-selected', 'true');
+    const banner = screen.getByRole('region', { name: 'Previous featured result' });
+    expect(within(banner).getByText(/Last completed matchweek/)).toBeInTheDocument();
+    expect(
+      within(banner).getByText(
+        `${clubById(fixture.homeClub).name} ${final.home} – ${final.away} ${clubById(fixture.awayClub).name}`
+      )
+    ).toBeInTheDocument();
+    const outcome =
+      final.home === final.away
+        ? 'Draw'
+        : `${clubById(final.home > final.away ? fixture.homeClub : fixture.awayClub).name} wins`;
+    expect(within(banner).getByText(`Full time · ${outcome}`)).toBeInTheDocument();
+    const stage = screen.getByRole('region', { name: 'Match view' });
+    expect(banner.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(within(banner).getByRole('button', { name: 'All results' }));
+    expect(screen.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
+
+    // A banner links to the latest completed week even after a historical week was browsed.
+    mocks.get.mockImplementation(
+      async (_endpoint: string, params?: { seasonNo?: number; weekNo?: number }) => ({
+        success: true,
+        data: snapshotAt({
+          mutate: (s) => {
+            if (params?.seasonNo)
+              s.viewed = {
+                seasonNo: params.seasonNo,
+                weekNo: params.weekNo!,
+                state: 'NOT_PLAYED',
+                matchweek: null,
+                opensAt: 0,
+                scheduled: [],
+              };
+          },
+        }),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Previous matchweek' }));
+    expect(await screen.findByText(/This matchweek was not played/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Markets' }));
+    fireEvent.click(within(banner).getByRole('button', { name: 'All results' }));
+    const results = screen.getByRole('tabpanel');
+    expect(await within(results).findByText('Latest completed matchweek')).toBeInTheDocument();
+    expect(within(results).getByRole('combobox', { name: 'Matchweek' })).toHaveValue('4');
+    expect(within(results).queryByText(/This matchweek was not played/)).toBeNull();
   });
 
   it('shows a league table of 20 clubs and the documented tie-break', async () => {
@@ -456,5 +541,30 @@ describe('Virtual Football page', () => {
       </MemoryRouter>
     );
     expect(await screen.findByText(/The next matchweek opens in/)).toBeInTheDocument();
+  });
+});
+
+describe('result verification identity', () => {
+  it('does not carry a success badge into another matchweek', () => {
+    const first = snapshotAt().latestCompleted!;
+    const { rerender } = render(<VerifyResults week={first} />);
+    fireEvent.click(screen.getByRole('button', { name: /Verify these results/ }));
+    expect(screen.getByRole('status')).toHaveTextContent(/Verified: all 10/);
+    const next = { ...snapshotAt({ weekNo: 6 }).latestCompleted!, commitment: '0'.repeat(64) };
+    rerender(<VerifyResults week={next} />);
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Verify these results/ }));
+    expect(screen.getByRole('status')).toHaveTextContent(/Verification failed/);
+  });
+
+  it('invalidates the badge when the same week changes its verification input', () => {
+    const week = snapshotAt().latestCompleted!;
+    const { rerender } = render(<VerifyResults week={week} />);
+    fireEvent.click(screen.getByRole('button', { name: /Verify these results/ }));
+    expect(screen.getByRole('status')).toHaveTextContent(/Verified: all 10/);
+    rerender(<VerifyResults week={{ ...week, seed: '0'.repeat(64) }} />);
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Verify these results/ }));
+    expect(screen.getByRole('status')).toHaveTextContent(/Verification failed/);
   });
 });

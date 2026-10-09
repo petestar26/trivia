@@ -29,6 +29,8 @@ export interface EngineOptions {
   onGoalMoment?: (n: number) => void;
   onContextLost?: () => void;
   onContextRestored?: () => void;
+  /** Scheduled rendering failed; the owner should replace the scene with its text fallback. */
+  onRenderError?: (error: unknown) => void;
   /** Frame cap and pixel ratio cap. */
   maxFps?: number;
   maxPixelRatio?: number;
@@ -141,6 +143,7 @@ export function createEngine(options: EngineOptions): Engine {
   let timer = 0;
   let running = false;
   let disposed = false;
+  let renderFailed = false;
   let last = 0;
   let lastMode: Mode | null = null;
   let lastBall: THREE.Vector3 | null = null;
@@ -167,8 +170,7 @@ export function createEngine(options: EngineOptions): Engine {
   intersection?.observe(host);
   const lost = (event: Event) => {
     event.preventDefault();
-    running = false;
-    cancelAnimationFrame(rafId);
+    stop();
     options.onContextLost?.();
   };
   const restored = () => options.onContextRestored?.();
@@ -253,6 +255,29 @@ export function createEngine(options: EngineOptions): Engine {
   }
 
   const minFrame = 1000 / (options.maxFps ?? 30);
+  function stop() {
+    running = false;
+    cancelAnimationFrame(rafId);
+    window.clearInterval(timer);
+    rafId = 0;
+    timer = 0;
+  }
+
+  // React error boundaries cannot catch animation-frame or timer exceptions. Stop this
+  // engine before notifying its owner, so a failed renderer cannot keep throwing or
+  // resume until the member retries with a fresh engine. Direct renderAt remains a
+  // throwing deterministic API for the lab and captures.
+  function renderScheduled(dt: number) {
+    if (!running || disposed || renderFailed) return;
+    try {
+      renderAt(options.getElapsed(), dt);
+    } catch (error) {
+      renderFailed = true;
+      stop();
+      options.onRenderError?.(error);
+    }
+  }
+
   const loop = (time: number) => {
     if (!running || disposed) return;
     rafId = requestAnimationFrame(loop);
@@ -260,20 +285,20 @@ export function createEngine(options: EngineOptions): Engine {
     const dt = last ? Math.min(0.1, (time - last) / 1000) : 1 / 30;
     last = time;
     if (!match) return;
-    renderAt(options.getElapsed(), dt);
+    renderScheduled(dt);
   };
 
   function schedule() {
     cancelAnimationFrame(rafId);
     window.clearInterval(timer);
-    if (disposed || !running) return;
+    if (disposed || !running || renderFailed) return;
     if (reduced) {
       // Reduced motion: no continuous animation or camera tracking, one refresh a second.
       const refresh = () => {
-        if (match && !document.hidden && visible) renderAt(options.getElapsed(), 0.016);
+        if (match && !document.hidden && visible) renderScheduled(0.016);
       };
       refresh();
-      timer = window.setInterval(refresh, 1000);
+      if (running && !disposed && !renderFailed) timer = window.setInterval(refresh, 1000);
     } else rafId = requestAnimationFrame(loop);
   }
 
@@ -286,7 +311,7 @@ export function createEngine(options: EngineOptions): Engine {
         lastMode = null;
         lastBall = null;
       }
-      if (reduced && running && renderedOnce && match) renderAt(options.getElapsed(), 0.016);
+      if (reduced && running && renderedOnce && match) renderScheduled(0.016);
     },
     setReduced(value) {
       if (reduced === value) return;
@@ -294,15 +319,11 @@ export function createEngine(options: EngineOptions): Engine {
       schedule();
     },
     start() {
-      if (running || disposed) return;
+      if (running || disposed || renderFailed) return;
       running = true;
       schedule();
     },
-    stop() {
-      running = false;
-      cancelAnimationFrame(rafId);
-      window.clearInterval(timer);
-    },
+    stop,
     renderAt,
     resize,
     info: () => ({
@@ -314,9 +335,7 @@ export function createEngine(options: EngineOptions): Engine {
     dispose() {
       if (disposed) return;
       disposed = true;
-      running = false;
-      cancelAnimationFrame(rafId);
-      window.clearInterval(timer);
+      stop();
       observer?.disconnect();
       intersection?.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', lost);

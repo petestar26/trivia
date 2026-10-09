@@ -132,6 +132,22 @@ describe('FootballScene lifecycle', () => {
     expect(screen.queryByText('Text match centre')).toBeNull();
   });
 
+  it('replaces a failed scheduled renderer with text and rebuilds only on an explicit retry', () => {
+    render(<FootballScene {...props} />);
+    const first = created.engines[0];
+    act(() => first.options.onRenderError?.(new Error('Animation-frame render failed')));
+    expect(first.engine.dispose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('football-scene')).toBeNull();
+    expect(screen.getByText('Text match centre')).toBeInTheDocument();
+    expect(screen.getByText(/The 3D view stopped/)).toBeInTheDocument();
+    act(() => void vi.advanceTimersByTime(60_000));
+    expect(created.engines).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry 3D view' }));
+    expect(created.engines).toHaveLength(2);
+    expect(created.engines[1].engine.start).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Text match centre')).toBeNull();
+  });
+
   it('flashes the camera-cut overlay only when motion is allowed', () => {
     const { rerender, container } = render(<FootballScene {...props} />);
     const host = screen.getByTestId('football-scene');

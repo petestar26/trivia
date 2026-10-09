@@ -3,8 +3,8 @@
 Independent review and finalisation package for **PlayQube Virtual Football 3D** (`virtual_football_3d`, route
 `/games/virtual-football`, flag `VIRTUAL_FOOTBALL_PRACTICE_ENABLED`). This is a **candidate**. Nothing here has been merged,
 deployed, enabled, run against a staging or production database, or accepted on a physical device. Local evidence,
-CI evidence and live evidence are kept apart below; only the first column has happened unless the PR checks say
-otherwise.
+CI evidence and live evidence are kept apart below. Sections 1–10 preserve Sonnet's original handoff; section 11 records
+the independent review and corrections in a separate local checkout.
 
 ## 1. Where everything is
 
@@ -42,10 +42,11 @@ Everything else is new and under `virtual-football` / `football` paths.
   every price (score weights ≤ 6 goals, fair halves, uniform goal order, strictly increasing times; odds = ⌊90 ÷ probability⌋
   in hundredths, offered only within 1.10–1000.00), commit/reveal seeds, pure-TypeScript SHA-256 shared by server and browser,
   `verifyMatchweek`, elapsed-only `liveFixture`, derived standings (3/1/0; points, goal difference, goals for, wins, club id).
-- **Database** (three forward migrations): enum value in its own migration (PostgreSQL 13-safe), then tables, guard functions
+- **Database** (four forward migrations): enum value in its own migration (PostgreSQL 13-safe), then tables, guard functions
   and deferred constraint triggers, then an **inactive `COMING_SOON`** catalog row. Matchweeks can only be created inside their own
   selection window (missed weeks are never fabricated). Accounts, tickets, lines and legs are guarded: immutable receipts,
   balance and ticket-total integrity, one selection per fixture in a multiple, deadline enforced on the database clock.
+  A separate additive migration requires ticket and line settlement to commit together.
 - **Server** (`apps/api/src/games/virtual-football/`): `GET /games/virtual-football` (snapshot, optional season/week pair) and
   `POST /games/virtual-football/tickets`. Idempotent receipts (`UNIQUE(user_id, idempotency_key)`): the account row is locked
   first, the request hash covers ordered lines and shown prices, a repeat returns the same receipt even after kick-off, a
@@ -61,21 +62,21 @@ Everything else is new and under `virtual-football` / `football` paths.
 
 ## 4. Hard constraints and where they are enforced
 
-| Constraint                                                                | Enforcement                                                                                                                                                                                              |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Practice credits only: no Coins, no ledger/wallet writes                  | Separate `football_accounts`; the native test asserts the service never reads or writes a wallet, Coin, ledger or payment table and creates no wallet; least-privilege grants exclude every ledger table |
-| Coin wagering paused regardless of catalog or flag                        | `virtual_football_3d` is in the unconditional pause in `game-catalog.ts` with tests                                                                                                                      |
-| Flag exact `true`, default off                                            | `footballPracticeEnabled()`, `group-worker-runtime.ts`, catalog `practiceAvailable`; routes return 403 otherwise                                                                                         |
-| Not purchasable, transferable, redeemable; no autoplay, cash-out, jackpot | None of these exist; stated in the rules dialog and spec                                                                                                                                                 |
-| No licensed assets, marks, crests, API; no equivalence claim              | Original clubs, badges, kits, sponsors; spec §1                                                                                                                                                          |
-| Reference screenshot never shipped                                        | Not in the repo; the catalog image is a render of this scene                                                                                                                                             |
-| Derby's staging allowlist not broadened                                   | `staging-derby-upgrade.ts` unchanged; a test proves the football migrations are "unrelated" to it                                                                                                        |
-| Applied migrations never edited                                           | Three new migrations only; the migration matrix test pins the parent set                                                                                                                                 |
-| Native tests only on throwaway databases                                  | The native config needs `SCHEDULED_NATIVE_DB_ACK=throwaway` and a `*_throwaway` name                                                                                                                     |
+| Constraint                                                                | Enforcement                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Practice credits only: no Coins, no ledger/wallet writes                  | Separate `football_accounts`; the native test asserts the service never reads or writes a wallet, Coin, ledger or payment table and creates no wallet; the football grant helper grants only the six football tables |
+| Coin wagering paused regardless of catalog or flag                        | `virtual_football_3d` is in the unconditional pause in `game-catalog.ts` with tests                                                                                                                                  |
+| Flag exact `true`, default off                                            | `footballPracticeEnabled()`, `group-worker-runtime.ts`, catalog `practiceAvailable`; routes return 403 otherwise                                                                                                     |
+| Not purchasable, transferable, redeemable; no autoplay, cash-out, jackpot | None of these exist; stated in the rules dialog and spec                                                                                                                                                             |
+| No licensed assets, marks, crests, API; no equivalence claim              | Original clubs, badges, kits, sponsors; spec §1                                                                                                                                                                      |
+| Reference screenshot never shipped                                        | Not in the repo; the catalog image is a render of this scene                                                                                                                                                         |
+| Derby's staging allowlist not broadened                                   | `staging-derby-upgrade.ts` unchanged; a test proves the football migrations are "unrelated" to it                                                                                                                    |
+| Applied migrations never edited                                           | Four new migrations only; the migration matrix test pins the parent set                                                                                                                                              |
+| Native tests only on throwaway databases                                  | The native config needs `SCHEDULED_NATIVE_DB_ACK=throwaway` and a `*_throwaway` name                                                                                                                                 |
 
 ## 5. Evidence
 
-### 5.1 Local (this container, PostgreSQL 16 only)
+### 5.1 Sonnet's original local evidence (head `b5f9cd1`, PostgreSQL 16 only)
 
 | Check                                                                                             | Command                                                                                                                                                 | Result                                                   |
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -112,7 +113,7 @@ input stays visible when the viewport shrinks for a keyboard. This is emulation 
 
 PostgreSQL 13, 16 and 18 are exercised only by `.github/workflows/scheduled-rounds.yml` on the PR. The workflow now runs the
 shared football tests, `vitest.football.config.ts`, the football native test and the web football contracts, in addition
-to the migration matrix (which now includes the three football migrations). **PG13 and PG18 results do not exist locally.**
+to the migration matrix (which now includes the four football migrations). **PG13 and PG18 results do not exist locally.**
 Read the PR checks for the current head; if the head moved, so did the evidence.
 
 ### 5.4 Notes on the local runs
@@ -143,12 +144,16 @@ Read the PR checks for the current head; if the head moved, so did the evidence.
 
 - `20261010010000_virtual_football_game_type` adds the enum value only (its own transaction, PG13-compatible);
   `20261010010100_virtual_football_practice` uses it; `20261010010200_virtual_football_catalog` inserts one inactive
-  `COMING_SOON` row (`ON CONFLICT DO NOTHING`). Nothing is dropped or rewritten.
+  `COMING_SOON` row (`ON CONFLICT DO NOTHING`). `20261010010300_virtual_football_settlement_atomic` validates existing
+  settlement states and adds deferred constraints requiring a ticket and every line to settle together. An unpaid ticket
+  cannot retain any paid line, including a losing line paid zero. Nothing is dropped or rewritten.
 - Runtime grants are in `apps/api/src/scripts/football-runtime-grants.ts`: `SELECT, INSERT, UPDATE` on accounts, tickets and
-  lines; `SELECT, INSERT` on matchweeks, fixtures and legs; `DELETE`, `TRUNCATE`, ledger tables and every other privilege are
-  checked as **absent**. `staging-football-upgrade.ts` (guarded, disposable-rehearsal target only, `--apply` required) refuses any
-  other pending migration, any super-user or bypass-RLS runtime role, excess privileges, and never sets a flag. It has not been
-  run against any real database.
+  lines; `SELECT, INSERT` on matchweeks, fixtures and legs. `staging-football-upgrade.ts` verifies these grants and the absence
+  of `DELETE` and `TRUNCATE` on the six football tables, plus `UPDATE` on matchweeks, fixtures and legs. It does not audit
+  existing ledger-table privileges, other privilege types, or access obtainable through `SET ROLE`.
+  The command (guarded, disposable-rehearsal target only, `--apply` required) refuses any other pending migration,
+  roles with super-user, bypass-RLS, create-database, create-role or replication attributes, and the excess football-table
+  privileges listed above. It never sets a flag and has not been run against any real database.
 - Suggested rollout order (none of it has happened; the order is a recommendation, not something this PR performs): deploy code with the flag off → migrations → grants → verify with
   the staging command → flip the flag in an environment of Astra's choosing. Turning the flag off removes the route and stops the worker; data stays.
 
@@ -185,3 +190,59 @@ Read the PR checks for the current head; if the head moved, so did the evidence.
 
 Order of work was risk first: the model and the database guards (where a mistake costs credits) before the server, the server before the UI, and the
 renderer last, so the match view could never be allowed to influence a result.
+
+## 11. Independent finalisation — 2026-10-10
+
+The review pinned draft PR #48 to `b5f9cd1b11f6fc62ef867bdad97ffd0ad03d8c59`, tree
+`c06396426823b471e5f5c9244fe287b53acc1349`, on base `86ed8d1174287bea7a703135682ff9b0d33fafb7`.
+Its PostgreSQL 13/16/18 CI run `37986154792` passed. Those results belong to the original head, not the corrections.
+The isolated local checkout is `/private/tmp/playqube-football-review` with independent pinned dependencies and a disposable
+PostgreSQL 16 cluster on port 56489. No shared working checkout, staging or production database was changed.
+
+### Reproduced issues and corrections
+
+| Issue                        | Reproduction and corrected behaviour                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Receipt recovery             | A lost confirmation response followed by an unexplained 401/403/404 discarded the pending receipt. Authentication and gate failures now retain the identical recovery payload unless a recognised definitive service refusal establishes rejection.                                                                                                                                          |
+| Verification badge           | Navigating between matchweeks, or replacing a seed/commitment in the same week, retained an earlier success badge. Verification now belongs to the exact checked input.                                                                                                                                                                                                                      |
+| Renderer failure             | A scheduled animation-frame/timer exception escaped the React boundary. The engine now stops, reports the failure once, and the page offers its text fallback and a fresh-engine retry. Direct lab rendering still throws.                                                                                                                                                                   |
+| Admission cutoff             | Advancing the database clock across kickoff during constraint flushing or receipt reads still accepted a new ticket. A final database-clock check inside the transaction now rolls back all writes; existing receipts remain replayable.                                                                                                                                                     |
+| Partial settlement           | On the original schema, a valid line payout (including zero) committed while its ticket remained unsettled. A fourth additive migration validates existing state and adds deferred ticket/line settlement agreement, explicitly flushed by the service. Native tests require rollback of winning and losing partial writes and complete settlement exactly once. No HTTP exploit is claimed. |
+| Result visibility/navigation | During the next selection window, the latest featured winner was hidden behind the Results tab. A compact full-time banner now remains above the pitch; its All results action clears previously browsed historical weeks.                                                                                                                                                                   |
+
+The outcome/price model was independently probed over 380 ordered fixtures, 35,720 selection prices, 3,800 goal timelines,
+38,000 privacy views and 100 seasons. No concrete model defect was found. Prices remain integer/rational, and practice
+accounts remain separate from Coins and wallets. The staging grant description was narrowed to what its command actually
+checks; it does not establish the absence of inherited `SET ROLE` access or ledger permissions.
+
+### Local verification of the corrections
+
+| Independently run check                                                  | Result                 |
+| ------------------------------------------------------------------------ | ---------------------- |
+| Shared package (including 79 football cases)                             | 116 passed             |
+| Football API unit set, including cutoff and fourth-migration preparation | 109 passed             |
+| Football native suite, disposable PostgreSQL 16                          | 32 passed              |
+| Web complete suite                                                       | 1,411 passed, 98 files |
+| Typechecks and shared import boundary                                    | clean                  |
+| Focused lint                                                             | clean                  |
+| API and web production builds                                            | passed                 |
+| PWA / payment gateway contracts                                          | 25 / 8 passed          |
+| Migration upgrade matrix, disposable PostgreSQL 16                       | 56 passed              |
+
+The complete web suite ran with `--pool=forks --minWorkers=1 --maxWorkers=2`; the database suites used
+`vitest.scheduled-native.config.ts` with the throwaway database acknowledgement. PostgreSQL 13 and 18 were not run locally.
+
+The current review report and exact commit/CI identity are recorded in the PR description. No full live matchweek or
+physical-device acceptance is claimed by this independent review. Browser checks used the real page and 3D engine with a
+clearly labelled, temporary local synthetic snapshot; confirmations were disabled. At 390 × 844, controls and the persistent
+result fit without horizontal overflow. Browser result verification succeeded. The temporary fixture files were removed.
+
+### Remaining release and visual limits
+
+This is still a draft, practice-only candidate. No merge, rollout, grants on a real environment, feature activation or payment
+action occurred. The existing staging services were online when checked and still ran the preceding Derby revisions.
+New-head PostgreSQL 13/18 compatibility must be established by its own CI. Staging migration/API/worker/web validation and
+physical iPhone/Safari performance remain outstanding. Players are stylised procedural figures, not photorealistic players
+or a reproduction of MOHIO's proprietary game; realistic assets and motion would require separately sourced, licensed work.
+Payments and Coin wagering remain paused. Next: independent Opus review of the corrected, pinned candidate; then request
+staging-only rollout approval if that review and exact-head CI pass.

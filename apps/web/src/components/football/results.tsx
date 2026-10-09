@@ -23,23 +23,28 @@ const when = (ms: number) =>
 
 /** Re-derives every official goal from the revealed seed in this browser. */
 export function VerifyResults({ week }: { week: VfMatchweekView }) {
-  const [result, setResult] = useState<{ ok: boolean; problems: string[] } | null>(null);
+  const [checked, setChecked] = useState<{
+    identity: string;
+    result: ReturnType<typeof verifyMatchweek>;
+  } | null>(null);
   if (!week.seed) return null;
-  const run = () =>
-    setResult(
-      verifyMatchweek({
-        matchweekId: week.id,
-        seed: week.seed!,
-        commitment: week.commitment,
-        fixtures: week.fixtures.map((f) => ({
-          id: f.id,
-          slot: f.slot,
-          params: f.params,
-          commitment: f.commitment,
-          goals: f.live.events.map((g) => ({ n: g.n, side: g.side, half: g.half, atMs: g.atMs })),
-        })),
-      })
-    );
+  const candidate = {
+    matchweekId: week.id,
+    seed: week.seed,
+    commitment: week.commitment,
+    fixtures: week.fixtures.map((f) => ({
+      id: f.id,
+      slot: f.slot,
+      params: f.params,
+      commitment: f.commitment,
+      goals: f.live.events.map((g) => ({ n: g.n, side: g.side, half: g.half, atMs: g.atMs })),
+    })),
+  };
+  // A verification badge applies only to the exact input that was checked, including
+  // same-week changes. Never carry an earlier success into a newly loaded matchweek.
+  const identity = JSON.stringify(candidate);
+  const result = checked?.identity === identity ? checked.result : null;
+  const run = () => setChecked({ identity, result: verifyMatchweek(candidate) });
   return (
     <div className="vf-verify">
       <button type="button" className="vf-secondary" onClick={run}>

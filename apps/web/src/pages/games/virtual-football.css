@@ -225,6 +225,30 @@
 }
 
 /* ---- stage ------------------------------------------------------------------------- */
+.vf-previous-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(92, 218, 185, 0.3);
+  border-radius: 0.75rem;
+  background: var(--vf-panel);
+}
+.vf-previous-result > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.vf-previous-result small,
+.vf-previous-result span {
+  color: var(--vf-muted);
+}
+.vf-previous-result strong {
+  overflow-wrap: anywhere;
+}
 .vf-stage {
   margin-bottom: 18px;
 }

@@ -186,7 +186,7 @@ export function createFootballService(db: PrismaClient) {
 
   async function flush(tx: Tx) {
     const names =
-      'public.football_account_balance, public.football_ticket_balance, public.football_ticket_integrity_t, public.football_ticket_integrity_l, public.football_ticket_integrity_g';
+      'public.football_account_balance, public.football_ticket_balance, public.football_ticket_integrity_t, public.football_ticket_integrity_l, public.football_ticket_integrity_g, public.football_settlement_atomic_t, public.football_settlement_atomic_l';
     await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} IMMEDIATE`);
     await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
   }
@@ -635,6 +635,10 @@ export function createFootballService(db: PrismaClient) {
         throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
       await flush(tx);
       const [ticket] = await ticketViews(tx, userId, await clock(tx), ticketId);
+      // Constraint checks and receipt reads can also wait. Reject a new admission if
+      // they carried it across kickoff; the transaction rolls back every write.
+      if ((await clock(tx)) >= mw.kickoff_at)
+        throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
       return { accepted: true as const, isReplay: false, ticket };
     });
   }

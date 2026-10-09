@@ -216,7 +216,8 @@ beforeAll(async () => {
   A = await matchweek({ kickoffInMs: 40_000 });
   PREV = await matchweek({ kickoffInMs: 6_000, season: RUN + 150_000, week: 37 });
   NEXT = await matchweek({ kickoffInMs: 6_000, season: RUN + 150_001, week: 1 });
-  for (const name of ['settle', 'suspend', 'other', 'late-guard']) users[name] = await member();
+  for (const name of ['settle', 'suspend', 'other', 'late-guard', 'atomic'])
+    users[name] = await member();
   // Tickets that must settle after full time, placed while A's window is open.
   placed.settle = await service.admit(
     users.settle,
@@ -233,6 +234,10 @@ beforeAll(async () => {
   );
   placed.suspend = await service.admit(users.suspend, request(A, [single(A, 5, 'FT:1', 40)]));
   placed.other = await service.admit(users.other, request(A, [single(A, 7, 'FT:X', 25)]));
+  placed.atomic = await service.admit(
+    users.atomic,
+    request(A, [single(A, 1, 'FT:1', 10), single(A, 3, 'FT:1', 10)])
+  );
 });
 afterAll(async () => {
   await db.$disconnect();
@@ -931,6 +936,41 @@ describe('settlement', () => {
     Number(
       (BigInt(stake) * odds.reduce((p, o) => p * BigInt(o), 1n)) / 100n ** BigInt(odds.length)
     );
+
+  it('rejects partial line settlement, then settles the complete ticket exactly once', async () => {
+    await until(A.kickoff + 61_000);
+    const ticketId = placed.atomic.ticket.id,
+      expected = expectedPayout(10, [A.leg(1, 'FT:1').oddsCents]);
+    expect(await balance(users.atomic)).toBe(980);
+    // Both a winning payout and a losing payout of zero must remain part of one settlement.
+    for (const [lineNo, payout] of [
+      [1, expected],
+      [2, 0],
+    ]) {
+      await expect(
+        db.$transaction(async (tx) => {
+          await tx.$executeRaw`UPDATE football_ticket_lines SET payout=${payout} WHERE ticket_id=${ticketId} AND line_no=${lineNo}`;
+          await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+        })
+      ).rejects.toThrow(/Football settlement must include ticket and every line/);
+      const lines = await db.$queryRaw<
+        { payout: number | null }[]
+      >`SELECT payout FROM football_ticket_lines WHERE ticket_id=${ticketId} ORDER BY line_no`;
+      expect(lines.map((line) => line.payout)).toEqual([null, null]);
+      const [ticket] = await db.$queryRaw<
+        { total_return: number | null; settled_at: Date | null }[]
+      >`SELECT total_return,settled_at FROM football_tickets WHERE id=${ticketId}`;
+      expect(ticket).toEqual({ total_return: null, settled_at: null });
+      expect(await balance(users.atomic)).toBe(980);
+    }
+    expect(await service.settleTicket(ticketId)).toBe(true);
+    expect(await service.settleTicket(ticketId)).toBe(false);
+    const lines = await db.$queryRaw<
+      { payout: number }[]
+    >`SELECT payout FROM football_ticket_lines WHERE ticket_id=${ticketId} ORDER BY line_no`;
+    expect(lines.map((line) => line.payout)).toEqual([expected, 0]);
+    expect(await balance(users.atomic)).toBe(980 + expected);
+  }, 90_000);
 
   it('settles winning, losing and multiple lines exactly once with exact integers', async () => {
     await until(A.kickoff + 61_000);

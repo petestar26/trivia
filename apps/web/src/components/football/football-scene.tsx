@@ -77,6 +77,7 @@ function SceneCanvas({
         reduced: live.current.reduced,
         onGoalMoment: (n) => live.current.onGoalMoment?.(n),
         onContextLost: () => live.current.onProblem('lost'),
+        onRenderError: () => live.current.onProblem('error'),
       });
     } catch {
       live.current.onProblem('unsupported');

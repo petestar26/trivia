@@ -114,6 +114,7 @@ it('keeps the Derby allowlist narrow: football migrations are unrelated pending 
     '20261010010000_virtual_football_game_type',
     '20261010010100_virtual_football_practice',
     '20261010010200_virtual_football_catalog',
+    '20261010010300_virtual_football_settlement_atomic',
   ];
   state.names.push(...football);
   try {

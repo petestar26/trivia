@@ -66,6 +66,13 @@ describe('error classification', () => {
     expect(isDefinitiveRefusal(parseFootballError(wrap(429)))).toBe(false);
     expect(isDefinitiveRefusal(parseFootballError(new Error('Request not confirmed')))).toBe(false);
   });
+  it('keeps ambiguous authentication, permission, gate and gateway refusals unresolved', () => {
+    for (const status of [400, 401, 403, 404, 405, 409, 422])
+      expect(isDefinitiveRefusal(parseFootballError(wrap(status)))).toBe(false);
+    expect(isDefinitiveRefusal(parseFootballError(wrap(401, 'CLOSED')))).toBe(false);
+    expect(isDefinitiveRefusal(parseFootballError(wrap(403, 'CLOSED')))).toBe(false);
+    expect(isDefinitiveRefusal(parseFootballError(wrap(404, 'MATCHWEEK_NOT_FOUND')))).toBe(true);
+  });
   it('always says whether anything was charged', () => {
     for (const reason of [
       'CLOSED',

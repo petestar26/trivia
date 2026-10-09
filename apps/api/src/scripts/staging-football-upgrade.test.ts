@@ -5,6 +5,7 @@ const FOOTBALL = [
   '20261010010000_virtual_football_game_type',
   '20261010010100_virtual_football_practice',
   '20261010010200_virtual_football_catalog',
+  '20261010010300_virtual_football_settlement_atomic',
 ];
 const DERBY = '20261009120000_thunder_derby_practice';
 const state = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const state = vi.hoisted(() => ({
   grants: true,
   excess: false,
   pendingFootball: false,
+  pendingAtomic: false,
   pendingDerby: false,
   failed: false,
   checksum: true,
@@ -77,7 +79,9 @@ vi.mock('@prisma/client', () => ({
         });
         return [
           ...(state.pendingDerby ? [] : [done(DERBY)]),
-          ...(state.pendingFootball ? [] : FOOTBALL.map(done)),
+          ...(state.pendingFootball
+            ? []
+            : FOOTBALL.filter((name) => !state.pendingAtomic || name !== FOOTBALL[3]).map(done)),
         ];
       }
       throw Error('Unexpected SQL');
@@ -108,6 +112,7 @@ beforeEach(() => {
     grants: true,
     excess: false,
     pendingFootball: false,
+    pendingAtomic: false,
     pendingDerby: false,
     failed: false,
     checksum: true,
@@ -117,7 +122,7 @@ beforeEach(() => {
   });
 });
 
-it('allow-lists exactly the three football migrations and nothing else', () => {
+it('allow-lists exactly the four football migrations and nothing else', () => {
   expect(FOOTBALL_MIGRATIONS).toEqual(FOOTBALL);
 });
 
@@ -196,6 +201,25 @@ it('explicit apply deploys once, grants both roles, and never reports activation
     activationPerformed: false,
   });
   log.mockRestore();
+});
+
+it('requires and applies the atomic-settlement migration when the original three are already applied', async () => {
+  state.pendingAtomic = true;
+  await expect(runFootballStagingUpgrade(env)).rejects.toThrow('FOOTBALL_MIGRATION_NOT_APPLIED');
+  expect(state.execute).not.toHaveBeenCalled();
+  expect(state.grant).not.toHaveBeenCalled();
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    await runFootballStagingUpgrade(env, true);
+    expect(state.execute).toHaveBeenCalledOnce();
+    expect(state.grant).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toMatchObject({
+      migrations: FOOTBALL,
+      activationPerformed: false,
+    });
+  } finally {
+    log.mockRestore();
+  }
 });
 
 it('refuses an active or missing football catalog row after migration', async () => {

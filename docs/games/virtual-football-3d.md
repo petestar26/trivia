@@ -167,7 +167,8 @@ rejected **before debit**. A limit breach is a refusal; a winning return is neve
   parameters and refuses a mismatch (`PRICE_CHANGED`). Client odds/payout fields are never trusted.
 - **Settlement** (per ticket, atomic, exactly once): lock ticket → lock account → set each line payout → set the ticket
   return and `settled_at = full_time_at` → credit the balance → flush deferred checks. Concurrent workers, retries,
-  crashes and member snapshots converge on the same rows. Accepted tickets settle even if the member is suspended,
+  crashes and member snapshots converge on the same rows. Deferred constraints refuse paid lines under an unsettled
+  ticket or unpaid lines under a settled ticket, so line-only settlement cannot commit. Accepted tickets settle even if the member is suspended,
   because settlement needs no member session.
 
 ## 6. Commitment, privacy and verification
@@ -195,7 +196,8 @@ rejected **before debit**. A limit breach is a refusal; a winning return is neve
   and the worker alike. It is independent of every other game's flag and of every financial gate.
 - Migrations (forward only, PostgreSQL 13+): `20261010010000_virtual_football_game_type` (enum value only),
   `20261010010100_virtual_football_practice` (tables, guards), `20261010010200_virtual_football_catalog` (inactive
-  `COMING_SOON` row). Runtime grants and the guarded staging command are described in
+  `COMING_SOON` row), `20261010010300_virtual_football_settlement_atomic` (deferred ticket/line settlement agreement).
+  Runtime grants and the guarded staging command are described in
   [`virtual-football-handoff.md`](./virtual-football-handoff.md).
 - Local, CI and live evidence are different things; this document asserts none of the staging, device or
   production acceptance steps has happened.
