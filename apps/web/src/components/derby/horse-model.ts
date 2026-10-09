@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { gallopPose, legJoint } from './gallop';
+import { createLegSurface } from './leg-surface';
 
 type Resources = {
   geometries: THREE.BufferGeometry[];
   materials: THREE.Material[];
   textures: THREE.Texture[];
 };
-const UP = new THREE.Vector3(0, 1, 0);
 /** Original anatomical surface meshes and articulated rig, authored for this game. */
 export function createHorse(
   coatColor: string,
@@ -23,8 +23,8 @@ export function createHorse(
   }
   const coat = new THREE.MeshPhysicalMaterial({
     color: coatColor,
-    roughness: 0.43,
-    clearcoat: 0.22,
+    roughness: 0.56,
+    clearcoat: 0.12,
     clearcoatRoughness: 0.65,
   });
   resources.materials.push(coat);
@@ -48,7 +48,7 @@ export function createHorse(
     texture.repeat.set(4, 3);
     resources.textures.push(texture);
     coat.bumpMap = texture;
-    coat.bumpScale = 0.018;
+    coat.bumpScale = 0.006;
   }
   const hair = material('#231b16'),
     leather = material('#30251e', 0.4),
@@ -84,7 +84,7 @@ export function createHorse(
     rz: number,
     m: THREE.Material
   ) {
-    const mesh = add(parent, new THREE.SphereGeometry(1, 16, 12), m, x, y, z);
+    const mesh = add(parent, new THREE.SphereGeometry(1, 20, 14), m, x, y, z);
     mesh.scale.set(rx, ry, rz);
     return mesh;
   }
@@ -142,11 +142,11 @@ export function createHorse(
     root,
     [
       [-1.28, 2.03, 0.01, 0.01],
-      [-1.12, 2.06, 0.35, 0.33],
-      [-0.8, 2.09, 0.48, 0.42],
-      [-0.32, 2.02, 0.46, 0.4],
-      [0.16, 2.03, 0.46, 0.39],
-      [0.65, 2.12, 0.53, 0.4],
+      [-1.12, 2.05, 0.37, 0.32],
+      [-0.8, 2.1, 0.51, 0.44],
+      [-0.32, 2.03, 0.43, 0.37],
+      [0.16, 2.02, 0.48, 0.4],
+      [0.59, 2.04, 0.58, 0.43],
       [0.94, 2.12, 0.36, 0.29],
       [1.07, 2.12, 0.01, 0.01],
     ],
@@ -172,10 +172,10 @@ export function createHorse(
     neck,
     [
       [0.45, 0.86, 0.01, 0.01],
-      [0.66, 0.88, 0.23, 0.18],
-      [0.87, 0.74, 0.2, 0.16],
+      [0.66, 0.84, 0.25, 0.18],
+      [0.9, 0.73, 0.16, 0.135],
       [1.1, 0.52, 0.13, 0.115],
-      [1.22, 0.4, 0.13, 0.14],
+      [1.22, 0.42, 0.115, 0.145],
       [1.29, 0.37, 0.02, 0.02],
     ],
     coat
@@ -301,6 +301,37 @@ export function createHorse(
       leather
     );
   }
+  const numberCanvas = document.createElement('canvas');
+  numberCanvas.width = numberCanvas.height = 128;
+  const nc = numberCanvas.getContext('2d');
+  if (nc) {
+    nc.fillStyle = silkColor;
+    nc.fillRect(0, 0, 128, 128);
+    nc.strokeStyle = '#ead4a4';
+    nc.lineWidth = 5;
+    nc.strokeRect(6, 6, 116, 116);
+    nc.fillStyle = '#101b19';
+    nc.font = 'bold 90px sans-serif';
+    nc.textAlign = 'center';
+    nc.textBaseline = 'middle';
+    nc.fillText(String(index + 1), 64, 68);
+  }
+  const numberTexture = new THREE.CanvasTexture(numberCanvas);
+  numberTexture.colorSpace = THREE.SRGBColorSpace;
+  resources.textures.push(numberTexture);
+  const numberMaterial = new THREE.MeshStandardMaterial({ map: numberTexture, roughness: 0.9 });
+  resources.materials.push(numberMaterial);
+  for (const side of [-1, 1]) {
+    const patch = add(
+      root,
+      new THREE.PlaneGeometry(0.42, 0.4),
+      numberMaterial,
+      -0.16,
+      2.18,
+      side * 0.439
+    );
+    patch.rotation.y = side < 0 ? Math.PI : 0;
+  }
   oval(root, -0.18, 2.51, 0, 0.4, 0.085, 0.28, leather);
   const rider = new THREE.Group();
   root.add(rider);
@@ -352,42 +383,29 @@ export function createHorse(
       gold
     );
   }
-  // Small paired joints and tapered bones keep the silhouette slender below the knees.
+  // A single deforming skin per limb keeps knees and muscle contours continuous.
+  const limbCoat = coat.clone();
+  limbCoat.vertexColors = true;
+  resources.materials.push(limbCoat);
   const legs = Array.from({ length: 4 }, (_, leg) => {
     const hind = leg < 2,
       side = leg % 2 ? 1 : -1;
     const x = hind ? -0.83 : 0.7,
       z = side * 0.285;
-    const upper = add(root, new THREE.CylinderGeometry(hind ? 0.18 : 0.13, 0.075, 1, 12), coat);
-    const lower = add(
-      root,
-      new THREE.CylinderGeometry(0.072, 0.045, 1, 10),
-      leg === index % 4 ? ivory : coat
-    );
-    const joint = oval(root, 0, 0, 0, 0.095, 0.105, 0.09, coat);
-    const foot = add(root, new THREE.CylinderGeometry(0.075, 0.11, 0.16, 12), hoof);
-    foot.scale.set(1.2, 1, 0.85);
-    return { upper, lower, joint, foot, x, z, hind };
+    const skin = createLegSurface(hind);
+    const mesh = add(root, skin.geometry, limbCoat);
+    mesh.frustumCulled = false; // Deforming bounds are tiny and remain inside the race field.
+    const foot = add(root, new THREE.CylinderGeometry(0.065, 0.105, 0.16, 16), hoof);
+    foot.scale.set(1.35, 1, 0.9);
+    return { skin, mesh, foot, x, z, hind };
   });
-  // Only merge the static body; retain rig parts so animation can move each joint.
-  const animated = [neck, tail, rider, ...legs.flatMap((l) => [l.upper, l.lower, l.joint, l.foot])];
+  const animated = [neck, tail, rider, ...legs.flatMap((l) => [l.mesh, l.foot])];
   animated.forEach((x) => root.remove(x));
   merge(root);
   animated.forEach((x) => root.add(x));
   merge(neck);
   merge(tail);
   merge(rider);
-  const a = new THREE.Vector3(),
-    b = new THREE.Vector3(),
-    delta = new THREE.Vector3();
-  function bone(mesh: THREE.Mesh, ax: number, ay: number, bx: number, by: number, z: number) {
-    a.set(ax, ay, z);
-    b.set(bx, by, z);
-    delta.subVectors(b, a);
-    mesh.position.copy(a).add(b).multiplyScalar(0.5);
-    mesh.scale.y = delta.length();
-    mesh.quaternion.setFromUnitVectors(UP, delta.normalize());
-  }
   function animate(seconds: number, moving: boolean) {
     const pose = gallopPose(seconds, index, moving);
     root.position.y = pose.bounce;
@@ -398,9 +416,7 @@ export function createHorse(
       const foot = pose.feet[i],
         hipY = 1.68,
         joint = legJoint(foot.x, foot.y - hipY, leg.hind);
-      bone(leg.upper, leg.x, hipY, leg.x + joint.x, hipY + joint.y, leg.z);
-      bone(leg.lower, leg.x + joint.x, hipY + joint.y, leg.x + foot.x, foot.y, leg.z);
-      leg.joint.position.set(leg.x + joint.x, hipY + joint.y, leg.z);
+      leg.skin.pose(leg.x, hipY, leg.x + joint.x, hipY + joint.y, leg.x + foot.x, foot.y, leg.z);
       leg.foot.position.set(leg.x + foot.x + 0.025, foot.y - 0.015, leg.z);
       leg.foot.rotation.z = foot.contact ? 0 : leg.hind ? -0.2 : 0.3;
     });
