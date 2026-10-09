@@ -86,3 +86,63 @@ it('Thunder Derby never admits Coin wagers even after catalog edits', () => {
     true
   );
 });
+
+describe('Virtual Football 3D catalog gate', () => {
+  const row = {
+    id: 'vf',
+    key: 'virtual_football_3d',
+    isActive: true,
+    catalogStatus: 'AVAILABLE',
+    mode: 'WAGER',
+    wagerCurrency: 'COINS',
+  };
+
+  it('is public only through the approved-key allowlist', async () => {
+    db.findMany.mockResolvedValue([]);
+    await listActiveGames();
+    expect(db.findMany.mock.calls.at(-1)![0].where.key.in).toContain('virtual_football_3d');
+  });
+
+  it('exposes practice availability only for the exact string "true" and never activates play', async () => {
+    db.findMany.mockResolvedValue([row]);
+    try {
+      for (const flag of [undefined, '', 'false', 'TRUE', 'True', '1', 'yes', ' true', 'true ']) {
+        if (flag === undefined) vi.unstubAllEnvs();
+        else vi.stubEnv('VIRTUAL_FOOTBALL_PRACTICE_ENABLED', flag);
+        expect((await listActiveGames())[0], String(flag)).toMatchObject({
+          isActive: false,
+          catalogStatus: 'COMING_SOON',
+          practiceAvailable: false,
+        });
+      }
+      vi.stubEnv('VIRTUAL_FOOTBALL_PRACTICE_ENABLED', 'true');
+      expect((await listActiveGames())[0]).toMatchObject({
+        isActive: false,
+        catalogStatus: 'COMING_SOON',
+        practiceAvailable: true,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('is not enabled by another game practice flag', async () => {
+    db.findMany.mockResolvedValue([row]);
+    try {
+      vi.stubEnv('THUNDER_DERBY_PRACTICE_ENABLED', 'true');
+      vi.stubEnv('SKY_CRASH_PRACTICE_ENABLED', 'true');
+      expect((await listActiveGames())[0].practiceAvailable).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each([
+    { mode: 'WAGER', wagerCurrency: 'COINS' },
+    { mode: 'WAGER', wagerCurrency: 'GAME_POINTS' },
+    { mode: 'BONUS', wagerCurrency: null },
+    { mode: 'BONUS', wagerCurrency: 'COINS' },
+  ])('never admits Coin wagers regardless of catalog data: %j', (fields) => {
+    expect(isCoinWagerPaused({ key: 'virtual_football_3d', ...fields })).toBe(true);
+  });
+});

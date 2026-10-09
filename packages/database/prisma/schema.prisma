@@ -836,6 +836,7 @@ enum GameType {
   CRYSTAL_TRAIL
   HEAT_VAULT
   STRAIT_RUSH
+  VIRTUAL_FOOTBALL_3D
 }
 
 enum GameSessionStatus {

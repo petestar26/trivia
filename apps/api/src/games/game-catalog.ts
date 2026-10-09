@@ -44,6 +44,7 @@ const APPROVED_CATALOG_KEYS: readonly string[] = [
   'trivia',
   'spin_win',
   'thunder_derby_3d',
+  'virtual_football_3d',
   'neon_hounds_3d',
   'turbo_circuit_3d',
   'starfall_nebula',
@@ -65,6 +66,8 @@ export function isCoinWagerPaused(game: {
   return (
     game.key === 'sky_crash' ||
     game.key === 'thunder_derby_3d' ||
+    // Practice credits only: Coin admission is paused here regardless of catalog data or flags.
+    game.key === 'virtual_football_3d' ||
     (game.mode === 'WAGER' &&
       game.wagerCurrency === 'COINS' &&
       ['number_challenge', 'dice', 'crash_point'].includes(game.key))
@@ -112,7 +115,7 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
     : null;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
-    row.key === 'sky_crash' || row.key === 'thunder_derby_3d'
+    row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
           isActive: false,
@@ -120,7 +123,9 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
           practiceAvailable:
             (row.key === 'sky_crash'
               ? process.env.SKY_CRASH_PRACTICE_ENABLED
-              : process.env.THUNDER_DERBY_PRACTICE_ENABLED) === 'true',
+              : row.key === 'virtual_football_3d'
+                ? process.env.VIRTUAL_FOOTBALL_PRACTICE_ENABLED
+                : process.env.THUNDER_DERBY_PRACTICE_ENABLED) === 'true',
         }
       : isCoinWagerPaused(row)
         ? { ...row, catalogStatus: 'COMING_SOON' as const }
