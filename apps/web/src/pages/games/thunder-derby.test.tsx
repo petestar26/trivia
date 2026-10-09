@@ -118,3 +118,29 @@ it('switches between six- and eight-runner fields', () => {
   fireEvent.click(screen.getByRole('button', { name: /8 horses/ }));
   expect(field).toHaveBeenCalledWith(8);
 });
+it('does not imply first place for a top-three selection', () => {
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'In first 3' }));
+  fireEvent.click(screen.getByRole('button', { name: /1 Royal Ember/ }));
+  expect(screen.getByRole('button', { name: /1 Royal Ember/ })).not.toHaveTextContent('1st');
+});
+it('uses unordered wording for Quinella review and receipt', () => {
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Quinella' }));
+  fireEvent.click(screen.getByRole('button', { name: /3 Silver Comet/ }));
+  fireEvent.click(screen.getByRole('button', { name: /1 Royal Ember/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Review selection/ }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('#1 & #3');
+  expect(screen.getByRole('dialog')).not.toHaveTextContent('→');
+  cleanup();
+  data.rounds[0].ticket = {
+    market: 'QUINELLA',
+    picks: [1, 3],
+    stake: 25,
+    oddsCents: 1350,
+    payout: null,
+  };
+  setup();
+  expect(screen.getByRole('status')).toHaveTextContent('#1 & #3');
+  expect(screen.getByRole('status')).not.toHaveTextContent('→');
+});

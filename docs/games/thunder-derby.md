@@ -28,3 +28,20 @@ Server admission uses database time after row locks, immutable receipts and roun
 The race uses original stylized procedural 3D horses/jockeys, gallop joints, numbered silks, a tracking camera, textured course, trees, grandstands and finish arch. Static meshes are merged by material to reduce mobile draw calls; rendering caps pixel ratio at 1.5 and frame rate near 30. Reduced motion and a non-WebGL progress/result fallback remain available. Decorative catalog key art is generated separately and is not a screenshot of the real-time renderer. Three.js 0.180.0 is locally bundled (MIT), with no third-party model or runtime asset host.
 
 Apply the forward migration through the normal migrator. A restricted existing application role needs only SELECT/INSERT/UPDATE on the two practice receipt/account tables and SELECT/INSERT plus UPDATE(id) on rounds (for row locking); `grantDerbyRuntimeTables` implements these grants. Existing user identity reads/locks are also required. Enable the practice flag on API and group worker only after migration/grant checks. Do not enable any financial flag or change the dormant financial catalog row. Staging and physical-device acceptance are separate from local tests; this change does not assert they have passed.
+
+### Guarded staging preparation
+
+`apps/api/dist/scripts/staging-derby-upgrade.js` is the owner-run preparation command,
+compiled by the API build. It uses the existing exact disposable-rehearsal target
+and acknowledgement guard, requires a matching worker database host/port/name,
+and checks the owner, both restricted runtime roles and dormant catalog state
+before any mutation. It refuses failed/changed migration history and any pending
+migration other than `20261009120000_thunder_derby_practice`.
+
+After the candidate has been reviewed, run without arguments to verify the
+migration and runtime grants. Only an explicit `--apply` deploys the allow-listed
+migration and grants the API and worker roles access to the Derby tables. The
+command does not enable the practice flag, payments or wagering. Its readiness
+message confirms this narrow preparation, not deployment or financial activation.
+A real staging rehearsal and physical-device validation remain separate release
+checks; unit tests do not substitute for them.

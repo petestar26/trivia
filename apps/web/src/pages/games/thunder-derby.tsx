@@ -411,9 +411,9 @@ export function DerbyView({
                   <span>{h.name}</span>
                   {picks.includes(i + 1) && (
                     <small>
-                      {market === 'QUINELLA'
-                        ? '✓'
-                        : `${picks.indexOf(i + 1) + 1}${['st', 'nd', 'rd'][picks.indexOf(i + 1)]}`}
+                      {market === 'PERFECTA' || market === 'TRIFECTA'
+                        ? `${picks.indexOf(i + 1) + 1}${['st', 'nd', 'rd'][picks.indexOf(i + 1)]}`
+                        : '✓'}
                     </small>
                   )}
                 </button>
@@ -494,7 +494,9 @@ export function DerbyView({
             <div className="derby-receipt" role="status">
               <strong>
                 {DERBY_LABELS[round.ticket.market]}{' '}
-                {round.ticket.picks.map((n) => `#${n}`).join(' → ')}
+                {round.ticket.picks
+                  .map((n) => `#${n}`)
+                  .join(round.ticket.market === 'QUINELLA' ? ' & ' : ' → ')}
               </strong>
               <p>
                 {round.ticket.stake} credits · {(round.ticket.oddsCents / 100).toFixed(2)}×
@@ -528,7 +530,10 @@ export function DerbyView({
             {confirm && (
               <>
                 <p>
-                  {DERBY_LABELS[confirm.market]} · {confirm.picks.map((n) => `#${n}`).join(' → ')}
+                  {DERBY_LABELS[confirm.market]} ·{' '}
+                  {confirm.picks
+                    .map((n) => `#${n}`)
+                    .join(confirm.market === 'QUINELLA' ? ' & ' : ' → ')}
                 </p>
                 <p>
                   {confirm.stake} credits · total successful return{' '}

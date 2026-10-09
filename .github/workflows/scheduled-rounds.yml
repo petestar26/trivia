@@ -15,6 +15,7 @@ on:
       - 'apps/web/src/components/derby/**'
       - 'apps/api/vitest.derby.config.ts'
       - 'apps/api/src/scripts/derby-runtime-grants.ts'
+      - 'apps/api/src/scripts/staging-derby-upgrade*'
       - 'apps/api/src/games/sky-crash/**'
       - 'apps/web/src/pages/games/sky-crash*'
       - 'apps/web/public/images/sky-crash/**'
@@ -312,7 +313,7 @@ jobs:
           src/pages/login-return-path.test.tsx
           src/pages/signup-return-path.test.tsx
           src/pages/games/crash-point.test.tsx
-          src/components/derby/gallop.test.ts src/components/derby/race-motion.test.ts
+          src/components/derby/gallop.test.ts src/components/derby/race-motion.test.ts src/components/derby/backdrop-fit.test.ts
           src/pages/games/thunder-derby.test.tsx src/pages/games/thunder-derby-recovery.test.tsx src/lib/derby-catalog.test.ts src/pages/games/sky-crash.test.tsx src/lib/sky-crash-catalog.test.ts
           src/components/member/game-artwork.test.tsx src/pages/home.test.tsx
           src/pages/wallet-late-payments.test.tsx

@@ -9,6 +9,7 @@ export default defineConfig({
     include: [
       'src/games/thunder-derby/*.test.ts',
       'src/scripts/group-worker-runtime.test.ts',
+      'src/scripts/staging-derby-upgrade.test.ts',
       'src/games/game-catalog-rules.test.ts',
     ],
     pool: 'forks',

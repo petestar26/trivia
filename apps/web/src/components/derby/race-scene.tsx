@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DerbyRound } from '@socialplay/shared';
 import { DERBY_HORSES } from '@socialplay/shared';
 import * as THREE from 'three';
+import { backdropSize } from './backdrop-fit';
 import { createRaceMotion } from './race-motion';
 import { createHorse } from './horse-model';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -48,7 +49,7 @@ export default function RaceScene({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#bad1dc');
     scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 350);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
     scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 2.1));
     const sun = new THREE.DirectionalLight('#ffe0a1', 3.2);
     sun.position.set(30, 40, 20);
@@ -149,7 +150,7 @@ export default function RaceScene({
     turf.map = surfaceTexture(true);
     sand.map = surfaceTexture(true);
     sand.map.repeat.set(80, 8);
-    box(scene, 80, -0.25, 0, 360, 0.5, 180, turf);
+    box(scene, 80, -0.25, 0, 1000, 0.5, 500, turf);
     box(scene, 85, 0.01, 0, 280, 0.05, 20, sand);
     for (let i = -20; i < 240; i += 4) {
       for (const z of [-10.5, 10.5]) {
@@ -270,6 +271,7 @@ export default function RaceScene({
     let sampleMotion = createRaceMotion(displayed);
     let renderedRound = round.id;
     const lastTravel = horses.map(() => -Infinity);
+    let fittedAspect = Number.NaN;
     const resize = () => {
       const w = container.clientWidth,
         h = container.clientHeight;
@@ -310,6 +312,12 @@ export default function RaceScene({
       camera.position.set(center + 13, 5.2, camera.aspect < 1.2 ? 25 : 21);
       camera.lookAt(center, 2.2, 0);
       backdrop.position.x = center - 35;
+      if (fittedAspect !== camera.aspect) {
+        const size = backdropSize(camera, backdrop.position);
+        backdrop.scale.set(size.width / 200, size.height / 66.67, 1);
+        backdrop.position.y = size.centerY;
+        fittedAspect = camera.aspect;
+      }
       sun.position.set(center + 30, 40, 20);
       sun.target.position.set(center, 0, 0);
       renderer.render(scene, camera);
