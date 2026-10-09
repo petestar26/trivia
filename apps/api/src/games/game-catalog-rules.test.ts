@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SPIN90_RULES_ID } from '@socialplay/shared';
-import { listActiveGames } from './game-catalog.js';
+import { isCoinWagerPaused, listActiveGames } from './game-catalog.js';
 
 const db = vi.hoisted(() => ({ findMany: vi.fn(), findUnique: vi.fn() }));
 vi.mock('@socialplay/database', () => ({
@@ -11,7 +11,9 @@ vi.mock('@socialplay/database', () => ({
 }));
 
 describe('Spin Win catalog rule identity', () => {
-  beforeEach(() => { vi.resetAllMocks(); });
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
 
   it('reads the pinned rule identity so the client can select its payout table', async () => {
     db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: 2 }]);
@@ -37,4 +39,41 @@ describe('Spin Win catalog rule identity', () => {
     db.findUnique.mockResolvedValue(null);
     expect((await listActiveGames())[0].currentRulesId).toBeNull();
   });
+});
+
+it('publishes Sky Crash practice availability only on explicit opt-in and never activates financial play', async () => {
+  db.findMany.mockResolvedValue([
+    {
+      id: 'sky',
+      key: 'sky_crash',
+      isActive: true,
+      catalogStatus: 'AVAILABLE',
+      mode: 'WAGER',
+      wagerCurrency: 'COINS',
+    },
+  ]);
+  try {
+    vi.stubEnv('SKY_CRASH_PRACTICE_ENABLED', 'false');
+    expect((await listActiveGames())[0]).toMatchObject({
+      isActive: false,
+      catalogStatus: 'COMING_SOON',
+      practiceAvailable: false,
+    });
+    vi.stubEnv('SKY_CRASH_PRACTICE_ENABLED', 'true');
+    expect((await listActiveGames())[0]).toMatchObject({
+      isActive: false,
+      catalogStatus: 'COMING_SOON',
+      practiceAvailable: true,
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it.each([
+  { mode: 'WAGER', wagerCurrency: 'COINS' },
+  { mode: 'WAGER', wagerCurrency: 'GAME_POINTS' },
+  { mode: 'BONUS', wagerCurrency: null },
+])('refuses generic Sky Crash admission despite catalog edits: %j', (fields) => {
+  expect(isCoinWagerPaused({ key: 'sky_crash', ...fields })).toBe(true);
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -11,6 +11,7 @@ const workbox = await readFile(new URL(`./dist/${dependency}.js`, import.meta.ur
 const exports = {};
 const routes = [];
 const messages = [];
+const precache = [];
 let skips = 0;
 let claims = 0;
 const workerScope = {
@@ -35,7 +36,9 @@ context.define = (_dependencies, factory) =>
     clientsClaim() {
       claims++;
     },
-    precacheAndRoute() {},
+    precacheAndRoute(entries) {
+      precache.push(...entries);
+    },
     cleanupOutdatedCaches() {},
     createHandlerBoundToURL: () => () => {},
     registerRoute: (route) => routes.push(route),
@@ -110,4 +113,21 @@ test('app navigation keeps its offline fallback, including similar prefixes', ()
 test('ordinary API fetches never match the navigation fallback', () => {
   assert.equal(matches('/api/v1/wallet', 'same-origin'), false);
   assert.equal(matches('/games/spin-win', 'cors'), false);
+});
+
+test('optional Sky Crash artwork is absent from the generated install precache', () => {
+  assert.ok(precache.length > 0, 'Inspect the actual generated manifest');
+  assert.equal(
+    precache.some((entry) => /images\/sky-crash\//.test(entry.url)),
+    false
+  );
+});
+test('Sky Crash display assets stay within the mobile transfer budget', async () => {
+  for (const name of ['aircraft', 'alpine-dawn']) {
+    const asset = new URL(`./dist/images/sky-crash/${name}.webp`, import.meta.url);
+    assert.ok((await stat(asset)).size <= 200 * 1024, `${name} exceeds 200 KiB`);
+    await assert.rejects(stat(new URL(`./dist/images/sky-crash/${name}.png`, import.meta.url)), {
+      code: 'ENOENT',
+    });
+  }
 });

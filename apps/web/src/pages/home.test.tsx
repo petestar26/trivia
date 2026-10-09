@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HomePage } from './home';
+import { GamesPage } from './games';
 import type { MemberGame } from '@/lib/member-game-catalog';
 const { get, listGroups } = vi.hoisted(() => ({ get: vi.fn(), listGroups: vi.fn() }));
 vi.mock('@/providers/auth-provider', () => ({
@@ -46,12 +47,12 @@ const keys = [
   'heat_vault',
   'strait_rush',
 ];
-function setup() {
+function setup(Page = HomePage) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <HomePage />
+        <Page />
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -72,6 +73,33 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe('Ruby Grand member dashboard', () => {
+  describe.each([
+    ['home', HomePage],
+    ['games', GamesPage],
+  ] as const)('%s Sky Crash artwork', (_name, Page) => {
+    it.each([undefined, false, true])(
+      'loads optional art only with an explicit practice opt-in (%s)',
+      async (practiceAvailable) => {
+        get.mockImplementation(async (path: string) => ({
+          success: true,
+          data:
+            path === '/games'
+              ? [{ ...game('sky_crash'), practiceAvailable }]
+              : { coinsBalance: 42, gamePointsBalance: 80 },
+        }));
+        setup(Page);
+        await screen.findByRole('heading', { name: 'sky_crash' });
+        const art = document.querySelector('img[src="/images/sky-crash/aircraft.webp"]');
+        if (practiceAvailable === true) {
+          expect(art).toBeInTheDocument();
+          expect(art).toHaveAttribute('loading', 'lazy');
+        } else {
+          expect(art).toBeNull();
+          expect(document.body.innerHTML).not.toContain('/images/sky-crash/');
+        }
+      }
+    );
+  });
   it('shows the entire server catalog, preserves playable destinations and reserves future space', async () => {
     setup();
     const region = await screen.findByRole('region', { name: 'Games' });
