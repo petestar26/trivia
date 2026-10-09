@@ -131,3 +131,16 @@ test('Sky Crash display assets stay within the mobile transfer budget', async ()
     });
   }
 });
+
+test('optional Derby renderer is bundled but absent from the install precache', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const assets = await readdir(new URL('./dist/assets/', import.meta.url));
+  assert.ok(
+    assets.some((name) => /^race-scene-.*\.js$/.test(name)),
+    'Renderer must remain available on demand'
+  );
+  assert.equal(
+    precache.some((entry) => /assets\/race-scene-.*\.js$/.test(entry.url)),
+    false
+  );
+});

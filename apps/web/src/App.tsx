@@ -1,3 +1,4 @@
+import { ThunderDerbyPage } from '@/pages/games/thunder-derby';
 import { CryptoPaymentsPage } from '@/pages/crypto-payments';
 import { CreateAgentPage, ActivateAgentPage } from '@/pages/workspaces/create-agent';
 import { WorkspaceDestination, WorkspaceGate, WorkspaceLayout, AdminOverview, AdminAccounts, AdminRecords, AgentOverview, WorkspaceProcessing } from '@/pages/workspaces';
@@ -129,6 +130,7 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinScheduledPage />} />
+        <Route path="games/thunder-derby" element={<ThunderDerbyPage />} />
         <Route path="games/sky-crash" element={<SkyCrashPage />} />
         <Route path="games/crash-point" element={<CasinoProvider><CrashPointPage /></CasinoProvider>} />
         <Route path="games/turbo-keno" element={<CasinoProvider><SystemKenoPage /></CasinoProvider>} />

@@ -1,0 +1,602 @@
+.derby-page {
+  --derby-gold: #e5c383;
+  --derby-ink: #0c1715;
+  max-width: 1500px;
+  margin: auto;
+  padding: 24px;
+  color: #eaf3ed;
+  font-family: inherit;
+}
+.derby-page button {
+  cursor: pointer;
+  font: inherit;
+}
+.derby-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+.derby-page button:focus-visible,
+.derby-page input:focus-visible,
+.derby-dialog button:focus-visible {
+  outline: 3px solid #ffe1a6;
+  outline-offset: 3px;
+}
+.derby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.derby-header a {
+  color: #b4c5ba;
+  font-size: 13px;
+}
+.derby-header h1 {
+  margin: 12px 0 0;
+  font-size: 30px;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+  font-weight: 900;
+  text-shadow:
+    0 2px 0 #715a32,
+    0 5px 14px #000;
+}
+.derby-header h1 em {
+  font-style: normal;
+  color: var(--derby-gold);
+}
+.derby-header h1 small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.42em;
+  color: #adc2b5;
+  margin: 8px 0 0 51px;
+}
+.derby-crest {
+  font-size: 48px;
+  color: var(--derby-gold);
+  float: left;
+  margin-right: 12px;
+  line-height: 1;
+}
+.derby-credit {
+  text-align: right;
+}
+.derby-credit > span {
+  color: #9de0bc;
+  font-size: 12px;
+}
+.derby-credit strong {
+  display: block;
+  font-size: 27px;
+}
+.derby-credit small,
+.derby-credit p {
+  font-size: 12px;
+  font-weight: 400;
+  color: #aabbaf;
+  margin: 0;
+}
+.derby-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.derby-toolbar > div {
+  display: flex;
+  gap: 8px;
+}
+.derby-toolbar button,
+.derby-history button,
+.derby-markets button,
+.derby-amounts button,
+.derby-dialog button {
+  border: 1px solid #385346;
+  border-radius: 9px;
+  padding: 10px 14px;
+  color: #eaf3ed;
+  background: #14241e;
+}
+.derby-toolbar small {
+  display: block;
+  font-size: 10px;
+  color: #aabbaf;
+}
+.derby-page button[aria-pressed='true'] {
+  background: #314932;
+  border-color: var(--derby-gold);
+  box-shadow: inset 0 0 0 1px #e5c38355;
+  color: #ffe7b7;
+}
+.derby-history {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 12px 0 20px;
+  min-width: 0;
+}
+.derby-history > span {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  min-width: 80px;
+  max-width: 80px;
+  color: #b7c8bb;
+}
+.derby-history button {
+  display: flex;
+  gap: 5px;
+  padding: 7px;
+  flex-shrink: 0;
+}
+.derby-history b {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 2px solid;
+  padding: 3px;
+  font-size: 15px;
+}
+.derby-history small {
+  font-size: 8px;
+  color: #b7c8bb;
+}
+.derby-history p {
+  font-size: 12px;
+  color: #b7c8bb;
+}
+.derby-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+}
+.derby-arena,
+.derby-slip {
+  min-width: 0;
+  background: linear-gradient(140deg, #172b22, #0c1915 70%);
+  border: 1px solid #385044;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px #0004;
+}
+.derby-race-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  gap: 12px;
+}
+.derby-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--derby-gold);
+}
+.derby-race-heading h2 {
+  font-size: 22px;
+  margin: 5px 0;
+}
+.derby-race-heading p {
+  font-size: 10px;
+  color: #aabbaf;
+  margin: 0;
+}
+.derby-countdown {
+  text-align: right;
+  min-width: 86px;
+}
+.derby-countdown span {
+  font-size: 10px;
+  color: #bbc9bf;
+  display: block;
+}
+.derby-countdown strong {
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  color: #f4dcac;
+}
+.derby-scene {
+  position: relative;
+  height: 390px;
+  overflow: hidden;
+  background: #68866d;
+}
+.derby-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.derby-scene-fallback {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  padding: 30px;
+  text-align: center;
+  background: linear-gradient(#789a86, #304738);
+  color: white;
+}
+.derby-race-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 20px;
+  font-size: 10px;
+  color: #b4c8ba;
+  border-bottom: 1px solid #304637;
+}
+.derby-race-footer label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.derby-progress {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 22px;
+  padding: 22px;
+}
+.derby-progress > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.derby-progress b,
+.derby-runners b {
+  display: grid;
+  place-items: center;
+  color: #101713;
+  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.derby-progress span {
+  font-size: 11px;
+  min-width: 85px;
+}
+.derby-progress meter {
+  width: 100%;
+  min-width: 25px;
+  height: 7px;
+}
+.derby-slip {
+  padding: 22px;
+}
+.derby-slip h2 {
+  font-size: 23px;
+  margin: 7px 0 18px;
+}
+.derby-markets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.derby-markets button {
+  padding: 10px 3px;
+  font-size: 11px;
+}
+.derby-instruction {
+  font-size: 12px;
+  color: #c0cec4;
+  min-height: 38px;
+  margin: 16px 0 10px;
+}
+.derby-runners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.derby-runners button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  padding: 9px 7px;
+  background: #0b1712;
+  border: 1px solid #334d3c;
+  border-radius: 8px;
+  color: #dde9df;
+  text-align: left;
+}
+.derby-runners span {
+  font-size: 10px;
+  line-height: 1.25;
+}
+.derby-runners small {
+  position: absolute;
+  right: 3px;
+  top: -5px;
+  background: #ead09d;
+  color: #152018;
+  border-radius: 4px;
+  padding: 1px 3px;
+  font-size: 9px;
+}
+.derby-special {
+  padding: 20px 12px;
+  background: #263c2e;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.derby-stake {
+  display: block;
+  font-size: 12px;
+  color: #b5c8ba;
+  margin: 22px 0 8px;
+}
+.derby-stake input {
+  display: block;
+  width: 100%;
+  border: 1px solid #4b604c;
+  background: #09140f;
+  border-radius: 8px;
+  font-size: 24px;
+  padding: 12px;
+  color: #fff;
+  margin-top: 7px;
+}
+.derby-amounts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+.derby-amounts button {
+  padding: 8px;
+  font-size: 12px;
+}
+.derby-quote {
+  font-size: 12px;
+  margin: 18px 0 8px;
+}
+.derby-quote > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 9px 0;
+}
+.derby-quote dt {
+  color: #b4c8ba;
+}
+.derby-quote dd {
+  font-weight: 700;
+  color: #f3dbab;
+  margin: 0;
+}
+.derby-fine {
+  font-size: 10px;
+  color: #a2b5a8;
+}
+.derby-page .derby-primary,
+.derby-dialog .derby-primary {
+  width: 100%;
+  border: 1px solid #f4dfb5;
+  border-radius: 9px;
+  background: linear-gradient(#efd7a5, #c7a66a);
+  color: #192316;
+  font-weight: 800;
+  padding: 13px 10px;
+  margin-top: 12px;
+  box-shadow:
+    0 4px 0 #75603b,
+    0 8px 20px #0003;
+}
+.derby-primary span {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  margin-top: 3px;
+}
+.derby-receipt {
+  margin-top: 20px;
+  padding: 14px;
+  background: #254532;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.derby-receipt p {
+  margin: 5px 0;
+}
+.derby-podium {
+  display: flex;
+  gap: 8px;
+  padding: 20px;
+  border-top: 1px solid #35513d;
+  align-items: center;
+}
+.derby-podium > span {
+  font-size: 9px;
+  max-width: 70px;
+  color: #d9bb7d;
+  letter-spacing: 0.1em;
+}
+.derby-podium button {
+  flex: 1;
+  border: 1px solid #43604b;
+  background: #1a2e21;
+  color: #e1eee4;
+  border-radius: 8px;
+  padding: 10px 5px;
+  font-size: 10px;
+}
+.derby-podium small,
+.derby-podium b {
+  display: block;
+}
+.derby-podium b {
+  font-size: 23px;
+  margin: 4px;
+}
+.derby-disclaimer {
+  color: #9db1a3;
+  font-size: 11px;
+  text-align: center;
+  margin: 22px auto;
+  max-width: 800px;
+  line-height: 1.7;
+}
+.derby-alert {
+  padding: 14px;
+  border: 1px solid #cc985b;
+  background: #35291b;
+  color: #ffdfa7;
+  border-radius: 9px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+.derby-alert button {
+  padding: 8px;
+  text-decoration: underline;
+}
+.derby-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000b;
+  z-index: 100;
+}
+.derby-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: 85dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #6b7956;
+  border-radius: 16px;
+  background: #14231b;
+  color: #e4eee5;
+  padding: 26px;
+  z-index: 101;
+  box-shadow: 0 25px 80px #0009;
+}
+.derby-dialog h2 {
+  font-size: 24px;
+}
+.derby-dialog p,
+.derby-dialog li {
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.derby-dialog ol {
+  padding-left: 22px;
+  list-style: decimal;
+}
+.derby-dialog code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.derby-dialog button {
+  margin: 8px 8px 0 0;
+}
+.derby-dialog summary {
+  cursor: pointer;
+}
+@media (max-width: 1050px) {
+  .derby-layout {
+    grid-template-columns: minmax(0, 1fr) 310px;
+  }
+  .derby-scene {
+    height: 330px;
+  }
+  .derby-progress {
+    grid-template-columns: 1fr;
+  }
+  .derby-race-heading {
+    padding: 18px;
+  }
+  .derby-race-heading h2 {
+    font-size: 19px;
+  }
+}
+@media (max-width: 760px) {
+  .derby-page {
+    padding: 14px;
+  }
+  .derby-header h1 {
+    font-size: 20px;
+  }
+  .derby-crest {
+    font-size: 34px;
+    margin-right: 7px;
+  }
+  .derby-header h1 small {
+    font-size: 7px;
+    letter-spacing: 0.22em;
+    margin-left: 35px;
+  }
+  .derby-credit strong {
+    font-size: 20px;
+  }
+  .derby-credit p {
+    font-size: 9px;
+  }
+  .derby-layout {
+    grid-template-columns: 1fr;
+  }
+  .derby-toolbar button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .derby-toolbar .derby-help {
+    font-size: 11px;
+  }
+  .derby-scene {
+    height: 290px;
+  }
+  .derby-race-heading {
+    padding: 15px;
+  }
+  .derby-race-heading h2 {
+    font-size: 18px;
+  }
+  .derby-countdown strong {
+    font-size: 25px;
+  }
+  .derby-race-footer {
+    padding: 10px;
+    font-size: 9px;
+    flex-wrap: wrap;
+  }
+  .derby-progress {
+    grid-template-columns: 1fr 1fr;
+    padding: 14px;
+    gap: 9px;
+  }
+  .derby-progress span {
+    display: none;
+  }
+  .derby-slip {
+    padding: 20px;
+  }
+  .derby-runners span {
+    font-size: 12px;
+  }
+  .derby-markets button {
+    font-size: 12px;
+    padding: 12px 4px;
+  }
+  .derby-podium {
+    padding: 12px;
+  }
+  .derby-podium > span {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .derby-page * {
+    scroll-behavior: auto !important;
+  }
+}
+
+.derby-scene > .derby-scene-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}

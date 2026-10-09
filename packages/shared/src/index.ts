@@ -17,3 +17,5 @@ export * from './system-dice.js';
 export * from './crash-point.js';
 
 export * from './sky-crash.js';
+
+export * from './thunder-derby.js';

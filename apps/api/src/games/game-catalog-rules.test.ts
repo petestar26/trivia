@@ -77,3 +77,12 @@ it.each([
 ])('refuses generic Sky Crash admission despite catalog edits: %j', (fields) => {
   expect(isCoinWagerPaused({ key: 'sky_crash', ...fields })).toBe(true);
 });
+
+it('Thunder Derby never admits Coin wagers even after catalog edits', () => {
+  expect(
+    isCoinWagerPaused({ key: 'thunder_derby_3d', mode: 'WAGER', wagerCurrency: 'COINS' })
+  ).toBe(true);
+  expect(isCoinWagerPaused({ key: 'thunder_derby_3d', mode: 'BONUS', wagerCurrency: null })).toBe(
+    true
+  );
+});
