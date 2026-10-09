@@ -10,6 +10,11 @@ on:
       - 'apps/web/src/pages/crypto-payments*'
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/games/thunder-derby/**'
+      - 'apps/web/src/pages/games/thunder-derby*'
+      - 'apps/web/src/components/derby/**'
+      - 'apps/api/vitest.derby.config.ts'
+      - 'apps/api/src/scripts/derby-runtime-grants.ts'
       - 'apps/api/src/games/sky-crash/**'
       - 'apps/web/src/pages/games/sky-crash*'
       - 'apps/web/public/images/sky-crash/**'
@@ -176,8 +181,10 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.crash-point.config.ts
       - name: Sky Crash practice contracts
         run: pnpm --filter api exec vitest run --config vitest.sky-crash.config.ts
+      - name: Thunder Derby math and admission tests
+        run: pnpm --filter api exec vitest run --config vitest.derby.config.ts
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/thunder-derby/derby.native.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Crypto payment receipt, ledger and concurrency contracts
         run: |
           pnpm --filter api exec vitest run --config vitest.crypto.config.ts
@@ -305,7 +312,7 @@ jobs:
           src/pages/login-return-path.test.tsx
           src/pages/signup-return-path.test.tsx
           src/pages/games/crash-point.test.tsx
-          src/pages/games/sky-crash.test.tsx src/lib/sky-crash-catalog.test.ts
+          src/pages/games/thunder-derby.test.tsx src/pages/games/thunder-derby-recovery.test.tsx src/lib/derby-catalog.test.ts src/pages/games/sky-crash.test.tsx src/lib/sky-crash-catalog.test.ts
           src/components/member/game-artwork.test.tsx src/pages/home.test.tsx
           src/pages/wallet-late-payments.test.tsx
           src/components/app-error-boundary.test.tsx

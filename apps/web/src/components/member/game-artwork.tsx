@@ -1,27 +1,15 @@
-import {
-  Brain,
-  Gem,
-  Flame,
-  Flag,
-  Zap,
-  Orbit,
-  Compass,
-  Mountain,
-  Trophy,
-  Dog,
-  Hash,
-} from 'lucide-react';
+import { Brain, Gem, Flame, Flag, Zap, Orbit, Compass, Mountain, Dog, Hash } from 'lucide-react';
 
 const images: Record<string, string> = {
   spin_win: 'spin',
   turbo_keno: 'keno',
   dice: 'dice',
   crash_point: 'crash-point',
+  thunder_derby_3d: 'thunder-derby',
 };
 const symbols: Record<string, typeof Brain> = {
   trivia: Brain,
   number_challenge: Hash,
-  thunder_derby_3d: Trophy,
   neon_hounds_3d: Dog,
   turbo_circuit_3d: Flag,
   starfall_nebula: Orbit,

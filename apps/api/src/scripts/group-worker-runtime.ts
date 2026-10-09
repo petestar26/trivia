@@ -1,4 +1,5 @@
 export type GroupWorkerKind =
+  | 'DERBY_PRACTICE'
   | 'SKY_CRASH_PRACTICE'
   | 'CRASH_PRACTICE'
   | 'PVP'
@@ -9,11 +10,19 @@ export function enabledGroupWorkers(env: NodeJS.ProcessEnv): GroupWorkerKind[] {
   return [
     'SOCIAL_LIFECYCLE',
     ...(
-      ['SKY_CRASH_PRACTICE', 'CRASH_PRACTICE', 'PVP', 'KENO_PRACTICE', 'DICE_PRACTICE'] as const
+      [
+        'DERBY_PRACTICE',
+        'SKY_CRASH_PRACTICE',
+        'CRASH_PRACTICE',
+        'PVP',
+        'KENO_PRACTICE',
+        'DICE_PRACTICE',
+      ] as const
     ).filter(
       (kind) =>
         env[
           {
+            DERBY_PRACTICE: 'THUNDER_DERBY_PRACTICE_ENABLED',
             SKY_CRASH_PRACTICE: 'SKY_CRASH_PRACTICE_ENABLED',
             CRASH_PRACTICE: 'CRASH_POINT_PRACTICE_ENABLED',
             PVP: 'GROUP_PVP_GAME_POINTS_ENABLED',

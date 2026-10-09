@@ -149,7 +149,7 @@ export function GamesPage({
       )}
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {publicGames.map((game) => {
-          const practice = practiceRoutes[game.key];
+          const practice = memberGameDestination(game) && practiceRoutes[game.key];
           const isComingSoon = game.catalogStatus === 'COMING_SOON';
           const destination = memberGameDestination(game);
           const isPlayable = !!destination;
@@ -169,7 +169,10 @@ export function GamesPage({
                       Free practice
                     </span>
                     <p className="mt-3 text-xs text-gray-500">
-                      One-minute rounds · no Coins or cash prizes
+                      {game.key === 'thunder_derby_3d'
+                        ? 'Three- or four-minute races'
+                        : 'One-minute rounds'}{' '}
+                      · no Coins or cash prizes
                     </p>
                     <p className="mt-4 font-semibold text-emerald-700 dark:text-emerald-300">
                       Play practice →

@@ -9,6 +9,7 @@ it.each(Array.from({ length: 8 }, (_, i) => i))(
       SYSTEM_DICE_PRACTICE_ENABLED: String(!!(mask & 4)),
     });
     const ticks = {
+      DERBY_PRACTICE: vi.fn(async () => {}),
       SKY_CRASH_PRACTICE: vi.fn(async () => {}),
       CRASH_PRACTICE: vi.fn(async () => {}),
       SOCIAL_LIFECYCLE: vi.fn(async () => {}),
@@ -48,6 +49,7 @@ it('reports safe diagnostic codes for failures and continues the loop', async ()
   await runGroupWorkerLoops({
     enabled: ['DICE_PRACTICE'],
     ticks: {
+      DERBY_PRACTICE: vi.fn(async () => {}),
       SKY_CRASH_PRACTICE: async () => {},
       CRASH_PRACTICE: async () => {},
       SOCIAL_LIFECYCLE: fail,
@@ -88,6 +90,7 @@ it.each(['failure', 'stall'])(
     const task = runGroupWorkerLoops({
       enabled: ['SOCIAL_LIFECYCLE', 'PVP'],
       ticks: {
+        DERBY_PRACTICE: vi.fn(async () => {}),
         SKY_CRASH_PRACTICE: async () => {},
         CRASH_PRACTICE: async () => {},
         SOCIAL_LIFECYCLE: async () => {
@@ -125,4 +128,14 @@ it('isolates Sky Crash scheduling behind its exact opt-in flag', () => {
     'SOCIAL_LIFECYCLE',
     'SKY_CRASH_PRACTICE',
   ]);
+});
+
+it('Derby practice is disabled by default and requires literal true', () => {
+  expect(enabledGroupWorkers({})).not.toContain('DERBY_PRACTICE');
+  expect(enabledGroupWorkers({ THUNDER_DERBY_PRACTICE_ENABLED: '1' })).not.toContain(
+    'DERBY_PRACTICE'
+  );
+  expect(enabledGroupWorkers({ THUNDER_DERBY_PRACTICE_ENABLED: 'true' })).toContain(
+    'DERBY_PRACTICE'
+  );
 });
