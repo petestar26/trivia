@@ -1,3 +1,4 @@
+import { skyCrashRoutes } from '../games/sky-crash/routes.js';
 import { cryptoPaymentRoutes } from '../crypto-payments/routes.js';
 import { latePaymentRoutes } from '../agents/late-payment-routes.js';
 import { crashPointRoutes } from '../games/crash-point/routes.js';
@@ -41,6 +42,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
+  await server.register(skyCrashRoutes, { prefix: '/games/sky-crash' });
   await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
   await server.register(systemKenoRoutes, { prefix: '/games/system-keno' });

@@ -29,6 +29,16 @@ const symbols: Record<string, typeof Brain> = {
 };
 /** Decorative artwork only, never a live result or a promise that an upcoming game is ready. */
 export function GameArtwork({ kind, hero = false }: { kind: string; hero?: boolean }) {
+  if (kind === 'sky_crash')
+    return (
+      <div
+        className={`ruby-art ${hero ? 'ruby-art--hero' : ''}`}
+        aria-hidden="true"
+        style={{ background: "#102440 url('/images/sky-crash/alpine-dawn.png') center/cover" }}
+      >
+        <img src="/images/sky-crash/aircraft.png" alt="" loading="lazy" decoding="async" />
+      </div>
+    );
   const asset = images[kind];
   const Symbol = symbols[kind] || Zap;
   return asset ? (

@@ -1,0 +1,33 @@
+Sky Crash — reference research and proposed implementation
+Research date: 2026-10-09, Asia/Vientiane
+Source: https://1xbet.com/en/games/crash
+Directly opened the live game's T&C through its embedded game interface, unauthenticated. No bet, autoplay, registration or financial action was performed.
+
+Verified reference rules (paraphrased)
+Select a stake before a round starts. The displayed regional bounds were 5,000–13,134,558.3 LAK; these are reference-site values, not PlayQube limits. The multiplier rises until a random crash. A successful cash-out before that event returns stake multiplied by the applicable odds; an uncollected stake is lost. Connection quality matters for manual actions.
+Autobet provides base stake, maximum stake and automatic cash-out. The maximum limits its doubling feature. The crash must be strictly above the selected automatic target: equality loses. For example, a 1.10 target requires a result beyond 1.10; settlement uses the chosen target, not the higher result. The reference asks that problems be reported within three days.
+The inspected interface has two stake panels, public masked-player activity with totals, and personal history columns for date, time, round ID, stake, odds, return and crash.
+Not established by the T&C: RTP, random-generation algorithm, absolute multiplier cap, exact countdown/duration, detailed doubling/reset conditions, cancellation rules, or payout rounding. Regional promotional descriptions conflict on automation; the directly observed T&C takes priority.
+
+Implementation scope (built locally; release review pending)
+Working name: Sky Crash. Separate route /games/sky-crash and independent practice rounds, receipts and balance. Do not replace Crash Point or share its mutable receipts. Original artwork; no 1xBet logos, scripts, player data or copied assets.
+A cinematic aircraft arena: original realistic rendered airplane, alpine dawn landscape, illuminated curved trail, depth haze and restrained motion. The multiplier and controls remain legible over the scenery. This initial art is rendered bitmap artwork, not a runtime 3D model; a rotatable true-3D aircraft would need a mesh/rendering pipeline.
+Desktop: public round activity on the left, large arena center/right, compact history at the top, two independent controls beside/below the arena, and personal history below. Mobile: compact top history, arena, both controls, then activity/history; no horizontal page overflow, 44px tap targets, keyboard-safe fields and reduced-motion mode.
+Only real server-confirmed public activity; empty states when there are no entries. Never fabricate players, totals, winnings or live results. Clearly separate completed history from editable target buttons.
+Two ticket slots per round. Enter during a server-defined admission window. Manual cash-out is accepted at server time. Automatic settlement must work while disconnected, with target strictly below crash. A target tied with crash loses. Server receipt is authoritative if animation/display latency differs.
+Our published practice rules are documented in docs/games/sky-crash.md. Limits: 1,000 free nonredeemable credits, stakes 10–500, automatic targets 1.01–20.00, 15-second entry within a 60-second cycle; these are existing PlayQube practice conventions, not claims about the reference. RTP and cap must be independently specified and tested. Do not silently adopt reference currency or claim reference fairness.
+Autoplay needs an immutable configuration captured before first admission, finite rounds, total-loss/stake ceilings, explicit stop and no deferred hidden draft. If doubling is included, specify exactly win/loss/reset behavior and maximum before implementation. Do not add unbounded doubling or present it as a profitable strategy.
+
+Security and integrity acceptance
+Separate tables/account scope and a new practice-only flag default OFF. No connection to Coins, deposits, withdrawals or redeemable balances. Explicit catalog migration and allowlist registration; an arbitrary database row cannot publish a game.
+Immutable round commitment before admission, hidden seed/result until reveal; independent verification after reveal. Never let aircraft animation or a browser clock determine settlement.
+Transactional admission and debit; unique user/round/slot keys; immutable retries; distinguish rejected submissions from unknown outcomes. Persist and reconcile pending receipts across reloads.
+Database-enforced balance conservation and receipt invariants, row locking, exactly-once settlement, active-user authorization and no cross-user cash-out. Test strict boundary times and simultaneous requests on native PostgreSQL, not only serialized emulation.
+Gate frontend and worker readiness. Registration of a route must not enable it. Deployments and migrations need an independent review; leave all existing gates unchanged.
+
+Validation required before calling this a working game
+Rule unit tests and reproducible math; database constraints and service integration; real concurrent admission/cash-out/replay tests; auth/gate/foreign-ticket tests; automatic-target equality loss; suspended account behavior; restart and offline recovery; both slot controls; autoplay configuration/stop tests; reduced motion; mobile layout and physical Safari pass.
+Run appropriate API/web suites, typecheck/build and CI for the final candidate. Verify isolated staging runtime identity and safety gates only after its own reviewed deployment.
+
+Isolation/current state
+Prepared on feat/sky-crash-practice in work/trivia-sky-crash, based on reviewed 1c00a7629eb426825c2625fdc658513b7a591bdc. PR39 and the Opus review candidate are unchanged. The isolated practice engine, forward migrations, original assets, integrated page and tests are implemented locally. See docs/games/sky-crash.md for the published rules. Sky Crash has not been deployed or activated; independent review and staging/device acceptance are still required. Production payments and wagering remain blocked.
