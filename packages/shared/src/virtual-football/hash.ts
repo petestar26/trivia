@@ -79,7 +79,8 @@ export function canonicalJson(value: unknown): string {
     case 'boolean':
       return JSON.stringify(value);
     case 'number':
-      if (!Number.isSafeInteger(value)) throw new RangeError('Canonical JSON accepts safe integers');
+      if (!Number.isSafeInteger(value))
+        throw new RangeError('Canonical JSON accepts safe integers');
       return String(value);
     case 'bigint':
       return value.toString();

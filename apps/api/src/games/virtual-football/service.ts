@@ -166,7 +166,9 @@ export function createFootballService(db: PrismaClient) {
   async function fixturesOf(tx: Tx, id: string): Promise<FixtureRow[]> {
     const hit = fixtureCache.get(id);
     if (hit) return hit;
-    const rows = await tx.$queryRaw<FixtureRow[]>`SELECT id,matchweek_id,slot,home_club,away_club,home_attack,home_defence,away_attack,away_defence,offer_digest,commitment,goal_sides,goal_halves::integer[] AS goal_halves,goal_at_ms FROM football_fixtures WHERE matchweek_id=${id} ORDER BY slot`;
+    const rows = await tx.$queryRaw<
+      FixtureRow[]
+    >`SELECT id,matchweek_id,slot,home_club,away_club,home_attack,home_defence,away_attack,away_defence,offer_digest,commitment,goal_sides,goal_halves::integer[] AS goal_halves,goal_at_ms FROM football_fixtures WHERE matchweek_id=${id} ORDER BY slot`;
     if (rows.length === 10) {
       if (fixtureCache.size >= 64) fixtureCache.delete(fixtureCache.keys().next().value as string);
       fixtureCache.set(id, rows);
@@ -175,7 +177,9 @@ export function createFootballService(db: PrismaClient) {
   }
 
   async function account(tx: Tx, userId: string) {
-    const [user] = await tx.$queryRaw<{ status: string }[]>`SELECT status::text FROM users WHERE id=${userId} FOR SHARE`;
+    const [user] = await tx.$queryRaw<
+      { status: string }[]
+    >`SELECT status::text FROM users WHERE id=${userId} FOR SHARE`;
     if (user?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
     await tx.$executeRaw`INSERT INTO football_accounts(user_id) VALUES(${userId}) ON CONFLICT DO NOTHING`;
   }
@@ -197,7 +201,9 @@ export function createFootballService(db: PrismaClient) {
     const cycle = cycleAt(now.getTime());
     if (!cycle || now.getTime() >= cycle.kickoffAt) return;
     const id = matchweekId(cycle.seasonNo, cycle.weekNo);
-    const [exists] = await db.$queryRaw<{ id: string }[]>`SELECT id FROM football_matchweeks WHERE id=${id}`;
+    const [exists] = await db.$queryRaw<
+      { id: string }[]
+    >`SELECT id FROM football_matchweeks WHERE id=${id}`;
     if (exists) return;
     const seed = randomBytes(32).toString('hex');
     const fixtures = scheduledWeek(cycle.seasonNo, cycle.weekNo).map((slot) => {
@@ -223,10 +229,14 @@ export function createFootballService(db: PrismaClient) {
         timeline: generateTimeline(derived, params),
       };
     });
-    const commitment = matchweekCommitment(id, fixtures.map((f) => f.commitment));
+    const commitment = matchweekCommitment(
+      id,
+      fixtures.map((f) => f.commitment)
+    );
     try {
       await db.$transaction(async (tx) => {
-        const inserted = await tx.$executeRaw`INSERT INTO football_matchweeks(id,season_no,week_no,rules_id,rules_digest,opens_at,kickoff_at,full_time_at,ends_at,seed,commitment) VALUES(${id},${cycle.seasonNo},${cycle.weekNo},${VF_RULES_ID},${VF_RULES_DIGEST},${new Date(cycle.opensAt)},${new Date(cycle.kickoffAt)},${new Date(cycle.fullTimeAt)},${new Date(cycle.endsAt)},${seed},${commitment}) ON CONFLICT DO NOTHING`;
+        const inserted =
+          await tx.$executeRaw`INSERT INTO football_matchweeks(id,season_no,week_no,rules_id,rules_digest,opens_at,kickoff_at,full_time_at,ends_at,seed,commitment) VALUES(${id},${cycle.seasonNo},${cycle.weekNo},${VF_RULES_ID},${VF_RULES_DIGEST},${new Date(cycle.opensAt)},${new Date(cycle.kickoffAt)},${new Date(cycle.fullTimeAt)},${new Date(cycle.endsAt)},${seed},${commitment}) ON CONFLICT DO NOTHING`;
         if (inserted === 0) return;
         for (const f of fixtures) {
           const t = f.timeline;
@@ -273,16 +283,39 @@ export function createFootballService(db: PrismaClient) {
     };
   }
 
-  async function ticketViews(tx: Tx, userId: string, now: Date, only?: string): Promise<VfTicketView[]> {
+  async function ticketViews(
+    tx: Tx,
+    userId: string,
+    now: Date,
+    only?: string
+  ): Promise<VfTicketView[]> {
     const tickets = only
-      ? await tx.$queryRaw<TicketRow[]>`SELECT * FROM football_tickets WHERE user_id=${userId} AND id=${only}`
-      : await tx.$queryRaw<TicketRow[]>`SELECT * FROM football_tickets WHERE user_id=${userId} ORDER BY created_at DESC,id DESC LIMIT 20`;
+      ? await tx.$queryRaw<
+          TicketRow[]
+        >`SELECT * FROM football_tickets WHERE user_id=${userId} AND id=${only}`
+      : await tx.$queryRaw<
+          TicketRow[]
+        >`SELECT * FROM football_tickets WHERE user_id=${userId} ORDER BY created_at DESC,id DESC LIMIT 20`;
     if (!tickets.length) return [];
     const ids = tickets.map((t) => t.id);
-    const lines = await tx.$queryRaw<LineRow[]>`SELECT * FROM football_ticket_lines WHERE ticket_id=ANY(${ids}::text[]) ORDER BY ticket_id,line_no`;
+    const lines = await tx.$queryRaw<
+      LineRow[]
+    >`SELECT * FROM football_ticket_lines WHERE ticket_id=ANY(${ids}::text[]) ORDER BY ticket_id,line_no`;
     // Results are nulled in SQL until full time, so an unfinished score cannot leak here.
     const legs = await tx.$queryRaw<
-      { ticket_id: string; line_no: number; leg_no: number; fixture_id: string; selection: string; odds_cents: number; ft_home: number | null; ft_away: number | null; ht_home: number | null; ht_away: number | null; first_scorer: string | null }[]
+      {
+        ticket_id: string;
+        line_no: number;
+        leg_no: number;
+        fixture_id: string;
+        selection: string;
+        odds_cents: number;
+        ft_home: number | null;
+        ft_away: number | null;
+        ht_home: number | null;
+        ht_away: number | null;
+        first_scorer: string | null;
+      }[]
     >`SELECT g.ticket_id,g.line_no,g.leg_no,g.fixture_id,g.selection,g.odds_cents,
         CASE WHEN m.full_time_at<=${now} THEN f.ft_home END AS ft_home, CASE WHEN m.full_time_at<=${now} THEN f.ft_away END AS ft_away,
         CASE WHEN m.full_time_at<=${now} THEN f.ht_home END AS ht_home, CASE WHEN m.full_time_at<=${now} THEN f.ht_away END AS ht_away,
@@ -316,10 +349,21 @@ export function createFootballService(db: PrismaClient) {
             legs: lineLegs.map((g) => {
               let result: VfLegResult = 'PENDING';
               if (g.ft_home !== null) {
-                const o: Outcome = { ftHome: g.ft_home, ftAway: g.ft_away!, htHome: g.ht_home!, htAway: g.ht_away!, first: g.first_scorer as Outcome['first'] };
+                const o: Outcome = {
+                  ftHome: g.ft_home,
+                  ftAway: g.ft_away!,
+                  htHome: g.ht_home!,
+                  htAway: g.ht_away!,
+                  first: g.first_scorer as Outcome['first'],
+                };
                 result = parseSelection(g.selection)!.test(o) ? 'WON' : 'LOST';
               }
-              return { fixtureId: g.fixture_id, selection: g.selection, oddsCents: g.odds_cents, result };
+              return {
+                fixtureId: g.fixture_id,
+                selection: g.selection,
+                oddsCents: g.odds_cents,
+                result,
+              };
             }),
           };
         }),
@@ -331,17 +375,41 @@ export function createFootballService(db: PrismaClient) {
    * ---------------------------------------------------------------------------------- */
   async function settleTicket(ticketId: string): Promise<boolean> {
     return db.$transaction(async (tx) => {
-      const [t] = await tx.$queryRaw<TicketRow[]>`SELECT * FROM football_tickets WHERE id=${ticketId} FOR UPDATE`;
+      const [t] = await tx.$queryRaw<
+        TicketRow[]
+      >`SELECT * FROM football_tickets WHERE id=${ticketId} FOR UPDATE`;
       if (!t || t.settled_at !== null) return false;
-      const [mw] = await tx.$queryRaw<MatchweekRow[]>`SELECT * FROM football_matchweeks WHERE id=${t.matchweek_id}`;
+      const [mw] = await tx.$queryRaw<
+        MatchweekRow[]
+      >`SELECT * FROM football_matchweeks WHERE id=${t.matchweek_id}`;
       if (!mw || (await clock(tx)) < mw.full_time_at) return false;
       await tx.$queryRaw`SELECT user_id FROM football_accounts WHERE user_id=${t.user_id} FOR UPDATE`;
-      const lines = await tx.$queryRaw<LineRow[]>`SELECT * FROM football_ticket_lines WHERE ticket_id=${ticketId} ORDER BY line_no`;
+      const lines = await tx.$queryRaw<
+        LineRow[]
+      >`SELECT * FROM football_ticket_lines WHERE ticket_id=${ticketId} ORDER BY line_no`;
       const legs = await tx.$queryRaw<
-        { line_no: number; fixture_id: string; selection: string; ft_home: number; ft_away: number; ht_home: number; ht_away: number; first_scorer: string }[]
+        {
+          line_no: number;
+          fixture_id: string;
+          selection: string;
+          ft_home: number;
+          ft_away: number;
+          ht_home: number;
+          ht_away: number;
+          first_scorer: string;
+        }[]
       >`SELECT g.line_no,g.fixture_id,g.selection,f.ft_home,f.ft_away,f.ht_home,f.ht_away,f.first_scorer FROM football_ticket_legs g JOIN football_fixtures f ON f.id=g.fixture_id WHERE g.ticket_id=${ticketId} ORDER BY g.line_no,g.leg_no`;
       const outcomes = new Map<string, Outcome>(
-        legs.map((g) => [g.fixture_id, { ftHome: g.ft_home, ftAway: g.ft_away, htHome: g.ht_home, htAway: g.ht_away, first: g.first_scorer as Outcome['first'] }])
+        legs.map((g) => [
+          g.fixture_id,
+          {
+            ftHome: g.ft_home,
+            ftAway: g.ft_away,
+            htHome: g.ht_home,
+            htAway: g.ht_away,
+            first: g.first_scorer as Outcome['first'],
+          },
+        ])
       );
       let total = 0;
       for (const line of lines) {
@@ -372,7 +440,9 @@ export function createFootballService(db: PrismaClient) {
     } catch (error) {
       onError('ensure-matchweek', error);
     }
-    const rows = await db.$queryRaw<{ id: string }[]>`SELECT t.id FROM football_tickets t JOIN football_matchweeks m ON m.id=t.matchweek_id WHERE t.settled_at IS NULL AND m.full_time_at<=clock_timestamp() ORDER BY m.opens_at,t.id LIMIT 300`;
+    const rows = await db.$queryRaw<
+      { id: string }[]
+    >`SELECT t.id FROM football_tickets t JOIN football_matchweeks m ON m.id=t.matchweek_id WHERE t.settled_at IS NULL AND m.full_time_at<=clock_timestamp() ORDER BY m.opens_at,t.id LIMIT 300`;
     for (const row of rows)
       try {
         await settleTicket(row.id);
@@ -384,7 +454,10 @@ export function createFootballService(db: PrismaClient) {
   /* ---------------------------------------------------------------------------------- *
    * Snapshot
    * ---------------------------------------------------------------------------------- */
-  async function snapshot(userId: string, view?: { seasonNo: number; weekNo: number }): Promise<VfSnapshot> {
+  async function snapshot(
+    userId: string,
+    view?: { seasonNo: number; weekNo: number }
+  ): Promise<VfSnapshot> {
     // Authenticate before any recovery or creation work.
     await db.$transaction((tx) => account(tx, userId));
     try {
@@ -392,26 +465,40 @@ export function createFootballService(db: PrismaClient) {
     } catch {
       // A creation failure must not hide existing results; the worker retries and reports it.
     }
-    const pending = await db.$queryRaw<{ id: string }[]>`SELECT t.id FROM football_tickets t JOIN football_matchweeks m ON m.id=t.matchweek_id WHERE t.user_id=${userId} AND t.settled_at IS NULL AND m.full_time_at<=clock_timestamp() ORDER BY m.opens_at,t.id LIMIT 50`;
+    const pending = await db.$queryRaw<
+      { id: string }[]
+    >`SELECT t.id FROM football_tickets t JOIN football_matchweeks m ON m.id=t.matchweek_id WHERE t.user_id=${userId} AND t.settled_at IS NULL AND m.full_time_at<=clock_timestamp() ORDER BY m.opens_at,t.id LIMIT 50`;
     for (const row of pending) await settleTicket(row.id);
 
     return db.$transaction(async (tx) => {
       await account(tx, userId);
-      const [wallet] = await tx.$queryRaw<{ balance: bigint }[]>`SELECT balance FROM football_accounts WHERE user_id=${userId} FOR SHARE`;
+      const [wallet] = await tx.$queryRaw<
+        { balance: bigint }[]
+      >`SELECT balance FROM football_accounts WHERE user_id=${userId} FOR SHARE`;
       const now = await clock(tx);
       const nowMs = now.getTime();
       const cycle = cycleAt(nowMs);
       if (!cycle) throw reasoned(503, 'The league has not started', 'CLOSED');
-      const [currentRow] = await tx.$queryRaw<MatchweekRow[]>`SELECT * FROM football_matchweeks WHERE id=${matchweekId(cycle.seasonNo, cycle.weekNo)}`;
-      const [latestRow] = await tx.$queryRaw<MatchweekRow[]>`SELECT * FROM football_matchweeks WHERE full_time_at<=${now} ORDER BY opens_at DESC LIMIT 1`;
-      const current = currentRow ? matchweekView(currentRow, await fixturesOf(tx, currentRow.id), nowMs) : null;
-      const latestCompleted = latestRow ? matchweekView(latestRow, await fixturesOf(tx, latestRow.id), nowMs) : null;
+      const [currentRow] = await tx.$queryRaw<
+        MatchweekRow[]
+      >`SELECT * FROM football_matchweeks WHERE id=${matchweekId(cycle.seasonNo, cycle.weekNo)}`;
+      const [latestRow] = await tx.$queryRaw<
+        MatchweekRow[]
+      >`SELECT * FROM football_matchweeks WHERE full_time_at<=${now} ORDER BY opens_at DESC LIMIT 1`;
+      const current = currentRow
+        ? matchweekView(currentRow, await fixturesOf(tx, currentRow.id), nowMs)
+        : null;
+      const latestCompleted = latestRow
+        ? matchweekView(latestRow, await fixturesOf(tx, latestRow.id), nowMs)
+        : null;
 
       let viewed: VfViewedWeek | null = null;
       if (view) {
         const target = cycleBySeasonWeek(view.seasonNo, view.weekNo);
         const scheduled = scheduledWeek(view.seasonNo, view.weekNo);
-        const [row] = await tx.$queryRaw<MatchweekRow[]>`SELECT * FROM football_matchweeks WHERE id=${matchweekId(view.seasonNo, view.weekNo)}`;
+        const [row] = await tx.$queryRaw<
+          MatchweekRow[]
+        >`SELECT * FROM football_matchweeks WHERE id=${matchweekId(view.seasonNo, view.weekNo)}`;
         viewed = {
           seasonNo: view.seasonNo,
           weekNo: view.weekNo,
@@ -426,9 +513,24 @@ export function createFootballService(db: PrismaClient) {
 
       const seasonNo = viewed?.seasonNo ?? cycle.seasonNo;
       const throughWeek = viewed?.weekNo ?? 38;
-      const results = await tx.$queryRaw<{ home_club: number; away_club: number; ft_home: number; ft_away: number; match_id: string }[]>`SELECT f.home_club,f.away_club,f.ft_home,f.ft_away,m.id AS match_id FROM football_fixtures f JOIN football_matchweeks m ON m.id=f.matchweek_id WHERE m.season_no=${seasonNo} AND m.week_no<=${throughWeek} AND m.full_time_at<=${now}`;
-      const finished: FinishedMatch[] = results.map((r) => ({ homeClub: r.home_club, awayClub: r.away_club, ftHome: r.ft_home, ftAway: r.ft_away }));
-      const seasons = await tx.$queryRaw<{ season_no: number; weeks: bigint }[]>`SELECT season_no,count(*) FILTER (WHERE full_time_at<=${now}) AS weeks FROM football_matchweeks GROUP BY season_no ORDER BY season_no DESC LIMIT 20`;
+      const results = await tx.$queryRaw<
+        {
+          home_club: number;
+          away_club: number;
+          ft_home: number;
+          ft_away: number;
+          match_id: string;
+        }[]
+      >`SELECT f.home_club,f.away_club,f.ft_home,f.ft_away,m.id AS match_id FROM football_fixtures f JOIN football_matchweeks m ON m.id=f.matchweek_id WHERE m.season_no=${seasonNo} AND m.week_no<=${throughWeek} AND m.full_time_at<=${now}`;
+      const finished: FinishedMatch[] = results.map((r) => ({
+        homeClub: r.home_club,
+        awayClub: r.away_club,
+        ftHome: r.ft_home,
+        ftAway: r.ft_away,
+      }));
+      const seasons = await tx.$queryRaw<
+        { season_no: number; weeks: bigint }[]
+      >`SELECT season_no,count(*) FILTER (WHERE full_time_at<=${now}) AS weeks FROM football_matchweeks GROUP BY season_no ORDER BY season_no DESC LIMIT 20`;
       return {
         rulesId: VF_RULES_ID,
         rulesDigest: VF_RULES_DIGEST,
@@ -438,7 +540,11 @@ export function createFootballService(db: PrismaClient) {
         current,
         latestCompleted,
         viewed,
-        standings: { seasonNo, weeksCompleted: new Set(results.map((r) => r.match_id)).size, rows: computeStandings(finished) },
+        standings: {
+          seasonNo,
+          weeksCompleted: new Set(results.map((r) => r.match_id)).size,
+          rows: computeStandings(finished),
+        },
         seasons: seasons.map((s) => ({ seasonNo: s.season_no, weeksCompleted: Number(s.weeks) })),
         tickets: await ticketViews(tx, userId, now),
       };
@@ -460,15 +566,25 @@ export function createFootballService(db: PrismaClient) {
     return db.$transaction(async (tx) => {
       await account(tx, userId);
       // Serialises this member's admissions and settlements: no cross-fixture overspend.
-      const [wallet] = await tx.$queryRaw<{ balance: bigint }[]>`SELECT balance FROM football_accounts WHERE user_id=${userId} FOR UPDATE`;
-      const [prior] = await tx.$queryRaw<TicketRow[]>`SELECT * FROM football_tickets WHERE user_id=${userId} AND idempotency_key=${input.idempotencyKey}`;
+      const [wallet] = await tx.$queryRaw<
+        { balance: bigint }[]
+      >`SELECT balance FROM football_accounts WHERE user_id=${userId} FOR UPDATE`;
+      const [prior] = await tx.$queryRaw<
+        TicketRow[]
+      >`SELECT * FROM football_tickets WHERE user_id=${userId} AND idempotency_key=${input.idempotencyKey}`;
       if (prior) {
         if (prior.request_hash !== requestHash)
-          throw reasoned(409, 'This receipt key was used for a different ticket', 'RECEIPT_CONFLICT');
+          throw reasoned(
+            409,
+            'This receipt key was used for a different ticket',
+            'RECEIPT_CONFLICT'
+          );
         const [ticket] = await ticketViews(tx, userId, await clock(tx), prior.id);
         return { accepted: true as const, isReplay: true, ticket };
       }
-      const [mw] = await tx.$queryRaw<MatchweekRow[]>`SELECT * FROM football_matchweeks WHERE id=${input.matchweekId}`;
+      const [mw] = await tx.$queryRaw<
+        MatchweekRow[]
+      >`SELECT * FROM football_matchweeks WHERE id=${input.matchweekId}`;
       if (!mw) throw reasoned(404, 'Matchweek not found', 'MATCHWEEK_NOT_FOUND');
       const fixtures = await fixturesOf(tx, mw.id);
       const byId = new Map(fixtures.map((f) => [f.id, f]));
@@ -479,7 +595,8 @@ export function createFootballService(db: PrismaClient) {
       if (mw.rules_id !== VF_RULES_ID || mw.rules_digest !== VF_RULES_DIGEST)
         throw reasoned(503, 'Prices are being updated. Please refresh.', 'RULES_STALE');
       const opened = await clock(tx);
-      if (opened < mw.opens_at || opened >= mw.kickoff_at) throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
+      if (opened < mw.opens_at || opened >= mw.kickoff_at)
+        throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
       let priced;
       try {
         priced = priceTicket(input, (id) => {
@@ -490,9 +607,13 @@ export function createFootballService(db: PrismaClient) {
         if (error instanceof TicketRuleError) throw ruleError(error);
         throw error;
       }
-      if (wallet.balance < BigInt(priced.totalStake)) throw reasoned(400, 'Insufficient practice credits', 'INSUFFICIENT_CREDITS');
-      const [{ count }] = await tx.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM football_tickets WHERE user_id=${userId} AND matchweek_id=${mw.id}`;
-      if (Number(count) >= VF_LIMITS.maxTicketsPerMatchweek) throw reasoned(409, 'Ticket limit reached for this matchweek', 'TICKET_LIMIT');
+      if (wallet.balance < BigInt(priced.totalStake))
+        throw reasoned(400, 'Insufficient practice credits', 'INSUFFICIENT_CREDITS');
+      const [{ count }] = await tx.$queryRaw<
+        { count: bigint }[]
+      >`SELECT count(*) AS count FROM football_tickets WHERE user_id=${userId} AND matchweek_id=${mw.id}`;
+      if (Number(count) >= VF_LIMITS.maxTicketsPerMatchweek)
+        throw reasoned(409, 'Ticket limit reached for this matchweek', 'TICKET_LIMIT');
       const used = [...new Set(priced.lines.flatMap((l) => l.legs.map((g) => g.fixtureId)))];
       const ticketId = randomUUID();
       const receipt = receiptHash({
@@ -510,7 +631,8 @@ export function createFootballService(db: PrismaClient) {
       }
       await tx.$executeRaw`UPDATE football_accounts SET balance=balance-${priced.totalStake} WHERE user_id=${userId}`;
       // Re-check the cutoff after every write and lock wait, on the database clock.
-      if ((await clock(tx)) >= mw.kickoff_at) throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
+      if ((await clock(tx)) >= mw.kickoff_at)
+        throw reasoned(409, 'Selections have closed for this matchweek', 'CLOSED');
       await flush(tx);
       const [ticket] = await ticketViews(tx, userId, await clock(tx), ticketId);
       return { accepted: true as const, isReplay: false, ticket };

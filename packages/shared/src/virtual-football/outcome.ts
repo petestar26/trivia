@@ -174,8 +174,10 @@ export function timelineProblems(goals: Goal[]): string[] {
     const times = goals.filter((g) => g.half === half).map((g) => g.atMs);
     times.forEach((t, i) => {
       const slot = (t - base - firstSlotOffsetMs) / slotMs;
-      if (!Number.isInteger(slot) || slot < 0 || slot >= usableSlots) problems.push(`half ${half} goal off grid`);
-      if (i > 0 && t - times[i - 1] < gapSlots * slotMs) problems.push(`half ${half} goals too close`);
+      if (!Number.isInteger(slot) || slot < 0 || slot >= usableSlots)
+        problems.push(`half ${half} goal off grid`);
+      if (i > 0 && t - times[i - 1] < gapSlots * slotMs)
+        problems.push(`half ${half} goals too close`);
     });
   }
   goals.forEach((g, i) => {
@@ -216,7 +218,9 @@ export function minuteOf(atMs: number) {
     return Math.min(45, Math.floor((Math.max(0, atMs) * 45) / firstHalfMs) + 1);
   return Math.min(
     90,
-    45 + Math.floor((Math.min(atMs - firstHalfMs - halftimeMs, secondHalfMs) * 45) / secondHalfMs) + 1
+    45 +
+      Math.floor((Math.min(atMs - firstHalfMs - halftimeMs, secondHalfMs) * 45) / secondHalfMs) +
+      1
   );
 }
 
@@ -224,7 +228,14 @@ export function minuteOf(atMs: number) {
 export function liveFixture(goals: Goal[], elapsedMs: number): LiveFixture {
   const { firstHalfMs, halftimeMs, matchMs } = VF_TIMING;
   if (elapsedMs < 0)
-    return { status: 'SCHEDULED', elapsedMs: 0, score: null, halfTime: null, fullTime: null, events: [] };
+    return {
+      status: 'SCHEDULED',
+      elapsedMs: 0,
+      score: null,
+      halfTime: null,
+      fullTime: null,
+      events: [],
+    };
   const clamped = Math.min(elapsedMs, matchMs);
   const released = goals.filter((g) => g.atMs <= clamped);
   const events: PublicGoal[] = released.map((g) => ({
@@ -278,7 +289,8 @@ export function verifyMatchweek(input: {
     const seed = fixtureSeed(input.matchweekId, fixture.id, input.seed);
     const commitment = fixtureCommitment(fixture.id, seed, fixtureOffer(fixture.params).digest);
     commitments.push(commitment);
-    if (commitment !== fixture.commitment) problems.push(`${fixture.id}: fixture commitment mismatch`);
+    if (commitment !== fixture.commitment)
+      problems.push(`${fixture.id}: fixture commitment mismatch`);
     const expected = generateTimeline(seed, fixture.params);
     if (canonicalJson(expected.goals) !== canonicalJson(fixture.goals))
       problems.push(`${fixture.id}: official goals do not match the committed seed`);

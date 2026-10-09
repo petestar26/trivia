@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { computeStandings, type FinishedMatch } from './index.js';
 
-const m = (homeClub: number, awayClub: number, ftHome: number, ftAway: number): FinishedMatch => ({ homeClub, awayClub, ftHome, ftAway });
+const m = (homeClub: number, awayClub: number, ftHome: number, ftAway: number): FinishedMatch => ({
+  homeClub,
+  awayClub,
+  ftHome,
+  ftAway,
+});
 
 describe('league table', () => {
   it('starts every club on zero', () => {
@@ -15,7 +20,14 @@ describe('league table', () => {
   it('awards 3/1/0 and tracks played, W/D/L, goals for/against and difference', () => {
     const rows = computeStandings([m(1, 2, 3, 1), m(3, 4, 0, 0), m(5, 6, 1, 2)]);
     const by = (c: number) => rows.find((r) => r.club === c)!;
-    expect(by(1)).toMatchObject({ played: 1, won: 1, points: 3, goalsFor: 3, goalsAgainst: 1, goalDifference: 2 });
+    expect(by(1)).toMatchObject({
+      played: 1,
+      won: 1,
+      points: 3,
+      goalsFor: 3,
+      goalsAgainst: 1,
+      goalDifference: 2,
+    });
     expect(by(2)).toMatchObject({ lost: 1, points: 0, goalDifference: -2 });
     expect(by(3)).toMatchObject({ drawn: 1, points: 1 });
     expect(by(4)).toMatchObject({ drawn: 1, points: 1 });
@@ -31,7 +43,14 @@ describe('league table', () => {
     rows = computeStandings([m(11, 13, 3, 2), m(14, 12, 0, 1)]);
     expect(rows.findIndex((r) => r.club === 11)).toBeLessThan(rows.findIndex((r) => r.club === 12));
     // Equal points, difference and goals scored: more wins ranks higher (3 pts from a win vs three draws).
-    rows = computeStandings([m(15, 16, 1, 0), m(15, 17, 0, 1), m(18, 19, 0, 0), m(18, 20, 0, 0), m(19, 20, 0, 0), m(3, 18, 0, 0)]);
+    rows = computeStandings([
+      m(15, 16, 1, 0),
+      m(15, 17, 0, 1),
+      m(18, 19, 0, 0),
+      m(18, 20, 0, 0),
+      m(19, 20, 0, 0),
+      m(3, 18, 0, 0),
+    ]);
     const pos = (c: number) => rows.find((r) => r.club === c)!.position;
     expect(pos(1)).toBeGreaterThan(0);
     // Identical records fall back to ascending club id, so 3 stays above 4 etc.

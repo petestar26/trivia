@@ -23,7 +23,10 @@ export const FOOTBALL_MIGRATIONS = [
  * practice flag, payments or wagering, and it refuses any other pending migration. The
  * Thunder Derby migration must already be applied (its own command owns that allowlist).
  */
-export async function runFootballStagingUpgrade(env: NodeJS.ProcessEnv = process.env, apply = false) {
+export async function runFootballStagingUpgrade(
+  env: NodeJS.ProcessEnv = process.env,
+  apply = false
+) {
   assertUsdStagingTarget(env);
   const worker = new URL(env.SOCIAL_WORKER_DATABASE_URL ?? 'https://invalid'),
     ownerUrl = new URL(env.DATABASE_URL!);
@@ -84,7 +87,8 @@ export async function runFootballStagingUpgrade(env: NodeJS.ProcessEnv = process
       )
         throw Error('MIGRATION_HISTORY_MISMATCH');
     const pending = names.filter((n) => !complete.has(n));
-    if (pending.some((n) => !FOOTBALL_MIGRATIONS.includes(n))) throw Error('UNRELATED_PENDING_MIGRATION');
+    if (pending.some((n) => !FOOTBALL_MIGRATIONS.includes(n)))
+      throw Error('UNRELATED_PENDING_MIGRATION');
 
     if (pending.length) {
       if (!apply) throw Error('FOOTBALL_MIGRATION_NOT_APPLIED');
@@ -126,9 +130,11 @@ export async function runFootballStagingUpgrade(env: NodeJS.ProcessEnv = process
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
-  runFootballStagingUpgrade(process.env, process.argv.includes('--apply')).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : '';
-    const reason = /^[A-Z_]{1,64}$/.test(message) ? message : 'OPERATION_FAILED';
-    console.error(JSON.stringify({ event: 'FOOTBALL_STAGING_REFUSED', reason }));
-    process.exitCode = 1;
-  });
+  runFootballStagingUpgrade(process.env, process.argv.includes('--apply')).catch(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      const reason = /^[A-Z_]{1,64}$/.test(message) ? message : 'OPERATION_FAILED';
+      console.error(JSON.stringify({ event: 'FOOTBALL_STAGING_REFUSED', reason }));
+      process.exitCode = 1;
+    }
+  );

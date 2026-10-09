@@ -29,7 +29,18 @@ export function computeStandings(matches: Iterable<FinishedMatch>): StandingRow[
   const rows = new Map<number, StandingRow>(
     VF_CLUBS.map((club) => [
       club.id,
-      { position: 0, club: club.id, played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0 },
+      {
+        position: 0,
+        club: club.id,
+        played: 0,
+        won: 0,
+        drawn: 0,
+        lost: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDifference: 0,
+        points: 0,
+      },
     ])
   );
   for (const m of matches) {

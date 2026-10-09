@@ -54,11 +54,15 @@ describe('matchweek creation window', () => {
 
   it('treats a window that closed during the insert as a missed week, but surfaces real failures', async () => {
     const closed = fakeDb(cycle.kickoffAt - 1);
-    closed.transaction.mockRejectedValueOnce(new Error('Football matchweek can only be committed during its selection window'));
+    closed.transaction.mockRejectedValueOnce(
+      new Error('Football matchweek can only be committed during its selection window')
+    );
     await expect(createFootballService(closed.db).ensureMatchweek()).resolves.toBeUndefined();
     const broken = fakeDb(cycle.opensAt + 1_000);
     broken.transaction.mockRejectedValueOnce(new Error('connection refused'));
-    await expect(createFootballService(broken.db).ensureMatchweek()).rejects.toThrow('connection refused');
+    await expect(createFootballService(broken.db).ensureMatchweek()).rejects.toThrow(
+      'connection refused'
+    );
   });
 
   it('reports a creation failure from the worker tick without stopping settlement', async () => {

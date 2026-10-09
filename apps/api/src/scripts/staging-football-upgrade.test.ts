@@ -17,8 +17,20 @@ const state = vi.hoisted(() => ({
   failed: false,
   checksum: true,
   unrelated: false,
-  derbyRow: { isActive: false, catalogStatus: 'COMING_SOON', mode: 'WAGER', wagerCurrency: 'COINS', rewardCurrency: 'COINS' } as Record<string, unknown> | null,
-  footballRow: { isActive: false, catalogStatus: 'COMING_SOON', mode: 'WAGER', wagerCurrency: 'COINS', rewardCurrency: 'COINS' } as Record<string, unknown> | null,
+  derbyRow: {
+    isActive: false,
+    catalogStatus: 'COMING_SOON',
+    mode: 'WAGER',
+    wagerCurrency: 'COINS',
+    rewardCurrency: 'COINS',
+  } as Record<string, unknown> | null,
+  footballRow: {
+    isActive: false,
+    catalogStatus: 'COMING_SOON',
+    mode: 'WAGER',
+    wagerCurrency: 'COINS',
+    rewardCurrency: 'COINS',
+  } as Record<string, unknown> | null,
   execute: vi.fn(),
   grant: vi.fn(),
   disconnect: vi.fn(),
@@ -57,33 +69,51 @@ vi.mock('@prisma/client', () => ({
       if (sql.includes('_prisma_migrations')) {
         const done = (name: string) => ({
           migration_name: name,
-          checksum: state.checksum ? createHash('sha256').update('fixture SQL').digest('hex') : 'bad',
+          checksum: state.checksum
+            ? createHash('sha256').update('fixture SQL').digest('hex')
+            : 'bad',
           finished_at: state.failed ? null : new Date(),
           rolled_back_at: null,
         });
-        return [...(state.pendingDerby ? [] : [done(DERBY)]), ...(state.pendingFootball ? [] : FOOTBALL.map(done))];
+        return [
+          ...(state.pendingDerby ? [] : [done(DERBY)]),
+          ...(state.pendingFootball ? [] : FOOTBALL.map(done)),
+        ];
       }
       throw Error('Unexpected SQL');
     }
   },
 }));
-import { FOOTBALL_FORBIDDEN_PRIVILEGES, FOOTBALL_RUNTIME_GRANTS } from './football-runtime-grants.js';
+import {
+  FOOTBALL_FORBIDDEN_PRIVILEGES,
+  FOOTBALL_RUNTIME_GRANTS,
+} from './football-runtime-grants.js';
 import { FOOTBALL_MIGRATIONS, runFootballStagingUpgrade } from './staging-football-upgrade.js';
 
 const env = {
   RAILWAY_ENVIRONMENT_ID: '7de0c716-24df-4e97-a998-ed99abfa256f',
   PRACTICE_STAGING_ACK: 'spin-practice-rehearsal-20261002',
-  DATABASE_URL: 'postgresql://owner:fixture@spin-practice-db-20261002.railway.internal/playqube_spin_rehearsal_20261002',
-  SOCIAL_WORKER_DATABASE_URL: 'postgresql://football_worker:fixture@spin-practice-db-20261002.railway.internal/playqube_spin_rehearsal_20261002',
+  DATABASE_URL:
+    'postgresql://owner:fixture@spin-practice-db-20261002.railway.internal/playqube_spin_rehearsal_20261002',
+  SOCIAL_WORKER_DATABASE_URL:
+    'postgresql://football_worker:fixture@spin-practice-db-20261002.railway.internal/playqube_spin_rehearsal_20261002',
   PRACTICE_API_ROLE: 'spin_rehearsal_api_fixture',
 };
 const base = { derbyRow: state.derbyRow, footballRow: state.footballRow };
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(state, {
-    owner: true, safe: true, grants: true, excess: false, pendingFootball: false, pendingDerby: false,
-    failed: false, checksum: true, unrelated: false,
-    derbyRow: { ...base.derbyRow }, footballRow: { ...base.footballRow },
+    owner: true,
+    safe: true,
+    grants: true,
+    excess: false,
+    pendingFootball: false,
+    pendingDerby: false,
+    failed: false,
+    checksum: true,
+    unrelated: false,
+    derbyRow: { ...base.derbyRow },
+    footballRow: { ...base.footballRow },
   });
 });
 
@@ -105,7 +135,9 @@ it.each([
   env.SOCIAL_WORKER_DATABASE_URL.replace('railway.internal', 'railway.internal:5433'),
   env.SOCIAL_WORKER_DATABASE_URL.replace('football_worker', 'bad%22role'),
 ])('refuses a mismatched worker target', async (url) => {
-  await expect(runFootballStagingUpgrade({ ...env, SOCIAL_WORKER_DATABASE_URL: url }, true)).rejects.toThrow('WORKER_TARGET_REFUSED');
+  await expect(
+    runFootballStagingUpgrade({ ...env, SOCIAL_WORKER_DATABASE_URL: url }, true)
+  ).rejects.toThrow('WORKER_TARGET_REFUSED');
   expect(state.construct).not.toHaveBeenCalled();
 });
 
@@ -153,9 +185,16 @@ it('explicit apply deploys once, grants both roles, and never reports activation
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   await runFootballStagingUpgrade(env, true);
   expect(state.execute).toHaveBeenCalledOnce();
-  expect(state.grant.mock.calls.map((call) => call[1])).toEqual([env.PRACTICE_API_ROLE, 'football_worker']);
+  expect(state.grant.mock.calls.map((call) => call[1])).toEqual([
+    env.PRACTICE_API_ROLE,
+    'football_worker',
+  ]);
   const event = JSON.parse(log.mock.calls.at(-1)![0] as string);
-  expect(event).toMatchObject({ event: 'FOOTBALL_STAGING_READY', mode: 'PRACTICE', activationPerformed: false });
+  expect(event).toMatchObject({
+    event: 'FOOTBALL_STAGING_READY',
+    mode: 'PRACTICE',
+    activationPerformed: false,
+  });
   log.mockRestore();
 });
 
@@ -172,7 +211,10 @@ it('grants never include update or delete on immutable history', () => {
   for (const table of ['football_matchweeks', 'football_fixtures', 'football_ticket_legs'])
     for (const privilege of ['UPDATE', 'DELETE', 'TRUNCATE']) {
       expect(granted.has(`${table}:${privilege}`)).toBe(false);
-      expect(FOOTBALL_FORBIDDEN_PRIVILEGES.some(([t, p]) => t === table && p === privilege)).toBe(true);
+      expect(FOOTBALL_FORBIDDEN_PRIVILEGES.some(([t, p]) => t === table && p === privilege)).toBe(
+        true
+      );
     }
-  for (const [table, privilege] of FOOTBALL_FORBIDDEN_PRIVILEGES) expect(granted.has(`${table}:${privilege}`)).toBe(false);
+  for (const [table, privilege] of FOOTBALL_FORBIDDEN_PRIVILEGES)
+    expect(granted.has(`${table}:${privilege}`)).toBe(false);
 });

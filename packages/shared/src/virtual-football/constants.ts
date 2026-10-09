@@ -101,26 +101,206 @@ const k = (primary: string, secondary: string, pattern: KitPattern = 'solid'): C
 
 /** Twenty fictional clubs. Names, crests and kits are original to PlayQube. */
 export const VF_CLUBS: readonly Club[] = Object.freeze([
-  { id: 1, code: 'ASM', name: 'Ashford Meridian', attack: 118, defence: 112, home: k('#d9382c', '#ffffff', 'stripes'), away: k('#1b1f2b', '#f2b134'), glyph: 'sun' },
-  { id: 2, code: 'BWF', name: 'Blackwater Falcons', attack: 108, defence: 104, home: k('#1c2430', '#e4572e', 'sash'), away: k('#f1ece0', '#1c2430'), glyph: 'falcon' },
-  { id: 3, code: 'COH', name: 'Cobalt Harbour', attack: 101, defence: 99, home: k('#1d4fd8', '#f5f7ff', 'hoops'), away: k('#f7d046', '#1d4fd8'), glyph: 'anchor' },
-  { id: 4, code: 'DUS', name: 'Dunmoor Stags', attack: 96, defence: 108, home: k('#7a2f1b', '#f0d9a8', 'halves'), away: k('#2c7a5b', '#f4f1e6'), glyph: 'stag' },
-  { id: 5, code: 'EMV', name: 'Ember Vale', attack: 112, defence: 92, home: k('#f28c28', '#1c1c1c', 'solid'), away: k('#2a2d34', '#f28c28', 'stripes'), glyph: 'flame' },
-  { id: 6, code: 'FRA', name: 'Frostholm Athletic', attack: 90, defence: 105, home: k('#cfe9f5', '#245a86', 'stripes'), away: k('#245a86', '#cfe9f5'), glyph: 'peak' },
-  { id: 7, code: 'GLT', name: 'Glenmora Thistle', attack: 94, defence: 96, home: k('#6d2a8f', '#e9d85a', 'solid'), away: k('#e9d85a', '#6d2a8f'), glyph: 'thistle' },
-  { id: 8, code: 'HCR', name: 'Highcrest Rovers', attack: 104, defence: 101, home: k('#0e8a6a', '#ffffff', 'halves'), away: k('#f4f4f0', '#0e8a6a'), glyph: 'crown' },
-  { id: 9, code: 'IBU', name: 'Ironbridge Union', attack: 88, defence: 118, home: k('#4a5560', '#d94b4b', 'solid'), away: k('#d94b4b', '#2b3138'), glyph: 'tower' },
-  { id: 10, code: 'JWL', name: 'Jadewater Lions', attack: 99, defence: 94, home: k('#12a38a', '#f6f1d4', 'sash'), away: k('#f6f1d4', '#12a38a'), glyph: 'lion' },
-  { id: 11, code: 'KEP', name: 'Kestrel Park', attack: 92, defence: 90, home: k('#c61f5c', '#ffffff', 'hoops'), away: k('#222a38', '#c61f5c'), glyph: 'arrow' },
-  { id: 12, code: 'LAT', name: 'Larkspur Town', attack: 85, defence: 92, home: k('#7f5ee0', '#f2f0ff', 'solid'), away: k('#f2f0ff', '#7f5ee0', 'hoops'), glyph: 'leaf' },
-  { id: 13, code: 'MAH', name: 'Marrow Heath', attack: 106, defence: 97, home: k('#a62a2a', '#14213d', 'halves'), away: k('#e9e6df', '#a62a2a'), glyph: 'key' },
-  { id: 14, code: 'NQM', name: 'Northquay Mariners', attack: 97, defence: 102, home: k('#0b3c5d', '#f3b61f', 'stripes'), away: k('#f3b61f', '#0b3c5d'), glyph: 'wave' },
-  { id: 15, code: 'OHW', name: 'Oakhaven Wanderers', attack: 91, defence: 87, home: k('#2e6b34', '#f2d16b', 'solid'), away: k('#f2d16b', '#2e6b34', 'sash'), glyph: 'shell' },
-  { id: 16, code: 'PCF', name: 'Pinecliff Foxes', attack: 102, defence: 108, home: k('#e8661b', '#f9f3e8', 'solid'), away: k('#26323f', '#e8661b', 'stripes'), glyph: 'fox' },
-  { id: 17, code: 'QZB', name: 'Quartz Borough', attack: 83, defence: 84, home: k('#e6d9f5', '#5a3c8c', 'stripes'), away: k('#5a3c8c', '#e6d9f5'), glyph: 'gem' },
-  { id: 18, code: 'RFS', name: 'Redfern Sporting', attack: 110, defence: 98, home: k('#b3122b', '#101010', 'hoops'), away: k('#f5f5f2', '#b3122b'), glyph: 'star' },
-  { id: 19, code: 'SMS', name: 'Silvermere Swifts', attack: 95, defence: 89, home: k('#b9c4d0', '#26364a', 'sash'), away: k('#26364a', '#b9c4d0'), glyph: 'bolt' },
-  { id: 20, code: 'TWH', name: 'Tidewell Harriers', attack: 87, defence: 95, home: k('#19a7ce', '#0a2342', 'halves'), away: k('#0a2342', '#19a7ce'), glyph: 'ring' },
+  {
+    id: 1,
+    code: 'ASM',
+    name: 'Ashford Meridian',
+    attack: 118,
+    defence: 112,
+    home: k('#d9382c', '#ffffff', 'stripes'),
+    away: k('#1b1f2b', '#f2b134'),
+    glyph: 'sun',
+  },
+  {
+    id: 2,
+    code: 'BWF',
+    name: 'Blackwater Falcons',
+    attack: 108,
+    defence: 104,
+    home: k('#1c2430', '#e4572e', 'sash'),
+    away: k('#f1ece0', '#1c2430'),
+    glyph: 'falcon',
+  },
+  {
+    id: 3,
+    code: 'COH',
+    name: 'Cobalt Harbour',
+    attack: 101,
+    defence: 99,
+    home: k('#1d4fd8', '#f5f7ff', 'hoops'),
+    away: k('#f7d046', '#1d4fd8'),
+    glyph: 'anchor',
+  },
+  {
+    id: 4,
+    code: 'DUS',
+    name: 'Dunmoor Stags',
+    attack: 96,
+    defence: 108,
+    home: k('#7a2f1b', '#f0d9a8', 'halves'),
+    away: k('#2c7a5b', '#f4f1e6'),
+    glyph: 'stag',
+  },
+  {
+    id: 5,
+    code: 'EMV',
+    name: 'Ember Vale',
+    attack: 112,
+    defence: 92,
+    home: k('#f28c28', '#1c1c1c', 'solid'),
+    away: k('#2a2d34', '#f28c28', 'stripes'),
+    glyph: 'flame',
+  },
+  {
+    id: 6,
+    code: 'FRA',
+    name: 'Frostholm Athletic',
+    attack: 90,
+    defence: 105,
+    home: k('#cfe9f5', '#245a86', 'stripes'),
+    away: k('#245a86', '#cfe9f5'),
+    glyph: 'peak',
+  },
+  {
+    id: 7,
+    code: 'GLT',
+    name: 'Glenmora Thistle',
+    attack: 94,
+    defence: 96,
+    home: k('#6d2a8f', '#e9d85a', 'solid'),
+    away: k('#e9d85a', '#6d2a8f'),
+    glyph: 'thistle',
+  },
+  {
+    id: 8,
+    code: 'HCR',
+    name: 'Highcrest Rovers',
+    attack: 104,
+    defence: 101,
+    home: k('#0e8a6a', '#ffffff', 'halves'),
+    away: k('#f4f4f0', '#0e8a6a'),
+    glyph: 'crown',
+  },
+  {
+    id: 9,
+    code: 'IBU',
+    name: 'Ironbridge Union',
+    attack: 88,
+    defence: 118,
+    home: k('#4a5560', '#d94b4b', 'solid'),
+    away: k('#d94b4b', '#2b3138'),
+    glyph: 'tower',
+  },
+  {
+    id: 10,
+    code: 'JWL',
+    name: 'Jadewater Lions',
+    attack: 99,
+    defence: 94,
+    home: k('#12a38a', '#f6f1d4', 'sash'),
+    away: k('#f6f1d4', '#12a38a'),
+    glyph: 'lion',
+  },
+  {
+    id: 11,
+    code: 'KEP',
+    name: 'Kestrel Park',
+    attack: 92,
+    defence: 90,
+    home: k('#c61f5c', '#ffffff', 'hoops'),
+    away: k('#222a38', '#c61f5c'),
+    glyph: 'arrow',
+  },
+  {
+    id: 12,
+    code: 'LAT',
+    name: 'Larkspur Town',
+    attack: 85,
+    defence: 92,
+    home: k('#7f5ee0', '#f2f0ff', 'solid'),
+    away: k('#f2f0ff', '#7f5ee0', 'hoops'),
+    glyph: 'leaf',
+  },
+  {
+    id: 13,
+    code: 'MAH',
+    name: 'Marrow Heath',
+    attack: 106,
+    defence: 97,
+    home: k('#a62a2a', '#14213d', 'halves'),
+    away: k('#e9e6df', '#a62a2a'),
+    glyph: 'key',
+  },
+  {
+    id: 14,
+    code: 'NQM',
+    name: 'Northquay Mariners',
+    attack: 97,
+    defence: 102,
+    home: k('#0b3c5d', '#f3b61f', 'stripes'),
+    away: k('#f3b61f', '#0b3c5d'),
+    glyph: 'wave',
+  },
+  {
+    id: 15,
+    code: 'OHW',
+    name: 'Oakhaven Wanderers',
+    attack: 91,
+    defence: 87,
+    home: k('#2e6b34', '#f2d16b', 'solid'),
+    away: k('#f2d16b', '#2e6b34', 'sash'),
+    glyph: 'shell',
+  },
+  {
+    id: 16,
+    code: 'PCF',
+    name: 'Pinecliff Foxes',
+    attack: 102,
+    defence: 108,
+    home: k('#e8661b', '#f9f3e8', 'solid'),
+    away: k('#26323f', '#e8661b', 'stripes'),
+    glyph: 'fox',
+  },
+  {
+    id: 17,
+    code: 'QZB',
+    name: 'Quartz Borough',
+    attack: 83,
+    defence: 84,
+    home: k('#e6d9f5', '#5a3c8c', 'stripes'),
+    away: k('#5a3c8c', '#e6d9f5'),
+    glyph: 'gem',
+  },
+  {
+    id: 18,
+    code: 'RFS',
+    name: 'Redfern Sporting',
+    attack: 110,
+    defence: 98,
+    home: k('#b3122b', '#101010', 'hoops'),
+    away: k('#f5f5f2', '#b3122b'),
+    glyph: 'star',
+  },
+  {
+    id: 19,
+    code: 'SMS',
+    name: 'Silvermere Swifts',
+    attack: 95,
+    defence: 89,
+    home: k('#b9c4d0', '#26364a', 'sash'),
+    away: k('#26364a', '#b9c4d0'),
+    glyph: 'bolt',
+  },
+  {
+    id: 20,
+    code: 'TWH',
+    name: 'Tidewell Harriers',
+    attack: 87,
+    defence: 95,
+    home: k('#19a7ce', '#0a2342', 'halves'),
+    away: k('#0a2342', '#19a7ce'),
+    glyph: 'ring',
+  },
 ]);
 
 export function clubById(id: number): Club {
@@ -141,7 +321,9 @@ export function colourDistance(a: string, b: string) {
   const rm = (r1 + r2) >> 1;
   return Math.round(
     Math.sqrt(
-      (((512 + rm) * (r1 - r2) ** 2) >> 8) + 4 * (g1 - g2) ** 2 + (((767 - rm) * (b1 - b2) ** 2) >> 8)
+      (((512 + rm) * (r1 - r2) ** 2) >> 8) +
+        4 * (g1 - g2) ** 2 +
+        (((767 - rm) * (b1 - b2) ** 2) >> 8)
     )
   );
 }
@@ -162,7 +344,9 @@ export function matchKits(homeId: number, awayId: number): { home: ClubKit; away
   const home = clubById(homeId).home;
   const away = clubById(awayId);
   const options = [away.home, away.away, ...NEUTRAL_KITS];
-  const usable = options.find((kit) => colourDistance(kit.primary, home.primary) >= VF_MIN_KIT_DISTANCE);
+  const usable = options.find(
+    (kit) => colourDistance(kit.primary, home.primary) >= VF_MIN_KIT_DISTANCE
+  );
   const best =
     usable ??
     options.reduce((a, b) =>

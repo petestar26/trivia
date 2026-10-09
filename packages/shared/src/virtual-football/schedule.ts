@@ -122,7 +122,10 @@ export function seasonSchedule(seasonNo: number): ScheduledFixture[][] {
     }
     first.push(pairs);
   }
-  const weeks = [...first, ...first.map((pairs) => pairs.map(([h, a]): [number, number] => [a, h]))];
+  const weeks = [
+    ...first,
+    ...first.map((pairs) => pairs.map(([h, a]): [number, number] => [a, h])),
+  ];
   const result = weeks.map((pairs, weekIndex) =>
     pairs
       .map(([homeClub, awayClub]) => ({
@@ -136,7 +139,11 @@ export function seasonSchedule(seasonNo: number): ScheduledFixture[][] {
           .join(''),
       }))
       .sort((x, y) => (x.order < y.order ? -1 : x.order > y.order ? 1 : 0))
-      .map((fixture, i) => ({ slot: i + 1, homeClub: fixture.homeClub, awayClub: fixture.awayClub }))
+      .map((fixture, i) => ({
+        slot: i + 1,
+        homeClub: fixture.homeClub,
+        awayClub: fixture.awayClub,
+      }))
   );
   if (scheduleCache.size > 8) scheduleCache.clear();
   scheduleCache.set(seasonNo, result);

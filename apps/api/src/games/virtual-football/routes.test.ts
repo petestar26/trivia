@@ -13,7 +13,13 @@ const valid = {
   idempotencyKey: 'a1b2c3d4e5f6a7b8c9d0',
   matchweekId: 'vf-s1-w01',
   rulesId: 'virtual-football-3d-practice-v1',
-  lines: [{ kind: 'SINGLE', stake: 10, legs: [{ fixtureId: 'vf-s1-w01-f01', selection: 'FT:1', oddsCents: 200 }] }],
+  lines: [
+    {
+      kind: 'SINGLE',
+      stake: 10,
+      legs: [{ fixtureId: 'vf-s1-w01-f01', selection: 'FT:1', oddsCents: 200 }],
+    },
+  ],
 };
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -60,13 +66,16 @@ it('is not enabled by the Derby flag', async () => {
   expect((await app.inject({ url: '/vf', headers: { authorization } })).statusCode).toBe(403);
 });
 
-it.each(['SUSPENDED', 'BANNED', 'DELETED'])('denies %s members holding an existing token', async (status) => {
-  mocks.actor.mockResolvedValue({ status });
-  expect((await app.inject({ url: '/vf', headers: { authorization } })).statusCode).toBe(403);
-  expect((await post(valid)).statusCode).toBe(403);
-  expect(mocks.snapshot).not.toHaveBeenCalled();
-  expect(mocks.admit).not.toHaveBeenCalled();
-});
+it.each(['SUSPENDED', 'BANNED', 'DELETED'])(
+  'denies %s members holding an existing token',
+  async (status) => {
+    mocks.actor.mockResolvedValue({ status });
+    expect((await app.inject({ url: '/vf', headers: { authorization } })).statusCode).toBe(403);
+    expect((await post(valid)).statusCode).toBe(403);
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+    expect(mocks.admit).not.toHaveBeenCalled();
+  }
+);
 
 it('marks every private response no-store', async () => {
   const response = await app.inject({ url: '/vf', headers: { authorization } });
@@ -89,14 +98,25 @@ it('accepts week navigation only as a complete, bounded season/week pair', async
   expect(mocks.snapshot).toHaveBeenLastCalledWith('member', { seasonNo: 3, weekNo: 12 });
   expect((await get('')).statusCode).toBe(200);
   expect(mocks.snapshot).toHaveBeenLastCalledWith('member', undefined);
-  for (const bad of ['?seasonNo=3', '?weekNo=3', '?seasonNo=0&weekNo=1', '?seasonNo=1&weekNo=39', '?seasonNo=1&weekNo=0', '?seasonNo=x&weekNo=1', '?seasonNo=1000000&weekNo=1', '?seasonNo=1.5&weekNo=1'])
+  for (const bad of [
+    '?seasonNo=3',
+    '?weekNo=3',
+    '?seasonNo=0&weekNo=1',
+    '?seasonNo=1&weekNo=39',
+    '?seasonNo=1&weekNo=0',
+    '?seasonNo=x&weekNo=1',
+    '?seasonNo=1000000&weekNo=1',
+    '?seasonNo=1.5&weekNo=1',
+  ])
     expect((await get(bad)).statusCode, bad).toBe(400);
   expect(mocks.snapshot).toHaveBeenCalledTimes(2);
 });
 
 it('rejects non-object and oversized ticket bodies before admission', async () => {
   expect((await post([valid])).statusCode).toBe(400);
-  expect((await post('"text"', { authorization, 'content-type': 'application/json' })).statusCode).toBe(400);
+  expect(
+    (await post('"text"', { authorization, 'content-type': 'application/json' })).statusCode
+  ).toBe(400);
   const huge = { ...valid, lines: Array.from({ length: 400 }, () => valid.lines[0]) };
   expect((await post(huge)).statusCode).toBe(413);
   expect(mocks.admit).not.toHaveBeenCalled();

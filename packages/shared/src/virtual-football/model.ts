@@ -122,8 +122,7 @@ export function buildDistribution(p: FixtureParams): Distribution {
     const n = cell.h + cell.a;
     for (let h1 = 0; h1 <= cell.h; h1++)
       for (let a1 = 0; a1 <= cell.a; a1++) {
-        const split =
-          choose(cell.h, h1) * choose(cell.a, a1) * 2n ** BigInt(VF_MAX_GOALS - n);
+        const split = choose(cell.h, h1) * choose(cell.a, a1) * 2n ** BigInt(VF_MAX_GOALS - n);
         const n1 = h1 + a1;
         const h2 = cell.h - h1;
         const a2 = cell.a - a1;
@@ -202,34 +201,131 @@ export interface MarketInfo {
 }
 
 export const VF_MARKETS: readonly MarketInfo[] = Object.freeze([
-  { key: 'FT', group: 'Main', title: 'Full-time result', rule: '1 = home win, X = draw, 2 = away win after 90 minutes.' },
-  { key: 'HT', group: 'Main', title: 'Half-time result', rule: 'Who leads at half-time. Settled at full time once the match is official.' },
-  { key: 'HTFT', group: 'Main', title: 'Half-time / full-time', rule: 'Both the half-time and full-time results must match, in order. Nine combinations.' },
-  { key: 'DC', group: 'Main', title: 'Double chance', rule: '1X = home win or draw, 12 = either team wins, X2 = draw or away win.' },
-  { key: 'OU', group: 'Goals', title: 'Match goals over/under', rule: 'Total goals in the match against the displayed half-goal line. No pushes are possible.' },
-  { key: 'BTTS_FT', group: 'Goals', title: 'Both teams to score (full time)', rule: 'Goal = both teams score at least once in the match. No goal = at least one team does not score. Goal/no-goal and yes/no labels are the same market.' },
-  { key: 'BTTS_HT', group: 'Goals', title: 'Both teams to score (first half)', rule: 'Both teams score at least once before half-time. Settled at full time.' },
-  { key: 'TG_H', group: 'Team', title: 'Home team goal / no goal', rule: 'Whether the home team scores at least once in the match.' },
-  { key: 'TG_A', group: 'Team', title: 'Away team goal / no goal', rule: 'Whether the away team scores at least once in the match.' },
-  { key: 'TOU_H', group: 'Team', title: 'Home team goals over/under 1.5', rule: 'Goals scored by the home team: over 1.5 means two or more.' },
-  { key: 'TOU_A', group: 'Team', title: 'Away team goals over/under 1.5', rule: 'Goals scored by the away team: over 1.5 means two or more.' },
-  { key: 'OE', group: 'Goals', title: 'Total goals odd/even', rule: 'Whether the match total is odd or even. 0 goals is even.' },
-  { key: 'TOT', group: 'Exact', title: 'Exact total goals', rule: 'The exact number of goals in the match, 0 to 6. The model has no match above six goals.' },
-  { key: 'SCORE', group: 'Exact', title: 'Exact final score', rule: 'The exact full-time score. All 28 scores with six or fewer goals are listed; the model has no other result.' },
-  { key: 'FIRST', group: 'Goals', title: 'First goal', rule: 'Which team scores first, or none for 0-0.' },
-  { key: 'FT_BTTS', group: 'Combined', title: 'Result and both teams to score', rule: 'The full-time result and the both-teams-to-score outcome must both be correct.' },
-  { key: 'FT_OU', group: 'Combined', title: 'Result and over/under 2.5', rule: 'The full-time result and the 2.5-goal line must both be correct.' },
-  { key: 'EH_M1', group: 'Handicap', title: 'European handicap: home (-1)', rule: 'European three-way handicap. The displayed handicap of -1 is added to the HOME team score, then the adjusted score decides 1 / X / 2. Home must win by two or more for 1; a one-goal home win is the handicap draw X; a home draw or defeat is 2. There is no push, void or refund.' },
-  { key: 'EH_P1', group: 'Handicap', title: 'European handicap: home (+1)', rule: 'European three-way handicap. The displayed handicap of +1 is added to the HOME team score, then the adjusted score decides 1 / X / 2. A home win or draw is 1; an away win by exactly one goal is the handicap draw X; away by two or more is 2. There is no push, void or refund.' },
+  {
+    key: 'FT',
+    group: 'Main',
+    title: 'Full-time result',
+    rule: '1 = home win, X = draw, 2 = away win after 90 minutes.',
+  },
+  {
+    key: 'HT',
+    group: 'Main',
+    title: 'Half-time result',
+    rule: 'Who leads at half-time. Settled at full time once the match is official.',
+  },
+  {
+    key: 'HTFT',
+    group: 'Main',
+    title: 'Half-time / full-time',
+    rule: 'Both the half-time and full-time results must match, in order. Nine combinations.',
+  },
+  {
+    key: 'DC',
+    group: 'Main',
+    title: 'Double chance',
+    rule: '1X = home win or draw, 12 = either team wins, X2 = draw or away win.',
+  },
+  {
+    key: 'OU',
+    group: 'Goals',
+    title: 'Match goals over/under',
+    rule: 'Total goals in the match against the displayed half-goal line. No pushes are possible.',
+  },
+  {
+    key: 'BTTS_FT',
+    group: 'Goals',
+    title: 'Both teams to score (full time)',
+    rule: 'Goal = both teams score at least once in the match. No goal = at least one team does not score. Goal/no-goal and yes/no labels are the same market.',
+  },
+  {
+    key: 'BTTS_HT',
+    group: 'Goals',
+    title: 'Both teams to score (first half)',
+    rule: 'Both teams score at least once before half-time. Settled at full time.',
+  },
+  {
+    key: 'TG_H',
+    group: 'Team',
+    title: 'Home team goal / no goal',
+    rule: 'Whether the home team scores at least once in the match.',
+  },
+  {
+    key: 'TG_A',
+    group: 'Team',
+    title: 'Away team goal / no goal',
+    rule: 'Whether the away team scores at least once in the match.',
+  },
+  {
+    key: 'TOU_H',
+    group: 'Team',
+    title: 'Home team goals over/under 1.5',
+    rule: 'Goals scored by the home team: over 1.5 means two or more.',
+  },
+  {
+    key: 'TOU_A',
+    group: 'Team',
+    title: 'Away team goals over/under 1.5',
+    rule: 'Goals scored by the away team: over 1.5 means two or more.',
+  },
+  {
+    key: 'OE',
+    group: 'Goals',
+    title: 'Total goals odd/even',
+    rule: 'Whether the match total is odd or even. 0 goals is even.',
+  },
+  {
+    key: 'TOT',
+    group: 'Exact',
+    title: 'Exact total goals',
+    rule: 'The exact number of goals in the match, 0 to 6. The model has no match above six goals.',
+  },
+  {
+    key: 'SCORE',
+    group: 'Exact',
+    title: 'Exact final score',
+    rule: 'The exact full-time score. All 28 scores with six or fewer goals are listed; the model has no other result.',
+  },
+  {
+    key: 'FIRST',
+    group: 'Goals',
+    title: 'First goal',
+    rule: 'Which team scores first, or none for 0-0.',
+  },
+  {
+    key: 'FT_BTTS',
+    group: 'Combined',
+    title: 'Result and both teams to score',
+    rule: 'The full-time result and the both-teams-to-score outcome must both be correct.',
+  },
+  {
+    key: 'FT_OU',
+    group: 'Combined',
+    title: 'Result and over/under 2.5',
+    rule: 'The full-time result and the 2.5-goal line must both be correct.',
+  },
+  {
+    key: 'EH_M1',
+    group: 'Handicap',
+    title: 'European handicap: home (-1)',
+    rule: 'European three-way handicap. The displayed handicap of -1 is added to the HOME team score, then the adjusted score decides 1 / X / 2. Home must win by two or more for 1; a one-goal home win is the handicap draw X; a home draw or defeat is 2. There is no push, void or refund.',
+  },
+  {
+    key: 'EH_P1',
+    group: 'Handicap',
+    title: 'European handicap: home (+1)',
+    rule: 'European three-way handicap. The displayed handicap of +1 is added to the HOME team score, then the adjusted score decides 1 / X / 2. A home win or draw is 1; an away win by exactly one goal is the handicap draw X; away by two or more is 2. There is no push, void or refund.',
+  },
 ]);
 
 const R3: ThreeWay[] = ['1', 'X', '2'];
-const result = (home: number, away: number): ThreeWay => (home > away ? '1' : home === away ? 'X' : '2');
+const result = (home: number, away: number): ThreeWay =>
+  home > away ? '1' : home === away ? 'X' : '2';
 const ft = (o: Outcome) => result(o.ftHome, o.ftAway);
 const ht = (o: Outcome) => result(o.htHome, o.htAway);
 const total = (o: Outcome) => o.ftHome + o.ftAway;
 const lineText = (tenths: number) => `${Math.floor(tenths / 10)}.${tenths % 10}`;
-const resultLabel = (r: ThreeWay, n: TeamNames) => (r === '1' ? n.home : r === '2' ? n.away : 'Draw');
+const resultLabel = (r: ThreeWay, n: TeamNames) =>
+  r === '1' ? n.home : r === '2' ? n.away : 'Draw';
 const resultWords = (r: ThreeWay, n: TeamNames) =>
   r === '1' ? `${n.home} win` : r === '2' ? `${n.away} win` : 'Draw';
 
@@ -237,9 +333,21 @@ function build(): Selection[] {
   const list: Selection[] = [];
   const add = (s: Selection) => list.push(s);
   for (const r of R3)
-    add({ id: `FT:${r}`, market: 'FT', short: r, label: (n) => `Full time: ${resultWords(r, n)}`, test: (o) => ft(o) === r });
+    add({
+      id: `FT:${r}`,
+      market: 'FT',
+      short: r,
+      label: (n) => `Full time: ${resultWords(r, n)}`,
+      test: (o) => ft(o) === r,
+    });
   for (const r of R3)
-    add({ id: `HT:${r}`, market: 'HT', short: r, label: (n) => `Half time: ${resultWords(r, n)}`, test: (o) => ht(o) === r });
+    add({
+      id: `HT:${r}`,
+      market: 'HT',
+      short: r,
+      label: (n) => `Half time: ${resultWords(r, n)}`,
+      test: (o) => ht(o) === r,
+    });
   for (const a of R3)
     for (const b of R3)
       add({
@@ -249,9 +357,27 @@ function build(): Selection[] {
         label: (n) => `Half time ${resultLabel(a, n)} / full time ${resultLabel(b, n)}`,
         test: (o) => ht(o) === a && ft(o) === b,
       });
-  add({ id: 'DC:1X', market: 'DC', short: '1X', label: (n) => `Double chance: ${n.home} or draw`, test: (o) => o.ftHome >= o.ftAway });
-  add({ id: 'DC:12', market: 'DC', short: '12', label: (n) => `Double chance: ${n.home} or ${n.away}`, test: (o) => o.ftHome !== o.ftAway });
-  add({ id: 'DC:X2', market: 'DC', short: 'X2', label: (n) => `Double chance: draw or ${n.away}`, test: (o) => o.ftHome <= o.ftAway });
+  add({
+    id: 'DC:1X',
+    market: 'DC',
+    short: '1X',
+    label: (n) => `Double chance: ${n.home} or draw`,
+    test: (o) => o.ftHome >= o.ftAway,
+  });
+  add({
+    id: 'DC:12',
+    market: 'DC',
+    short: '12',
+    label: (n) => `Double chance: ${n.home} or ${n.away}`,
+    test: (o) => o.ftHome !== o.ftAway,
+  });
+  add({
+    id: 'DC:X2',
+    market: 'DC',
+    short: 'X2',
+    label: (n) => `Double chance: draw or ${n.away}`,
+    test: (o) => o.ftHome <= o.ftAway,
+  });
   for (const line of VF_GOAL_LINES_OFFERED)
     for (const side of ['O', 'U'] as const)
       add({
@@ -267,7 +393,8 @@ function build(): Selection[] {
         id: `BTTS:${half}:${yes ? 'Y' : 'N'}`,
         market: half === 'FT' ? 'BTTS_FT' : 'BTTS_HT',
         short: yes ? 'Goal' : 'No goal',
-        label: () => `${half === 'FT' ? 'Both teams to score' : 'Both teams to score in first half'}: ${yes ? 'goal (yes)' : 'no goal (no)'}`,
+        label: () =>
+          `${half === 'FT' ? 'Both teams to score' : 'Both teams to score in first half'}: ${yes ? 'goal (yes)' : 'no goal (no)'}`,
         test: (o) => {
           const both = half === 'FT' ? o.ftHome > 0 && o.ftAway > 0 : o.htHome > 0 && o.htAway > 0;
           return both === yes;
@@ -280,7 +407,7 @@ function build(): Selection[] {
         market: team === 'H' ? 'TG_H' : 'TG_A',
         short: yes ? 'Goal' : 'No goal',
         label: (n) => `${team === 'H' ? n.home : n.away} ${yes ? 'to score' : 'not to score'}`,
-        test: (o) => ((team === 'H' ? o.ftHome : o.ftAway) > 0) === yes,
+        test: (o) => (team === 'H' ? o.ftHome : o.ftAway) > 0 === yes,
       });
   for (const team of ['H', 'A'] as const)
     for (const side of ['O', 'U'] as const)
@@ -288,29 +415,73 @@ function build(): Selection[] {
         id: `TOU:${team}:1.5:${side}`,
         market: team === 'H' ? 'TOU_H' : 'TOU_A',
         short: `${side === 'O' ? 'Over' : 'Under'} 1.5`,
-        label: (n) => `${team === 'H' ? n.home : n.away} goals ${side === 'O' ? 'over' : 'under'} 1.5`,
+        label: (n) =>
+          `${team === 'H' ? n.home : n.away} goals ${side === 'O' ? 'over' : 'under'} 1.5`,
         test: (o) => {
           const goals = team === 'H' ? o.ftHome : o.ftAway;
           return side === 'O' ? goals >= 2 : goals <= 1;
         },
       });
-  add({ id: 'OE:O', market: 'OE', short: 'Odd', label: () => 'Total goals odd', test: (o) => total(o) % 2 === 1 });
-  add({ id: 'OE:E', market: 'OE', short: 'Even', label: () => 'Total goals even', test: (o) => total(o) % 2 === 0 });
+  add({
+    id: 'OE:O',
+    market: 'OE',
+    short: 'Odd',
+    label: () => 'Total goals odd',
+    test: (o) => total(o) % 2 === 1,
+  });
+  add({
+    id: 'OE:E',
+    market: 'OE',
+    short: 'Even',
+    label: () => 'Total goals even',
+    test: (o) => total(o) % 2 === 0,
+  });
   for (let n = 0; n <= VF_MAX_GOALS; n++)
-    add({ id: `TOT:${n}`, market: 'TOT', short: String(n), label: () => `Exactly ${n} goal${n === 1 ? '' : 's'}`, test: (o) => total(o) === n });
+    add({
+      id: `TOT:${n}`,
+      market: 'TOT',
+      short: String(n),
+      label: () => `Exactly ${n} goal${n === 1 ? '' : 's'}`,
+      test: (o) => total(o) === n,
+    });
   for (let h = 0; h <= VF_MAX_GOALS; h++)
     for (let a = 0; a <= VF_MAX_GOALS - h; a++)
-      add({ id: `SCORE:${h}-${a}`, market: 'SCORE', short: `${h}-${a}`, label: (n) => `Final score ${n.home} ${h}-${a} ${n.away}`, test: (o) => o.ftHome === h && o.ftAway === a });
-  add({ id: 'FIRST:H', market: 'FIRST', short: '1', label: (n) => `${n.home} score first`, test: (o) => o.first === 'H' });
-  add({ id: 'FIRST:N', market: 'FIRST', short: 'None', label: () => 'No goal (0-0)', test: (o) => o.first === 'N' });
-  add({ id: 'FIRST:A', market: 'FIRST', short: '2', label: (n) => `${n.away} score first`, test: (o) => o.first === 'A' });
+      add({
+        id: `SCORE:${h}-${a}`,
+        market: 'SCORE',
+        short: `${h}-${a}`,
+        label: (n) => `Final score ${n.home} ${h}-${a} ${n.away}`,
+        test: (o) => o.ftHome === h && o.ftAway === a,
+      });
+  add({
+    id: 'FIRST:H',
+    market: 'FIRST',
+    short: '1',
+    label: (n) => `${n.home} score first`,
+    test: (o) => o.first === 'H',
+  });
+  add({
+    id: 'FIRST:N',
+    market: 'FIRST',
+    short: 'None',
+    label: () => 'No goal (0-0)',
+    test: (o) => o.first === 'N',
+  });
+  add({
+    id: 'FIRST:A',
+    market: 'FIRST',
+    short: '2',
+    label: (n) => `${n.away} score first`,
+    test: (o) => o.first === 'A',
+  });
   for (const r of R3)
     for (const yes of [true, false])
       add({
         id: `FTBTTS:${r}:${yes ? 'Y' : 'N'}`,
         market: 'FT_BTTS',
         short: `${r} & ${yes ? 'Goal' : 'No goal'}`,
-        label: (n) => `${resultWords(r, n)} and ${yes ? 'both teams score' : 'not both teams score'}`,
+        label: (n) =>
+          `${resultWords(r, n)} and ${yes ? 'both teams score' : 'not both teams score'}`,
         test: (o) => ft(o) === r && (o.ftHome > 0 && o.ftAway > 0) === yes,
       });
   for (const r of R3)
@@ -370,18 +541,45 @@ export function oddsCentsFor(numerator: bigint, denominator: bigint): bigint {
   return (BigInt(VF_RETURN_PERCENT) * denominator) / numerator;
 }
 
-export function priceAtoms(dist: Distribution, selections: readonly Selection[] = VF_SELECTIONS): Price[] {
+export function priceAtoms(
+  dist: Distribution,
+  selections: readonly Selection[] = VF_SELECTIONS
+): Price[] {
   return selections.map((selection) => {
     let numerator = 0n;
     for (const atom of dist.atoms) if (selection.test(atom)) numerator += atom.weight;
     if (numerator === 0n)
-      return { id: selection.id, numerator, denominator: dist.denominator, oddsCents: null, unavailable: 'IMPOSSIBLE' as const };
+      return {
+        id: selection.id,
+        numerator,
+        denominator: dist.denominator,
+        oddsCents: null,
+        unavailable: 'IMPOSSIBLE' as const,
+      };
     const odds = oddsCentsFor(numerator, dist.denominator);
     if (odds < BigInt(VF_LIMITS.minOddsCents))
-      return { id: selection.id, numerator, denominator: dist.denominator, oddsCents: null, unavailable: 'BELOW_MINIMUM' as const };
+      return {
+        id: selection.id,
+        numerator,
+        denominator: dist.denominator,
+        oddsCents: null,
+        unavailable: 'BELOW_MINIMUM' as const,
+      };
     if (odds > BigInt(VF_LIMITS.maxOddsCents))
-      return { id: selection.id, numerator, denominator: dist.denominator, oddsCents: null, unavailable: 'ABOVE_MAXIMUM' as const };
-    return { id: selection.id, numerator, denominator: dist.denominator, oddsCents: Number(odds), unavailable: null };
+      return {
+        id: selection.id,
+        numerator,
+        denominator: dist.denominator,
+        oddsCents: null,
+        unavailable: 'ABOVE_MAXIMUM' as const,
+      };
+    return {
+      id: selection.id,
+      numerator,
+      denominator: dist.denominator,
+      oddsCents: Number(odds),
+      unavailable: null,
+    };
   });
 }
 

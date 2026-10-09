@@ -28,13 +28,12 @@ const TABLES = [
 ] as const;
 const IMMUTABLE = ['football_matchweeks', 'football_fixtures', 'football_ticket_legs'];
 /** Privileges the runtime roles must never hold; checked by the staging command. */
-export const FOOTBALL_FORBIDDEN_PRIVILEGES: ReadonlyArray<readonly [string, string]> = TABLES.flatMap(
-  (table) => [
+export const FOOTBALL_FORBIDDEN_PRIVILEGES: ReadonlyArray<readonly [string, string]> =
+  TABLES.flatMap((table) => [
     [table, 'DELETE'] as const,
     [table, 'TRUNCATE'] as const,
     ...(IMMUTABLE.includes(table) ? ([[table, 'UPDATE']] as const) : []),
-  ]
-);
+  ]);
 
 /**
  * Explicit staging/operator step, never invoked by normal API requests. Least privilege:

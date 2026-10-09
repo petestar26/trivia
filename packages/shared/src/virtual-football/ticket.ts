@@ -66,32 +66,53 @@ export function parseTicketInput(raw: unknown): TicketInput {
     fail('BAD_SHAPE', 'Receipt key is invalid');
   if (typeof matchweekId !== 'string' || !MATCHWEEK_ID.test(matchweekId))
     fail('BAD_SHAPE', 'Matchweek is invalid');
-  if (rulesId !== VF_RULES_ID) fail('RULES_MISMATCH', 'These rules are out of date. Refresh the game.');
+  if (rulesId !== VF_RULES_ID)
+    fail('RULES_MISMATCH', 'These rules are out of date. Refresh the game.');
   if (!Array.isArray(lines) || lines.length < 1 || lines.length > VF_LIMITS.maxLines)
     fail('BAD_SHAPE', `A ticket needs 1 to ${VF_LIMITS.maxLines} lines`);
   const parsed: LineInput[] = (lines as unknown[]).map((line) => {
     if (!isRecord(line)) return fail('BAD_SHAPE', 'Each line must be an object');
     exact(line, ['kind', 'stake', 'legs'], 'line');
-    if (line.kind !== 'SINGLE' && line.kind !== 'MULTIPLE') fail('BAD_SHAPE', 'Line kind is invalid');
+    if (line.kind !== 'SINGLE' && line.kind !== 'MULTIPLE')
+      fail('BAD_SHAPE', 'Line kind is invalid');
     if (!isInt(line.stake)) fail('BAD_SHAPE', 'Stake must be a whole number of credits');
     const stake = line.stake as number;
     if (stake < VF_LIMITS.minLineStake || stake > VF_LIMITS.maxLineStake)
-      fail('STAKE_LIMIT', `Each line stake must be ${VF_LIMITS.minLineStake}–${VF_LIMITS.maxLineStake} credits`);
+      fail(
+        'STAKE_LIMIT',
+        `Each line stake must be ${VF_LIMITS.minLineStake}–${VF_LIMITS.maxLineStake} credits`
+      );
     if (!Array.isArray(line.legs)) return fail('BAD_SHAPE', 'Line legs must be a list');
     const legs = (line.legs as unknown[]).map((leg): LegInput => {
       if (!isRecord(leg)) return fail('BAD_SHAPE', 'Each leg must be an object');
       exact(leg, ['fixtureId', 'selection', 'oddsCents'], 'leg');
       if (typeof leg.fixtureId !== 'string' || !FIXTURE_ID.test(leg.fixtureId))
         fail('BAD_SHAPE', 'Fixture is invalid');
-      if (!parseSelection(leg.selection)) fail('UNAVAILABLE_SELECTION', 'Selection is not recognised');
-      if (!isInt(leg.oddsCents) || leg.oddsCents < VF_LIMITS.minOddsCents || leg.oddsCents > VF_LIMITS.maxOddsCents)
+      if (!parseSelection(leg.selection))
+        fail('UNAVAILABLE_SELECTION', 'Selection is not recognised');
+      if (
+        !isInt(leg.oddsCents) ||
+        leg.oddsCents < VF_LIMITS.minOddsCents ||
+        leg.oddsCents > VF_LIMITS.maxOddsCents
+      )
         fail('BAD_SHAPE', 'Odds are invalid');
-      return { fixtureId: leg.fixtureId as string, selection: leg.selection as string, oddsCents: leg.oddsCents as number };
+      return {
+        fixtureId: leg.fixtureId as string,
+        selection: leg.selection as string,
+        oddsCents: leg.oddsCents as number,
+      };
     });
     const kind = line.kind as LineKind;
-    if (kind === 'SINGLE' && legs.length !== 1) fail('MULTIPLE_SHAPE', 'A single has exactly one selection');
-    if (kind === 'MULTIPLE' && (legs.length < VF_LIMITS.minLegsPerMultiple || legs.length > VF_LIMITS.maxLegsPerMultiple))
-      fail('MULTIPLE_SHAPE', `A multiple needs ${VF_LIMITS.minLegsPerMultiple}–${VF_LIMITS.maxLegsPerMultiple} selections`);
+    if (kind === 'SINGLE' && legs.length !== 1)
+      fail('MULTIPLE_SHAPE', 'A single has exactly one selection');
+    if (
+      kind === 'MULTIPLE' &&
+      (legs.length < VF_LIMITS.minLegsPerMultiple || legs.length > VF_LIMITS.maxLegsPerMultiple)
+    )
+      fail(
+        'MULTIPLE_SHAPE',
+        `A multiple needs ${VF_LIMITS.minLegsPerMultiple}–${VF_LIMITS.maxLegsPerMultiple} selections`
+      );
     if (new Set(legs.map((l) => l.fixtureId)).size !== legs.length)
       fail('DUPLICATE_LEG', 'A multiple takes one selection per match');
     for (const leg of legs)
@@ -99,13 +120,26 @@ export function parseTicketInput(raw: unknown): TicketInput {
         fail('STALE_FIXTURE', 'Every selection must be in the same matchweek');
     return { kind, stake, legs };
   });
-  const keys = parsed.map((l) => `${l.kind}|${l.legs.map((g) => `${g.fixtureId}#${g.selection}`).sort().join(',')}`);
+  const keys = parsed.map(
+    (l) =>
+      `${l.kind}|${l.legs
+        .map((g) => `${g.fixtureId}#${g.selection}`)
+        .sort()
+        .join(',')}`
+  );
   if (new Set(keys).size !== keys.length) fail('DUPLICATE_LINE', 'Duplicate lines are not allowed');
   const totalLegs = parsed.reduce((n, l) => n + l.legs.length, 0);
-  if (totalLegs > VF_LIMITS.maxTicketLegs) fail('BAD_SHAPE', `A ticket holds at most ${VF_LIMITS.maxTicketLegs} selections`);
+  if (totalLegs > VF_LIMITS.maxTicketLegs)
+    fail('BAD_SHAPE', `A ticket holds at most ${VF_LIMITS.maxTicketLegs} selections`);
   const totalStake = parsed.reduce((n, l) => n + l.stake, 0);
-  if (totalStake > VF_LIMITS.maxTicketStake) fail('STAKE_LIMIT', `A ticket stakes at most ${VF_LIMITS.maxTicketStake} credits`);
-  return { idempotencyKey: idempotencyKey as string, matchweekId: matchweekId as string, rulesId: VF_RULES_ID, lines: parsed };
+  if (totalStake > VF_LIMITS.maxTicketStake)
+    fail('STAKE_LIMIT', `A ticket stakes at most ${VF_LIMITS.maxTicketStake} credits`);
+  return {
+    idempotencyKey: idempotencyKey as string,
+    matchweekId: matchweekId as string,
+    rulesId: VF_RULES_ID,
+    lines: parsed,
+  };
 }
 
 /* ------------------------------------------------------------------------------------- *
@@ -152,20 +186,37 @@ export function priceTicket(
       if (!price || price.oddsCents === null)
         fail('UNAVAILABLE_SELECTION', 'A selection is not available for this match');
       if (price!.oddsCents !== leg.oddsCents)
-        fail('PRICE_CHANGED', 'A displayed price no longer matches the official price. Refresh and review again.');
+        fail(
+          'PRICE_CHANGED',
+          'A displayed price no longer matches the official price. Refresh and review again.'
+        );
     }
     const product = oddsProduct(line.legs.map((l) => l.oddsCents));
     const combined = combinedOddsCents(product, line.legs.length);
     if (combined > BigInt(VF_LIMITS.maxCombinedOddsCents))
-      fail('ODDS_LIMIT', `Combined odds cannot exceed ${(VF_LIMITS.maxCombinedOddsCents / 100).toFixed(2)}×`);
+      fail(
+        'ODDS_LIMIT',
+        `Combined odds cannot exceed ${(VF_LIMITS.maxCombinedOddsCents / 100).toFixed(2)}×`
+      );
     const payout = linePayout(line.stake, product, line.legs.length);
     if (payout > BigInt(VF_LIMITS.maxLineReturn))
-      fail('RETURN_LIMIT', `A line cannot return more than ${VF_LIMITS.maxLineReturn.toLocaleString('en-US')} credits`);
+      fail(
+        'RETURN_LIMIT',
+        `A line cannot return more than ${VF_LIMITS.maxLineReturn.toLocaleString('en-US')} credits`
+      );
     totalMaxReturn += Number(payout);
-    return { ...line, oddsProduct: product, combinedOddsCents: Number(combined), maxReturn: Number(payout) };
+    return {
+      ...line,
+      oddsProduct: product,
+      combinedOddsCents: Number(combined),
+      maxReturn: Number(payout),
+    };
   });
   if (totalMaxReturn > VF_LIMITS.maxTicketReturn)
-    fail('RETURN_LIMIT', `A ticket cannot return more than ${VF_LIMITS.maxTicketReturn.toLocaleString('en-US')} credits`);
+    fail(
+      'RETURN_LIMIT',
+      `A ticket cannot return more than ${VF_LIMITS.maxTicketReturn.toLocaleString('en-US')} credits`
+    );
   return { ...input, lines, totalStake: lines.reduce((n, l) => n + l.stake, 0), totalMaxReturn };
 }
 
@@ -179,7 +230,11 @@ export function ticketRequestHash(input: TicketInput) {
       lines: input.lines.map((l) => ({
         kind: l.kind,
         stake: l.stake,
-        legs: l.legs.map((g) => ({ fixtureId: g.fixtureId, selection: g.selection, oddsCents: g.oddsCents })),
+        legs: l.legs.map((g) => ({
+          fixtureId: g.fixtureId,
+          selection: g.selection,
+          oddsCents: g.oddsCents,
+        })),
       })),
     })
   );
@@ -197,9 +252,13 @@ export function receiptHash(input: {
 
 /** A line wins only if every leg wins. Returns the integer payout, stake included. */
 export function settleLine(
-  line: Pick<PricedLine, 'stake' | 'oddsProduct'> & { legs: Array<{ fixtureId: string; selection: string }> },
+  line: Pick<PricedLine, 'stake' | 'oddsProduct'> & {
+    legs: Array<{ fixtureId: string; selection: string }>;
+  },
   outcomeOf: (fixtureId: string) => Outcome
 ): number {
-  const won = line.legs.every((leg) => parseSelection(leg.selection)!.test(outcomeOf(leg.fixtureId)));
+  const won = line.legs.every((leg) =>
+    parseSelection(leg.selection)!.test(outcomeOf(leg.fixtureId))
+  );
   return won ? Number(linePayout(line.stake, line.oddsProduct, line.legs.length)) : 0;
 }

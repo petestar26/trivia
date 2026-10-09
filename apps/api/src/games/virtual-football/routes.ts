@@ -5,14 +5,16 @@ import { ApiError } from '../../middleware/api-error.js';
 import { createFootballService } from './service.js';
 
 /** Exact string match only: any other value, including "TRUE" or "1", fails closed. */
-export const footballPracticeEnabled = () => process.env.VIRTUAL_FOOTBALL_PRACTICE_ENABLED === 'true';
+export const footballPracticeEnabled = () =>
+  process.env.VIRTUAL_FOOTBALL_PRACTICE_ENABLED === 'true';
 
 export async function footballRoutes(server: FastifyInstance) {
   const service = createFootballService(prisma);
   server.addHook('preHandler', authenticate);
   server.addHook('preHandler', async (_request, reply) => {
     reply.header('Cache-Control', 'private, no-store');
-    if (!footballPracticeEnabled()) throw ApiError.forbidden('Virtual Football practice is unavailable');
+    if (!footballPracticeEnabled())
+      throw ApiError.forbidden('Virtual Football practice is unavailable');
   });
 
   server.get<{ Querystring: { seasonNo?: number; weekNo?: number } }>(
