@@ -1089,7 +1089,7 @@ function CrashPointMark() {
 function CrashRulesContent() {
   return (
     <>
-      <div className="crash-rule-limits" aria-label="Practice limits">
+      <div className="crash-rule-limits" role="group" aria-label="Practice limits">
         <span>
           <strong>
             {rules.minStake}–{rules.maxStake}

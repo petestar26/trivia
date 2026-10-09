@@ -672,8 +672,9 @@ it('opens arena rules with keyboard access and preserves both independent drafts
   const user = userEvent.setup();
   await user.keyboard('{Enter}');
   const dialog = await screen.findByRole('dialog', { name: 'Crash Point rules' });
-  expect(within(dialog).getByText('10–500')).toBeInTheDocument();
-  expect(within(dialog).getByText('20.00×')).toBeInTheDocument();
+  const limits = within(dialog).getByRole('group', { name: 'Practice limits' });
+  expect(within(limits).getByText('10–500')).toBeInTheDocument();
+  expect(within(limits).getByText('20.00×')).toBeInTheDocument();
   expect(within(dialog).getByText(/Matching the crash multiplier also loses/)).toBeInTheDocument();
   expect(within(dialog).getByText(/Autoplay requires an auto cash-out target/)).toBeInTheDocument();
   await user.keyboard('{Escape}');
