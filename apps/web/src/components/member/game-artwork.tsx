@@ -1,5 +1,4 @@
 import {
-  TrendingUp,
   Brain,
   Gem,
   Flame,
@@ -13,9 +12,13 @@ import {
   Hash,
 } from 'lucide-react';
 
-const images: Record<string, string> = { spin_win: 'spin', turbo_keno: 'keno', dice: 'dice' };
+const images: Record<string, string> = {
+  spin_win: 'spin',
+  turbo_keno: 'keno',
+  dice: 'dice',
+  crash_point: 'crash-point',
+};
 const symbols: Record<string, typeof Brain> = {
-  crash_point: TrendingUp,
   trivia: Brain,
   number_challenge: Hash,
   thunder_derby_3d: Trophy,
