@@ -1517,6 +1517,90 @@
     transform: translateY(-3px);
   }
 }
+/* One short nose-down impact, then a quiet burning wreck until the next round.
+   Nested SVG groups keep CSS animation separate from the flight coordinates. */
+.sky-impact-plane {
+  transform: translate(10px, 16px) rotate(28deg);
+  opacity: 0.65;
+  animation: sky-plane-impact 700ms ease-in both;
+}
+.sky-impact {
+  pointer-events: none;
+  transform: translate(10px, 8px);
+  animation: sky-impact-appear 900ms ease-out both;
+}
+.sky-impact-halo {
+  opacity: 0.25;
+}
+.sky-impact-smoke {
+  opacity: 0.55;
+  animation: sky-smoke-rise 2600ms ease-out both;
+}
+.sky-impact-flames {
+  transform-origin: 0 24px;
+  animation: sky-fire-settle 1800ms ease-out both;
+}
+.sky-impact-embers {
+  opacity: 0;
+  animation: sky-embers-rise 1800ms ease-out both;
+}
+.sky-arena.crashed .sky-multiplier strong {
+  color: #ffbc88;
+  text-shadow: 0 4px 28px #031021;
+}
+@keyframes sky-plane-impact {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: translate(10px, 16px) rotate(28deg);
+    opacity: 0.65;
+  }
+}
+@keyframes sky-impact-appear {
+  0%,
+  20% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes sky-fire-settle {
+  0% {
+    transform: scale(0.35);
+  }
+  45% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes sky-smoke-rise {
+  from {
+    transform: translateY(15px) scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 0.55;
+  }
+}
+@keyframes sky-embers-rise {
+  0% {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
 .sky-result {
   background: #071320d9;
   border-color: #8197aa50;
@@ -1602,7 +1686,10 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sky-aircraft.flying {
+  .sky-aircraft.flying,
+  .sky-impact-plane,
+  .sky-impact,
+  .sky-impact * {
     animation: none;
   }
 }

@@ -107,6 +107,55 @@ it('manual cash-out sends no client multiplier or payout', async () => {
   expect(post.mock.calls[0].slice(0, 2)).toEqual(['/games/sky-crash/cashout', { roundId: 'r1' }]);
   await screen.findByText(/Cash-out confirmed at 1.10x/);
 });
+it('shows impact only after server reveal, preserves it on refresh, and resets for the next round', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  setup();
+  await screen.findByText('ROUND RUNNING');
+  expect(screen.queryByTestId('sky-crash-impact')).toBeNull();
+  // A stalled connection/local clock cannot invent a crash result.
+  elapsedTime = 5000;
+  await screen.findByText('SYNCHRONIZING');
+  expect(screen.queryByTestId('sky-crash-impact')).toBeNull();
+  snapshot = {
+    ...snapshot,
+    serverTime: snapshot.serverTime + 5000,
+    rounds: [{ ...snapshot.rounds[0], crashCents: 150, seed: 'b'.repeat(64) }],
+  };
+  await act(async () => {
+    client.setQueryData(['sky-crash', 'u1'], { snapshot, sent: 5000, received: 5000 });
+  });
+  const impact = await screen.findByTestId('sky-crash-impact');
+  expect(screen.getByText('CRASHED')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
+  await act(async () => {
+    client.setQueryData(['sky-crash', 'u1'], {
+      snapshot: { ...snapshot, serverTime: snapshot.serverTime + 100 },
+      sent: 5000,
+      received: 5000,
+    });
+  });
+  expect(screen.getByTestId('sky-crash-impact')).toBe(impact);
+  snapshot = {
+    ...snapshot,
+    rounds: [
+      {
+        ...snapshot.rounds[0],
+        id: 'r2',
+        opensAt: snapshot.serverTime - 1000,
+        startsAt: snapshot.serverTime + 14000,
+        endsAt: snapshot.serverTime + 59000,
+        crashCents: null,
+        seed: null,
+      },
+    ],
+  };
+  await act(async () => {
+    client.setQueryData(['sky-crash', 'u1'], { snapshot, sent: 5000, received: 5000 });
+  });
+  await screen.findByText('ENTRY OPEN');
+  expect(screen.queryByTestId('sky-crash-impact')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});
 it('restores a confirmed ticket and presents its server return', async () => {
   snapshot.rounds[0].crashCents = 150;
   snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
