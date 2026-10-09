@@ -717,7 +717,15 @@ describe('ledger upgrade migrations', () => {
       expect(await economicFingerprint()).toEqual(economicsBefore);
       expect(await cryptoGates()).toEqual(expectedCryptoGates);
       const upgradedCatalog = await catalogRows();
-      expect(upgradedCatalog.filter(game => game.key !== 'crash_point')).toEqual(expectedCatalog);
+      expect(upgradedCatalog.filter(game => !['crash_point', 'sky_crash'].includes(game.key))).toEqual(expectedCatalog);
+      expect(upgradedCatalog.filter(game => game.key === 'sky_crash')).toEqual([
+        expect.objectContaining({
+          key: 'sky_crash', name: 'Sky Crash', type: 'SKY_CRASH',
+          mode: 'WAGER', family: 'INSTANT', catalogStatus: 'COMING_SOON', isActive: false,
+          minBet: 10, maxBet: 500, wagerCurrency: 'COINS', rewardCurrency: 'COINS',
+          configuration: { practiceRulesId: 'sky-crash-practice90-v1' },
+        }),
+      ]);
       expect(upgradedCatalog.filter(game => game.key === 'crash_point')).toEqual([
         expect.objectContaining({
           key: 'crash_point', name: 'Crash Point', type: 'CRASH_POINT',
