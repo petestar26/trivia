@@ -267,7 +267,9 @@ export default function RaceScene({
     let frame = 0,
       last = 0;
     let displayed = round.positions.map((p) => p * 180);
-    const sampleMotion = createRaceMotion(displayed);
+    let sampleMotion = createRaceMotion(displayed);
+    let renderedRound = round.id;
+    const lastTravel = horses.map(() => -Infinity);
     const resize = () => {
       const w = container.clientWidth,
         h = container.clientHeight;
@@ -285,6 +287,12 @@ export default function RaceScene({
       last = time;
       const state = live.current,
         moving = state.running && !state.reduced;
+      // Reuse the scene and GPU resources across rounds. Reset only interpolation.
+      if (renderedRound !== state.round.id) {
+        renderedRound = state.round.id;
+        displayed = state.round.positions.map((p) => p * 180);
+        sampleMotion = createRaceMotion(displayed);
+      }
       const previous = displayed;
       displayed = sampleMotion(
         time,
@@ -293,13 +301,15 @@ export default function RaceScene({
       );
       horses.forEach((horse, i) => {
         horse.root.position.x = displayed[i];
-        horse.animate(time / 1000, moving && Math.abs(displayed[i] - previous[i]) > 0.00001);
+        if (Math.abs(displayed[i] - previous[i]) > 0.00001) lastTravel[i] = time;
+        // Brief polling jitter must not switch the rig to a standing pose each update.
+        horse.animate(time / 1000, moving && time - lastTravel[i] < 400);
       });
       const lead = Math.max(...displayed),
         center = lead - 3;
-      camera.position.set(center + 5, 4.5, camera.aspect < 1.2 ? 27 : 23);
+      camera.position.set(center + 13, 5.2, camera.aspect < 1.2 ? 25 : 21);
       camera.lookAt(center, 2.2, 0);
-      backdrop.position.x = center + 25;
+      backdrop.position.x = center - 35;
       sun.position.set(center + 30, 40, 20);
       sun.target.position.set(center, 0, 0);
       renderer.render(scene, camera);
@@ -316,7 +326,7 @@ export default function RaceScene({
       textures.forEach((t) => t.dispose());
       renderer.domElement.remove();
     };
-  }, [round.field, round.id]);
+  }, [round.field]);
   return (
     <div
       className="derby-scene"

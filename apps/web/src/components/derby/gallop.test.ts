@@ -43,7 +43,12 @@ describe('horse locomotion', () => {
   });
   it('holds a stable standing pose when motion is disabled', () => {
     expect(gallopPose(0, 0, false)).toEqual(gallopPose(12345, 7, false));
-    expect(gallopPose(0, 0, false).feet.every((f) => f.contact)).toBe(true);
+    const standing = gallopPose(0, 0, false);
+    expect(standing.feet.every((f) => f.contact)).toBe(true);
+    standing.feet.forEach((f) => {
+      expect(f.y + standing.bounce).toBeCloseTo(0.12, 8);
+      expect(Math.hypot(f.x, f.y - 1.68)).toBeLessThan(1.81);
+    });
     expect(legJoint(0, 0, false)).toEqual(
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })
     );

@@ -6,9 +6,9 @@ export const FOOTFALLS = [0, 0.14, 0.4, 0.54] as const;
 const tau = Math.PI * 2;
 export function gallopPose(seconds: number, horse: number, moving: boolean) {
   const cycle = moving ? (((seconds / STRIDE_SECONDS + horse * 0.173) % 1) + 1) % 1 : 0;
-  const bounce = moving ? 0.045 + (0.09 * (1 + Math.sin(cycle * tau - 1.1))) / 2 : 0;
+  const bounce = moving ? 0.045 + (0.09 * (1 + Math.sin(cycle * tau - 1.1))) / 2 : 0.24;
   const feet = FOOTFALLS.map((offset, leg) => {
-    if (!moving) return { x: leg < 2 ? -0.12 : 0.12, y: 0.12, contact: true };
+    if (!moving) return { x: leg < 2 ? -0.12 : 0.12, y: 0.12 - bounce, contact: true };
     const phase = (cycle - offset + 1) % 1;
     const contact = phase < CONTACT_FRACTION;
     const swing = (phase - CONTACT_FRACTION) / (1 - CONTACT_FRACTION);
