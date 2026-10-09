@@ -30,6 +30,41 @@ type Entry = {
   stake: number;
 };
 const endpoint = '/games/thunder-derby';
+function FinishOrder({ round, previous = false }: { round: DerbyRound; previous?: boolean }) {
+  if (!round.order?.length) return null;
+  const winner = DERBY_HORSES[round.order[0] - 1];
+  return (
+    <section className="derby-results" aria-label="Official finishing order">
+      <div className="derby-winner">
+        <span className="derby-winner-medal" aria-hidden="true">
+          1
+        </span>
+        <div>
+          <span className="derby-eyebrow">
+            {previous ? 'LATEST COMPLETED RACE' : 'OFFICIAL RESULT'}
+          </span>
+          <h3 role="status">
+            Winner · #{round.order[0]} {winner.name}
+          </h3>
+          <p>
+            {round.field} runners · {round.id}
+          </p>
+        </div>
+      </div>
+      <ol className="derby-finish-order" aria-label="First to last">
+        {round.order.map((number, index) => (
+          <li key={number}>
+            <span className="derby-place">
+              {index < 3 ? ['1st', '2nd', '3rd'][index] : `${index + 1}th`}
+            </span>
+            <b style={{ backgroundColor: DERBY_HORSES[number - 1].color }}>#{number}</b>
+            <span>{DERBY_HORSES[number - 1].name}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 export function ThunderDerbyPage() {
   const { user } = useAuth();
   return user ? <DerbyConnected key={user.id} userId={user.id} /> : null;
@@ -181,6 +216,9 @@ export function DerbyView({
     fresh = now - updatedAt < 6000 && available;
   const open = serverNow >= round.opensAt && serverNow < round.startsAt,
     running = serverNow >= round.startsAt && serverNow < round.finishesAt;
+  const latestFinished = data.rounds
+    .filter((r) => r.field === field && r.order?.length === field && r.finishesAt <= serverNow)
+    .sort((a, b) => b.finishesAt - a.finishesAt)[0];
   const odds = derbyOddsCents(field, market),
     count = derbySelectionCount(market),
     valid =
@@ -335,6 +373,9 @@ export function DerbyView({
               <strong>{clock}</strong>
             </div>
           </div>
+          {latestFinished && (
+            <FinishOrder round={latestFinished} previous={latestFinished.id !== round.id} />
+          )}
           <Suspense fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}>
             <RaceScene round={round} running={running && fresh} reduced={reduced} />
           </Suspense>
@@ -364,18 +405,6 @@ export function DerbyView({
               </div>
             ))}
           </div>
-          {round.order && (
-            <div className="derby-podium">
-              <span>OFFICIAL TOP THREE</span>
-              {round.order.slice(0, 3).map((n, i) => (
-                <button key={n} onClick={() => setDetails(round)}>
-                  <small>{['1st', '2nd', '3rd'][i]}</small>
-                  <b style={{ color: DERBY_HORSES[n - 1].color }}>#{n}</b>
-                  {DERBY_HORSES[n - 1].name}
-                </button>
-              ))}
-            </div>
-          )}
         </section>
         <aside className="derby-slip">
           <span className="derby-eyebrow">YOUR RACE SELECTION</span>
@@ -569,7 +598,7 @@ export function DerbyView({
           <Dialog.Content className="derby-dialog">
             <Dialog.Title>Official race result</Dialog.Title>
             <Dialog.Description>{details?.id}</Dialog.Description>
-            <p>Finish order: {details?.order?.join(' → ')}</p>
+            {details && <FinishOrder round={details} />}
             {details?.ticket && (
               <p>Your selection returned {details.ticket.payout ?? 'pending'} credits.</p>
             )}
