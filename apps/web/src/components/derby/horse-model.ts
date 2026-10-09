@@ -26,6 +26,7 @@ export function createHorse(
     roughness: 0.56,
     clearcoat: 0.12,
     clearcoatRoughness: 0.65,
+    vertexColors: true,
   });
   resources.materials.push(coat);
   const coatCanvas = document.createElement('canvas');
@@ -66,6 +67,15 @@ export function createHorse(
     y = 0,
     z = 0
   ) {
+    if (m === coat && !geo.getAttribute('color')) {
+      geo.setAttribute(
+        'color',
+        new THREE.Float32BufferAttribute(
+          new Float32Array(geo.getAttribute('position').count * 3).fill(1),
+          3
+        )
+      );
+    }
     resources.geometries.push(geo);
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(x, y, z);
@@ -106,6 +116,7 @@ export function createHorse(
   function surface(parent: THREE.Object3D, profiles: number[][], m: THREE.Material) {
     const path = new THREE.CatmullRomCurve3(profiles.map((p) => new THREE.Vector3(p[0], p[1], 0)));
     const radii = new THREE.CatmullRomCurve3(profiles.map((p) => new THREE.Vector3(p[2], p[3], 0)));
+    const colors: number[] = [];
     const vertices: number[] = [],
       uv: number[] = [],
       indices: number[] = [];
@@ -124,6 +135,11 @@ export function createHorse(
           c.y + d.x * height,
           Math.sin(a) * Math.max(0.002, radius.y)
         );
+        // Subtle anatomical coat variation: darker belly and warm flank highlights.
+        // Vertex shading follows the surface rather than a repeating painted stripe.
+        const light = 0.76 + 0.24 * ((Math.cos(a) + 1) / 2);
+        const flank = 0.035 * Math.sin(t * Math.PI * 3) * Math.sin(a) ** 2;
+        colors.push(light + flank, light + flank * 0.6, light);
         uv.push(t, s / sides);
         if (r < rings && s < sides) {
           const n = r * (sides + 1) + s;
@@ -134,6 +150,7 @@ export function createHorse(
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return add(parent, geo, m);

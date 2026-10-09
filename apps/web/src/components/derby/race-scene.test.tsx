@@ -40,6 +40,7 @@ beforeEach(() => {
     arc() {},
     fill() {},
     fillText() {},
+    createRadialGradient: () => ({ addColorStop() {} }),
   } as unknown as CanvasRenderingContext2D);
   vi.stubGlobal(
     'ResizeObserver',

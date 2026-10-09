@@ -111,7 +111,10 @@ it('opens readable rules and official race details', () => {
   expect(screen.getByRole('dialog')).toHaveTextContent('One selection per race');
   fireEvent.click(screen.getByRole('button', { name: 'Close rules' }));
   fireEvent.click(screen.getByRole('button', { name: 'Open result old-race' }));
-  expect(screen.getByRole('dialog')).toHaveTextContent('2 → 1 → 3 → 4 → 5 → 6');
+  expect(
+    within(screen.getByRole('dialog')).getByRole('list', { name: 'First to last' }).children
+  ).toHaveLength(6);
+  expect(screen.getByRole('dialog')).toHaveTextContent('Winner · #2 Midnight Blue');
 });
 it('switches between six- and eight-runner fields', () => {
   const { field } = setup();
@@ -143,4 +146,63 @@ it('uses unordered wording for Quinella review and receipt', () => {
   setup();
   expect(screen.getByRole('status')).toHaveTextContent('#1 & #3');
   expect(screen.getByRole('status')).not.toHaveTextContent('→');
+});
+
+it.each([6, 8] as const)(
+  'shows every official finisher above the track for %i runners',
+  (field) => {
+    const order = field === 6 ? [5, 2, 1, 6, 4, 3] : [8, 2, 7, 6, 4, 3, 1, 5];
+    Object.assign(data.rounds[0], { field, order, finishesAt: Date.now() - 1000 });
+    setup({ field });
+    const result = screen.getByRole('region', { name: 'Official finishing order' });
+    const rows = within(result).getAllByRole('listitem');
+    expect(rows).toHaveLength(field);
+    order.forEach((number, index) => expect(rows[index]).toHaveTextContent(`#${number}`));
+    expect(within(result).getByRole('status')).toHaveTextContent(`Winner · #${order[0]}`);
+    expect(
+      result.compareDocumentPosition(screen.getByText('3D race fixture')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  }
+);
+it('keeps the latest same-field result visible during the next round', () => {
+  const old = {
+    ...data.rounds[0],
+    id: 'previous',
+    finishesAt: Date.now() - 1000,
+    order: [3, 1, 2, 4, 6, 5],
+  };
+  data.rounds.push(old, {
+    ...old,
+    id: 'older',
+    finishesAt: Date.now() - 5000,
+    order: [1, 2, 3, 4, 5, 6],
+  });
+  setup();
+  const result = screen.getByRole('region', { name: 'Official finishing order' });
+  expect(result).toHaveTextContent('LATEST COMPLETED RACE');
+  expect(result).toHaveTextContent('Winner · #3 Silver Comet');
+  expect(within(result).getAllByRole('listitem')).toHaveLength(6);
+});
+it('does not infer a winner from live positions or show another field result', () => {
+  data.rounds[0].positions = [0.99, 0.2, 0.1, 0.3, 0.2, 0.1];
+  data.rounds.push({
+    ...data.rounds[0],
+    field: 8,
+    id: 'other-field',
+    finishesAt: Date.now() - 1000,
+    order: [1, 2, 3, 4, 5, 6, 7, 8],
+  });
+  setup();
+  expect(
+    screen.queryByRole('region', { name: 'Official finishing order' })
+  ).not.toBeInTheDocument();
+});
+
+it('waits for the official finish time even if an order is present early', () => {
+  data.rounds[0].order = [1, 2, 3, 4, 5, 6];
+  setup();
+  expect(
+    screen.queryByRole('region', { name: 'Official finishing order' })
+  ).not.toBeInTheDocument();
 });

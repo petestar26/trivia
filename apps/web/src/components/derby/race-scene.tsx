@@ -59,17 +59,17 @@ export default function RaceScene({
     scene.background = new THREE.Color('#bad1dc');
     scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
-    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 1.7));
+    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 1.25));
     const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
     sun.position.set(30, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.normalBias = 0.025;
     sun.shadow.bias = -0.00015;
-    sun.shadow.camera.left = -40;
-    sun.shadow.camera.right = 40;
-    sun.shadow.camera.top = 40;
-    sun.shadow.camera.bottom = -40;
+    sun.shadow.camera.left = -25;
+    sun.shadow.camera.right = 25;
+    sun.shadow.camera.top = 25;
+    sun.shadow.camera.bottom = -25;
     scene.add(sun);
     scene.add(sun.target);
     const materials: THREE.Material[] = [];
@@ -276,6 +276,34 @@ export default function RaceScene({
       root.position.set(0, 0, (i - (round.field - 1) / 2) * 2.15);
       return horse;
     });
+    // Soft contact shadows anchor each horse to the turf between moving leg shadows.
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = shadowCanvas.height = 64;
+    const shadowContext = shadowCanvas.getContext('2d');
+    if (shadowContext) {
+      const gradient = shadowContext.createRadialGradient(32, 32, 2, 32, 32, 31);
+      gradient.addColorStop(0, 'rgba(20,18,12,0.32)');
+      gradient.addColorStop(1, 'rgba(20,18,12,0)');
+      shadowContext.fillStyle = gradient;
+      shadowContext.fillRect(0, 0, 64, 64);
+    }
+    const contactTexture = new THREE.CanvasTexture(shadowCanvas);
+    textures.push(contactTexture);
+    const contactMaterial = new THREE.MeshBasicMaterial({
+      map: contactTexture,
+      transparent: true,
+      depthWrite: false,
+    });
+    materials.push(contactMaterial);
+    const contactGeometry = new THREE.PlaneGeometry(4.5, 1.8);
+    geometries.push(contactGeometry);
+    const contacts = horses.map((horse) => {
+      const contact = new THREE.Mesh(contactGeometry, contactMaterial);
+      contact.rotation.x = -Math.PI / 2;
+      contact.position.set(0, 0.047, horse.root.position.z);
+      scene.add(contact);
+      return contact;
+    });
     let frame = 0,
       last = 0;
     let displayed = round.positions.map((p) => p * 180);
@@ -318,6 +346,7 @@ export default function RaceScene({
       );
       horses.forEach((horse, i) => {
         horse.root.position.x = displayed[i];
+        contacts[i].position.x = displayed[i];
         if (Math.abs(displayed[i] - previous[i]) > 0.00001) lastTravel[i] = time;
         // Brief polling jitter must not switch the rig to a standing pose each update.
         horse.animate(
@@ -358,13 +387,13 @@ export default function RaceScene({
     <div
       className="derby-scene"
       ref={host}
-      aria-label="Three-dimensional horse race. Official results appear below."
+      aria-label="Three-dimensional horse race. Official finishing order appears above."
       role="img"
     >
       {failed && (
         <div className="derby-scene-fallback">
           3D view unavailable on this device. Follow the numbered race progress and official results
-          below.
+          above.
         </div>
       )}
     </div>
