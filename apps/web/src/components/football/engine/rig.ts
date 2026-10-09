@@ -7,9 +7,25 @@ import * as THREE from 'three';
  * mesh, so poses never leak between players.
  */
 export const BONES = [
-  'hips', 'spine', 'chest', 'neck', 'head',
-  'upperArmL', 'foreArmL', 'handL', 'upperArmR', 'foreArmR', 'handR',
-  'upperLegL', 'lowerLegL', 'footL', 'toeL', 'upperLegR', 'lowerLegR', 'footR', 'toeR',
+  'hips',
+  'spine',
+  'chest',
+  'neck',
+  'head',
+  'upperArmL',
+  'foreArmL',
+  'handL',
+  'upperArmR',
+  'foreArmR',
+  'handR',
+  'upperLegL',
+  'lowerLegL',
+  'footL',
+  'toeL',
+  'upperLegR',
+  'lowerLegR',
+  'footR',
+  'toeR',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 export type Side = 'L' | 'R';
@@ -60,7 +76,16 @@ export function restPosition(name: BoneName): THREE.Vector3 {
 /* ------------------------------------------------------------------------------------- *
  * Geometry
  * ------------------------------------------------------------------------------------- */
-export const Region = { SKIN: 0, SHIRT: 1, SHORTS: 2, SOCK: 3, BOOT: 4, HAIR: 5, GLOVE: 6, FOREARM: 7 } as const;
+export const Region = {
+  SKIN: 0,
+  SHIRT: 1,
+  SHORTS: 2,
+  SOCK: 3,
+  BOOT: 4,
+  HAIR: 5,
+  GLOVE: 6,
+  FOREARM: 7,
+} as const;
 type RegionId = (typeof Region)[keyof typeof Region];
 type Weights = Array<[BoneName, number]>;
 interface Ring {
@@ -122,26 +147,44 @@ function normalise(w: Weights): Weights {
   const sum = sorted.reduce((s, [, x]) => s + x, 0) || 1;
   return sorted.map(([n, x]) => [n, x / sum]);
 }
-const blend = (a: BoneName, b: BoneName, t: number): Weights => [[a, 1 - clamp01(t)], [b, clamp01(t)]];
+const blend = (a: BoneName, b: BoneName, t: number): Weights => [
+  [a, 1 - clamp01(t)],
+  [b, clamp01(t)],
+];
 const ease = (t: number) => clamp01(t) * clamp01(t) * (3 - 2 * clamp01(t));
 
 function buildTorso(b: Builder) {
   const shirtShorts = (y: number): RegionId => (y >= 0.96 ? Region.SHIRT : Region.SHORTS);
   const rows: Array<[number, number, number]> = [
-    [0.84, 0.15, 0.1], [0.92, 0.17, 0.108], [0.96, 0.168, 0.106], [0.96, 0.168, 0.106],
-    [1.04, 0.158, 0.101], [1.14, 0.158, 0.1], [1.26, 0.176, 0.113], [1.37, 0.197, 0.118],
-    [1.44, 0.202, 0.114], [1.49, 0.155, 0.092], [1.53, 0.075, 0.072], [1.545, 0.052, 0.052],
+    [0.84, 0.15, 0.1],
+    [0.92, 0.17, 0.108],
+    [0.96, 0.168, 0.106],
+    [0.96, 0.168, 0.106],
+    [1.04, 0.158, 0.101],
+    [1.14, 0.158, 0.1],
+    [1.26, 0.176, 0.113],
+    [1.37, 0.197, 0.118],
+    [1.44, 0.202, 0.114],
+    [1.49, 0.155, 0.092],
+    [1.53, 0.075, 0.072],
+    [1.545, 0.052, 0.052],
   ];
   const rings: Ring[] = rows.map(([y, rx, rz], i) => {
     const w: Weights =
-      y <= 0.95 ? [['hips', 1]]
-      : y <= 1.05 ? blend('hips', 'spine', ease((y - 0.95) / 0.1))
-      : y <= 1.2 ? [['spine', 1]]
-      : y <= 1.32 ? blend('spine', 'chest', ease((y - 1.2) / 0.12))
-      : y <= 1.48 ? [['chest', 1]]
-      : blend('chest', 'neck', ease((y - 1.48) / 0.07));
+      y <= 0.95
+        ? [['hips', 1]]
+        : y <= 1.05
+          ? blend('hips', 'spine', ease((y - 0.95) / 0.1))
+          : y <= 1.2
+            ? [['spine', 1]]
+            : y <= 1.32
+              ? blend('spine', 'chest', ease((y - 1.2) / 0.12))
+              : y <= 1.48
+                ? [['chest', 1]]
+                : blend('chest', 'neck', ease((y - 1.48) / 0.07));
     // The duplicated ring at 0.96 gives a crisp shirt/shorts boundary.
-    const region: RegionId = i === 2 ? Region.SHORTS : i === 3 ? Region.SHIRT : y > 1.5 ? Region.SKIN : shirtShorts(y);
+    const region: RegionId =
+      i === 2 ? Region.SHORTS : i === 3 ? Region.SHIRT : y > 1.5 ? Region.SKIN : shirtShorts(y);
     return { c: [0, y, 0], rx, rz, region, w };
   });
   b.loft(rings, 20, 'y');
@@ -153,30 +196,55 @@ function buildLeg(b: Builder, side: Side) {
   const lower: BoneName = `lowerLeg${side}`;
   const foot: BoneName = `foot${side}`;
   const rows: Array<[number, number, number, RegionId]> = [
-    [0.94, 0.112, 0.108, Region.SHORTS], [0.84, 0.1, 0.098, Region.SHORTS], [0.7, 0.087, 0.085, Region.SHORTS],
-    [0.68, 0.083, 0.082, Region.SHORTS], [0.68, 0.083, 0.082, Region.SKIN], [0.58, 0.07, 0.072, Region.SKIN],
-    [0.5, 0.062, 0.066, Region.SKIN], [0.44, 0.064, 0.07, Region.SKIN], [0.44, 0.064, 0.07, Region.SOCK],
-    [0.36, 0.063, 0.072, Region.SOCK], [0.24, 0.05, 0.054, Region.SOCK], [0.14, 0.04, 0.043, Region.SOCK],
-    [0.1, 0.038, 0.04, Region.SOCK], [0.085, 0.034, 0.036, Region.SOCK],
+    [0.94, 0.112, 0.108, Region.SHORTS],
+    [0.84, 0.1, 0.098, Region.SHORTS],
+    [0.7, 0.087, 0.085, Region.SHORTS],
+    [0.68, 0.083, 0.082, Region.SHORTS],
+    [0.68, 0.083, 0.082, Region.SKIN],
+    [0.58, 0.07, 0.072, Region.SKIN],
+    [0.5, 0.062, 0.066, Region.SKIN],
+    [0.44, 0.064, 0.07, Region.SKIN],
+    [0.44, 0.064, 0.07, Region.SOCK],
+    [0.36, 0.063, 0.072, Region.SOCK],
+    [0.24, 0.05, 0.054, Region.SOCK],
+    [0.14, 0.04, 0.043, Region.SOCK],
+    [0.1, 0.038, 0.04, Region.SOCK],
+    [0.085, 0.034, 0.036, Region.SOCK],
   ];
   const rings: Ring[] = rows.map(([y, rx, rz, region]) => ({
     c: [0.1 * sx, y, 0],
-    rx, rz, region,
+    rx,
+    rz,
+    region,
     w:
-      y >= 0.58 ? [[upper, 1]]
-      : y >= 0.44 ? blend(upper, lower, ease((0.58 - y) / 0.14))
-      : y >= 0.14 ? [[lower, 1]]
-      : blend(lower, foot, ease((0.14 - y) / 0.06)),
+      y >= 0.58
+        ? [[upper, 1]]
+        : y >= 0.44
+          ? blend(upper, lower, ease((0.58 - y) / 0.14))
+          : y >= 0.14
+            ? [[lower, 1]]
+            : blend(lower, foot, ease((0.14 - y) / 0.06)),
   }));
   b.loft(rings, 14, 'y');
   // Boot: a lofted shoe along +Z, skinned to the foot bone.
   const ankle = restPosition(foot);
   const shoe: Array<[number, number, number, number]> = [
-    [-0.07, 0.02, 0.036, 0.04], [-0.06, 0.0, 0.045, 0.062], [-0.02, -0.005, 0.05, 0.068],
-    [0.06, -0.012, 0.05, 0.05], [0.13, -0.025, 0.047, 0.036], [0.2, -0.04, 0.04, 0.026], [0.24, -0.052, 0.022, 0.014],
+    [-0.07, 0.02, 0.036, 0.04],
+    [-0.06, 0.0, 0.045, 0.062],
+    [-0.02, -0.005, 0.05, 0.068],
+    [0.06, -0.012, 0.05, 0.05],
+    [0.13, -0.025, 0.047, 0.036],
+    [0.2, -0.04, 0.04, 0.026],
+    [0.24, -0.052, 0.022, 0.014],
   ];
   b.loft(
-    shoe.map(([z, y, rx, ry]) => ({ c: [ankle.x, ankle.y + y, ankle.z + z] as V3, rx, rz: ry, region: Region.BOOT, w: [[foot, 1]] as Weights })),
+    shoe.map(([z, y, rx, ry]) => ({
+      c: [ankle.x, ankle.y + y, ankle.z + z] as V3,
+      rx,
+      rz: ry,
+      region: Region.BOOT,
+      w: [[foot, 1]] as Weights,
+    })),
     12,
     'z'
   );
@@ -188,20 +256,36 @@ function buildArm(b: Builder, side: Side) {
   const fore: BoneName = `foreArm${side}`;
   const hand: BoneName = `hand${side}`;
   const rows: Array<[number, number, RegionId]> = [
-    [1.47, 0.04, Region.SHIRT], [1.44, 0.062, Region.SHIRT], [1.36, 0.057, Region.SHIRT], [1.27, 0.05, Region.SHIRT],
-    [1.255, 0.05, Region.SKIN], [1.18, 0.045, Region.SKIN], [1.15, 0.043, Region.FOREARM],
-    [1.06, 0.04, Region.FOREARM], [0.95, 0.034, Region.FOREARM], [0.9, 0.029, Region.FOREARM], [0.89, 0.034, Region.GLOVE],
-    [0.83, 0.04, Region.GLOVE], [0.78, 0.034, Region.GLOVE], [0.74, 0.012, Region.GLOVE],
+    [1.47, 0.04, Region.SHIRT],
+    [1.44, 0.062, Region.SHIRT],
+    [1.36, 0.057, Region.SHIRT],
+    [1.27, 0.05, Region.SHIRT],
+    [1.255, 0.05, Region.SKIN],
+    [1.18, 0.045, Region.SKIN],
+    [1.15, 0.043, Region.FOREARM],
+    [1.06, 0.04, Region.FOREARM],
+    [0.95, 0.034, Region.FOREARM],
+    [0.9, 0.029, Region.FOREARM],
+    [0.89, 0.034, Region.GLOVE],
+    [0.83, 0.04, Region.GLOVE],
+    [0.78, 0.034, Region.GLOVE],
+    [0.74, 0.012, Region.GLOVE],
   ];
   const rings: Ring[] = rows.map(([y, r, region]) => ({
     c: [0.235 * sx + (1.44 - y) * 0.02 * sx, y, 0],
-    rx: r, rz: r * 0.92, region,
+    rx: r,
+    rz: r * 0.92,
+    region,
     w:
-      y >= 1.2 ? [[upper, 1]]
-      : y >= 1.1 ? blend(upper, fore, ease((1.2 - y) / 0.1))
-      : y >= 0.92 ? [[fore, 1]]
-      : y >= 0.86 ? blend(fore, hand, ease((0.92 - y) / 0.06))
-      : [[hand, 1]],
+      y >= 1.2
+        ? [[upper, 1]]
+        : y >= 1.1
+          ? blend(upper, fore, ease((1.2 - y) / 0.1))
+          : y >= 0.92
+            ? [[fore, 1]]
+            : y >= 0.86
+              ? blend(fore, hand, ease((0.92 - y) / 0.06))
+              : [[hand, 1]],
   }));
   b.loft(rings, 12, 'y');
 }
@@ -216,15 +300,27 @@ function buildHead(b: Builder) {
     const k = Math.max(0.0001, Math.sin(phi));
     rings.push({
       c: [0, y, 0.004 + Math.sin(phi) * 0.004],
-      rx: 0.086 * k, rz: 0.1 * k,
-      region: (theta) => (y > cy + 0.025 && Math.sin(theta) < 0.55 ? Region.HAIR : y > cy - 0.01 && Math.sin(theta) < -0.35 ? Region.HAIR : Region.SKIN),
+      rx: 0.086 * k,
+      rz: 0.1 * k,
+      region: (theta) =>
+        y > cy + 0.025 && Math.sin(theta) < 0.55
+          ? Region.HAIR
+          : y > cy - 0.01 && Math.sin(theta) < -0.35
+            ? Region.HAIR
+            : Region.SKIN,
       w: [['head', 1]],
     });
   }
   b.loft(rings, 16, 'y');
   // neck
   b.loft(
-    [1.5, 1.56, 1.62].map((y, i) => ({ c: [0, y, 0] as V3, rx: 0.052 - i * 0.003, rz: 0.054 - i * 0.003, region: Region.SKIN, w: (i === 0 ? blend('chest', 'neck', 0.8) : [['neck', 1]]) as Weights })),
+    [1.5, 1.56, 1.62].map((y, i) => ({
+      c: [0, y, 0] as V3,
+      rx: 0.052 - i * 0.003,
+      rz: 0.054 - i * 0.003,
+      region: Region.SKIN,
+      w: (i === 0 ? blend('chest', 'neck', 0.8) : [['neck', 1]]) as Weights,
+    })),
     12,
     'y'
   );
@@ -289,7 +385,11 @@ export interface Look {
 export const SKIN_TONES = ['#f2c7a0', '#d99c73', '#a86b45', '#6f4328', '#f5d6b8'];
 export const HAIR_TONES = ['#1d1a18', '#4a2f1d', '#a9783b', '#d8c079', '#0f0e10'];
 
-export function kitFromClub(kit: { primary: string; secondary: string; pattern: KitPattern }): KitLook {
+export function kitFromClub(kit: {
+  primary: string;
+  secondary: string;
+  pattern: KitPattern;
+}): KitLook {
   return { ...kit, shorts: kit.secondary, socks: kit.primary };
 }
 
@@ -305,7 +405,8 @@ export interface LookGeometry {
 export function lookGeometry(look: Look): LookGeometry {
   const base = humanGeometry();
   const geometry = new THREE.BufferGeometry();
-  for (const name of ['position', 'normal', 'skinIndex', 'skinWeight'] as const) geometry.setAttribute(name, base.geometry.getAttribute(name));
+  for (const name of ['position', 'normal', 'skinIndex', 'skinWeight'] as const)
+    geometry.setAttribute(name, base.geometry.getAttribute(name));
   geometry.setIndex(base.geometry.getIndex());
   const count = base.region.length;
   const color = new Float32Array(count * 3);
@@ -355,12 +456,18 @@ export function kitTexture(kit: KitLook): THREE.CanvasTexture {
   ctx.fillStyle = kit.primary;
   ctx.fillRect(0, 0, 256, h);
   ctx.fillStyle = kit.secondary;
-  if (kit.pattern === 'stripes') for (let i = 0; i < 12; i += 2) ctx.fillRect((i * 256) / 12, 0, 256 / 12, h);
-  else if (kit.pattern === 'hoops') for (let i = 0; i < 8; i += 2) ctx.fillRect(0, (i * h) / 8, 256, h / 8);
-  else if (kit.pattern === 'halves') ctx.fillRect(64, 0, 128, h); // the character's right half
+  if (kit.pattern === 'stripes')
+    for (let i = 0; i < 12; i += 2) ctx.fillRect((i * 256) / 12, 0, 256 / 12, h);
+  else if (kit.pattern === 'hoops')
+    for (let i = 0; i < 8; i += 2) ctx.fillRect(0, (i * h) / 8, 256, h / 8);
+  else if (kit.pattern === 'halves')
+    ctx.fillRect(64, 0, 128, h); // the character's right half
   else if (kit.pattern === 'sash') {
     // Front centre is u = 0.75, back centre u = 0.25 (u runs against the heading angle).
-    for (const [a, b, c, d] of [[150, 186, 236, 200], [22, 58, 108, 72]]) {
+    for (const [a, b, c, d] of [
+      [150, 186, 236, 200],
+      [22, 58, 108, 72],
+    ]) {
       ctx.beginPath();
       ctx.moveTo(a, 0);
       ctx.lineTo(b, 0);
@@ -416,7 +523,11 @@ export function createRig(material: THREE.Material, lookGeo: THREE.BufferGeometr
   root.add(mesh);
   mesh.bind(skeleton, mesh.matrixWorld);
   return {
-    root, bones, mesh, skeleton, plate: null,
+    root,
+    bones,
+    mesh,
+    skeleton,
+    plate: null,
     dispose() {
       skeleton.dispose();
       root.removeFromParent();

@@ -1,14 +1,41 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { blendTo, capture, DIVE_CONTACT, DIVE_DURATION, diveRoot, KICK, kickGeometry, poseCelebrate, poseIdle, poseKeeperDive, poseKeeperReady, poseKick, poseRun, STANCE_ANKLE, stanceDuty, strideLength } from './poses';
+import {
+  blendTo,
+  capture,
+  DIVE_CONTACT,
+  DIVE_DURATION,
+  diveRoot,
+  KICK,
+  kickGeometry,
+  poseCelebrate,
+  poseIdle,
+  poseKeeperDive,
+  poseKeeperReady,
+  poseKick,
+  poseRun,
+  STANCE_ANKLE,
+  stanceDuty,
+  strideLength,
+} from './poses';
 import { BONES, createRig, DIM, humanGeometry, kitFromClub, lookGeometry, type Rig } from './rig';
 
 function makeRig(): Rig {
-  const look = lookGeometry({ kit: kitFromClub({ primary: '#ff0000', secondary: '#ffffff', pattern: 'solid' }), skin: '#d99c73', hair: '#222222' });
+  const look = lookGeometry({
+    kit: kitFromClub({ primary: '#ff0000', secondary: '#ffffff', pattern: 'solid' }),
+    skin: '#d99c73',
+    hair: '#222222',
+  });
   return createRig(new THREE.MeshBasicMaterial(), look.geometry);
 }
-const wp = (rig: Rig, name: (typeof BONES)[number]) => rig.bones[name].getWorldPosition(new THREE.Vector3());
-const finite = (rig: Rig) => BONES.every((n) => rig.bones[n].quaternion.toArray().every(Number.isFinite) && rig.bones[n].position.toArray().every(Number.isFinite));
+const wp = (rig: Rig, name: (typeof BONES)[number]) =>
+  rig.bones[name].getWorldPosition(new THREE.Vector3());
+const finite = (rig: Rig) =>
+  BONES.every(
+    (n) =>
+      rig.bones[n].quaternion.toArray().every(Number.isFinite) &&
+      rig.bones[n].position.toArray().every(Number.isFinite)
+  );
 
 describe('skinned body', () => {
   it('has one shared geometry, correct skin data, and per-player skeletons', () => {
@@ -22,7 +49,9 @@ describe('skinned body', () => {
       expect(sum).toBeCloseTo(1, 4);
     }
     const index = geo.getAttribute('skinIndex');
-    for (let i = 0; i < index.count; i++) for (const v of [index.getX(i), index.getY(i), index.getZ(i), index.getW(i)]) expect(v).toBeLessThan(BONES.length);
+    for (let i = 0; i < index.count; i++)
+      for (const v of [index.getX(i), index.getY(i), index.getZ(i), index.getW(i)])
+        expect(v).toBeLessThan(BONES.length);
     expect(a.skeleton).not.toBe(b.skeleton);
     expect(a.bones.hips).not.toBe(b.bones.hips);
     // Posing one rig must not move the other.
@@ -97,14 +126,21 @@ describe('running', () => {
               }
             });
           }
-          if (p > D + 0.3 * (1 - D) && p < D + 0.7 * (1 - D)) swingMax = Math.max(swingMax, Math.min(...now.map((q) => q.y)));
+          if (p > D + 0.3 * (1 - D) && p < D + 0.7 * (1 - D))
+            swingMax = Math.max(swingMax, Math.min(...now.map((q) => q.y)));
           prev[side] = now;
         }
       }
       expect(stanceFrames).toBeGreaterThan(80);
-      expect(grounded, 'no sole point reached the turf in stance').toBeGreaterThan(stanceFrames * 0.4);
-      expect(slip, `max planted-boot speed ${slip.toFixed(3)} m/s`).toBeLessThan(0.1 * speed + 0.15);
-      expect(liftedFrames / stanceFrames, 'boot floating above the turf in stance').toBeLessThan(0.1);
+      expect(grounded, 'no sole point reached the turf in stance').toBeGreaterThan(
+        stanceFrames * 0.4
+      );
+      expect(slip, `max planted-boot speed ${slip.toFixed(3)} m/s`).toBeLessThan(
+        0.1 * speed + 0.15
+      );
+      expect(liftedFrames / stanceFrames, 'boot floating above the turf in stance').toBeLessThan(
+        0.1
+      );
       expect(minSole, 'boot pushed through the turf').toBeGreaterThan(-0.03);
       expect(swingMax).toBeGreaterThan(0.08);
       rig.dispose();
@@ -163,7 +199,13 @@ describe('running', () => {
 });
 
 describe('kicking', () => {
-  const spec = (foot: 'L' | 'R', power = 1, loft = 0) => ({ ball: new THREE.Vector3(2, DIM.ballRadius, 3), dir: new THREE.Vector3(1, 0, 0), foot, power, loft });
+  const spec = (foot: 'L' | 'R', power = 1, loft = 0) => ({
+    ball: new THREE.Vector3(2, DIM.ballRadius, 3),
+    dir: new THREE.Vector3(1, 0, 0),
+    foot,
+    power,
+    loft,
+  });
   for (const foot of ['R', 'L'] as const) {
     it(`brings the ${foot} boot to the ball at contact with the plant foot fixed`, () => {
       const rig = makeRig();
@@ -182,9 +224,13 @@ describe('kicking', () => {
         expect(ankleY).toBeGreaterThan(0.06);
         if (Math.abs(t - KICK.contact) < 0.006) tracked = wp(rig, `toe${foot}`);
       }
-      for (const p of plantPositions) expect(p.distanceTo(plant), 'plant foot moved').toBeLessThan(0.03);
+      for (const p of plantPositions)
+        expect(p.distanceTo(plant), 'plant foot moved').toBeLessThan(0.03);
       // The toe passes within a ball radius plus a small margin of the ball centre at contact.
-      expect(tracked.distanceTo(s.ball), `toe ${tracked.toArray().map((v) => v.toFixed(2))}`).toBeLessThan(DIM.ballRadius + 0.1);
+      expect(
+        tracked.distanceTo(s.ball),
+        `toe ${tracked.toArray().map((v) => v.toFixed(2))}`
+      ).toBeLessThan(DIM.ballRadius + 0.1);
       rig.dispose();
     });
   }
@@ -238,7 +284,8 @@ describe('goalkeeper', () => {
       rig.root.position.copy(diveRoot(spec, t));
       poseKeeperDive(rig, t, spec, ball);
       expect(finite(rig)).toBe(true);
-      if (Math.abs(t - DIVE_CONTACT) < 0.011) atContact = Math.min(wp(rig, 'handL').distanceTo(ball), wp(rig, 'handR').distanceTo(ball));
+      if (Math.abs(t - DIVE_CONTACT) < 0.011)
+        atContact = Math.min(wp(rig, 'handL').distanceTo(ball), wp(rig, 'handR').distanceTo(ball));
       lowest = Math.min(lowest, wp(rig, 'hips').y);
       if (t > 0.9 && t < 1.05) lyingAt = Math.max(lyingAt, wp(rig, 'hips').y);
     }

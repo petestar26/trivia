@@ -1,8 +1,30 @@
 import * as THREE from 'three';
 import { keeperColour, matchKits, clubById, type ClubKit } from '@socialplay/shared';
 import { ACTOR_COUNT, REFEREE, type ActorState, type Frame } from './director';
-import { blendTo, capture, poseCelebrate, poseIdle, poseKeeperDive, poseKeeperReady, poseKick, poseRun, strideLength, type PoseSnapshot } from './poses';
-import { createRig, HAIR_TONES, kitFromClub, kitTexture, lookGeometry, SKIN_TONES, type KitLook, type Look, type LookGeometry, type Rig } from './rig';
+import {
+  blendTo,
+  capture,
+  poseCelebrate,
+  poseIdle,
+  poseKeeperDive,
+  poseKeeperReady,
+  poseKick,
+  poseRun,
+  strideLength,
+  type PoseSnapshot,
+} from './poses';
+import {
+  createRig,
+  HAIR_TONES,
+  kitFromClub,
+  kitTexture,
+  lookGeometry,
+  SKIN_TONES,
+  type KitLook,
+  type Look,
+  type LookGeometry,
+  type Rig,
+} from './rig';
 
 /** Shirt numbers by formation slot (0 = goalkeeper). */
 const NUMBERS = [1, 2, 5, 4, 3, 11, 8, 6, 7, 9, 10];
@@ -53,14 +75,28 @@ export interface PlayerPool {
 export function createPlayerPool(): PlayerPool {
   const group = new THREE.Group();
   const placeholder = new THREE.MeshStandardMaterial({ color: '#888888' });
-  const emptyLook: Look = { kit: kitFromClub({ primary: '#888888', secondary: '#ffffff', pattern: 'solid' }), skin: SKIN_TONES[0], hair: HAIR_TONES[0] };
+  const emptyLook: Look = {
+    kit: kitFromClub({ primary: '#888888', secondary: '#ffffff', pattern: 'solid' }),
+    skin: SKIN_TONES[0],
+    hair: HAIR_TONES[0],
+  };
   const firstLook = lookGeometry(emptyLook);
   const rigs: Rig[] = Array.from({ length: ACTOR_COUNT }, () => {
     const rig = createRig(placeholder, firstLook.geometry);
     group.add(rig.root);
     return rig;
   });
-  const states: RigState[] = rigs.map(() => ({ kind: 'none', phase: 0, speed: 0, yaw: 0, lastX: 0, lastZ: 0, blend: 1, from: null, seen: false }));
+  const states: RigState[] = rigs.map(() => ({
+    kind: 'none',
+    phase: 0,
+    speed: 0,
+    yaw: 0,
+    lastX: 0,
+    lastZ: 0,
+    blend: 1,
+    from: null,
+    seen: false,
+  }));
   let owned: Array<{ dispose(): void }> = [];
   const plates: Array<THREE.Mesh | null> = rigs.map(() => null);
   let dressed = false;
@@ -72,18 +108,42 @@ export function createPlayerPool(): PlayerPool {
     const kits = matchKits(homeClub, awayClub);
     const homeKeeper = keeperColour(kits.home.primary, kits.away.primary);
     const awayKeeper = keeperColour(kits.home.primary, kits.away.primary, homeKeeper);
-    const keeperKit = (colour: string): KitLook => ({ primary: colour, secondary: colour, pattern: 'solid', shorts: '#1b1d22', socks: '#1b1d22', keeper: true, glove: '#f3f3f0' });
+    const keeperKit = (colour: string): KitLook => ({
+      primary: colour,
+      secondary: colour,
+      pattern: 'solid',
+      shorts: '#1b1d22',
+      socks: '#1b1d22',
+      keeper: true,
+      glove: '#f3f3f0',
+    });
     const outfield = (kit: ClubKit): KitLook => kitFromClub(kit);
-    const refereeKit: KitLook = { primary: '#f2d31b', secondary: '#111111', pattern: 'solid', shorts: '#111111', socks: '#111111' };
+    const refereeKit: KitLook = {
+      primary: '#f2d31b',
+      secondary: '#111111',
+      pattern: 'solid',
+      shorts: '#111111',
+      socks: '#111111',
+    };
     const kitFor = (index: number): KitLook =>
-      index === REFEREE ? refereeKit : index < 11 ? (index === 0 ? keeperKit(homeKeeper) : outfield(kits.home)) : index === 11 ? keeperKit(awayKeeper) : outfield(kits.away);
+      index === REFEREE
+        ? refereeKit
+        : index < 11
+          ? index === 0
+            ? keeperKit(homeKeeper)
+            : outfield(kits.home)
+          : index === 11
+            ? keeperKit(awayKeeper)
+            : outfield(kits.away);
     const materialCache = new Map<string, THREE.MeshStandardMaterial>();
     const materialFor = (kit: KitLook) => {
       const key = `${kit.primary}|${kit.secondary}|${kit.pattern}|${kit.keeper ? 'k' : ''}`;
       let m = materialCache.get(key);
       if (!m) {
         const map = own(kitTexture(kit));
-        m = own(new THREE.MeshStandardMaterial({ vertexColors: true, map, roughness: 0.82, metalness: 0 }));
+        m = own(
+          new THREE.MeshStandardMaterial({ vertexColors: true, map, roughness: 0.82, metalness: 0 })
+        );
         materialCache.set(key, m);
       }
       return m;
@@ -151,7 +211,8 @@ export function createPlayerPool(): PlayerPool {
       rig.root.position.set(actor.x, 0, actor.z);
       rig.root.rotation.y = st.yaw;
       st.speed += (actor.speed - st.speed) * Math.min(1, Math.max(dt, 0) * 8);
-      if (!teleported && kind === 'run') st.phase = (st.phase + moved / strideLength(Math.max(st.speed, 1.2))) % 1;
+      if (!teleported && kind === 'run')
+        st.phase = (st.phase + moved / strideLength(Math.max(st.speed, 1.2))) % 1;
       st.lastX = actor.x;
       st.lastZ = actor.z;
       st.seen = true;
@@ -171,7 +232,9 @@ export function createPlayerPool(): PlayerPool {
           poseIdle(rig, time, i * 0.37);
           break;
         case 'run':
-          poseRun(rig, st.phase, Math.max(actor.speed, 1.2), { bank: clampAbs(yawRate * 0.03, 0.22) });
+          poseRun(rig, st.phase, Math.max(actor.speed, 1.2), {
+            bank: clampAbs(yawRate * 0.03, 0.22),
+          });
           break;
         case 'kick':
           poseKick(rig, actor.anim.t, actor.anim.spec);

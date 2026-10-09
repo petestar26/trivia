@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { DIVE_CONTACT, diveRoot, KICK, kickGeometry, type Celebration, type DiveSpec, type KickSpec } from './poses';
+import {
+  DIVE_CONTACT,
+  diveRoot,
+  KICK,
+  kickGeometry,
+  type Celebration,
+  type DiveSpec,
+  type KickSpec,
+} from './poses';
 
 /**
  * The match director is a PURE function of (match key, server-synchronised match time,
@@ -121,8 +129,32 @@ const other = (team: TeamId): TeamId => (team === 'H' ? 'A' : 'H');
  * Formations
  * ------------------------------------------------------------------------------------- */
 const FORMATIONS: Record<TeamId, Array<[number, number]>> = {
-  H: [[-0.98, 0], [-0.62, -0.75], [-0.66, -0.27], [-0.66, 0.27], [-0.62, 0.75], [-0.2, -0.8], [-0.14, -0.27], [-0.14, 0.27], [-0.2, 0.8], [0.3, -0.25], [0.3, 0.25]],
-  A: [[-0.98, 0], [-0.62, -0.75], [-0.66, -0.27], [-0.66, 0.27], [-0.62, 0.75], [-0.18, 0], [-0.1, -0.5], [-0.1, 0.5], [0.3, -0.65], [0.34, 0], [0.3, 0.65]],
+  H: [
+    [-0.98, 0],
+    [-0.62, -0.75],
+    [-0.66, -0.27],
+    [-0.66, 0.27],
+    [-0.62, 0.75],
+    [-0.2, -0.8],
+    [-0.14, -0.27],
+    [-0.14, 0.27],
+    [-0.2, 0.8],
+    [0.3, -0.25],
+    [0.3, 0.25],
+  ],
+  A: [
+    [-0.98, 0],
+    [-0.62, -0.75],
+    [-0.66, -0.27],
+    [-0.66, 0.27],
+    [-0.62, 0.75],
+    [-0.18, 0],
+    [-0.1, -0.5],
+    [-0.1, 0.5],
+    [0.3, -0.65],
+    [0.34, 0],
+    [0.3, 0.65],
+  ],
 };
 const LAG = 0.5; // the team shape also trails the ball a little
 
@@ -195,7 +227,10 @@ function buildEpoch(key: string, startTeam: TeamId, half: 1 | 2): Epoch {
   const dir = { H: attackDir('H', half), A: attackDir('A', half) };
   const beats: Beat[] = [];
   const anchors: Epoch['anchors'] = [{ t: -10, p: { x: 0, z: 0 } }];
-  const field = (p: Vec): Vec => ({ x: clamp(p.x, -PITCH.halfLength + 3, PITCH.halfLength - 3), z: clamp(p.z, -PITCH.halfWidth + 2, PITCH.halfWidth - 2) });
+  const field = (p: Vec): Vec => ({
+    x: clamp(p.x, -PITCH.halfLength + 3, PITCH.halfLength - 3),
+    z: clamp(p.z, -PITCH.halfWidth + 2, PITCH.halfWidth - 2),
+  });
   let team = startTeam;
   let holder = 9;
   let pos: Vec = { x: 0, z: 0 };
@@ -239,11 +274,31 @@ function buildEpoch(key: string, startTeam: TeamId, half: 1 | 2): Epoch {
       const dd = norm(holderAtKick, target);
       const origin = { x: holderAtKick.x + dd.x * 0.45, z: holderAtKick.z + dd.z * 0.45 };
       const flight = clamp(dist(origin, target) / 22, 0.5, 0.78);
-      beats.push({ kind, team, from: holder, toTeam: other(team), to: 0, tKick, flight, origin, holder: holderAtKick, prevArrival, prevTarget, target, targetY, arc: 0.15, dir: dd, shot: { outcome, goalX } });
+      beats.push({
+        kind,
+        team,
+        from: holder,
+        toTeam: other(team),
+        to: 0,
+        tKick,
+        flight,
+        origin,
+        holder: holderAtKick,
+        prevArrival,
+        prevTarget,
+        target,
+        targetY,
+        arc: 0.15,
+        dir: dd,
+        shot: { outcome, goalX },
+      });
       // The defending keeper restarts play.
       const defTeam = other(team);
       const dd2 = dir[defTeam];
-      const spot: Vec = outcome === 'SAVED' ? { x: goalX - d * 1.4, z: clamp(target.z, -3, 3) } : { x: goalX - d * 5.5, z: (r() < 0.5 ? -1 : 1) * 6 };
+      const spot: Vec =
+        outcome === 'SAVED'
+          ? { x: goalX - d * 1.4, z: clamp(target.z, -3, 3) }
+          : { x: goalX - d * 5.5, z: (r() < 0.5 ? -1 : 1) * 6 };
       const tRestart = tKick + flight + (outcome === 'SAVED' ? 1.7 : 2.3);
       const longBall = r() < 0.4;
       const candidates = longBall ? [9, 10, 8, 5] : [2, 3, 6, 7, 1, 4];
@@ -253,7 +308,23 @@ function buildEpoch(key: string, startTeam: TeamId, half: 1 | 2): Epoch {
       const a = field(f);
       const dd3 = norm(spot, a);
       const origin2 = { x: spot.x + dd3.x * 0.4, z: spot.z + dd3.z * 0.4 };
-      beats.push({ kind: 'RESTART', team: defTeam, from: 0, toTeam: defTeam, to, tKick: tRestart, flight: longBall ? 1.9 : 1.5, origin: origin2, holder: spot, prevArrival: tKick + flight, prevTarget: target, target: a, targetY: 0.11, arc: longBall ? 8 : 1.2, dir: dd3 });
+      beats.push({
+        kind: 'RESTART',
+        team: defTeam,
+        from: 0,
+        toTeam: defTeam,
+        to,
+        tKick: tRestart,
+        flight: longBall ? 1.9 : 1.5,
+        origin: origin2,
+        holder: spot,
+        prevArrival: tKick + flight,
+        prevTarget: target,
+        target: a,
+        targetY: 0.11,
+        arc: longBall ? 8 : 1.2,
+        dir: dd3,
+      });
       anchors.push({ t: arrivalT, p: a });
       team = defTeam;
       holder = to;
@@ -283,7 +354,23 @@ function buildEpoch(key: string, startTeam: TeamId, half: 1 | 2): Epoch {
     const length = dist(origin, targetPos);
     const flight = clamp(length / 14, 1.0, 1.7);
     const lofted = length > 22 || r() < 0.2;
-    beats.push({ kind, team, from: holder, toTeam: mates, to: pick.j, tKick, flight, origin, holder: holderAtKick, prevArrival, prevTarget, target: targetPos, targetY: 0.11, arc: lofted ? Math.min(6, length * 0.2) : 0.25, dir: dd });
+    beats.push({
+      kind,
+      team,
+      from: holder,
+      toTeam: mates,
+      to: pick.j,
+      tKick,
+      flight,
+      origin,
+      holder: holderAtKick,
+      prevArrival,
+      prevTarget,
+      target: targetPos,
+      targetY: 0.11,
+      arc: lofted ? Math.min(6, length * 0.2) : 0.25,
+      dir: dd,
+    });
     anchors.push({ t: tKick + flight, p: targetPos });
     prevArrival = tKick + flight;
     prevTarget = targetPos;
@@ -315,7 +402,11 @@ function ballInEpoch(e: Epoch, t: number): { x: number; y: number; z: number } {
     const s = tf / b.flight;
     const rise = b.kind === 'SHOT' ? s : s * s;
     const y = 0.11 + (b.targetY - 0.11) * rise + 4 * b.arc * s * (1 - s);
-    return { x: lerp(b.origin.x, b.target.x, s), y: Math.max(0.11, y), z: lerp(b.origin.z, b.target.z, s) };
+    return {
+      x: lerp(b.origin.x, b.target.x, s),
+      y: Math.max(0.11, y),
+      z: lerp(b.origin.z, b.target.z, s),
+    };
   }
   const arrival = b.tKick + b.flight;
   if (!next) return { x: b.target.x, y: b.kind === 'SHOT' ? 0.12 : 0.11, z: b.target.z };
@@ -323,13 +414,23 @@ function ballInEpoch(e: Epoch, t: number): { x: number; y: number; z: number } {
     // A miss runs out of play behind the goal; it is fetched and placed for the goal kick.
     // It is never carried back through the goal mouth.
     const placed = t >= next.tKick - 0.7;
-    return placed ? { x: next.origin.x, y: 0.11, z: next.origin.z } : { x: b.target.x, y: b.targetY > 1 ? lerp(b.targetY, 0.11, smooth((t - arrival) / 0.9)) : 0.11, z: b.target.z };
+    return placed
+      ? { x: next.origin.x, y: 0.11, z: next.origin.z }
+      : {
+          x: b.target.x,
+          y: b.targetY > 1 ? lerp(b.targetY, 0.11, smooth((t - arrival) / 0.9)) : 0.11,
+          z: b.target.z,
+        };
   }
   // Until the next kick the ball is controlled (a keeper holds a save), then carried to the spot.
   const wait = b.kind === 'SHOT' ? 0.55 : 0;
   const s = smooth((t - (arrival + wait)) / Math.max(0.2, next.tKick - 0.1 - (arrival + wait)));
   const rest = b.kind === 'SHOT' ? lerp(b.targetY, 0.13, smooth((t - arrival) / 0.35)) : 0.11;
-  return { x: lerp(b.target.x, next.origin.x, s), y: lerp(rest, 0.11, s), z: lerp(b.target.z, next.origin.z, s) };
+  return {
+    x: lerp(b.target.x, next.origin.x, s),
+    y: lerp(rest, 0.11, s),
+    z: lerp(b.target.z, next.origin.z, s),
+  };
 }
 
 interface PlayActor {
@@ -359,25 +460,49 @@ function playActor(e: Epoch, team: TeamId, i: number, t: number): PlayActor {
       const tk = t - (b.tKick - KICK.contact);
       if (tk >= 0 && tk <= KICK.duration) {
         const g = kickGeometry(spec);
-        return { pos: { x: g.root.x, z: g.root.z }, anim: { kind: 'kick', t: tk, spec }, facing: b.dir };
+        return {
+          pos: { x: g.root.x, z: g.root.z },
+          anim: { kind: 'kick', t: tk, spec },
+          facing: b.dir,
+        };
       }
       if (t < b.tKick) {
         // Receive, then drift forward with the ball until the kick starts.
-        const s = smooth((t - b.prevArrival) / Math.max(0.05, b.tKick - KICK.contact - b.prevArrival));
-        return { pos: { x: lerp(b.prevTarget.x, b.holder.x, s), z: lerp(b.prevTarget.z, b.holder.z, s) }, facing: b.dir };
+        const s = smooth(
+          (t - b.prevArrival) / Math.max(0.05, b.tKick - KICK.contact - b.prevArrival)
+        );
+        return {
+          pos: { x: lerp(b.prevTarget.x, b.holder.x, s), z: lerp(b.prevTarget.z, b.holder.z, s) },
+          facing: b.dir,
+        };
       }
       // After the kick the player eases back into the team shape.
       const s = smooth((t - (b.tKick + KICK.duration - KICK.contact)) / 1.0);
-      return { pos: { x: lerp(b.holder.x, base.x, s), z: lerp(b.holder.z, base.z, s) }, facing: s < 1 ? b.dir : undefined };
+      return {
+        pos: { x: lerp(b.holder.x, base.x, s), z: lerp(b.holder.z, base.z, s) },
+        facing: s < 1 ? b.dir : undefined,
+      };
     }
     // Receiver window: runs onto the ball.
-    if (b.toTeam === team && b.to === i && b.kind !== 'SHOT' && t >= b.tKick && t <= b.tKick + b.flight) {
+    if (
+      b.toTeam === team &&
+      b.to === i &&
+      b.kind !== 'SHOT' &&
+      t >= b.tKick &&
+      t <= b.tKick + b.flight
+    ) {
       const s = smooth((t - b.tKick) / b.flight);
       const start = formationPos(team, i, dir, anchorAt(e.anchors, b.tKick - LAG));
       return { pos: { x: lerp(start.x, b.target.x, s), z: lerp(start.z, b.target.z, s) } };
     }
     // The defending keeper reacts to a shot.
-    if (b.kind === 'SHOT' && b.toTeam === team && i === 0 && t >= b.tKick && t <= b.tKick + b.flight + 1.6) {
+    if (
+      b.kind === 'SHOT' &&
+      b.toTeam === team &&
+      i === 0 &&
+      t >= b.tKick &&
+      t <= b.tKick + b.flight + 1.6
+    ) {
       const keeper = formationPos(team, 0, dir, anchorAt(e.anchors, b.tKick - LAG));
       const out = b.shot!.outcome;
       if (out === 'SAVED') {
@@ -387,12 +512,28 @@ function playActor(e: Epoch, team: TeamId, i: number, t: number): PlayActor {
         const heading = headingOf(-dir, 0);
         const lateral = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
         const direction: 1 | -1 = lateral.z * dz >= 0 ? 1 : -1;
-        const spec: DiveSpec = { direction, reach: clamp(Math.abs(dz), 0.8, 3.2), height: b.targetY };
+        const spec: DiveSpec = {
+          direction,
+          reach: clamp(Math.abs(dz), 0.8, 3.2),
+          height: b.targetY,
+        };
         if (td >= 0) {
           const off = diveRoot(spec, td);
-          const world = new THREE.Vector3(off.x, 0, off.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), heading);
+          const world = new THREE.Vector3(off.x, 0, off.z).applyAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            heading
+          );
           const ball = ballInEpoch(e, t);
-          return { pos: { x: keeper.x + world.x, z: keeper.z + world.z }, anim: { kind: 'keeperDive', t: td, spec, ball: new THREE.Vector3(ball.x, ball.y, ball.z) }, facing: { x: -dir, z: 0 } };
+          return {
+            pos: { x: keeper.x + world.x, z: keeper.z + world.z },
+            anim: {
+              kind: 'keeperDive',
+              t: td,
+              spec,
+              ball: new THREE.Vector3(ball.x, ball.y, ball.z),
+            },
+            facing: { x: -dir, z: 0 },
+          };
         }
       }
       return { pos: keeper, anim: { kind: 'keeperReady' }, facing: { x: -dir, z: 0 } };
@@ -412,7 +553,12 @@ function pathAt(keys: Key[], t: number): { x: number; z: number; vx: number; vz:
       const [t0, x0, z0] = keys[i - 1];
       const [t1, x1, z1] = keys[i];
       const s = (t - t0) / (t1 - t0 || 1);
-      return { x: lerp(x0, x1, s), z: lerp(z0, z1, s), vx: (x1 - x0) / (t1 - t0 || 1), vz: (z1 - z0) / (t1 - t0 || 1) };
+      return {
+        x: lerp(x0, x1, s),
+        z: lerp(z0, z1, s),
+        vx: (x1 - x0) / (t1 - t0 || 1),
+        vz: (z1 - z0) / (t1 - t0 || 1),
+      };
     }
   const last = keys[keys.length - 1];
   return { x: last[1], z: last[2], vx: 0, vz: 0 };
@@ -445,9 +591,18 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
   const D = (i: number) => actorIndex(def, i);
   const M = GOAL_SEQUENCE.moment;
   const actors = new Map<number, ActorState>();
-  const put = (idx: number, p: { x: number; z: number; vx?: number; vz?: number }, anim: Anim, facing?: Vec) => {
+  const put = (
+    idx: number,
+    p: { x: number; z: number; vx?: number; vz?: number },
+    anim: Anim,
+    facing?: Vec
+  ) => {
     const speed = Math.hypot(p.vx ?? 0, p.vz ?? 0);
-    const heading = facing ? headingOf(facing.x, facing.z) : speed > 0.3 ? headingOf(p.vx!, p.vz!) : headingOf(-a, 0);
+    const heading = facing
+      ? headingOf(facing.x, facing.z)
+      : speed > 0.3
+        ? headingOf(p.vx!, p.vz!)
+        : headingOf(-a, 0);
     actors.set(idx, { x: p.x, z: p.z, heading, speed, anim });
   };
 
@@ -460,13 +615,25 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
   const kickAt = M - flight; // the finisher's boot meets the ball here
   const strikeY = cross ? 0.5 : 0.11;
   const shotDir = new THREE.Vector3(corner.x - strike.x, 0, corner.z - strike.z).normalize();
-  const shot: KickSpec = { ball: new THREE.Vector3(strike.x, strikeY, strike.z), dir: shotDir, foot: shotDir.z >= 0 ? 'R' : 'L', power: 1, loft: cross ? 0.4 : 0 };
+  const shot: KickSpec = {
+    ball: new THREE.Vector3(strike.x, strikeY, strike.z),
+    dir: shotDir,
+    foot: shotDir.z >= 0 ? 'R' : 'L',
+    power: 1,
+    loft: cross ? 0.4 : 0,
+  };
   const shotRoot = kickGeometry(shot).root;
   const passerStart: Vec = cross ? { x: gx - a * 24, z: w * 21 } : { x: gx - a * 33, z: w * 4 };
   const passAt = cross ? 0.45 : 0.3; // the cross / through-ball is struck here
   const passBall: Vec = { x: passerStart.x + a * 0.4, z: passerStart.z };
   const passDir = new THREE.Vector3(strike.x - passBall.x, 0, strike.z - passBall.z).normalize();
-  const pass: KickSpec = { ball: new THREE.Vector3(passBall.x, 0.11, passBall.z), dir: passDir, foot: 'R', power: 0.9, loft: cross ? 1 : 0.1 };
+  const pass: KickSpec = {
+    ball: new THREE.Vector3(passBall.x, 0.11, passBall.z),
+    dir: passDir,
+    foot: 'R',
+    power: 0.9,
+    loft: cross ? 1 : 0.1,
+  };
   const passRoot = kickGeometry(pass).root;
   const group: Vec = { x: gx - a * 17, z: w * 6 }; // where the celebration gathers
   /** The start point from which running at `speed` along (dx, dz) arrives at `target` after `seconds`. */
@@ -503,27 +670,72 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
   {
     const tk = t - (passAt - KICK.contact);
     if (tk < 0) put(A(passerIdx), passerStart, { kind: 'idle' }, { x: passDir.x, z: passDir.z });
-    else if (tk <= KICK.duration) put(A(passerIdx), { x: passRoot.x, z: passRoot.z }, { kind: 'kick', t: tk, spec: pass }, { x: passDir.x, z: passDir.z });
+    else if (tk <= KICK.duration)
+      put(
+        A(passerIdx),
+        { x: passRoot.x, z: passRoot.z },
+        { kind: 'kick', t: tk, spec: pass },
+        { x: passDir.x, z: passDir.z }
+      );
     else {
       const t0 = passAt - KICK.contact + KICK.duration;
-      const p = pathAt([[t0, passRoot.x, passRoot.z], [3.4, group.x - a * 2, group.z + w * 4]], t);
-      put(A(passerIdx), p, t > 3.2 ? { kind: 'celebrate', celebration: 'HUG', t } : { kind: 'run' });
+      const p = pathAt(
+        [
+          [t0, passRoot.x, passRoot.z],
+          [3.4, group.x - a * 2, group.z + w * 4],
+        ],
+        t
+      );
+      put(
+        A(passerIdx),
+        p,
+        t > 3.2 ? { kind: 'celebrate', celebration: 'HUG', t } : { kind: 'run' }
+      );
     }
   }
   // --- the scorer ------------------------------------------------------------------------
   {
-    const start = arriveFrom({ x: shotRoot.x, z: shotRoot.z }, a, (cross ? 0.3 : 0.4) * w, kickAt - KICK.contact);
+    const start = arriveFrom(
+      { x: shotRoot.x, z: shotRoot.z },
+      a,
+      (cross ? 0.3 : 0.4) * w,
+      kickAt - KICK.contact
+    );
     const tk = t - (kickAt - KICK.contact);
     if (tk < 0) {
-      const p = pathAt([[0, start.x, start.z], [kickAt - KICK.contact, shotRoot.x, shotRoot.z]], t);
+      const p = pathAt(
+        [
+          [0, start.x, start.z],
+          [kickAt - KICK.contact, shotRoot.x, shotRoot.z],
+        ],
+        t
+      );
       put(A(9), p, { kind: 'run' });
-    } else if (tk <= KICK.duration) put(A(9), { x: shotRoot.x, z: shotRoot.z }, { kind: 'kick', t: tk, spec: shot }, { x: shotDir.x, z: shotDir.z });
+    } else if (tk <= KICK.duration)
+      put(
+        A(9),
+        { x: shotRoot.x, z: shotRoot.z },
+        { kind: 'kick', t: tk, spec: shot },
+        { x: shotDir.x, z: shotDir.z }
+      );
     else {
       // Celebration run, arms up, then a knee slide towards the camera.
       const t0 = kickAt - KICK.contact + KICK.duration;
       const slideAt = 3.35;
-      const p = pathAt([[t0, shotRoot.x, shotRoot.z], [slideAt, group.x, group.z]], t);
-      if (t >= slideAt) put(A(9), { x: group.x + a * (t - slideAt) * 1.6, z: group.z + w * (t - slideAt) * 1.6 }, { kind: 'celebrate', celebration: 'KNEE_SLIDE', t: t - slideAt }, { x: 0.3 * a, z: 1 });
+      const p = pathAt(
+        [
+          [t0, shotRoot.x, shotRoot.z],
+          [slideAt, group.x, group.z],
+        ],
+        t
+      );
+      if (t >= slideAt)
+        put(
+          A(9),
+          { x: group.x + a * (t - slideAt) * 1.6, z: group.z + w * (t - slideAt) * 1.6 },
+          { kind: 'celebrate', celebration: 'KNEE_SLIDE', t: t - slideAt },
+          { x: 0.3 * a, z: 1 }
+        );
       else put(A(9), p, { kind: 'celebrate', celebration: 'ARMS_UP', t });
     }
   }
@@ -531,7 +743,14 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
   {
     const target: Vec = { x: gx - a * 8, z: w * 7 }; // arrives at the back post as the shot is struck
     const start = arriveFrom(target, a * 0.8, w * 0.6, kickAt);
-    const p = pathAt([[0, start.x, start.z], [kickAt, target.x, target.z], [3.5, group.x - a * 3, group.z - w * 3]], t);
+    const p = pathAt(
+      [
+        [0, start.x, start.z],
+        [kickAt, target.x, target.z],
+        [3.5, group.x - a * 3, group.z - w * 3],
+      ],
+      t
+    );
     put(A(10), p, t > 3.3 ? { kind: 'celebrate', celebration: 'HUG', t } : { kind: 'run' });
   }
   const supporters: Array<[number, Vec, boolean]> = [
@@ -542,9 +761,22 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
   ];
   for (const [idx, to, joins] of supporters) {
     const start = arriveFrom(to, a, 0, kickAt, 5);
-    const end: Vec = joins ? { x: group.x - a * (1 + (idx % 3)), z: group.z + (idx - 6) * 2 } : { x: to.x + a * 3, z: to.z };
-    const p = pathAt([[0, start.x, start.z], [kickAt, to.x, to.z], [3.6, end.x, end.z]], t);
-    put(A(idx), p, joins && t > 3.4 ? { kind: 'celebrate', celebration: 'HUG', t } : { kind: 'run' });
+    const end: Vec = joins
+      ? { x: group.x - a * (1 + (idx % 3)), z: group.z + (idx - 6) * 2 }
+      : { x: to.x + a * 3, z: to.z };
+    const p = pathAt(
+      [
+        [0, start.x, start.z],
+        [kickAt, to.x, to.z],
+        [3.6, end.x, end.z],
+      ],
+      t
+    );
+    put(
+      A(idx),
+      p,
+      joins && t > 3.4 ? { kind: 'celebrate', celebration: 'HUG', t } : { kind: 'run' }
+    );
   }
   // --- the defence ----------------------------------------------------------------------
   {
@@ -557,15 +789,39 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
     if (td < 0) put(D(0), home, { kind: 'keeperReady' }, { x: -a, z: 0 });
     else {
       const off = diveRoot(spec, td);
-      const world = new THREE.Vector3(off.x, 0, off.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), heading);
-      put(D(0), { x: home.x + world.x, z: home.z + world.z }, { kind: 'keeperDive', t: td, spec, ball: new THREE.Vector3(ball.x, ball.y, ball.z) }, { x: -a, z: 0 });
+      const world = new THREE.Vector3(off.x, 0, off.z).applyAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        heading
+      );
+      put(
+        D(0),
+        { x: home.x + world.x, z: home.z + world.z },
+        { kind: 'keeperDive', t: td, spec, ball: new THREE.Vector3(ball.x, ball.y, ball.z) },
+        { x: -a, z: 0 }
+      );
     }
   }
-  for (const [idx, off] of [[2, 3.5], [3, -3.5], [1, 11], [4, -11]] as const) {
+  for (const [idx, off] of [
+    [2, 3.5],
+    [3, -3.5],
+    [1, 11],
+    [4, -11],
+  ] as const) {
     const chaseTo: Vec = { x: strike.x + a * (2 + idx * 0.6), z: strike.z + off };
     const start = arriveFrom(chaseTo, a, 0, kickAt, 6);
-    const p = pathAt([[0, start.x, start.z], [kickAt, chaseTo.x, chaseTo.z], [3.2, chaseTo.x + a * 0.5, chaseTo.z]], t);
-    put(D(idx), p, t > kickAt + 0.5 ? { kind: 'celebrate', celebration: 'DEJECTED', t } : { kind: 'run' });
+    const p = pathAt(
+      [
+        [0, start.x, start.z],
+        [kickAt, chaseTo.x, chaseTo.z],
+        [3.2, chaseTo.x + a * 0.5, chaseTo.z],
+      ],
+      t
+    );
+    put(
+      D(idx),
+      p,
+      t > kickAt + 0.5 ? { kind: 'celebrate', celebration: 'DEJECTED', t } : { kind: 'run' }
+    );
   }
   // --- everyone else watches from the shape they were in ----------------------------------------
   const anchor: Vec = { x: gx - a * 14, z: 0 };
@@ -609,21 +865,41 @@ function epochKey(matchKey: string, start: number, half: 1 | 2, team: TeamId) {
 
 export function directorFrame(input: DirectorInput): Frame {
   const t = input.elapsedMs / 1000;
-  const half: 1 | 2 = input.status === 'SECOND_HALF' || input.status === 'FULL_TIME' || t >= 32 ? 2 : 1;
+  const half: 1 | 2 =
+    input.status === 'SECOND_HALF' || input.status === 'FULL_TIME' || t >= 32 ? 2 : 1;
   const goals = [...input.goals].sort((x, y) => x.atMs - y.atMs);
   const actors: ActorState[] = [];
   const idle = (): Anim => ({ kind: 'idle' });
 
-  const lineup = (anchor: Vec, mode: Mode, facing?: (team: TeamId) => Vec | undefined, anim?: (team: TeamId, i: number) => Anim): Frame => {
+  const lineup = (
+    anchor: Vec,
+    mode: Mode,
+    facing?: (team: TeamId) => Vec | undefined,
+    anim?: (team: TeamId, i: number) => Anim
+  ): Frame => {
     for (const team of ['H', 'A'] as TeamId[])
       for (let i = 0; i < 11; i++) {
         const dir = attackDir(team, half);
         const p = formationPos(team, i, dir, anchor);
         const f = facing?.(team);
-        actors[actorIndex(team, i)] = { x: p.x, z: p.z, heading: f ? headingOf(f.x, f.z) : headingOf(dir, 0), speed: 0, anim: anim ? anim(team, i) : i === 0 ? { kind: 'keeperReady' } : idle() };
+        actors[actorIndex(team, i)] = {
+          x: p.x,
+          z: p.z,
+          heading: f ? headingOf(f.x, f.z) : headingOf(dir, 0),
+          speed: 0,
+          anim: anim ? anim(team, i) : i === 0 ? { kind: 'keeperReady' } : idle(),
+        };
       }
     actors[REFEREE] = { x: 2, z: 5, heading: headingOf(1, 0), speed: 0, anim: idle() };
-    return { actors, ball: { x: anchor.x, y: 0.11, z: anchor.z }, camera: broadcastCamera(0), mode, half, goal: null, crowd: 0.25 };
+    return {
+      actors,
+      ball: { x: anchor.x, y: 0.11, z: anchor.z },
+      camera: broadcastCamera(0),
+      mode,
+      half,
+      goal: null,
+      crowd: 0.25,
+    };
   };
 
   // A goal sequence takes over for its length once the goal has been released, even if the
@@ -634,7 +910,15 @@ export function directorFrame(input: DirectorInput): Frame {
       if (tg >= 0 && tg < GOAL_SEQUENCE.length) {
         const g = goalSequence(input.matchKey, goal, goal.atMs / 1000 >= 32 ? 2 : 1, tg);
         for (let i = 0; i < ACTOR_COUNT; i++) actors[i] = g.actors.get(i)!;
-        return { actors, ball: g.ball, camera: g.camera, mode: 'GOAL', half, goal: { n: goal.n, side: goal.side, t: tg, scored: g.scored, net: g.net }, crowd: g.crowd };
+        return {
+          actors,
+          ball: g.ball,
+          camera: g.camera,
+          mode: 'GOAL',
+          half,
+          goal: { n: goal.n, side: goal.side, t: tg, scored: g.scored, net: g.net },
+          crowd: g.crowd,
+        };
       }
     }
 
@@ -642,19 +926,19 @@ export function directorFrame(input: DirectorInput): Frame {
   if (input.status === 'HALFTIME') return lineup({ x: 0, z: 0 }, 'HALFTIME');
   if (input.status === 'FULL_TIME') {
     const ft = input.fullTime;
-    return lineup(
-      { x: 0, z: 0 },
-      'POST',
-      undefined,
-      (team, i) => {
-        if (i === 0 && !ft) return { kind: 'keeperReady' };
-        const mine = ft ? (team === 'H' ? ft.home : ft.away) : 0;
-        const theirs = ft ? (team === 'H' ? ft.away : ft.home) : 0;
-        if (mine > theirs) return { kind: 'celebrate', celebration: i % 3 === 0 ? 'ARMS_UP' : i % 3 === 1 ? 'HUG' : 'WINGS', t: t + i * 0.3 };
-        if (mine < theirs) return { kind: 'celebrate', celebration: 'DEJECTED', t: t + i * 0.2 };
-        return idle();
-      }
-    );
+    return lineup({ x: 0, z: 0 }, 'POST', undefined, (team, i) => {
+      if (i === 0 && !ft) return { kind: 'keeperReady' };
+      const mine = ft ? (team === 'H' ? ft.home : ft.away) : 0;
+      const theirs = ft ? (team === 'H' ? ft.away : ft.home) : 0;
+      if (mine > theirs)
+        return {
+          kind: 'celebrate',
+          celebration: i % 3 === 0 ? 'ARMS_UP' : i % 3 === 1 ? 'HUG' : 'WINGS',
+          t: t + i * 0.3,
+        };
+      if (mine < theirs) return { kind: 'celebrate', celebration: 'DEJECTED', t: t + i * 0.2 };
+      return idle();
+    });
   }
 
   // Live play.
@@ -682,10 +966,32 @@ export function directorFrame(input: DirectorInput): Frame {
       const speed = Math.min(9.5, Math.hypot(vx, vz));
       const toBall = { x: ball.x - now.pos.x, z: ball.z - now.pos.z };
       const faceDir = now.facing ?? (speed > 0.6 ? { x: vx, z: vz } : toBall);
-      const anim: Anim = now.anim ?? (i === 0 && speed < 1 ? { kind: 'keeperReady' } : speed > 0.6 ? { kind: 'run' } : idle());
-      actors[actorIndex(tm, i)] = { x: now.pos.x, z: now.pos.z, heading: headingOf(faceDir.x, faceDir.z), speed, anim };
+      const anim: Anim =
+        now.anim ??
+        (i === 0 && speed < 1 ? { kind: 'keeperReady' } : speed > 0.6 ? { kind: 'run' } : idle());
+      actors[actorIndex(tm, i)] = {
+        x: now.pos.x,
+        z: now.pos.z,
+        heading: headingOf(faceDir.x, faceDir.z),
+        speed,
+        anim,
+      };
     }
   const trail = anchorAt(e.anchors, local - LAG * 0.6);
-  actors[REFEREE] = { x: trail.x * 0.6 - 6, z: trail.z * 0.5 + 9, heading: headingOf(ball.x - trail.x * 0.6, ball.z - trail.z * 0.5), speed: 2.5, anim: { kind: 'run' } };
-  return { actors, ball, camera: broadcastCamera(ball.x), mode: 'PLAY', half, goal: null, crowd: 0.3 };
+  actors[REFEREE] = {
+    x: trail.x * 0.6 - 6,
+    z: trail.z * 0.5 + 9,
+    heading: headingOf(ball.x - trail.x * 0.6, ball.z - trail.z * 0.5),
+    speed: 2.5,
+    anim: { kind: 'run' },
+  };
+  return {
+    actors,
+    ball,
+    camera: broadcastCamera(ball.x),
+    mode: 'PLAY',
+    half,
+    goal: null,
+    crowd: 0.3,
+  };
 }

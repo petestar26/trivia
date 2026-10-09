@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { ACTOR_COUNT, GOAL_SEQUENCE, PITCH, directorFrame, type DirectorInput, type Frame, type Mode, type ReleasedGoal } from './director';
+import { statusAt } from '../../../lib/football/reveal';
+import {
+  ACTOR_COUNT,
+  GOAL_SEQUENCE,
+  PITCH,
+  directorFrame,
+  type Frame,
+  type Mode,
+  type ReleasedGoal,
+} from './director';
 import { createPlayerPool, type PlayerPool } from './players';
 import { buildStadium, skyTexture, type Stadium } from './stadium';
 
@@ -8,7 +17,6 @@ export interface MatchInput {
   matchKey: string;
   homeClub: number;
   awayClub: number;
-  status: DirectorInput['status'];
   goals: ReleasedGoal[];
   fullTime: { home: number; away: number } | null;
 }
@@ -46,7 +54,15 @@ function ballTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#f6f6f2';
   ctx.fillRect(0, 0, 128, 64);
   ctx.fillStyle = '#1b1d22';
-  for (const [x, y] of [[16, 20], [48, 44], [80, 18], [112, 42], [64, 8], [32, 58], [100, 62]] as const) {
+  for (const [x, y] of [
+    [16, 20],
+    [48, 44],
+    [80, 18],
+    [112, 42],
+    [64, 8],
+    [32, 58],
+    [100, 62],
+  ] as const) {
     ctx.beginPath();
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
@@ -65,7 +81,11 @@ function ballTexture(): THREE.CanvasTexture {
 
 export function createEngine(options: EngineOptions): Engine {
   const { host } = options;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'default' });
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false,
+    powerPreference: 'default',
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, options.maxPixelRatio ?? 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -140,7 +160,10 @@ export function createEngine(options: EngineOptions): Engine {
   };
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
   observer?.observe(host);
-  const intersection = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver((entries) => (visible = entries.some((e) => e.isIntersecting))) : null;
+  const intersection =
+    typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver((entries) => (visible = entries.some((e) => e.isIntersecting)))
+      : null;
   intersection?.observe(host);
   const lost = (event: Event) => {
     event.preventDefault();
@@ -160,14 +183,21 @@ export function createEngine(options: EngineOptions): Engine {
       teamsKey = `${m.homeClub}|${m.awayClub}`;
       pool.setTeams(m.homeClub, m.awayClub);
     }
-    const frame = directorFrame({ matchKey: m.matchKey, elapsedMs, status: m.status, goals: m.goals, fullTime: m.fullTime });
+    const frame = directorFrame({
+      matchKey: m.matchKey,
+      elapsedMs,
+      status: statusAt(elapsedMs),
+      goals: m.goals,
+      fullTime: m.fullTime,
+    });
     pool.apply(frame, dt, elapsedMs / 1000, !reduced);
     ball.position.set(frame.ball.x, frame.ball.y, frame.ball.z);
     if (lastBall && !reduced) {
       const dx = frame.ball.x - lastBall.x;
       const dz = frame.ball.z - lastBall.z;
       const d = Math.hypot(dx, dz);
-      if (d > 0.0001 && d < 3) ball.rotateOnWorldAxis(new THREE.Vector3(dz / d, 0, -dx / d), d / 0.11);
+      if (d > 0.0001 && d < 3)
+        ball.rotateOnWorldAxis(new THREE.Vector3(dz / d, 0, -dx / d), d / 0.11);
     }
     lastBall = new THREE.Vector3(frame.ball.x, frame.ball.y, frame.ball.z);
 
@@ -175,7 +205,10 @@ export function createEngine(options: EngineOptions): Engine {
     for (const goal of m.goals) {
       const key = `${m.matchKey}#${goal.n}`;
       const age = elapsedMs / 1000 - goal.atMs / 1000;
-      if (!momentFired.has(key) && (age >= GOAL_SEQUENCE.moment || (frame.goal?.n === goal.n && frame.goal.scored))) {
+      if (
+        !momentFired.has(key) &&
+        (age >= GOAL_SEQUENCE.moment || (frame.goal?.n === goal.n && frame.goal.scored))
+      ) {
         momentFired.add(key);
         options.onGoalMoment?.(goal.n);
       }
@@ -189,8 +222,14 @@ export function createEngine(options: EngineOptions): Engine {
 
     // Camera: restrained tracking, with a hard cut when the director changes shot.
     const target = frame.camera;
-    const cut = lastMode !== null && lastMode !== frame.mode && (frame.mode === 'GOAL' || lastMode === 'GOAL');
-    const k = reduced || cut || lastMode === null ? 1 : 1 - Math.exp(-dt * (frame.mode === 'GOAL' ? 4 : 1.8));
+    const cut =
+      lastMode !== null &&
+      lastMode !== frame.mode &&
+      (frame.mode === 'GOAL' || lastMode === 'GOAL');
+    const k =
+      reduced || cut || lastMode === null
+        ? 1
+        : 1 - Math.exp(-dt * (frame.mode === 'GOAL' ? 4 : 1.8));
     camPos.x += (target.x - camPos.x) * k;
     camPos.y += (target.y - camPos.y) * k;
     camPos.z += (target.z - camPos.z) * k;
@@ -266,7 +305,12 @@ export function createEngine(options: EngineOptions): Engine {
     },
     renderAt,
     resize,
-    info: () => ({ triangles: renderer.info.render.triangles, calls: renderer.info.render.calls, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }),
+    info: () => ({
+      triangles: renderer.info.render.triangles,
+      calls: renderer.info.render.calls,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
+    }),
     dispose() {
       if (disposed) return;
       disposed = true;

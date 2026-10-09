@@ -1,16 +1,40 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { ACTOR_COUNT, GOAL_SEQUENCE, PITCH, REFEREE, directorFrame, type DirectorInput, type Frame, type ReleasedGoal } from './director';
+import {
+  ACTOR_COUNT,
+  GOAL_SEQUENCE,
+  PITCH,
+  REFEREE,
+  directorFrame,
+  type DirectorInput,
+  type Frame,
+  type ReleasedGoal,
+} from './director';
 import { KICK, poseKick } from './poses';
 import { createRig, kitFromClub, lookGeometry } from './rig';
 
-const status = (t: number): DirectorInput['status'] => (t < 0 ? 'SCHEDULED' : t < 28 ? 'FIRST_HALF' : t < 32 ? 'HALFTIME' : t < 60 ? 'SECOND_HALF' : 'FULL_TIME');
+const status = (t: number): DirectorInput['status'] =>
+  t < 0
+    ? 'SCHEDULED'
+    : t < 28
+      ? 'FIRST_HALF'
+      : t < 32
+        ? 'HALFTIME'
+        : t < 60
+          ? 'SECOND_HALF'
+          : 'FULL_TIME';
 const input = (t: number, goals: ReleasedGoal[], key = 'vf-s1-w01-f01'): DirectorInput => ({
   matchKey: key,
   elapsedMs: Math.round(t * 1000),
   status: status(t),
   goals: goals.filter((g) => g.atMs <= t * 1000),
-  fullTime: t >= 60 ? { home: goals.filter((g) => g.side === 'H').length, away: goals.filter((g) => g.side === 'A').length } : null,
+  fullTime:
+    t >= 60
+      ? {
+          home: goals.filter((g) => g.side === 'H').length,
+          away: goals.filter((g) => g.side === 'A').length,
+        }
+      : null,
 });
 const GOALS: ReleasedGoal[] = [
   { n: 1, side: 'H', atMs: 6000 },
@@ -20,7 +44,11 @@ const GOALS: ReleasedGoal[] = [
   { n: 5, side: 'A', atMs: 58500 },
 ];
 // The net is the box between the goal line and the back of the netting, between the posts, under the bar.
-const inNet = (b: Frame['ball']) => Math.abs(b.x) > PITCH.halfLength && Math.abs(b.x) < PITCH.halfLength + PITCH.goalDepth && Math.abs(b.z) < PITCH.goalHalfWidth && b.y < PITCH.goalHeight;
+const inNet = (b: Frame['ball']) =>
+  Math.abs(b.x) > PITCH.halfLength &&
+  Math.abs(b.x) < PITCH.halfLength + PITCH.goalDepth &&
+  Math.abs(b.z) < PITCH.goalHalfWidth &&
+  b.y < PITCH.goalHeight;
 const frames = (goals: ReleasedGoal[], key?: string, step = 0.05) => {
   const out: Array<{ t: number; f: Frame }> = [];
   for (let t = -1; t <= 62; t += step) out.push({ t, f: directorFrame(input(t, goals, key)) });
@@ -29,7 +57,8 @@ const frames = (goals: ReleasedGoal[], key?: string, step = 0.05) => {
 
 describe('director purity', () => {
   it('is a deterministic function of its input', () => {
-    for (const t of [-1, 0, 3.3, 12.5, 29, 33, 41.2, 59.9, 61]) expect(directorFrame(input(t, GOALS))).toEqual(directorFrame(input(t, GOALS)));
+    for (const t of [-1, 0, 3.3, 12.5, 29, 33, 41.2, 59.9, 61])
+      expect(directorFrame(input(t, GOALS))).toEqual(directorFrame(input(t, GOALS)));
   });
 
   it('cannot depend on a goal that has not been released (non-interference)', () => {
@@ -43,8 +72,12 @@ describe('director purity', () => {
       expect(withFuture).toEqual(withoutFuture);
     }
     // And a different future produces the same present.
-    const alt: ReleasedGoal[] = [{ n: 1, side: 'H', atMs: 6000 }, { n: 2, side: 'H', atMs: 31000 }];
-    for (const t of [1, 3, 5.9, 6.0, 8, 11, 17, 19.4]) expect(directorFrame(input(t, GOALS))).toEqual(directorFrame(input(t, alt)));
+    const alt: ReleasedGoal[] = [
+      { n: 1, side: 'H', atMs: 6000 },
+      { n: 2, side: 'H', atMs: 31000 },
+    ];
+    for (const t of [1, 3, 5.9, 6.0, 8, 11, 17, 19.4])
+      expect(directorFrame(input(t, GOALS))).toEqual(directorFrame(input(t, alt)));
   });
 
   it('starts a goal sequence only at or after the released goal time', () => {
@@ -85,7 +118,8 @@ describe('goals and the ball', () => {
       expect(Math.abs(before.at(-1)!.goal!.t - GOAL_SEQUENCE.moment)).toBeLessThan(0.03);
       // Before the moment the ball is outside the goal; afterwards it is inside the scoring end.
       // (The ball reaches the goal line a few centiseconds before the sequence moment.)
-      for (const f of before.filter((x) => x.goal!.t < GOAL_SEQUENCE.moment - 0.05)) expect(inNet(f.ball), `ball in net early for goal ${goal.n} at ${f.goal!.t}`).toBe(false);
+      for (const f of before.filter((x) => x.goal!.t < GOAL_SEQUENCE.moment - 0.05))
+        expect(inNet(f.ball), `ball in net early for goal ${goal.n} at ${f.goal!.t}`).toBe(false);
       const settled = after.at(-1)!;
       expect(Math.sign(settled.ball.x)).toBe(dir);
       expect(Math.abs(settled.ball.x)).toBeGreaterThan(PITCH.halfLength);
@@ -105,7 +139,8 @@ describe('goals and the ball', () => {
   });
 
   it('only lets the ball into the net during a released goal sequence', () => {
-    for (const { t, f } of frames(GOALS, 'vf-s3-w04-f07', 0.04)) if (inNet(f.ball)) expect(f.mode, `net at ${t}`).toBe('GOAL');
+    for (const { t, f } of frames(GOALS, 'vf-s3-w04-f07', 0.04))
+      if (inNet(f.ball)) expect(f.mode, `net at ${t}`).toBe('GOAL');
   });
 
   it('plays decorative shots that are saved, wide or over, never scored', () => {
@@ -115,7 +150,8 @@ describe('goals and the ball', () => {
       let diving = false;
       let beyond = false;
       for (const { f } of frames([], `shots-${m}`, 0.05)) {
-        if (f.actors.some((a, i) => i === 0 || i === 11 ? a.anim.kind === 'keeperDive' : false)) diving = true;
+        if (f.actors.some((a, i) => (i === 0 || i === 11 ? a.anim.kind === 'keeperDive' : false)))
+          diving = true;
         if (Math.abs(f.ball.x) > PITCH.halfLength) {
           beyond = true;
           // Behind the goal line the ball is outside the posts, above the bar, or behind the netting.
@@ -142,10 +178,18 @@ describe('actors', () => {
           expect(Math.abs(a.x)).toBeLessThanOrEqual(PITCH.halfLength + 6);
           expect(Math.abs(a.z)).toBeLessThanOrEqual(PITCH.halfWidth + 3);
           expect(a.speed).toBeLessThanOrEqual(9.6);
-          if (prev && prev.mode === f.mode && f.mode === 'PLAY' && f.half === prev.half && i !== REFEREE) {
+          if (
+            prev &&
+            prev.mode === f.mode &&
+            f.mode === 'PLAY' &&
+            f.half === prev.half &&
+            i !== REFEREE
+          ) {
             const jump = Math.hypot(a.x - prev.actors[i].x, a.z - prev.actors[i].z);
             // 12 m/s is above any sprint, plus a little for kick-pose root placement.
-            expect(jump, `actor ${i} jumped ${jump.toFixed(2)} m at ${t.toFixed(2)}`).toBeLessThan(12 * (t - prevT) + 0.5);
+            expect(jump, `actor ${i} jumped ${jump.toFixed(2)} m at ${t.toFixed(2)}`).toBeLessThan(
+              12 * (t - prevT) + 0.5
+            );
           }
         }
         prev = f;
@@ -172,21 +216,38 @@ describe('actors', () => {
     expect(over.actors[12].anim).toMatchObject({ kind: 'celebrate', celebration: 'DEJECTED' });
   });
 
-  it('puts the ball where the kicker\'s boot meets it at every kick contact', () => {
-    const rig = createRig(new THREE.MeshBasicMaterial(), lookGeometry({ kit: kitFromClub({ primary: '#f00', secondary: '#fff', pattern: 'solid' }), skin: '#d99c73', hair: '#222' }).geometry);
+  it("puts the ball where the kicker's boot meets it at every kick contact", () => {
+    const rig = createRig(
+      new THREE.MeshBasicMaterial(),
+      lookGeometry({
+        kit: kitFromClub({ primary: '#f00', secondary: '#fff', pattern: 'solid' }),
+        skin: '#d99c73',
+        hair: '#222',
+      }).geometry
+    );
     let checked = 0;
     for (const key of ['vf-s1-w01-f01', 'vf-s4-w11-f03', 'vf-s8-w02-f06']) {
       let lastKickT = -9;
       for (let t = 1; t < 28; t += 0.01) {
         const f = directorFrame(input(t, [], key));
         for (const [i, actor] of f.actors.entries()) {
-          if (actor.anim.kind !== 'kick' || Math.abs(actor.anim.t - KICK.contact) > 0.006 || t - lastKickT < 0.5) continue;
+          if (
+            actor.anim.kind !== 'kick' ||
+            Math.abs(actor.anim.t - KICK.contact) > 0.006 ||
+            t - lastKickT < 0.5
+          )
+            continue;
           lastKickT = t;
           rig.root.position.set(actor.x, 0, actor.z);
           rig.root.rotation.y = Math.atan2(actor.anim.spec.dir.x, actor.anim.spec.dir.z);
           poseKick(rig, actor.anim.t, actor.anim.spec);
-          const toe = rig.bones[actor.anim.spec.foot === 'R' ? 'toeR' : 'toeL'].getWorldPosition(new THREE.Vector3());
-          expect(toe.distanceTo(new THREE.Vector3(f.ball.x, f.ball.y, f.ball.z)), `actor ${i} at ${t.toFixed(2)}`).toBeLessThan(0.45);
+          const toe = rig.bones[actor.anim.spec.foot === 'R' ? 'toeR' : 'toeL'].getWorldPosition(
+            new THREE.Vector3()
+          );
+          expect(
+            toe.distanceTo(new THREE.Vector3(f.ball.x, f.ball.y, f.ball.z)),
+            `actor ${i} at ${t.toFixed(2)}`
+          ).toBeLessThan(0.45);
           checked++;
         }
       }

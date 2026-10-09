@@ -143,7 +143,9 @@ export function HomePage() {
                       {to && PRACTICE_ROUTES[game.key]
                         ? game.key === 'thunder_derby_3d'
                           ? 'Six or eight horses · practice credits only.'
-                          : 'One-minute rounds · practice credits only.'
+                          : game.key === 'virtual_football_3d'
+                            ? 'Ten matches every five minutes · practice credits only.'
+                            : 'One-minute rounds · practice credits only.'
                         : to
                           ? game.mode === 'BONUS'
                             ? 'Test your knowledge. Play for free.'

@@ -171,7 +171,9 @@ export function GamesPage({
                     <p className="mt-3 text-xs text-gray-500">
                       {game.key === 'thunder_derby_3d'
                         ? 'Three- or four-minute races'
-                        : 'One-minute rounds'}{' '}
+                        : game.key === 'virtual_football_3d'
+                          ? 'Five-minute matchweeks'
+                          : 'One-minute rounds'}{' '}
                       · no Coins or cash prizes
                     </p>
                     <p className="mt-4 font-semibold text-emerald-700 dark:text-emerald-300">

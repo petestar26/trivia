@@ -44,7 +44,15 @@ export interface TwoBoneResult {
  * world position for `tip`, and `pole` a world direction the middle joint bends towards.
  * Parent matrices of `root` must be current; matrices below it are updated.
  */
-export function solveTwoBone(root: THREE.Bone, mid: THREE.Bone, l1: number, l2: number, target: THREE.Vector3, pole: THREE.Vector3, forward: THREE.Vector3): TwoBoneResult {
+export function solveTwoBone(
+  root: THREE.Bone,
+  mid: THREE.Bone,
+  l1: number,
+  l2: number,
+  target: THREE.Vector3,
+  pole: THREE.Vector3,
+  forward: THREE.Vector3
+): TwoBoneResult {
   const h = root.getWorldPosition(new THREE.Vector3());
   const toTarget = new THREE.Vector3().subVectors(target, h);
   const requested = toTarget.length();
@@ -68,7 +76,14 @@ const FOOT = new THREE.Quaternion();
 const TILT = new THREE.Quaternion();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** Plants a foot: leg IK to `ankle`, then foot orientation = heading yaw + pitch (toes down +). */
-export function placeFoot(rig: Rig, side: Side, ankle: THREE.Vector3, pitch: number, yaw: number, roll = 0): TwoBoneResult {
+export function placeFoot(
+  rig: Rig,
+  side: Side,
+  ankle: THREE.Vector3,
+  pitch: number,
+  yaw: number,
+  roll = 0
+): TwoBoneResult {
   const upper = rig.bones[`upperLeg${side}`];
   const lower = rig.bones[`lowerLeg${side}`];
   const foot = rig.bones[`foot${side}`];
@@ -77,16 +92,24 @@ export function placeFoot(rig: Rig, side: Side, ankle: THREE.Vector3, pitch: num
   FOOT.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   TILT.setFromAxisAngle(AXIS_X, pitch);
   FOOT.multiply(TILT);
-  if (roll) FOOT.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll));
+  if (roll)
+    FOOT.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll));
   setWorldQuaternion(foot, FOOT);
   return result;
 }
 
 /** Reaches a hand to a world point; the elbow bends towards `pole`. */
-export function reachHand(rig: Rig, side: Side, target: THREE.Vector3, pole: THREE.Vector3): TwoBoneResult {
+export function reachHand(
+  rig: Rig,
+  side: Side,
+  target: THREE.Vector3,
+  pole: THREE.Vector3
+): TwoBoneResult {
   const upper = rig.bones[`upperArm${side}`];
   const fore = rig.bones[`foreArm${side}`];
-  const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.root.getWorldQuaternion(new THREE.Quaternion()));
+  const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(
+    rig.root.getWorldQuaternion(new THREE.Quaternion())
+  );
   return solveTwoBone(upper, fore, DIM.upperArm, DIM.foreArm, target, pole, forward);
 }
 

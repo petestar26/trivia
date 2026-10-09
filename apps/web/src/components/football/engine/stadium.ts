@@ -51,7 +51,8 @@ function turfTexture(): THREE.CanvasTexture {
   ctx.strokeStyle = LINE;
   ctx.fillStyle = LINE;
   ctx.lineWidth = 0.13 * ppm;
-  const rect = (x0: number, z0: number, x1: number, z1: number) => ctx.strokeRect(X(x0), Z(z0), (x1 - x0) * ppm, (z1 - z0) * ppm);
+  const rect = (x0: number, z0: number, x1: number, z1: number) =>
+    ctx.strokeRect(X(x0), Z(z0), (x1 - x0) * ppm, (z1 - z0) * ppm);
   const hl = PITCH.halfLength;
   const hw = PITCH.halfWidth;
   rect(-hl, -hw, hl, hw);
@@ -73,7 +74,13 @@ function turfTexture(): THREE.CanvasTexture {
     rect(s > 0 ? hl - 5.5 : -hl, -9.16, s > 0 ? hl : -hl + 5.5, 9.16);
     dot(s * (hl - 11), 0);
     ctx.beginPath();
-    ctx.arc(X(s * (hl - 11)), Z(0), 9.15 * ppm, s > 0 ? Math.PI - 0.93 : -0.93, s > 0 ? Math.PI + 0.93 : 0.93);
+    ctx.arc(
+      X(s * (hl - 11)),
+      Z(0),
+      9.15 * ppm,
+      s > 0 ? Math.PI - 0.93 : -0.93,
+      s > 0 ? Math.PI + 0.93 : 0.93
+    );
     ctx.stroke();
     for (const c of [-1, 1]) {
       ctx.beginPath();
@@ -225,20 +232,29 @@ export function buildStadium(): Stadium {
   textures.push(turf);
   const margin = 5;
   const pitch = new THREE.Mesh(
-    track(new THREE.PlaneGeometry(PITCH.halfLength * 2 + margin * 2, PITCH.halfWidth * 2 + margin * 2)),
+    track(
+      new THREE.PlaneGeometry(PITCH.halfLength * 2 + margin * 2, PITCH.halfWidth * 2 + margin * 2)
+    ),
     mat(new THREE.MeshStandardMaterial({ map: turf, roughness: 0.95 }))
   );
   pitch.rotation.x = -Math.PI / 2;
   pitch.receiveShadow = true;
   group.add(pitch);
-  const apron = new THREE.Mesh(track(new THREE.PlaneGeometry(400, 300)), mat(new THREE.MeshStandardMaterial({ color: '#1f4f2c', roughness: 1 })));
+  const apron = new THREE.Mesh(
+    track(new THREE.PlaneGeometry(400, 300)),
+    mat(new THREE.MeshStandardMaterial({ color: '#1f4f2c', roughness: 1 }))
+  );
   apron.rotation.x = -Math.PI / 2;
   apron.position.y = -0.02;
   group.add(apron);
 
   // --- goals --------------------------------------------------------------------------
-  const post = mat(new THREE.MeshStandardMaterial({ color: '#f7f7f4', roughness: 0.35, metalness: 0.2 }));
-  const netMaterial = mat(new THREE.LineBasicMaterial({ color: '#f1f5f0', transparent: true, opacity: 0.55 }));
+  const post = mat(
+    new THREE.MeshStandardMaterial({ color: '#f7f7f4', roughness: 0.35, metalness: 0.2 })
+  );
+  const netMaterial = mat(
+    new THREE.LineBasicMaterial({ color: '#f1f5f0', transparent: true, opacity: 0.55 })
+  );
   const nets = {} as Record<'-1' | '1', NetImpl>;
   for (const s of [-1, 1] as const) {
     const frame = new THREE.Group();
@@ -265,7 +281,9 @@ export function buildStadium(): Stadium {
   // Corner flags
   const flagPole = track(new THREE.CylinderGeometry(0.02, 0.02, 1.6, 6));
   const flagCloth = track(new THREE.PlaneGeometry(0.4, 0.28));
-  const clothMat = mat(new THREE.MeshStandardMaterial({ color: '#ffd23f', side: THREE.DoubleSide }));
+  const clothMat = mat(
+    new THREE.MeshStandardMaterial({ color: '#ffd23f', side: THREE.DoubleSide })
+  );
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
       const pole = new THREE.Mesh(flagPole, post);
@@ -297,14 +315,18 @@ export function buildStadium(): Stadium {
   // --- stands -------------------------------------------------------------------------
   const seats = mat(new THREE.MeshStandardMaterial({ color: '#2b3f66', roughness: 0.9 }));
   const concrete = mat(new THREE.MeshStandardMaterial({ color: '#59616d', roughness: 1 }));
-  const roofMat = mat(new THREE.MeshStandardMaterial({ color: '#2a2f38', roughness: 0.8, metalness: 0.3 }));
+  const roofMat = mat(
+    new THREE.MeshStandardMaterial({ color: '#2a2f38', roughness: 0.8, metalness: 0.3 })
+  );
   const tierParts: THREE.BufferGeometry[] = [];
   const crowdSpots: THREE.Matrix4[] = [];
   const addStand = (cx: number, cz: number, length: number, rotationY: number, tiers: number) => {
     for (let i = 0; i < tiers; i++) {
       const step = new THREE.BoxGeometry(length, 1.1, 1.2);
       const local = new THREE.Matrix4().makeRotationY(rotationY);
-      const along = new THREE.Vector3(0, 0.55 + i * 1.05, 8 + i * 1.15).applyMatrix4(new THREE.Matrix4().makeRotationY(rotationY));
+      const along = new THREE.Vector3(0, 0.55 + i * 1.05, 8 + i * 1.15).applyMatrix4(
+        new THREE.Matrix4().makeRotationY(rotationY)
+      );
       local.setPosition(cx + along.x, along.y, cz + along.z);
       step.applyMatrix4(local);
       tierParts.push(step);
@@ -312,7 +334,9 @@ export function buildStadium(): Stadium {
       for (let f = 0; f < length / 1.1; f++) {
         if ((f * 13 + i * 7) % 11 === 0 || (f + i) % 2) continue; // a few empty seats; every other seat to bound triangles
         const lx = -length / 2 + 0.6 + f * 1.1;
-        const p = new THREE.Vector3(lx, 1.5 + i * 1.05, 8 + i * 1.15 - 0.15).applyMatrix4(new THREE.Matrix4().makeRotationY(rotationY));
+        const p = new THREE.Vector3(lx, 1.5 + i * 1.05, 8 + i * 1.15 - 0.15).applyMatrix4(
+          new THREE.Matrix4().makeRotationY(rotationY)
+        );
         crowdSpots.push(new THREE.Matrix4().makeTranslation(cx + p.x, p.y, cz + p.z));
       }
     }
@@ -350,7 +374,7 @@ export function buildStadium(): Stadium {
     crowd.setMatrixAt(i, m);
     tint.set(palette[(i * 7 + (i >> 3)) % palette.length]);
     crowd.setColorAt(i, tint);
-    phase[i] = (i * 2654435761) % 628 / 100;
+    phase[i] = ((i * 2654435761) % 628) / 100;
   });
   crowd.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   group.add(crowd);
@@ -380,7 +404,16 @@ export function buildStadium(): Stadium {
     g.translate(-190 + i * 10.5, h / 2 - 2, farZ - 120 - ((i * 17) % 40));
     skylineParts.push(g);
   }
-  const skyline = new THREE.Mesh(track(mergeGeometries(skylineParts)!), mat(new THREE.MeshStandardMaterial({ color: '#101a2c', emissive: '#223457', emissiveIntensity: 0.6 })));
+  const skyline = new THREE.Mesh(
+    track(mergeGeometries(skylineParts)!),
+    mat(
+      new THREE.MeshStandardMaterial({
+        color: '#101a2c',
+        emissive: '#223457',
+        emissiveIntensity: 0.6,
+      })
+    )
+  );
   skylineParts.forEach((g) => g.dispose());
   group.add(skyline);
 
@@ -399,7 +432,11 @@ export function buildStadium(): Stadium {
       const m = new THREE.Matrix4();
       for (let i = 0; i < crowdSpots.length; i++) {
         pos.setFromMatrixPosition(crowdSpots[i]);
-        m.makeTranslation(pos.x, pos.y + Math.abs(Math.sin(crowdClock * rate + phase[i])) * amp, pos.z);
+        m.makeTranslation(
+          pos.x,
+          pos.y + Math.abs(Math.sin(crowdClock * rate + phase[i])) * amp,
+          pos.z
+        );
         crowd.setMatrixAt(i, m);
       }
       crowd.instanceMatrix.needsUpdate = true;
