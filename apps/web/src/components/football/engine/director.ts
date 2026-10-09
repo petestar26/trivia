@@ -578,16 +578,16 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
     }
   put(REFEREE, { x: gx - a * 22, z: 6 }, { kind: 'idle' }, { x: a, z: 0 });
 
-  // --- camera: low and wide of the goal, with a slow push-in ----------------------------------
-  const push = smooth((t - 1.2) / 2.2);
+  // --- camera: behind-quarter, outside the touchline, aimed at the goal mouth, slow push-in ----------
+  const push = smooth((t - 0.8) / 2.4);
   const camera = {
-    x: lerp(gx - a * 26, gx - a * 20, push),
-    y: lerp(6.5, 4.8, push),
-    z: 28,
-    lx: gx - a * 8,
-    ly: 1.3,
-    lz: 0,
-    fov: 36,
+    x: lerp(gx - a * 19, gx - a * 13, push),
+    y: lerp(4.4, 2.6, push),
+    z: lerp(17, 12, push),
+    lx: gx - a * 2.5,
+    ly: 1.2,
+    lz: -0.4,
+    fov: 38,
   };
   const crowd = t < M ? 0.4 : clamp(1 - (t - M) / 8, 0.55, 1);
   return { actors, ball, net, camera, scored: t >= M, crowd };

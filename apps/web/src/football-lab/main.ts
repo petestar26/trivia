@@ -1,5 +1,45 @@
+const hostEl = document.getElementById('host')!;
+const hudEl = document.getElementById('hud')!;
+const q = new URLSearchParams(location.search);
+if (q.get('scene') === 'match') {
+  // Full broadcast scene driven by the real engine. Everything is a pure function of the URL:
+  //   ?scene=match&t=<seconds>&key=<fixture id>&home=<club>&away=<club>&goals=6000H,19500A&reduced=1
+  const goals = (q.get('goals') ?? '')
+    .split(',')
+    .filter(Boolean)
+    .map((g, i) => ({ n: i + 1, side: g.endsWith('A') ? ('A' as const) : ('H' as const), atMs: Number(g.slice(0, -1)) }));
+  const t = Number(q.get('t') ?? '10');
+  const status = t < 0 ? 'SCHEDULED' : t < 28 ? 'FIRST_HALF' : t < 32 ? 'HALFTIME' : t < 60 ? 'SECOND_HALF' : 'FULL_TIME';
+  const released = goals.filter((g) => g.atMs <= t * 1000);
+  const engine = createEngine({ host: hostEl, getElapsed: () => t * 1000, reduced: q.get('reduced') === '1', maxPixelRatio: 1 });
+  engine.setMatch({
+    matchKey: q.get('key') ?? 'vf-s1-w01-f01',
+    homeClub: Number(q.get('home') ?? 1),
+    awayClub: Number(q.get('away') ?? 2),
+    status,
+    goals: released,
+    fullTime: t >= 60 ? { home: released.filter((g) => g.side === 'H').length, away: released.filter((g) => g.side === 'A').length } : null,
+  });
+  // A short lead-in lets the camera settle exactly as live play would.
+  const lead = q.get('settle') === '1' ? 18 : 0;
+  for (let i = lead; i > 0; i--) engine.renderAt(Math.max(-1000, t * 1000 - i * 33), 1 / 30);
+  const frame = engine.renderAt(t * 1000, 1 / 30);
+  const info = engine.info();
+  hudEl.textContent = `match view · t=${t}s · mode=${frame.mode} · tris=${info.triangles} calls=${info.calls}`;
+  (window as unknown as { __lab: unknown }).__lab = {
+    ready: true,
+    engine,
+    renderAt: (ms: number, dt = 1 / 30) => engine.renderAt(ms, dt).mode,
+    setGoals: (g: Array<{ n: number; side: 'H' | 'A'; atMs: number }>) =>
+      engine.setMatch({ matchKey: q.get('key') ?? 'vf-s1-w01-f01', homeClub: Number(q.get('home') ?? 1), awayClub: Number(q.get('away') ?? 2), status: 'FIRST_HALF', goals: g, fullTime: null }),
+    info: () => engine.info(),
+  };
+  throw new Error('lab:match-ready'); // stop the legacy filmstrip code below from running
+}
+
 import * as THREE from 'three';
 import { createRig, kitFromClub, kitTexture, lookGeometry, type Look, type Rig } from '@/components/football/engine/rig';
+import { createEngine } from '@/components/football/engine/engine';
 import { DIVE_DURATION, diveRoot, KICK, kickGeometry, poseCelebrate, poseIdle, poseKeeperDive, poseKeeperReady, poseKick, poseRun, strideLength, type Celebration } from '@/components/football/engine/poses';
 
 /**

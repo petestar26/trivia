@@ -333,8 +333,10 @@ export function lookGeometry(look: Look): LookGeometry {
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   return {
     geometry,
-    // Only the two attributes created here are owned; the rest are shared and must survive.
+    // dispose() releases the GPU buffers of this geometry, including its own colour/uv pair.
+    // Position, normal and skin buffers are shared and are simply re-uploaded if still used.
     dispose() {
+      geometry.dispose();
       geometry.deleteAttribute('color');
       geometry.deleteAttribute('uv');
     },
