@@ -22,6 +22,7 @@ before(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'playqube-gateway-'));
   await writeFile(path.join(directory, 'index.html'), '<h1>PlayQube</h1>');
   await writeFile(path.join(directory, 'app.js'), 'console.log("app")');
+  await writeFile(path.join(directory, 'app-recovery.js'), '/* pre-entry recovery */');
   backend = http.createServer((req, res) => {
     if (req.url === '/api/v1/auth/login') {
       res.setHeader('Set-Cookie', [
@@ -98,6 +99,16 @@ test('serves SPA routes but never turns missing assets or private paths into HTM
     assert.equal((await fetch(origin + route)).status, 404);
   assert.equal((await fetch(origin + '/games/spin-win', { method: 'HEAD' })).status, 200);
   assert.equal(await (await fetch(origin + '/games/spin-win', { method: 'HEAD' })).text(), '');
+});
+test('revalidates the pre-entry recovery script while keeping ordinary assets cacheable', async () => {
+  const recovery = await fetch(origin + '/app-recovery.js');
+  assert.equal(recovery.status, 200);
+  assert.equal(recovery.headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.equal(recovery.headers.get('cache-control'), 'no-cache');
+  assert.equal(
+    (await fetch(origin + '/app.js')).headers.get('cache-control'),
+    'public, max-age=3600'
+  );
 });
 test('forwards health checks and bounds unavailable upstream failures', async () => {
   assert.equal(await (await fetch(origin + '/health')).text(), 'healthy');

@@ -1,6 +1,6 @@
 # Crash Point practice v1
 
-Original Ruby Grand graph presentation inspired by the publicly described rising-multiplier/cash-out mechanic at https://eg1xbet.com/en/games/crash-point. No operator branding, proprietary artwork, timing, or payout formula is copied. No live reference session or third-party RNG certification was verified.
+Original Ruby Grand graph presentation inspired by the publicly described rising-multiplier/cash-out mechanic at https://eg1xbet.com/en/games/crash-point. No operator branding, proprietary artwork, timing, or payout formula is copied. The reference UI and full in-game rules were inspected on 9 October 2026; see [the comparison](crash-point-reference-comparison.md). No third-party RNG certification or private implementation was verified.
 
 ## Release boundary
 
@@ -24,11 +24,12 @@ The public snapshot reveals neither seed nor crash point until database time rea
 
 ## Visuals and accessibility
 
-SVG curve with an extruded trail, dimensional CSS floor, ruby glow, rose-gold controls and accessible text. No WebGL requirement or raster game assets. Responsive stacked controls, keyboard focus states and reduced-motion beacon. Only server receipts confirm returns; interpolation is decorative, and inputs/manual cash-out pause on stale or unavailable data.
+Original SVG logo and faceted arrow, extruded trail, perspective grid floor, indigo/cyan arena and raised controls with accessible text. Arena-level How to play and detailed rules share the same content. The graph scale sits on the right to keep the multiplier and instructions clear on phones. No WebGL requirement or raster game assets. Responsive stacked controls, keyboard focus states and reduced-motion beacon. Only server receipts confirm returns; interpolation is decorative, and inputs/manual cash-out pause on stale or unavailable data.
 
 ## Deployment
 
 Forward-only migrations:
+
 - 20261006190000_crash_point_practice (enum and guarded tables)
 - 20261006190100_crash_point_catalog (dormant financial catalog row)
 
@@ -43,7 +44,6 @@ PGlite tests execute the actual service SQL and PostgreSQL triggers but serializ
 ## Public practice activity
 
 The authenticated, feature-gated `/games/crash-point/activity?roundId=...` endpoint returns up to 100 ticket receipts and an exact total from the same SQL statement snapshot. It requires an active account and an already-open round. Only stake, settled payout, and settled multiplier are selected; pending payouts remain null. Round-specific pseudonyms are derived from random ticket IDs; account IDs, names, auto targets, seeds, and crash points are not returned. The UI refreshes every three seconds, supports current/previous round selection, and reports empty/loading/error states without invented players. The public leaderboard lists the 50 highest confirmed ticket returns from the last 24 hours, with the same anonymous labels. Returns include stake; it is not net profit or a prediction.
-
 
 ## Dual tickets and bounded autoplay
 

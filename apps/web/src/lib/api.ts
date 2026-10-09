@@ -57,6 +57,7 @@ export interface GameCatalogEntry {
   wagerCurrency: string | null;
   rewardCurrency: string;
   currentRulesVersion: number | null;
+  practiceAvailable?: boolean;
   currentRulesId?: string | null;
   minBet: number;
   maxBet: number;

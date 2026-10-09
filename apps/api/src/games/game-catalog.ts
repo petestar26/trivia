@@ -20,6 +20,7 @@ export interface GameCatalogItem {
   wagerCurrency: GameCurrencyValue | null;
   rewardCurrency: GameCurrencyValue;
   currentRulesVersion: number | null;
+  practiceAvailable?: boolean;
   currentRulesId?: string | null;
 }
 
@@ -36,6 +37,7 @@ const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_
 // AND shipping a forward-only migration for it — never just flipping a DB
 // column.
 const APPROVED_CATALOG_KEYS: readonly string[] = [
+  'sky_crash',
   'crash_point',
   'dice',
   'number_challenge',
@@ -54,9 +56,18 @@ const APPROVED_CATALOG_KEYS: readonly string[] = [
 
 // These legacy payout models have not passed the agreed 90% RTP review.
 // Keep the server gate even if an old deployment/admin changes catalog status.
-export function isCoinWagerPaused(game: { key: string; mode: string; wagerCurrency: string | null }) {
-  return game.mode === 'WAGER' && game.wagerCurrency === 'COINS' &&
-    ['number_challenge', 'dice', 'crash_point'].includes(game.key);
+export function isCoinWagerPaused(game: {
+  key: string;
+  mode: string;
+  wagerCurrency: string | null;
+}) {
+  // Sky Crash has no wallet-funded implementation, regardless of catalog edits.
+  return (
+    game.key === 'sky_crash' ||
+    (game.mode === 'WAGER' &&
+      game.wagerCurrency === 'COINS' &&
+      ['number_challenge', 'dice', 'crash_point'].includes(game.key))
+  );
 }
 
 export function isApprovedGameKey(key: string): boolean {
@@ -100,10 +111,18 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
     : null;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
-    isCoinWagerPaused(row) ? { ...row, catalogStatus: 'COMING_SOON' as const } :
-    row.key === 'spin_win'
-      ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
-      : row
+    row.key === 'sky_crash'
+      ? {
+          ...row,
+          isActive: false,
+          catalogStatus: 'COMING_SOON' as const,
+          practiceAvailable: process.env.SKY_CRASH_PRACTICE_ENABLED === 'true',
+        }
+      : isCoinWagerPaused(row)
+        ? { ...row, catalogStatus: 'COMING_SOON' as const }
+        : row.key === 'spin_win'
+          ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
+          : row
   );
 }
 

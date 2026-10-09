@@ -820,6 +820,7 @@ model UserAchievement {
 // ─── Games ─────────────────────────────────────────────────────
 
 enum GameType {
+  SKY_CRASH
   CRASH_POINT
   LUCKY_SPIN
   DICE

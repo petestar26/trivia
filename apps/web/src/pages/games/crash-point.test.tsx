@@ -1,7 +1,18 @@
-import { cleanup, fireEvent, render, screen, waitFor, within, act } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+  act,
+  configure,
+  getConfig,
+} from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { CrashPointPage, readCrashReceipt } from './crash-point';
 import type { CrashPointSnapshot } from '@socialplay/shared';
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
@@ -15,6 +26,16 @@ vi.mock('@/lib/api', async (original) => ({
 }));
 let snapshot: CrashPointSnapshot;
 let client: QueryClient;
+let elapsedTime = 0;
+const originalAsyncTimeout = getConfig().asyncUtilTimeout;
+beforeAll(() => {
+  configure({ asyncUtilTimeout: 5000 });
+  vi.setConfig({ testTimeout: 15000 });
+});
+afterAll(() => {
+  configure({ asyncUtilTimeout: originalAsyncTimeout });
+  vi.resetConfig();
+});
 function setup() {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(
@@ -26,6 +47,8 @@ function setup() {
   );
 }
 beforeEach(() => {
+  elapsedTime = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => elapsedTime);
   sessionStorage.clear();
   const now = Date.now();
   snapshot = {
@@ -59,6 +82,7 @@ afterEach(() => {
   cleanup();
   client?.clear();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   sessionStorage.clear();
 });
 it('submits only a validated amount and locked auto target', async () => {
@@ -91,6 +115,8 @@ it('restores a confirmed ticket and presents its server return', async () => {
   await screen.findByText('Confirmed return · 30 credits at 1.20x');
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
   expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
 });
 it('preserves an interrupted entry so retry uses the same round and amount', async () => {
   post.mockRejectedValue(new Error('Interrupted'));
@@ -192,11 +218,80 @@ it('autoplay stops future admission when stopped, retaining the submitted ticket
   const panel = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    snapshot = {
+      ...snapshot,
+      rounds: [
+        {
+          ...snapshot.rounds[0],
+          tickets: [{ slot: 1, stake: 25, autoCents: 200, payout: null, paidCents: null }],
+        },
+      ],
+    };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  expect(within(panel).getByRole('button', { name: /Stop autoplay/ })).toBeEnabled();
   fireEvent.click(within(panel).getByRole('button', { name: /Stop autoplay/ }));
   expect(within(panel).getByText(/Autoplay stopped/)).toBeInTheDocument();
   expect(post).toHaveBeenCalledTimes(1);
   expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', stake: 25, autoCents: 200 });
 });
+it.each([1, 2])(
+  'does not start autoplay from a hidden draft behind a confirmed slot %s ticket',
+  async (slot) => {
+    snapshot.maxTickets = 2;
+    snapshot.rounds[0].tickets = [
+      { slot, stake: 30, autoCents: 300, payout: null, paidCents: null },
+    ];
+    setup();
+    const panel = await screen.findByRole('complementary', { name: `Bet ${slot} controls` });
+    const start = await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' });
+    expect(within(panel).getByLabelText('Bet amount')).toHaveValue('30');
+    expect(within(panel).getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+    expect(start).toBeDisabled();
+    const otherPanel = screen.getByRole('complementary', {
+      name: `Bet ${slot === 1 ? 2 : 1} controls`,
+    });
+    expect(
+      within(otherPanel).getByRole('button', { name: 'Start autoplay · 10 rounds' })
+    ).toBeEnabled();
+    fireEvent.click(start);
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+
+    await act(async () => {
+      snapshot = {
+        ...snapshot,
+        rounds: [{ ...snapshot.rounds[0], id: 'next', ticket: null, tickets: [] }],
+      };
+      client.setQueryData(['crash-point', 'u1'], {
+        snapshot,
+        sent: performance.now(),
+        received: performance.now(),
+      });
+    });
+    await waitFor(() => expect(start).toBeEnabled());
+    expect(within(panel).getByLabelText('Bet amount')).toHaveValue('25');
+    expect(within(panel).getByLabelText('Auto cash-out multiplier')).toHaveValue('2.00');
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.change(within(panel).getByLabelText('Bet amount'), { target: { value: '40' } });
+    fireEvent.change(within(panel).getByLabelText('Auto cash-out multiplier'), {
+      target: { value: '4.00' },
+    });
+    fireEvent.click(start);
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toEqual({
+      roundId: 'next',
+      stake: 40,
+      autoCents: 400,
+      ...(slot === 2 ? { slot } : {}),
+    });
+  }
+);
 it('autoplay admits at most ten distinct rounds and never repeats the current round', async () => {
   snapshot.maxTickets = 2;
   setup();
@@ -214,7 +309,9 @@ it('autoplay admits at most ten distinct rounds and never repeats the current ro
         });
       });
   }
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   expect(new Set(post.mock.calls.map((c) => c[1].roundId)).size).toBe(10);
 });
 it('stops autoplay on admission errors and preserves the exact retry payload', async () => {
@@ -224,7 +321,9 @@ it('stops autoplay on admission errors and preserves the exact retry payload', a
   const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
   fireEvent.click(await within(panel).findByRole('button', { name: 'Start autoplay · 10 rounds' }));
   await within(panel).findByRole('button', { name: 'Retry saved ticket' });
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   expect(readCrashReceipt('u1', 2)).toEqual({ roundId: 'r1', stake: 25, autoCents: 200, slot: 2 });
 });
 it('stops autoplay when the tab is hidden without cancelling confirmed bets', async () => {
@@ -235,7 +334,9 @@ it('stops autoplay when the tab is hidden without cancelling confirmed bets', as
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
   const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
   fireEvent(document, new Event('visibilitychange'));
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   visibility.mockRestore();
   expect(post).toHaveBeenCalledTimes(1);
 });
@@ -258,7 +359,9 @@ it('shows the second ticket in the shared result, summary and labelled history',
   snapshot.rounds[0].crashCents = 150;
   snapshot.rounds[0].tickets = [{ slot: 2, stake: 40, autoCents: 120, payout: 48, paidCents: 120 }];
   setup();
-  await screen.findByText('Bet 2: 48 credits returned at 1.20×');
+  const resultCard = await screen.findByRole('group', { name: 'Bet 2 result' });
+  expect(within(resultCard).getByText('48 credits returned')).toBeInTheDocument();
+  expect(within(resultCard).getByText('Confirmed at 1.20× · includes stake')).toBeInTheDocument();
   const receipt = screen.getByRole('region', { name: 'Bet 2 receipt' });
   expect(within(receipt).getByText('40 credits')).toBeInTheDocument();
   expect(within(receipt).getByText('48 credits')).toBeInTheDocument();
@@ -279,7 +382,9 @@ it('stops autoplay on disconnection and does not restart it when fresh data retu
   await act(async () => {
     await client.refetchQueries({ queryKey: ['crash-point', 'u1'] });
   });
-  await waitFor(() => expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull()
+  );
   await act(async () => {
     snapshot = { ...snapshot, rounds: [{ ...snapshot.rounds[0], id: 'after-reconnect' }] };
     client.setQueryData(['crash-point', 'u1'], {
@@ -292,4 +397,292 @@ it('stops autoplay on disconnection and does not restart it when fresh data retu
   expect(
     within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' })
   ).toBeInTheDocument();
+});
+
+it('allows preparing amount and target during a running round but cannot submit early', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  setup();
+  const amount = await screen.findByLabelText('Bet amount');
+  await waitFor(() => expect(amount).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByText('Quick targets'));
+  fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
+  expect(amount).toHaveValue('50');
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  const waiting = screen.getByRole('button', { name: /Wait for next round/ });
+  expect(waiting).toBeDisabled();
+  fireEvent.click(waiting);
+  expect(post).not.toHaveBeenCalled();
+  snapshot = {
+    ...snapshot,
+    serverTime: Date.now(),
+    rounds: [
+      {
+        ...snapshot.rounds[0],
+        id: 'r2',
+        opensAt: Date.now() - 1000,
+        startsAt: Date.now() + 14000,
+        endsAt: Date.now() + 59000,
+      },
+    ],
+  };
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['crash-point', 'u1'] });
+  });
+  const confirm = await screen.findByRole('button', { name: /Confirm ticket/ });
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  await waitFor(() => expect(post).toHaveBeenCalled());
+  expect(post.mock.calls[0][1]).toEqual({ roundId: 'r2', stake: 50, autoCents: 300 });
+});
+it('target presets enable automatic cash-out and stay locked for a saved ticket', async () => {
+  setup();
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(screen.getByLabelText('Auto cash-out', { exact: true }));
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toBeDisabled();
+  fireEvent.click(screen.getByText('Quick targets'));
+  fireEvent.click(screen.getByRole('button', { name: '1.50×' }));
+  expect(screen.getByLabelText('Auto cash-out', { exact: true })).toBeChecked();
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('1.50');
+  post.mockRejectedValue(new Error('Interrupted'));
+  fireEvent.click(screen.getByRole('button', { name: /Confirm ticket/ }));
+  await screen.findByRole('button', { name: 'Retry saved ticket' });
+  expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
+  expect(readCrashReceipt('u1')).toEqual({ roundId: 'r1', stake: 25, autoCents: 150 });
+});
+
+function addHistoryRound() {
+  snapshot.rounds.push({
+    ...snapshot.rounds[0],
+    id: 'older',
+    opensAt: snapshot.serverTime - 61000,
+    startsAt: snapshot.serverTime - 46000,
+    endsAt: snapshot.serverTime - 1000,
+    crashCents: 297,
+    seed: 'b'.repeat(64),
+    tickets: [
+      { slot: 1, stake: 25, autoCents: 200, payout: 50, paidCents: 200 },
+      { slot: 2, stake: 40, autoCents: null, payout: 0, paidCents: null },
+    ],
+    ticket: null,
+  });
+}
+it('opens completed round details with both receipts without changing the draft or placing a bet', async () => {
+  addHistoryRound();
+  setup();
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.click(screen.getByText('Quick targets'));
+  fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
+  expect(screen.queryByRole('button', { name: /View completed round r1:/ })).toBeNull();
+  const history = screen.getByRole('button', { name: 'View completed round older: 2.97×' });
+  fireEvent.click(history);
+  const dialog = await screen.findByRole('dialog', { name: 'Round details' });
+  expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
+  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 credits');
+  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 credits');
+  fireEvent.click(within(dialog).getByText('Round verification'));
+  expect(within(dialog).getByText(/Revealed seed:/)).toHaveTextContent('b'.repeat(64));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByLabelText('Bet amount')).toHaveValue('50');
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+it('supports opening history with the keyboard and Escape returns focus to its button', async () => {
+  addHistoryRound();
+  setup();
+  const history = await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const user = userEvent.setup();
+  history.focus();
+  await act(async () => {
+    await user.keyboard('{Enter}');
+  });
+  await screen.findByRole('dialog', { name: 'Round details' });
+  await act(async () => {
+    await user.keyboard('{Escape}');
+  });
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+it('history keeps saved ticket locks and the exact retry payload intact', async () => {
+  addHistoryRound();
+  const receipt = { roundId: 'r1', stake: 50, autoCents: 150 };
+  sessionStorage.setItem('playqube.crash-point.pending.u1', JSON.stringify(receipt));
+  post.mockRejectedValue(new Error('Interrupted'));
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  fireEvent.click(screen.getByText('Quick targets'));
+  expect(screen.getByRole('button', { name: '3.00×' })).toBeDisabled();
+  expect(readCrashReceipt('u1')).toEqual(receipt);
+  expect(screen.getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry saved ticket' }));
+  await waitFor(() => expect(post.mock.calls[0][1]).toEqual(receipt));
+});
+it('cash-out remains bound to the live second ticket after viewing a past round', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].tickets = [
+    { slot: 2, stake: 25, autoCents: null, payout: null, paidCents: null },
+  ];
+  addHistoryRound();
+  post.mockResolvedValue({ success: true, data: { payout: 27, paidCents: 110 } });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  const panel = screen.getByRole('complementary', { name: 'Bet 2 controls' });
+  expect(within(panel).getByLabelText('Bet amount')).toBeDisabled();
+  fireEvent.click(within(panel).getByRole('button', { name: /Cash out/ }));
+  await waitFor(() => expect(post.mock.calls[0][1]).toEqual({ roundId: 'r1', slot: 2 }));
+});
+it('bet navigation reaches the real controls while entry remains closed', async () => {
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  const scroll = vi.fn();
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    setup();
+    await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+    fireEvent.click(screen.getByRole('link', { name: 'Choose your bet' }));
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    expect(screen.getByRole('heading', { name: 'Choose your bet' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '100' }));
+    fireEvent.click(screen.getByText('Quick targets'));
+    fireEvent.click(screen.getByRole('button', { name: '5.00×' }));
+    expect(screen.getByLabelText('Bet amount')).toHaveValue('100');
+    expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('5.00');
+    expect(screen.getByRole('button', { name: '100' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+it('handles a selected round leaving the snapshot without showing another result', async () => {
+  addHistoryRound();
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'View completed round older: 2.97×' }));
+  await act(async () => {
+    snapshot = { ...snapshot, rounds: [snapshot.rounds[0]] };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  const dialog = screen.getByRole('dialog', { name: 'Round details' });
+  expect(await within(dialog).findByText(/This round has left recent history/)).toBeInTheDocument();
+  expect(within(dialog).queryByText('2.97×')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Round history' })).toHaveFocus());
+});
+
+it('places completed history before the live chart and betting controls in reading order', async () => {
+  addHistoryRound();
+  setup();
+  await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const history = screen.getByRole('region', { name: 'Round history' });
+  const graph = screen.getByRole('region', { name: 'Live multiplier graph' });
+  const betting = screen.getByRole('region', { name: 'Choose your bet' });
+  expect(history.compareDocumentPosition(graph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(graph.compareDocumentPosition(betting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(post).not.toHaveBeenCalled();
+});
+it('adjusts only the selected slot amount within stake limits and the available balance', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.balance = 27;
+  setup();
+  const first = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  await waitFor(() => expect(within(first).getByLabelText('Bet amount')).toBeEnabled());
+  fireEvent.click(within(first).getByRole('button', { name: 'Increase bet amount' }));
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('27');
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  fireEvent.click(within(first).getByRole('button', { name: 'Decrease bet amount' }));
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('22');
+  expect(within(second).getByLabelText('Bet amount')).toHaveValue('25');
+  fireEvent.click(within(first).getByRole('button', { name: '10' }));
+  expect(within(first).getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  await act(async () => {
+    snapshot = { ...snapshot, balance: 1000 };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '500' } });
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: 'invalid' } });
+  expect(within(first).getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
+  expect(within(first).getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('keeps entry and autoplay disabled when a snapshot arrives too slowly', async () => {
+  snapshot.maxTickets = 2;
+  const normalGet = get.getMockImplementation()!;
+  get.mockImplementation(async (...args) => {
+    const response = await normalGet(...args);
+    if (args[0] === '/games/crash-point') elapsedTime += 1500;
+    return response;
+  });
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  expect(within(panel).getByLabelText('Bet amount')).toBeDisabled();
+  expect(within(panel).getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+  expect(within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+it('blocks entry and draft edits when cached server data becomes stale', async () => {
+  setup();
+  await waitFor(() => expect(screen.getByRole('button', { name: /Confirm ticket/ })).toBeEnabled());
+  get.mockImplementation(() => new Promise(() => {}));
+  elapsedTime = 4000;
+  await act(async () => {
+    client.setQueryData(['crash-point', 'u1'], { snapshot, sent: 0, received: 0 });
+  });
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeDisabled());
+  expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Increase bet amount' })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('opens arena rules with keyboard access and preserves both independent drafts', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  await screen.findByRole('img', { name: 'PlayQube Crash Point' });
+  const first = screen.getByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '50' } });
+  fireEvent.change(within(second).getByLabelText('Auto cash-out multiplier'), {
+    target: { value: '3.00' },
+  });
+  const trigger = screen.getByRole('button', { name: 'How to play' });
+  trigger.focus();
+  const user = userEvent.setup();
+  await user.keyboard('{Enter}');
+  const dialog = await screen.findByRole('dialog', { name: 'Crash Point rules' });
+  const limits = within(dialog).getByRole('group', { name: 'Practice limits' });
+  expect(within(limits).getByText('10–500')).toBeInTheDocument();
+  expect(within(limits).getByText('20.00×')).toBeInTheDocument();
+  expect(within(dialog).getByText(/Matching the crash multiplier also loses/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Autoplay requires an auto cash-out target/)).toBeInTheDocument();
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(trigger).toHaveFocus();
+  expect(within(first).getByLabelText('Bet amount')).toHaveValue('50');
+  expect(within(first).getByLabelText('Auto cash-out multiplier')).toHaveValue('2.00');
+  expect(within(second).getByLabelText('Bet amount')).toHaveValue('25');
+  expect(within(second).getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+  expect(post).not.toHaveBeenCalled();
 });

@@ -1,0 +1,26 @@
+# Crash Point reference comparison — 9 October 2026
+
+Source: https://eg1xbet.com/en/games/crash-point, inspected in the existing browser tab, including the full in-game Rules dialog and live layout. The text fetch redirected to an inaccessible domain; the browser supplied the actual rules. No login, ticket, cash-out or autoplay was submitted. This compares published UI and rules, not the operator's private code or RNG.
+
+| Area                | Reference observed                                                   | PlayQube implementation                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core round          | Rising graph; cash out before collapse                               | Matches the core mechanic; server-authoritative timing                                                                                                     |
+| Two panels          | Two simultaneous stakes, separate auto targets                       | Two immutable slots with independent controls and saved receipts                                                                                           |
+| Entry               | Amount field, presets, plus/minus, confirmation                      | Present; our 15-second entry window is explicit                                                                                                            |
+| Currency and limits | Currency-specific stakes; LAK shown in this session                  | Deliberately different: 1,000 starting practice credits, stakes 10–500, no cash value                                                                      |
+| Return              | Stake multiplied by accepted cash-out multiplier                     | Same gross-return concept; whole-credit rounding disclosed                                                                                                 |
+| Outcome limits      | Live history included a result above 20×                             | Deliberately different: 20× cash-out cap, terminal crash at 20.01×; equality with crash loses                                                              |
+| Autoplay            | Automatic entries; cash-out can remain manual                        | Deliberately bounded: up to ten entries per panel, auto target required; stops on hidden tab, refresh, stale connection or error                           |
+| Recent outcomes     | Clickable multiplier strip above the graph                           | Present, with time, ticket detail and verification dialog                                                                                                  |
+| Activity            | Current/previous round, personal bets, top returns                   | Present; actual anonymous practice receipts, no invented players                                                                                           |
+| History scope       | Personal history; top by day/month/year                              | Deliberately narrower: latest 12 rounds and top returns over 24 hours                                                                                      |
+| Fairness            | Claims provably fair; history offers verification information        | Seed commitment and revealed-result verification; explicitly not independent RNG certification                                                             |
+| Support/faults      | Published cancellation/refund and contact policies                   | Not adopted: PlayQube has its own recovery semantics and no cash-valued practice bets                                                                      |
+| Audio               | Sound button visible                                                 | No sound control; do not imply an audio feature exists                                                                                                     |
+| Branding/layout     | Logo beside history, curved arrow, two controls below, activity rail | Original PlayQube logo added above the arena, history remains above graph, faceted arrow and perspective floor, responsive dual controls and activity rail |
+
+## This update
+
+Adds an original vector wordmark and arrow emblem, raised arena surfaces, clearer graph contrast, a stronger arrow extrusion and an accessible How to play dialog. The dialog shares its content with the existing detailed rules and exposes the actual practice limits. It preserves keyboard focus and both draft tickets. It also corrects an outdated instruction that sent users below the graph for history that is now above it.
+
+Only presentation, explanatory text and UI regression coverage change. No source branding/artwork is copied. No new raster download, dependency, payout formula, API, migration, ledger, autoplay authority or activation gate is introduced. PlayQube matches the reference's main interaction pattern; it is not identical in limits, history scope, sound or financial functionality.
