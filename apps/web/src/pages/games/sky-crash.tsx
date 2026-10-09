@@ -329,6 +329,8 @@ function SkyCrash({
       : null;
   const draftStakeLimit = Math.min(rules.maxStake, s?.balance ?? 0);
   const result = shown?.ticket;
+  // Only the server's revealed result ends the flight, never the local clock.
+  const crashed = shown?.crashCents != null;
   const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   const controls = (
     <aside className="sky-controls" aria-label={`Bet ${slot} controls`}>
@@ -638,7 +640,7 @@ function SkyCrash({
         <div className="sky-table">
           <RoundHistory rounds={raw?.rounds ?? []} />
           <section
-            className={`sky-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
+            className={`sky-arena ${crashed ? 'crashed' : ''}`}
             aria-label="Live flight arena"
           >
             <div className="sky-arena-top">
@@ -660,11 +662,7 @@ function SkyCrash({
             </div>
             <div className="sky-multiplier">
               <span>
-                {shown?.crashCents
-                  ? 'FLIGHT COMPLETE'
-                  : open
-                    ? 'READY FOR THE RISE'
-                    : 'LIVE MULTIPLIER'}
+                {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
               </span>
               <strong>
                 {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
@@ -727,15 +725,49 @@ function SkyCrash({
                 <polyline points={points} className="curve depth" transform="translate(0 9)" />
                 <polyline points={points} className="curve glow" filter="url(#sky-glow)" />
                 <polyline points={points} className="curve" />
-                <g transform={`translate(${x} ${y}) rotate(${Math.max(-18, arrowAngle)})`}>
-                  <image
-                    className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
-                    href="/images/sky-crash/aircraft.webp"
-                    x="-105"
-                    y="-78"
-                    width="210"
-                    height="140"
-                  />
+                <g key={shown?.id ?? 'waiting'} transform={`translate(${x} ${y})`}>
+                  <g className={crashed ? 'sky-impact-plane' : undefined}>
+                    <g transform={`rotate(${Math.max(-18, arrowAngle)})`}>
+                      <image
+                        className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
+                        href="/images/sky-crash/aircraft.webp"
+                        x="-63"
+                        y="-47"
+                        width="126"
+                        height="84"
+                      />
+                    </g>
+                  </g>
+                  {crashed && (
+                    <g className="sky-impact" data-testid="sky-crash-impact">
+                      <g className="sky-impact-smoke" fill="#526071">
+                        <circle cx="-8" cy="-26" r="17" />
+                        <circle cx="12" cy="-40" r="22" />
+                        <circle cx="-9" cy="-59" r="18" />
+                      </g>
+                      <ellipse className="sky-impact-halo" cy="4" rx="47" ry="30" fill="#fb8129" />
+                      <g className="sky-impact-flames">
+                        <path
+                          fill="#ee6028"
+                          d="M-27 18C-45-1-19-13-25-35C-10-28-13-11-4-16C4-26-6-43 8-56C5-26 33-24 25-8C41-15 32 13 22 21C8 30-12 30-27 18Z"
+                        />
+                        <path
+                          fill="#ffb64d"
+                          d="M-18 18C-28 5-8-3-13-18C0-12-2-4 5-10C13-19 5-28 13-34C12-14 27 1 19 15C12 26-8 28-18 18Z"
+                        />
+                        <path
+                          fill="#fff0b2"
+                          d="M-9 18C-15 7 2 4 0-9C14 1 17 16 8 22C2 25-5 24-9 18Z"
+                        />
+                      </g>
+                      <g className="sky-impact-embers" fill="#ffc270">
+                        <circle cx="-35" cy="-20" r="2" />
+                        <circle cx="30" cy="-32" r="2.5" />
+                        <circle cx="-20" cy="-51" r="2" />
+                        <circle cx="24" cy="-65" r="1.5" />
+                      </g>
+                    </g>
+                  )}
                 </g>
               </svg>
             </div>
