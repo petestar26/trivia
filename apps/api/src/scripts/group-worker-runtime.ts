@@ -1,5 +1,6 @@
 export type GroupWorkerKind =
   | 'DERBY_PRACTICE'
+  | 'FOOTBALL_PRACTICE'
   | 'SKY_CRASH_PRACTICE'
   | 'CRASH_PRACTICE'
   | 'PVP'
@@ -12,6 +13,7 @@ export function enabledGroupWorkers(env: NodeJS.ProcessEnv): GroupWorkerKind[] {
     ...(
       [
         'DERBY_PRACTICE',
+        'FOOTBALL_PRACTICE',
         'SKY_CRASH_PRACTICE',
         'CRASH_PRACTICE',
         'PVP',
@@ -23,6 +25,7 @@ export function enabledGroupWorkers(env: NodeJS.ProcessEnv): GroupWorkerKind[] {
         env[
           {
             DERBY_PRACTICE: 'THUNDER_DERBY_PRACTICE_ENABLED',
+            FOOTBALL_PRACTICE: 'VIRTUAL_FOOTBALL_PRACTICE_ENABLED',
             SKY_CRASH_PRACTICE: 'SKY_CRASH_PRACTICE_ENABLED',
             CRASH_PRACTICE: 'CRASH_POINT_PRACTICE_ENABLED',
             PVP: 'GROUP_PVP_GAME_POINTS_ENABLED',
@@ -59,6 +62,8 @@ export function workerFailure(error: unknown) {
     'PVP funding receipt mismatch',
     'Practice balance does not match tickets',
     'Dice practice balance does not match tickets',
+    'Football balance does not match tickets',
+    'Football admission closed',
   ];
   const message =
     known.find((text) => typeof value.message === 'string' && value.message.includes(text)) ??

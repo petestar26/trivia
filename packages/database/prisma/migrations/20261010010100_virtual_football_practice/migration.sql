@@ -234,7 +234,7 @@ CREATE TRIGGER football_leg_guard BEFORE INSERT OR UPDATE OR DELETE ON football_
 CREATE FUNCTION football_ticket_integrity() RETURNS trigger LANGUAGE plpgsql SET search_path=public,pg_temp AS $$
 DECLARE tid text; tk public.football_tickets; ln record; product numeric; n integer; total_legs integer:=0; total_max integer:=0; lg record; sigs integer; mx integer;
 BEGIN
- tid:=CASE TG_TABLE_NAME WHEN 'football_tickets' THEN NEW.id ELSE NEW.ticket_id END;
+ IF TG_TABLE_NAME='football_tickets' THEN tid:=NEW.id; ELSE tid:=NEW.ticket_id; END IF;
  SELECT * INTO tk FROM public.football_tickets WHERE id=tid;
  IF NOT FOUND THEN RAISE EXCEPTION 'Football ticket missing'; END IF;
  IF (SELECT count(*) FROM public.football_ticket_lines l WHERE l.ticket_id=tid)<>tk.line_count

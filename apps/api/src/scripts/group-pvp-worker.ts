@@ -1,4 +1,5 @@
 import { createDerbyService } from '../games/thunder-derby/service.js';
+import { createFootballService } from '../games/virtual-football/service.js';
 import { createSkyCrashService } from '../games/sky-crash/service.js';
 import { createCrashPointService } from '../games/crash-point/service.js';
 import { prisma } from '@socialplay/database';
@@ -21,6 +22,7 @@ try {
     stopped: () => stopped,
     ticks: {
       DERBY_PRACTICE: createDerbyService(prisma).tick,
+      FOOTBALL_PRACTICE: createFootballService(prisma).tick,
       SKY_CRASH_PRACTICE: createSkyCrashService(prisma).tick,
       CRASH_PRACTICE: createCrashPointService(prisma).tick,
       SOCIAL_LIFECYCLE: async () => {
