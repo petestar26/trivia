@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Dev-only preview of the Virtual Football 3D engine. Not part of the production build:
+     Vite's build input is index.html only. Run `pnpm --filter web dev` and open /football-lab.html -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual Football lab</title>
+    <style>html,body{margin:0;height:100%;background:#0b1220;color:#dbe7ff;font:13px system-ui}#host{position:fixed;inset:0}#hud{position:fixed;left:8px;top:8px;white-space:pre;pointer-events:none;text-shadow:0 1px 2px #000}</style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/football-lab/main.ts"></script>
+  </body>
+</html>
