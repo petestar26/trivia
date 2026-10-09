@@ -37,3 +37,28 @@ describe('deforming leg surfaces', () => {
     }
   });
 });
+it('does not dirty GPU buffers for standing or held poses, but updates changed poses', () => {
+  const skin = createLegSurface(true);
+  const pose = (time: number, moving: boolean) => {
+    const foot = gallopPose(time, 2, moving).feet[0];
+    const knee = legJoint(foot.x, foot.y - 1.68, true);
+    skin.pose(-0.83, 1.68, -0.83 + knee.x, 1.68 + knee.y, -0.83 + foot.x, foot.y, 0.285);
+  };
+  const position = skin.geometry.getAttribute('position') as import('three').BufferAttribute;
+  const normal = skin.geometry.getAttribute('normal') as import('three').BufferAttribute;
+  pose(0, false);
+  const standing = [position.version, normal.version];
+  for (let i = 0; i < 300; i++) pose(i / 30, false);
+  expect([position.version, normal.version]).toEqual(standing);
+  pose(0.2, true);
+  expect(position.version).toBe(standing[0] + 1);
+  expect(normal.version).toBe(standing[1] + 1);
+  const held = [position.version, normal.version];
+  for (let i = 0; i < 300; i++) pose(0.2, true);
+  expect([position.version, normal.version]).toEqual(held);
+  pose(0.3, true);
+  expect(position.version).toBe(held[0] + 1);
+  pose(0.3, false);
+  expect(position.version).toBe(held[0] + 2);
+  skin.geometry.dispose();
+});

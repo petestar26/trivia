@@ -63,6 +63,7 @@ export function createLegSurface(hind: boolean) {
   geometry.setIndex(indices);
   const pos = geometry.getAttribute('position'),
     normal = geometry.getAttribute('normal');
+  let previousPose: number[] | undefined;
   function pose(
     hipX: number,
     hipY: number,
@@ -72,6 +73,9 @@ export function createLegSurface(hind: boolean) {
     footY: number,
     z: number
   ) {
+    const currentPose = [hipX, hipY, kneeX, kneeY, footX, footY, z];
+    if (previousPose && currentPose.every((value, i) => value === previousPose![i])) return;
+    previousPose = currentPose;
     // Quadratic fillet around the knee: the outer surface bends without detached cylinders.
     const ax = hipX,
       ay = hipY + 0.34;

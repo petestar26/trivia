@@ -22,6 +22,7 @@ export default function RaceScene({
   const live = useRef({ round, running, reduced });
   live.current = { round, running, reduced };
   const [failed, setFailed] = useState(false);
+  const [contextRevision, setContextRevision] = useState(0);
   useEffect(() => {
     if (!host.current) return;
     setFailed(false);
@@ -48,7 +49,12 @@ export default function RaceScene({
       disposed = true;
       setFailed(true);
     };
+    const restored = () => {
+      // Recreate GPU resources after the browser restores its context.
+      if (disposed) setContextRevision((revision) => revision + 1);
+    };
     renderer.domElement.addEventListener('webglcontextlost', lost);
+    renderer.domElement.addEventListener('webglcontextrestored', restored);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#bad1dc');
     scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
@@ -340,13 +346,14 @@ export default function RaceScene({
       cancelAnimationFrame(frame);
       observer.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', lost);
+      renderer.domElement.removeEventListener('webglcontextrestored', restored);
       renderer.dispose();
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
       renderer.domElement.remove();
     };
-  }, [round.field]);
+  }, [round.field, contextRevision]);
   return (
     <div
       className="derby-scene"

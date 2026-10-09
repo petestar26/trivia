@@ -94,3 +94,24 @@ it('stops the animation loop and presents fallback after context loss', () => {
   expect(screen.queryByText(/3D view unavailable/)).not.toBeInTheDocument();
   expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
 });
+it('rebuilds after context restoration on the same field and detaches old listeners', () => {
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const old = view.container.querySelector('canvas')!;
+    fireEvent(old, new Event('webglcontextlost', { cancelable: true }));
+    expect(screen.getByText(/3D view unavailable/)).toBeVisible();
+    fireEvent(old, new Event('webglcontextrestored'));
+    expect(screen.queryByText(/3D view unavailable/)).not.toBeInTheDocument();
+    const current = view.container.querySelector('canvas')!;
+    expect(current).not.toBe(old);
+    expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
+    expect(state.disposed).toHaveBeenCalledTimes(attempt + 1);
+    fireEvent(old, new Event('webglcontextrestored'));
+    expect(view.container.querySelector('canvas')).toBe(current);
+    const draw = vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0];
+    draw(2000);
+    expect(state.draw).toHaveBeenCalledTimes(attempt + 1);
+  }
+  view.unmount();
+  expect(state.disposed).toHaveBeenCalledTimes(3);
+});
