@@ -109,6 +109,22 @@ it.each(['owner', 'safe', 'checksum', 'failed', 'unrelated', 'catalog'])(
     expect(state.disconnect).toHaveBeenCalledOnce();
   }
 );
+it('keeps the Derby allowlist narrow: football migrations are unrelated pending work', async () => {
+  const football = [
+    '20261010010000_virtual_football_game_type',
+    '20261010010100_virtual_football_practice',
+    '20261010010200_virtual_football_catalog',
+    '20261010010300_virtual_football_settlement_atomic',
+  ];
+  state.names.push(...football);
+  try {
+    await expect(runDerbyStagingUpgrade(env, true)).rejects.toThrow('UNRELATED_PENDING_MIGRATION');
+    expect(state.execute).not.toHaveBeenCalled();
+    expect(state.grant).not.toHaveBeenCalled();
+  } finally {
+    state.names.splice(1, football.length);
+  }
+});
 it('dry-run verifies existing grants but makes no writes', async () => {
   await runDerbyStagingUpgrade(env);
   expect(state.execute).not.toHaveBeenCalled();

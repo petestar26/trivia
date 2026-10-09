@@ -5,6 +5,7 @@ export default defineConfig({
     include: [
       'src/games/sky-crash/*.native.ts',
       'src/games/thunder-derby/*.native.ts',
+      'src/games/virtual-football/*.native.ts',
       'src/crypto-payments/*.native.ts',
       'src/games/crash-point/*.native.ts',
       'src/agents/*.native.ts',

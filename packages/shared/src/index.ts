@@ -19,3 +19,5 @@ export * from './crash-point.js';
 export * from './sky-crash.js';
 
 export * from './thunder-derby.js';
+
+export * from './virtual-football/index.js';

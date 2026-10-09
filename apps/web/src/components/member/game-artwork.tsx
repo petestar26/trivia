@@ -6,6 +6,7 @@ const images: Record<string, string> = {
   dice: 'dice',
   crash_point: 'crash-point',
   thunder_derby_3d: 'thunder-derby',
+  virtual_football_3d: 'virtual-football',
 };
 const symbols: Record<string, typeof Brain> = {
   trivia: Brain,

@@ -16,6 +16,18 @@ on:
       - 'apps/api/vitest.derby.config.ts'
       - 'apps/api/src/scripts/derby-runtime-grants.ts'
       - 'apps/api/src/scripts/staging-derby-upgrade*'
+      - 'apps/api/src/games/virtual-football/**'
+      - 'apps/api/vitest.football.config.ts'
+      - 'apps/api/src/scripts/football-runtime-grants.ts'
+      - 'apps/api/src/scripts/staging-football-upgrade*'
+      - 'apps/web/src/pages/games/virtual-football*'
+      - 'apps/web/src/components/football/**'
+      - 'apps/web/src/lib/football/**'
+      - 'apps/web/src/test/football-fixtures.ts'
+      - 'apps/web/football-lab.html'
+      - 'apps/web/src/football-lab/**'
+      - 'apps/web/public/art/ruby-grand/virtual-football*'
+      - 'docs/games/virtual-football*'
       - 'apps/api/src/games/sky-crash/**'
       - 'apps/web/src/pages/games/sky-crash*'
       - 'apps/web/public/images/sky-crash/**'
@@ -184,8 +196,12 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.sky-crash.config.ts
       - name: Thunder Derby math and admission tests
         run: pnpm --filter api exec vitest run --config vitest.derby.config.ts
+      - name: Virtual Football shared rules, model, schedule and ticket contracts
+        run: pnpm --filter @socialplay/shared exec vitest run src/virtual-football --minWorkers=1 --maxWorkers=1
+      - name: Virtual Football admission, privacy and staging-script tests
+        run: pnpm --filter api exec vitest run --config vitest.football.config.ts
       - name: Group PVP concurrency and recovery
-        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/thunder-derby/derby.native.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
+        run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/virtual-football/football.native.ts src/games/thunder-derby/derby.native.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Crypto payment receipt, ledger and concurrency contracts
         run: |
           pnpm --filter api exec vitest run --config vitest.crypto.config.ts
@@ -321,6 +337,12 @@ jobs:
           src/pages/games/spin-win-verify.test.tsx
           src/lib/spin-proof-verifier.test.ts
           src/lib/spin-publication-archive.test.ts
+          --minWorkers=1 --maxWorkers=1
+      - name: Virtual Football web contracts
+        run: >-
+          pnpm --filter web exec vitest run
+          src/components/football src/lib/football src/lib/football-catalog.test.ts
+          src/pages/games/virtual-football.test.tsx
           --minWorkers=1 --maxWorkers=1
       - name: Group game room and chat contracts
         run: >-

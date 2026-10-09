@@ -10,6 +10,7 @@ it.each(Array.from({ length: 8 }, (_, i) => i))(
     });
     const ticks = {
       DERBY_PRACTICE: vi.fn(async () => {}),
+      FOOTBALL_PRACTICE: vi.fn(async () => {}),
       SKY_CRASH_PRACTICE: vi.fn(async () => {}),
       CRASH_PRACTICE: vi.fn(async () => {}),
       SOCIAL_LIFECYCLE: vi.fn(async () => {}),
@@ -50,6 +51,7 @@ it('reports safe diagnostic codes for failures and continues the loop', async ()
     enabled: ['DICE_PRACTICE'],
     ticks: {
       DERBY_PRACTICE: vi.fn(async () => {}),
+      FOOTBALL_PRACTICE: async () => {},
       SKY_CRASH_PRACTICE: async () => {},
       CRASH_PRACTICE: async () => {},
       SOCIAL_LIFECYCLE: fail,
@@ -91,6 +93,7 @@ it.each(['failure', 'stall'])(
       enabled: ['SOCIAL_LIFECYCLE', 'PVP'],
       ticks: {
         DERBY_PRACTICE: vi.fn(async () => {}),
+        FOOTBALL_PRACTICE: async () => {},
         SKY_CRASH_PRACTICE: async () => {},
         CRASH_PRACTICE: async () => {},
         SOCIAL_LIFECYCLE: async () => {
@@ -138,4 +141,61 @@ it('Derby practice is disabled by default and requires literal true', () => {
   expect(enabledGroupWorkers({ THUNDER_DERBY_PRACTICE_ENABLED: 'true' })).toContain(
     'DERBY_PRACTICE'
   );
+});
+
+it('Virtual Football practice is off by default, exact-true only, and independent of every other flag', () => {
+  expect(enabledGroupWorkers({})).not.toContain('FOOTBALL_PRACTICE');
+  for (const flag of ['1', 'TRUE', 'True', 'yes', ' true', ''])
+    expect(enabledGroupWorkers({ VIRTUAL_FOOTBALL_PRACTICE_ENABLED: flag })).not.toContain(
+      'FOOTBALL_PRACTICE'
+    );
+  expect(
+    enabledGroupWorkers({
+      THUNDER_DERBY_PRACTICE_ENABLED: 'true',
+      SKY_CRASH_PRACTICE_ENABLED: 'true',
+      CRASH_POINT_PRACTICE_ENABLED: 'true',
+      GROUP_PVP_GAME_POINTS_ENABLED: 'true',
+    })
+  ).not.toContain('FOOTBALL_PRACTICE');
+  expect(enabledGroupWorkers({ VIRTUAL_FOOTBALL_PRACTICE_ENABLED: 'true' })).toEqual([
+    'SOCIAL_LIFECYCLE',
+    'FOOTBALL_PRACTICE',
+  ]);
+  expect(enabledGroupWorkers({ VIRTUAL_FOOTBALL_PRACTICE_ENABLED: 'true' })).not.toContain(
+    'DERBY_PRACTICE'
+  );
+});
+
+it('keeps football ticks independent: a failing football pass cannot stop other loops', async () => {
+  const reports: unknown[] = [];
+  const other = vi.fn(async () => {});
+  let stopped = false;
+  await runGroupWorkerLoops({
+    enabled: ['FOOTBALL_PRACTICE', 'DERBY_PRACTICE'],
+    ticks: {
+      DERBY_PRACTICE: other,
+      FOOTBALL_PRACTICE: async () => {
+        throw { code: 'P2010', meta: { code: '23514' }, message: 'Football balance does not match tickets postgresql://x:SECRET@h' };
+      },
+      SKY_CRASH_PRACTICE: async () => {},
+      CRASH_PRACTICE: async () => {},
+      SOCIAL_LIFECYCLE: async () => {},
+      PVP: async () => {},
+      KENO_PRACTICE: async () => {},
+      DICE_PRACTICE: async () => {},
+    },
+    stopped: () => stopped,
+    wait: async () => {
+      stopped = true;
+    },
+    report: (event) => reports.push(event),
+  });
+  expect(other).toHaveBeenCalledOnce();
+  expect(reports).toEqual([
+    expect.objectContaining({
+      event: 'FOOTBALL_PRACTICE_WORKER_RETRY',
+      message: 'Football balance does not match tickets',
+    }),
+  ]);
+  expect(JSON.stringify(reports)).not.toContain('SECRET');
 });

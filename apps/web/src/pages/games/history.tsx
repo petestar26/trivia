@@ -32,6 +32,7 @@ const GAME_ICONS: Record<string, string> = {
   number_challenge: '🔢',
   trivia: '🧠',
   thunder_derby_3d: '⚡',
+  virtual_football_3d: '⚽',
   neon_hounds_3d: '🐕',
   turbo_circuit_3d: '🏎️',
   starfall_nebula: '⭐',

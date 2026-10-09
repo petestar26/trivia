@@ -55,6 +55,10 @@ const SKY_CRASH_PRACTICE = '20261009010000_sky_crash_practice';
 const SKY_CRASH_DUAL = '20261009010100_sky_crash_dual_tickets';
 const SKY_CRASH_CATALOG = '20261009010200_sky_crash_catalog';
 const THUNDER_DERBY_PRACTICE = '20261009120000_thunder_derby_practice';
+const FOOTBALL_GAME_TYPE = '20261010010000_virtual_football_game_type';
+const FOOTBALL_PRACTICE = '20261010010100_virtual_football_practice';
+const FOOTBALL_CATALOG = '20261010010200_virtual_football_catalog';
+const FOOTBALL_SETTLEMENT_ATOMIC = '20261010010300_virtual_football_settlement_atomic';
 const AGENT_ACTIVATION_UTC = '20261007040000_agent_activation_utc';
 const RECOVERY_RUNTIME_HARDENING = '20261007032000_recovery_runtime_hardening';
 const AGENT_ACTIVATION_RUNTIME_GRANT = '20261007010000_agent_activation_runtime_grant';
@@ -428,6 +432,10 @@ beforeAll(() => {
     SKY_CRASH_DUAL,
     SKY_CRASH_CATALOG,
     THUNDER_DERBY_PRACTICE,
+    FOOTBALL_GAME_TYPE,
+    FOOTBALL_PRACTICE,
+    FOOTBALL_CATALOG,
+    FOOTBALL_SETTLEMENT_ATOMIC,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -711,7 +719,7 @@ describe('ledger upgrade migrations', () => {
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -719,7 +727,7 @@ describe('ledger upgrade migrations', () => {
       expect(await economicFingerprint()).toEqual(economicsBefore);
       expect(await cryptoGates()).toEqual(expectedCryptoGates);
       const upgradedCatalog = await catalogRows();
-      expect(upgradedCatalog.filter(game => !['crash_point', 'sky_crash', 'thunder_derby_3d'].includes(game.key)))
+      expect(upgradedCatalog.filter(game => !['crash_point', 'sky_crash', 'thunder_derby_3d', 'virtual_football_3d'].includes(game.key)))
         .toEqual(expectedCatalog.filter(game => game.key !== 'thunder_derby_3d'));
       const oldDerby = expectedCatalog.find(game => game.key === 'thunder_derby_3d');
       const newDerby = upgradedCatalog.find(game => game.key === 'thunder_derby_3d');
@@ -731,6 +739,15 @@ describe('ledger upgrade migrations', () => {
       expect(newDerby).toMatchObject({ isActive: false, catalogStatus: 'COMING_SOON',
         mode: 'WAGER', wagerCurrency: 'COINS', rewardCurrency: 'COINS' });
       expect(newDerby!.updatedAt.getTime()).toBeGreaterThanOrEqual(oldDerby!.updatedAt.getTime());
+      // Virtual Football arrives inactive and COMING_SOON; Coin wagering stays paused in code regardless.
+      expect(upgradedCatalog.filter(game => game.key === 'virtual_football_3d')).toEqual([
+        expect.objectContaining({
+          key: 'virtual_football_3d', name: 'Virtual Football 3D', type: 'VIRTUAL_FOOTBALL_3D',
+          mode: 'WAGER', family: 'SCHEDULED_RACE', catalogStatus: 'COMING_SOON', isActive: false,
+          minBet: 5, maxBet: 500, wagerCurrency: 'COINS', rewardCurrency: 'COINS',
+          configuration: { practiceRulesId: 'virtual-football-3d-practice-v1' },
+        }),
+      ]);
       expect(upgradedCatalog.filter(game => game.key === 'sky_crash')).toEqual([
         expect.objectContaining({
           key: 'sky_crash', name: 'Sky Crash', type: 'SKY_CRASH',
@@ -803,7 +820,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -856,7 +873,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT

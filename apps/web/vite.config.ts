@@ -78,7 +78,7 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Practice artwork and the 3D renderer are opt-in; never download it on unrelated page installs.
-        globIgnores: ['images/sky-crash/**', 'assets/race-scene-*.js'],
+        globIgnores: ['images/sky-crash/**', 'assets/race-scene-*.js', 'assets/football-scene-*.js'],
         // Gateway and asset URLs must reach the server, including direct navigation.
         navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
         cleanupOutdatedCaches: true,

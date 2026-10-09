@@ -108,6 +108,7 @@ export enum GameType {
   CRYSTAL_TRAIL = 'crystal_trail',
   HEAT_VAULT = 'heat_vault',
   STRAIT_RUSH = 'strait_rush',
+  VIRTUAL_FOOTBALL_3D = 'virtual_football_3d',
 }
 
 export enum GameMode {

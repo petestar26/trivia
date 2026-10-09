@@ -1,4 +1,5 @@
 import { derbyRoutes } from '../games/thunder-derby/routes.js';
+import { footballRoutes } from '../games/virtual-football/routes.js';
 import { skyCrashRoutes } from '../games/sky-crash/routes.js';
 import { cryptoPaymentRoutes } from '../crypto-payments/routes.js';
 import { latePaymentRoutes } from '../agents/late-payment-routes.js';
@@ -44,6 +45,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
   await server.register(derbyRoutes, { prefix: '/games/thunder-derby' });
+  await server.register(footballRoutes, { prefix: '/games/virtual-football' });
   await server.register(skyCrashRoutes, { prefix: '/games/sky-crash' });
   await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
