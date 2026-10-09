@@ -12,6 +12,9 @@ on:
       - 'apps/api/src/games/group-pvp/**'
       - 'apps/api/src/games/sky-crash/**'
       - 'apps/web/src/pages/games/sky-crash*'
+      - 'apps/web/public/images/sky-crash/**'
+      - 'apps/web/src/components/member/game-artwork*'
+      - 'apps/web/src/pages/home*'
       - 'apps/api/vitest.sky-crash.config.ts'
       - 'apps/api/src/scripts/staging-sky-crash-upgrade.ts'
       - 'apps/api/src/scripts/sky-crash-runtime-grants.ts'
@@ -303,6 +306,7 @@ jobs:
           src/pages/signup-return-path.test.tsx
           src/pages/games/crash-point.test.tsx
           src/pages/games/sky-crash.test.tsx src/lib/sky-crash-catalog.test.ts
+          src/components/member/game-artwork.test.tsx src/pages/home.test.tsx
           src/pages/wallet-late-payments.test.tsx
           src/components/app-error-boundary.test.tsx
           src/pages/games/spin-win-verify.test.tsx

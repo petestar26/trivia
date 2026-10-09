@@ -198,3 +198,55 @@ it('the restricted runtime role can lock and settle rounds but cannot alter outc
     await db.$executeRawUnsafe(`DROP ROLE "${role}"`);
   }
 });
+
+// Corruption is injected only into this acknowledged disposable database, in a
+// transaction-local superuser fixture. Runtime code never disables a trigger.
+async function corruptBalance(userId: string, value: number) {
+  await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+    await tx.$executeRaw`UPDATE sky_crash_accounts SET balance=${value} WHERE user_id=${userId}`;
+  });
+}
+it('rejects entry when a deferred balance check would roll back COMMIT', async () => {
+  const f = await fixture(4000);
+  await corruptBalance(f.userId, 990);
+  try {
+    await expect(service.enter(f.userId, f.roundId, 25, 200)).rejects.toThrow(
+      'balance does not match'
+    );
+    const [row] = await db.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) AS count FROM sky_crash_tickets WHERE user_id=${f.userId}`;
+    expect(Number(row.count)).toBe(0);
+    expect(await balance(f.userId)).toBe(990);
+  } finally {
+    await corruptBalance(f.userId, 1000);
+  }
+  expect(await service.enter(f.userId, f.roundId, 25, 200)).toEqual({
+    accepted: true,
+    isReplay: false,
+  });
+  expect(await balance(f.userId)).toBe(975);
+});
+it('rejects cash-out and reports worker errors when deferred settlement cannot commit', async () => {
+  const f = await fixture(500);
+  await service.enter(f.userId, f.roundId, 100, 101);
+  await wait(f.starts.getTime() + 150);
+  await corruptBalance(f.userId, 890);
+  try {
+    await expect(service.cashout(f.userId, f.roundId)).rejects.toThrow('balance does not match');
+    const errors: Array<{ id: string; error: unknown }> = [];
+    await service.tick((id, error) => errors.push({ id, error }));
+    expect(errors.some((e) => e.id === f.roundId)).toBe(true);
+    const [ticket] = await db.$queryRaw<
+      { payout: number | null; paid_cents: number | null; settled_at: Date | null }[]
+    >`SELECT payout,paid_cents,settled_at FROM sky_crash_tickets WHERE user_id=${f.userId}`;
+    expect(ticket).toEqual({ payout: null, paid_cents: null, settled_at: null });
+    expect(await balance(f.userId)).toBe(890);
+  } finally {
+    await corruptBalance(f.userId, 900);
+  }
+  expect(await service.cashout(f.userId, f.roundId)).toEqual({ payout: 101, paidCents: 101 });
+  expect(await service.cashout(f.userId, f.roundId)).toEqual({ payout: 101, paidCents: 101 });
+  expect(await balance(f.userId)).toBe(1001);
+});

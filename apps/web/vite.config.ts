@@ -77,6 +77,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Practice artwork is opt-in; never download it on unrelated page installs.
+        globIgnores: ['images/sky-crash/**'],
         // Gateway and asset URLs must reach the server, including direct navigation.
         navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
         cleanupOutdatedCaches: true,

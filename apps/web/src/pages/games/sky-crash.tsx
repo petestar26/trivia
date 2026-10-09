@@ -730,7 +730,7 @@ function SkyCrash({
                 <g transform={`translate(${x} ${y}) rotate(${Math.max(-18, arrowAngle)})`}>
                   <image
                     className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
-                    href="/images/sky-crash/aircraft.png"
+                    href="/images/sky-crash/aircraft.webp"
                     x="-105"
                     y="-78"
                     width="210"

@@ -376,22 +376,6 @@
     inset 0 0 50px #25204b;
   pointer-events: none;
 }
-.sky-beacon {
-  animation: sky-pulse 1.5s ease-in-out infinite;
-}
-.sky-arrow {
-  filter: drop-shadow(0 0 9px #64e6dc80);
-}
-.sky-arrow-trail {
-  stroke: #65eadb;
-  stroke-width: 5;
-  stroke-linecap: round;
-  opacity: 0.5;
-}
-.sky-arrow.flying .sky-arrow-trail {
-  stroke-dasharray: 10 8;
-  animation: sky-thrust 0.6s linear infinite;
-}
 .sky-countdown-track {
   position: absolute;
   z-index: 2;
@@ -1202,17 +1186,6 @@
   outline-offset: 4px;
   border-radius: 3px;
 }
-@keyframes sky-pulse {
-  50% {
-    filter: drop-shadow(0 0 7px #7cecdf);
-  }
-}
-@keyframes sky-thrust {
-  to {
-    stroke-dashoffset: 36;
-  }
-}
-
 /* Container breakpoints account for the member navigation beside the game. */
 @container sky (max-width: 950px) {
   .sky-layout {
@@ -1430,10 +1403,6 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sky-beacon,
-  .sky-arrow.flying .sky-arrow-trail {
-    animation: none;
-  }
   .sky-page *,
   .sky-history-dialog * {
     transition: none !important;
@@ -1501,7 +1470,7 @@
   background:
     linear-gradient(90deg, #071322a8, transparent 76%),
     linear-gradient(0deg, #06111dbe, transparent 65%),
-    url('/images/sky-crash/alpine-dawn.png') center/cover;
+    url('/images/sky-crash/alpine-dawn.webp') center/cover;
   border: 1px solid #42586b;
 }
 .sky-arena::before,
@@ -1512,7 +1481,7 @@
   background:
     linear-gradient(90deg, #071322c9, transparent 76%),
     linear-gradient(0deg, #06111ddb, transparent 65%),
-    url('/images/sky-crash/alpine-dawn.png') center/cover;
+    url('/images/sky-crash/alpine-dawn.webp') center/cover;
 }
 .sky-multiplier strong {
   color: #fff1d8;

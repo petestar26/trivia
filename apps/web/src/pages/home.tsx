@@ -133,7 +133,7 @@ export function HomePage() {
               const to = memberGameDestination(game);
               const content = (
                 <>
-                  <GameArtwork kind={game.key} />
+                  <GameArtwork kind={game.key} practiceAvailable={game.practiceAvailable} />
                   <div className="ruby-game-copy">
                     <span className={`ruby-game-status ${to ? 'is-ready' : ''}`}>
                       {memberGameLabel(game)}

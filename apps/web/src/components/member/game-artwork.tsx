@@ -28,15 +28,28 @@ const symbols: Record<string, typeof Brain> = {
   strait_rush: Compass,
 };
 /** Decorative artwork only, never a live result or a promise that an upcoming game is ready. */
-export function GameArtwork({ kind, hero = false }: { kind: string; hero?: boolean }) {
-  if (kind === 'sky_crash')
+export function GameArtwork({
+  kind,
+  hero = false,
+  practiceAvailable = false,
+}: {
+  kind: string;
+  hero?: boolean;
+  practiceAvailable?: boolean;
+}) {
+  if (kind === 'sky_crash' && practiceAvailable === true)
     return (
       <div
         className={`ruby-art ${hero ? 'ruby-art--hero' : ''}`}
         aria-hidden="true"
-        style={{ background: "#102440 url('/images/sky-crash/alpine-dawn.png') center/cover" }}
+        style={{
+          backgroundColor: '#102440',
+          backgroundImage: "url('/images/sky-crash/alpine-dawn.webp')",
+          backgroundPosition: 'center',
+          backgroundSize: 'cover',
+        }}
       >
-        <img src="/images/sky-crash/aircraft.png" alt="" loading="lazy" decoding="async" />
+        <img src="/images/sky-crash/aircraft.webp" alt="" loading="lazy" decoding="async" />
       </div>
     );
   const asset = images[kind];

@@ -24,6 +24,12 @@ interface Ticket {
   payout: number | null;
   paid_cents: number | null;
 }
+// Prisma 5 may resolve a transaction whose deferred COMMIT checks rolled back.
+// Flush inside the callback so an invalid receipt cannot be reported as saved.
+async function flushBalanceChecks(tx: Tx) {
+  await tx.$executeRaw`SET CONSTRAINTS public.crash_account_check, public.crash_ticket_check IMMEDIATE`;
+  await tx.$executeRaw`SET CONSTRAINTS public.crash_account_check, public.crash_ticket_check DEFERRED`;
+}
 export function createSkyCrashService(db: PrismaClient) {
   const clock = async (tx: Tx) =>
     (await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`)[0].now;
@@ -80,6 +86,7 @@ export function createSkyCrashService(db: PrismaClient) {
       const payout = Math.floor((t.stake * decision.paid) / 100);
       await tx.$executeRaw`UPDATE sky_crash_tickets SET payout=${payout},paid_cents=${decision.paid},settled_at=${decision.at} WHERE id=${t.id}`;
       await tx.$executeRaw`UPDATE sky_crash_accounts SET balance=balance+${payout} WHERE user_id=${userId}`;
+      await flushBalanceChecks(tx);
       return { payout, paidCents: decision.paid };
     });
   }
@@ -195,6 +202,7 @@ export function createSkyCrashService(db: PrismaClient) {
       await tx.$executeRaw`UPDATE sky_crash_accounts SET balance=balance-${input.stake} WHERE user_id=${userId}`;
       if ((await clock(tx)) >= r.starts_at)
         throw ApiError.conflict('Entry has closed for this round');
+      await flushBalanceChecks(tx);
       return { accepted: true, isReplay: false };
     });
   }
