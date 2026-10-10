@@ -162,6 +162,8 @@
   flex: 1;
   min-height: 0;
   border-radius: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .derby-display.game-arena--expanded .derby-scene {
   height: auto;
