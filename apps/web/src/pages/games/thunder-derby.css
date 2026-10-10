@@ -153,6 +153,68 @@
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 18px;
 }
+.derby-display.game-arena--expanded .game-arena__body {
+  display: flex;
+}
+.derby-display.game-arena--expanded .derby-arena {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.derby-display.game-arena--expanded .derby-scene {
+  height: auto;
+  flex: 1;
+  min-height: 128px;
+}
+.derby-display.game-arena--expanded .derby-race-heading {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+.derby-display.game-arena--expanded .derby-race-heading h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.derby-display.game-arena--expanded .derby-countdown strong {
+  font-size: 22px;
+}
+.derby-display.game-arena--expanded .derby-progress {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+.derby-display.game-arena--expanded .derby-race-footer {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+.derby-display.game-arena--expanded .derby-results {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+.derby-display.game-arena--expanded .derby-winner {
+  margin-bottom: 6px;
+}
+.derby-display.game-arena--expanded .derby-winner-medal,
+.derby-display.game-arena--expanded .derby-winner p,
+.derby-display.game-arena--expanded .derby-winner .derby-eyebrow {
+  display: none;
+}
+.derby-display.game-arena--expanded .derby-winner h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.derby-display.game-arena--expanded .derby-finish-order {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+.derby-display.game-arena--expanded .derby-finish-order li {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  font-size: 10px;
+}
 .derby-arena,
 .derby-slip {
   min-width: 0;

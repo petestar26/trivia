@@ -42,8 +42,8 @@ export function RulesDialog() {
             </li>
           </ol>
           <p>
-            A matchweek is created only when someone opens the game during its selection window. A
-            matchweek nobody opened is shown as not played; its results are never made up
+            A matchweek is created during its selection window while this practice league is
+            running. Missed matchweeks are shown as not played; their results are never made up
             afterwards.
           </p>
           <h3>Tickets</h3>

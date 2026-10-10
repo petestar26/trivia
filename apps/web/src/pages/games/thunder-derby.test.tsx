@@ -121,6 +121,35 @@ it('switches between six- and eight-runner fields', () => {
   fireEvent.click(screen.getByRole('button', { name: /8 horses/ }));
   expect(field).toHaveBeenCalledWith(8);
 });
+it('expands the mounted race display and keeps the ordered selection when minimized', async () => {
+  const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+  const { submit } = setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Perfecta' }));
+  const choices = screen.getByRole('group', { name: 'Choose horses' });
+  const second = within(choices).getByRole('button', { name: /2 Midnight Blue/ });
+  const first = within(choices).getByRole('button', { name: /1 Royal Ember/ });
+  fireEvent.click(second);
+  fireEvent.click(first);
+  const scene = await screen.findByText('3D race fixture');
+  const review = screen.getByRole('button', { name: /Review selection/ });
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Thunder Derby view' }));
+  const expanded = screen.getByRole('dialog', { name: 'Thunder Derby expanded view' });
+  expect(within(expanded).getByText('3D race fixture')).toBe(scene);
+  expect(choices.closest('[inert]')).not.toBeNull();
+  fireEvent.click(review);
+  expect(submit).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Thunder Derby view' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByText('3D race fixture')).toBe(scene);
+  expect(second).toHaveAttribute('aria-pressed', 'true');
+  expect(first).toHaveAttribute('aria-pressed', 'true');
+  expect(review).toBeEnabled();
+  expect(choices.closest('[inert]')).toBeNull();
+  fireEvent.click(review);
+  expect(screen.getByRole('dialog')).toHaveTextContent('#2 → #1');
+  scroll.mockRestore();
+});
 it('does not imply first place for a top-three selection', () => {
   setup();
   fireEvent.click(screen.getByRole('button', { name: 'In first 3' }));

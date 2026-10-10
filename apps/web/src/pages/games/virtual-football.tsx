@@ -36,6 +36,7 @@ import { MarketPanel } from '@/components/football/markets';
 import { ReviewDialog, Slip } from '@/components/football/slip';
 import { ResultsPanel, StandingsPanel, TicketsPanel } from '@/components/football/results';
 import { RulesDialog } from '@/components/football/rules-dialog';
+import { GameArena } from '@/components/games/game-arena';
 import { createFootballAudio } from '@/lib/football/audio';
 import {
   createServerClock,
@@ -765,47 +766,49 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         </section>
       )}
 
-      <section className="vf-stage" aria-label="Match view">
-        <div className="vf-stage-frame">
-          {text || !fixture ? (
-            fixture && <LiveCentre fixture={fixture} week={stageWeek} />
-          ) : (
-            <>
-              <Suspense
-                fallback={
-                  <div className="vf-scene-loading" role="status">
-                    Preparing the stadium…
-                  </div>
-                }
-              >
-                <FootballScene
-                  match={matchInput}
-                  getElapsed={getElapsed}
-                  reduced={reduced}
-                  label={`3D view of ${matchTitle(fixture)}`}
-                  onGoalMoment={onGoalMoment}
-                  fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
-                />
-              </Suspense>
-              <div className="vf-board-overlay">
-                <LiveBoard fixture={fixture} week={stageWeek} />
-              </div>
-            </>
-          )}
-        </div>
-        <div className="vf-strip" role="group" aria-label="Matches this week">
-          {fixtures.map((f) => (
-            <LiveScorecard
-              key={f.id}
-              fixture={f}
-              week={stageWeek}
-              selected={f.id === fixture?.id}
-              picked={pickedCount(f)}
-              onSelect={() => setSlot(f.slot)}
-            />
-          ))}
-        </div>
-      </section>
+      <GameArena title="Virtual Football" className="vf-arena">
+        <section className="vf-stage" aria-label="Match view">
+          <div className="vf-stage-frame">
+            {text || !fixture ? (
+              fixture && <LiveCentre fixture={fixture} week={stageWeek} />
+            ) : (
+              <>
+                <Suspense
+                  fallback={
+                    <div className="vf-scene-loading" role="status">
+                      Preparing the stadium…
+                    </div>
+                  }
+                >
+                  <FootballScene
+                    match={matchInput}
+                    getElapsed={getElapsed}
+                    reduced={reduced}
+                    label={`3D view of ${matchTitle(fixture)}`}
+                    onGoalMoment={onGoalMoment}
+                    fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
+                  />
+                </Suspense>
+                <div className="vf-board-overlay">
+                  <LiveBoard fixture={fixture} week={stageWeek} />
+                </div>
+              </>
+            )}
+          </div>
+          <div className="vf-strip" role="group" aria-label="Matches this week">
+            {fixtures.map((f) => (
+              <LiveScorecard
+                key={f.id}
+                fixture={f}
+                week={stageWeek}
+                selected={f.id === fixture?.id}
+                picked={pickedCount(f)}
+                onSelect={() => setSlot(f.slot)}
+              />
+            ))}
+          </div>
+        </section>
+      </GameArena>
 
       <div className="vf-layout">
         <section className="vf-main">
