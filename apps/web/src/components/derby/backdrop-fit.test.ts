@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { PerspectiveCamera, Plane, Ray, Vector3 } from 'three';
 import { backdropSize } from './backdrop-fit';
 it.each([0.75, 1, 1.5, 1032 / 390, 3.5, 4.5])('covers every view corner at aspect %s', (aspect) => {
   for (const field of [6, 8])
@@ -11,14 +11,19 @@ it.each([0.75, 1, 1.5, 1032 / 390, 3.5, 4.5])('covers every view corner at aspec
       camera.updateMatrixWorld();
       const plane = new Vector3(center - 35, 16, -65);
       const size = backdropSize(camera, plane);
+      const normal = new Vector3(0, 0, 1).applyAxisAngle(new Vector3(0, 1, 0), size.rotationY);
+      const right = new Vector3(1, 0, 0).applyAxisAngle(new Vector3(0, 1, 0), size.rotationY);
+      const expectedNormal = camera.position.clone().sub(plane).setY(0).normalize();
+      expect(normal.dot(expectedNormal)).toBeCloseTo(1, 12);
       for (const x of [-1, 1])
         for (const y of [-1, 1]) {
           const ray = new Vector3(x, y, 0.5).unproject(camera).sub(camera.position);
-          const hit = ray
-            .multiplyScalar((plane.z - camera.position.z) / ray.z)
-            .add(camera.position);
+          const hit = new Ray(camera.position, ray.normalize()).intersectPlane(
+            new Plane().setFromNormalAndCoplanarPoint(normal, plane),
+            new Vector3()
+          )!;
           expect(hit.distanceTo(camera.position)).toBeLessThan(camera.far);
-          expect(Math.abs(hit.x - plane.x)).toBeLessThan(size.width / 2);
+          expect(Math.abs(right.dot(hit.clone().sub(plane)))).toBeLessThan(size.width / 2);
           if (hit.y >= 0) expect(Math.abs(hit.y - size.centerY)).toBeLessThan(size.height / 2);
         }
       expect(size.width).toBeGreaterThanOrEqual(200);

@@ -118,20 +118,6 @@ export default function RaceScene({
     ) {
       return mesh(parent, new THREE.BoxGeometry(w, h, d), m, x, y, z);
     }
-    function ell(
-      parent: THREE.Object3D,
-      x: number,
-      y: number,
-      z: number,
-      sx: number,
-      sy: number,
-      sz: number,
-      m: THREE.Material
-    ) {
-      const o = mesh(parent, new THREE.SphereGeometry(1, 16, 12), m, x, y, z);
-      o.scale.set(sx, sy, sz);
-      return o;
-    }
     function surfaceTexture(grass: boolean) {
       const canvas = document.createElement('canvas');
       canvas.width = 256;
@@ -363,6 +349,7 @@ export default function RaceScene({
         const size = backdropSize(camera, backdrop.position);
         backdrop.scale.set(size.width / 200, size.height / 66.67, 1);
         backdrop.position.y = size.centerY;
+        backdrop.rotation.y = size.rotationY;
         fittedAspect = camera.aspect;
       }
       sun.position.set(center + 30, 40, 20);
