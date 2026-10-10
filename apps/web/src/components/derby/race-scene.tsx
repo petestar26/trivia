@@ -3,12 +3,19 @@ import type { DerbyRound } from '@socialplay/shared';
 import { DERBY_HORSES } from '@socialplay/shared';
 import * as THREE from 'three';
 import { backdropSize } from './backdrop-fit';
+import { frameDerbyField } from './field-camera';
 import { createRaceMotion } from './race-motion';
 import { createHorse } from './horse-model';
+import {
+  createRiggedHorse,
+  loadHorseAssets,
+  type HorseAssets,
+  type RaceHorse,
+} from './rigged-horse';
 import { createStrideClock } from './stride-clock';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-/** Original procedural assets: no external model, tracker, CDN or licensed race footage. */
+/** Locally hosted CC0 rigs, original racecourse and server-authoritative race progress. */
 export default function RaceScene({
   round,
   running,
@@ -226,7 +233,7 @@ export default function RaceScene({
       '#b47749',
       '#d2c6b6',
     ];
-    const horses = Array.from({ length: round.field }, (_, i) => {
+    const horses: RaceHorse[] = Array.from({ length: round.field }, (_, i) => {
       const horse = createHorse(
         coats[i],
         DERBY_HORSES[i].color,
@@ -262,6 +269,37 @@ export default function RaceScene({
       root.position.set(0, 0, (i - (round.field - 1) / 2) * 2.15);
       return horse;
     });
+    let assets: HorseAssets | undefined;
+    void loadHorseAssets()
+      .then((loaded) => {
+        if (disposed) {
+          loaded.dispose();
+          return;
+        }
+        assets = loaded;
+        const replacements: RaceHorse[] = [];
+        try {
+          for (let i = 0; i < horses.length; i++)
+            replacements.push(createRiggedHorse(loaded, coats[i], DERBY_HORSES[i].color, i));
+        } catch {
+          replacements.forEach((horse) => horse.dispose?.());
+          loaded.dispose();
+          assets = undefined;
+          return; // Keep the complete procedural fallback if a model is unavailable.
+        }
+        replacements.forEach((horse, i) => {
+          const previous = horses[i];
+          horse.root.position.copy(previous.root.position);
+          const label = previous.root.children.find((child) => child instanceof THREE.Sprite);
+          if (label) horse.root.add(label);
+          scene.remove(previous.root);
+          scene.add(horse.root);
+          horses[i] = horse;
+        });
+      })
+      .catch(() => {
+        /* The already-rendered fallback remains usable offline. */
+      });
     // Soft contact shadows anchor each horse to the turf between moving leg shadows.
     const shadowCanvas = document.createElement('canvas');
     shadowCanvas.width = shadowCanvas.height = 64;
@@ -295,8 +333,8 @@ export default function RaceScene({
     let displayed = round.positions.map((p) => p * 180);
     let sampleMotion = createRaceMotion(displayed);
     let renderedRound = round.id;
-    const lastTravel = horses.map(() => -Infinity);
     let strides = horses.map(() => createStrideClock());
+    let fittedDistance = Number.NaN;
     let fittedAspect = Number.NaN;
     const resize = () => {
       const w = container.clientWidth,
@@ -322,7 +360,6 @@ export default function RaceScene({
         displayed = state.round.positions.map((p) => p * 180);
         sampleMotion = createRaceMotion(displayed);
         strides = horses.map(() => createStrideClock());
-        lastTravel.fill(-Infinity);
       }
       const previous = displayed;
       displayed = sampleMotion(
@@ -333,23 +370,19 @@ export default function RaceScene({
       horses.forEach((horse, i) => {
         horse.root.position.x = displayed[i];
         contacts[i].position.x = displayed[i];
-        if (Math.abs(displayed[i] - previous[i]) > 0.00001) lastTravel[i] = time;
-        // Brief polling jitter must not switch the rig to a standing pose each update.
-        horse.animate(
-          strides[i](displayed[i] - previous[i], moving),
-          moving && time - lastTravel[i] < 400
-        );
+        // Keep the running pose across polling jitter. Travel controls gait phase;
+        // stale data, reduced motion and round status still stop the presentation.
+        const phase = strides[i](displayed[i] - previous[i], moving);
+        horse.animate(phase, moving && phase > 0);
       });
-      const lead = Math.max(...displayed),
-        center = lead - 3;
-      camera.position.set(center + 8, 6.2, camera.aspect < 1.2 ? 26 : round.field === 8 ? 21 : 18);
-      camera.lookAt(center, 2.2, 0);
+      const center = frameDerbyField(camera, displayed, round.field);
       backdrop.position.x = center - 35;
-      if (fittedAspect !== camera.aspect) {
+      if (fittedDistance !== camera.position.z || fittedAspect !== camera.aspect) {
         const size = backdropSize(camera, backdrop.position);
         backdrop.scale.set(size.width / 200, size.height / 66.67, 1);
         backdrop.position.y = size.centerY;
         backdrop.rotation.y = size.rotationY;
+        fittedDistance = camera.position.z;
         fittedAspect = camera.aspect;
       }
       sun.position.set(center + 30, 40, 20);
@@ -363,6 +396,8 @@ export default function RaceScene({
       observer.disconnect();
       renderer.domElement.removeEventListener('webglcontextlost', lost);
       renderer.domElement.removeEventListener('webglcontextrestored', restored);
+      horses.forEach((horse) => horse.dispose?.());
+      assets?.dispose();
       renderer.dispose();
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());

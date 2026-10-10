@@ -18,6 +18,12 @@ describe('travel driven stride', () => {
       previous = pose;
     }
   });
+  it('retains the same gait phase across slow frames', () => {
+    const slow = createStrideClock(),
+      fast = createStrideClock();
+    const expected = Array.from({ length: 20 }, () => fast(0.1, true)).at(-1);
+    expect(slow(2, true)).toBeCloseTo(expected!);
+  });
   it('does not animate resets, pauses, jumps or invalid samples', () => {
     const clock = createStrideClock();
     const before = clock(0.1, true);
