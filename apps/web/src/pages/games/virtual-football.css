@@ -252,6 +252,26 @@
 .vf-stage {
   margin-bottom: 18px;
 }
+.vf-arena.game-arena--expanded .game-arena__body,
+.vf-arena.game-arena--expanded .vf-stage {
+  display: flex;
+  flex-direction: column;
+}
+.vf-arena.game-arena--expanded .vf-stage {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+}
+.vf-arena.game-arena--expanded .vf-stage-frame {
+  flex: 1;
+  min-height: 160px;
+  aspect-ratio: auto;
+  max-height: none;
+  border-radius: 0;
+}
+.vf-arena.game-arena--expanded .vf-strip {
+  flex-shrink: 0;
+}
 .vf-stage-frame {
   position: relative;
   aspect-ratio: 16 / 9;

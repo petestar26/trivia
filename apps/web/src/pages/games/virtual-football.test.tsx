@@ -491,6 +491,31 @@ describe('Virtual Football page', () => {
     expect(screen.getByTestId('scene').getAttribute('data-reduced')).toBe('true');
   });
 
+  it('expands the mounted match display without losing the ticket draft or exposing confirmation', async () => {
+    const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    await setup();
+    pressPrice(/Full time: .* win, price/);
+    const stake = screen.getByRole('spinbutton', { name: /Single 1 stake/ });
+    fireEvent.change(stake, { target: { value: '25' } });
+    const review = screen.getByRole('button', { name: /Review ticket/ });
+    const scene = await screen.findByTestId('scene');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+    const expanded = screen.getByRole('dialog', { name: 'Virtual Football expanded view' });
+    expect(within(expanded).getByTestId('scene')).toBe(scene);
+    expect(review.closest('[inert]')).not.toBeNull();
+    fireEvent.click(review);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    fireEvent.click(
+      within(expanded).getByRole('button', { name: 'Minimize Virtual Football view' })
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByTestId('scene')).toBe(scene);
+    expect(stake).toHaveValue(25);
+    expect(review).toBeEnabled();
+    expect(review.closest('[inert]')).toBeNull();
+    scroll.mockRestore();
+  });
+
   it('uses numeric inputs sized for phone keyboards and keeps a tray that scrolls to the slip', async () => {
     await setup();
     pressPrice(/Full time: .* win, price/);

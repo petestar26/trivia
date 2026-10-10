@@ -20,6 +20,7 @@ import { api, unwrapData } from '@/lib/api';
 import { requestStatus } from '@/lib/request-error';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
+import { GameArena } from '@/components/games/game-arena';
 import './thunder-derby.css';
 const RaceScene = lazy(() => import('@/components/derby/race-scene'));
 type Entry = {
@@ -351,61 +352,65 @@ export function DerbyView({
         </div>
       )}
       <div className="derby-layout">
-        <section className="derby-arena" aria-label="Racecourse">
-          <div className="derby-race-heading">
-            <div>
-              <span className="derby-eyebrow">THE EMERALD COURSE</span>
-              <h2>
-                {open
-                  ? 'At the starting gate'
-                  : running
-                    ? 'Down the home straight'
-                    : round.order
-                      ? 'Official finish'
-                      : 'Awaiting official result'}
-              </h2>
-              <p>
-                {round.field} runners · {round.id}
-              </p>
-            </div>
-            <div className="derby-countdown">
-              <span>{open ? 'Selections close' : running ? 'Race finishes' : 'Next race'}</span>
-              <strong>{clock}</strong>
-            </div>
-          </div>
-          {latestFinished && (
-            <FinishOrder round={latestFinished} previous={latestFinished.id !== round.id} />
-          )}
-          <Suspense fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}>
-            <RaceScene round={round} running={running && fresh} reduced={reduced} />
-          </Suspense>
-          <div className="derby-race-footer">
-            <span>{fresh ? '● Connected' : '○ Refreshing race status'}</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={reduced}
-                onChange={(e) => setReduced(e.target.checked)}
-              />{' '}
-              Reduced motion
-            </label>
-            <span>Server-set results</span>
-          </div>
-          <div className="derby-progress" aria-label="Runner progress">
-            {DERBY_HORSES.slice(0, field).map((h, i) => (
-              <div key={h.name}>
-                <b style={{ background: h.color }}>{i + 1}</b>
-                <span>{h.name}</span>
-                <meter
-                  min={0}
-                  max={1}
-                  value={round.positions[i] || 0}
-                  aria-label={`${h.name} race progress`}
-                />
+        <GameArena title="Thunder Derby" className="derby-display">
+          <section className="derby-arena" aria-label="Racecourse">
+            <div className="derby-race-heading">
+              <div>
+                <span className="derby-eyebrow">THE EMERALD COURSE</span>
+                <h2>
+                  {open
+                    ? 'At the starting gate'
+                    : running
+                      ? 'Down the home straight'
+                      : round.order
+                        ? 'Official finish'
+                        : 'Awaiting official result'}
+                </h2>
+                <p>
+                  {round.field} runners · {round.id}
+                </p>
               </div>
-            ))}
-          </div>
-        </section>
+              <div className="derby-countdown">
+                <span>{open ? 'Selections close' : running ? 'Race finishes' : 'Next race'}</span>
+                <strong>{clock}</strong>
+              </div>
+            </div>
+            {latestFinished && (
+              <FinishOrder round={latestFinished} previous={latestFinished.id !== round.id} />
+            )}
+            <Suspense
+              fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}
+            >
+              <RaceScene round={round} running={running && fresh} reduced={reduced} />
+            </Suspense>
+            <div className="derby-race-footer">
+              <span>{fresh ? '● Connected' : '○ Refreshing race status'}</span>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={reduced}
+                  onChange={(e) => setReduced(e.target.checked)}
+                />{' '}
+                Reduced motion
+              </label>
+              <span>Server-set results</span>
+            </div>
+            <div className="derby-progress" aria-label="Runner progress">
+              {DERBY_HORSES.slice(0, field).map((h, i) => (
+                <div key={h.name}>
+                  <b style={{ background: h.color }}>{i + 1}</b>
+                  <span>{h.name}</span>
+                  <meter
+                    min={0}
+                    max={1}
+                    value={round.positions[i] || 0}
+                    aria-label={`${h.name} race progress`}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        </GameArena>
         <aside className="derby-slip">
           <span className="derby-eyebrow">YOUR RACE SELECTION</span>
           <h2>Pick your finish</h2>
