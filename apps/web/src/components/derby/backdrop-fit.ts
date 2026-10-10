@@ -14,6 +14,9 @@ export function backdropSize(camera: PerspectiveCamera, center: Vector3) {
     }
   // The opaque ground hides the lower view rays. Keep the artwork's turf
   // horizon at ground level instead of enlarging its hidden lower half.
-  const height = Math.max(66.67, top / 0.75);
-  return { width: halfWidth * 2, height, centerY: height * 0.25 };
+  // The authored panorama is 2172×724 (3:1). Cover wide expanded views by
+  // enlarging both axes together, keeping the turf horizon at ground level.
+  const artworkAspect = 3;
+  const height = Math.max(66.67, top / 0.75, (halfWidth * 2) / artworkAspect);
+  return { width: height * artworkAspect, height, centerY: height * 0.25 };
 }

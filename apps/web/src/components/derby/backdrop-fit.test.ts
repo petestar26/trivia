@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { PerspectiveCamera, Vector3 } from 'three';
 import { backdropSize } from './backdrop-fit';
-it.each([0.75, 1, 1.5, 1032 / 390, 3.5])('covers every view corner at aspect %s', (aspect) => {
+it.each([0.75, 1, 1.5, 1032 / 390, 3.5, 4.5])('covers every view corner at aspect %s', (aspect) => {
   for (const field of [6, 8])
     for (const lead of [0, 90, 190]) {
       const center = lead - 3;
@@ -23,5 +23,7 @@ it.each([0.75, 1, 1.5, 1032 / 390, 3.5])('covers every view corner at aspect %s'
         }
       expect(size.width).toBeGreaterThanOrEqual(200);
       expect(size.height).toBeGreaterThanOrEqual(66.67);
+      expect(size.width / size.height).toBeCloseTo(2172 / 724, 12);
+      expect(size.centerY).toBeCloseTo(size.height / 4, 12);
     }
 });
