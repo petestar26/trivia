@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Vector3 } from 'three';
+import { Vector3, type PerspectiveCamera } from 'three';
 /** Cover every camera corner at the backdrop plane, including oblique wide views. */
 export function backdropSize(camera: PerspectiveCamera, center: Vector3) {
   camera.updateMatrixWorld();
