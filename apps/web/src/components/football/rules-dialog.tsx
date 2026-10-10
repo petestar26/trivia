@@ -25,9 +25,11 @@ export function RulesDialog() {
           </Dialog.Description>
           <h3>The league</h3>
           <p>
-            Twenty fictional PlayQube clubs play a fixed double round-robin: 38 matchweeks of{' '}
-            {VF_TIMING.fixturesPerWeek} matches per season, and every club meets every other club
-            home and away. A new matchweek starts every five minutes.
+            Premier League club names identify twenty simulated teams, with original badges and
+            kits. These are not real fixtures, players or club ratings. The virtual teams play a
+            fixed double round-robin: 38 matchweeks of {VF_TIMING.fixturesPerWeek} matches per
+            season, and every club meets every other club home and away. A new matchweek starts
+            every five minutes.
           </p>
           <ol>
             <li>Selections are open for {seconds(VF_TIMING.selectionMs)}.</li>

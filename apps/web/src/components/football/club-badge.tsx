@@ -1,5 +1,6 @@
+import { clubById } from '@/lib/football/clubs';
 import type { ReactNode } from 'react';
-import { clubById, type BadgeGlyph } from '@socialplay/shared';
+import { type BadgeGlyph } from '@socialplay/shared';
 
 /** Original PlayQube club badges: a shield, the club's kit colours and a simple glyph. */
 const FILL = (d: string): ReactNode => <path d={d} fill="currentColor" />;

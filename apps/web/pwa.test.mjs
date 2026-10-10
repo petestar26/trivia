@@ -172,3 +172,13 @@ test('Derby horse and human rigs ship locally within budget without install prec
     false
   );
 });
+
+test('Football face is a small local optional asset, not install precache', async () => {
+  const bytes = await readFile(new URL('./dist/models/football/face.glb', import.meta.url));
+  assert.equal(bytes.subarray(0, 4).toString(), 'glTF');
+  assert.ok(bytes.length < 40000);
+  assert.equal(
+    precache.some((entry) => /models\/football\//.test(entry.url)),
+    false
+  );
+});

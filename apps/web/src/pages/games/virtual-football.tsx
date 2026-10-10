@@ -1,3 +1,4 @@
+import { clubById } from '@/lib/football/clubs';
 import {
   lazy,
   Suspense,
@@ -15,7 +16,6 @@ import {
   VF_RULES_DIGEST,
   VF_RULES_ID,
   VF_TIMING,
-  clubById,
   cycleAt,
   fixtureOffer,
   matchweekId,
@@ -649,7 +649,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           <Link to="/games">← All games</Link>
           <h1>
             PLAYQUBE <em>VIRTUAL FOOTBALL</em>
-            <small>3D PRACTICE LEAGUE</small>
+            <small>CLUB FOOTBALL · 3D PRACTICE</small>
           </h1>
         </div>
         <div className="vf-credit">
@@ -660,6 +660,11 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           <p>No Coins · No cash prizes</p>
         </div>
       </header>
+
+      <p className="vf-scene-note">
+        Premier League club-themed simulation · Original kits and badges · Not real fixtures or
+        player likenesses
+      </p>
 
       <div className="vf-toolbar">
         <PhaseBar week={stageWeek} live={!!liveWeek} nextOpensAt={cycle?.endsAt ?? null} />
@@ -899,8 +904,9 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       </div>
 
       <p className="vf-disclaimer">
-        An original simulated league: no real clubs, players or competitions. Results are random and
-        previous matches do not predict the next. Practice credits have no monetary value.
+        Club names are a visual theme for simulated matches, not real fixtures or player likenesses.
+        Results are random and previous matches do not predict the next. Practice credits have no
+        monetary value.
       </p>
 
       <ReviewDialog

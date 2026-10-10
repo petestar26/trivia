@@ -1,3 +1,4 @@
+import { clubById } from '@/lib/football/clubs';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -5,7 +6,6 @@ import type * as ApiModule from '@/lib/api';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   VF_RULES_ID,
-  clubById,
   fixtureOffer,
   parseTicketInput,
   type VfAdmission,
