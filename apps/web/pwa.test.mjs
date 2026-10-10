@@ -157,3 +157,18 @@ test('optional Virtual Football renderer is bundled but absent from the install 
     false
   );
 });
+
+test('Derby horse and human rigs ship locally within budget without install precaching', async () => {
+  for (const [name, limit] of [
+    ['horse', 400000],
+    ['jockey', 600000],
+  ]) {
+    const bytes = await readFile(new URL(`./dist/models/derby/${name}.glb`, import.meta.url));
+    assert.equal(bytes.subarray(0, 4).toString(), 'glTF');
+    assert.ok(bytes.length <= limit, `${name} exceeds its mobile transfer budget`);
+  }
+  assert.equal(
+    precache.some((entry) => /models\/derby\//.test(entry.url)),
+    false
+  );
+});

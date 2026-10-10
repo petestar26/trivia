@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { DerbyRound } from '@socialplay/shared';
 const state = { fail: false, disposed: vi.fn(), draw: vi.fn() };
 vi.doMock('three', async (original) => {
@@ -28,11 +28,26 @@ vi.doMock('./horse-model', async () => {
   const { Group } = await import('three');
   return { createHorse: () => ({ root: new Group(), animate: vi.fn() }) };
 });
+const pendingAssets: Array<(assets: { dispose: () => void }) => void> = [];
+const rigDisposers: Array<ReturnType<typeof vi.fn>> = [];
+vi.doMock('./rigged-horse', async () => {
+  const { Group } = await import('three');
+  return {
+    loadHorseAssets: () => new Promise((resolve) => pendingAssets.push(resolve)),
+    createRiggedHorse: () => {
+      const dispose = vi.fn();
+      rigDisposers.push(dispose);
+      return { root: new Group(), animate: vi.fn(), dispose };
+    },
+  };
+});
 const RaceScene = (await import('./race-scene')).default;
 const round = (field: 6 | 8, id = 'round') =>
   ({ field, id, positions: Array(field).fill(0.1) }) as DerbyRound;
 beforeEach(() => {
   state.fail = false;
+  pendingAssets.length = 0;
+  rigDisposers.length = 0;
   vi.clearAllMocks();
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
     fillRect() {},
@@ -41,7 +56,7 @@ beforeEach(() => {
     fill() {},
     fillText() {},
     createRadialGradient: () => ({ addColorStop() {} }),
-  } as unknown as CanvasRenderingContext2D);
+  } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -115,4 +130,23 @@ it('rebuilds after context restoration on the same field and detaches old listen
   }
   view.unmount();
   expect(state.disposed).toHaveBeenCalledTimes(3);
+});
+
+it('disposes late-loading models after unmount without attaching a new scene', async () => {
+  const view = render(<RaceScene round={round(6)} running reduced={false} />);
+  const resolve = pendingAssets[0],
+    dispose = vi.fn();
+  view.unmount();
+  await act(async () => resolve({ dispose }));
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(rigDisposers).toHaveLength(0);
+});
+it('releases each runner rig and its shared asset set on a field change', async () => {
+  const view = render(<RaceScene round={round(6)} running reduced={false} />);
+  const dispose = vi.fn();
+  await act(async () => pendingAssets[0]({ dispose }));
+  expect(rigDisposers).toHaveLength(6);
+  view.rerender(<RaceScene round={round(8)} running reduced={false} />);
+  expect(dispose).toHaveBeenCalledOnce();
+  rigDisposers.forEach((d) => expect(d).toHaveBeenCalledOnce());
 });

@@ -80,7 +80,7 @@ beforeEach(() => {
     lineTo() {},
     closePath() {},
     fill() {},
-  } as unknown as CanvasRenderingContext2D);
+  } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
   vi.stubGlobal(
     'requestAnimationFrame',
