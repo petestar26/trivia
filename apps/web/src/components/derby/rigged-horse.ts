@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { CONTACT_FRACTION, STRIDE_SECONDS } from './gallop';
 
 export type HorseAssets = {
   horse: THREE.Group;
@@ -52,6 +53,27 @@ export async function loadHorseAssets(): Promise<HorseAssets> {
     throw new Error('Horse animation missing');
   }
   return { horse: horse.value.scene, rider: rider.value.scene, run, idle, dispose };
+}
+
+/** The exported cycle starts at frame one. Remove its leading hold and close the seam. */
+export function continuousGallop(source: THREE.AnimationClip) {
+  const clip = source.clone();
+  const first = Math.min(...clip.tracks.map((track) => track.times[0]));
+  if (first <= 0) return clip;
+  for (const track of clip.tracks) {
+    const size = track.getValueSize();
+    const times = new Float32Array(track.times.length + 1);
+    const values = new Float32Array(track.values.length + size);
+    track.times.forEach((time, i) => {
+      times[i] = time - first;
+    });
+    times[times.length - 1] = source.duration;
+    values.set(track.values);
+    values.set(track.values.slice(0, size), track.values.length);
+    track.times = times;
+    track.values = values;
+  }
+  return clip;
 }
 
 const vector = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -360,7 +382,7 @@ export function createRiggedHorse(
     headBone.worldToLocal(p)
   );
   const mixer = new THREE.AnimationMixer(model);
-  const run = mixer.clipAction(assets.run);
+  const run = mixer.clipAction(continuousGallop(assets.run));
   run.setLoop(THREE.LoopRepeat, Infinity);
   run.play();
   // An actual resting pose is sampled once for the stopped state.
@@ -379,15 +401,20 @@ export function createRiggedHorse(
       idle.enabled = !moving;
       if (!moving) idle.play();
     }
-    // Each runner has an independent mixer. Absolute travel phase is frame-rate independent.
-    mixer.setTime(moving ? seconds + index * assets.run.duration * 0.137 : 0);
+    // The authored fore-hoof sweeps back 10 model units/s during contact.
+    // Convert the legacy distance clock to this rig's measured 1.5x world scale;
+    // using the procedural horse's cadence directly made these hooves slide.
+    const travel = (seconds / STRIDE_SECONDS) * (1.04 / CONTACT_FRACTION);
+    const clipSeconds = travel / (10 * 1.5);
+    // Each runner has an independent mixer and a frame-rate-independent phase.
+    mixer.setTime(moving ? clipSeconds + index * assets.run.duration * 0.137 : 0);
     model.updateMatrixWorld(true);
     const spinePosition = spine.getWorldPosition(new THREE.Vector3());
     model.worldToLocal(spinePosition);
     const bounce = spinePosition.y - spineRest.y;
     rider.position.y = 1.65 - 0.917 * 0.79 + bounce * 0.55;
     rider.rotation.x = moving
-      ? Math.sin((seconds / assets.run.duration) * Math.PI * 2 + index * 0.861) * 0.025
+      ? Math.sin((clipSeconds / assets.run.duration) * Math.PI * 2 + index * 0.861) * 0.025
       : 0;
     saddle.position.y = 1.52 + bounce;
     cloth.position.y = 1.43 + bounce;

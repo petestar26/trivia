@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { createRiggedHorse, type HorseAssets } from './rigged-horse';
+import { continuousGallop, createRiggedHorse, type HorseAssets } from './rigged-horse';
 
 async function asset(name: string) {
   const bytes = readFileSync(`public/models/derby/${name}.glb`);
@@ -86,4 +86,44 @@ describe('shipped horse and jockey rigs', () => {
     expect(horse.root.getObjectByName('head')!.quaternion.equals(first)).toBe(true);
     horse.dispose!();
   });
+});
+
+it('matches forward travel to the authored hoof contact instead of the procedural cadence', async () => {
+  const a = await assets(),
+    horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const foot = horse.root.getObjectByName('front_leg_foot_l')!;
+  const samples: THREE.Vector3[] = [];
+  for (let i = 0; i < 100; i++) {
+    const travel = (i / 100) * a.run.duration * 10 * 1.5;
+    horse.root.position.x = travel;
+    horse.animate((travel * 0.74) / (1.04 / 0.22), true);
+    horse.root.updateMatrixWorld(true);
+    samples.push(foot.getWorldPosition(new THREE.Vector3()));
+  }
+  const lowest = Math.min(...samples.map((p) => p.y));
+  const groups: THREE.Vector3[][] = [[]];
+  for (const sample of samples) {
+    if (sample.y < lowest + 0.035) groups.at(-1)!.push(sample);
+    else if (groups.at(-1)!.length) groups.push([]);
+  }
+  // The cycle starts in the planted fore-hoof contact. The later low
+  // approach is the next landing, not a planted segment.
+  const contacts = groups[0];
+  expect(contacts.length).toBeGreaterThan(5);
+  expect(
+    Math.max(...contacts.map((p) => p.x)) - Math.min(...contacts.map((p) => p.x))
+  ).toBeLessThan(0.15);
+  horse.dispose!();
+});
+
+it('removes the leading frame hold and closes every gallop track at the loop seam', async () => {
+  const a = await assets(),
+    run = continuousGallop(a.run);
+  expect(a.run.tracks[0].times[0]).toBeGreaterThan(0);
+  for (const track of run.tracks) {
+    expect(track.times[0]).toBe(0);
+    const size = track.getValueSize();
+    expect(Array.from(track.values.slice(-size))).toEqual(Array.from(track.values.slice(0, size)));
+    expect(track.times.at(-1)).toBeCloseTo(run.duration);
+  }
 });
