@@ -1,5 +1,7 @@
+import { loadPlayerGeometry } from './human-model';
+import { matchKits, clubById } from '@/lib/football/clubs';
 import * as THREE from 'three';
-import { keeperColour, matchKits, clubById, type ClubKit } from '@socialplay/shared';
+import { keeperColour, type ClubKit } from '@socialplay/shared';
 import { ACTOR_COUNT, REFEREE, type ActorState, type Frame } from './director';
 import {
   blendTo,
@@ -24,6 +26,7 @@ import {
   type Look,
   type LookGeometry,
   type Rig,
+  type HumanGeometry,
 } from './rig';
 
 /** Shirt numbers by formation slot (0 = goalkeeper). */
@@ -100,8 +103,25 @@ export function createPlayerPool(): PlayerPool {
   let owned: Array<{ dispose(): void }> = [];
   const plates: Array<THREE.Mesh | null> = rigs.map(() => null);
   let dressed = false;
+  let disposed = false;
+  let anatomical: HumanGeometry | undefined;
+  let teams: [number, number] | undefined;
+  void loadPlayerGeometry()
+    .then((base) => {
+      if (disposed) {
+        base.geometry.dispose();
+        return;
+      }
+      anatomical = base;
+      if (teams) setTeams(...teams);
+    })
+    .catch(() => {
+      /* Keep the complete procedural fallback. */
+    });
 
   function setTeams(homeClub: number, awayClub: number) {
+    if (disposed) return;
+    teams = [homeClub, awayClub];
     for (const o of owned) o.dispose();
     owned = [];
     const own = <T extends { dispose(): void }>(x: T) => (owned.push(x), x);
@@ -158,7 +178,7 @@ export function createPlayerPool(): PlayerPool {
         skin: SKIN_TONES[(club.id * 5 + i * 3) % SKIN_TONES.length],
         hair: HAIR_TONES[(club.id * 3 + i * 7) % HAIR_TONES.length],
       };
-      const lg: LookGeometry = own(lookGeometry(look));
+      const lg: LookGeometry = own(lookGeometry(look, anatomical));
       rig.mesh.geometry = lg.geometry;
       rig.mesh.material = materialFor(kit);
       plates[i]?.removeFromParent();
@@ -263,10 +283,13 @@ export function createPlayerPool(): PlayerPool {
     setTeams,
     apply,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       for (const o of owned) o.dispose();
       owned = [];
       for (const r of rigs) r.dispose();
       firstLook.dispose();
+      anatomical?.geometry.dispose();
       placeholder.dispose();
       group.removeFromParent();
     },

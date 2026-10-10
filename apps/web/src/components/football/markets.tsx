@@ -1,8 +1,8 @@
+import { clubById } from '@/lib/football/clubs';
 import { useMemo, useState } from 'react';
 import {
   VF_LIMITS,
   VF_MARKETS,
-  clubById,
   fixtureOffer,
   selectionsOf,
   type MarketKey,

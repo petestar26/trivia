@@ -1,12 +1,7 @@
+import { clubById } from '@/lib/football/clubs';
 import { useId, useState, type Dispatch } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import {
-  VF_LIMITS,
-  clubById,
-  parseSelection,
-  type LineInput,
-  type VfFixtureView,
-} from '@socialplay/shared';
+import { VF_LIMITS, parseSelection, type LineInput, type VfFixtureView } from '@socialplay/shared';
 import { formatCredits, formatOdds } from '@/lib/football/format';
 import {
   currentQuote,

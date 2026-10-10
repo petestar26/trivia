@@ -1,3 +1,4 @@
+import { spectatorGeometry } from './spectator';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PITCH } from './director';
@@ -330,14 +331,18 @@ export function buildStadium(): Stadium {
       local.setPosition(cx + along.x, along.y, cz + along.z);
       step.applyMatrix4(local);
       tierParts.push(step);
-      // Fans stand on every tier, in two rows.
+      // Seated fans, with occasional empty seats; each stand faces the pitch.
       for (let f = 0; f < length / 1.1; f++) {
         if ((f * 13 + i * 7) % 11 === 0 || (f + i) % 2) continue; // a few empty seats; every other seat to bound triangles
         const lx = -length / 2 + 0.6 + f * 1.1;
         const p = new THREE.Vector3(lx, 1.5 + i * 1.05, 8 + i * 1.15 - 0.15).applyMatrix4(
           new THREE.Matrix4().makeRotationY(rotationY)
         );
-        crowdSpots.push(new THREE.Matrix4().makeTranslation(cx + p.x, p.y, cz + p.z));
+        crowdSpots.push(
+          new THREE.Matrix4()
+            .makeRotationY(rotationY + Math.PI)
+            .setPosition(cx + p.x, p.y - 0.3, cz + p.z)
+        );
       }
     }
   };
@@ -358,26 +363,28 @@ export function buildStadium(): Stadium {
   group.add(roof);
 
   // --- crowd (instanced; bounce is driven by the excitement level) --------------------------------
-  const fanGeometry = track(
-    mergeGeometries([
-      new THREE.BoxGeometry(0.42, 0.55, 0.28).translate(0, 0, 0),
-      new THREE.SphereGeometry(0.17, 5, 3).translate(0, 0.46, 0),
-    ])!
-  );
+  const fanParts = spectatorGeometry();
   const fanMaterial = mat(new THREE.MeshStandardMaterial({ roughness: 0.9 }));
-  const crowd = new THREE.InstancedMesh(fanGeometry, fanMaterial, crowdSpots.length);
+  const crowd = new THREE.InstancedMesh(track(fanParts.clothes), fanMaterial, crowdSpots.length);
+  const faces = new THREE.InstancedMesh(track(fanParts.skin), fanMaterial, crowdSpots.length);
+  const trousers = new THREE.InstancedMesh(track(fanParts.dark), fanMaterial, crowdSpots.length);
+  const crowdMeshes = [crowd, faces, trousers];
   const palette = ['#e9e6df', '#2c4a8c', '#b3122b', '#f2b134', '#222831', '#4d8b6a', '#c9d3df'];
+  const skinPalette = ['#c99570', '#9a6243', '#e5b894', '#70452f', '#b67b56'];
   const tint = new THREE.Color();
   const phase = new Float32Array(crowdSpots.length);
   const pos = new THREE.Vector3();
   crowdSpots.forEach((m, i) => {
-    crowd.setMatrixAt(i, m);
-    tint.set(palette[(i * 7 + (i >> 3)) % palette.length]);
-    crowd.setColorAt(i, tint);
+    crowdMeshes.forEach((mesh) => mesh.setMatrixAt(i, m));
+    crowd.setColorAt(i, tint.set(palette[(i * 7 + (i >> 3)) % palette.length]));
+    faces.setColorAt(i, tint.set(skinPalette[i % skinPalette.length]));
+    trousers.setColorAt(i, tint.set(i % 3 ? '#252733' : '#55463b'));
     phase[i] = ((i * 2654435761) % 628) / 100;
   });
-  crowd.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  group.add(crowd);
+  crowdMeshes.forEach((mesh) => {
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(mesh);
+  });
   let crowdClock = 0;
   let crowdRefresh = 0;
 
@@ -427,25 +434,27 @@ export function buildStadium(): Stadium {
       crowdRefresh += dt;
       if (crowdRefresh < 0.09) return; // refresh the crowd at ~11 Hz
       crowdRefresh = 0;
-      const amp = 0.015 + 0.3 * excite * excite;
+      const amp = 0.004 + 0.065 * excite * excite;
       const rate = 3 + 7 * excite;
       const m = new THREE.Matrix4();
       for (let i = 0; i < crowdSpots.length; i++) {
         pos.setFromMatrixPosition(crowdSpots[i]);
-        m.makeTranslation(
+        m.copy(crowdSpots[i]).setPosition(
           pos.x,
           pos.y + Math.abs(Math.sin(crowdClock * rate + phase[i])) * amp,
           pos.z
         );
-        crowd.setMatrixAt(i, m);
+        crowdMeshes.forEach((mesh) => mesh.setMatrixAt(i, m));
       }
-      crowd.instanceMatrix.needsUpdate = true;
+      crowdMeshes.forEach((mesh) => {
+        mesh.instanceMatrix.needsUpdate = true;
+      });
     },
     dispose() {
       geometries.forEach((g) => g.dispose());
       materials.forEach((x) => x.dispose());
       textures.forEach((x) => x.dispose());
-      crowd.dispose();
+      crowdMeshes.forEach((mesh) => mesh.dispose());
     },
   };
 }

@@ -1,10 +1,9 @@
+import { VF_CLUBS, clubById } from '@/lib/football/clubs';
 import { useState } from 'react';
 import {
-  VF_CLUBS,
   VF_LIMITS,
   VF_RULES_DIGEST,
   VF_RULES_ID,
-  clubById,
   parseSelection,
   verifyMatchweek,
   type StandingRow,

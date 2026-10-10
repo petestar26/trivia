@@ -85,6 +85,8 @@ export const Region = {
   HAIR: 5,
   GLOVE: 6,
   FOREARM: 7,
+  EYE_WHITE: 8,
+  EYE_IRIS: 9,
 } as const;
 type RegionId = (typeof Region)[keyof typeof Region];
 type Weights = Array<[BoneName, number]>;
@@ -402,8 +404,7 @@ export interface LookGeometry {
   geometry: THREE.BufferGeometry;
   dispose(): void;
 }
-export function lookGeometry(look: Look): LookGeometry {
-  const base = humanGeometry();
+export function lookGeometry(look: Look, base = humanGeometry()): LookGeometry {
   const geometry = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'skinIndex', 'skinWeight'] as const)
     geometry.setAttribute(name, base.geometry.getAttribute(name));
@@ -414,6 +415,8 @@ export function lookGeometry(look: Look): LookGeometry {
   const kit = look.kit;
   const table: Record<number, readonly [number, number, number]> = {
     [Region.SKIN]: c3(look.skin),
+    [Region.EYE_WHITE]: c3('#d5d0c5'),
+    [Region.EYE_IRIS]: c3('#302820'),
     [Region.SHORTS]: c3(kit.shorts),
     [Region.SOCK]: c3(kit.socks),
     [Region.BOOT]: c3('#15171c'),

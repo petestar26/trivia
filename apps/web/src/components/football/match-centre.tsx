@@ -1,4 +1,5 @@
-import { clubById, type PublicGoal, type VfFixtureView } from '@socialplay/shared';
+import { clubById } from '@/lib/football/clubs';
+import { type PublicGoal, type VfFixtureView } from '@socialplay/shared';
 import { ClubBadge } from './club-badge';
 import { formatOdds } from '@/lib/football/format';
 import { quoteFor } from '@/lib/football/slip';
