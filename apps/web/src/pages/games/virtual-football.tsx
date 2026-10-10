@@ -904,8 +904,9 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       </div>
 
       <p className="vf-disclaimer">
-        An original simulated league: no real clubs, players or competitions. Results are random and
-        previous matches do not predict the next. Practice credits have no monetary value.
+        Club names are a visual theme for simulated matches, not real fixtures or player likenesses.
+        Results are random and previous matches do not predict the next. Practice credits have no
+        monetary value.
       </p>
 
       <ReviewDialog
