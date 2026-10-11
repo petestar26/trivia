@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -321,6 +322,23 @@ export function DerbyView({
           </Dialog.Portal>
         </Dialog.Root>
       </div>
+      <GameRoundSummary
+        game="Thunder Derby"
+        label={latestFinished ? 'Latest winner' : running ? 'Race running' : 'Race status'}
+        value={
+          latestFinished
+            ? `#${latestFinished.order![0]} ${DERBY_HORSES[latestFinished.order![0] - 1].name}`
+            : open
+              ? 'Selections open'
+              : 'Awaiting result'
+        }
+        detail={
+          latestFinished
+            ? `Finish: ${latestFinished.order!.map((n) => `#${n}`).join(' → ')}`
+            : 'Free practice · no cash value'
+        }
+        clock={`${!fresh ? 'Reconnecting · ' : ''}${open ? 'Closes' : running ? 'Finish' : 'Next race'} ${clock}`}
+      />
       <section className="derby-history" aria-label="Recent results">
         <span>RECENT FINISHES</span>
         {data.rounds
@@ -482,18 +500,6 @@ export function DerbyView({
               onChange={(e) => setStake(e.target.value)}
             />
           </label>
-          <div className="derby-amounts">
-            {[10, 25, 50, 100].map((n) => (
-              <button
-                key={n}
-                disabled={busy || !!pending}
-                aria-pressed={stake === String(n)}
-                onClick={() => setStake(String(n))}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
           <dl className="derby-quote">
             <div>
               <dt>Fixed gross odds</dt>

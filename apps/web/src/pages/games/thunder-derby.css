@@ -228,7 +228,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
+  padding: 14px 18px;
   gap: 12px;
 }
 .derby-eyebrow {
@@ -297,7 +297,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px 22px;
-  padding: 22px;
+  padding: 16px;
 }
 .derby-progress > div {
   display: flex;
@@ -326,7 +326,7 @@
   height: 7px;
 }
 .derby-slip {
-  padding: 22px;
+  padding: 16px;
 }
 .derby-slip h2 {
   font-size: 23px;

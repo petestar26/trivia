@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -118,6 +119,7 @@ function NumberPractice({ userId }: { userId: string }) {
   const open = !!round && now >= Date.parse(round.opensAt) && now < Date.parse(round.closesAt);
   const current = !!round && now < Date.parse(round.endsAt);
   const accepted = query.data?.receipt ?? (result?.roundId === round?.id ? result : null);
+  const shownGuess = accepted?.guess ?? pending?.guess ?? selected;
   const ready =
     query.data?.rulesId === NUMBER_TIMED_RULES_ID && !query.isError && !saved.error && fresh;
   const canPlace = ready && open && !accepted;
@@ -215,6 +217,23 @@ function NumberPractice({ userId }: { userId: string }) {
           Reduced motion
         </label>
       </header>
+      <GameRoundSummary
+        game="Number Challenge"
+        label={target != null ? 'Round result' : accepted ? 'Guess accepted' : 'Choose 1–100'}
+        value={
+          target != null
+            ? `Target ${target}`
+            : accepted
+              ? `Your number ${accepted.guess}`
+              : 'Target hidden'
+        }
+        detail={
+          display
+            ? `${display.away === 0 ? 'Exact match' : `${display.away} away`} · ${display.score} practice score`
+            : 'Free practice · one guess per round'
+        }
+        clock={`${clockLabel} ${ready && current ? `00:${String(seconds).padStart(2, '0')}` : ''}`}
+      />
       <div className="number-layout">
         <GameArena title="Number Challenge">
           <div className={`number-stage ${busy ? 'is-revealing' : ''}`}>
@@ -311,7 +330,7 @@ function NumberPractice({ userId }: { userId: string }) {
               min="1"
               max="100"
               step="1"
-              value={guess}
+              value={accepted ? String(accepted.guess) : pending ? String(pending.guess) : guess}
               disabled={controlsLocked}
               onChange={(e) => setGuess(e.target.value)}
               aria-invalid={!!inputError}
@@ -334,7 +353,7 @@ function NumberPractice({ userId }: { userId: string }) {
             min="1"
             max="100"
             step="1"
-            value={Number.isInteger(selected) ? Math.min(100, Math.max(1, selected)) : 50}
+            value={Number.isInteger(shownGuess) ? Math.min(100, Math.max(1, shownGuess)) : 50}
             disabled={controlsLocked}
             onChange={(e) => setGuess(e.target.value)}
           />
@@ -342,7 +361,7 @@ function NumberPractice({ userId }: { userId: string }) {
             {[1, 25, 50, 75, 100].map((n) => (
               <button
                 key={n}
-                aria-pressed={selected === n}
+                aria-pressed={shownGuess === n}
                 disabled={controlsLocked}
                 onClick={() => setGuess(String(n))}
               >
@@ -393,40 +412,6 @@ function NumberPractice({ userId }: { userId: string }) {
           </p>
         </section>
       </div>
-      <section className="number-panel number-scoring" aria-labelledby="number-scoring-title">
-        <div>
-          <p className="number-eyebrow">KNOW YOUR SCORE</p>
-          <h2 id="number-scoring-title">Closer is better</h2>
-        </div>
-        <div className="number-bands">
-          {NUMBER_BANDS.map((b) => (
-            <div key={b.distance}>
-              <b>{b.score}</b>
-              <span>{b.label}</span>
-            </div>
-          ))}
-        </div>
-        <details>
-          <summary>How to play & fairness</summary>
-          <p>
-            Each round lasts one minute. During the first 30 seconds, choose an integer from 1 to
-            100 and select Place guess. You can place one guess per round and cannot change it after
-            acceptance. Entries close for the final 30 seconds, when everyone sees the same random
-            target. A delayed connection may cause a guess to arrive too late; server time decides
-            acceptance. Your score follows the distance bands above. An exact match has a 1 in 100
-            chance. Numbers near the ends of the range have fewer nearby targets; proximity scores
-            are not equally likely for every guess.
-          </p>
-          <p>
-            The target is selected by the server’s cryptographic random generator after the entry
-            window closes. If the server is delayed, results remain pending until confirmed. This is
-            not a precommitted, independently verifiable draw. The animation only presents the saved
-            result. Retrying a saved guess returns that same result. Scores are for this game only
-            and have no cash value.
-          </p>
-          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
-        </details>
-      </section>
       <section className="number-panel" aria-labelledby="number-history-title">
         <p className="number-eyebrow">YOUR LAST 20 ROUNDS</p>
         <h2 id="number-history-title">Recent results</h2>
@@ -471,6 +456,40 @@ function NumberPractice({ userId }: { userId: string }) {
             Your confirmed results will appear here after your first guess.
           </p>
         )}
+      </section>
+      <section className="number-panel number-scoring" aria-labelledby="number-scoring-title">
+        <div>
+          <p className="number-eyebrow">KNOW YOUR SCORE</p>
+          <h2 id="number-scoring-title">Closer is better</h2>
+        </div>
+        <div className="number-bands">
+          {NUMBER_BANDS.map((b) => (
+            <div key={b.distance}>
+              <b>{b.score}</b>
+              <span>{b.label}</span>
+            </div>
+          ))}
+        </div>
+        <details>
+          <summary>How to play & fairness</summary>
+          <p>
+            Each round lasts one minute. During the first 30 seconds, choose an integer from 1 to
+            100 and select Place guess. You can place one guess per round and cannot change it after
+            acceptance. Entries close for the final 30 seconds, when everyone sees the same random
+            target. A delayed connection may cause a guess to arrive too late; server time decides
+            acceptance. Your score follows the distance bands above. An exact match has a 1 in 100
+            chance. Numbers near the ends of the range have fewer nearby targets; proximity scores
+            are not equally likely for every guess.
+          </p>
+          <p>
+            The target is selected by the server’s cryptographic random generator after the entry
+            window closes. If the server is delayed, results remain pending until confirmed. This is
+            not a precommitted, independently verifiable draw. The animation only presents the saved
+            result. Retrying a saved guess returns that same result. Scores are for this game only
+            and have no cash value.
+          </p>
+          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
+        </details>
       </section>
     </div>
   );

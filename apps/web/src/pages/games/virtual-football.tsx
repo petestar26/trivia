@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { clubById } from '@/lib/football/clubs';
 import {
   lazy,
@@ -31,7 +32,7 @@ import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 import { ClubBadge } from '@/components/football/club-badge';
-import { MatchCentre, Scoreboard, Scorecard } from '@/components/football/match-centre';
+import { MatchCentre, Scoreboard, Scorecard, scoreText } from '@/components/football/match-centre';
 import { MarketPanel } from '@/components/football/markets';
 import { ReviewDialog, Slip } from '@/components/football/slip';
 import { ResultsPanel, StandingsPanel, TicketsPanel } from '@/components/football/results';
@@ -641,6 +642,10 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     />
   );
   const lines = buildLines(slip);
+  const overview =
+    fixture && stageWeek && serverNow !== null
+      ? displayFixture(fixture.live, serverNow - stageWeek.kickoffAt)
+      : null;
 
   return (
     <main className="vf-page">
@@ -771,6 +776,35 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         </section>
       )}
 
+      {fixture && overview && (
+        <GameRoundSummary
+          game="Virtual Football"
+          label={overview.fullTime ? 'Full time' : 'Featured match'}
+          value={
+            <>
+              <span className="vf-overview-names">
+                {clubById(fixture.homeClub).name} {scoreText(overview)}{' '}
+                {clubById(fixture.awayClub).name}
+              </span>
+              <span
+                className="vf-overview-codes"
+                aria-label={`${clubById(fixture.homeClub).name} ${scoreText(overview)} ${clubById(fixture.awayClub).name}`}
+              >
+                {clubById(fixture.homeClub).code} {scoreText(overview)}{' '}
+                {clubById(fixture.awayClub).code}
+              </span>
+            </>
+          }
+          detail={overview.minute || 'Selections open · free practice'}
+          clock={
+            !fresh
+              ? 'Reconnecting'
+              : stageWeek && serverNow !== null
+                ? `${serverNow < stageWeek.kickoffAt ? 'Kick-off' : 'Next week'} ${formatClock((serverNow < stageWeek.kickoffAt ? stageWeek.kickoffAt : stageWeek.endsAt) - serverNow)}`
+                : undefined
+          }
+        />
+      )}
       <GameArena title="Virtual Football" className="vf-arena">
         <section className="vf-stage" aria-label="Match view">
           <div className="vf-stage-frame">

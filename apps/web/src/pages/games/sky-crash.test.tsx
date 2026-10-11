@@ -161,7 +161,11 @@ it('restores a confirmed ticket and presents its server return', async () => {
   snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
   snapshot.rounds[0].startsAt = snapshot.serverTime - 10000;
   setup();
-  await screen.findByText('Confirmed return · 30 credits at 1.20x');
+  expect(
+    await within(await screen.findByRole('group', { name: 'Bet 1 result' })).findByText(
+      '30 credits returned'
+    )
+  ).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
   expect(screen.getByLabelText('Bet amount')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
@@ -458,7 +462,7 @@ it('allows preparing amount and target during a running round but cannot submit 
   setup();
   const amount = await screen.findByLabelText('Bet amount');
   await waitFor(() => expect(amount).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.change(screen.getByLabelText('Bet amount'), { target: { value: '50' } });
   fireEvent.click(screen.getByText('Quick targets'));
   fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
   expect(amount).toHaveValue('50');
@@ -525,7 +529,7 @@ it('opens completed round details with both receipts without changing the draft 
   addHistoryRound();
   setup();
   await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: '50' }));
+  fireEvent.change(screen.getByLabelText('Bet amount'), { target: { value: '50' } });
   fireEvent.click(screen.getByText('Quick targets'));
   fireEvent.click(screen.getByRole('button', { name: '3.00×' }));
   expect(screen.queryByRole('button', { name: /View completed round r1:/ })).toBeNull();
@@ -608,12 +612,12 @@ it('bet navigation reaches the real controls while entry remains closed', async 
     fireEvent.click(screen.getByRole('link', { name: 'Choose your bet' }));
     expect(scroll).toHaveBeenCalledWith({ block: 'start' });
     expect(screen.getByRole('heading', { name: 'Choose your bet' })).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: '100' }));
+    fireEvent.change(screen.getByLabelText('Bet amount'), { target: { value: '100' } });
     fireEvent.click(screen.getByText('Quick targets'));
     fireEvent.click(screen.getByRole('button', { name: '5.00×' }));
     expect(screen.getByLabelText('Bet amount')).toHaveValue('100');
     expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('5.00');
-    expect(screen.getByRole('button', { name: '100' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Bet amount')).toHaveValue('100');
     expect(screen.getByRole('button', { name: /Wait for next round/ })).toBeDisabled();
     expect(post).not.toHaveBeenCalled();
   } finally {
@@ -664,7 +668,7 @@ it('adjusts only the selected slot amount within stake limits and the available 
   fireEvent.click(within(first).getByRole('button', { name: 'Decrease bet amount' }));
   expect(within(first).getByLabelText('Bet amount')).toHaveValue('22');
   expect(within(second).getByLabelText('Bet amount')).toHaveValue('25');
-  fireEvent.click(within(first).getByRole('button', { name: '10' }));
+  fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '10' } });
   expect(within(first).getByRole('button', { name: 'Decrease bet amount' })).toBeDisabled();
   await act(async () => {
     snapshot = { ...snapshot, balance: 1000 };

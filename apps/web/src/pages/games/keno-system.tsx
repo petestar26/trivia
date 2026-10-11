@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect,useRef,useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation,useQuery } from '@tanstack/react-query';
@@ -51,6 +52,7 @@ function SystemKeno({userId}:{userId:string}) {
   const toggle=(n:number)=>{if(locked||!round)return;const next=picks.includes(n)?picks.filter(v=>v!==n):picks.length<10?[...picks,n].sort((a,b)=>a-b):picks;setDraft({roundId:round.id,picks:next});};
   return <div className="keno-page">
     <div className="keno-navigation"><Link to="/casino">← Casino</Link><Link to="/groups">PVP · play in a group →</Link></div>
+    <GameRoundSummary game="Keno" label={count === 20 ? 'Draw result' : count ? 'Ball reveal' : 'Keno draw'} value={count ? `${count}/20 balls${count === 20 && display?.ticket ? ` · ${hits.length} matches` : ''}` : open ? 'Choose your numbers' : 'Awaiting draw'} detail={count === 20 && display?.ticket ? display.ticket.payout === null ? 'Return pending' : `${display.ticket.payout} credits returned` : 'Free practice · no cash value'} clock={`${!connected ? 'Reconnecting · ' : ''}${open ? 'Closes' : 'Next round'} ${seconds}s`} />
     <section className="keno-stage" aria-label="System Keno practice">
       <header className="keno-header"><div><p className="keno-eyebrow">PLAYQUBE ORIGINALS · SYSTEM TABLE</p><h1>Turbo <span>Keno</span></h1><p>One new round every minute.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading?'Loading…':walletError?'Unavailable':`${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{s?.balance.toLocaleString()??'—'}</strong><small>credits · no cash value</small></div></div></header>
       <div className="keno-economics"><span>90% theoretical return</span><span>10% expected house edge</span><span>3.6× return per matching number</span></div>

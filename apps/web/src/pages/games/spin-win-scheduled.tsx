@@ -33,9 +33,7 @@ function ScheduledTable({ userId }: { userId: string }) {
   const [pending, setPending] = useState<Entry | null>(null);
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState(
-    'Choose your selections before the system countdown ends.'
-  );
+  const [message, setMessage] = useState('');
   const [rotation, setRotation] = useState(0);
   const lastDraw = useRef<string | null>(null);
   const submission = useRef<Submission | null>(null);
@@ -205,7 +203,12 @@ function ScheduledTable({ userId }: { userId: string }) {
       ? 'Entries stay disabled until a fresh server response arrives.'
       : !snapshot?.enabled
         ? 'This practice table is paused. Previously accepted rounds can still finish.'
-        : message;
+        : message ||
+          (open
+            ? 'Choose your selections before the system countdown ends.'
+            : current?.outcome !== null && current?.outcome !== undefined
+              ? 'Shared result published. Choose selections in the next round.'
+              : 'Entries closed. Waiting for the shared result.');
   return (
     <SpinStage
       mode="scheduled"

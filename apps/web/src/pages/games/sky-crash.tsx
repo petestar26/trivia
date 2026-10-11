@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -12,7 +13,6 @@ import {
   ShieldCheck,
   Wifi,
   WifiOff,
-  TrendingUp,
   X,
 } from 'lucide-react';
 import {
@@ -76,11 +76,7 @@ function SkyCrash({
   const [pending, setPending] = useState<Entry | null>(initial.entry),
     pendingRef = useRef(initial.entry);
   const [storageError, setStorageError] = useState(initial.error),
-    [notice, setNotice] = useState(
-      initial.entry
-        ? 'Checking your saved ticket…'
-        : 'Choose your amount. Confirm during the entry countdown.'
-    );
+    [notice, setNotice] = useState(initial.entry ? 'Checking your saved ticket…' : '');
   const [stakeText, setStakeText] = useState('25'),
     [auto, setAuto] = useState(true),
     [autoText, setAutoText] = useState('2.00');
@@ -329,9 +325,9 @@ function SkyCrash({
       : null;
   const draftStakeLimit = Math.min(rules.maxStake, s?.balance ?? 0);
   const result = shown?.ticket;
+  const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   // Only the server's revealed result ends the flight, never the local clock.
   const crashed = shown?.crashCents != null;
-  const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   const controls = (
     <aside className="sky-controls" aria-label={`Bet ${slot} controls`}>
       <div className="sky-ticket-header">
@@ -351,6 +347,24 @@ function SkyCrash({
                 : 'Next round'}
         </span>
       </div>
+      {result && (
+        <div className="sky-ticket-result" role="group" aria-label={`Bet ${slot} result`}>
+          <strong>
+            {result.payout === null
+              ? `${result.stake} credits in play`
+              : `${result.payout} credits returned`}
+          </strong>
+          <span>
+            {result.payout === null
+              ? result.autoCents === null
+                ? 'Your ticket is live · manual cash-out requires a connection'
+                : 'Your ticket is live · auto cash-out stays active when you disconnect'
+              : result.payout > 0
+                ? `Confirmed at ${((result.paidCents ?? 0) / 100).toFixed(2)}× · includes stake`
+                : 'Round finished · no return for this ticket'}
+          </span>
+        </div>
+      )}
       <div className="sky-bet-fields">
         <div className="sky-auto-field">
           <label className="sky-auto">
@@ -415,7 +429,6 @@ function SkyCrash({
               ))}
             </div>
           </details>
-          <p className="sky-field-help">Set your automatic cash-out target. 1.01×–20.00×.</p>
         </div>
         <div className="sky-stake-field">
           <label htmlFor={`sky-stake-${slot}`}>Bet amount</label>
@@ -505,24 +518,6 @@ function SkyCrash({
             </button>
           )}
         </div>
-        <div
-          className="sky-presets sky-amount-presets"
-          role="group"
-          aria-label="Bet amount presets"
-        >
-          {[10, 25, 50, 100].map((v) => (
-            <button
-              key={v}
-              disabled={locked}
-              aria-pressed={
-                Number(ticket ? ticket.stake : pending ? pending.stake : stakeText) === v
-              }
-              onClick={() => setStakeText(String(v))}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
       </div>
       {pending && !entryMutation.isPending && (
         <button className="sky-retry" disabled={!connected} onClick={() => submit(pending)}>
@@ -544,13 +539,15 @@ function SkyCrash({
           {storageError}
         </p>
       )}
-      <p className="sky-notice" aria-live="polite">
-        {query.isError
-          ? requestStatus(query.error) === 403
-            ? 'Sky Crash practice is unavailable.'
-            : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
-          : notice}
-      </p>
+      {(query.isError || notice) && (
+        <p className="sky-notice" aria-live="polite">
+          {query.isError
+            ? requestStatus(query.error) === 403
+              ? 'Sky Crash practice is unavailable.'
+              : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
+            : notice}
+        </p>
+      )}
       {raw?.maxTickets === 2 && (
         <div className="sky-autoplay-controls">
           {autoplay ? (
@@ -636,6 +633,21 @@ function SkyCrash({
           </div>
         </div>
       </header>
+      <GameRoundSummary
+        game="Sky Crash"
+        label={
+          !connected
+            ? 'Reconnecting'
+            : shown?.crashCents != null
+              ? 'Round result'
+              : open
+                ? 'Entry open'
+                : 'Live multiplier'
+        }
+        value={connected ? (open ? 'Place your ticket' : `${(cents / 100).toFixed(2)}×`) : '—'}
+        detail="Free practice · no cash value"
+        clock={`${open ? 'Closes' : 'Next round'} ${seconds}s`}
+      />
       <div className="sky-layout">
         <div className="sky-table">
           <RoundHistory rounds={raw?.rounds ?? []} />
@@ -770,68 +782,6 @@ function SkyCrash({
                   )}
                 </g>
               </svg>
-            </div>
-            <div className="sky-result" role="status">
-              <div className="sky-result-heading">
-                <ShieldCheck size={18} />
-                <span>
-                  {shown?.crashCents != null ? 'ROUND RESULT' : 'YOUR FLIGHT'}
-                  <small>Practice credits · no cash value</small>
-                </span>
-              </div>
-              <div className="sky-result-content">
-                {raw?.maxTickets === 2 && shownTickets.length > 0 ? (
-                  <div className="sky-slot-results">
-                    {shownTickets.map((t) => (
-                      <span
-                        className={`sky-result-card ${t.payout === null ? 'pending' : t.payout > 0 ? 'returned' : 'finished'}`}
-                        key={t.slot}
-                        role="group"
-                        aria-label={`Bet ${t.slot} result`}
-                      >
-                        <span>
-                          BET {t.slot} ·{' '}
-                          {t.payout === null
-                            ? 'CONFIRMED'
-                            : t.payout > 0
-                              ? 'CASHED OUT'
-                              : 'FINISHED'}
-                        </span>
-                        <strong>
-                          {t.payout === null
-                            ? `${t.stake} credits in play`
-                            : `${t.payout} credits returned`}
-                        </strong>
-                        <small>
-                          {t.payout === null
-                            ? t.autoCents === null
-                              ? 'Manual cash-out requires a connection'
-                              : `Auto cash-out at ${(t.autoCents / 100).toFixed(2)}× remains active`
-                            : t.payout > 0
-                              ? `Confirmed at ${((t.paidCents ?? 0) / 100).toFixed(2)}× · includes stake`
-                              : 'No return for this ticket'}
-                        </small>
-                      </span>
-                    ))}
-                  </div>
-                ) : result?.payout !== null && result?.payout !== undefined ? (
-                  <>
-                    <ShieldCheck size={18} />
-                    {result.payout > 0
-                      ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
-                      : 'Round finished · no return for this ticket'}
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp size={18} />
-                    {ticket
-                      ? ticket.autoCents !== null
-                        ? 'Your ticket is live · auto cash-out stays active when you disconnect'
-                        : 'Your ticket is live · manual cash-out requires a connection'
-                      : 'One shared round · one server-controlled result'}
-                  </>
-                )}
-              </div>
             </div>
           </section>
           <section id="sky-betting" className="sky-betting" aria-labelledby="sky-betting-title">

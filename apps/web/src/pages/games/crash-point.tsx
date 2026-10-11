@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -12,7 +13,6 @@ import {
   ShieldCheck,
   Wifi,
   WifiOff,
-  TrendingUp,
   X,
 } from 'lucide-react';
 import {
@@ -76,11 +76,7 @@ function CrashPoint({
   const [pending, setPending] = useState<Entry | null>(initial.entry),
     pendingRef = useRef(initial.entry);
   const [storageError, setStorageError] = useState(initial.error),
-    [notice, setNotice] = useState(
-      initial.entry
-        ? 'Checking your saved ticket…'
-        : 'Choose your amount. Confirm during the entry countdown.'
-    );
+    [notice, setNotice] = useState(initial.entry ? 'Checking your saved ticket…' : '');
   const [stakeText, setStakeText] = useState('25'),
     [auto, setAuto] = useState(true),
     [autoText, setAutoText] = useState('2.00');
@@ -346,6 +342,24 @@ function CrashPoint({
                 : 'Next round'}
         </span>
       </div>
+      {result && (
+        <div className="crash-ticket-result" role="group" aria-label={`Bet ${slot} result`}>
+          <strong>
+            {result.payout === null
+              ? `${result.stake} credits in play`
+              : `${result.payout} credits returned`}
+          </strong>
+          <span>
+            {result.payout === null
+              ? result.autoCents === null
+                ? 'Your ticket is live · manual cash-out requires a connection'
+                : 'Your ticket is live · auto cash-out stays active when you disconnect'
+              : result.payout > 0
+                ? `Confirmed at ${((result.paidCents ?? 0) / 100).toFixed(2)}× · includes stake`
+                : 'Round finished · no return for this ticket'}
+          </span>
+        </div>
+      )}
       <div className="crash-bet-fields">
         <div className="crash-auto-field">
           <label className="crash-auto">
@@ -410,7 +424,6 @@ function CrashPoint({
               ))}
             </div>
           </details>
-          <p className="crash-field-help">Set your automatic cash-out target. 1.01×–20.00×.</p>
         </div>
         <div className="crash-stake-field">
           <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
@@ -500,24 +513,6 @@ function CrashPoint({
             </button>
           )}
         </div>
-        <div
-          className="crash-presets crash-amount-presets"
-          role="group"
-          aria-label="Bet amount presets"
-        >
-          {[10, 25, 50, 100].map((v) => (
-            <button
-              key={v}
-              disabled={locked}
-              aria-pressed={
-                Number(ticket ? ticket.stake : pending ? pending.stake : stakeText) === v
-              }
-              onClick={() => setStakeText(String(v))}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
       </div>
       {pending && !entryMutation.isPending && (
         <button className="crash-retry" disabled={!connected} onClick={() => submit(pending)}>
@@ -539,13 +534,15 @@ function CrashPoint({
           {storageError}
         </p>
       )}
-      <p className="crash-notice" aria-live="polite">
-        {query.isError
-          ? requestStatus(query.error) === 403
-            ? 'Crash Point practice is unavailable.'
-            : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
-          : notice}
-      </p>
+      {(query.isError || notice) && (
+        <p className="crash-notice" aria-live="polite">
+          {query.isError
+            ? requestStatus(query.error) === 403
+              ? 'Crash Point practice is unavailable.'
+              : 'Connection interrupted. Entry and manual cash-out are paused until the server reconnects.'
+            : notice}
+        </p>
+      )}
       {raw?.maxTickets === 2 && (
         <div className="crash-autoplay-controls">
           {autoplay ? (
@@ -631,6 +628,21 @@ function CrashPoint({
           </div>
         </div>
       </header>
+      <GameRoundSummary
+        game="Crash Point"
+        label={
+          !connected
+            ? 'Reconnecting'
+            : shown?.crashCents != null
+              ? 'Round result'
+              : open
+                ? 'Entry open'
+                : 'Live multiplier'
+        }
+        value={connected ? (open ? 'Place your ticket' : `${(cents / 100).toFixed(2)}×`) : '—'}
+        detail="Free practice · no cash value"
+        clock={`${open ? 'Closes' : 'Next round'} ${seconds}s`}
+      />
       <div className="crash-layout">
         <div className="crash-table">
           <div className="crash-stage-masthead">
@@ -748,68 +760,6 @@ function CrashPoint({
                   </g>
                 </g>
               </svg>
-            </div>
-            <div className="crash-result" role="status">
-              <div className="crash-result-heading">
-                <ShieldCheck size={18} />
-                <span>
-                  {shown?.crashCents != null ? 'ROUND RESULT' : 'YOUR ROUND'}
-                  <small>Practice credits · no cash value</small>
-                </span>
-              </div>
-              <div className="crash-result-content">
-                {raw?.maxTickets === 2 && shownTickets.length > 0 ? (
-                  <div className="crash-slot-results">
-                    {shownTickets.map((t) => (
-                      <span
-                        className={`crash-result-card ${t.payout === null ? 'pending' : t.payout > 0 ? 'returned' : 'finished'}`}
-                        key={t.slot}
-                        role="group"
-                        aria-label={`Bet ${t.slot} result`}
-                      >
-                        <span>
-                          BET {t.slot} ·{' '}
-                          {t.payout === null
-                            ? 'CONFIRMED'
-                            : t.payout > 0
-                              ? 'CASHED OUT'
-                              : 'FINISHED'}
-                        </span>
-                        <strong>
-                          {t.payout === null
-                            ? `${t.stake} credits in play`
-                            : `${t.payout} credits returned`}
-                        </strong>
-                        <small>
-                          {t.payout === null
-                            ? t.autoCents === null
-                              ? 'Manual cash-out requires a connection'
-                              : `Auto cash-out at ${(t.autoCents / 100).toFixed(2)}× remains active`
-                            : t.payout > 0
-                              ? `Confirmed at ${((t.paidCents ?? 0) / 100).toFixed(2)}× · includes stake`
-                              : 'No return for this ticket'}
-                        </small>
-                      </span>
-                    ))}
-                  </div>
-                ) : result?.payout !== null && result?.payout !== undefined ? (
-                  <>
-                    <ShieldCheck size={18} />
-                    {result.payout > 0
-                      ? `Confirmed return · ${result.payout} credits at ${(result.paidCents! / 100).toFixed(2)}x`
-                      : 'Round finished · no return for this ticket'}
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp size={18} />
-                    {ticket
-                      ? ticket.autoCents !== null
-                        ? 'Your ticket is live · auto cash-out stays active when you disconnect'
-                        : 'Your ticket is live · manual cash-out requires a connection'
-                      : 'One shared round · one server-controlled result'}
-                  </>
-                )}
-              </div>
             </div>
           </section>
           <section

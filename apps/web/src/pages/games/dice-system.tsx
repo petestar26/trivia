@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -90,6 +91,7 @@ function SystemDice({userId}:{userId:string}) {
   }
   return <div className="system-dice-page">
     <nav className="system-dice-nav"><Link to="/casino">← Casino</Link><span>System table · Free practice</span></nav>
+    <GameRoundSummary game="Dice" label={sum !== null ? 'Round result' : revealing ? 'Rolling' : 'Dice Seven Up'} value={sum !== null ? `Total ${sum}` : open ? 'Entries open' : 'Waiting for result'} detail={sum !== null && display?.ticket ? display.ticket.payout === null ? 'Return pending' : `${display.ticket.payout} credits returned` : 'Free practice · no cash value'} clock={`${!connected ? 'Reconnecting · ' : ''}${open ? 'Closes' : 'Next round'} ${seconds}s`} />
     <section className="system-dice-stage" aria-label="System Dice practice">
       <header className="system-dice-header"><div><p className="system-dice-eyebrow">PLAYQUBE ORIGINALS</p><h1>Dice <span>Seven Up</span></h1><p>Two dice. One shared result. A new round every minute.</p></div>
         <div className="system-dice-balances"><div><span>ACCOUNT BALANCE</span><strong>{walletLoading?'Loading…':walletError?'Unavailable':`${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="practice"><span>PRACTICE BALANCE</span><strong>{s?.balance.toLocaleString()??'—'}</strong><small>Free credits · no cash value</small></div></div>
@@ -107,7 +109,7 @@ function SystemDice({userId}:{userId:string}) {
         <p className="system-dice-eyebrow">YOUR TICKET</p><h2>Make your play</h2><p>Confirm once. Watch the same roll as everyone at this table.</p>
         <label htmlFor="system-dice-stake">Bet amount</label><div className="system-dice-input"><input id="system-dice-stake" inputMode="numeric" value={ticket?String(ticket.stake):pending?String(pending.stake):stakeText} onChange={e=>setStakeText(e.target.value)} disabled={locked} aria-invalid={!stake&&!ticket&&!pending} aria-describedby="dice-stake-help"/><span>credits</span></div>
         <p id="dice-stake-help" className={!stake&&!ticket&&!pending?'invalid':''}>35–490 credits · steps of 35</p>
-        <div className="system-dice-presets">{[35,70,140].map(amount=><button key={amount} disabled={locked} onClick={()=>setStakeText(String(amount))}>{amount}</button>)}</div>
+
         <dl><div><dt>Return on a win</dt><dd>{possibleReturn||'—'} credits</dd></div><div><dt>Win probability</dt><dd>21 / 36 · 58.33%</dd></div><div><dt>Additional fee</dt><dd>None</dd></div></dl>
         <button className="system-dice-confirm" disabled={locked||!stake||stake>(s?.balance??0)} onClick={()=>round&&submit({roundId:round.id,stake})}>{ticket?'Ticket confirmed':pending?'Confirming saved ticket…':`Confirm ticket · ${stake||'—'} credits`}</button>
         {pending&&!mutation.isPending&&<button className="system-dice-retry" disabled={!connected} onClick={()=>submit(pending)}>Retry saved ticket · {pending.stake} credits</button>}
