@@ -141,7 +141,9 @@ export function HomePage() {
                     <h3>{game.name}</h3>
                     <p>
                       {to && PRACTICE_ROUTES[game.key]
-                        ? game.key === 'thunder_derby_3d'
+                        ? game.key === 'number_challenge'
+                          ? 'Pick 1–100 · free practice scores, no stakes.'
+                          : game.key === 'thunder_derby_3d'
                           ? 'Six or eight horses · practice credits only.'
                           : game.key === 'virtual_football_3d'
                             ? 'Ten matches every five minutes · practice credits only.'

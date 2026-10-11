@@ -5,7 +5,9 @@ import { isCoinWagerPaused, listActiveGames } from './game-catalog.js';
 it('blocks unapproved Coin payout models independently of catalog flags', () => {
   for (const key of ['number_challenge', 'dice', 'crash_point']) {
     expect(isCoinWagerPaused({ key, mode: 'WAGER', wagerCurrency: 'COINS' })).toBe(true);
-    expect(isCoinWagerPaused({ key, mode: 'WAGER', wagerCurrency: 'GAME_POINTS' })).toBe(false);
+    expect(isCoinWagerPaused({ key, mode: 'WAGER', wagerCurrency: 'GAME_POINTS' })).toBe(
+      key === 'number_challenge'
+    );
   }
   expect(isCoinWagerPaused({ key: 'trivia', mode: 'BONUS', wagerCurrency: null })).toBe(false);
 });

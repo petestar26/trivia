@@ -2,6 +2,7 @@ import type { GameCatalogEntry } from './api';
 export type MemberGame = GameCatalogEntry;
 
 export const PRACTICE_ROUTES: Record<string, string> = {
+  number_challenge: '/games/number-challenge',
   sky_crash: '/games/sky-crash',
   thunder_derby_3d: '/games/thunder-derby',
   virtual_football_3d: '/games/virtual-football',
@@ -11,7 +12,7 @@ export const PRACTICE_ROUTES: Record<string, string> = {
   turbo_keno: '/games/turbo-keno',
 };
 /** Practice games that stay hidden until the server reports them available. */
-const GATED_PRACTICE = ['sky_crash', 'thunder_derby_3d', 'virtual_football_3d'];
+const GATED_PRACTICE = ['number_challenge', 'sky_crash', 'thunder_derby_3d', 'virtual_football_3d'];
 const RELEASED_ROUTES: Record<string, string> = {
   trivia: '/games/trivia',
   number_challenge: '/games/number-challenge',

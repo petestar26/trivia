@@ -1,0 +1,100 @@
+/** Additive Number Challenge upgrade, restricted to the disposable rehearsal database. */
+import { PrismaClient } from '@prisma/client';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { assertUsdStagingTarget } from './staging-payment-target.js';
+const allowed = ['20261012010000_number_challenge_practice'];
+export async function runNumberStagingUpgrade(env: NodeJS.ProcessEnv = process.env, apply = false) {
+  assertUsdStagingTarget(env);
+  const roles = [env.PRACTICE_API_ROLE!],
+    db = new PrismaClient({ log: [], datasources: { db: { url: env.DATABASE_URL } } });
+  try {
+    const [owner] = await db.$queryRaw<
+      { allowed: boolean }[]
+    >`SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database d JOIN pg_catalog.pg_roles r ON r.oid=d.datdba WHERE d.datname=current_database() AND r.rolname=current_user) AS allowed`;
+    if (!owner?.allowed) throw Error('OWNER_REQUIRED');
+    for (const role of roles) {
+      const [safe] = await db.$queryRaw<
+        { allowed: boolean }[]
+      >`SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=${role} AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication) AS allowed`;
+      if (!safe?.allowed) throw Error('RUNTIME_ROLE_REFUSED');
+    }
+    const game = await db.gameDefinition.findUnique({ where: { key: 'number_challenge' } });
+    if (
+      !game ||
+      game.mode !== 'WAGER' ||
+      game.wagerCurrency !== 'COINS' ||
+      game.rewardCurrency !== 'COINS'
+    )
+      throw Error('FINANCIAL_GATE_INVALID');
+    const root = fileURLToPath(new URL('../../../../', import.meta.url)),
+      dir = resolve(root, 'packages/database/prisma/migrations');
+    const applied = await db.$queryRaw<
+      {
+        migration_name: string;
+        checksum: string;
+        finished_at: Date | null;
+        rolled_back_at: Date | null;
+      }[]
+    >`SELECT migration_name,checksum,finished_at,rolled_back_at FROM _prisma_migrations`;
+    if (applied.some((r) => !r.finished_at && !r.rolled_back_at)) throw Error('FAILED_MIGRATION');
+    const complete = new Map(
+        applied.filter((r) => r.finished_at).map((r) => [r.migration_name, r.checksum])
+      ),
+      names = readdirSync(dir)
+        .filter((n) => /^\d{14}_/.test(n))
+        .sort();
+    for (const [name, checksum] of complete)
+      if (
+        !names.includes(name) ||
+        createHash('sha256')
+          .update(readFileSync(resolve(dir, name, 'migration.sql')))
+          .digest('hex') !== checksum
+      )
+        throw Error('MIGRATION_HISTORY_MISMATCH');
+    const pending = names.filter((n) => !complete.has(n));
+    if (pending.some((n) => !allowed.includes(n))) throw Error('UNRELATED_PENDING_MIGRATION');
+
+    if (pending.length) {
+      if (!apply) throw Error('NUMBER_MIGRATION_NOT_APPLIED');
+      execFileSync(
+        resolve(root, 'packages/database/node_modules/.bin/prisma'),
+        ['migrate', 'deploy', '--schema', resolve(root, 'packages/database/prisma/schema.prisma')],
+        { cwd: root, stdio: 'pipe', env }
+      );
+    }
+    for (const role of roles) {
+      if (apply) {
+        // assertUsdStagingTarget already validates the identifier; quote defensively.
+        const quoted = '"' + role.replaceAll('"', '""') + '"';
+        await db.$executeRawUnsafe(
+          `GRANT SELECT, INSERT ON public.number_practice_rounds TO ${quoted}`
+        );
+      }
+      const [grants] = await db.$queryRaw<
+        { allowed: boolean }[]
+      >`SELECT has_table_privilege(${role},'public.number_practice_rounds','SELECT') AND has_table_privilege(${role},'public.number_practice_rounds','INSERT') AND NOT has_table_privilege(${role},'public.number_practice_rounds','UPDATE') AND NOT has_table_privilege(${role},'public.number_practice_rounds','DELETE') AS allowed`;
+      if (!grants?.allowed) throw Error('NUMBER_RUNTIME_GRANTS_MISSING');
+    }
+    console.log(
+      JSON.stringify({
+        event: 'NUMBER_STAGING_READY',
+        mode: 'PRACTICE',
+        migrations: allowed,
+        activationPerformed: false,
+      })
+    );
+  } finally {
+    await db.$disconnect();
+  }
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  runNumberStagingUpgrade(process.env, process.argv.includes('--apply')).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : '';
+    const reason = /^[A-Z_]{1,64}$/.test(message) ? message : 'OPERATION_FAILED';
+    console.error(JSON.stringify({ event: 'NUMBER_STAGING_REFUSED', reason }));
+    process.exitCode = 1;
+  });

@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'src/games/number-challenge/*.native.ts',
       'src/games/sky-crash/*.native.ts',
       'src/games/thunder-derby/*.native.ts',
       'src/games/virtual-football/*.native.ts',
