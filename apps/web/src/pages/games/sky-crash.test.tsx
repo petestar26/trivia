@@ -535,7 +535,7 @@ it('opens completed round details with both receipts without changing the draft 
   expect(screen.queryByRole('button', { name: /View completed round r1:/ })).toBeNull();
   const history = screen.getByRole('button', { name: 'View completed round older: 2.97×' });
   fireEvent.click(history);
-  const dialog = await screen.findByRole('dialog', { name: 'Round details' });
+  const dialog = await screen.findByRole('dialog', { name: 'Round result' });
   expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
   expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 credits');
   expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 credits');
@@ -557,7 +557,7 @@ it('supports opening history with the keyboard and Escape returns focus to its b
   await act(async () => {
     await user.keyboard('{Enter}');
   });
-  await screen.findByRole('dialog', { name: 'Round details' });
+  await screen.findByRole('dialog', { name: 'Round result' });
   await act(async () => {
     await user.keyboard('{Escape}');
   });
@@ -636,7 +636,7 @@ it('handles a selected round leaving the snapshot without showing another result
       received: performance.now(),
     });
   });
-  const dialog = screen.getByRole('dialog', { name: 'Round details' });
+  const dialog = screen.getByRole('dialog', { name: 'Round result' });
   expect(await within(dialog).findByText(/This round has left recent history/)).toBeInTheDocument();
   expect(within(dialog).queryByText('2.97×')).toBeNull();
   expect(post).not.toHaveBeenCalled();
@@ -729,5 +729,104 @@ it('keeps controls disabled when the practice gate is off', async () => {
   get.mockRejectedValue(Object.assign(new Error('unavailable'), { status: 403 }));
   setup();
   await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeDisabled());
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('preserves the live graph and draft through every expanded-view exit', async () => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+  const scroll = vi.fn();
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    addHistoryRound();
+    setup();
+    await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('Bet amount'), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('Auto cash-out multiplier'), {
+      target: { value: '3.00' },
+    });
+    const graph = screen.getByRole('region', { name: 'Live flight arena' });
+    const drawing = graph.querySelector('svg');
+    const confirm = screen.getByRole('button', { name: /Confirm ticket/ });
+    const history = screen.getByRole('button', { name: 'View completed round older: 2.97×' });
+    const toggle = screen.getByRole('button', { name: 'Expand Sky Crash view' });
+    toggle.focus();
+    fireEvent.click(toggle);
+    const expanded = screen.getByRole('dialog', { name: 'Sky Crash expanded view' });
+    expect(within(expanded).getByRole('region', { name: 'Live flight arena' })).toBe(graph);
+    expect(graph.querySelector('svg')).toBe(drawing);
+    expect(confirm.closest('[inert]')).not.toBeNull();
+    expect(history.closest('[inert]')).not.toBeNull();
+    fireEvent.click(confirm);
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Sky Crash view' }));
+    expect(toggle).toHaveFocus();
+    expect(confirm.closest('[inert]')).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Bet controls' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Choose your bet' })).toHaveFocus();
+    expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    expect(screen.getByRole('region', { name: 'Live flight arena' })).toBe(graph);
+    expect(graph.querySelector('svg')).toBe(drawing);
+    expect(screen.getByLabelText('Bet amount')).toHaveValue('50');
+    expect(screen.getByLabelText('Auto cash-out multiplier')).toHaveValue('3.00');
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+
+it('keeps a saved ticket locked and retries its exact payload after expanded viewing', async () => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+  const receipt = { roundId: 'r1', stake: 50, autoCents: 150 };
+  sessionStorage.setItem('playqube.sky-crash.pending.u1', JSON.stringify(receipt));
+  post.mockRejectedValue(new Error('Interrupted'));
+  setup();
+  await waitFor(() => expect(screen.getByLabelText('Bet amount')).toBeDisabled());
+  const amount = screen.getByLabelText('Bet amount');
+  const target = screen.getByLabelText('Auto cash-out multiplier');
+  const retry = screen.getByRole('button', { name: 'Retry saved ticket' });
+  await waitFor(() => expect(retry).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Sky Crash view' }));
+  expect(amount).toBeDisabled();
+  expect(target).toBeDisabled();
+  fireEvent.click(retry);
+  expect(post).not.toHaveBeenCalled();
+  expect(readSkyCrashReceipt('u1')).toEqual(receipt);
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+  expect(screen.getByLabelText('Auto cash-out multiplier')).toBeDisabled();
+  expect(readSkyCrashReceipt('u1')).toEqual(receipt);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry saved ticket' }));
+  await waitFor(() =>
+    expect(post.mock.calls[0]?.slice(0, 2)).toEqual(['/games/sky-crash/tickets', receipt])
+  );
+});
+
+it('shows a concise unentered result and Done restores its history opener', async () => {
+  addHistoryRound();
+  snapshot.rounds[1].tickets = [];
+  setup();
+  const history = await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  history.focus();
+  fireEvent.click(history);
+  const dialog = await screen.findByRole('dialog', { name: 'Round result' });
+  expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
+  expect(within(dialog).getByText('You did not enter this round.')).toBeInTheDocument();
+  expect(within(dialog).queryByRole('heading', { name: /Your tickets/ })).toBeNull();
+  expect(within(dialog).getByText('Round verification').closest('details')).not.toHaveAttribute(
+    'open'
+  );
+  expect(dialog).toHaveAccessibleDescription(
+    'Completed result. Your current ticket and cash-out target stay unchanged.'
+  );
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await waitFor(() => expect(history).toHaveFocus());
   expect(post).not.toHaveBeenCalled();
 });

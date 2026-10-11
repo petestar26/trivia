@@ -17,7 +17,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.game-arena .game-arena__toggle {
+.game-arena .game-arena__toggle,
+.game-arena .game-arena__return {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -34,9 +35,15 @@
   font-weight: 700;
   cursor: pointer;
 }
-.game-arena .game-arena__toggle:focus-visible {
+.game-arena .game-arena__toggle:focus-visible,
+.game-arena .game-arena__return:focus-visible {
   outline: 3px solid #f6dda2;
   outline-offset: 2px;
+}
+.game-arena .game-arena__return {
+  margin-left: auto;
+  background: #215049;
+  border-color: #599b90;
 }
 .game-arena--expanded {
   position: fixed;

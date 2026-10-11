@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useExpandedArena } from './use-expanded-arena';
 import './game-arena.css';
@@ -8,17 +8,26 @@ export function GameArena({
   title,
   children,
   className = '',
+  onReturnToControls,
 }: {
   title: string;
   children: ReactNode;
   className?: string;
+  onReturnToControls?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const id = useId();
+  const returningToControls = useRef(false);
   const close = useCallback(() => setExpanded(false), []);
   useExpandedArena(expanded, panel, toggle, close);
+  useLayoutEffect(() => {
+    if (!expanded && returningToControls.current) {
+      returningToControls.current = false;
+      onReturnToControls?.();
+    }
+  }, [expanded, onReturnToControls]);
   return (
     <div
       ref={panel}
@@ -30,6 +39,18 @@ export function GameArena({
     >
       <div className="game-arena__toolbar">
         <span>{title}</span>
+        {expanded && onReturnToControls && (
+          <button
+            type="button"
+            className="game-arena__return"
+            onClick={() => {
+              returningToControls.current = true;
+              close();
+            }}
+          >
+            Bet controls
+          </button>
+        )}
         <button
           ref={toggle}
           type="button"
