@@ -239,3 +239,23 @@ it('locks stale snapshots and never restarts a countdown from the device wall cl
   expect(screen.getByLabelText('Round countdown')).toHaveTextContent('—');
   expect(mocks.post).not.toHaveBeenCalled();
 });
+
+it('restores the confirmed guess in the controls and keeps its released result beside selections', async () => {
+  const receipt = { ...round, guess: 25, target: 27 };
+  mocks.get.mockResolvedValue({
+    success: true,
+    data: { ...snapshot(35000, 27), receipt, history: [receipt] },
+  });
+  mount();
+  await screen.findByRole('heading', { name: '2 away' });
+  expect(screen.getByRole('spinbutton')).toHaveValue(25);
+  expect(screen.getByRole('slider')).toHaveValue('25');
+  expect(screen.getByRole('button', { name: /^25$/ })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  const overview = screen.getByRole('region', { name: 'Number Challenge round overview' });
+  expect(overview).toHaveTextContent('Target 27');
+  expect(overview).toHaveTextContent('2 away · 40 practice score');
+  expect(mocks.post).not.toHaveBeenCalled();
+});

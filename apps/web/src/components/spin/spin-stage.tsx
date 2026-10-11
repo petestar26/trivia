@@ -1,3 +1,4 @@
+import { GameRoundSummary } from '@/components/games/game-round-summary';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { SpinWinWheel } from './spin-wheel';
@@ -22,13 +23,26 @@ export function SpinStage({
   children: ReactNode;
 }) {
   return (
-    <section className="mx-auto max-w-6xl space-y-4">
+    <section className="spin-stage mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <Link to="/casino" className="text-primary-600 dark:text-primary-400">
           ← Casino
         </Link>
-        <Link to="/groups" className="text-primary-600 dark:text-primary-400">PVP · play in a group →</Link>
+        <Link to="/groups" className="text-primary-600 dark:text-primary-400">
+          PVP · play in a group →
+        </Link>
       </div>
+      <GameRoundSummary
+        game="Spin Win"
+        label="Latest number"
+        value={number ?? 'Awaiting draw'}
+        detail={
+          <span role="status" aria-live="polite">
+            {status}
+          </span>
+        }
+        clock={mode === 'scheduled' ? balance : undefined}
+      />
       <div
         className="overflow-hidden rounded-[24px] border border-[#b99150]/60 bg-[#06382b] text-[#fff8e8] shadow-[0_20px_70px_rgba(0,0,0,.2)]"
         style={{
@@ -52,7 +66,9 @@ export function SpinStage({
                   : 'System table · one-minute rounds'}
             </p>
             <div className="mt-1 font-semibold text-[#ffe2a1]">
-              {balance ?? 'One server result for every player'}
+              {mode === 'scheduled'
+                ? 'Free practice credits'
+                : (balance ?? 'One server result for every player')}
             </div>
           </div>
         </header>
@@ -66,13 +82,6 @@ export function SpinStage({
         <div className="grid items-center gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_230px]">
           <div className="min-w-0">
             <SpinWinWheel rotation={rotation} number={number} spinning={spinning} />
-            <div
-              role="status"
-              aria-live="polite"
-              className="mx-auto max-w-xl rounded-xl border border-[#e3c58d]/20 bg-black/25 px-4 py-3 text-center text-sm"
-            >
-              {status}
-            </div>
           </div>
           <SpinInsights outcomes={outcomes} />
         </div>

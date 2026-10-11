@@ -1,0 +1,83 @@
+.game-round-summary {
+  position: sticky;
+  top: 84px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid #547084;
+  border-radius: 12px;
+  background: #0e1c2b;
+  box-shadow: 0 5px 18px #0003;
+  color: #eef7ff;
+  font-variant-numeric: tabular-nums;
+}
+.game-round-summary__outcome {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.game-round-summary__outcome > span {
+  color: #b2c9da;
+  font-size: 11px;
+}
+.game-round-summary__outcome > strong {
+  color: #b8f5df;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.game-round-summary__outcome > small {
+  color: #c7d7e4;
+  font-size: 12px;
+}
+.game-round-summary__clock {
+  flex-shrink: 0;
+  max-width: 45%;
+  color: #f5ddb3;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.4;
+}
+@media (max-width: 640px) {
+  .game-round-summary {
+    top: 72px;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .game-round-summary__outcome {
+    gap: 2px 8px;
+  }
+  .game-round-summary__outcome > small {
+    flex-basis: 100%;
+    font-size: 11px;
+  }
+  .game-round-summary__outcome > strong {
+    font-size: 15px;
+  }
+  .game-round-summary__clock {
+    max-width: 34%;
+    font-size: 11px;
+  }
+}
+
+/* Keyboard focus and jump links clear the pinned result and member header. */
+:is(
+    .crash-page,
+    .sky-page,
+    .derby-page,
+    .vf-page,
+    .number-game,
+    .system-dice-page,
+    .keno-page,
+    .spin-stage
+  )
+  :is(button, input, summary, [tabindex]) {
+  scroll-margin-top: 192px;
+}
