@@ -3,12 +3,12 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   NUMBER_BANDS,
-  NUMBER_RULES_ID,
+  NUMBER_TIMED_RULES_ID,
   numberScore,
-  parseNumberEntry,
-  type NumberEntry,
-  type NumberRound,
-  type NumberSnapshot,
+  parseNumberTimedEntry,
+  type NumberTimedEntry,
+  type NumberTimedReceipt,
+  type NumberTimedSnapshot,
 } from '@socialplay/shared';
 import { api, newIdempotencyKey, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
@@ -18,11 +18,11 @@ import { wholeNumberRangeError } from '@/components/casino/whole-number-input';
 import './number-challenge.css';
 
 const endpoint = '/games/number-challenge-practice';
-export const numberPendingKey = (id: string) => `playqube:number-practice:v1:${id}`;
-function readPending(id: string): { entry: NumberEntry | null; error: string } {
+export const numberPendingKey = (id: string) => `playqube:number-practice:v2:${id}`;
+function readPending(id: string): { entry: NumberTimedEntry | null; error: string } {
   try {
     const raw = sessionStorage.getItem(numberPendingKey(id));
-    return { entry: raw ? parseNumberEntry(JSON.parse(raw)) : null, error: '' };
+    return { entry: raw ? parseNumberTimedEntry(JSON.parse(raw)) : null, error: '' };
   } catch {
     return {
       entry: null,
@@ -31,18 +31,37 @@ function readPending(id: string): { entry: NumberEntry | null; error: string } {
     };
   }
 }
-function validRound(round: NumberRound, entry: NumberEntry) {
-  const { away, score } = numberScore(round.guess, round.target);
+function validReceipt(receipt: NumberTimedReceipt, entry: NumberTimedEntry) {
   if (
-    round.guess !== entry.guess ||
-    round.rulesId !== entry.rulesId ||
-    round.away !== away ||
-    round.score !== score ||
-    typeof round.id !== 'string' ||
-    !Number.isFinite(Date.parse(round.createdAt))
+    receipt.guess !== entry.guess ||
+    receipt.roundId !== entry.roundId ||
+    typeof receipt.id !== 'string' ||
+    !Number.isFinite(Date.parse(receipt.createdAt))
   )
-    throw new Error('The result could not be confirmed. Retry your saved guess.');
-  return round;
+    throw Error('Unconfirmed receipt');
+  if (receipt.target === null) {
+    if (receipt.away !== null || receipt.score !== null) throw Error('Unconfirmed score');
+  } else {
+    const score = numberScore(receipt.guess, receipt.target);
+    if (receipt.away !== score.away || receipt.score !== score.score)
+      throw Error('Unconfirmed score');
+  }
+  return receipt;
+}
+function conflict(error: unknown) {
+  try {
+    if (!(error instanceof Error)) return false;
+    const e = JSON.parse(error.message);
+    return (
+      e.status === 409 &&
+      [
+        'This round is closed. Wait for the next round.',
+        'You already placed a guess in this round.',
+      ].includes(e.message)
+    );
+  } catch {
+    return false;
+  }
 }
 export function NumberChallengePage() {
   const { user } = useAuth();
@@ -55,12 +74,17 @@ export function NumberChallengePage() {
 function NumberPractice({ userId }: { userId: string }) {
   const client = useQueryClient();
   const [saved] = useState(() => readPending(userId));
-  const [pending, setPending] = useState<NumberEntry | null>(saved.entry);
+  const [pending, setPending] = useState<NumberTimedEntry | null>(saved.entry);
   const [guess, setGuess] = useState(String(saved.entry?.guess ?? 50));
   const [error, setError] = useState(saved.error);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<NumberRound | null>(null);
-  const [replay, setReplay] = useState(false);
+  const [result, setResult] = useState<NumberTimedReceipt | null>(null);
+  const [clock, setClock] = useState(() => performance.now());
+  const anchor = useRef({ received: -Infinity, server: NaN });
+  useEffect(() => {
+    const timer = setInterval(() => setClock(performance.now()), 250);
+    return () => clearInterval(timer);
+  }, []);
   const [reduced, setReduced] = useState(false);
   const locked = useRef(false),
     alive = useRef(true);
@@ -70,34 +94,58 @@ function NumberPractice({ userId }: { userId: string }) {
       alive.current = false;
     };
   }, []);
-  const query = useQuery<NumberSnapshot>({
+  const query = useQuery<NumberTimedSnapshot>({
     queryKey: ['number-practice', userId],
     retry: false,
+    refetchInterval: 2000,
     queryFn: ({ signal }) =>
       boundedRequest(
         (s) =>
-          api
-            .get<NumberSnapshot>(endpoint, undefined, { signal: s })
-            .then((r) => unwrapData(r, 'Number practice')),
+          api.get<NumberTimedSnapshot>(endpoint, undefined, { signal: s }).then((r) => {
+            const data = unwrapData(r, 'Number practice');
+            anchor.current = { received: performance.now(), server: Date.parse(data.serverNow) };
+            return data;
+          }),
         signal
       ),
   });
   const inputError = wholeNumberRangeError(guess, 1, 100, 'Your number');
   const selected = Number(guess),
-    display = result ?? query.data?.rounds[0] ?? null;
-  const ready = query.data?.rulesId === NUMBER_RULES_ID && !query.isError && !saved.error;
+    round = query.data?.round;
+  const elapsed = Math.max(0, clock - anchor.current.received);
+  const now = anchor.current.server + elapsed;
+  const fresh = elapsed < 8000 && Number.isFinite(now);
+  const open = !!round && now >= Date.parse(round.opensAt) && now < Date.parse(round.closesAt);
+  const current = !!round && now < Date.parse(round.endsAt);
+  const accepted = query.data?.receipt ?? (result?.roundId === round?.id ? result : null);
+  const ready =
+    query.data?.rulesId === NUMBER_TIMED_RULES_ID && !query.isError && !saved.error && fresh;
+  const canPlace = ready && open && !accepted;
+  const controlsLocked = busy || !!pending || !canPlace;
+  const target = current ? round?.target : null;
+  const display = accepted?.target !== null && accepted?.target !== undefined ? accepted : null;
+  const seconds =
+    round && current
+      ? Math.max(0, Math.ceil((Date.parse(open ? round.closesAt : round.endsAt) - now) / 1000))
+      : 0;
+  const clockLabel =
+    !ready || !current ? 'Syncing round…' : open ? 'Guesses close in' : 'Next round in';
   const rounds = result
-    ? [result, ...(query.data?.rounds ?? []).filter((r) => r.id !== result.id)].slice(0, 20)
-    : (query.data?.rounds ?? []);
+    ? [
+        query.data?.history?.find((r) => r.id === result.id) ?? result,
+        ...(query.data?.history ?? []).filter((r) => r.id !== result.id),
+      ].slice(0, 20)
+    : (query.data?.history ?? []);
   async function submit() {
-    if (locked.current || !ready || (!pending && inputError)) return;
+    if (locked.current || !ready || (!pending && (!canPlace || inputError))) return;
     locked.current = true;
     setBusy(true);
     setError('');
     const entry = pending ?? {
       requestId: newIdempotencyKey(),
+      roundId: round!.id,
       guess: selected,
-      rulesId: NUMBER_RULES_ID,
+      rulesId: NUMBER_TIMED_RULES_ID,
     };
     try {
       // Read-back before sending. An unresolved request is never silently replaced.
@@ -115,7 +163,7 @@ function NumberPractice({ userId }: { userId: string }) {
     try {
       const data = unwrapData(
         await boundedRequest((signal) =>
-          api.post<{ round: NumberRound; isReplay: boolean }>(
+          api.post<{ receipt: NumberTimedReceipt; isReplay: boolean }>(
             `${endpoint}/guesses`,
             entry,
             undefined,
@@ -124,18 +172,25 @@ function NumberPractice({ userId }: { userId: string }) {
         ),
         'Number result'
       );
-      const confirmed = validRound(data.round, entry);
+      const confirmed = validReceipt(data.receipt, entry);
       if (!alive.current) return;
       setResult(confirmed);
-      setReplay(data.isReplay);
+
       setGuess(String(entry.guess));
       sessionStorage.removeItem(numberPendingKey(userId));
       setPending(null);
       void client.invalidateQueries({ queryKey: ['number-practice', userId] });
-    } catch {
-      if (alive.current)
+    } catch (e) {
+      if (alive.current && conflict(e)) {
+        sessionStorage.removeItem(numberPendingKey(userId));
+        setPending(null);
         setError(
-          'Your guess has not been confirmed. Retry saved guess to check the same result; a new round will not be created.'
+          'This guess was not accepted: the round closed or you already entered. Check your results and wait for the next round.'
+        );
+        void client.invalidateQueries({ queryKey: ['number-practice', userId] });
+      } else if (alive.current)
+        setError(
+          'Your guess has not been confirmed. Retry saved guess to check the same result; your original request will not be replaced.'
         );
     } finally {
       if (alive.current) {
@@ -153,7 +208,7 @@ function NumberPractice({ userId }: { userId: string }) {
           <h1>
             Number <span>Challenge</span>
           </h1>
-          <p>Pick your number. Reveal the target. See how close you get.</p>
+          <p>One-minute rounds · 30 seconds to choose · one shared target.</p>
         </div>
         <label className="number-motion">
           <input type="checkbox" checked={reduced} onChange={(e) => setReduced(e.target.checked)} />{' '}
@@ -169,25 +224,30 @@ function NumberPractice({ userId }: { userId: string }) {
               </span>
               <span className="number-badge">1 — 100</span>
             </div>
+            <div className={`number-countdown ${open ? '' : 'number-countdown--closed'}`}>
+              <span>{clockLabel}</span>
+              <strong aria-label="Round countdown">
+                {ready && current ? `00:${String(seconds).padStart(2, '0')}` : '—'}
+              </strong>
+              <div className="number-countdown-track" aria-hidden="true">
+                <i style={{ width: `${(seconds / 30) * 100}%` }} />
+              </div>
+            </div>
             <p className="number-eyebrow">
-              {busy
-                ? 'CONFIRMING YOUR GUESS'
-                : display
-                  ? 'LATEST CONFIRMED TARGET'
-                  : 'FIND YOUR NUMBER'}
+              {target != null
+                ? 'SHARED ROUND RESULT'
+                : open
+                  ? 'ENTRY WINDOW OPEN'
+                  : 'ENTRIES CLOSED'}
             </p>
-            <div
-              key={busy ? 'pending' : (display?.id ?? 'waiting')}
-              className="number-ball"
-              aria-hidden="true"
-            >
+            <div key={round?.id ?? 'waiting'} className="number-ball" aria-hidden="true">
               <div className="number-orbit" aria-hidden="true" />
-              <span>{busy ? '···' : display ? String(display.target).padStart(2, '0') : '?'}</span>
+              <span>{target != null ? String(target).padStart(2, '0') : '?'}</span>
             </div>
             <div className="number-result" role="status" aria-live="polite">
               {busy ? (
                 <>
-                  <h2>Revealing…</h2>
+                  <h2>Confirming your guess…</h2>
                   <p>Your guess is saved while we confirm it.</p>
                 </>
               ) : display ? (
@@ -197,12 +257,31 @@ function NumberPractice({ userId }: { userId: string }) {
                     Your number <b>{display.guess}</b> · Target <b>{display.target}</b>
                   </p>
                   <strong>{display.score} practice score</strong>
-                  {replay && <p>Recovered result · no new round</p>}
+                </>
+              ) : accepted ? (
+                <>
+                  <h2>Guess accepted: {accepted.guess}</h2>
+                  <p>
+                    {open
+                      ? 'Your number is locked. Result after entries close.'
+                      : 'Waiting for the confirmed result…'}
+                  </p>
+                </>
+              ) : target != null ? (
+                <>
+                  <h2>Target: {target}</h2>
+                  <p>You did not enter this round. Choose a number in the next round.</p>
                 </>
               ) : (
                 <>
-                  <h2>One number. Your choice.</h2>
-                  <p>Choose a whole number from 1 to 100.</p>
+                  <h2>
+                    {open
+                      ? 'Place your guess'
+                      : current
+                        ? 'Waiting for the result'
+                        : 'Syncing the next round'}
+                  </h2>
+                  <p>One guess per round. The server confirms the closing time.</p>
                 </>
               )}
             </div>
@@ -212,13 +291,15 @@ function NumberPractice({ userId }: { userId: string }) {
           </div>
         </GameArena>
         <section className="number-panel" aria-labelledby="number-pick-title">
-          <p className="number-eyebrow">YOUR NEXT GUESS</p>
+          <p className="number-eyebrow">
+            {clockLabel} {ready && current ? `00:${String(seconds).padStart(2, '0')}` : ''}
+          </p>
           <h2 id="number-pick-title">Choose your number</h2>
           <label htmlFor="number-guess">Number from 1 to 100</label>
           <div className="number-stepper">
             <button
               aria-label="Decrease number"
-              disabled={busy || !!pending || !Number.isInteger(selected) || selected <= 1}
+              disabled={controlsLocked || !Number.isInteger(selected) || selected <= 1}
               onClick={() => setGuess(String(selected - 1))}
             >
               −
@@ -231,14 +312,14 @@ function NumberPractice({ userId }: { userId: string }) {
               max="100"
               step="1"
               value={guess}
-              disabled={busy || !!pending}
+              disabled={controlsLocked}
               onChange={(e) => setGuess(e.target.value)}
               aria-invalid={!!inputError}
               aria-describedby="number-input-help"
             />
             <button
               aria-label="Increase number"
-              disabled={busy || !!pending || !Number.isInteger(selected) || selected >= 100}
+              disabled={controlsLocked || !Number.isInteger(selected) || selected >= 100}
               onClick={() => setGuess(String(selected + 1))}
             >
               +
@@ -254,7 +335,7 @@ function NumberPractice({ userId }: { userId: string }) {
             max="100"
             step="1"
             value={Number.isInteger(selected) ? Math.min(100, Math.max(1, selected)) : 50}
-            disabled={busy || !!pending}
+            disabled={controlsLocked}
             onChange={(e) => setGuess(e.target.value)}
           />
           <div className="number-presets">
@@ -262,7 +343,7 @@ function NumberPractice({ userId }: { userId: string }) {
               <button
                 key={n}
                 aria-pressed={selected === n}
-                disabled={busy || !!pending}
+                disabled={controlsLocked}
                 onClick={() => setGuess(String(n))}
               >
                 {n}
@@ -276,12 +357,12 @@ function NumberPractice({ userId }: { userId: string }) {
               <button onClick={() => void query.refetch()}>Retry loading</button>
             </div>
           )}
-          {query.data && query.data.rulesId !== NUMBER_RULES_ID && (
+          {query.data && query.data.rulesId !== NUMBER_TIMED_RULES_ID && (
             <p role="alert">The game rules have changed. Reload the app before playing.</p>
           )}
           {pending && (
             <p className="number-notice">
-              Saved guess: <b>{pending.guess}</b>. Confirm this result before choosing another
+              Saved guess: <b>{pending.guess}</b>. Check this saved request before choosing another
               number.
             </p>
           )}
@@ -292,10 +373,18 @@ function NumberPractice({ userId }: { userId: string }) {
           )}
           <button
             className="number-submit"
-            disabled={!ready || busy || (!pending && !!inputError)}
+            disabled={!ready || busy || (!pending && (!canPlace || !!inputError))}
             onClick={() => void submit()}
           >
-            {busy ? 'Confirming…' : pending ? 'Retry saved guess' : 'Reveal number'}
+            {busy
+              ? 'Confirming…'
+              : pending
+                ? 'Retry saved guess'
+                : accepted
+                  ? 'Guess placed'
+                  : !open
+                    ? 'Entries closed'
+                    : 'Place guess'}
           </button>
           <p className="number-free">
             Free to play · no stakes, Coins or cash prizes.
@@ -320,18 +409,22 @@ function NumberPractice({ userId }: { userId: string }) {
         <details>
           <summary>How to play & fairness</summary>
           <p>
-            Choose an integer from 1 to 100 and select Reveal number. The server randomly selects an
-            independent target from the same range. Your score follows the distance bands above. An
-            exact match has a 1 in 100 chance. Numbers near the ends of the range have fewer nearby
-            targets; proximity scores are not equally likely for every guess.
+            Each round lasts one minute. During the first 30 seconds, choose an integer from 1 to
+            100 and select Place guess. You can place one guess per round and cannot change it after
+            acceptance. Entries close for the final 30 seconds, when everyone sees the same random
+            target. A delayed connection may cause a guess to arrive too late; server time decides
+            acceptance. Your score follows the distance bands above. An exact match has a 1 in 100
+            chance. Numbers near the ends of the range have fewer nearby targets; proximity scores
+            are not equally likely for every guess.
           </p>
           <p>
-            The target is selected by the server’s cryptographic random generator after submission.
-            This is not a precommitted, independently verifiable draw. The animation only presents
-            the saved result. Retrying a saved guess returns that same result. Scores are for this
-            game only and have no cash value.
+            The target is selected by the server’s cryptographic random generator after the entry
+            window closes. If the server is delayed, results remain pending until confirmed. This is
+            not a precommitted, independently verifiable draw. The animation only presents the saved
+            result. Retrying a saved guess returns that same result. Scores are for this game only
+            and have no cash value.
           </p>
-          <p>Rules: {NUMBER_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
+          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
         </details>
       </section>
       <section className="number-panel" aria-labelledby="number-history-title">
@@ -362,10 +455,12 @@ function NumberPractice({ userId }: { userId: string }) {
                     </td>
                     <td>{r.guess}</td>
                     <td>
-                      <b>{r.target}</b>
+                      <b>{r.target ?? '—'}</b>
                     </td>
-                    <td>{r.away === 0 ? 'Exact' : `${r.away} away`}</td>
-                    <td>{r.score}</td>
+                    <td>
+                      {r.away === null ? 'Pending' : r.away === 0 ? 'Exact' : `${r.away} away`}
+                    </td>
+                    <td>{r.score ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

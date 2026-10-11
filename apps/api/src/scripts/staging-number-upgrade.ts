@@ -1,3 +1,4 @@
+import { grantNumberRuntimeTables } from './number-runtime-grants.js';
 /** Additive Number Challenge upgrade, restricted to the disposable rehearsal database. */
 import { PrismaClient } from '@prisma/client';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -6,10 +7,23 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertUsdStagingTarget } from './staging-payment-target.js';
-const allowed = ['20261012010000_number_challenge_practice'];
+const allowed = [
+  '20261012010000_number_challenge_practice',
+  '20261012020000_number_timed_practice',
+];
 export async function runNumberStagingUpgrade(env: NodeJS.ProcessEnv = process.env, apply = false) {
   assertUsdStagingTarget(env);
-  const roles = [env.PRACTICE_API_ROLE!],
+  const worker = new URL(env.SOCIAL_WORKER_DATABASE_URL ?? 'https://invalid'),
+    ownerUrl = new URL(env.DATABASE_URL!);
+  if (
+    worker.hostname !== ownerUrl.hostname ||
+    worker.pathname !== ownerUrl.pathname ||
+    (worker.port || '5432') !== (ownerUrl.port || '5432') ||
+    !['postgres:', 'postgresql:'].includes(worker.protocol) ||
+    !/^[a-z][a-z0-9_]{1,62}$/.test(worker.username)
+  )
+    throw Error('WORKER_TARGET_REFUSED');
+  const roles = [env.PRACTICE_API_ROLE!, worker.username],
     db = new PrismaClient({ log: [], datasources: { db: { url: env.DATABASE_URL } } });
   try {
     const [owner] = await db.$queryRaw<
@@ -66,19 +80,7 @@ export async function runNumberStagingUpgrade(env: NodeJS.ProcessEnv = process.e
         { cwd: root, stdio: 'pipe', env }
       );
     }
-    for (const role of roles) {
-      if (apply) {
-        // assertUsdStagingTarget already validates the identifier; quote defensively.
-        const quoted = '"' + role.replaceAll('"', '""') + '"';
-        await db.$executeRawUnsafe(
-          `GRANT SELECT, INSERT ON public.number_practice_rounds TO ${quoted}`
-        );
-      }
-      const [grants] = await db.$queryRaw<
-        { allowed: boolean }[]
-      >`SELECT has_table_privilege(${role},'public.number_practice_rounds','SELECT') AND has_table_privilege(${role},'public.number_practice_rounds','INSERT') AND NOT has_table_privilege(${role},'public.number_practice_rounds','UPDATE') AND NOT has_table_privilege(${role},'public.number_practice_rounds','DELETE') AS allowed`;
-      if (!grants?.allowed) throw Error('NUMBER_RUNTIME_GRANTS_MISSING');
-    }
+    await grantNumberRuntimeTables(db, roles[0], roles[1], apply);
     console.log(
       JSON.stringify({
         event: 'NUMBER_STAGING_READY',

@@ -1,3 +1,4 @@
+import { createNumberTimedService } from '../games/number-challenge/timed-service.js';
 import { createDerbyService } from '../games/thunder-derby/service.js';
 import { createFootballService } from '../games/virtual-football/service.js';
 import { createSkyCrashService } from '../games/sky-crash/service.js';
@@ -21,6 +22,7 @@ try {
     enabled: enabledGroupWorkers(process.env),
     stopped: () => stopped,
     ticks: {
+      NUMBER_PRACTICE: createNumberTimedService(prisma).tick,
       DERBY_PRACTICE: createDerbyService(prisma).tick,
       FOOTBALL_PRACTICE: createFootballService(prisma).tick,
       SKY_CRASH_PRACTICE: createSkyCrashService(prisma).tick,

@@ -459,3 +459,45 @@
   transform: translateX(-50%) rotate(-17deg);
   z-index: -1;
 }
+
+.number-countdown {
+  width: min(100%, 22rem);
+  margin: 0 auto 1rem;
+  padding: 0.8rem 1.2rem;
+  border: 1px solid #4ce7c466;
+  border-radius: 1rem;
+  background: #052e31d9;
+  display: grid;
+  gap: 0.35rem;
+  text-align: center;
+}
+.number-countdown > span {
+  color: #b9ded9;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.number-countdown strong {
+  font-size: clamp(1.7rem, 5vw, 2.4rem);
+  color: #a1ffe8;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.number-countdown--closed {
+  border-color: #e6b65866;
+  background: #33240ee0;
+}
+.number-countdown--closed strong {
+  color: #ffe0a2;
+}
+.number-countdown-track {
+  height: 3px;
+  border-radius: 2px;
+  background: #ffffff15;
+  overflow: hidden;
+}
+.number-countdown-track i {
+  display: block;
+  height: 100%;
+  background: #64eed1;
+}

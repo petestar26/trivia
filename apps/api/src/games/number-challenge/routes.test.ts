@@ -5,7 +5,7 @@ import { errorHandler } from '../../middleware/error-handler.js';
 import { numberPracticeRoutes } from './routes.js';
 const mocks = vi.hoisted(() => ({ actor: vi.fn(), snapshot: vi.fn(), play: vi.fn() }));
 vi.mock('@socialplay/database', () => ({ prisma: { user: { findUnique: mocks.actor } } }));
-vi.mock('./service.js', () => ({ createNumberService: () => mocks }));
+vi.mock('./timed-service.js', () => ({ createNumberTimedService: () => mocks }));
 let app: ReturnType<typeof Fastify>, authorization: string;
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -28,7 +28,12 @@ const post = (headers = { authorization }) =>
     method: 'POST',
     url: '/number/guesses',
     headers,
-    payload: { guess: 50, requestId: 'abcdefghijklmnop', rulesId: 'number-challenge-practice-v1' },
+    payload: {
+      guess: 50,
+      requestId: 'abcdefghijklmnop',
+      roundId: 'number-v2:1',
+      rulesId: 'number-challenge-timed-v2',
+    },
   });
 it('requires authentication and marks errors private', async () => {
   expect((await app.inject('/number')).statusCode).toBe(401);
@@ -52,7 +57,8 @@ it('passes only authenticated identity and keeps unknown fields for strict servi
   const payload = {
     guess: 50,
     requestId: 'abcdefghijklmnop',
-    rulesId: 'number-challenge-practice-v1',
+    roundId: 'number-v2:1',
+    rulesId: 'number-challenge-timed-v2',
     target: 50,
     userId: 'other',
   };
