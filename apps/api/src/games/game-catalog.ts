@@ -119,7 +119,7 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
     row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
-          description: row.key === 'number_challenge' ? 'Pick a number from 1 to 100. The closer your guess, the higher your practice score.' : row.description,
+          description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.description,
           isActive: false,
           catalogStatus: 'COMING_SOON' as const,
           practiceAvailable:

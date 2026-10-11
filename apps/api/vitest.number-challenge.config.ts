@@ -8,6 +8,7 @@ export default defineConfig({
     },
     include: [
       'src/games/number-challenge/*.test.ts',
+      'src/scripts/number-worker-target.test.ts',
       'src/games/coin-game-availability.test.ts',
       'src/games/game-catalog-rules.test.ts',
     ],

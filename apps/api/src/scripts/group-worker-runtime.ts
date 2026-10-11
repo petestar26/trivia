@@ -1,4 +1,5 @@
 export type GroupWorkerKind =
+  | 'NUMBER_PRACTICE'
   | 'DERBY_PRACTICE'
   | 'FOOTBALL_PRACTICE'
   | 'SKY_CRASH_PRACTICE'
@@ -12,6 +13,7 @@ export function enabledGroupWorkers(env: NodeJS.ProcessEnv): GroupWorkerKind[] {
     'SOCIAL_LIFECYCLE',
     ...(
       [
+        'NUMBER_PRACTICE',
         'DERBY_PRACTICE',
         'FOOTBALL_PRACTICE',
         'SKY_CRASH_PRACTICE',
@@ -24,6 +26,7 @@ export function enabledGroupWorkers(env: NodeJS.ProcessEnv): GroupWorkerKind[] {
       (kind) =>
         env[
           {
+            NUMBER_PRACTICE: 'NUMBER_CHALLENGE_PRACTICE_ENABLED',
             DERBY_PRACTICE: 'THUNDER_DERBY_PRACTICE_ENABLED',
             FOOTBALL_PRACTICE: 'VIRTUAL_FOOTBALL_PRACTICE_ENABLED',
             SKY_CRASH_PRACTICE: 'SKY_CRASH_PRACTICE_ENABLED',

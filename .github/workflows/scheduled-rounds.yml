@@ -205,9 +205,9 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.football.config.ts
       - name: Number Challenge scoring, auth, replay and concurrency
         run: |
-          pnpm --filter @socialplay/shared exec vitest run src/number-challenge.test.ts --minWorkers=1 --maxWorkers=1
+          pnpm --filter @socialplay/shared exec vitest run src/number-challenge.test.ts src/number-timed.test.ts --minWorkers=1 --maxWorkers=1
           pnpm --filter api exec vitest run --config vitest.number-challenge.config.ts
-          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/number-challenge/number.native.ts
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/number-challenge/number.native.ts src/games/number-challenge/timed.native.ts
       - name: Group PVP concurrency and recovery
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/virtual-football/football.native.ts src/games/thunder-derby/derby.native.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Crypto payment receipt, ledger and concurrency contracts

@@ -23,3 +23,4 @@ export * from './thunder-derby.js';
 export * from './virtual-football/index.js';
 
 export * from './number-challenge.js';
+export * from './number-timed.js';

@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { authenticate } from '../../middleware/auth.js';
 import { ApiError } from '../../middleware/api-error.js';
-import { createNumberService } from './service.js';
+import { createNumberTimedService } from './timed-service.js';
 
 export async function numberPracticeRoutes(server: FastifyInstance) {
-  const service = createNumberService(prisma);
+  const service = createNumberTimedService(prisma);
   server.addHook('onRequest', async (_req, reply) => {
     reply.header('Cache-Control', 'private, no-store');
   });

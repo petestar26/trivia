@@ -9,6 +9,7 @@ it.each(Array.from({ length: 8 }, (_, i) => i))(
       SYSTEM_DICE_PRACTICE_ENABLED: String(!!(mask & 4)),
     });
     const ticks = {
+      NUMBER_PRACTICE: vi.fn(async () => {}),
       DERBY_PRACTICE: vi.fn(async () => {}),
       FOOTBALL_PRACTICE: vi.fn(async () => {}),
       SKY_CRASH_PRACTICE: vi.fn(async () => {}),
@@ -50,6 +51,7 @@ it('reports safe diagnostic codes for failures and continues the loop', async ()
   await runGroupWorkerLoops({
     enabled: ['DICE_PRACTICE'],
     ticks: {
+      NUMBER_PRACTICE: vi.fn(async () => {}),
       DERBY_PRACTICE: vi.fn(async () => {}),
       FOOTBALL_PRACTICE: async () => {},
       SKY_CRASH_PRACTICE: async () => {},
@@ -92,6 +94,7 @@ it.each(['failure', 'stall'])(
     const task = runGroupWorkerLoops({
       enabled: ['SOCIAL_LIFECYCLE', 'PVP'],
       ticks: {
+        NUMBER_PRACTICE: vi.fn(async () => {}),
         DERBY_PRACTICE: vi.fn(async () => {}),
         FOOTBALL_PRACTICE: async () => {},
         SKY_CRASH_PRACTICE: async () => {},
@@ -173,9 +176,14 @@ it('keeps football ticks independent: a failing football pass cannot stop other 
   await runGroupWorkerLoops({
     enabled: ['FOOTBALL_PRACTICE', 'DERBY_PRACTICE'],
     ticks: {
+      NUMBER_PRACTICE: vi.fn(async () => {}),
       DERBY_PRACTICE: other,
       FOOTBALL_PRACTICE: async () => {
-        throw { code: 'P2010', meta: { code: '23514' }, message: 'Football balance does not match tickets postgresql://x:SECRET@h' };
+        throw {
+          code: 'P2010',
+          meta: { code: '23514' },
+          message: 'Football balance does not match tickets postgresql://x:SECRET@h',
+        };
       },
       SKY_CRASH_PRACTICE: async () => {},
       CRASH_PRACTICE: async () => {},
@@ -198,4 +206,14 @@ it('keeps football ticks independent: a failing football pass cannot stop other 
     }),
   ]);
   expect(JSON.stringify(reports)).not.toContain('SECRET');
+});
+
+it('enables timed Number rounds only with the exact practice flag', () => {
+  for (const value of ['', '1', 'TRUE', 'false'])
+    expect(enabledGroupWorkers({ NUMBER_CHALLENGE_PRACTICE_ENABLED: value })).not.toContain(
+      'NUMBER_PRACTICE'
+    );
+  expect(enabledGroupWorkers({ NUMBER_CHALLENGE_PRACTICE_ENABLED: 'true' })).toContain(
+    'NUMBER_PRACTICE'
+  );
 });
