@@ -21,7 +21,7 @@ Exact: 100 score; distance 1: 60; distance 2–5: 40; distance 6–10: 20; farth
 
 A per-user advisory lock serializes admission across API instances; unique constraints enforce one entry per user/round and one receipt per user/request. Identical retries return the original receipt even after closing. A changed round or guess conflicts. The client stores and reads back the exact payload before sending; unresolved requests remain locked and require explicit retry across remount. Only definitive closed/already-entered responses clear a rejected intent. No autoplay.
 
-The worker runs a separate, failure-isolated Number loop. A global advisory lock serializes creation and drawing across workers; current and next rounds are created deterministically. API processes cannot create or draw rounds. Database guards enforce the deadline even for direct SQL, permit only a single post-close target transition, and prevent changes/deletions of receipts and round timing. Server CSPRNG is authoritative; this is not an independently verifiable precommitment scheme.
+The worker runs a separate, failure-isolated Number loop using a dedicated NUMBER_WORKER_DATABASE_URL client. Its existing DATABASE_URL remains unchanged for other games. An enabled Number loop refuses a missing connection, another database, or the shared API/social role. A global advisory lock serializes creation and drawing across workers; current and next rounds are created deterministically. API processes cannot create or draw rounds. Database guards enforce the deadline even for direct SQL, permit only a single post-close target transition, and prevent changes/deletions of receipts and round timing. Server CSPRNG is authoritative; this is not an independently verifiable precommitment scheme.
 
 Client countdowns use server time anchored to monotonic elapsed time, refresh every two seconds, and close admission on stale snapshots after eight seconds. Server admission remains final; network latency can make a seemingly timely guess arrive too late. The target is never invented by the UI.
 
@@ -32,11 +32,15 @@ Teal/ivory shaded ball, prominent entry/next-round countdown and progress bar, n
 ## Staging rollout — separate revision approval
 
 1. Verify candidate CI and exact commit; production, payments and wagering stay off.
-2. Run guarded `staging-number-upgrade.js --apply`, then without `--apply`. It validates staging owner/worker targets, migration checksums, financial gates and restricted roles; permits only the original instant migration plus additive `20261012020000_number_timed_practice`.
-3. API grants: SELECT legacy receipts and shared rounds; UPDATE(id) on rounds only for row locking; SELECT/INSERT timed entries. Legacy INSERT is revoked. Worker grants: SELECT/INSERT shared rounds and UPDATE(target). Neither role receives financial permissions. Setup verifies effective privileges.
-4. Deploy API, group worker and web at the same pinned candidate. Set only `NUMBER_CHALLENGE_PRACTICE_ENABLED=true` on staging API/worker, preserving other settings. During the rollout, old clients are blocked and missing draws stay pending.
+2. Run guarded `staging-number-upgrade.js --apply`, then without `--apply`. It validates staging owner and dedicated NUMBER_WORKER_DATABASE_URL targets, migration checksums, financial gates and restricted roles; permits only the original instant migration plus additive `20261012020000_number_timed_practice`.
+3. API grants: SELECT legacy receipts and shared rounds; UPDATE(id) on rounds only for row locking; SELECT/INSERT timed entries. Legacy INSERT is revoked. Dedicated Number worker grants: schema USAGE, SELECT/INSERT shared rounds and UPDATE(target) only. No user, entry, wallet or payment access. Neither role receives financial permissions. Setup verifies effective privileges.
+4. Deploy API, group worker and web at the same pinned candidate. Configure the approved dedicated NUMBER_WORKER_DATABASE_URL on setup/group worker and set NUMBER_CHALLENGE_PRACTICE_ENABLED=true on staging API/worker, preserving the existing DATABASE_URL and other settings. During the rollout, old clients are blocked and missing draws stay pending.
 5. Verify an entire minute: accepted guess with hidden target, closed entries, shared result, immutable retry, next round unlock, historical receipts, phone countdown/Expand/Minimize. Physical Safari acceptance remains a separate user check.
 
 ## Previous deployment
 
 Instant v1 was deployed at `11f2b071c5431158a8bf61c3c805b77ea7ef7c3e` with green CI across PostgreSQL 13/16/18. User reported the missing countdown during physical Safari acceptance. This v2 revision addresses that requirement; it must not be described as deployed until its rollout is verified.
+
+## Staging role prerequisite discovered during rollout
+
+The 2e378f5 migration applied, but grant setup stopped with NUMBER_ROLES_REFUSED because staging SOCIAL_WORKER_DATABASE_URL and PRACTICE_API_ROLE identified the same login. No Number runtime grants were applied and API/web/worker remained at their previous revisions. This follow-up uses a dedicated Number-only connection rather than cloning the existing broad role. Creating that persistent login and installing its connection secret requires explicit user approval before rollout resumes.

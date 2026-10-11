@@ -13,14 +13,15 @@ const allowed = [
 ];
 export async function runNumberStagingUpgrade(env: NodeJS.ProcessEnv = process.env, apply = false) {
   assertUsdStagingTarget(env);
-  const worker = new URL(env.SOCIAL_WORKER_DATABASE_URL ?? 'https://invalid'),
+  const worker = new URL(env.NUMBER_WORKER_DATABASE_URL ?? 'https://invalid'),
     ownerUrl = new URL(env.DATABASE_URL!);
   if (
     worker.hostname !== ownerUrl.hostname ||
     worker.pathname !== ownerUrl.pathname ||
     (worker.port || '5432') !== (ownerUrl.port || '5432') ||
     !['postgres:', 'postgresql:'].includes(worker.protocol) ||
-    !/^[a-z][a-z0-9_]{1,62}$/.test(worker.username)
+    !/^[a-z][a-z0-9_]{1,62}$/.test(worker.username) ||
+    worker.username === env.PRACTICE_API_ROLE
   )
     throw Error('WORKER_TARGET_REFUSED');
   const roles = [env.PRACTICE_API_ROLE!, worker.username],

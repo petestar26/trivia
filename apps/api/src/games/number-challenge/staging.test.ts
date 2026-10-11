@@ -23,6 +23,6 @@ it('refuses a worker pointing outside the acknowledged staging database', async 
     'https://worker:x@spin-practice-db-20261002.railway.internal/playqube_spin_rehearsal_20261002',
   ])
     await expect(
-      runNumberStagingUpgrade({ ...env, SOCIAL_WORKER_DATABASE_URL: worker }, true)
+      runNumberStagingUpgrade({ ...env, NUMBER_WORKER_DATABASE_URL: worker }, true)
     ).rejects.toThrow('WORKER_TARGET_REFUSED');
 });
