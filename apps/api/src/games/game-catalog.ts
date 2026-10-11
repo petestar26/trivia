@@ -64,6 +64,7 @@ export function isCoinWagerPaused(game: {
 }) {
   // Sky Crash has no wallet-funded implementation, regardless of catalog edits.
   return (
+    game.key === 'number_challenge' ||
     game.key === 'sky_crash' ||
     game.key === 'thunder_derby_3d' ||
     // Practice credits only: Coin admission is paused here regardless of catalog data or flags.
@@ -115,13 +116,16 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
     : null;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
-    row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
+    row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
+          description: row.key === 'number_challenge' ? 'Pick a number from 1 to 100. The closer your guess, the higher your practice score.' : row.description,
           isActive: false,
           catalogStatus: 'COMING_SOON' as const,
           practiceAvailable:
-            (row.key === 'sky_crash'
+            (row.key === 'number_challenge'
+              ? process.env.NUMBER_CHALLENGE_PRACTICE_ENABLED
+              : row.key === 'sky_crash'
               ? process.env.SKY_CRASH_PRACTICE_ENABLED
               : row.key === 'virtual_football_3d'
                 ? process.env.VIRTUAL_FOOTBALL_PRACTICE_ENABLED

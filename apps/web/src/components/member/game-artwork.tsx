@@ -29,6 +29,11 @@ export function GameArtwork({
   hero?: boolean;
   practiceAvailable?: boolean;
 }) {
+  if (kind === 'number_challenge') return (
+    <div className={`ruby-art ${hero ? 'ruby-art--hero' : ''}`} aria-hidden="true">
+      <img src="/art/ruby-grand/number-challenge.svg" alt="" loading="lazy" decoding="async" />
+    </div>
+  );
   if (kind === 'sky_crash' && practiceAvailable === true)
     return (
       <div

@@ -1,191 +1,382 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrapData } from '@/lib/api';
-import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
-import { useDurablePlay } from '@/hooks/use-durable-play';
-import { useCasino } from '@/components/casino/CasinoProvider';
-import { CasinoShell } from '@/components/casino/CasinoShell';
-import { CasinoRendererSlot } from '@/components/casino/CasinoRendererSlot';
-import { parseWholeNumberInput, wholeNumberRangeError } from '@/components/casino/whole-number-input';
+import {
+  NUMBER_BANDS,
+  NUMBER_RULES_ID,
+  numberScore,
+  parseNumberEntry,
+  type NumberEntry,
+  type NumberRound,
+  type NumberSnapshot,
+} from '@socialplay/shared';
+import { api, newIdempotencyKey, unwrapData } from '@/lib/api';
+import { boundedRequest } from '@/lib/bounded-request';
+import { useAuth } from '@/providers/auth-provider';
+import { GameArena } from '@/components/games/game-arena';
+import { wholeNumberRangeError } from '@/components/casino/whole-number-input';
+import './number-challenge.css';
 
-type NumResult = {
-  guess: number;
-  target: number;
-  away: number;
-  correct: boolean;
-};
-
-interface NumPlayResult extends GamePlayResult {
-  result: NumResult;
-}
-
-function parsePlayError(error: unknown): string {
-  if (error instanceof Error) {
-    try {
-      const parsed = JSON.parse(error.message) as { message?: string };
-      if (parsed?.message) return parsed.message;
-    } catch {
-      // not JSON
-    }
-    return error.message;
+const endpoint = '/games/number-challenge-practice';
+export const numberPendingKey = (id: string) => `playqube:number-practice:v1:${id}`;
+function readPending(id: string): { entry: NumberEntry | null; error: string } {
+  try {
+    const raw = sessionStorage.getItem(numberPendingKey(id));
+    return { entry: raw ? parseNumberEntry(JSON.parse(raw)) : null, error: '' };
+  } catch {
+    return {
+      entry: null,
+      error:
+        'Your saved guess cannot be read. Allow site storage or return using the browser where you started it.',
+    };
   }
-  return 'Something went wrong';
 }
-
+function validRound(round: NumberRound, entry: NumberEntry) {
+  const { away, score } = numberScore(round.guess, round.target);
+  if (
+    round.guess !== entry.guess ||
+    round.rulesId !== entry.rulesId ||
+    round.away !== away ||
+    round.score !== score ||
+    typeof round.id !== 'string' ||
+    !Number.isFinite(Date.parse(round.createdAt))
+  )
+    throw new Error('The result could not be confirmed. Retry your saved guess.');
+  return round;
+}
 export function NumberChallengePage() {
-  const { phase, setPhase, refetchBalance } = useCasino();
-  const [betInput, setBetInput] = useState('50');
-  const [guessInput, setGuessInput] = useState('50');
-  const [lastResult, setLastResult] = useState<NumResult | null>(null);
-  const [serverBalance, setServerBalance] = useState<number | null>(null);
-  const [isReplay, setIsReplay] = useState(false);
-  const queryClient = useQueryClient();
-
-  const { data: games } = useQuery<GameCatalogEntry[]>({
-    queryKey: ['games'],
-    queryFn: async () => unwrapData(await api.get<GameCatalogEntry[]>('/games'), 'Games response'),
+  const { user } = useAuth();
+  return user ? (
+    <NumberPractice key={user.id} userId={user.id} />
+  ) : (
+    <p>Sign in to play Number Challenge.</p>
+  );
+}
+function NumberPractice({ userId }: { userId: string }) {
+  const client = useQueryClient();
+  const [saved] = useState(() => readPending(userId));
+  const [pending, setPending] = useState<NumberEntry | null>(saved.entry);
+  const [guess, setGuess] = useState(String(saved.entry?.guess ?? 50));
+  const [error, setError] = useState(saved.error);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<NumberRound | null>(null);
+  const [replay, setReplay] = useState(false);
+  const [reduced, setReduced] = useState(false);
+  const locked = useRef(false),
+    alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const query = useQuery<NumberSnapshot>({
+    queryKey: ['number-practice', userId],
+    retry: false,
+    queryFn: ({ signal }) =>
+      boundedRequest(
+        (s) =>
+          api
+            .get<NumberSnapshot>(endpoint, undefined, { signal: s })
+            .then((r) => unwrapData(r, 'Number practice')),
+        signal
+      ),
   });
-  const game = games?.find((g) => g.key === 'number_challenge');
-
-  // One idempotency key per round, stored with the exact request before the
-  // first send; see useDurablePlay and dice.tsx.
-  const { play, pendingDiffersFrom, storageError, mutation: playMutation } = useDurablePlay<NumPlayResult>('number_challenge', {
-    onStart: () => setPhase('RUNNING'),
-    onSettled: (round, replayed) => {
-      setLastResult(round.result);
-      setServerBalance(round.newBalance);
-      setIsReplay(replayed);
-      setPhase(round.isWin ? 'RESULT' : 'SETTLED');
-      refetchBalance();
-      queryClient.invalidateQueries({ queryKey: ['game-history'] });
-    },
-    onFailed: () => setPhase('BETTING_OPEN'),
-  });
-
-  const minBet = game?.minBet ?? 10;
-  const maxBet = game?.maxBet ?? 200;
-  const betAmount = parseWholeNumberInput(betInput);
-  const guess = parseWholeNumberInput(guessInput);
-  const betError = wholeNumberRangeError(betInput, minBet, maxBet, 'Bet amount');
-  const guessError = wholeNumberRangeError(guessInput, 1, 100, 'Your guess');
-
-  const submit = () => {
-    if (betAmount === null || guess === null || betError || guessError) return;
-    play({ betAmount, guess });
-  };
-  const confirmingEarlierRound = pendingDiffersFrom({
-    betAmount: betAmount ?? null,
-    guess: guess ?? null,
-  });
-  const formError = betError || guessError;
-
+  const inputError = wholeNumberRangeError(guess, 1, 100, 'Your number');
+  const selected = Number(guess),
+    display = result ?? query.data?.rounds[0] ?? null;
+  const ready = query.data?.rulesId === NUMBER_RULES_ID && !query.isError && !saved.error;
+  const rounds = result
+    ? [result, ...(query.data?.rounds ?? []).filter((r) => r.id !== result.id)].slice(0, 20)
+    : (query.data?.rounds ?? []);
+  async function submit() {
+    if (locked.current || !ready || (!pending && inputError)) return;
+    locked.current = true;
+    setBusy(true);
+    setError('');
+    const entry = pending ?? {
+      requestId: newIdempotencyKey(),
+      guess: selected,
+      rulesId: NUMBER_RULES_ID,
+    };
+    try {
+      // Read-back before sending. An unresolved request is never silently replaced.
+      const value = JSON.stringify(entry);
+      sessionStorage.setItem(numberPendingKey(userId), value);
+      if (sessionStorage.getItem(numberPendingKey(userId)) !== value)
+        throw new Error('Storage unavailable');
+      setPending(entry);
+    } catch {
+      setError('Nothing was sent. Allow this site to store your guess safely, then retry.');
+      setBusy(false);
+      locked.current = false;
+      return;
+    }
+    try {
+      const data = unwrapData(
+        await boundedRequest((signal) =>
+          api.post<{ round: NumberRound; isReplay: boolean }>(
+            `${endpoint}/guesses`,
+            entry,
+            undefined,
+            { signal }
+          )
+        ),
+        'Number result'
+      );
+      const confirmed = validRound(data.round, entry);
+      if (!alive.current) return;
+      setResult(confirmed);
+      setReplay(data.isReplay);
+      setGuess(String(entry.guess));
+      sessionStorage.removeItem(numberPendingKey(userId));
+      setPending(null);
+      void client.invalidateQueries({ queryKey: ['number-practice', userId] });
+    } catch {
+      if (alive.current)
+        setError(
+          'Your guess has not been confirmed. Retry saved guess to check the same result; a new round will not be created.'
+        );
+    } finally {
+      if (alive.current) {
+        setBusy(false);
+        locked.current = false;
+      }
+    }
+  }
   return (
-    <CasinoShell
-      gameKey="number_challenge"
-      gameName="Number Challenge"
-      rulesVersion={game?.currentRulesVersion}
-      phase={phase}
-    >
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 space-y-4">
+    <div className={`number-game ${reduced ? 'number-game--still' : ''}`}>
+      <header className="number-header">
         <div>
-          <label htmlFor="number-challenge-bet" className="text-sm font-medium text-gray-700 dark:text-gray-300">Bet amount (Coins)</label>
-          <input
-            id="number-challenge-bet"
-            type="number"
-            min={minBet}
-            max={maxBet}
-            step={1}
-            inputMode="numeric"
-            value={betInput}
-            aria-invalid={!!betError}
-            aria-describedby={betError ? 'number-challenge-bet-range number-challenge-bet-error' : 'number-challenge-bet-range'}
-            onChange={(e) => setBetInput(e.target.value)}
-            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-          />
-          <div id="number-challenge-bet-range" className="mt-1 text-xs text-gray-500">Min {minBet} · Max {maxBet} Coins</div>
-          {betError && <p id="number-challenge-bet-error" className="mt-1 text-sm text-red-600 dark:text-red-400" aria-live="polite">{betError}</p>}
+          <Link to="/games">← All games</Link>
+          <p className="number-eyebrow">PLAYQUBE ORIGINAL · FREE PRACTICE</p>
+          <h1>
+            Number <span>Challenge</span>
+          </h1>
+          <p>Pick your number. Reveal the target. See how close you get.</p>
         </div>
-
-        <div>
-          <label htmlFor="number-challenge-guess" className="text-sm font-medium text-gray-700 dark:text-gray-300">Your guess (1–100)</label>
+        <label className="number-motion">
+          <input type="checkbox" checked={reduced} onChange={(e) => setReduced(e.target.checked)} />{' '}
+          Reduced motion
+        </label>
+      </header>
+      <div className="number-layout">
+        <GameArena title="Number Challenge">
+          <div className={`number-stage ${busy ? 'is-revealing' : ''}`}>
+            <div className="number-stage-top">
+              <span className="number-wordmark">
+                N<span>º</span> / CHALLENGE
+              </span>
+              <span className="number-badge">1 — 100</span>
+            </div>
+            <p className="number-eyebrow">
+              {busy
+                ? 'CONFIRMING YOUR GUESS'
+                : display
+                  ? 'LATEST CONFIRMED TARGET'
+                  : 'FIND YOUR NUMBER'}
+            </p>
+            <div
+              key={busy ? 'pending' : (display?.id ?? 'waiting')}
+              className="number-ball"
+              aria-hidden="true"
+            >
+              <div className="number-orbit" aria-hidden="true" />
+              <span>{busy ? '···' : display ? String(display.target).padStart(2, '0') : '?'}</span>
+            </div>
+            <div className="number-result" role="status" aria-live="polite">
+              {busy ? (
+                <>
+                  <h2>Revealing…</h2>
+                  <p>Your guess is saved while we confirm it.</p>
+                </>
+              ) : display ? (
+                <>
+                  <h2>{display.away === 0 ? 'Exact match!' : `${display.away} away`}</h2>
+                  <p>
+                    Your number <b>{display.guess}</b> · Target <b>{display.target}</b>
+                  </p>
+                  <strong>{display.score} practice score</strong>
+                  {replay && <p>Recovered result · no new round</p>}
+                </>
+              ) : (
+                <>
+                  <h2>One number. Your choice.</h2>
+                  <p>Choose a whole number from 1 to 100.</p>
+                </>
+              )}
+            </div>
+            <p className="number-stage-note">
+              Independent random targets · previous results cannot predict the next number
+            </p>
+          </div>
+        </GameArena>
+        <section className="number-panel" aria-labelledby="number-pick-title">
+          <p className="number-eyebrow">YOUR NEXT GUESS</p>
+          <h2 id="number-pick-title">Choose your number</h2>
+          <label htmlFor="number-guess">Number from 1 to 100</label>
+          <div className="number-stepper">
+            <button
+              aria-label="Decrease number"
+              disabled={busy || !!pending || !Number.isInteger(selected) || selected <= 1}
+              onClick={() => setGuess(String(selected - 1))}
+            >
+              −
+            </button>
+            <input
+              id="number-guess"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max="100"
+              step="1"
+              value={guess}
+              disabled={busy || !!pending}
+              onChange={(e) => setGuess(e.target.value)}
+              aria-invalid={!!inputError}
+              aria-describedby="number-input-help"
+            />
+            <button
+              aria-label="Increase number"
+              disabled={busy || !!pending || !Number.isInteger(selected) || selected >= 100}
+              onClick={() => setGuess(String(selected + 1))}
+            >
+              +
+            </button>
+          </div>
+          <p id="number-input-help">
+            {inputError || 'Every target from 1 to 100 is equally likely.'}
+          </p>
           <input
-            id="number-challenge-guess"
-            type="number"
-            min={1}
-            max={100}
-            step={1}
-            inputMode="numeric"
-            value={guessInput}
-            aria-invalid={!!guessError}
-            aria-describedby={guessError ? 'number-challenge-guess-range number-challenge-guess-error' : 'number-challenge-guess-range'}
-            onChange={(e) => setGuessInput(e.target.value)}
-            className="w-full mt-1 rounded-lg border border-gray-300 dark:border-gray-600 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            aria-label="Choose number with slider"
+            type="range"
+            min="1"
+            max="100"
+            step="1"
+            value={Number.isInteger(selected) ? Math.min(100, Math.max(1, selected)) : 50}
+            disabled={busy || !!pending}
+            onChange={(e) => setGuess(e.target.value)}
           />
-          <div id="number-challenge-guess-range" className="mt-1 text-xs text-gray-500">Choose a whole number from 1 to 100</div>
-          {guessError && <p id="number-challenge-guess-error" className="mt-1 text-sm text-red-600 dark:text-red-400" aria-live="polite">{guessError}</p>}
-        </div>
-
-        <button
-          onClick={submit}
-          type="button"
-          disabled={playMutation.isPending || !!formError}
-          className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:opacity-50"
-        >
-          {playMutation.isPending ? 'Checking…' : 'Submit Guess'}
-        </button>
-
-        {confirmingEarlierRound && (
-          <div className="text-sm text-amber-700 dark:text-amber-400">
-            Your previous guess has not been confirmed yet. Submitting confirms that guess first; your new bet and guess apply to the next round.
+          <div className="number-presets">
+            {[1, 25, 50, 75, 100].map((n) => (
+              <button
+                key={n}
+                aria-pressed={selected === n}
+                disabled={busy || !!pending}
+                onClick={() => setGuess(String(n))}
+              >
+                {n}
+              </button>
+            ))}
           </div>
-        )}
-
-        {storageError && (
-          <div role="alert" className="text-sm text-red-600 dark:text-red-400">
-            {storageError}
-          </div>
-        )}
-
-        {playMutation.isError && (
-          <div className="text-sm text-red-600 dark:text-red-400">
-            {parsePlayError(playMutation.error)}
-          </div>
-        )}
+          {query.isPending && <p role="status">Loading practice…</p>}
+          {query.isError && (
+            <div role="alert">
+              <p>Practice is unavailable. Check your connection or sign in again.</p>
+              <button onClick={() => void query.refetch()}>Retry loading</button>
+            </div>
+          )}
+          {query.data && query.data.rulesId !== NUMBER_RULES_ID && (
+            <p role="alert">The game rules have changed. Reload the app before playing.</p>
+          )}
+          {pending && (
+            <p className="number-notice">
+              Saved guess: <b>{pending.guess}</b>. Confirm this result before choosing another
+              number.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="number-notice">
+              {error}
+            </p>
+          )}
+          <button
+            className="number-submit"
+            disabled={!ready || busy || (!pending && !!inputError)}
+            onClick={() => void submit()}
+          >
+            {busy ? 'Confirming…' : pending ? 'Retry saved guess' : 'Reveal number'}
+          </button>
+          <p className="number-free">
+            Free to play · no stakes, Coins or cash prizes.
+            <br />
+            Practice scores cannot be spent or transferred.
+          </p>
+        </section>
       </div>
-
-      {lastResult && (
-        <CasinoRendererSlot gameKey="number_challenge" gameName="Number Challenge" className="text-center">
-          {lastResult.correct ? (
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">🎯 Exact hit!</div>
-          ) : lastResult.away <= 5 ? (
-            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-              So close! Off by {lastResult.away}
+      <section className="number-panel number-scoring" aria-labelledby="number-scoring-title">
+        <div>
+          <p className="number-eyebrow">KNOW YOUR SCORE</p>
+          <h2 id="number-scoring-title">Closer is better</h2>
+        </div>
+        <div className="number-bands">
+          {NUMBER_BANDS.map((b) => (
+            <div key={b.distance}>
+              <b>{b.score}</b>
+              <span>{b.label}</span>
             </div>
-          ) : (
-            <div className="text-xl font-bold text-gray-700 dark:text-gray-300">
-              Off by {lastResult.away}
-            </div>
-          )}
-          <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            The number was {lastResult.target}
+          ))}
+        </div>
+        <details>
+          <summary>How to play & fairness</summary>
+          <p>
+            Choose an integer from 1 to 100 and select Reveal number. The server randomly selects an
+            independent target from the same range. Your score follows the distance bands above. An
+            exact match has a 1 in 100 chance. Numbers near the ends of the range have fewer nearby
+            targets; proximity scores are not equally likely for every guess.
+          </p>
+          <p>
+            The target is selected by the server’s cryptographic random generator after submission.
+            This is not a precommitted, independently verifiable draw. The animation only presents
+            the saved result. Retrying a saved guess returns that same result. Scores are for this
+            game only and have no cash value.
+          </p>
+          <p>Rules: {NUMBER_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
+        </details>
+      </section>
+      <section className="number-panel" aria-labelledby="number-history-title">
+        <p className="number-eyebrow">YOUR LAST 20 ROUNDS</p>
+        <h2 id="number-history-title">Recent results</h2>
+        {rounds.length ? (
+          <div className="number-history">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Your number</th>
+                  <th>Target</th>
+                  <th>Distance</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rounds.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      <time dateTime={r.createdAt}>
+                        {new Date(r.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </time>
+                    </td>
+                    <td>{r.guess}</td>
+                    <td>
+                      <b>{r.target}</b>
+                    </td>
+                    <td>{r.away === 0 ? 'Exact' : `${r.away} away`}</td>
+                    <td>{r.score}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {playMutation.data?.data.rewardAmount ? (
-            <div className="mt-2 text-green-600 dark:text-green-400 font-semibold">
-              +{playMutation.data.data.rewardAmount} Coins
-            </div>
-          ) : null}
-          {serverBalance !== null && (
-            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              Balance: <span className="font-semibold text-primary-600 dark:text-primary-400">{serverBalance} Coins</span>
-            </div>
-          )}
-          {isReplay && (
-            <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-              Replayed round — no new wager.
-            </div>
-          )}
-        </CasinoRendererSlot>
-      )}
-    </CasinoShell>
+        ) : (
+          <p className="number-empty">
+            Your confirmed results will appear here after your first guess.
+          </p>
+        )}
+      </section>
+    </div>
   );
 }

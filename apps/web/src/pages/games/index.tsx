@@ -169,7 +169,9 @@ export function GamesPage({
                       Free practice
                     </span>
                     <p className="mt-3 text-xs text-gray-500">
-                      {game.key === 'thunder_derby_3d'
+                      {game.key === 'number_challenge'
+                        ? 'Instant number reveals'
+                        : game.key === 'thunder_derby_3d'
                         ? 'Three- or four-minute races'
                         : game.key === 'virtual_football_3d'
                           ? 'Five-minute matchweeks'

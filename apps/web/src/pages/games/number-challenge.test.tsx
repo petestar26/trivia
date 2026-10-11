@@ -1,228 +1,143 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
-import type * as ApiModule from '@/lib/api';
-
-const playGameMock = vi.fn();
-const newIdempotencyKeySpy = vi.fn();
-
-vi.mock('@/lib/api', async () => {
-  const actual = await vi.importActual<typeof ApiModule>('@/lib/api');
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      get: vi.fn(async (path: string) => {
-        if (path === '/wallet') {
-          return { success: true, data: { coinsBalance: 1000, gamePointsBalance: 0 } };
-        }
-        if (path === '/games') {
-          return {
-            success: true,
-            data: [{ key: 'number_challenge', minBet: 10, maxBet: 200, currentRulesVersion: 1 }],
-          };
-        }
-        throw new Error(`Unexpected GET ${path}`);
-      }),
-    },
-    newIdempotencyKey: (...a: unknown[]) => {
-      newIdempotencyKeySpy(...a);
-      return actual.newIdempotencyKey(...(a as []));
-    },
-    playGame: (...a: unknown[]) => playGameMock(...a),
-  };
-});
-
-let currentUser: { id: string; username: string; displayName: string } | null = { id: 'me-uuid', username: 'me', displayName: 'Me' };
-vi.mock('@/providers/auth-provider', () => ({
-  useAuth: () => ({ user: currentUser }),
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { NUMBER_RULES_ID } from '@socialplay/shared';
+import { NumberChallengePage, numberPendingKey } from './number-challenge';
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  user: { id: 'member' } as { id: string } | null,
 }));
-
-import { NumberChallengePage } from './number-challenge';
-import { CasinoProvider } from '@/components/casino/CasinoProvider';
-import { pendingPlayStorageKey } from '@/hooks/use-durable-play';
-import { durablePlayContract } from '@/test/durable-play-contract';
-
-afterEach(() => {
-  cleanup();
-  playGameMock.mockReset();
-  newIdempotencyKeySpy.mockReset();
-  window.sessionStorage.clear();
-  currentUser = { id: 'me-uuid', username: 'me', displayName: 'Me' };
-});
-
-function createClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
-}
-
-function renderPage() {
-  const client = createClient();
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock('@/lib/api', async () => ({
+  ...(await vi.importActual<typeof import('@/lib/api')>('@/lib/api')),
+  api: { get: mocks.get, post: mocks.post },
+}));
+const round = {
+  id: 'round-a',
+  guess: 50,
+  target: 52,
+  away: 2,
+  score: 40,
+  createdAt: '2026-10-12T00:00:00Z',
+  rulesId: NUMBER_RULES_ID,
+};
+const success = { success: true, data: { round, isReplay: false } };
+function mount() {
+  return render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
+    >
       <MemoryRouter>
-        <CasinoProvider>{children}</CasinoProvider>
+        <NumberChallengePage />
       </MemoryRouter>
     </QueryClientProvider>
   );
-  return render(<NumberChallengePage />, { wrapper });
 }
-
-const successResponse = {
-  success: true,
-  data: {
-    sessionId: 's1',
-    gameKey: 'number_challenge',
-    betAmount: 50,
-    rewardAmount: 0,
-    isWin: false,
-    result: { guess: 50, target: 12, away: 38, correct: false },
-    completedAt: new Date().toISOString(),
-    newBalance: 950,
-    mode: 'WAGER',
-    family: 'INSTANT',
-    wagerCurrency: 'COINS',
-    rewardCurrency: 'COINS',
-    rulesVersion: 1,
-    resultSchemaVersion: 1,
-    playContext: 'SOLO_WAGER',
-    isReplay: false,
-  },
-};
-
-describe('NumberChallengePage', () => {
-  it('rejects fractional stakes and guesses rather than silently truncating them', async () => {
-    playGameMock.mockResolvedValue(successResponse);
-    renderPage();
-    const [bet, guess] = await screen.findAllByRole('spinbutton');
-    const submit = screen.getByRole('button', { name: /^Submit Guess$/i });
-
-    fireEvent.change(bet, { target: { value: '50.5' } });
-    fireEvent.change(guess, { target: { value: '7.2' } });
-    expect(screen.getByText('Bet amount must be a whole number.')).toBeInTheDocument();
-    expect(screen.getByText('Your guess must be a whole number.')).toBeInTheDocument();
-    expect(submit).toBeDisabled();
-    fireEvent.click(submit);
-    expect(playGameMock).not.toHaveBeenCalled();
-
-    fireEvent.change(bet, { target: { value: '201' } });
-    fireEvent.change(guess, { target: { value: '101' } });
-    expect(screen.getByText('Bet amount must be no more than 200.')).toBeInTheDocument();
-    expect(screen.getByText('Your guess must be no more than 100.')).toBeInTheDocument();
-    expect(submit).toBeDisabled();
-
-    fireEvent.change(bet, { target: { value: '25' } });
-    fireEvent.change(guess, { target: { value: '7' } });
-    expect(submit).toBeEnabled();
-    fireEvent.click(submit);
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
-    expect(playGameMock.mock.calls[0][1]).toEqual({ betAmount: 25, guess: 7 });
-  });
-
-  it('a retry after a failed submission reuses the EXACT SAME idempotency key', async () => {
-    playGameMock.mockRejectedValueOnce(new Error('network error'));
-    playGameMock.mockResolvedValueOnce(successResponse);
-
-    renderPage();
-    const submitButton = await screen.findByRole('button', { name: /Submit Guess/i });
-
-    fireEvent.click(submitButton);
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
-
-    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
-
-    const firstKey = playGameMock.mock.calls[0][2];
-    const secondKey = playGameMock.mock.calls[1][2];
-    expect(typeof firstKey).toBe('string');
-    expect(secondKey).toBe(firstKey);
-    expect(newIdempotencyKeySpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('a NEW round after a successful submission gets a fresh idempotency key', async () => {
-    playGameMock.mockResolvedValue(successResponse);
-    renderPage();
-    const submitButton = await screen.findByRole('button', { name: /Submit Guess/i });
-
-    fireEvent.click(submitButton);
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
-
-    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
-
-    const firstKey = playGameMock.mock.calls[0][2];
-    const secondKey = playGameMock.mock.calls[1][2];
-    expect(secondKey).not.toBe(firstKey);
-    expect(newIdempotencyKeySpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('shows the replay notice from the real API response shape (data.isReplay)', async () => {
-    playGameMock.mockResolvedValue({ ...successResponse, data: { ...successResponse.data, isReplay: true } });
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: /Submit Guess/i }));
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
-  });
-
-  it('an edited guess never reuses the key of an unconfirmed round', async () => {
-    playGameMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: /Submit Guess/i }));
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
-    const [, firstBody, firstKey] = playGameMock.mock.calls[0];
-
-    fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '77' } });
-    expect(await screen.findByText(/previous guess has not been confirmed yet/i)).toBeInTheDocument();
-    playGameMock.mockResolvedValue(successResponse);
-    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(2));
-    expect(playGameMock.mock.calls[1].slice(1)).toEqual([firstBody, firstKey]);
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /Submit Guess/i })).not.toBeDisabled());
-    fireEvent.click(screen.getByRole('button', { name: /Submit Guess/i }));
-    await waitFor(() => expect(playGameMock).toHaveBeenCalledTimes(3));
-    const [, editedBody, editedKey] = playGameMock.mock.calls[2];
-    expect(editedBody).toEqual({ betAmount: 50, guess: 77 });
-    expect(editedKey).not.toBe(firstKey);
-  });
-
-  it('a reload resumes exactly the stored unconfirmed request', async () => {
-    window.sessionStorage.setItem(pendingPlayStorageKey('me-uuid', 'number_challenge'),
-      JSON.stringify({ key: 'stored-key', body: { betAmount: 20, guess: 7 } }));
-    playGameMock.mockResolvedValue({ ...successResponse, data: { ...successResponse.data, isReplay: true } });
-    renderPage();
-    expect(await screen.findByText('Replayed round — no new wager.')).toBeInTheDocument();
-    expect(playGameMock).toHaveBeenCalledTimes(1);
-    expect(playGameMock.mock.calls[0]).toEqual(['number_challenge', { betAmount: 20, guess: 7 }, 'stored-key']);
-    expect(window.sessionStorage.getItem(pendingPlayStorageKey('me-uuid', 'number_challenge'))).toBeNull();
-  });
+beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  mocks.user = { id: 'member' };
+  mocks.get.mockResolvedValue({ success: true, data: { rulesId: NUMBER_RULES_ID, rounds: [] } });
+  mocks.post.mockResolvedValue(success);
 });
-
-describe('NumberChallengePage — durable play', () => {
-  const submitEnabled = () => {
-    const submit = screen.queryByRole('button', { name: /^Submit Guess$/ });
-    return !!submit && !(submit as HTMLButtonElement).disabled;
-  };
-  durablePlayContract({
-    gameKey: 'number_challenge',
-    userId: 'me-uuid',
-    playGameMock,
-    newIdempotencyKeySpy,
-    renderPage: () => { renderPage(); },
-    ready: async () => { await screen.findByRole('button', { name: /Submit Guess/i }); },
-    play: () => fireEvent.click(screen.getByRole('button', { name: /Submit Guess|Checking/i })),
-    playEnabled: submitEnabled,
-    firstBody: { betAmount: 50, guess: 50 },
-    edit: () => {
-      fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '77' } });
-      return { betAmount: 50, guess: 77 };
-    },
-    nextRound: () => waitFor(() => expect(submitEnabled()).toBe(true)),
-    response: (body, isReplay) => ({ success: true, data: { ...successResponse.data, betAmount: body.betAmount,
-      result: { ...successResponse.data.result, guess: body.guess }, isReplay } }),
-    setUser: (user) => { currentUser = user; },
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  mocks.get.mockReset();
+  mocks.post.mockReset();
+  sessionStorage.clear();
+});
+it('requires the practice snapshot and valid integers; quick picks and slider respond', async () => {
+  mount();
+  const reveal = await screen.findByRole('button', { name: 'Reveal number' });
+  await waitFor(() => expect(reveal).toBeEnabled());
+  const input = screen.getByRole('spinbutton');
+  for (const value of ['', '0', '101', '50.5']) {
+    fireEvent.change(input, { target: { value } });
+    expect(reveal).toBeDisabled();
+  }
+  fireEvent.click(screen.getByRole('button', { name: /^25$/ }));
+  expect(input).toHaveValue(25);
+  fireEvent.click(screen.getByRole('button', { name: 'Increase number' }));
+  expect(input).toHaveValue(26);
+  fireEvent.change(screen.getByRole('slider'), { target: { value: '75' } });
+  expect(input).toHaveValue(75);
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+it('persists the exact request before sending and renders the confirmed score without wallet calls', async () => {
+  mocks.post.mockImplementation(async (_url, entry) => {
+    expect(JSON.parse(sessionStorage.getItem(numberPendingKey('member'))!)).toEqual(entry);
+    return success;
   });
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reveal number' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Reveal number' }));
+  expect(await screen.findByText('40 practice score')).toBeInTheDocument();
+  expect(screen.getByRole('table')).toHaveTextContent('52');
+  expect(sessionStorage.getItem(numberPendingKey('member'))).toBeNull();
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  expect(mocks.post.mock.calls[0][0]).toBe('/games/number-challenge-practice/guesses');
+  expect(mocks.post.mock.calls[0][1]).toEqual({
+    guess: 50,
+    rulesId: NUMBER_RULES_ID,
+    requestId: expect.any(String),
+  });
+  expect(mocks.get.mock.calls.every((c) => c[0] === '/games/number-challenge-practice')).toBe(true);
+});
+it('retries the same saved guess across remount and rejects rapid duplicates', async () => {
+  mocks.post.mockRejectedValueOnce(new Error('lost response'));
+  const first = mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reveal number' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Reveal number' }));
+  await screen.findByRole('alert');
+  const entry = mocks.post.mock.calls[0][1];
+  first.unmount();
+  mount();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Retry saved guess' })).toBeEnabled()
+  );
+  expect(screen.getByRole('spinbutton')).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry saved guess' }));
+  expect(await screen.findByText('40 practice score')).toBeInTheDocument();
+  expect(mocks.post.mock.calls[1][1]).toEqual(entry);
+});
+it('does not send if storage is unavailable or corrupt', async () => {
+  sessionStorage.setItem(numberPendingKey('member'), 'broken');
+  mount();
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button', { name: 'Reveal number' })).toBeDisabled();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+it('keeps an unconfirmed receipt when the server sends a mismatched result', async () => {
+  mocks.post.mockResolvedValue({
+    success: true,
+    data: { round: { ...round, guess: 51 }, isReplay: false },
+  });
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reveal number' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Reveal number' }));
+  await screen.findByRole('alert');
+  expect(sessionStorage.getItem(numberPendingKey('member'))).not.toBeNull();
+  expect(screen.queryByText('40 practice score')).not.toBeInTheDocument();
+});
+it('isolates recovery by account and allows expand/minimize and rules', async () => {
+  sessionStorage.setItem(
+    numberPendingKey('someone-else'),
+    JSON.stringify({ requestId: 'abcdefghijklmnop', guess: 75, rulesId: NUMBER_RULES_ID })
+  );
+  mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reveal number' })).toBeEnabled());
+  expect(screen.getByRole('spinbutton')).toHaveValue(50);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Number Challenge view' }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Minimize Number Challenge view' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByText('How to play & fairness')).toBeInTheDocument();
+});
+it('shows unavailable state and never enables a failed or unknown-rules snapshot', async () => {
+  mocks.get.mockRejectedValue(new Error('disabled'));
+  mount();
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button', { name: 'Reveal number' })).toBeDisabled();
 });
