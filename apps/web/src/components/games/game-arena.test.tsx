@@ -14,6 +14,41 @@ afterEach(() => {
 });
 
 describe('mounted game arena expansion', () => {
+  it('returns to controls only after unlocking the background and restoring scroll', () => {
+    document.body.style.overflow = 'auto';
+    const returnToControls = vi.fn(() => {
+      const heading = screen.getByRole('heading', { name: 'Bet controls' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(heading).not.toHaveAttribute('inert');
+      expect(heading).not.toHaveAttribute('aria-hidden');
+      expect(document.body.style.position).toBe('');
+      expect(document.body.style.overflow).toBe('auto');
+      expect(document.documentElement.style.overflow).toBe('');
+      expect(window.scrollTo).toHaveBeenCalled();
+      heading.focus({ preventScroll: true });
+    });
+    render(
+      <main>
+        <GameArena title="Test game" onReturnToControls={returnToControls}>
+          <canvas />
+        </GameArena>
+        <h2 tabIndex={-1}>Bet controls</h2>
+      </main>
+    );
+    expect(screen.queryByRole('button', { name: 'Bet controls' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Test game view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize Test game view' }));
+    expect(returnToControls).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Test game view' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(returnToControls).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Test game view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bet controls' }));
+    expect(returnToControls).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: 'Bet controls' })).toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'Bet controls' })).toBeNull();
+  });
+
   it('fills the viewport without native fullscreen and preserves the canvas and child state', () => {
     const mounted = vi.fn();
     const disposed = vi.fn();

@@ -1,3 +1,4 @@
+import { GameArena } from '@/components/games/game-arena';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -652,116 +653,129 @@ function CrashPoint({
             </div>
             <RoundHistory rounds={raw?.rounds ?? []} />
           </div>
-          <section
-            className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
-            aria-label="Live multiplier graph"
+          <GameArena
+            title="Crash Point"
+            className="crash-display"
+            onReturnToControls={() => {
+              betHeading.current?.scrollIntoView({ block: 'start' });
+              betHeading.current?.focus({ preventScroll: true });
+            }}
           >
-            <div className="crash-arena-top">
-              <span>
-                <i />
-                {!connected
-                  ? 'SYNCHRONIZING'
-                  : open
-                    ? 'ENTRY OPEN'
-                    : flying
-                      ? 'ROUND RUNNING'
-                      : shown?.crashCents
-                        ? 'ROUND COMPLETE'
-                        : 'WAITING FOR ROUND'}
-              </span>
-              <span role="timer">
-                {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
-              </span>
-            </div>
-            <div className="crash-multiplier">
-              <span>
-                {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
-              </span>
-              <strong>
-                {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
-                <em>{open ? 's' : '×'}</em>
-              </strong>
-              <p>
-                {!connected
-                  ? 'Waiting for a fresh server update'
-                  : open
-                    ? 'Confirm your ticket before the round starts'
-                    : shown?.crashCents
-                      ? 'The server has revealed this round’s result'
-                      : 'Cash out before the curve stops'}
-              </p>
-            </div>
-            {open && (
-              <div className="crash-countdown-track" aria-hidden="true">
-                <div
-                  style={{ width: `${Math.min(100, (remainingMs / rules.bettingMs) * 100)}%` }}
-                />
+            <section
+              className={`crash-arena ${shown?.crashCents !== null && shown?.crashCents !== undefined ? 'crashed' : ''}`}
+              aria-label="Live multiplier graph"
+            >
+              <div className="crash-arena-top">
+                <span>
+                  <i />
+                  {!connected
+                    ? 'SYNCHRONIZING'
+                    : open
+                      ? 'ENTRY OPEN'
+                      : flying
+                        ? 'ROUND RUNNING'
+                        : shown?.crashCents
+                          ? 'ROUND COMPLETE'
+                          : 'WAITING FOR ROUND'}
+                </span>
+                <span role="timer">
+                  {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
+                </span>
               </div>
-            )}
-            <div className="crash-graph-shell" aria-hidden="true">
-              <div className="crash-floor" />
-              <svg className="crash-graph" viewBox="0 0 800 390">
-                <defs>
-                  <linearGradient id="crash-line">
-                    <stop stopColor="#8370ff" />
-                    <stop offset="0.55" stopColor="#3c94ff" />
-                    <stop offset="1" stopColor="#59e8dd" />
-                  </linearGradient>
-                  <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
-                    <stop stopColor="#39dcc9" stopOpacity=".28" />
-                    <stop offset="1" stopColor="#39dcc9" stopOpacity="0" />
-                  </linearGradient>
-                  <linearGradient id="crash-arrow-face" x1="0" y1="0" x2="1" y2="1">
-                    <stop stopColor="#b6fff8" />
-                    <stop offset="1" stopColor="#28baca" />
-                  </linearGradient>
-                  <filter id="crash-glow">
-                    <feGaussianBlur stdDeviation="6" />
-                  </filter>
-                </defs>
-                {[4, 3, 2, 1, 0].map((index) => {
-                  const value = 1 + ((valueRange - 1) * index) / 4;
-                  const v = 330 - (index / 4) * 260;
-                  return (
+              <div className="crash-multiplier">
+                <span>
+                  {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
+                </span>
+                <strong>
+                  {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
+                  <em>{open ? 's' : '×'}</em>
+                </strong>
+                <p>
+                  {!connected
+                    ? 'Waiting for a fresh server update'
+                    : open
+                      ? 'Confirm your ticket before the round starts'
+                      : shown?.crashCents
+                        ? 'The server has revealed this round’s result'
+                        : 'Cash out before the curve stops'}
+                </p>
+              </div>
+              {open && (
+                <div className="crash-countdown-track" aria-hidden="true">
+                  <div
+                    style={{ width: `${Math.min(100, (remainingMs / rules.bettingMs) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <div className="crash-graph-shell" aria-hidden="true">
+                <div className="crash-floor" />
+                <svg className="crash-graph" viewBox="0 0 800 390">
+                  <defs>
+                    <linearGradient id="crash-line">
+                      <stop stopColor="#8370ff" />
+                      <stop offset="0.55" stopColor="#3c94ff" />
+                      <stop offset="1" stopColor="#59e8dd" />
+                    </linearGradient>
+                    <linearGradient id="crash-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop stopColor="#39dcc9" stopOpacity=".28" />
+                      <stop offset="1" stopColor="#39dcc9" stopOpacity="0" />
+                    </linearGradient>
+                    <linearGradient id="crash-arrow-face" x1="0" y1="0" x2="1" y2="1">
+                      <stop stopColor="#b6fff8" />
+                      <stop offset="1" stopColor="#28baca" />
+                    </linearGradient>
+                    <filter id="crash-glow">
+                      <feGaussianBlur stdDeviation="6" />
+                    </filter>
+                  </defs>
+                  {[4, 3, 2, 1, 0].map((index) => {
+                    const value = 1 + ((valueRange - 1) * index) / 4;
+                    const v = 330 - (index / 4) * 260;
+                    return (
+                      <g key={v}>
+                        <path d={`M72 ${v}H745`} className="grid" />
+                        <text x="790" y={v + 5} textAnchor="end">
+                          {Number(value.toFixed(2))}×
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {[72, 235, 397, 560, 722].map((v, i) => (
                     <g key={v}>
-                      <path d={`M72 ${v}H745`} className="grid" />
-                      <text x="790" y={v + 5} textAnchor="end">
-                        {Number(value.toFixed(2))}×
+                      <path d={`M${v} 60V330`} className="grid" />
+                      <text x={v - 8} y="365">
+                        {Math.round((i * timeRange) / 4000)}s
                       </text>
                     </g>
-                  );
-                })}
-                {[72, 235, 397, 560, 722].map((v, i) => (
-                  <g key={v}>
-                    <path d={`M${v} 60V330`} className="grid" />
-                    <text x={v - 8} y="365">
-                      {Math.round((i * timeRange) / 4000)}s
-                    </text>
-                  </g>
-                ))}
-                <polygon points={`72,330 ${points} ${x},330`} fill="url(#crash-area)" />
-                <polyline points={points} className="curve depth" transform="translate(0 9)" />
-                <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
-                <polyline points={points} className="curve" />
-                <g transform={`translate(${x} ${y}) rotate(${arrowAngle}) scale(1.25)`}>
-                  <ellipse cx="-8" cy="18" rx="27" ry="8" fill="#020b1b" opacity=".65" />
-                  <path d="M30 0L-23 -17L-12 0L-23 17Z" fill="#0d4775" transform="translate(0 6)" />
-                  <g className={flying && connected ? 'crash-arrow flying' : 'crash-arrow'}>
-                    <path className="crash-arrow-trail" d="M-18 0H-60" />
+                  ))}
+                  <polygon points={`72,330 ${points} ${x},330`} fill="url(#crash-area)" />
+                  <polyline points={points} className="curve depth" transform="translate(0 9)" />
+                  <polyline points={points} className="curve glow" filter="url(#crash-glow)" />
+                  <polyline points={points} className="curve" />
+                  <g transform={`translate(${x} ${y}) rotate(${arrowAngle}) scale(1.25)`}>
+                    <ellipse cx="-8" cy="18" rx="27" ry="8" fill="#020b1b" opacity=".65" />
                     <path
                       d="M30 0L-23 -17L-12 0L-23 17Z"
-                      fill="url(#crash-arrow-face)"
-                      stroke="#d4fff7"
-                      strokeWidth="1.5"
+                      fill="#0d4775"
+                      transform="translate(0 6)"
                     />
-                    <path d="M30 0L-12 0L-23 17Z" fill="#158aaf" />
-                    <path d="M-12 0L30 0" stroke="#bafff4" strokeWidth="1.2" />
-                    <path d="M-23 -17L-12 0L30 0" fill="none" stroke="white" strokeWidth="2" />
+                    <g className={flying && connected ? 'crash-arrow flying' : 'crash-arrow'}>
+                      <path className="crash-arrow-trail" d="M-18 0H-60" />
+                      <path
+                        d="M30 0L-23 -17L-12 0L-23 17Z"
+                        fill="url(#crash-arrow-face)"
+                        stroke="#d4fff7"
+                        strokeWidth="1.5"
+                      />
+                      <path d="M30 0L-12 0L-23 17Z" fill="#158aaf" />
+                      <path d="M-12 0L30 0" stroke="#bafff4" strokeWidth="1.2" />
+                      <path d="M-23 -17L-12 0L30 0" fill="none" stroke="white" strokeWidth="2" />
+                    </g>
                   </g>
-                </g>
-              </svg>
-            </div>
-          </section>
+                </svg>
+              </div>
+            </section>
+          </GameArena>
           <section
             id="crash-betting"
             className="crash-betting"
@@ -1181,7 +1195,7 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
         <Dialog.Portal>
           <Dialog.Overlay className="crash-history-overlay" />
           <Dialog.Content
-            className="crash-history-dialog"
+            className="crash-history-dialog crash-round-dialog"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               if (opener.current?.isConnected) opener.current.focus();
@@ -1189,9 +1203,9 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
             }}
           >
             <p className="crash-history-eyebrow">COMPLETED ROUND</p>
-            <Dialog.Title>Round details</Dialog.Title>
-            <Dialog.Description>
-              Viewing a past result keeps your current ticket and cash-out target unchanged.
+            <Dialog.Title>Round result</Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Completed result. Your current ticket and cash-out target stay unchanged.
             </Dialog.Description>
             <Dialog.Close asChild>
               <button className="crash-history-close" aria-label="Close round details">
@@ -1204,10 +1218,18 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
                   <span>Crash point</span>
                   <strong>{(selected.crashCents! / 100).toFixed(2)}×</strong>
                   <time dateTime={new Date(selected.startsAt).toISOString()}>
-                    {new Date(selected.startsAt).toLocaleString()}
+                    {new Date(selected.startsAt).toLocaleDateString([], {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' · '}
+                    {new Date(selected.startsAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </time>
                 </div>
-                <h3>Your tickets in this round</h3>
+                {tickets.length > 0 && <h3>Your tickets</h3>}
                 {tickets.length ? (
                   tickets.map((ticket) => (
                     <dl
@@ -1240,6 +1262,11 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
                 This round has left recent history. Close this view and select another result.
               </p>
             )}
+            <Dialog.Close asChild>
+              <button type="button" className="crash-history-done">
+                Done
+              </button>
+            </Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

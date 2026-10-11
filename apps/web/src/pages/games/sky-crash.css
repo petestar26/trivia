@@ -1630,3 +1630,98 @@
     animation: none;
   }
 }
+
+/* A completed result reads at a glance; receipts and proof stay available. */
+.sky-history-dialog.sky-round-dialog {
+  max-width: 400px;
+  padding: 20px;
+  border-radius: 18px;
+}
+.sky-round-dialog h2 {
+  margin: 4px 48px 14px 0;
+  font-size: 21px;
+}
+.sky-round-dialog .sky-past-result {
+  margin-top: 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #163949, #111d31);
+  border-color: #80d9ce40;
+}
+.sky-round-dialog .sky-past-result strong {
+  margin: 4px 0 8px;
+  font-size: clamp(42px, 12vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.sky-round-dialog h3 {
+  margin: 16px 0 8px;
+}
+.sky-round-dialog .sky-history-empty {
+  margin: 12px 0;
+  font-size: 12px;
+}
+.sky-round-dialog .sky-past-ticket {
+  padding: 10px 12px;
+  gap: 6px 12px;
+}
+.sky-round-dialog .sky-history-verification {
+  margin-top: 12px;
+  padding-top: 4px;
+}
+.sky-history-done {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border: 1px solid #58968e;
+  border-radius: 10px;
+  background: #1b4948;
+  color: #e2fff7;
+  font-size: 13px;
+  font-weight: 700;
+}
+.sky-history-done:hover {
+  background: #245c59;
+}
+/* Fill the phone display while retaining the same mounted graph and round state. */
+.sky-display.game-arena--expanded .game-arena__body {
+  display: flex;
+}
+.sky-display.game-arena--expanded .sky-arena {
+  flex: 1;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.sky-display.game-arena--expanded .sky-graph-shell {
+  flex: 1;
+  height: auto;
+  min-height: 230px;
+}
+.sky-display.game-arena--expanded .sky-graph {
+  position: absolute;
+  inset: 0;
+}
+.sky-display.game-arena--expanded .sky-multiplier {
+  top: 70px;
+}
+@media (max-width: 480px) {
+  .sky-display.game-arena--expanded .game-arena__toolbar > span {
+    display: none;
+  }
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .sky-display.game-arena--expanded .sky-multiplier {
+    top: 48px;
+  }
+  .sky-display.game-arena--expanded .sky-multiplier strong {
+    font-size: 52px;
+  }
+  .sky-display.game-arena--expanded .sky-multiplier p {
+    display: none;
+  }
+}

@@ -1539,3 +1539,98 @@
     flex-basis: 44px;
   }
 }
+
+/* A completed result reads at a glance; receipts and proof stay available. */
+.crash-history-dialog.crash-round-dialog {
+  max-width: 400px;
+  padding: 20px;
+  border-radius: 18px;
+}
+.crash-round-dialog h2 {
+  margin: 4px 48px 14px 0;
+  font-size: 21px;
+}
+.crash-round-dialog .crash-past-result {
+  margin-top: 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #163949, #111d31);
+  border-color: #80d9ce40;
+}
+.crash-round-dialog .crash-past-result strong {
+  margin: 4px 0 8px;
+  font-size: clamp(42px, 12vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.crash-round-dialog h3 {
+  margin: 16px 0 8px;
+}
+.crash-round-dialog .crash-history-empty {
+  margin: 12px 0;
+  font-size: 12px;
+}
+.crash-round-dialog .crash-past-ticket {
+  padding: 10px 12px;
+  gap: 6px 12px;
+}
+.crash-round-dialog .crash-history-verification {
+  margin-top: 12px;
+  padding-top: 4px;
+}
+.crash-history-done {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border: 1px solid #58968e;
+  border-radius: 10px;
+  background: #1b4948;
+  color: #e2fff7;
+  font-size: 13px;
+  font-weight: 700;
+}
+.crash-history-done:hover {
+  background: #245c59;
+}
+/* Fill the phone display while retaining the same mounted graph and round state. */
+.crash-display.game-arena--expanded .game-arena__body {
+  display: flex;
+}
+.crash-display.game-arena--expanded .crash-arena {
+  flex: 1;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.crash-display.game-arena--expanded .crash-graph-shell {
+  flex: 1;
+  height: auto;
+  min-height: 230px;
+}
+.crash-display.game-arena--expanded .crash-graph {
+  position: absolute;
+  inset: 0;
+}
+.crash-display.game-arena--expanded .crash-multiplier {
+  top: 70px;
+}
+@media (max-width: 480px) {
+  .crash-display.game-arena--expanded .game-arena__toolbar > span {
+    display: none;
+  }
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .crash-display.game-arena--expanded .crash-multiplier {
+    top: 48px;
+  }
+  .crash-display.game-arena--expanded .crash-multiplier strong {
+    font-size: 52px;
+  }
+  .crash-display.game-arena--expanded .crash-multiplier p {
+    display: none;
+  }
+}

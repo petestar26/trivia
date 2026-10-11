@@ -1,3 +1,4 @@
+import { GameArena } from '@/components/games/game-arena';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -651,139 +652,154 @@ function SkyCrash({
       <div className="sky-layout">
         <div className="sky-table">
           <RoundHistory rounds={raw?.rounds ?? []} />
-          <section
-            className={`sky-arena ${crashed ? 'crashed' : ''}`}
-            aria-label="Live flight arena"
+          <GameArena
+            title="Sky Crash"
+            className="sky-display"
+            onReturnToControls={() => {
+              betHeading.current?.scrollIntoView({ block: 'start' });
+              betHeading.current?.focus({ preventScroll: true });
+            }}
           >
-            <div className="sky-arena-top">
-              <span>
-                <i />
-                {!connected
-                  ? 'SYNCHRONIZING'
-                  : open
-                    ? 'ENTRY OPEN'
-                    : flying
-                      ? 'ROUND RUNNING'
-                      : shown?.crashCents
-                        ? 'ROUND COMPLETE'
-                        : 'WAITING FOR ROUND'}
-              </span>
-              <span role="timer">
-                {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
-              </span>
-            </div>
-            <div className="sky-multiplier">
-              <span>
-                {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
-              </span>
-              <strong>
-                {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
-                <em>{open ? 's' : '×'}</em>
-              </strong>
-              <p>
-                {!connected
-                  ? 'Waiting for a fresh server update'
-                  : open
-                    ? 'Confirm your ticket before the round starts'
-                    : shown?.crashCents
-                      ? 'The server has revealed this round’s result'
-                      : 'Cash out before the curve stops'}
-              </p>
-            </div>
-            {open && (
-              <div className="sky-countdown-track" aria-hidden="true">
-                <div
-                  style={{ width: `${Math.min(100, (remainingMs / rules.bettingMs) * 100)}%` }}
-                />
+            <section
+              className={`sky-arena ${crashed ? 'crashed' : ''}`}
+              aria-label="Live flight arena"
+            >
+              <div className="sky-arena-top">
+                <span>
+                  <i />
+                  {!connected
+                    ? 'SYNCHRONIZING'
+                    : open
+                      ? 'ENTRY OPEN'
+                      : flying
+                        ? 'ROUND RUNNING'
+                        : shown?.crashCents
+                          ? 'ROUND COMPLETE'
+                          : 'WAITING FOR ROUND'}
+                </span>
+                <span role="timer">
+                  {open ? 'Entry closes' : 'Next round'} <b>{String(seconds).padStart(2, '0')}s</b>
+                </span>
               </div>
-            )}
-            <div className="sky-graph-shell" aria-hidden="true">
-              <svg className="sky-graph" viewBox="0 0 800 390">
-                <defs>
-                  <linearGradient id="sky-line">
-                    <stop stopColor="#c77b38" />
-                    <stop offset="0.55" stopColor="#e8b26b" />
-                    <stop offset="1" stopColor="#ffe4b1" />
-                  </linearGradient>
-                  <linearGradient id="sky-area" x1="0" y1="0" x2="0" y2="1">
-                    <stop stopColor="#f4bd77" stopOpacity=".28" />
-                    <stop offset="1" stopColor="#f4bd77" stopOpacity="0" />
-                  </linearGradient>
-                  <filter id="sky-glow">
-                    <feGaussianBlur stdDeviation="6" />
-                  </filter>
-                </defs>
-                {[4, 3, 2, 1, 0].map((index) => {
-                  const value = 1 + ((valueRange - 1) * index) / 4;
-                  const v = 330 - (index / 4) * 260;
-                  return (
+              <div className="sky-multiplier">
+                <span>
+                  {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
+                </span>
+                <strong>
+                  {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
+                  <em>{open ? 's' : '×'}</em>
+                </strong>
+                <p>
+                  {!connected
+                    ? 'Waiting for a fresh server update'
+                    : open
+                      ? 'Confirm your ticket before the round starts'
+                      : shown?.crashCents
+                        ? 'The server has revealed this round’s result'
+                        : 'Cash out before the curve stops'}
+                </p>
+              </div>
+              {open && (
+                <div className="sky-countdown-track" aria-hidden="true">
+                  <div
+                    style={{ width: `${Math.min(100, (remainingMs / rules.bettingMs) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <div className="sky-graph-shell" aria-hidden="true">
+                <svg className="sky-graph" viewBox="0 0 800 390">
+                  <defs>
+                    <linearGradient id="sky-line">
+                      <stop stopColor="#c77b38" />
+                      <stop offset="0.55" stopColor="#e8b26b" />
+                      <stop offset="1" stopColor="#ffe4b1" />
+                    </linearGradient>
+                    <linearGradient id="sky-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop stopColor="#f4bd77" stopOpacity=".28" />
+                      <stop offset="1" stopColor="#f4bd77" stopOpacity="0" />
+                    </linearGradient>
+                    <filter id="sky-glow">
+                      <feGaussianBlur stdDeviation="6" />
+                    </filter>
+                  </defs>
+                  {[4, 3, 2, 1, 0].map((index) => {
+                    const value = 1 + ((valueRange - 1) * index) / 4;
+                    const v = 330 - (index / 4) * 260;
+                    return (
+                      <g key={v}>
+                        <path d={`M72 ${v}H745`} className="grid" />
+                        <text x="790" y={v + 5} textAnchor="end">
+                          {Number(value.toFixed(2))}×
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {[72, 235, 397, 560, 722].map((v, i) => (
                     <g key={v}>
-                      <path d={`M72 ${v}H745`} className="grid" />
-                      <text x="790" y={v + 5} textAnchor="end">
-                        {Number(value.toFixed(2))}×
+                      <path d={`M${v} 60V330`} className="grid" />
+                      <text x={v - 8} y="365">
+                        {Math.round((i * timeRange) / 4000)}s
                       </text>
                     </g>
-                  );
-                })}
-                {[72, 235, 397, 560, 722].map((v, i) => (
-                  <g key={v}>
-                    <path d={`M${v} 60V330`} className="grid" />
-                    <text x={v - 8} y="365">
-                      {Math.round((i * timeRange) / 4000)}s
-                    </text>
-                  </g>
-                ))}
-                <polygon points={`72,330 ${points} ${x},330`} fill="url(#sky-area)" />
-                <polyline points={points} className="curve depth" transform="translate(0 9)" />
-                <polyline points={points} className="curve glow" filter="url(#sky-glow)" />
-                <polyline points={points} className="curve" />
-                <g key={shown?.id ?? 'waiting'} transform={`translate(${x} ${y})`}>
-                  <g className={crashed ? 'sky-impact-plane' : undefined}>
-                    <g transform={`rotate(${Math.max(-18, arrowAngle)})`}>
-                      <image
-                        className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
-                        href="/images/sky-crash/aircraft.webp"
-                        x="-63"
-                        y="-47"
-                        width="126"
-                        height="84"
-                      />
-                    </g>
-                  </g>
-                  {crashed && (
-                    <g className="sky-impact" data-testid="sky-crash-impact">
-                      <g className="sky-impact-smoke" fill="#526071">
-                        <circle cx="-8" cy="-26" r="17" />
-                        <circle cx="12" cy="-40" r="22" />
-                        <circle cx="-9" cy="-59" r="18" />
-                      </g>
-                      <ellipse className="sky-impact-halo" cy="4" rx="47" ry="30" fill="#fb8129" />
-                      <g className="sky-impact-flames">
-                        <path
-                          fill="#ee6028"
-                          d="M-27 18C-45-1-19-13-25-35C-10-28-13-11-4-16C4-26-6-43 8-56C5-26 33-24 25-8C41-15 32 13 22 21C8 30-12 30-27 18Z"
+                  ))}
+                  <polygon points={`72,330 ${points} ${x},330`} fill="url(#sky-area)" />
+                  <polyline points={points} className="curve depth" transform="translate(0 9)" />
+                  <polyline points={points} className="curve glow" filter="url(#sky-glow)" />
+                  <polyline points={points} className="curve" />
+                  <g key={shown?.id ?? 'waiting'} transform={`translate(${x} ${y})`}>
+                    <g className={crashed ? 'sky-impact-plane' : undefined}>
+                      <g transform={`rotate(${Math.max(-18, arrowAngle)})`}>
+                        <image
+                          className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
+                          href="/images/sky-crash/aircraft.webp"
+                          x="-63"
+                          y="-47"
+                          width="126"
+                          height="84"
                         />
-                        <path
-                          fill="#ffb64d"
-                          d="M-18 18C-28 5-8-3-13-18C0-12-2-4 5-10C13-19 5-28 13-34C12-14 27 1 19 15C12 26-8 28-18 18Z"
-                        />
-                        <path
-                          fill="#fff0b2"
-                          d="M-9 18C-15 7 2 4 0-9C14 1 17 16 8 22C2 25-5 24-9 18Z"
-                        />
-                      </g>
-                      <g className="sky-impact-embers" fill="#ffc270">
-                        <circle cx="-35" cy="-20" r="2" />
-                        <circle cx="30" cy="-32" r="2.5" />
-                        <circle cx="-20" cy="-51" r="2" />
-                        <circle cx="24" cy="-65" r="1.5" />
                       </g>
                     </g>
-                  )}
-                </g>
-              </svg>
-            </div>
-          </section>
+                    {crashed && (
+                      <g className="sky-impact" data-testid="sky-crash-impact">
+                        <g className="sky-impact-smoke" fill="#526071">
+                          <circle cx="-8" cy="-26" r="17" />
+                          <circle cx="12" cy="-40" r="22" />
+                          <circle cx="-9" cy="-59" r="18" />
+                        </g>
+                        <ellipse
+                          className="sky-impact-halo"
+                          cy="4"
+                          rx="47"
+                          ry="30"
+                          fill="#fb8129"
+                        />
+                        <g className="sky-impact-flames">
+                          <path
+                            fill="#ee6028"
+                            d="M-27 18C-45-1-19-13-25-35C-10-28-13-11-4-16C4-26-6-43 8-56C5-26 33-24 25-8C41-15 32 13 22 21C8 30-12 30-27 18Z"
+                          />
+                          <path
+                            fill="#ffb64d"
+                            d="M-18 18C-28 5-8-3-13-18C0-12-2-4 5-10C13-19 5-28 13-34C12-14 27 1 19 15C12 26-8 28-18 18Z"
+                          />
+                          <path
+                            fill="#fff0b2"
+                            d="M-9 18C-15 7 2 4 0-9C14 1 17 16 8 22C2 25-5 24-9 18Z"
+                          />
+                        </g>
+                        <g className="sky-impact-embers" fill="#ffc270">
+                          <circle cx="-35" cy="-20" r="2" />
+                          <circle cx="30" cy="-32" r="2.5" />
+                          <circle cx="-20" cy="-51" r="2" />
+                          <circle cx="24" cy="-65" r="1.5" />
+                        </g>
+                      </g>
+                    )}
+                  </g>
+                </svg>
+              </div>
+            </section>
+          </GameArena>
           <section id="sky-betting" className="sky-betting" aria-labelledby="sky-betting-title">
             <div className="sky-betting-heading">
               <div>
@@ -1066,7 +1082,7 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
         <Dialog.Portal>
           <Dialog.Overlay className="sky-history-overlay" />
           <Dialog.Content
-            className="sky-history-dialog"
+            className="sky-history-dialog sky-round-dialog"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               if (opener.current?.isConnected) opener.current.focus();
@@ -1074,9 +1090,9 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
             }}
           >
             <p className="sky-history-eyebrow">COMPLETED ROUND</p>
-            <Dialog.Title>Round details</Dialog.Title>
-            <Dialog.Description>
-              Viewing a past result keeps your current ticket and cash-out target unchanged.
+            <Dialog.Title>Round result</Dialog.Title>
+            <Dialog.Description className="sr-only">
+              Completed result. Your current ticket and cash-out target stay unchanged.
             </Dialog.Description>
             <Dialog.Close asChild>
               <button className="sky-history-close" aria-label="Close round details">
@@ -1089,10 +1105,18 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
                   <span>Crash point</span>
                   <strong>{(selected.crashCents! / 100).toFixed(2)}×</strong>
                   <time dateTime={new Date(selected.startsAt).toISOString()}>
-                    {new Date(selected.startsAt).toLocaleString()}
+                    {new Date(selected.startsAt).toLocaleDateString([], {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                    {' · '}
+                    {new Date(selected.startsAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </time>
                 </div>
-                <h3>Your tickets in this round</h3>
+                {tickets.length > 0 && <h3>Your tickets</h3>}
                 {tickets.length ? (
                   tickets.map((ticket) => (
                     <dl
@@ -1125,6 +1149,11 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
                 This round has left recent history. Close this view and select another result.
               </p>
             )}
+            <Dialog.Close asChild>
+              <button type="button" className="sky-history-done">
+                Done
+              </button>
+            </Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
