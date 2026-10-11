@@ -39,6 +39,7 @@ Original teal/ivory shaded ball, scoring bands, direct number entry, slider, pre
 - Full frontend: 1,428 tests / 105 files passed. Latest page/home/catalog follow-up: 17 passed.
 - Number/API catalog, availability, authentication, request validation and staging refusal: 41 passed.
 - PostgreSQL 16: fresh full migration chain applied; 5 native tests passed covering concurrent identical requests, changed-payload conflicts, per-user privacy, direct-SQL bounds/immutability, multi-request pacing, and SELECT/INSERT-only runtime with no wallet permission.
+- The immutable receipt guard uses the platform-required invoker search path `public, pg_temp`. After correcting this configuration, the fresh migration chain and all 20 combined Number Challenge/payment native tests passed, including the global ledger invariant scan.
 - Shared scoring: 2 tests, including all 10,000 guess/target combinations.
 - API and web typecheck/build passed; PWA/recovery: 27 passed; changed Number Challenge TS lint passed.
 - Local Chrome synthetic preview: desktop and 390px phone layouts, expand/minimize, exact and near scores, rules disclosure, Reduced Motion and no horizontal page overflow verified. Synthetic preview is excluded from commits and the production build. Physical Safari and deployed API behavior await staging rollout.

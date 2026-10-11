@@ -11,7 +11,7 @@ CREATE TABLE number_practice_rounds (
 );
 CREATE INDEX number_practice_history ON number_practice_rounds(user_id,created_at DESC,id DESC);
 CREATE FUNCTION number_practice_immutable() RETURNS trigger LANGUAGE plpgsql
- SET search_path = pg_catalog, public AS $$
+ SET search_path = public, pg_temp AS $$
 BEGIN RAISE EXCEPTION 'Number practice receipts are immutable'; END; $$;
 CREATE TRIGGER number_practice_immutable BEFORE UPDATE OR DELETE ON number_practice_rounds
  FOR EACH ROW EXECUTE FUNCTION number_practice_immutable();
