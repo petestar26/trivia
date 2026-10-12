@@ -68,9 +68,26 @@ describeIf('ledger administration API', () => {
     const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: credit.reviewLotId! } });
     const denied = await server.inject({ method: 'GET', url: `${endpoint}/reviews`, headers: headers(regular) });
     expect(denied.statusCode).toBe(403);
-    const queue = await server.inject({ method: 'GET', url: `${endpoint}/reviews`, headers: headers(first) });
-    expect(queue.statusCode).toBe(200);
-    expect(queue.json().data.some((item: { id: string }) => item.id === review.id)).toBe(true);
+    // Other suites legitimately leave open reviews. The queue is paginated by
+    // ID, so a fresh UUID is not guaranteed to occur on its first page.
+    let found = false;
+    let cursor: string | null = null;
+    const cursors = new Set<string>();
+    do {
+      const query = new URLSearchParams({ limit: '100' });
+      if (cursor) query.set('cursor', cursor);
+      const queue = await server.inject({ method: 'GET', url: `${endpoint}/reviews?${query}`, headers: headers(first) });
+      expect(queue.statusCode).toBe(200);
+      const page = queue.json();
+      found = page.data.some((item: { id: string }) => item.id === review.id);
+      cursor = page.nextCursor;
+      expect(cursor === null || typeof cursor === 'string').toBe(true);
+      if (cursor) {
+        expect(cursors.has(cursor)).toBe(false);
+        cursors.add(cursor);
+      }
+    } while (!found && cursor);
+    expect(found).toBe(true);
     const terms = { decision: 'WITHDRAWABLE', rationale: 'Two independent administrators verified source',
       supportingEvidence: ['case-ledger-001'] };
     const firstApproval = await server.inject({ method: 'POST',
