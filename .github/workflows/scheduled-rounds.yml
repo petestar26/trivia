@@ -400,8 +400,8 @@ jobs:
       SCHEDULED_NATIVE_DB_ACK: throwaway
       NODE_ENV: test
       LOG_PRETTY: 'false'
-      JWT_ACCESS_SECRET: disposable-api-ci-access-secret
-      JWT_REFRESH_SECRET: disposable-api-ci-refresh-secret
+      JWT_ACCESS_SECRET: disposable-isolated-api-ci-access-secret
+      JWT_REFRESH_SECRET: disposable-isolated-api-ci-refresh-secret
     steps:
       - uses: actions/checkout@v4
         with:
