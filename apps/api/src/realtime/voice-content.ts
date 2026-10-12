@@ -15,8 +15,10 @@ let active = 0;
 
 // Decode only local, bounded uploads. No playlists, URLs, external protocols or
 // arbitrary demuxers. Output and elapsed work are bounded independently of tags.
-function run(command: string, args: string[], maxBytes: number): Promise<Buffer> {
+function run(command: string, args: string[], maxBytes: number, deadline: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    const milliseconds = Math.min(15_000, deadline - Date.now());
+    if (milliseconds <= 0) return reject(new Error('Audio validation timed out'));
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let bytes = 0,
       failed = false;
@@ -25,7 +27,7 @@ function run(command: string, args: string[], maxBytes: number): Promise<Buffer>
       failed = true;
       child.kill('SIGKILL');
     };
-    const timer = setTimeout(stop, 15_000);
+    const timer = setTimeout(stop, milliseconds);
     child.stdout.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > maxBytes) stop();
@@ -52,11 +54,50 @@ function run(command: string, args: string[], maxBytes: number): Promise<Buffer>
   });
 }
 
+type AacTimeline = { duration: number; finalPadding: number };
+
+// AAC-LC codecs decode whole 1024-sample frames. Older FFmpeg versions retain
+// the unplayed padding of the last MP4 packet, whereas newer versions trim it.
+// Scan every demuxed packet to verify the actual presentation end before
+// permitting this specific final-frame padding in the complete decode.
+function aacTimeline(report: Buffer, sampleRate: number, profile: string): AacTimeline {
+  let end: number | undefined,
+    lastDuration = 0,
+    standardFrames = true;
+  for (const line of report.toString('utf8').split('\n')) {
+    if (!line) continue;
+    const fields = line.split(',');
+    // ffprobe CSV appends an empty side-data field to priming/padding packets.
+    if (fields.length === 4 && fields[3] === '') fields.pop();
+    if (fields.length !== 3) throw Error('Invalid AAC packet');
+    const [pts, dts, count] = fields.map(Number);
+    if (![pts, dts, count].every(Number.isSafeInteger) || pts !== dts || count <= 0)
+      throw Error('Invalid AAC packet dimensions');
+    if (end === undefined) {
+      if (pts > 0 || pts < -1024) throw Error('Invalid AAC priming');
+    } else {
+      if (pts !== end) throw Error('Discontinuous AAC packet timeline');
+      if (lastDuration !== 1024) standardFrames = false;
+    }
+    end = pts + count;
+    if (!Number.isSafeInteger(end) || end > 300 * sampleRate)
+      throw Error('AAC playback duration outside limits');
+    lastDuration = count;
+  }
+  if (end === undefined || end <= 0) throw Error('AAC packets required');
+  const padding =
+    profile === 'LC' && standardFrames && lastDuration <= 1024 ? 1024 - lastDuration : 0;
+  return {
+    duration: end / sampleRate,
+    finalPadding: Math.ceil((padding * SAMPLE_RATE) / sampleRate),
+  };
+}
+
 // framecrc is produced from decoded mono PCM, rather than container duration
 // tags or a bounded prefix. Each output frame carries its original playback
 // timestamp and actual decoded sample count. An accepted report is returned
 // only after the decoder has read the complete local input and exited cleanly.
-function decodedDuration(report: Buffer, codec: string): number {
+function decodedDuration(report: Buffer, codec: string, aac?: AacTimeline): number {
   const lines = report.toString('utf8').split('\n');
   if (!lines.includes(`#tb 0: 1/${SAMPLE_RATE}`)) throw Error('Invalid audio timebase');
   let first: number | undefined,
@@ -66,6 +107,9 @@ function decodedDuration(report: Buffer, codec: string): number {
   // timestamp. Other supported browser formats begin within WebM's 1 ms
   // rounding. Never normalize an arbitrary late start out of the timeline.
   const initialPriming = codec === 'mp3' ? SAMPLE_RATE / 20 : TIMESTAMP_ROUNDING;
+  const maximumSamples = aac
+    ? Math.ceil(aac.duration * SAMPLE_RATE) + aac.finalPadding
+    : MAX_SAMPLES;
   for (const line of lines) {
     if (!line || line.startsWith('#')) continue;
     const fields = line.split(',').map((field) => field.trim());
@@ -92,14 +136,20 @@ function decodedDuration(report: Buffer, codec: string): number {
     samples += count;
     if (
       !Number.isSafeInteger(end) ||
-      samples > MAX_SAMPLES ||
-      end - first > MAX_SAMPLES ||
-      end > MAX_SAMPLES + initialPriming
+      samples > maximumSamples ||
+      end - first > maximumSamples ||
+      end > maximumSamples + initialPriming
     )
       throw Error('Audio duration outside limits');
   }
   if (first === undefined || end === undefined || samples <= 0 || end <= first)
     throw Error('Audio samples required');
+  if (aac) {
+    const minimumSamples = Math.floor(aac.duration * SAMPLE_RATE) - 1;
+    if (samples < minimumSamples || end - first < minimumSamples)
+      throw Error('Incomplete AAC decode');
+    return aac.duration;
+  }
   return Math.max(samples, end - first) / SAMPLE_RATE;
 }
 
@@ -111,6 +161,9 @@ export async function inspectVoiceContent(
     throw ApiError.badRequest('Voice recording must be between 1 byte and 5 MiB');
   if (active >= 2) throw ApiError.rateLimited('Audio validation is busy; try again');
   active++;
+  // The optional AAC packet scan shares the original two-process 30-second
+  // total budget; it does not add another unbounded validation stage.
+  const deadline = Date.now() + 30_000;
   let directory: string | undefined;
   try {
     directory = await mkdtemp(join(tmpdir(), 'playqube-voice-'));
@@ -133,12 +186,13 @@ export async function inspectVoiceContent(
             'error',
             ...restrictions,
             '-show_entries',
-            'format=format_name:stream=codec_name,codec_type,channels,sample_rate',
+            'format=format_name:stream=codec_name,codec_type,channels,sample_rate,time_base,profile',
             '-of',
             'json',
             input,
           ],
-          64 * 1024
+          64 * 1024,
+          deadline
         )
       ).toString()
     );
@@ -172,6 +226,30 @@ export async function inspectVoiceContent(
               : null;
     if (!kind || claimedMime.split(';')[0].trim().toLowerCase() !== kind[0])
       throw Error('Audio format mismatch');
+    let aac: AacTimeline | undefined;
+    if (codec === 'aac') {
+      const sampleRate = Number(stream.sample_rate);
+      if (stream.time_base !== `1/${sampleRate}`) throw Error('Unsupported AAC timebase');
+      aac = aacTimeline(
+        await run(
+          'ffprobe',
+          [
+            '-v',
+            'error',
+            ...restrictions,
+            '-show_entries',
+            'packet=pts,dts,duration',
+            '-of',
+            'csv=p=0',
+            input,
+          ],
+          (MAX_SAMPLES + SAMPLE_RATE) * 2,
+          deadline
+        ),
+        sampleRate,
+        stream.profile
+      );
+    }
     const decoded = await run(
       'ffmpeg',
       [
@@ -205,9 +283,14 @@ export async function inspectVoiceContent(
         'framecrc',
         'pipe:1',
       ],
-      (MAX_SAMPLES + SAMPLE_RATE) * 2
+      (MAX_SAMPLES + SAMPLE_RATE) * 2,
+      deadline
     );
-    return { mimeType: kind[0], extension: kind[1], duration: decodedDuration(decoded, codec) };
+    return {
+      mimeType: kind[0],
+      extension: kind[1],
+      duration: decodedDuration(decoded, codec, aac),
+    };
   } catch {
     throw ApiError.badRequest('Invalid recording: use supported audio of at most 300 seconds');
   } finally {

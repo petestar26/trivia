@@ -184,6 +184,12 @@ it.each([
   expect(m.upload).toHaveBeenCalledOnce();
   expect(m.voice.mock.calls[0][0].data.duration).toBe(300);
 });
+it.each([300.001, 300.01])(
+  'rejects %s-second AAC playback even when its excess is smaller than a codec frame',
+  async (seconds) => {
+    await rejectsBeforeStorage(audio(seconds, 'mp4'), 'audio/mp4');
+  }
+);
 it('rejects a well-formed but unsupported WAV recording', async () => {
   await expect(send(audio(1, 'wav'), 'audio/wav')).rejects.toThrow();
   expect(m.upload).not.toHaveBeenCalled();
