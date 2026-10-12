@@ -127,6 +127,27 @@ it('checks the actual session at runtime and rejects drift after setup', async (
     }
   }));
 
+it.each(['api', 'worker'] as const)('refuses %s authority through a definer in another schema', async (kind) =>
+  roles(async (a, w, m) => {
+    const { verifyNumberAccessReadOnly } = await import('../../scripts/number-runtime-grants.js');
+    const rollback = new Error('fixture rollback');
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`CREATE SCHEMA "${m}"`);
+        await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${m}" TO PUBLIC`);
+        const body = kind === 'api'
+          ? 'UPDATE public.number_timed_rounds SET target=50 WHERE target IS NULL'
+          : 'UPDATE public.wallets SET "coinsBalance"="coinsBalance"+1';
+        await tx.$executeRawUnsafe(`CREATE FUNCTION "${m}".escalate() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS '${body}'`);
+        // PUBLIC EXECUTE is PostgreSQL's default, even outside the public schema.
+        await expect(verifyNumberAccessReadOnly(tx, kind === 'api' ? a : w, kind)).rejects.toThrow('NUMBER_RUNTIME_GRANTS_INVALID');
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }));
+
 it('a failed setup rolls back every grant it attempted', async () =>
   roles(async (a, w) => {
     await db.$executeRawUnsafe(`REVOKE SELECT ON number_practice_rounds FROM "${a}"`);

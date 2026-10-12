@@ -102,7 +102,8 @@ export async function verifyNumberAccessReadOnly(
   const routines = await db.$queryRaw<{ name: string }[]>`
     SELECT p.oid::regprocedure::text AS name FROM pg_proc p
     CROSS JOIN unnest(${subjects}::text[]) s(subject)
-    WHERE p.pronamespace='public'::regnamespace AND p.prosecdef
+    WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace,'information_schema'::regnamespace)
+      AND p.prosecdef AND has_schema_privilege(s.subject,p.pronamespace,'USAGE')
       AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')
       AND has_function_privilege(s.subject,p.oid,'EXECUTE')
