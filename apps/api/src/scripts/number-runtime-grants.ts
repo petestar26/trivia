@@ -101,13 +101,16 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
         UNION
         -- Referential actions run the referencing table's writes as its owner;
         -- the original caller need not hold any permission on that table.
-        -- Partition movement remains a referential UPDATE: its synthetic row
-        -- DELETE does not invoke ON DELETE actions on referencing tables.
+        -- From PostgreSQL 15, partition movement remains a referential UPDATE;
+        -- older servers run ON DELETE actions from the source partition.
+        -- Child statement triggers are reached only through those real FK
+        -- writes, never directly from the synthetic partition row events.
         SELECT fk.conrelid,CASE WHEN w.event=8 AND fk.confdeltype='c' THEN 8 ELSE 16 END,
           CASE WHEN w.event=8 AND fk.confdeltype='c' THEN NULL ELSE child.attname::text END,false
           FROM pg_constraint fk JOIN pg_attribute child ON child.attrelid=fk.conrelid
             AND child.attnum=ANY(fk.conkey)
-          WHERE NOT w.row_only AND fk.contype='f' AND fk.confrelid=w.relation AND (
+          WHERE (NOT w.row_only OR pg_catalog.current_setting('server_version_num')::int<150000)
+            AND fk.contype='f' AND fk.confrelid=w.relation AND (
             (w.event=8 AND fk.confdeltype IN ('c','n','d'))
             OR (w.event=16 AND fk.confupdtype IN ('c','n','d') AND EXISTS (
               SELECT 1 FROM pg_attribute parent WHERE parent.attrelid=fk.confrelid

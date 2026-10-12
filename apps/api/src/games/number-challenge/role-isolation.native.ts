@@ -881,7 +881,7 @@ it('ordinary inheritance UPDATE does not imply child row INSERT/DELETE authority
     }
   }));
 
-it('partition movement uses FK UPDATE actions without implying FK DELETE actions', async () =>
+it('partition movement follows the server version’s actual FK actions at restricted login', async () =>
   partitionMovement(true, 'id', async ({ runtime, api, schema, move }) => {
     await db.$executeRawUnsafe(`ALTER TABLE public."${schema}" ADD PRIMARY KEY(id,lane)`);
     await db.$executeRawUnsafe(`CREATE TABLE "${schema}".referencing(id integer,lane integer,
@@ -899,15 +899,30 @@ it('partition movement uses FK UPDATE actions without implying FK DELETE actions
         child.oid
       )
     ).toEqual([{ direct: false }]);
-    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    const [{ version }] = await runtime.$queryRaw<{ version: number }[]>`
+      SELECT pg_catalog.current_setting('server_version_num')::int AS version`;
+    const legacyDelete = version < 150000;
+    const refusal = {
+      failures: expect.arrayContaining([expect.stringContaining(`${schema}.referencing.effect`)]),
+    };
+    if (legacyDelete)
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject(refusal);
+    else await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
     expect(await runtime.$executeRawUnsafe(move)).toBe(1);
-    expect(await db.$queryRawUnsafe(`SELECT id,lane FROM "${schema}".referencing`)).toEqual([
-      { id: 101, lane: 1 },
-    ]);
-    expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
-    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
-    // A genuine DELETE still reaches the same private statement trigger through
-    // ON DELETE CASCADE, even though UPDATE row movement did not invoke it.
+    expect(await db.$queryRawUnsafe(`SELECT id,lane FROM "${schema}".referencing`)).toEqual(
+      legacyDelete ? [] : [{ id: 101, lane: 1 }]
+    );
+    expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual(
+      legacyDelete ? [{ operation: 'DELETE' }] : []
+    );
+    if (legacyDelete)
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject(refusal);
+    else await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    // Establish the same valid fixture before testing a genuine DELETE on all
+    // supported versions. Only the owner repairs the legacy cascade's effect.
+    await db.$executeRawUnsafe(`DELETE FROM "${schema}".effect_log`);
+    if (legacyDelete)
+      await db.$executeRawUnsafe(`INSERT INTO "${schema}".referencing VALUES(101,1)`);
     await db.$executeRawUnsafe(`GRANT DELETE ON public."${schema}" TO "${api}"`);
     await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject({
       failures: expect.arrayContaining([expect.stringContaining(`${schema}.referencing.effect`)]),
