@@ -39,16 +39,24 @@ export async function verifyNumberAccessReadOnly(
   const { subjects, failures } = await runtimeRoleSubjectsReadOnly(db, role);
   const privileges = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER', 'REFERENCES'];
   const rows = await db.$queryRaw<
-    { subject: string; table: string; privilege: string; column: string | null }[]
+    {
+      subject: string;
+      schema: string;
+      kind: string;
+      table: string;
+      privilege: string;
+      column: string | null;
+    }[]
   >`
-    SELECT s.subject,c.relname::text AS table,p.privilege,a.attname::text AS column
+    SELECT s.subject,n.nspname::text AS schema,c.relkind::text AS kind,c.relname::text AS table,p.privilege,a.attname::text AS column
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     CROSS JOIN unnest(${subjects}::text[]) s(subject)
     CROSS JOIN unnest(${privileges}::text[]) p(privilege)
     LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
       AND p.privilege IN ('SELECT','INSERT','UPDATE','REFERENCES')
-    WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
-      AND (${kind}='worker' OR c.relname IN ('number_practice_rounds','number_timed_rounds','number_timed_entries'))
+    WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_%'
+      AND c.relkind IN ('r','p','v','m','f')
+      AND (${kind}='worker' OR n.nspname<>'public' OR c.relkind IN ('v','m','f') OR c.relname IN ('number_practice_rounds','number_timed_rounds','number_timed_entries'))
       AND CASE WHEN a.attname IS NULL THEN has_table_privilege(s.subject,c.oid,p.privilege)
         ELSE has_column_privilege(s.subject,c.oid,a.attnum,p.privilege) END`;
   for (const row of rows) {
@@ -58,20 +66,26 @@ export async function verifyNumberAccessReadOnly(
         'house_publication_requests',
         'house_publication_receipts',
       ].includes(row.table) && row.privilege === 'SELECT';
+    // Unreviewed views can expose their owner's table authority, even when the
+    // runtime role has no rights on the underlying public table.
     const allowed =
-      publicProof ||
-      (row.subject !== 'public' &&
-        (kind === 'worker'
-          ? row.table === 'number_timed_rounds' &&
-            (['SELECT', 'INSERT'].includes(row.privilege) ||
-              (row.privilege === 'UPDATE' && row.column === 'target'))
-          : row.privilege === 'SELECT' ||
-            (row.table === 'number_timed_entries' && row.privilege === 'INSERT') ||
-            (row.table === 'number_timed_rounds' &&
-              row.privilege === 'UPDATE' &&
-              row.column === 'id')));
+      row.schema === 'public' &&
+      !['v', 'm', 'f'].includes(row.kind) &&
+      (publicProof ||
+        (row.subject !== 'public' &&
+          (kind === 'worker'
+            ? row.table === 'number_timed_rounds' &&
+              (['SELECT', 'INSERT'].includes(row.privilege) ||
+                (row.privilege === 'UPDATE' && row.column === 'target'))
+            : row.privilege === 'SELECT' ||
+              (row.table === 'number_timed_entries' && row.privilege === 'INSERT') ||
+              (row.table === 'number_timed_rounds' &&
+                row.privilege === 'UPDATE' &&
+                row.column === 'id'))));
     if (!allowed)
-      failures.push(`${row.subject}: ${row.privilege} ${row.table}.${row.column ?? '*'}`);
+      failures.push(
+        `${row.subject}: ${row.privilege} ${row.schema}.${row.table}.${row.column ?? '*'}`
+      );
   }
   const unsafeSchemas = await db.$queryRaw<{ name: string }[]>`
     SELECT n.nspname::text AS name FROM pg_namespace n CROSS JOIN unnest(${subjects}::text[]) s(subject)

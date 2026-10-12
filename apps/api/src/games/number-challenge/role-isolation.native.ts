@@ -127,7 +127,12 @@ it('checks the actual session at runtime and rejects drift after setup', async (
     }
   }));
 
-it.each(['api', 'worker'] as const)('refuses %s authority through a definer in another schema', async (kind) =>
+it.each([
+  ['api', 'function'],
+  ['worker', 'function'],
+  ['api', 'view'],
+  ['worker', 'view'],
+] as const)('refuses %s authority through a %s in another schema', async (kind, object) =>
   roles(async (a, w, m) => {
     const { verifyNumberAccessReadOnly } = await import('../../scripts/number-runtime-grants.js');
     const rollback = new Error('fixture rollback');
@@ -135,18 +140,32 @@ it.each(['api', 'worker'] as const)('refuses %s authority through a definer in a
       await db.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`CREATE SCHEMA "${m}"`);
         await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${m}" TO PUBLIC`);
-        const body = kind === 'api'
-          ? 'UPDATE public.number_timed_rounds SET target=50 WHERE target IS NULL'
-          : 'UPDATE public.wallets SET "coinsBalance"="coinsBalance"+1';
-        await tx.$executeRawUnsafe(`CREATE FUNCTION "${m}".escalate() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS '${body}'`);
-        // PUBLIC EXECUTE is PostgreSQL's default, even outside the public schema.
-        await expect(verifyNumberAccessReadOnly(tx, kind === 'api' ? a : w, kind)).rejects.toThrow('NUMBER_RUNTIME_GRANTS_INVALID');
+        if (object === 'function') {
+          const body =
+            kind === 'api'
+              ? 'UPDATE public.number_timed_rounds SET target=50 WHERE target IS NULL'
+              : 'UPDATE public.wallets SET "coinsBalance"="coinsBalance"+1';
+          // PUBLIC EXECUTE is PostgreSQL's default, even outside the public schema.
+          await tx.$executeRawUnsafe(
+            `CREATE FUNCTION "${m}".escalate() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS '${body}'`
+          );
+        } else {
+          const table = kind === 'api' ? 'number_timed_rounds' : 'wallets';
+          await tx.$executeRawUnsafe(`CREATE VIEW "${m}".bridge AS SELECT * FROM public.${table}`);
+          await tx.$executeRawUnsafe(
+            `GRANT SELECT,UPDATE ON "${m}".bridge TO "${kind === 'api' ? a : w}"`
+          );
+        }
+        await expect(verifyNumberAccessReadOnly(tx, kind === 'api' ? a : w, kind)).rejects.toThrow(
+          'NUMBER_RUNTIME_GRANTS_INVALID'
+        );
         throw rollback;
       });
     } catch (error) {
       if (error !== rollback) throw error;
     }
-  }));
+  })
+);
 
 it('a failed setup rolls back every grant it attempted', async () =>
   roles(async (a, w) => {
@@ -157,4 +176,23 @@ it('a failed setup rolls back every grant it attempted', async () =>
     const before = await snapshot();
     await expect(grantNumberRuntimeTables(db, a, w, true)).rejects.toThrow();
     expect(await snapshot()).toEqual(before);
+  }));
+
+it('refuses an API grant on an updatable public view of the draw table', async () =>
+  roles(async (a, w, m) => {
+    const rollback = new Error('fixture rollback');
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          `CREATE VIEW public."${m}" AS SELECT * FROM public.number_timed_rounds`
+        );
+        await tx.$executeRawUnsafe(`GRANT SELECT,UPDATE ON public."${m}" TO "${a}"`);
+        await expect(
+          grantNumberRuntimeTables(tx as unknown as PrismaClient, a, w, false)
+        ).rejects.toThrow('NUMBER_RUNTIME_GRANTS_INVALID');
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
   }));
