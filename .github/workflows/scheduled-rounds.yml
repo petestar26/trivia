@@ -282,11 +282,6 @@ jobs:
           src/ledger/ledger-integrity-guards.contract.test.ts
           src/ledger/ledger-authorization-guards.contract.test.ts
           src/ledger/flows.contract.test.ts
-      - name: Complete API regression suite (PG16)
-        if: matrix.version == 16
-        env:
-          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
-        run: pnpm --filter api exec vitest run --exclude src/ledger/ledger-upgrade.migration.test.ts --maxWorkers=1 --minWorkers=1
       - name: Runtime role isolation and real HTTP source execution
         env:
           TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
@@ -380,3 +375,59 @@ jobs:
         run: pnpm --filter web test:pwa
       - name: First-party gateway and WebSocket contracts
         run: pnpm --filter web test:gateway
+
+  api-regression:
+    name: Complete API regression (isolated PG16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-api-ci-password
+          POSTGRES_DB: playqube_scheduled_throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:isolated-api-ci-password@127.0.0.1:5432/playqube_scheduled_throwaway?schema=public
+      TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+      SCHEDULED_NATIVE_DB_ACK: throwaway
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      JWT_ACCESS_SECRET: disposable-api-ci-access-secret
+      JWT_REFRESH_SECRET: disposable-api-ci-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pinned workspace dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+      - name: Install bounded voice decoder
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Build workspace packages and API
+        run: pnpm build:packages && pnpm --filter api build
+      - name: Fresh migration deployment
+        run: pnpm --filter database exec prisma migrate deploy
+      - name: Generate disposable ledger test keys
+        run: |
+          python3 - <<'PYKEYS'
+          import os, secrets
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              for name in ('SECURITY_TOTP_ENCRYPTION_KEY', 'LEDGER_APPROVAL_SIGNING_KEY'):
+                  env.write(name + '=' + secrets.token_hex(32) + '\n')
+              env.write('LEDGER_APPROVAL_KEY_ID=primary\n')
+          PYKEYS
+      - name: Complete API regression suite
+        run: pnpm --filter api exec vitest run --exclude src/ledger/ledger-upgrade.migration.test.ts --maxWorkers=1 --minWorkers=1
