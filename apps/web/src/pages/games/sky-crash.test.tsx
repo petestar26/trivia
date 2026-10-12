@@ -754,10 +754,11 @@ it('preserves the live graph and draft through every expanded-view exit', async 
     fireEvent.click(toggle);
     const expanded = screen.getByRole('dialog', { name: 'Sky Crash expanded view' });
     expect(within(expanded).getByRole('region', { name: 'Live flight arena' })).toBe(graph);
+    expect(within(expanded).getByRole('heading', { name: 'Choose your bet' })).toBeInTheDocument();
+    expect(within(expanded).getByRole('button', { name: /Confirm ticket/ })).toBe(confirm);
     expect(graph.querySelector('svg')).toBe(drawing);
-    expect(confirm.closest('[inert]')).not.toBeNull();
+    expect(confirm.closest('[inert]')).toBeNull();
     expect(history.closest('[inert]')).not.toBeNull();
-    fireEvent.click(confirm);
     expect(post).not.toHaveBeenCalled();
     fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Sky Crash view' }));
     expect(toggle).toHaveFocus();
@@ -796,16 +797,14 @@ it('keeps a saved ticket locked and retries its exact payload after expanded vie
   expect(amount).toBeDisabled();
   expect(target).toBeDisabled();
   fireEvent.click(retry);
-  expect(post).not.toHaveBeenCalled();
+  await waitFor(() =>
+    expect(post.mock.calls[0]?.slice(0, 2)).toEqual(['/games/sky-crash/tickets', receipt])
+  );
   expect(readSkyCrashReceipt('u1')).toEqual(receipt);
   fireEvent.keyDown(document, { key: 'Escape' });
   expect(screen.getByLabelText('Bet amount')).toBeDisabled();
   expect(screen.getByLabelText('Auto cash-out multiplier')).toBeDisabled();
   expect(readSkyCrashReceipt('u1')).toEqual(receipt);
-  fireEvent.click(screen.getByRole('button', { name: 'Retry saved ticket' }));
-  await waitFor(() =>
-    expect(post.mock.calls[0]?.slice(0, 2)).toEqual(['/games/sky-crash/tickets', receipt])
-  );
 });
 
 it('shows a concise unentered result and Done restores its history opener', async () => {

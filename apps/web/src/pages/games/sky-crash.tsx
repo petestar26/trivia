@@ -661,7 +661,7 @@ function SkyCrash({
             }}
           >
             <section
-              className={`sky-arena ${crashed ? 'crashed' : ''}`}
+              className={`sky-arena ${crashed ? 'crashed' : cents >= 200 ? 'sky-arena--altitude' : ''}`}
               aria-label="Live flight arena"
             >
               <div className="sky-arena-top">
@@ -799,25 +799,25 @@ function SkyCrash({
                 </svg>
               </div>
             </section>
-          </GameArena>
-          <section id="sky-betting" className="sky-betting" aria-labelledby="sky-betting-title">
-            <div className="sky-betting-heading">
-              <div>
-                <h2 id="sky-betting-title" tabIndex={-1} ref={betHeading}>
-                  Choose your bet
-                </h2>
-                <p>
-                  {raw?.maxTickets === 2 ? 'Up to two tickets' : 'One ticket'} per round · Confirm
-                  during the 15-second entry window.
-                </p>
+            <section id="sky-betting" className="sky-betting" aria-labelledby="sky-betting-title">
+              <div className="sky-betting-heading">
+                <div>
+                  <h2 id="sky-betting-title" tabIndex={-1} ref={betHeading}>
+                    Choose your bet
+                  </h2>
+                  <p>
+                    {raw?.maxTickets === 2 ? 'Up to two tickets' : 'One ticket'} per round · Confirm
+                    during the 15-second entry window.
+                  </p>
+                </div>
+                <span>Practice credits</span>
               </div>
-              <span>Practice credits</span>
-            </div>
-            <div className="sky-dual-controls">
-              {controls}
-              {raw?.maxTickets === 2 && <SkyCrash userId={userId} slot={2} controlsOnly />}
-            </div>
-          </section>
+              <div className="sky-dual-controls">
+                {controls}
+                {raw?.maxTickets === 2 && <SkyCrash userId={userId} slot={2} controlsOnly />}
+              </div>
+            </section>
+          </GameArena>
         </div>
         <aside className="sky-activity" aria-label="Your round activity">
           <div className="sky-activity-tabs" role="group" aria-label="Activity view">
