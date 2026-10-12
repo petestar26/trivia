@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/scheduled-rounds.yml'
+      - 'railpack.json'
       - 'apps/api/src/crypto-payments/**'
       - 'apps/api/src/scripts/crypto-payment-worker.ts'
       - 'apps/api/vitest.crypto.config.ts'
@@ -149,7 +150,7 @@ jobs:
       matrix:
         version: [13, 16, 18]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:${{ matrix.version }}
@@ -183,6 +184,8 @@ jobs:
           corepack enable
           corepack prepare pnpm@8.15.9 --activate
           pnpm install --frozen-lockfile
+      - name: Install bounded voice decoder
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Build workspace packages
         run: pnpm build:packages
       - name: Check API shared declaration boundary
@@ -207,7 +210,7 @@ jobs:
         run: |
           pnpm --filter @socialplay/shared exec vitest run src/number-challenge.test.ts src/number-timed.test.ts --minWorkers=1 --maxWorkers=1
           pnpm --filter api exec vitest run --config vitest.number-challenge.config.ts
-          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/number-challenge/number.native.ts src/games/number-challenge/timed.native.ts
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/number-challenge/number.native.ts src/games/number-challenge/timed.native.ts src/games/number-challenge/role-isolation.native.ts
       - name: Group PVP concurrency and recovery
         run: pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/virtual-football/football.native.ts src/games/thunder-derby/derby.native.ts src/games/sky-crash/sky-crash.native.ts src/games/crash-point/crash-point.native.ts src/games/group-pvp/group-pvp.native.ts src/games/group-pvp/system-keno.native.ts src/games/group-pvp/system-dice.native.ts src/gift-collection/gifts.native.ts src/groups/social.native.ts src/agents/admin-account.native.ts src/agents/payment-readiness.native.ts src/economy/reward-coins.native.ts
       - name: Crypto payment receipt, ledger and concurrency contracts
@@ -279,6 +282,15 @@ jobs:
           src/ledger/ledger-integrity-guards.contract.test.ts
           src/ledger/ledger-authorization-guards.contract.test.ts
           src/ledger/flows.contract.test.ts
+      - name: Complete API regression suite (PG16)
+        if: matrix.version == 16
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: pnpm --filter api exec vitest run --exclude src/ledger/ledger-upgrade.migration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Runtime role isolation and real HTTP source execution
+        env:
+          TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+        run: pnpm --filter api exec vitest run src/ledger/runtime-role.contract.test.ts --maxWorkers=1 --minWorkers=1
       - name: Fresh and populated migration regression
         run: >-
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts

@@ -52,6 +52,7 @@ it('enforces shared deadlines, isolated runtime roles, concurrent admission and 
       await db.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`);
     }
     await db.$executeRawUnsafe(`GRANT SELECT,UPDATE(id) ON users TO "${apiRole}"`);
+    await db.$executeRawUnsafe('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
     await grantNumberRuntimeTables(db, apiRole, workerRole);
     for (const role of [apiRole, workerRole]) {
       const u = new URL(source!);

@@ -8,10 +8,12 @@ export function hasSessionCookie(request: FastifyRequest): boolean {
 export function isBrowserAuthRequest(request: FastifyRequest): boolean {
   return hasSessionCookie(request) || request.headers.origin !== undefined || request.headers['sec-fetch-site'] !== undefined;
 }
-export function requireCookieOrigin(request: FastifyRequest): void {
-  const origin = request.headers.origin;
+export function isTrustedOrigin(origin: string | undefined): boolean {
   const trusted = [new URL(config.FRONTEND_URL).origin, ...config.CORS_ORIGIN.split(',').map(v => v.trim())];
-  if (!origin || origin === 'null' || origin === '*' || !trusted.includes(origin)) {
+  return !!origin && origin !== 'null' && origin !== '*' && trusted.includes(origin);
+}
+export function requireCookieOrigin(request: FastifyRequest): void {
+  if (!isTrustedOrigin(request.headers.origin)) {
     throw ApiError.forbidden('Untrusted session origin');
   }
 }

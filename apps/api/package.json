@@ -19,7 +19,7 @@
     "test:economics": "vitest run --config vitest.economics.config.ts",
     "test:scheduled-practice": "vitest run --config vitest.scheduled-practice.config.ts",
     "worker:scheduled-practice": "tsx src/scripts/scheduled-practice-worker.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "typecheck:shared-boundary": "node scripts/check-shared-types.mjs",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",

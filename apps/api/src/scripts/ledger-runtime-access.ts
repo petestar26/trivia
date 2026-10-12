@@ -385,6 +385,15 @@ async function deniedPrivileges(tx: Tx, role: string, holders: Subject[], schema
     .map(({ subject, failure }) => failure(how.get(subject)!));
 }
 
+/** Shared role graph and owner/attribute checks for narrowly scoped workers. */
+export async function runtimeRoleSubjectsReadOnly(tx: Tx, role: string) {
+  const reached = await reachableRoles(tx, role);
+  return {
+    failures: reached[0]?.name !== role ? ['runtime role is not installed'] : await unsafeRoles(tx, role, reached),
+    subjects: [...subjectsOf(role, reached).map(s => s.name), 'public'],
+  };
+}
+
 /** The same runtime trust checks as owner-run setup, without installing a key or changing grants. */
 export async function verifyRuntimeAccessReadOnly(tx: Tx, role: string): Promise<string[]> {
   const reached = await reachableRoles(tx, role);

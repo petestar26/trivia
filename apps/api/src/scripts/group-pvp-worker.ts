@@ -1,3 +1,4 @@
+import { verifyNumberRuntimeIdentity } from './number-runtime-grants.js';
 import { PrismaClient } from '@prisma/client';
 import { numberWorkerTarget } from './number-worker-target.js';
 import { createNumberTimedService } from '../games/number-challenge/timed-service.js';
@@ -24,6 +25,10 @@ process.once('SIGINT', () => {
   stopped = true;
 });
 try {
+  if (numberDb) {
+    await verifyNumberRuntimeIdentity(prisma, 'api');
+    await verifyNumberRuntimeIdentity(numberDb, 'worker');
+  }
   await runGroupWorkerLoops({
     enabled: enabledGroupWorkers(process.env),
     stopped: () => stopped,

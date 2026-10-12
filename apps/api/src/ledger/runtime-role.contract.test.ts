@@ -44,6 +44,7 @@ import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { applyRuntimeAccess } from '../scripts/ledger-runtime-access.js';
+import { historicalWagerFixture } from '../test/historical-wager-fixture.js';
 import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
@@ -1091,7 +1092,7 @@ describe('8. the older SECURITY DEFINER guards never run a planted operator with
       return played;
     }, { ...options, timeout: 120_000 })) as never);
     try {
-      return await playGame({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
+      return await historicalWagerFixture({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
     } finally {
       spy.mockRestore();
     }
@@ -2317,7 +2318,9 @@ describe('11. the setup checks every role the runtime role can become, and a ref
           expect(await accessSnapshot(), `${trustCase.name}, ${what}: the case leaves nothing behind`).toBe(initial);
         }
       }
-    });
+    // This matrix invokes multiple isolated setup CLIs. Its fixture cleanup
+    // must finish before Vitest starts the next privilege test under load.
+    }, 180_000);
 
     // The test server's owner is a superuser, so every trusted case above is
     // trusted twice over. ledger_role_is_trusted takes the owner as an

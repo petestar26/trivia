@@ -5,6 +5,13 @@ import type { CrashPointSnapshot, CrashPointActivity } from '@socialplay/shared'
 import { ApiError } from '../../middleware/api-error.js';
 import { crashCommitment, crashOutcome } from './math.js';
 type Tx = Prisma.TransactionClient;
+// Prisma can resolve an interactive callback after a deferred COMMIT rejection.
+// Surface both integrity constraints inside the callback so success means durable
+// admission/settlement. Keep deferred semantics for the next operation in this tx.
+async function flushCrashIntegrity(tx: Tx) {
+  await tx.$executeRaw`SET CONSTRAINTS public.crash_account_check, public.crash_ticket_check IMMEDIATE`;
+  await tx.$executeRaw`SET CONSTRAINTS public.crash_account_check, public.crash_ticket_check DEFERRED`;
+}
 interface Round {
   id: string;
   opens_at: Date;
@@ -80,6 +87,7 @@ export function createCrashPointService(db: PrismaClient) {
       const payout = Math.floor((t.stake * decision.paid) / 100);
       await tx.$executeRaw`UPDATE crash_point_tickets SET payout=${payout},paid_cents=${decision.paid},settled_at=${decision.at} WHERE id=${t.id}`;
       await tx.$executeRaw`UPDATE crash_point_accounts SET balance=balance+${payout} WHERE user_id=${userId}`;
+      await flushCrashIntegrity(tx);
       return { payout, paidCents: decision.paid };
     });
   }
@@ -192,6 +200,7 @@ export function createCrashPointService(db: PrismaClient) {
         throw ApiError.badRequest('Insufficient practice credits');
       await tx.$executeRaw`INSERT INTO crash_point_tickets(id,round_id,user_id,stake,auto_cents,slot) VALUES(${randomUUID()},${roundId},${userId},${input.stake},${input.autoCents},${slot})`;
       await tx.$executeRaw`UPDATE crash_point_accounts SET balance=balance-${input.stake} WHERE user_id=${userId}`;
+      await flushCrashIntegrity(tx);
       if ((await clock(tx)) >= r.starts_at)
         throw ApiError.conflict('Entry has closed for this round');
       return { accepted: true, isReplay: false };

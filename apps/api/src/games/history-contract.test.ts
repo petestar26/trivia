@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@socialplay/database';
 import { config } from '@socialplay/config';
+import { availableDiceContestFixture } from '../test/contest-rules-fixtures.js';
 import { buildServer } from '../server.js';
 import { executeBalanceChange, getOrCreateWallet } from '../economy/wallet-service.js';
 import { acceptChallenge, createChallenge, playChallengeTurn } from '../challenges/challenge-service.js';
@@ -19,6 +20,7 @@ const CONTRACT = JSON.parse(readFileSync(fileURLToPath(
   data: Record<string, unknown>[]; meta: Record<string, unknown>;
 };
 
+let restoreContest: (()=>Promise<void>) | undefined;
 let server: Awaited<ReturnType<typeof buildServer>>;
 const tag = randomUUID().replaceAll('-', '').slice(0, 10);
 
@@ -40,11 +42,13 @@ async function gamePoints(userId: string, amount: number) {
 }
 
 beforeAll(async () => {
+  restoreContest = await availableDiceContestFixture();
   server = await buildServer();
   await server.ready();
 });
 afterAll(async () => {
   if (server) await server.close();
+  await restoreContest?.();
   await prisma.$disconnect();
 });
 
@@ -67,12 +71,12 @@ describe('game history API contract with the web client', () => {
     ] });
     const now = Date.now();
     const competition = await createCompetition(b.id, {
-      groupId: group.id, gameKey: 'number_challenge', title: `History contract ${tag}`, entryAmount: 10,
+      groupId: group.id, gameKey: 'dice', title: `History contract ${tag}`, entryAmount: 10,
       startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 3_600_000).toISOString(),
     });
     await joinCompetition(a.id, competition.id);
-    await playCompetition(a.id, competition.id, { guess: 50 });
-    await playCompetition(a.id, competition.id, { guess: 60 });
+    await playCompetition(a.id, competition.id, {});
+    await playCompetition(a.id, competition.id, {});
 
     const token = server.jwt.sign({ sub: a.id, roles: ['USER'], username: a.username, email: a.email! });
     const response = await server.inject({

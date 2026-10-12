@@ -1,3 +1,5 @@
+import { prisma } from '@socialplay/database';
+import { verifyNumberRuntimeIdentity } from './scripts/number-runtime-grants.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
@@ -132,6 +134,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 
 async function start(): Promise<void> {
   try {
+    if (process.env.NUMBER_CHALLENGE_PRACTICE_ENABLED === 'true') await verifyNumberRuntimeIdentity(prisma, 'api');
     const server = await buildServer();
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);

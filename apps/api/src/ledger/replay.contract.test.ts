@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@socialplay/database';
+import { historicalWagerFixture } from '../test/historical-wager-fixture.js';
 import { playGame } from '../games/game-play.js';
 import { mintTestPurchasedCoins } from '../test/financial-policy-fixtures.js';
 import { activateTestPolicy, disableTestPolicy } from './test-policy-fixture.js';
@@ -81,7 +82,7 @@ describe('T12/I14: exact historical play replay', () => {
   it('returns its stored snapshot with zero writes after the current maximum bet falls', async () => {
     const { user } = await playableUser();
     const args = { userId: user.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key('lower-bound') };
-    const first = await playGame(args);
+    const first = await historicalWagerFixture(args);
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
     const before = await economicSnapshot(user.id);
     await prisma.gameDefinition.update({ where: { id: game.id }, data: { maxBet: 99 } });
@@ -97,7 +98,7 @@ describe('T12/I14: exact historical play replay', () => {
   it('returns its stored snapshot with zero writes after the game is no longer AVAILABLE', async () => {
     const { user } = await playableUser();
     const args = { userId: user.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key('retired') };
-    const first = await playGame(args);
+    const first = await historicalWagerFixture(args);
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
     const before = await economicSnapshot(user.id);
     await prisma.gameDefinition.update({ where: { id: game.id }, data: { catalogStatus: 'COMING_SOON' } });
@@ -114,7 +115,7 @@ describe('T12/I14: exact historical play replay', () => {
   it('returns its stored snapshot with zero writes after current mode changes', async () => {
     const { user } = await playableUser();
     const args = { userId: user.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key('mode-change') };
-    const first = await playGame(args);
+    const first = await historicalWagerFixture(args);
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { key: 'dice' } });
     const before = await economicSnapshot(user.id);
     await prisma.gameDefinition.update({ where: { id: game.id }, data: { catalogStatus: 'COMING_SOON', currentRulesVersion: null, mode: 'BONUS', wagerCurrency: null } });
@@ -131,7 +132,7 @@ describe('T12/I14: exact historical play replay', () => {
   it('returns its stored snapshot with zero writes after policy disable and account suspension', async () => {
     const { user, policy, countryCode } = await playableUser();
     const args = { userId: user.id, gameKey: 'dice', betAmount: 100, idempotencyKey: key('policy-off') };
-    const first = await playGame(args);
+    const first = await historicalWagerFixture(args);
     const before = await economicSnapshot(user.id);
     await disableTestPolicy(policy.id, countryCode);
     await prisma.user.update({ where: { id: user.id }, data: { status: 'SUSPENDED' } });
