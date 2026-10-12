@@ -880,3 +880,41 @@ it('ordinary inheritance UPDATE does not imply child row INSERT/DELETE authority
       await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     }
   }));
+
+it('partition movement uses FK UPDATE actions without implying FK DELETE actions', async () =>
+  partitionMovement(true, 'id', async ({ runtime, api, schema, move }) => {
+    await db.$executeRawUnsafe(`ALTER TABLE public."${schema}" ADD PRIMARY KEY(id,lane)`);
+    await db.$executeRawUnsafe(`CREATE TABLE "${schema}".referencing(id integer,lane integer,
+      FOREIGN KEY(id,lane) REFERENCES public."${schema}"(id,lane) ON UPDATE CASCADE ON DELETE CASCADE)`);
+    await db.$executeRawUnsafe(`INSERT INTO "${schema}".referencing VALUES(1,1)`);
+    await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER DELETE ON "${schema}".referencing
+      FOR EACH STATEMENT EXECUTE FUNCTION "${schema}".effect()`);
+    const [child] = await db.$queryRawUnsafe<{ oid: number }[]>(
+      `SELECT '"${schema}".referencing'::regclass::oid::int AS oid`
+    );
+    expect(
+      await runtime.$queryRawUnsafe(
+        `SELECT
+      has_table_privilege(current_user,$1::oid,'UPDATE,DELETE') AS direct`,
+        child.oid
+      )
+    ).toEqual([{ direct: false }]);
+    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    expect(await runtime.$executeRawUnsafe(move)).toBe(1);
+    expect(await db.$queryRawUnsafe(`SELECT id,lane FROM "${schema}".referencing`)).toEqual([
+      { id: 101, lane: 1 },
+    ]);
+    expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    // A genuine DELETE still reaches the same private statement trigger through
+    // ON DELETE CASCADE, even though UPDATE row movement did not invoke it.
+    await db.$executeRawUnsafe(`GRANT DELETE ON public."${schema}" TO "${api}"`);
+    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject({
+      failures: expect.arrayContaining([expect.stringContaining(`${schema}.referencing.effect`)]),
+    });
+    expect(await runtime.$executeRawUnsafe(`DELETE FROM public."${schema}" WHERE id=101`)).toBe(1);
+    expect(await db.$queryRawUnsafe(`SELECT id,lane FROM "${schema}".referencing`)).toEqual([]);
+    expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([
+      { operation: 'DELETE' },
+    ]);
+  }));
