@@ -105,9 +105,11 @@ it('checks the actual session at runtime and rejects drift after setup', async (
     const clients: PrismaClient[] = [];
     try {
       for (const name of [a, w]) {
-        await db.$executeRawUnsafe(`ALTER ROLE "${name}" LOGIN`);
+        const password = randomUUID();
+        await db.$executeRawUnsafe(`ALTER ROLE "${name}" LOGIN PASSWORD '${password}'`);
         const target = new URL(url);
         target.username = name;
+        target.password = password;
         clients.push(new PrismaClient({ datasourceUrl: target.toString(), log: [] }));
       }
       await expect(verifyNumberRuntimeIdentity(clients[0], 'api')).resolves.toBeUndefined();
