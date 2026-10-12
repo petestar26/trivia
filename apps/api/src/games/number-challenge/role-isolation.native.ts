@@ -224,3 +224,21 @@ it.each(['api', 'worker'] as const)('refuses %s authority through a temporary-ta
       if (error !== rollback) throw error;
     }
   }));
+
+const privilegedGuards = [
+  'game_rules_validate_parent', 'game_rules_immutable', 'game_sessions_validate_rules_snapshot',
+  'game_definitions_prevent_metadata_drift', 'coin_allocations_guard', 'coin_provenance_guard',
+];
+it.each(privilegedGuards)('does not let a draw worker attach privileged guard %s to its own table', async (guard) =>
+  roles(async (_a, w, m) => {
+    await expect(db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE "${w}"`);
+      await tx.$executeRawUnsafe(`CREATE TEMP TABLE "${m}"(id text) ON COMMIT DROP`);
+      await tx.$executeRawUnsafe(`CREATE TRIGGER leak BEFORE INSERT ON "${m}" FOR EACH ROW EXECUTE FUNCTION public.${guard}()`);
+    })).rejects.toThrow(/permission denied for function/);
+  }));
+it.each(['coin_allocations_guard', 'coin_provenance_guard'])('refuses restored worker EXECUTE on financial guard %s', async (guard) =>
+  roles(async (a, w) => {
+    await db.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION public.${guard}() TO "${w}"`);
+    await expect(grantNumberRuntimeTables(db, a, w, false)).rejects.toThrow('NUMBER_RUNTIME_GRANTS_INVALID');
+  }));

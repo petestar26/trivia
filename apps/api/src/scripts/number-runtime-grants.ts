@@ -93,21 +93,15 @@ export async function verifyNumberAccessReadOnly(
       AND has_schema_privilege(s.subject,n.oid,'CREATE')`;
   if (unsafeSchemas.length) failures.push('runtime can create trusted-schema objects');
   // Known audited SECURITY DEFINER entrypoints cannot draw Number results.
-  // Trigger functions can be attached to runtime-owned temporary tables. Only
-  // the audited guards below are safe: they validate rows without mutating
-  // owner tables. Extension functions have no application-table authority.
+  // Trigger functions can be attached to runtime-owned temporary tables and
+  // even validation-only guards can leak private data through their errors.
+  // They are not exempt. Extension functions have no application-table authority.
   // A newly executable definer function
   // must be reviewed explicitly instead of silently expanding this boundary.
   const safeFunctions = [
     'public.house_beacon_audit_page(text)',
     'public.house_public_spin_proof(text)',
     'public.house_round_randomness_failures()',
-    'public.game_rules_validate_parent()',
-    'public.game_rules_immutable()',
-    'public.game_sessions_validate_rules_snapshot()',
-    'public.game_definitions_prevent_metadata_drift()',
-    'public.coin_allocations_guard()',
-    'public.coin_provenance_guard()',
   ];
   const allowedApiFunctions = [
     'public.ledger_lock_economy_for_invariant_check()',
