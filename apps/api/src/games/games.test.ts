@@ -1418,6 +1418,17 @@ describeIf('Spin Win Coin settlement', () => {
     expect(new Set(rounds.map((round) => round.sessionId)).size).toBe(1);
     expect(rounds.filter((round) => !round.isReplay)).toHaveLength(1);
     expect((await getWalletBalance(user.id)).coinsBalance).toBe(99);
+    // Preserve the retired Dice concurrency test's exact economic-operation
+    // assertions on a supported settlement fixture; balance alone is insufficient.
+    expect(await prisma.gameSession.count({ where: { userId: user.id } })).toBe(1);
+    const operations = await prisma.economicOperation.findMany({
+      where: { userId: user.id, scopeType: 'GAME_SESSION', scopeId: rounds[0].sessionId },
+    });
+    expect(operations.filter((op) => op.type === 'WAGER')).toHaveLength(1);
+    expect(operations.filter((op) => op.type === 'PAYOUT')).toHaveLength(
+      rounds[0].rewardAmount > 0 ? 1 : 0
+    );
+    expect((await reconcileBalance(user.id)).coinsMatch).toBe(true);
   });
   it('rejects a mismatched ticket without ledger or session changes', async () => {
     const user = await createUser(`spin-invalid-${randomUUID().slice(0,8)}`);
