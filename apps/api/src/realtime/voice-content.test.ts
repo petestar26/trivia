@@ -27,6 +27,7 @@ vi.mock('@socialplay/storage', () => ({
   generateStorageKey: () => 'probe.ogg',
 }));
 import { createVoiceMessage } from './chat-service.js';
+import { validateOggOriginal } from './ogg-original.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'voice-regressions-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -34,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.upload.mockResolvedValue(undefined);
 });
-function audio(seconds: number, format = 'ogg') {
+function audio(seconds: number, format = 'ogg', oggCodec = 'libopus', metadata = '') {
   const path = join(dir, `voice-${seconds}.${format}`);
   execFileSync(
     'ffmpeg',
@@ -45,17 +46,19 @@ function audio(seconds: number, format = 'ogg') {
       '-f',
       'lavfi',
       '-i',
-      'anullsrc=r=48000:cl=mono',
+      `anullsrc=r=48000:cl=${oggCodec === 'vorbis' ? 'stereo' : 'mono'}`,
       '-t',
       String(seconds),
       '-c:a',
       ['ogg', 'webm'].includes(format)
-        ? 'libopus'
+        ? oggCodec
         : format === 'mp3'
           ? 'libmp3lame'
           : format === 'wav'
             ? 'pcm_s16le'
             : 'aac',
+      ...(oggCodec === 'vorbis' ? ['-strict', 'experimental'] : []),
+      ...(metadata ? ['-metadata', `comment=${metadata}`] : []),
       '-y',
       path,
     ],
@@ -216,4 +219,183 @@ it('rejects an incomplete late audio packet despite a valid decoded prefix', asy
 
 it('rejects an abnormal negative initial timestamp before storage', async () => {
   await rejectsBeforeStorage(timestampedAudio('PTS-0.5/TB'));
+});
+
+function oggPages(file: Buffer) {
+  const pages: Array<{ offset: number; end: number }> = [];
+  for (let offset = 0; offset < file.length;) {
+    const segments = file[offset + 26];
+    let end = offset + 27 + segments;
+    for (let i = 0; i < segments; i++) end += file[offset + 27 + i];
+    pages.push({ offset, end });
+    offset = end;
+  }
+  return pages;
+}
+
+// Independent bit-at-a-time CRC implementation for fixture mutations. Rebuild
+// integrity after semantic mutations so rejection cannot rely on checksum alone.
+function setOggChecksum(file: Buffer, offset = 0, end = file.length) {
+  file.writeUInt32LE(0, offset + 22);
+  let checksum = 0;
+  for (let byte = offset; byte < end; byte++) {
+    checksum ^= file[byte] << 24;
+    for (let bit = 0; bit < 8; bit++)
+      checksum = (checksum << 1) ^ (checksum & 0x80000000 ? 0x04c11db7 : 0);
+  }
+  file.writeUInt32LE(checksum >>> 0, offset + 22);
+  return file;
+}
+
+function syntheticOggPage(sequence: number, flags: number, segments: number[], serial = 1) {
+  const file = Buffer.alloc(27 + segments.length + segments.reduce((sum, n) => sum + n, 0));
+  file.write('OggS');
+  file[5] = flags;
+  file.writeUInt32LE(serial, 14);
+  file.writeUInt32LE(sequence, 18);
+  file[26] = segments.length;
+  file.set(segments, 27);
+  return setOggChecksum(file);
+}
+
+function mutateOggPage(
+  original: Buffer,
+  page: number,
+  mutate: (file: Buffer, offset: number) => void
+) {
+  const copy = Buffer.from(original),
+    { offset, end } = oggPages(copy)[page];
+  mutate(copy, offset);
+  return setOggChecksum(copy, offset, end);
+}
+
+it('independent re-review: truncated Ogg final packet is rejected before storage', async () => {
+  const original = audio(4, 'ogg');
+  const last = oggPages(original).at(-1)!.offset;
+  expect(last).toBeGreaterThan(100);
+  expect(original[last + 5] & 4).toBe(4);
+  await rejectsBeforeStorage(original.subarray(0, original.length - 5), 'audio/ogg');
+});
+
+it.each(['libopus', 'vorbis'])('preserves valid Ogg %s originals', async (codec) => {
+  const file = audio(1, 'ogg', codec);
+  await send(file);
+  expect(m.upload).toHaveBeenCalledOnce();
+  expect(m.upload.mock.calls[0][0].file).toBe(file);
+  expect(m.voice.mock.calls[0][0].data.duration).toBeCloseTo(1, 1);
+});
+
+it('preserves the 300-second boundary for a valid Vorbis original', async () => {
+  await send(audio(300, 'ogg', 'vorbis'));
+  expect(m.upload).toHaveBeenCalledOnce();
+  expect(m.voice.mock.calls[0][0].data.duration).toBeCloseTo(300, 2);
+});
+
+it('rejects an over-300-second Vorbis original before any writes', async () => {
+  const file = audio(301, 'ogg', 'vorbis');
+  expect(file.length).toBeLessThan(5 * 1024 * 1024);
+  await rejectsBeforeStorage(file, 'audio/ogg');
+});
+
+it('preserves a valid Vorbis header packet continued across pages', async () => {
+  const file = audio(1, 'ogg', 'vorbis', 'x'.repeat(70000));
+  expect(oggPages(file).some(({ offset }) => (file[offset + 5] & 1) !== 0)).toBe(true);
+  await send(file);
+  expect(m.upload).toHaveBeenCalledOnce();
+});
+
+it.each(['fixed header', 'segment table', 'page body'])(
+  'rejects an Ogg truncated in its terminal %s before any writes',
+  async (part) => {
+    const file = audio(4),
+      last = oggPages(file).at(-1)!.offset;
+    const length =
+      part === 'fixed header' ? last + 20 : part === 'segment table' ? last + 27 : file.length - 1;
+    await rejectsBeforeStorage(file.subarray(0, length), 'audio/ogg');
+  }
+);
+
+it.each([
+  'missing EOS',
+  'early EOS',
+  'wrong sequence',
+  'wrong serial',
+  'unexpected continuation',
+  'second BOS',
+  'version',
+  'reserved flag',
+  'capture pattern',
+])('rejects Ogg %s even with a recomputed valid checksum', async (mutation) => {
+  const file = audio(4),
+    page = mutation === 'missing EOS' ? oggPages(file).length - 1 : 1;
+  const mutated = mutateOggPage(file, page, (copy, offset) => {
+    if (mutation === 'missing EOS') copy[offset + 5] &= ~4;
+    else if (mutation === 'early EOS') copy[offset + 5] |= 4;
+    else if (mutation === 'wrong sequence') copy.writeUInt32LE(9, offset + 18);
+    else if (mutation === 'wrong serial')
+      copy.writeUInt32LE((copy.readUInt32LE(offset + 14) ^ 1) >>> 0, offset + 14);
+    else if (mutation === 'unexpected continuation') copy[offset + 5] |= 1;
+    else if (mutation === 'second BOS') copy[offset + 5] |= 2;
+    else if (mutation === 'version') copy[offset + 4] = 1;
+    else if (mutation === 'capture pattern') copy[offset] ^= 1;
+    else copy[offset + 5] |= 8;
+  });
+  await rejectsBeforeStorage(mutated, 'audio/ogg');
+});
+
+it('rejects a real Vorbis packet with a missing continuation flag before any writes', async () => {
+  const file = audio(1, 'ogg', 'vorbis', 'x'.repeat(70000));
+  const continuedPage = oggPages(file).findIndex(({ offset }) => (file[offset + 5] & 1) !== 0);
+  expect(continuedPage).toBeGreaterThan(0);
+  await rejectsBeforeStorage(
+    mutateOggPage(file, continuedPage, (copy, offset) => {
+      copy[offset + 5] &= ~1;
+    }),
+    'audio/ogg'
+  );
+});
+
+it.each(['checksum', 'body'])(
+  'rejects Ogg malformed %s integrity before any writes',
+  async (part) => {
+    const file = Buffer.from(audio(4)),
+      last = oggPages(file).at(-1)!.offset;
+    file[part === 'checksum' ? last + 22 : file.length - 1] ^= 1;
+    await rejectsBeforeStorage(file, 'audio/ogg');
+  }
+);
+
+it('rejects an Ogg original with trailing bytes or a concatenated second stream', async () => {
+  const file = audio(1);
+  for (const tail of [Buffer.from('OggS'), audio(1)])
+    await rejectsBeforeStorage(Buffer.concat([file, tail]), 'audio/ogg');
+});
+
+it('validates continuation termination, including zero-length final segments and empty EOS', () => {
+  const first = syntheticOggPage(0, 2, [255]),
+    continued = syntheticOggPage(1, 1, [0]),
+    ending = syntheticOggPage(2, 4, []);
+  expect(() => validateOggOriginal(Buffer.concat([first, continued, ending]))).not.toThrow();
+  expect(() =>
+    validateOggOriginal(
+      Buffer.concat([first, syntheticOggPage(1, 0, []), syntheticOggPage(2, 5, [0])])
+    )
+  ).not.toThrow();
+  expect(() => validateOggOriginal(Buffer.concat([first, syntheticOggPage(1, 4, [0])]))).toThrow(
+    'continuation'
+  );
+  expect(() => validateOggOriginal(Buffer.concat([first, syntheticOggPage(1, 5, [255])]))).toThrow(
+    'terminal'
+  );
+  expect(() => validateOggOriginal(syntheticOggPage(0, 3, [0]))).toThrow('beginning');
+  expect(() => validateOggOriginal(syntheticOggPage(1, 6, [0]))).toThrow('sequence');
+});
+
+it('bounds Ogg scanning independently of decoder process limits', () => {
+  expect(() => validateOggOriginal(Buffer.alloc(0))).toThrow('size');
+  expect(() => validateOggOriginal(Buffer.alloc(5 * 1024 * 1024 + 1))).toThrow('size');
+  expect(() => validateOggOriginal(Buffer.from('OggS'))).toThrow('header');
+  const page = syntheticOggPage(0, 6, [1]);
+  page[27] = 255;
+  expect(() => validateOggOriginal(page)).toThrow('body');
 });

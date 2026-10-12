@@ -605,3 +605,278 @@ it('refuses a reused audited guard name with an altered privileged body', async 
       if (error !== rollback) throw error;
     }
   }));
+
+it('independent re-review: partition key UPDATE cannot bypass attached INSERT guard scan', async () =>
+  roles(async (a, w, m) => {
+    const runtime = await login(a);
+    try {
+      await db.$executeRawUnsafe(`CREATE SCHEMA "${m}"`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${m}".effect_log(value integer)`);
+      await db.$executeRawUnsafe(
+        `CREATE TABLE public."${m}"(id integer PRIMARY KEY) PARTITION BY RANGE(id)`
+      );
+      await db.$executeRawUnsafe(
+        `CREATE TABLE "${m}".p1 PARTITION OF public."${m}" FOR VALUES FROM (0) TO (100)`
+      );
+      await db.$executeRawUnsafe(
+        `CREATE TABLE "${m}".p2 PARTITION OF public."${m}" FOR VALUES FROM (100) TO (200)`
+      );
+      await db.$executeRawUnsafe(`INSERT INTO public."${m}" VALUES(1)`);
+      await db.$executeRawUnsafe(
+        `CREATE FUNCTION "${m}".effect() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS 'BEGIN INSERT INTO "${m}".effect_log VALUES(1); RETURN NEW; END'`
+      );
+      await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${m}".effect() FROM PUBLIC`);
+      await db.$executeRawUnsafe(
+        `CREATE TRIGGER effect AFTER INSERT ON "${m}".p2 FOR EACH ROW EXECUTE FUNCTION "${m}".effect()`
+      );
+      await db.$executeRawUnsafe(`GRANT SELECT, UPDATE(id) ON public."${m}" TO "${a}"`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toThrow(
+        'NUMBER_RUNTIME_GRANTS_INVALID'
+      );
+      await runtime.$executeRawUnsafe(`UPDATE public."${m}" SET id=101 WHERE id=1`);
+      expect(await db.$queryRawUnsafe(`SELECT * FROM "${m}".effect_log`)).toEqual([{ value: 1 }]);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toThrow(
+        'NUMBER_RUNTIME_GRANTS_INVALID'
+      );
+    } finally {
+      await runtime.$disconnect();
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS public."${m}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${m}" CASCADE`);
+    }
+  }));
+
+it.each(['owner', 'settings', 'attachment', 'body'])(
+  'independent re-review: all six audited guards reject changed %s',
+  async (mode) =>
+    roles(async (a, w, m) => {
+      const guards = [
+        ['coin_allocations', 'coin_allocations_guard', 'coin_allocations_guard'],
+        ['coin_provenance', 'coin_provenance_guard', 'coin_provenance_guard'],
+        [
+          'game_definitions',
+          'game_definitions_prevent_metadata_drift',
+          'game_definitions_prevent_metadata_drift',
+        ],
+        ['game_rules', 'game_rules_immutable', 'game_rules_immutable'],
+        ['game_rules', 'game_rules_insert_validate', 'game_rules_validate_parent'],
+        ['game_sessions', 'game_sessions_insert_validate', 'game_sessions_validate_rules_snapshot'],
+      ];
+      for (const [table, trigger, fn] of guards) {
+        const rollback = Error('rollback');
+        try {
+          await db.$transaction(
+            async (tx) => {
+              await tx.$executeRawUnsafe(`GRANT INSERT,UPDATE,DELETE ON public.${table} TO "${a}"`);
+              await verifyNumberAccessReadOnly(tx, a, 'api');
+              if (mode === 'owner')
+                await tx.$executeRawUnsafe(`ALTER FUNCTION public.${fn}() OWNER TO "${m}"`);
+              if (mode === 'settings')
+                await tx.$executeRawUnsafe(
+                  `ALTER FUNCTION public.${fn}() SET search_path TO public`
+                );
+              if (mode === 'attachment')
+                await tx.$executeRawUnsafe(
+                  `ALTER TABLE public.${table} ENABLE ALWAYS TRIGGER ${trigger}`
+                );
+              if (mode === 'body')
+                await tx.$executeRawUnsafe(
+                  `CREATE OR REPLACE FUNCTION public.${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS 'BEGIN RETURN NEW; END'`
+                );
+              await expect(verifyNumberAccessReadOnly(tx, a, 'api')).rejects.toMatchObject({
+                failures: expect.arrayContaining([expect.stringContaining(table + '.' + trigger)]),
+              });
+              throw rollback;
+            },
+            { timeout: 60000 }
+          );
+        } catch (e) {
+          if (e !== rollback) throw e;
+        }
+      }
+    })
+);
+
+async function partitionMovement(
+  nested: boolean,
+  key: 'id' | 'lane',
+  run: (fixture: {
+    runtime: PrismaClient;
+    api: string;
+    worker: string;
+    schema: string;
+    source: string;
+    destination: string;
+    move: string;
+  }) => Promise<void>
+) {
+  await roles(async (api, worker, schema) => {
+    const runtime = await login(api);
+    try {
+      await db.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".effect_log(operation text)`);
+      await db.$executeRawUnsafe(`CREATE TABLE public."${schema}"(id integer,lane integer,value integer)
+        PARTITION BY RANGE(id)`);
+      for (const [partition, lower, upper] of [
+        ['p1', 0, 100],
+        ['p2', 100, 200],
+      ] as const) {
+        await db.$executeRawUnsafe(`CREATE TABLE "${schema}".${partition} PARTITION OF public."${schema}"
+          FOR VALUES FROM (${lower}) TO (${upper}) ${nested ? 'PARTITION BY RANGE(lane)' : ''}`);
+        if (nested) {
+          await db.$executeRawUnsafe(`CREATE TABLE "${schema}".${partition}a PARTITION OF "${schema}".${partition}
+            FOR VALUES FROM (0) TO (10)`);
+          await db.$executeRawUnsafe(`CREATE TABLE "${schema}".${partition}b PARTITION OF "${schema}".${partition}
+            FOR VALUES FROM (10) TO (20)`);
+        }
+      }
+      await db.$executeRawUnsafe(`INSERT INTO public."${schema}" VALUES(1,1,0)`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".effect() RETURNS trigger LANGUAGE plpgsql
+        SECURITY DEFINER SET search_path=pg_catalog AS $body$
+          BEGIN INSERT INTO "${schema}".effect_log VALUES(TG_OP); RETURN NULL; END $body$`);
+      await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".effect() FROM PUBLIC`);
+      await db.$executeRawUnsafe(`GRANT SELECT,UPDATE(${key}) ON public."${schema}" TO "${api}"`);
+      const source = nested ? 'p1a' : 'p1';
+      const destination = nested ? (key === 'id' ? 'p2a' : 'p1b') : 'p2';
+      const [objects] = await db.$queryRawUnsafe<
+        { function: number; source: number; destination: number }[]
+      >(
+        `SELECT '"${schema}".effect()'::regprocedure::oid::int AS function,
+          '"${schema}".${source}'::regclass::oid::int AS source,
+          '"${schema}".${destination}'::regclass::oid::int AS destination`
+      );
+      expect(
+        await runtime.$queryRawUnsafe(
+          `SELECT
+        has_function_privilege(current_user,$1::oid,'EXECUTE') AS execute,
+        has_schema_privilege(current_user,$2,'USAGE') AS usage,
+        has_table_privilege(current_user,$3::oid,'INSERT,DELETE,UPDATE') AS source,
+        has_table_privilege(current_user,$4::oid,'INSERT,DELETE,UPDATE') AS destination,
+        has_table_privilege(current_user,$5,'INSERT,DELETE') AS parent`,
+          objects.function,
+          schema,
+          objects.source,
+          objects.destination,
+          `public."${schema}"`
+        )
+      ).toEqual([
+        { execute: false, usage: false, source: false, destination: false, parent: false },
+      ]);
+      await run({
+        runtime,
+        api,
+        worker,
+        schema,
+        source,
+        destination,
+        move: `UPDATE public."${schema}" SET ${key}=${key === 'id' ? 101 : 11} WHERE id=1`,
+      });
+    } finally {
+      await runtime.$disconnect();
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS public."${schema}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    }
+  });
+}
+
+it.each([
+  { event: 'INSERT', nested: false, key: 'id' },
+  { event: 'DELETE', nested: false, key: 'id' },
+  { event: 'INSERT', nested: true, key: 'id' },
+  { event: 'DELETE', nested: true, key: 'id' },
+  { event: 'INSERT', nested: true, key: 'lane' },
+  { event: 'DELETE', nested: true, key: 'lane' },
+] as const)(
+  'refuses partition movement $event (nested=$nested, key=$key) at actual login and atomically during setup',
+  async ({ event, nested, key }) =>
+    partitionMovement(
+      nested,
+      key,
+      async ({ runtime, api, worker, schema, source, destination, move }) => {
+        const child = event === 'INSERT' ? destination : source;
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER ${event} ON "${schema}".${child}
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+        const rejection = {
+          failures: expect.arrayContaining([expect.stringContaining(`${schema}.${child}.effect`)]),
+        };
+        await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject(rejection);
+        // Execute as the restricted LOGIN solely to establish the hidden trigger
+        // path in this disposable database; application startup has refused it.
+        expect(await runtime.$executeRawUnsafe(move)).toBe(1);
+        expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([
+          { operation: event },
+        ]);
+        await db.$executeRawUnsafe(`REVOKE SELECT ON number_practice_rounds FROM "${api}"`);
+        const snapshot = () => db.$queryRaw`SELECT c.relname,c.relacl::text AS acl,
+        ARRAY(SELECT a.attname||':'||coalesce(a.attacl::text,'') FROM pg_attribute a
+          WHERE a.attrelid=c.oid AND a.attnum>0 ORDER BY a.attnum) AS columns
+        FROM pg_class c WHERE c.relname IN ('number_practice_rounds','number_timed_rounds','number_timed_entries')
+        ORDER BY c.relname`;
+        const before = await snapshot();
+        await expect(grantNumberRuntimeTables(db, api, worker)).rejects.toMatchObject(rejection);
+        expect(await snapshot()).toEqual(before);
+      }
+    )
+);
+
+it.each([false, true])(
+  'partition movement (nested=%s) does not fire child statement INSERT/DELETE triggers',
+  async (nested) =>
+    partitionMovement(nested, 'id', async ({ runtime, schema, source, destination, move }) => {
+      for (const [child, event] of [
+        [source, 'DELETE'],
+        [destination, 'INSERT'],
+      ])
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER ${event} ON "${schema}".${child}
+          FOR EACH STATEMENT EXECUTE FUNCTION "${schema}".effect()`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      expect(await runtime.$executeRawUnsafe(move)).toBe(1);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    })
+);
+
+it.each([false, true])(
+  'non-key UPDATE (nested=%s) does not imply partition movement trigger authority',
+  async (nested) =>
+    partitionMovement(nested, 'id', async ({ runtime, api, schema, source, destination }) => {
+      for (const child of [source, destination])
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER INSERT OR DELETE ON "${schema}".${child}
+          FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      await db.$executeRawUnsafe(`REVOKE UPDATE(id) ON public."${schema}" FROM "${api}"`);
+      await db.$executeRawUnsafe(`GRANT UPDATE(value) ON public."${schema}" TO "${api}"`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      expect(
+        await runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`)
+      ).toBe(1);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+    })
+);
+
+it('ordinary inheritance UPDATE does not imply child row INSERT/DELETE authority', async () =>
+  roles(async (api, _worker, schema) => {
+    const runtime = await login(api);
+    try {
+      await db.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".effect_log(operation text)`);
+      await db.$executeRawUnsafe(`CREATE TABLE public."${schema}"(id integer)`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".child() INHERITS(public."${schema}")`);
+      await db.$executeRawUnsafe(`INSERT INTO "${schema}".child VALUES(1)`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".effect() RETURNS trigger LANGUAGE plpgsql
+        SECURITY DEFINER SET search_path=pg_catalog AS $body$
+          BEGIN INSERT INTO "${schema}".effect_log VALUES(TG_OP); RETURN NULL; END $body$`);
+      await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".effect() FROM PUBLIC`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER INSERT OR DELETE ON "${schema}".child
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      await db.$executeRawUnsafe(`GRANT SELECT,UPDATE(id) ON public."${schema}" TO "${api}"`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      expect(
+        await runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET id=101 WHERE id=1`)
+      ).toBe(1);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    } finally {
+      await runtime.$disconnect();
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS public."${schema}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    }
+  }));

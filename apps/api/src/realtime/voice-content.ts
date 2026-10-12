@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ApiError } from '../middleware/api-error.js';
+import { validateOggOriginal } from './ogg-original.js';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const SAMPLE_RATE = 8000;
@@ -226,6 +227,7 @@ export async function inspectVoiceContent(
               : null;
     if (!kind || claimedMime.split(';')[0].trim().toLowerCase() !== kind[0])
       throw Error('Audio format mismatch');
+    if (format === 'ogg') validateOggOriginal(file);
     let aac: AacTimeline | undefined;
     if (codec === 'aac') {
       const sampleRate = Number(stream.sample_rate);

@@ -66,8 +66,8 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
       sameOwner: boolean;
     }[]
   >`
-    WITH RECURSIVE writable(subject,relation,event,column_name) AS (
-      SELECT s.subject,c.oid,e.event,a.attname::text
+    WITH RECURSIVE writable(subject,relation,event,column_name,row_only) AS (
+      SELECT s.subject,c.oid,e.event,a.attname::text,false
       FROM pg_class c CROSS JOIN unnest(${subjects}::text[]) s(subject)
         CROSS JOIN unnest(ARRAY[4,8,16,32]) e(event)
         LEFT JOIN pg_attribute a ON e.event=16 AND a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
@@ -77,18 +77,32 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
         WHEN 16 THEN has_column_privilege(s.subject,c.oid,a.attnum,'UPDATE')
         WHEN 32 THEN has_table_privilege(s.subject,c.oid,'TRUNCATE') END
       UNION
-      SELECT w.subject,next.relation,next.event,next.column_name FROM writable w
+      SELECT w.subject,next.relation,next.event,next.column_name,next.row_only FROM writable w
       CROSS JOIN LATERAL (
         -- Parent DML also reaches partitions/inherited children without child
         -- ACLs. INSERT routing is limited to declaratively partitioned parents.
-        SELECT i.inhrelid AS relation,w.event,w.column_name
+        SELECT i.inhrelid AS relation,w.event,w.column_name,w.row_only
           FROM pg_inherits i JOIN pg_class parent ON parent.oid=i.inhparent
           WHERE i.inhparent=w.relation AND (w.event<>4 OR parent.relkind='p')
+            AND (NOT w.row_only OR parent.relkind='p')
+        UNION
+        -- Updating a partition key can move a row, firing DELETE on the
+        -- source and INSERT on the destination without either child ACL.
+        -- Route these row events through the complete partition subtree;
+        -- PostgreSQL does not fire child statement INSERT/DELETE triggers.
+        -- Expression keys conservatively depend on every writable column.
+        SELECT i.inhrelid,moved.event,NULL::text,true
+          FROM pg_partitioned_table pt JOIN pg_inherits i ON i.inhparent=pt.partrelid
+          CROSS JOIN unnest(ARRAY[4,8]) moved(event)
+          WHERE w.event=16 AND pt.partrelid=w.relation AND (
+            0=ANY(pt.partattrs::smallint[]) OR EXISTS (
+              SELECT 1 FROM pg_attribute key WHERE key.attrelid=pt.partrelid
+                AND key.attnum=ANY(pt.partattrs::smallint[]) AND key.attname=w.column_name))
         UNION
         -- Referential actions run the referencing table's writes as its owner;
         -- the original caller need not hold any permission on that table.
         SELECT fk.conrelid,CASE WHEN w.event=8 AND fk.confdeltype='c' THEN 8 ELSE 16 END,
-          CASE WHEN w.event=8 AND fk.confdeltype='c' THEN NULL ELSE child.attname::text END
+          CASE WHEN w.event=8 AND fk.confdeltype='c' THEN NULL ELSE child.attname::text END,false
           FROM pg_constraint fk JOIN pg_attribute child ON child.attrelid=fk.conrelid
             AND child.attnum=ANY(fk.conkey)
           WHERE fk.contype='f' AND fk.confrelid=w.relation AND (
@@ -110,6 +124,7 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
       JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
       JOIN pg_language l ON l.oid=p.prolang JOIN writable w ON w.relation=c.oid
     WHERE p.prosecdef AND t.tgenabled<>'D' AND (t.tgtype::int & w.event)<>0
+      AND (NOT w.row_only OR (t.tgtype::int & 1)<>0)
       AND (w.event<>16 OR cardinality(t.tgattr::smallint[])=0 OR EXISTS (
         SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum=ANY(t.tgattr::smallint[])
           -- UPDATE OF generated columns also fires when a dependency changes.
