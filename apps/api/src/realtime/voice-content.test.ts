@@ -72,6 +72,45 @@ const send = (file: Buffer, mimeType = 'audio/ogg', duration = 1) =>
     mimeType,
     duration,
   });
+function timestampedAudio(expression: string) {
+  audio(2, 'webm');
+  const path = join(dir, 'timestamped.webm');
+  execFileSync(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      join(dir, 'voice-2.webm'),
+      '-af',
+      `asetpts=${expression}`,
+      '-c:a',
+      'libopus',
+      '-avoid_negative_ts',
+      'disabled',
+      '-y',
+      path,
+    ],
+    { timeout: 15000 }
+  );
+  return readFileSync(path);
+}
+
+function temporaryInputs() {
+  return readdirSync(tmpdir())
+    .filter((name) => name.startsWith('playqube-voice-'))
+    .sort();
+}
+
+async function rejectsBeforeStorage(file: Buffer, mime = 'audio/webm') {
+  const before = temporaryInputs();
+  await expect(send(file, mime, 1)).rejects.toThrow('Invalid recording');
+  expect(m.upload).not.toHaveBeenCalled();
+  expect(m.message).not.toHaveBeenCalled();
+  expect(m.voice).not.toHaveBeenCalled();
+  expect(temporaryInputs()).toEqual(before);
+}
 it('rejects non-audio before storage or message writes', async () => {
   await expect(send(Buffer.from('this is not audio'))).rejects.toThrow();
   expect(m.upload).not.toHaveBeenCalled();
@@ -136,7 +175,39 @@ it.each([
   expect(m.upload).toHaveBeenCalledOnce();
   expect(m.voice.mock.calls[0][0].data.duration).toBeCloseTo(1, 1);
 });
+it.each([
+  ['webm', 'audio/webm'],
+  ['mp4', 'audio/mp4'],
+  ['mp3', 'audio/mpeg'],
+])('preserves the 300-second boundary for supported %s recordings', async (format, mime) => {
+  await send(audio(300, format), mime, 1);
+  expect(m.upload).toHaveBeenCalledOnce();
+  expect(m.voice.mock.calls[0][0].data.duration).toBe(300);
+});
 it('rejects a well-formed but unsupported WAV recording', async () => {
   await expect(send(audio(1, 'wav'), 'audio/wav')).rejects.toThrow();
   expect(m.upload).not.toHaveBeenCalled();
+});
+
+it('independent review: rejects a 602-second timestamp-gap recording', async () => {
+  const file = timestampedAudio('PTS+600/TB*gte(T\\,1)');
+  expect(file.length).toBeLessThan(5 * 1024 * 1024);
+  await rejectsBeforeStorage(file);
+});
+
+it('rejects a long initial timestamp before storage rather than normalizing it away', async () => {
+  await rejectsBeforeStorage(timestampedAudio('PTS+600/TB'));
+});
+
+it('rejects a shorter discontinuous playback timeline before storage', async () => {
+  await rejectsBeforeStorage(timestampedAudio('PTS+0.5/TB*gte(T\\,1)'));
+});
+
+it('rejects an incomplete late audio packet despite a valid decoded prefix', async () => {
+  const file = audio(2, 'webm');
+  await rejectsBeforeStorage(file.subarray(0, file.length - 5));
+});
+
+it('rejects an abnormal negative initial timestamp before storage', async () => {
+  await rejectsBeforeStorage(timestampedAudio('PTS-0.5/TB'));
 });
