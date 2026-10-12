@@ -196,3 +196,31 @@ it('refuses an API grant on an updatable public view of the draw table', async (
       if (error !== rollback) throw error;
     }
   }));
+
+it.each(['api', 'worker'] as const)('refuses %s authority through a temporary-table trigger', async (kind) =>
+  roles(async (a, w, m) => {
+    const { verifyNumberAccessReadOnly } = await import('../../scripts/number-runtime-grants.js');
+    const runtime = kind === 'api' ? a : w;
+    const rollback = new Error('fixture rollback');
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`CREATE SCHEMA "${m}"`);
+        await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${m}" TO PUBLIC`);
+        await tx.$executeRawUnsafe(`CREATE TABLE "${m}".owner_only(value integer)`);
+        await tx.$executeRawUnsafe(`CREATE FUNCTION "${m}".escalate() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS 'BEGIN INSERT INTO "${m}".owner_only VALUES(1); RETURN NEW; END'`);
+        const [direct] = await tx.$queryRawUnsafe<{ allowed: boolean }[]>(`SELECT has_table_privilege($1,$2,'INSERT') AS allowed`, runtime, `${m}.owner_only`);
+        expect(direct.allowed).toBe(false);
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE "${runtime}"`);
+        await tx.$executeRawUnsafe(`CREATE TEMP TABLE "${m}"(value integer) ON COMMIT DROP`);
+        await tx.$executeRawUnsafe(`CREATE TRIGGER escalate BEFORE INSERT ON "${m}" FOR EACH ROW EXECUTE FUNCTION "${m}".escalate()`);
+        await tx.$executeRawUnsafe(`INSERT INTO "${m}" VALUES(1)`);
+        await tx.$executeRawUnsafe('RESET ROLE');
+        const [effect] = await tx.$queryRawUnsafe<{ count: number }[]>(`SELECT count(*)::int AS count FROM "${m}".owner_only`);
+        expect(effect.count).toBe(1); // Proves indirect owner authority, without touching financial rows.
+        await expect(verifyNumberAccessReadOnly(tx, runtime, kind)).rejects.toThrow('NUMBER_RUNTIME_GRANTS_INVALID');
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }));

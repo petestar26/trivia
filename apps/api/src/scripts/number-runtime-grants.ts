@@ -93,13 +93,21 @@ export async function verifyNumberAccessReadOnly(
       AND has_schema_privilege(s.subject,n.oid,'CREATE')`;
   if (unsafeSchemas.length) failures.push('runtime can create trusted-schema objects');
   // Known audited SECURITY DEFINER entrypoints cannot draw Number results.
-  // Trigger functions cannot be called as ordinary SQL; extension functions
-  // have no application-table authority. A newly executable definer function
+  // Trigger functions can be attached to runtime-owned temporary tables. Only
+  // the audited guards below are safe: they validate rows without mutating
+  // owner tables. Extension functions have no application-table authority.
+  // A newly executable definer function
   // must be reviewed explicitly instead of silently expanding this boundary.
-  const safeReadFunctions = [
+  const safeFunctions = [
     'public.house_beacon_audit_page(text)',
     'public.house_public_spin_proof(text)',
     'public.house_round_randomness_failures()',
+    'public.game_rules_validate_parent()',
+    'public.game_rules_immutable()',
+    'public.game_sessions_validate_rules_snapshot()',
+    'public.game_definitions_prevent_metadata_drift()',
+    'public.coin_allocations_guard()',
+    'public.coin_provenance_guard()',
   ];
   const allowedApiFunctions = [
     'public.ledger_lock_economy_for_invariant_check()',
@@ -118,10 +126,9 @@ export async function verifyNumberAccessReadOnly(
     CROSS JOIN unnest(${subjects}::text[]) s(subject)
     WHERE p.pronamespace NOT IN ('pg_catalog'::regnamespace,'information_schema'::regnamespace)
       AND p.prosecdef AND has_schema_privilege(s.subject,p.pronamespace,'USAGE')
-      AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')
       AND has_function_privilege(s.subject,p.oid,'EXECUTE')
-      AND NOT (p.oid=ANY(ARRAY(SELECT to_regprocedure(signature)::oid FROM unnest(${safeReadFunctions}::text[]) f(signature) WHERE to_regprocedure(signature) IS NOT NULL)))
+      AND NOT (p.oid=ANY(ARRAY(SELECT to_regprocedure(signature)::oid FROM unnest(${safeFunctions}::text[]) f(signature) WHERE to_regprocedure(signature) IS NOT NULL)))
       AND NOT (${kind}='api' AND p.oid=ANY(ARRAY(SELECT to_regprocedure(signature)::oid FROM unnest(${allowedApiFunctions}::text[]) f(signature) WHERE to_regprocedure(signature) IS NOT NULL)))`;
   if (routines.length) failures.push('runtime can execute unreviewed privileged functions');
   const [required] = await db.$queryRaw<

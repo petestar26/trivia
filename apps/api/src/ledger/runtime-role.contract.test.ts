@@ -743,7 +743,17 @@ describe('3. amounts are never rounded before validation', () => {
     };
     for (const amount of ['0', '0.1', '0.5', '1.5', '-0.5', '-1.5', '-0', '0.0000001', '1000000000.5', '-1000000000.5',
       '1000000001', '-1000000001', '99999999999999999999', '1e20', 'NaN', 'Infinity', '-Infinity']) {
-      expect(await request(amount), amount).toMatch(/rejects: .*must be a nonzero whole number of Coins/);
+      const before = await prisma.adminAdjustmentApproval.count({ where: { userId: f.buyer.id } });
+      const [server] = await prisma.$queryRawUnsafe<{ version: number }[]>(
+        `SELECT current_setting('server_version_num')::int AS version`);
+      const result = await request(amount);
+      // PostgreSQL 13 has no numeric Infinity: the cast rejects before the procedure.
+      if (server.version < 140000 && ['Infinity', '-Infinity'].includes(amount)) {
+        expect(result, amount).toMatch(/rejects: .*22P02.*invalid input syntax for type numeric/);
+      } else {
+        expect(result, amount).toMatch(/rejects: .*must be a nonzero whole number of Coins/);
+      }
+      expect(await prisma.adminAdjustmentApproval.count({ where: { userId: f.buyer.id } })).toBe(before);
     }
     for (const amount of ['1', '-1', '1000000000', '-1000000000', '1e3', '1.0', '+7', '25.000', '-3.00']) {
       expect(await request(amount), amount).toBe('accepts');
