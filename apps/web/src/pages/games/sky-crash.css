@@ -1725,3 +1725,184 @@
     display: none;
   }
 }
+
+/* Flight deck: keep the two live ticket actions with the aircraft in expanded view. */
+.sky-display.game-arena--expanded .game-arena__body {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sky-display.game-arena--expanded .sky-arena {
+  flex: 0 0 clamp(245px, 42dvh, 460px);
+  min-height: 245px;
+}
+.sky-display.game-arena--expanded .sky-graph-shell {
+  min-height: 0;
+}
+.sky-display.game-arena--expanded .sky-betting {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  background: #0b1b29;
+}
+.sky-display.game-arena--expanded .sky-betting-heading {
+  margin-bottom: 6px;
+}
+.sky-display.game-arena--expanded .sky-multiplier {
+  top: 40%;
+}
+
+/* The plane, result and countdown own the mobile stage; the graph remains visible behind them. */
+.sky-arena::before {
+  display: block;
+  z-index: 1;
+  background: linear-gradient(180deg, #eeb78d12 0%, transparent 47%, #0713225c 100%);
+}
+.sky-arena--altitude {
+  background:
+    linear-gradient(180deg, #23345358 0%, #0a1b32a3 100%),
+    url('/images/sky-crash/alpine-dawn.webp') center/cover;
+}
+.sky-multiplier {
+  top: 33%;
+  left: 50%;
+  width: min(96%, 540px);
+  max-width: none;
+  transform: translate(-50%, -20%);
+  text-align: center;
+  text-shadow: 0 3px 12px #06111d;
+}
+.sky-multiplier strong {
+  color: #fff8eb;
+  text-shadow:
+    0 4px 2px #29445b,
+    0 12px 32px #06111dc9;
+}
+.sky-multiplier p {
+  margin: 5px auto 0;
+  color: #f1ece7;
+}
+.sky-countdown-track {
+  top: auto;
+  bottom: 26px;
+  left: 50%;
+  width: min(240px, 65%);
+  transform: translateX(-50%);
+}
+
+@container sky (max-width: 680px) {
+  .sky-nav {
+    margin-bottom: 6px;
+  }
+  .sky-heading {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .sky-kicker,
+  .sky-heading p:last-child {
+    display: none;
+  }
+  .sky-heading h1 {
+    font-size: 25px;
+  }
+  .sky-wallet {
+    padding: 6px 9px;
+  }
+  .sky-wallet small {
+    display: none;
+  }
+  .sky-layout {
+    padding: 6px;
+    border-radius: 12px;
+  }
+  .sky-history {
+    padding-bottom: 3px;
+  }
+  .sky-history-heading p {
+    display: none;
+  }
+  .sky-history-grid {
+    margin-top: 2px;
+  }
+  .sky-history-grid button {
+    min-width: 60px;
+    padding: 7px 9px;
+  }
+  .sky-display .game-arena__toolbar {
+    padding-bottom: 3px;
+  }
+  .sky-graph-shell {
+    height: 246px;
+    margin: 0 2px;
+  }
+  .sky-arena-top {
+    padding: 8px 11px;
+  }
+  .sky-multiplier {
+    top: 38%;
+  }
+  .sky-multiplier strong {
+    font-size: clamp(56px, 15cqw, 78px);
+  }
+  .sky-betting {
+    margin-top: 6px;
+  }
+  .sky-betting-heading {
+    margin-bottom: 5px;
+  }
+  .sky-betting-heading p {
+    display: none;
+  }
+  .sky-controls {
+    padding: 8px;
+    border-radius: 10px;
+  }
+  .sky-ticket-header {
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+  .sky-bet-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(124px, 0.85fr);
+    gap: 5px;
+  }
+  .sky-auto-field {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) minmax(78px, 0.45fr);
+    gap: 5px;
+  }
+  .sky-stake-field {
+    grid-column: 1;
+  }
+  .sky-submit-field {
+    grid-column: 2;
+  }
+  .sky-input input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .sky-action {
+    min-height: 54px;
+  }
+  .sky-autoplay-controls {
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+}
+
+@media (max-height: 480px) and (orientation: landscape) {
+  .sky-display.game-arena--expanded .game-arena__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(290px, 0.8fr);
+    align-items: stretch;
+  }
+  .sky-display.game-arena--expanded .sky-arena {
+    height: 100%;
+    min-height: 0;
+  }
+  .sky-display.game-arena--expanded .sky-betting {
+    overflow-y: auto;
+  }
+  .sky-display.game-arena--expanded .sky-multiplier {
+    top: 44%;
+  }
+}
