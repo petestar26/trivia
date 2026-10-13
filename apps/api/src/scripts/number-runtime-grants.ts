@@ -128,7 +128,14 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
     FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
       JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
       JOIN pg_language l ON l.oid=p.prolang JOIN writable w ON w.relation=c.oid
-    WHERE p.prosecdef AND t.tgenabled<>'D' AND (t.tgtype::int & w.event)<>0
+    -- An invoker BEFORE UPDATE row trigger can rewrite NEW partition keys
+    -- outside the caller's UPDATE column grants. Refuse unaudited mutators on
+    -- routing parents and leaf partitions rather than guessing what their
+    -- bodies change. Parent UPDATE reach already includes nested/leaf triggers;
+    -- refusing the mutator also covers movement through its routing ancestors.
+    WHERE (p.prosecdef OR (w.event=16 AND (t.tgtype::int & 3)=3
+        AND (c.relkind='p' OR c.relispartition)))
+      AND t.tgenabled<>'D' AND (t.tgtype::int & w.event)<>0
       AND (NOT w.row_only OR (t.tgtype::int & 1)<>0)
       AND (w.event<>16 OR cardinality(t.tgattr::smallint[])=0 OR EXISTS (
         SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum=ANY(t.tgattr::smallint[])
@@ -247,9 +254,11 @@ export async function verifyNumberAccessReadOnly(
   // PostgreSQL checks EXECUTE/schema access when a trigger is installed, not
   // when it fires. Inspect every writable relation, including public relations
   // outside Number: the API legitimately writes those under separate grants.
+  // A partition's invoker BEFORE UPDATE row trigger is also an unmodelled path
+  // to privileged movement effects, even without key-column UPDATE authority.
   for (const trigger of await unreviewedAttachedTriggers(db, subjects))
     failures.push(
-      `runtime can fire unreviewed privileged trigger ${trigger.schema}.${trigger.table}.${trigger.trigger}`
+      `runtime can fire unreviewed privileged trigger path ${trigger.schema}.${trigger.table}.${trigger.trigger}`
     );
   // Known audited SECURITY DEFINER entrypoints cannot draw Number results.
   // Trigger functions can be attached to runtime-owned temporary tables and

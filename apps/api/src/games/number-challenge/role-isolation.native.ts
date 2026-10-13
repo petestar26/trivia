@@ -933,3 +933,164 @@ it('partition movement follows the server version’s actual FK actions at restr
       { operation: 'DELETE' },
     ]);
   }));
+
+const mutatorCases = [
+  { nested: false, key: 'id', attachment: 'parent' },
+  { nested: false, key: 'id', attachment: 'leaf' },
+  { nested: true, key: 'id', attachment: 'parent' },
+  { nested: true, key: 'id', attachment: 'middle' },
+  { nested: true, key: 'id', attachment: 'leaf' },
+  { nested: true, key: 'lane', attachment: 'parent' },
+  { nested: true, key: 'lane', attachment: 'middle' },
+  { nested: true, key: 'lane', attachment: 'leaf' },
+] as const;
+
+it.each(
+  mutatorCases.flatMap((fixture) => ['DELETE', 'INSERT'].map((event) => ({ ...fixture, event })))
+)(
+  'refuses invoker key rewrite to $event (nested=$nested, key=$key, attachment=$attachment) with atomic table/column ACL rollback',
+  async ({ nested, key, attachment, event }) =>
+    partitionMovement(
+      nested,
+      key,
+      async ({ runtime, api, worker, schema, source, destination }) => {
+        // The original SET column is deliberately outside every routing key.
+        // PostgreSQL permits an attached invoker trigger to rewrite NEW anyway.
+        await db.$executeRawUnsafe(`REVOKE UPDATE(${key}) ON public."${schema}" FROM "${api}"`);
+        await db.$executeRawUnsafe(`GRANT UPDATE(value) ON public."${schema}" TO "${api}"`);
+        await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".move_key() RETURNS trigger LANGUAGE plpgsql
+        SECURITY INVOKER SET search_path=pg_catalog AS $body$
+          BEGIN NEW.${key}:=${key === 'id' ? 101 : 11}; RETURN NEW; END $body$`);
+        await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".move_key() FROM PUBLIC`);
+        const attachedTo =
+          attachment === 'parent'
+            ? `public."${schema}"`
+            : `"${schema}".${attachment === 'middle' ? 'p1' : source}`;
+        await db.$executeRawUnsafe(`CREATE TRIGGER move_key BEFORE UPDATE OF value ON ${attachedTo}
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".move_key()`);
+        const effectChild = event === 'DELETE' ? source : destination;
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER ${event} ON "${schema}".${effectChild}
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+        const [functionRow] = await db.$queryRawUnsafe<{ oid: number }[]>(
+          `SELECT '"${schema}".move_key()'::regprocedure::oid::int AS oid`
+        );
+        expect(
+          await runtime.$queryRawUnsafe(
+            `SELECT
+        has_function_privilege(current_user,$1::oid,'EXECUTE') AS execute,
+        has_schema_privilege(current_user,$2,'USAGE') AS usage,
+        has_column_privilege(current_user,$3,'id','UPDATE') AS outer_key,
+        has_column_privilege(current_user,$3,'lane','UPDATE') AS inner_key,
+        has_column_privilege(current_user,$3,'value','UPDATE') AS value`,
+            functionRow.oid,
+            schema,
+            `public."${schema}"`
+          )
+        ).toEqual([
+          { execute: false, usage: false, outer_key: false, inner_key: false, value: true },
+        ]);
+        const rejection = {
+          message: 'NUMBER_RUNTIME_GRANTS_INVALID',
+          failures: expect.arrayContaining([expect.stringContaining('move_key')]),
+        };
+        await expect(verifyNumberRuntimeIdentity(runtime, 'api')).rejects.toMatchObject(rejection);
+        // Establish the hidden path as an actual LOGIN only in the throwaway fixture.
+        expect(
+          await runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`)
+        ).toBe(1);
+        expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([
+          { operation: event },
+        ]);
+        expect(
+          await runtime.$queryRawUnsafe(`SELECT id,lane,value FROM public."${schema}"`)
+        ).toEqual([{ id: key === 'id' ? 101 : 1, lane: key === 'lane' ? 11 : 1, value: 1 }]);
+        // Setup will try to restore both a table ACL and a column ACL. Refusal
+        // must roll back both attempts, including the intentionally absent grants.
+        await db.$executeRawUnsafe(`REVOKE SELECT ON number_practice_rounds FROM "${api}"`);
+        await db.$executeRawUnsafe(`REVOKE UPDATE(target) ON number_timed_rounds FROM "${worker}"`);
+        const missing = () =>
+          db.$queryRawUnsafe(
+            `SELECT
+        has_table_privilege($1,'number_practice_rounds','SELECT') AS table_grant,
+        has_column_privilege($2,'number_timed_rounds','target','UPDATE') AS column_grant`,
+            api,
+            worker
+          );
+        expect(await missing()).toEqual([{ table_grant: false, column_grant: false }]);
+        const snapshot = () => db.$queryRaw`SELECT c.relname,c.relacl::text AS acl,
+        ARRAY(SELECT a.attname||':'||coalesce(a.attacl::text,'') FROM pg_attribute a
+          WHERE a.attrelid=c.oid AND a.attnum>0 ORDER BY a.attnum) AS columns
+        FROM pg_class c WHERE c.relname IN ('number_practice_rounds','number_timed_rounds','number_timed_entries')
+        ORDER BY c.relname`;
+        const before = await snapshot();
+        await expect(grantNumberRuntimeTables(db, api, worker)).rejects.toMatchObject(rejection);
+        expect(await snapshot()).toEqual(before);
+        expect(await missing()).toEqual([{ table_grant: false, column_grant: false }]);
+      }
+    )
+);
+
+it.each(['disjoint-column', 'before-statement'] as const)(
+  'preserves partition non-key UPDATE with a %s invoker trigger',
+  async (mode) =>
+    partitionMovement(true, 'id', async ({ runtime, api, schema, source, destination }) => {
+      await db.$executeRawUnsafe(`REVOKE UPDATE(id) ON public."${schema}" FROM "${api}"`);
+      await db.$executeRawUnsafe(`GRANT UPDATE(value) ON public."${schema}" TO "${api}"`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".move_key() RETURNS trigger LANGUAGE plpgsql
+      SECURITY INVOKER SET search_path=pg_catalog AS $body$
+        BEGIN ${mode === 'disjoint-column' ? 'NEW.id:=101; RETURN NEW;' : 'RETURN NULL;'} END $body$`);
+      await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".move_key() FROM PUBLIC`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER move_key BEFORE UPDATE OF ${mode === 'disjoint-column' ? 'id' : 'value'}
+      ON public."${schema}" FOR EACH ${mode === 'disjoint-column' ? 'ROW' : 'STATEMENT'}
+      EXECUTE FUNCTION "${schema}".move_key()`);
+      for (const child of [source, destination])
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER INSERT OR DELETE ON "${schema}".${child}
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      expect(
+        await runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`)
+      ).toBe(1);
+      expect(await runtime.$queryRawUnsafe(`SELECT id,lane,value FROM public."${schema}"`)).toEqual(
+        [{ id: 1, lane: 1, value: 1 }]
+      );
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    })
+);
+
+it('ordinary inheritance invoker key rewrite remains UPDATE without row movement', async () =>
+  roles(async (api, _worker, schema) => {
+    const runtime = await login(api);
+    try {
+      await db.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".effect_log(operation text)`);
+      await db.$executeRawUnsafe(`CREATE TABLE public."${schema}"(id integer,value integer)`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".child() INHERITS(public."${schema}")`);
+      await db.$executeRawUnsafe(`INSERT INTO "${schema}".child VALUES(1,0)`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".move_key() RETURNS trigger LANGUAGE plpgsql
+        SECURITY INVOKER SET search_path=pg_catalog AS 'BEGIN NEW.id:=101; RETURN NEW; END'`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".effect() RETURNS trigger LANGUAGE plpgsql
+        SECURITY DEFINER SET search_path=pg_catalog AS $body$
+          BEGIN INSERT INTO "${schema}".effect_log VALUES(TG_OP); RETURN NULL; END $body$`);
+      for (const fn of ['move_key', 'effect'])
+        await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".${fn}() FROM PUBLIC`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER move_key BEFORE UPDATE OF value ON "${schema}".child
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".move_key()`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER INSERT OR DELETE ON "${schema}".child
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      await db.$executeRawUnsafe(`GRANT SELECT,UPDATE(value) ON public."${schema}" TO "${api}"`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      expect(
+        await runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`)
+      ).toBe(1);
+      expect(await runtime.$queryRawUnsafe(`SELECT id,value FROM public."${schema}"`)).toEqual([
+        { id: 101, value: 1 },
+      ]);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    } finally {
+      await runtime.$disconnect();
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS public."${schema}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    }
+  }));
