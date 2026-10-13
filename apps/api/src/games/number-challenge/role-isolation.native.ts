@@ -1094,3 +1094,210 @@ it('ordinary inheritance invoker key rewrite remains UPDATE without row movement
       await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     }
   }));
+
+type OrdinaryFkFixture = {
+  runtime: PrismaClient;
+  api: string;
+  worker: string;
+  schema: string;
+  authorityRole: string;
+  update: () => Promise<number>;
+};
+
+async function ordinaryFkMutation(
+  action: 'CASCADE' | 'SET NULL' | 'SET DEFAULT' | 'NO ACTION' | 'RESTRICT',
+  kind: 'api' | 'worker',
+  indirect: boolean,
+  run: (fixture: OrdinaryFkFixture) => Promise<void>
+) {
+  await roles(async (api, worker, schema, version) => {
+    const runtime = await login(kind === 'api' ? api : worker);
+    const hop = `${schema}_hop`;
+    const authorityRole = indirect ? schema : kind === 'api' ? api : worker;
+    try {
+      if (indirect) {
+        await db.$executeRawUnsafe(`CREATE ROLE "${hop}" NOLOGIN NOINHERIT`);
+        const options = version >= 160000 ? ' WITH INHERIT FALSE, SET TRUE' : '';
+        await db.$executeRawUnsafe(`GRANT "${schema}" TO "${hop}"${options}`);
+        await db.$executeRawUnsafe(
+          `GRANT "${hop}" TO "${kind === 'api' ? api : worker}"${options}`
+        );
+      }
+      await db.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".effect_log(operation text)`);
+      await db.$executeRawUnsafe(
+        `CREATE TABLE public."${schema}"(id integer PRIMARY KEY,value integer)`
+      );
+      await db.$executeRawUnsafe(`CREATE TABLE "${schema}".child(id integer DEFAULT 0
+        REFERENCES public."${schema}"(id) ON UPDATE ${action})`);
+      // SET DEFAULT has a valid default parent; all effects therefore complete
+      // rather than being hidden behind an expected constraint violation.
+      await db.$executeRawUnsafe(`INSERT INTO public."${schema}" VALUES(0,0),(1,0)`);
+      await db.$executeRawUnsafe(`INSERT INTO "${schema}".child VALUES(1)`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".move_key() RETURNS trigger LANGUAGE plpgsql
+        SECURITY INVOKER SET search_path=pg_catalog AS 'BEGIN NEW.id:=101; RETURN NEW; END'`);
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".effect() RETURNS trigger LANGUAGE plpgsql
+        SECURITY DEFINER SET search_path=pg_catalog AS $body$
+          BEGIN INSERT INTO "${schema}".effect_log VALUES(TG_OP); RETURN NULL; END $body$`);
+      for (const fn of ['move_key', 'effect'])
+        await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".${fn}() FROM PUBLIC`);
+      await db.$executeRawUnsafe(
+        `GRANT SELECT,UPDATE(value) ON public."${schema}" TO "${authorityRole}"`
+      );
+      const [{ mutator, effect, child }] = await db.$queryRawUnsafe<
+        { mutator: number; effect: number; child: number }[]
+      >(`SELECT '"${schema}".move_key()'::regprocedure::oid::int AS mutator,
+        '"${schema}".effect()'::regprocedure::oid::int AS effect,
+        '"${schema}".child'::regclass::oid::int AS child`);
+      // Check the reachable role separately from the LOGIN. SET-only authority
+      // must not be mistaken for directly inherited table or column authority.
+      const privilegeSql = `SELECT
+        has_function_privilege(current_user,$1::oid,'EXECUTE') AS mutator,
+        has_function_privilege(current_user,$2::oid,'EXECUTE') AS effect,
+        has_schema_privilege(current_user,$3,'USAGE') AS usage,
+        has_column_privilege(current_user,$4,'id','UPDATE') AS key,
+        has_column_privilege(current_user,$4,'value','UPDATE') AS value,
+        has_table_privilege(current_user,$5::oid,'UPDATE') AS child`;
+      const privilegeArgs = [mutator, effect, schema, `public."${schema}"`, child];
+      expect(await runtime.$queryRawUnsafe(privilegeSql, ...privilegeArgs)).toEqual([
+        { mutator: false, effect: false, usage: false, key: false, value: !indirect, child: false },
+      ]);
+      if (indirect)
+        await runtime.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ROLE "${authorityRole}"`);
+          expect(await tx.$queryRawUnsafe(privilegeSql, ...privilegeArgs)).toEqual([
+            { mutator: false, effect: false, usage: false, key: false, value: true, child: false },
+          ]);
+        });
+      const update = () =>
+        indirect
+          ? runtime.$transaction(async (tx) => {
+              await tx.$executeRawUnsafe(`SET LOCAL ROLE "${authorityRole}"`);
+              return tx.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`);
+            })
+          : runtime.$executeRawUnsafe(`UPDATE public."${schema}" SET value=1 WHERE id=1`);
+      await run({ runtime, api, worker, schema, authorityRole, update });
+    } finally {
+      await runtime.$disconnect();
+      await db.$executeRawUnsafe(`DROP TABLE IF EXISTS public."${schema}" CASCADE`);
+      await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      if (indirect) {
+        await db.$executeRawUnsafe(`DROP OWNED BY "${hop}"`);
+        await db.$executeRawUnsafe(`DROP ROLE "${hop}"`);
+      }
+    }
+  });
+}
+
+const ordinaryFkRefusals = [
+  ...(['CASCADE', 'SET NULL', 'SET DEFAULT'] as const).flatMap((action) =>
+    [false, true].map((indirect) => ({ action, indirect, kind: 'api' as const }))
+  ),
+] as const;
+
+it.each(ordinaryFkRefusals)(
+  'refuses ordinary invoker key rewrite through $action ($kind, indirect=$indirect) and atomically rolls back table/column grants',
+  async ({ action, kind, indirect }) =>
+    ordinaryFkMutation(action, kind, indirect, async ({ runtime, api, worker, schema, update }) => {
+      await db.$executeRawUnsafe(`CREATE TRIGGER move_key BEFORE UPDATE OF value ON public."${schema}"
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".move_key()`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER UPDATE ON "${schema}".child
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      // Establish the supplied exploit using the real restricted LOGIN. Trigger
+      // execution and FK owner rights do not require direct EXECUTE or child ACLs.
+      expect(await update()).toBe(1);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([
+        { operation: 'UPDATE' },
+      ]);
+      expect(await db.$queryRawUnsafe(`SELECT id FROM "${schema}".child`)).toEqual([
+        { id: action === 'CASCADE' ? 101 : action === 'SET DEFAULT' ? 0 : null },
+      ]);
+      const rejection = {
+        message: 'NUMBER_RUNTIME_GRANTS_INVALID',
+        failures: expect.arrayContaining([expect.stringContaining(`${schema}.child.effect`)]),
+      };
+      await expect(verifyNumberRuntimeIdentity(runtime, kind)).rejects.toMatchObject(rejection);
+      await db.$executeRawUnsafe(`REVOKE SELECT ON number_practice_rounds FROM "${api}"`);
+      await db.$executeRawUnsafe(`REVOKE UPDATE(target) ON number_timed_rounds FROM "${worker}"`);
+      const missing = () =>
+        db.$queryRawUnsafe(
+          `SELECT
+        has_table_privilege($1,'number_practice_rounds','SELECT') AS table_grant,
+        has_column_privilege($2,'number_timed_rounds','target','UPDATE') AS column_grant`,
+          api,
+          worker
+        );
+      expect(await missing()).toEqual([{ table_grant: false, column_grant: false }]);
+      const snapshot = () => db.$queryRaw`SELECT c.relname,c.relacl::text AS acl,
+        ARRAY(SELECT a.attname||':'||coalesce(a.attacl::text,'') FROM pg_attribute a
+          WHERE a.attrelid=c.oid AND a.attnum>0 ORDER BY a.attnum) AS columns
+        FROM pg_class c WHERE c.relname IN ('number_practice_rounds','number_timed_rounds','number_timed_entries')
+        ORDER BY c.relname`;
+      const before = await snapshot();
+      await expect(grantNumberRuntimeTables(db, api, worker)).rejects.toMatchObject(rejection);
+      expect(await snapshot()).toEqual(before);
+      expect(await missing()).toEqual([{ table_grant: false, column_grant: false }]);
+    })
+);
+
+it.each([
+  'no-mutator',
+  'disjoint-column',
+  'disabled',
+  'after-row',
+  'before-statement',
+  'harmless-cascade',
+  'parent-key-event',
+] as const)('preserves ordinary FK UPDATE with %s control', async (mode) =>
+  ordinaryFkMutation('CASCADE', 'api', false, async ({ runtime, api, worker, schema, update }) => {
+    if (mode !== 'no-mutator') {
+      if (mode === 'before-statement')
+        await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION "${schema}".move_key() RETURNS trigger
+            LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS 'BEGIN RETURN NULL; END'`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER move_key ${mode === 'after-row' ? 'AFTER' : 'BEFORE'}
+          UPDATE OF ${mode === 'disjoint-column' ? 'id' : 'value'} ON public."${schema}"
+          FOR EACH ${mode === 'before-statement' ? 'STATEMENT' : 'ROW'} EXECUTE FUNCTION "${schema}".move_key()`);
+      if (mode === 'disabled')
+        await db.$executeRawUnsafe(`ALTER TABLE public."${schema}" DISABLE TRIGGER move_key`);
+    }
+    if (mode === 'harmless-cascade' || mode === 'parent-key-event') {
+      await db.$executeRawUnsafe(`CREATE FUNCTION "${schema}".harmless() RETURNS trigger LANGUAGE plpgsql
+          SECURITY INVOKER SET search_path=pg_catalog AS 'BEGIN RETURN NEW; END'`);
+      await db.$executeRawUnsafe(`REVOKE ALL ON FUNCTION "${schema}".harmless() FROM PUBLIC`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER harmless AFTER UPDATE ON "${schema}".child
+          FOR EACH ROW EXECUTE FUNCTION "${schema}".harmless()`);
+      if (mode === 'parent-key-event')
+        // A NEW.id rewrite is not an original SET(id) event: the parent's
+        // column-specific privileged trigger must remain unreachable.
+        await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER UPDATE OF id ON public."${schema}"
+            FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+    } else
+      await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER UPDATE ON "${schema}".child
+          FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+    expect(await update()).toBe(1);
+    const moved = mode === 'harmless-cascade' || mode === 'parent-key-event';
+    expect(await db.$queryRawUnsafe(`SELECT id FROM "${schema}".child`)).toEqual([
+      { id: moved ? 101 : 1 },
+    ]);
+    expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+    await expect(grantNumberRuntimeTables(db, api, worker)).resolves.toBeUndefined();
+    await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+  })
+);
+
+it.each(['NO ACTION', 'RESTRICT'] as const)(
+  'ordinary invoker key rewrite with FK %s does not expose child UPDATE triggers',
+  async (action) =>
+    ordinaryFkMutation(action, 'api', false, async ({ runtime, api, worker, schema, update }) => {
+      await db.$executeRawUnsafe(`CREATE TRIGGER move_key BEFORE UPDATE OF value ON public."${schema}"
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".move_key()`);
+      await db.$executeRawUnsafe(`CREATE TRIGGER effect AFTER UPDATE ON "${schema}".child
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".effect()`);
+      await expect(verifyNumberRuntimeIdentity(runtime, 'api')).resolves.toBeUndefined();
+      await expect(update()).rejects.toThrow(/foreign key constraint/);
+      expect(await db.$queryRawUnsafe(`SELECT id FROM "${schema}".child`)).toEqual([{ id: 1 }]);
+      expect(await db.$queryRawUnsafe(`SELECT operation FROM "${schema}".effect_log`)).toEqual([]);
+      await expect(grantNumberRuntimeTables(db, api, worker)).resolves.toBeUndefined();
+    })
+);

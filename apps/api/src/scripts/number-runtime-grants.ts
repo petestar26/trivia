@@ -112,9 +112,22 @@ async function unreviewedAttachedTriggers(db: Prisma.TransactionClient, subjects
           WHERE (NOT w.row_only OR pg_catalog.current_setting('server_version_num')::int<150000)
             AND fk.contype='f' AND fk.confrelid=w.relation AND (
             (w.event=8 AND fk.confdeltype IN ('c','n','d'))
-            OR (w.event=16 AND fk.confupdtype IN ('c','n','d') AND EXISTS (
+            OR (w.event=16 AND fk.confupdtype IN ('c','n','d') AND (EXISTS (
               SELECT 1 FROM pg_attribute parent WHERE parent.attrelid=fk.confrelid
-                AND parent.attnum=ANY(fk.confkey) AND parent.attname=w.column_name)))
+                AND parent.attnum=ANY(fk.confkey) AND parent.attname=w.column_name)
+              -- An installed invoker BEFORE UPDATE row trigger can rewrite a
+              -- referenced key outside the caller's SET columns. Follow the
+              -- actual FK writes, without inventing parent UPDATE OF key events.
+              -- EXECUTE/schema privileges are not rechecked when it fires.
+              -- Definer triggers are already refused unless fingerprint-audited.
+              OR EXISTS (
+                SELECT 1 FROM pg_trigger mutator JOIN pg_proc fn ON fn.oid=mutator.tgfoid
+                WHERE mutator.tgrelid=w.relation AND NOT fn.prosecdef
+                  AND mutator.tgenabled<>'D' AND (mutator.tgtype::int & 19)=19
+                  AND (cardinality(mutator.tgattr::smallint[])=0 OR EXISTS (
+                    SELECT 1 FROM pg_attribute a WHERE a.attrelid=w.relation
+                      AND a.attnum=ANY(mutator.tgattr::smallint[])
+                      AND (a.attname=w.column_name OR a.attgenerated<>'')))))))
       ) next
     )
     SELECT DISTINCT n.nspname::text AS schema,c.relname::text AS table,t.tgname::text AS trigger,
