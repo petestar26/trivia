@@ -421,13 +421,19 @@ describeIf('real buildServer: an embedded invite link is never logged, whatever 
       .map((l) => JSON.parse(l) as LogRecord);
   }
 
+  async function uniqueAuthHeader() {
+    const suffix=randomUUID().replaceAll('-','');
+    const user=await prisma.user.create({data:{email:`${EMAIL_PREFIX}${suffix}@test.local`,username:`lrq_${suffix.slice(0,20)}`,status:'ACTIVE'}});
+    return {authorization:`Bearer ${server.jwt.sign({sub:user.id,email:user.email,username:user.username,roles:['USER']})}`};
+  }
+
   /** Fire a request with inject(); return the response and every record it caused. */
   async function fire(url: string, opts: { authed?: boolean } = {}) {
     const before = sink.lines.length;
     const resp = await server.inject({
       method: 'GET',
       url,
-      headers: opts.authed ? authHeader : {},
+      headers: opts.authed ? await uniqueAuthHeader() : {},
       remoteAddress: nextIp(),
     });
     // The completion line is written as the response finishes; let it land.

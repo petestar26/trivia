@@ -44,6 +44,7 @@ import { creditCoins } from '../economy/coin-ledger-service.js';
 import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { runLedgerInvariantCheckInTransaction } from '../economy/ledger-invariant-checker.js';
 import { applyRuntimeAccess } from '../scripts/ledger-runtime-access.js';
+import { historicalWagerFixture } from '../test/historical-wager-fixture.js';
 import { playGame } from '../games/game-play.js';
 import { executeTestAdjustment, makeApprovers } from '../test/adjustment-fixtures.js';
 import type { Approvers } from '../test/adjustment-fixtures.js';
@@ -742,7 +743,17 @@ describe('3. amounts are never rounded before validation', () => {
     };
     for (const amount of ['0', '0.1', '0.5', '1.5', '-0.5', '-1.5', '-0', '0.0000001', '1000000000.5', '-1000000000.5',
       '1000000001', '-1000000001', '99999999999999999999', '1e20', 'NaN', 'Infinity', '-Infinity']) {
-      expect(await request(amount), amount).toMatch(/rejects: .*must be a nonzero whole number of Coins/);
+      const before = await prisma.adminAdjustmentApproval.count({ where: { userId: f.buyer.id } });
+      const [server] = await prisma.$queryRawUnsafe<{ version: number }[]>(
+        `SELECT current_setting('server_version_num')::int AS version`);
+      const result = await request(amount);
+      // PostgreSQL 13 has no numeric Infinity: the cast rejects before the procedure.
+      if (server.version < 140000 && ['Infinity', '-Infinity'].includes(amount)) {
+        expect(result, amount).toMatch(/rejects: .*22P02.*invalid input syntax for type numeric/);
+      } else {
+        expect(result, amount).toMatch(/rejects: .*must be a nonzero whole number of Coins/);
+      }
+      expect(await prisma.adminAdjustmentApproval.count({ where: { userId: f.buyer.id } })).toBe(before);
     }
     for (const amount of ['1', '-1', '1000000000', '-1000000000', '1e3', '1.0', '+7', '25.000', '-3.00']) {
       expect(await request(amount), amount).toBe('accepts');
@@ -1091,7 +1102,7 @@ describe('8. the older SECURITY DEFINER guards never run a planted operator with
       return played;
     }, { ...options, timeout: 120_000 })) as never);
     try {
-      return await playGame({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
+      return await historicalWagerFixture({ userId: f.buyer.id, gameKey: 'dice', betAmount: 10, idempotencyKey: uid('rr-wager') });
     } finally {
       spy.mockRestore();
     }
@@ -2317,7 +2328,9 @@ describe('11. the setup checks every role the runtime role can become, and a ref
           expect(await accessSnapshot(), `${trustCase.name}, ${what}: the case leaves nothing behind`).toBe(initial);
         }
       }
-    });
+    // This matrix invokes multiple isolated setup CLIs. Its fixture cleanup
+    // must finish before Vitest starts the next privilege test under load.
+    }, 180_000);
 
     // The test server's owner is a superuser, so every trusted case above is
     // trusted twice over. ledger_role_is_trusted takes the owner as an

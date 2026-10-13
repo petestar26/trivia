@@ -1,3 +1,4 @@
+import { inspectVoiceContent } from './voice-content.js';
 import { lockSocialGroup } from '../groups/lifecycle.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
@@ -182,26 +183,11 @@ export interface CreateVoiceMessageArgs {
 
 // Validates, stores audio, and creates Message + VoiceMessage atomically.
 export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
-  const { groupId, userId, file, fileName, mimeType, duration } = args;
-
-  // Validate file type
-  if (!(FILE_UPLOAD.ALLOWED_AUDIO_TYPES as readonly string[]).includes(mimeType)) {
-    throw ApiError.badRequest(`Audio type ${mimeType} not allowed. Supported: ${FILE_UPLOAD.ALLOWED_AUDIO_TYPES.join(', ')}`);
-  }
-
-  // Validate file size (5MB limit for voice messages)
-  const MAX_VOICE_BYTES = 5 * 1024 * 1024;
-  if (file.length > MAX_VOICE_BYTES) {
-    throw ApiError.badRequest(`File size exceeds maximum of ${MAX_VOICE_BYTES} bytes`);
-  }
-
-  // Validate duration (max 5 minutes = 300 seconds)
-  const MAX_VOICE_DURATION = 300;
-  if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_VOICE_DURATION) {
-    throw ApiError.badRequest(`Duration exceeds maximum of ${MAX_VOICE_DURATION} seconds`);
-  }
-
+  const { groupId, userId, file } = args;
+  // Authorize before spending decoder resources. Recheck in the write transaction.
   await prisma.$transaction(tx=>lockSocialGroup(tx,groupId,userId));
+  const { mimeType, duration, extension } = await inspectVoiceContent(file, args.mimeType);
+  const fileName = `recording.${extension}`;
 
   // Generate server-side storage key
   const storageKey = generateStorageKey(

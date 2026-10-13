@@ -6,7 +6,7 @@ import ts from 'typescript';
 // modules must resolve to the built declarations, never outside API rootDir.
 // This is a boundary check; unrelated legacy type errors are not declared clean.
 const apiDir = fileURLToPath(new URL('../', import.meta.url));
-const configFile = ts.readConfigFile(path.join(apiDir, 'tsconfig.json'), ts.sys.readFile);
+const configFile = ts.readConfigFile(path.join(apiDir, 'tsconfig.typecheck.json'), ts.sys.readFile);
 const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, apiDir);
 if (configFile.error || config.errors.length) {
   throw new Error('Unable to read the API TypeScript configuration');

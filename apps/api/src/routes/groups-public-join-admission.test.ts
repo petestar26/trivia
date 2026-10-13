@@ -170,6 +170,7 @@ const USER_WRITE = '%UPDATE "public"."users"%';
 const GROUP_WRITE = '%UPDATE "public"."groups"%';
 
 const NOT_ELIGIBLE = 'Your account is not eligible to join groups';
+const AUTH_NOT_ACTIVE = 'An active account is required';
 const RESTRICTED = ['SUSPENDED', 'INACTIVE', 'BANNED', 'PENDING_VERIFICATION'] as const;
 
 // Reward / achievement / streak state a GROUP_JOIN activity could touch.
@@ -225,7 +226,7 @@ describeIf('public join vs the caller\'s account status', () => {
 
         expect(resp.statusCode).toBe(403);
         // One generic answer for every restricted status.
-        expect(errorMessage(resp)).toBe(NOT_ELIGIBLE);
+        expect(errorMessage(resp)).toBe(AUTH_NOT_ACTIVE);
         expect(resp.body).not.toContain(status);
         await expectNothingHappened(f, before);
       });

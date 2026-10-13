@@ -1,4 +1,6 @@
 import { FastifyInstance } from 'fastify';
+import { isTrustedOrigin } from '../plugins/cookie-origin.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Server } from 'socket.io';
 import { config } from '@socialplay/config';
 import { JwtPayload } from '@socialplay/shared';
@@ -28,15 +30,30 @@ interface JoinGroupPayload {
   groupId: string;
 }
 
+// Cookie-free explicit tokens are supported for non-browser clients, regardless
+// of Origin. Ambient access OR refresh cookies always require the exact browser
+// allowlist, even when handshake.auth also supplies a token.
+function cookieOriginAllowed(request: IncomingMessage): boolean {
+  const ambient = (request.headers.cookie ?? '').split(';').some(c =>
+    ['sp_access_token','sp_refresh_token'].includes(c.split('=',1)[0].trim()));
+  return !ambient || isTrustedOrigin(request.headers.origin);
+}
+
 export function registerWebSocket(server: FastifyInstance): void {
   const io = new Server(server.server, {
     path: config.WS_PATH,
+    allowRequest: (request, done) => done(null, cookieOriginAllowed(request)),
     cors: {
-      origin: config.CORS_ORIGIN,
+      origin: (origin, callback) => callback(null, isTrustedOrigin(origin)),
       credentials: config.CORS_CREDENTIALS,
     },
   });
 
+  // Engine middleware also checks requests carrying an existing session ID,
+  // notably polling -> websocket upgrades (allowRequest only covers admission).
+  io.engine.use((request: IncomingMessage, _response: ServerResponse, next: (error?: Error) => void) => {
+    next(cookieOriginAllowed(request) ? undefined : new Error('Untrusted session origin'));
+  });
   setSocketServer(io);
 
   // Authentication middleware — accept the access token from either
@@ -44,6 +61,7 @@ export function registerWebSocket(server: FastifyInstance): void {
   // (sent automatically because the client uses withCredentials:true).
   io.use(async (socket, next) => {
     try {
+      if (!cookieOriginAllowed(socket.request)) return next(new Error('UNAUTHORIZED'));
       let token: string | undefined =
         typeof socket.handshake.auth?.token === 'string'
           ? socket.handshake.auth.token

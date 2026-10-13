@@ -380,7 +380,7 @@ describe('Opus coin ledger: bonus spending, payouts and conversion', () => {
     await expectBalanced(user.id, 100);
   });
 
-  it('I1/Q1: gift spend consumes restricted Coins first and leaves no phantom purchase value', async () => {
+  it('I1/Q1: gift spend consumes only eligible Coins and preserves restricted obligations', async () => {
     const user = await makeUser();
     const policy = await makeActivePolicy();
     const purchased = await purchase(user.id, 100);
@@ -391,10 +391,10 @@ describe('Opus coin ledger: bonus spending, payouts and conversion', () => {
       referenceType: 'GIFT', referenceId: giftId, description: 'Gift spend',
     }));
     expect(debit.funding.map((share) => [share.lotClass, share.amount])).toEqual([
-      ['RESTRICTED', 30], ['WITHDRAWABLE', 20],
+      ['WITHDRAWABLE', 50],
     ]);
-    expect((await lot(restricted.lotId)).state).toBe('EXHAUSTED');
-    expect((await lot(purchased.lotId)).availableAmount).toBe(80);
+    expect(await lot(restricted.lotId)).toMatchObject({ state: 'OPEN', availableAmount: 30, requirementAmount: 150 });
+    expect((await lot(purchased.lotId)).availableAmount).toBe(50);
     await expectBalanced(user.id, 80);
   });
 });

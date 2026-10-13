@@ -124,7 +124,7 @@ describeIf('users/routes', () => {
     });
 
     for (const status of ['INACTIVE', 'SUSPENDED', 'BANNED', 'PENDING_VERIFICATION']) {
-      it(`${status} caller gets 403 "Account is not active"`, async () => {
+      it(`${status} caller gets 403 "An active account is required"`, async () => {
         const caller = await createUser(`auth_${status.toLowerCase()}`, { status });
         const token = await mintToken(caller);
         const resp = await server.inject({
@@ -134,7 +134,7 @@ describeIf('users/routes', () => {
           payload: { q: 'anything' },
         });
         expect(resp.statusCode).toBe(403);
-        expect(JSON.parse(resp.body).error.message).toBe('Account is not active');
+        expect(JSON.parse(resp.body).error.message).toBe('An active account is required');
       });
     }
 

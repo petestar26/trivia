@@ -23,6 +23,7 @@ before(async () => {
   await writeFile(path.join(directory, 'index.html'), '<h1>PlayQube</h1>');
   await writeFile(path.join(directory, 'app.js'), 'console.log("app")');
   await writeFile(path.join(directory, 'app-recovery.js'), '/* pre-entry recovery */');
+  await writeFile(path.join(directory, 'cover.webp'), Buffer.from('RIFFtestWEBP'));
   backend = http.createServer((req, res) => {
     if (req.url === '/api/v1/auth/login') {
       res.setHeader('Set-Cookie', [
@@ -164,4 +165,15 @@ test('proxies Socket.IO upgrades and rejects a cross-origin socket', async () =>
     });
   assert.match(await exchange(origin), /echo-check/);
   assert.match(await exchange('https://attacker.example'), /403/);
+});
+
+test('serves WebP GET and HEAD with image MIME and security headers', async () => {
+  for (const method of ['GET', 'HEAD']) {
+    const res = await fetch(origin + '/cover.webp', { method });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'image/webp');
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(res.headers.get('cache-control'), 'public, max-age=3600');
+    assert.equal((await res.arrayBuffer()).byteLength, method === 'HEAD' ? 0 : 12);
+  }
 });

@@ -51,7 +51,7 @@ async function historicalTerminalWithdrawal(status: 'REFUNDED' | 'CONSUMED',
       : (status === 'REFUNDED' ? 100 : 70),
   } });
   const country = await prisma.country.create({ data: {
-    code: `X${tag.slice(0, 2).toUpperCase()}`, name: `Historical hold ${tag}`,
+    code: `X${tag.toUpperCase()}`, name: `Historical hold ${tag}`,
     currencyCode: 'USD', isActive: true,
   } });
   const method = await prisma.paymentMethodDefinition.create({ data: {
@@ -272,8 +272,8 @@ describe('M7 historical COINS replay', () => {
       displayName: 'M7 fixture agent',
     } });
     const country = await prisma.country.create({ data: {
-      // 256 two-character suffixes collided across runs; codes are unbounded text.
-      code: `Z${tag.slice(0, 8).toUpperCase()}`, name: `M7 ${tag}`,
+      // Codes are unbounded text; retain the whole UUID to isolate repeated runs.
+      code: `Z${tag.toUpperCase()}`, name: `M7 ${tag}`,
       currencyCode: 'USD', isActive: true,
     } });
     const agent = await prisma.agent.create({ data: {
@@ -308,7 +308,7 @@ describe('M7 historical COINS replay', () => {
     } });
     const wallet = await prisma.wallet.create({ data: { userId: user.id, coinsBalance: 20 } });
     const country = await prisma.country.create({ data: {
-      code: `Y${suffix.slice(0, 1).toUpperCase()}`, name: `Bonus history ${suffix}`,
+      code: `Y${suffix.toUpperCase()}`, name: `Bonus history ${suffix}`,
       currencyCode: 'USD', isActive: true,
     } });
     const policy = await prisma.countryCasinoPolicy.create({ data: {

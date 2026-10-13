@@ -146,3 +146,52 @@ it('concurrent dual-slot entry and settlement debit and credit each slot exactly
   expect(payouts.map((p) => p?.payout)).toEqual([101, 102, 101, 102]);
   expect(await balance(f.userId)).toBe(1003);
 });
+
+// Inject an inconsistent write in the SAME transaction, with every real trigger
+// enabled. This exercises deferred-COMMIT rejection without persisting damage or
+// disabling constraints (and is restricted to the acknowledged disposable DB).
+function failingService(userId: string) {
+  return createCrashPointService(new Proxy(db, {
+    get(target, property) {
+      if (property === '$transaction') return (fn: (tx: any) => unknown) =>
+        target.$transaction(async tx => {
+          return fn(new Proxy(tx, {
+            get(transaction, key) {
+              if (key === '$executeRaw') return async (sql: TemplateStringsArray, ...values: unknown[]) => {
+                const result = await transaction.$executeRaw(sql, ...values);
+                if (sql.join('').includes('UPDATE crash_point_accounts SET balance='))
+                  await transaction.$executeRaw`UPDATE crash_point_accounts SET balance=balance+10 WHERE user_id=${userId}`;
+                return result;
+              };
+              const value = Reflect.get(transaction, key);
+              return typeof value === 'function' ? value.bind(transaction) : value;
+            },
+          }));
+        });
+      const value = Reflect.get(target, property);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }));
+}
+it.each([1, 2])('rejects deferred admission failure in slot %s and retries exactly once after fixture repair', async slot => {
+  const f=await fixture(10000), broken=failingService(f.userId);
+  const attempts=await Promise.allSettled([1,2].map(()=>broken.enter(f.userId,f.roundId,25,200,slot)));
+  expect(attempts.map(r=>r.status)).toEqual(['rejected','rejected']);
+  expect(await balance(f.userId)).toBe(1000);
+  expect(await db.$queryRaw`SELECT id FROM crash_point_tickets WHERE user_id=${f.userId}`).toEqual([]);
+  const repaired=await Promise.all([1,2,3].map(()=>service.enter(f.userId,f.roundId,25,200,slot)));
+  expect(repaired.filter(r=>!r.isReplay)).toHaveLength(1);
+  expect(await balance(f.userId)).toBe(975);
+});
+it.each([1,2])('rejects deferred cashout and reports worker errors in slot %s; repaired concurrent retries credit once',async slot=>{
+  const f=await fixture(500),broken=failingService(f.userId);
+  await service.enter(f.userId,f.roundId,100,101,slot);await wait(f.starts.getTime()+180);
+  await expect(broken.cashout(f.userId,f.roundId,slot)).rejects.toThrow();
+  const errors:unknown[]=[];await broken.tick((id,e)=>{if(id===f.roundId)errors.push(e);});
+  expect(errors.length).toBeGreaterThan(0);
+  expect(await balance(f.userId)).toBe(900);
+  expect(await db.$queryRaw`SELECT payout,paid_cents FROM crash_point_tickets WHERE user_id=${f.userId}`).toEqual([{payout:null,paid_cents:null}]);
+  const results=await Promise.all([1,2,3].map(()=>service.cashout(f.userId,f.roundId,slot)));
+  expect(results).toEqual(Array(3).fill({payout:101,paidCents:101}));
+  expect(await balance(f.userId)).toBe(1001);
+});

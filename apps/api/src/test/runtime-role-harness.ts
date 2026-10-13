@@ -26,7 +26,16 @@ async function main() {
   const input = JSON.parse(process.argv[2] ?? '{}') as HarnessInput;
   const steps: Step[] = [];
   const server = await buildServer();
-  await server.ready();
+  const address = await server.listen({host:'127.0.0.1',port:0});
+  // Real HTTP (not Fastify injection), under the isolated restricted login.
+  const request = async (options: {method:string;url:string;headers?:Record<string,string>;cookies?:Record<string,string>;payload?:unknown;remoteAddress?:string}) => {
+    const response=await fetch(address+options.url,{method:options.method,headers:{
+      ...options.headers,...(options.payload===undefined?{}:{'content-type':'application/json'}),
+      ...(options.cookies?{cookie:Object.entries(options.cookies).map(([key,value])=>`${key}=${value}`).join('; ')}:{})},
+      body:options.payload===undefined?undefined:JSON.stringify(options.payload)});
+    const body=await response.text();
+    return {statusCode:response.status,body,json:()=>JSON.parse(body)};
+  };
   const api = config.API_PREFIX;
   // The same access tokens a login issues.
   const headers = (user: HarnessInput['player'], role: string) => ({
@@ -45,21 +54,22 @@ async function main() {
     const tag = randomUUID().replaceAll('-', '').slice(0, 12);
     await record('register and log in a new user', async () => {
       const credentials = { username: `rr_${tag}`, email: `rr-${tag}@test.local`, password: 'Runtime-Role-9!pass' };
-      const registered = await server.inject({ method: 'POST', url: `${api}/auth/register`, payload: credentials,
+      const registered = await request({ method: 'POST', url: `${api}/auth/register`, payload: credentials,
         remoteAddress: '10.44.0.1' });
-      const login = await server.inject({ method: 'POST', url: `${api}/auth/login`,
+      const login = await request({ method: 'POST', url: `${api}/auth/login`,
         payload: { email: credentials.email, password: credentials.password }, remoteAddress: '10.44.0.2' });
       return { ok: registered.statusCode === 201 && login.statusCode === 200,
         detail: { register: registered.statusCode, login: login.statusCode } };
     });
 
-    await record('play a Coin game, then replay it exactly', async () => {
+    await record('play an available bonus game over HTTP, then replay it exactly', async () => {
       const key = `rr-play-${tag}`;
       // The play route's header schema keeps only its own headers, so the
       // browser's access-token cookie authenticates it.
       const token = generateTokens(input.player.id, input.player.email, input.player.username, ['USER']).accessToken;
-      const play = () => server.inject({ method: 'POST', url: `${api}/games/dice/play`,
-        headers: { 'idempotency-key': key }, cookies: { sp_access_token: token }, payload: { betAmount: 10 } });
+      const question = await prisma.triviaQuestion.findFirstOrThrow();
+      const play = () => request({ method: 'POST', url: `${api}/games/trivia/play`,
+        headers: { 'idempotency-key': key, origin:new URL(config.FRONTEND_URL).origin }, cookies: { sp_access_token: token }, payload: { questionId:question.id,answerIndex:question.correctIndex } });
       const first = await play();
       const replay = await play();
       return { ok: first.statusCode === 201 && replay.statusCode === 200 && replay.json().data?.isReplay === true,
@@ -68,14 +78,14 @@ async function main() {
 
     let reviewLotId: string | null = null;
     await record('Coin adjustment: request, first approval, settling second approval', async () => {
-      const requested = await server.inject({ method: 'POST', url: `${api}/ledger-admin/adjustments`,
+      const requested = await request({ method: 'POST', url: `${api}/ledger-admin/adjustments`,
         headers: headers(input.adminA, 'SUPER_ADMIN'), payload: { targetUserId: input.player.id,
           caseId: `rr-case-${tag}`, delta: 40, rationale: 'Runtime role end-to-end adjustment',
           supportingEvidence: ['rr-evidence'] } });
       const approvalId = requested.json().data?.approvalId as string | undefined;
-      const first = await server.inject({ method: 'POST', url: `${api}/ledger-admin/adjustments/${approvalId}/first-approval`,
+      const first = await request({ method: 'POST', url: `${api}/ledger-admin/adjustments/${approvalId}/first-approval`,
         headers: headers(input.adminA, 'SUPER_ADMIN') });
-      const second = await server.inject({ method: 'POST', url: `${api}/ledger-admin/adjustments/${approvalId}/second-approval`,
+      const second = await request({ method: 'POST', url: `${api}/ledger-admin/adjustments/${approvalId}/second-approval`,
         headers: headers(input.adminB, 'SUPER_ADMIN') });
       reviewLotId = second.json().data?.reviewLotId ?? null;
       return { ok: requested.statusCode === 201 && first.statusCode === 200 && second.statusCode === 201 && !!reviewLotId,
@@ -85,10 +95,10 @@ async function main() {
 
     await record('legacy review of that credit: first approval, then resolution', async () => {
       const review = await prisma.legacyBalanceReview.findFirstOrThrow({ where: { lotId: reviewLotId ?? '' } });
-      const first = await server.inject({ method: 'POST', url: `${api}/ledger-admin/reviews/${review.id}/first-approval`,
+      const first = await request({ method: 'POST', url: `${api}/ledger-admin/reviews/${review.id}/first-approval`,
         headers: headers(input.adminA, 'SUPER_ADMIN'), payload: { decision: 'WITHDRAWABLE',
           rationale: 'Runtime role end-to-end review', supportingEvidence: ['rr-review-evidence'] } });
-      const second = await server.inject({ method: 'POST', url: `${api}/ledger-admin/reviews/${review.id}/second-approval`,
+      const second = await request({ method: 'POST', url: `${api}/ledger-admin/reviews/${review.id}/second-approval`,
         headers: headers(input.adminB, 'SUPER_ADMIN') });
       return { ok: first.statusCode === 200 && [200, 201].includes(second.statusCode),
         detail: { reviewId: review.id, first: first.statusCode, second: second.statusCode,
