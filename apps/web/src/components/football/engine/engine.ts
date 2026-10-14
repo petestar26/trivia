@@ -82,6 +82,47 @@ function ballTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** A fixed view fitted to the pitch, nets and decorative aerial play, never to released events. */
+function reducedPitchCamera(aspect: number): Frame['camera'] {
+  const fov = broadcastFov(34, aspect);
+  const centre = new THREE.Vector3(0, 0.9, 0);
+  const direction = new THREE.Vector3(0, 17.1, 62).normalize();
+  const right = new THREE.Vector3(1, 0, 0);
+  const up = new THREE.Vector3().crossVectors(direction, right);
+  const verticalTan = Math.tan((fov * Math.PI) / 360);
+  const horizontalTan = verticalTan * aspect;
+  let distance = Math.hypot(17.1, 62);
+  // Include net depth/ripple, touchline clearance and the director's 8 m long-ball arc.
+  for (const x of [-1, 1])
+    for (const y of [-0.3, 9])
+      for (const z of [-1, 1]) {
+        const offset = new THREE.Vector3(
+          x * (PITCH.halfLength + PITCH.goalDepth + 1.8),
+          y,
+          z * (PITCH.halfWidth + 1)
+        ).sub(centre);
+        distance = Math.max(
+          distance,
+          offset.dot(direction) +
+            1.08 *
+              Math.max(
+                Math.abs(offset.dot(right)) / horizontalTan,
+                Math.abs(offset.dot(up)) / verticalTan
+              )
+        );
+      }
+  const position = centre.clone().addScaledVector(direction, distance);
+  return {
+    x: position.x,
+    y: position.y,
+    z: position.z,
+    lx: centre.x,
+    ly: centre.y,
+    lz: centre.z,
+    fov,
+  };
+}
+
 export function createEngine(options: EngineOptions): Engine {
   const { host } = options;
   const renderer = new THREE.WebGLRenderer({
@@ -154,12 +195,24 @@ export function createEngine(options: EngineOptions): Engine {
   let visible = true;
   let renderedOnce = false;
 
+  const fitReducedCamera = () => {
+    const target = reducedPitchCamera(camera.aspect);
+    camPos.set(target.x, target.y, target.z);
+    camLook.set(target.lx, target.ly, target.lz);
+    camFov = camera.fov = target.fov;
+    camera.position.copy(camPos);
+    camera.lookAt(camLook);
+    camera.far = Math.max(700, camPos.distanceTo(camLook) + 100);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  };
   const resize = () => {
     const w = host.clientWidth;
     const h = host.clientHeight;
     if (!w || !h) return;
     camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    if (reduced) fitReducedCamera();
+    else camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
   };
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
@@ -224,7 +277,7 @@ export function createEngine(options: EngineOptions): Engine {
     stadium.update(dt, reduced ? 0.2 : frame.crowd);
 
     // Camera: restrained tracking, with a hard cut when the director changes shot.
-    const target = reduced ? { x: 0, y: 18, z: 62, lx: 0, ly: 0.9, lz: 0, fov: 34 } : frame.camera;
+    const target = reduced ? reducedPitchCamera(camera.aspect) : frame.camera;
     const cut =
       lastMode !== null &&
       lastMode !== frame.mode &&
@@ -239,7 +292,7 @@ export function createEngine(options: EngineOptions): Engine {
     camLook.x += (target.lx - camLook.x) * k;
     camLook.y += (target.ly - camLook.y) * k;
     camLook.z += (target.lz - camLook.z) * k;
-    camFov += (broadcastFov(target.fov, camera.aspect) - camFov) * k;
+    camFov += ((reduced ? target.fov : broadcastFov(target.fov, camera.aspect)) - camFov) * k;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     if (Math.abs(camera.fov - camFov) > 0.01) {
@@ -317,6 +370,11 @@ export function createEngine(options: EngineOptions): Engine {
     setReduced(value) {
       if (reduced === value) return;
       reduced = value;
+      if (reduced) fitReducedCamera();
+      else {
+        camera.far = 700;
+        camera.updateProjectionMatrix();
+      }
       schedule();
     },
     start() {
