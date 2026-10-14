@@ -65,7 +65,7 @@ export default function RaceScene({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#bad1dc');
     scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
-    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 2000);
     scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 1.25));
     const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
     sun.position.set(30, 40, 20);
@@ -252,7 +252,12 @@ export default function RaceScene({
         ctx.beginPath();
         ctx.arc(64, 64, 47, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#111';
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = '#fff4da';
+        ctx.stroke();
+        const color = new THREE.Color(DERBY_HORSES[i].color);
+        ctx.fillStyle =
+          color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722 < 0.35 ? '#fff8e6' : '#111820';
         ctx.font = 'bold 64px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -263,8 +268,8 @@ export default function RaceScene({
       const labelMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
       materials.push(labelMat);
       const label = new THREE.Sprite(labelMat);
-      label.position.set(0, 4, 0);
-      label.scale.set(0.9, 0.9, 1);
+      label.position.set(0, 4.2, 0);
+      label.scale.set(1.25, 1.25, 1);
       root.add(label);
       root.position.set(0, 0, (i - (round.field - 1) / 2) * 2.15);
       return horse;
@@ -350,44 +355,51 @@ export default function RaceScene({
     const draw = (time: number) => {
       if (disposed) return;
       frame = requestAnimationFrame(draw);
-      if (document.hidden || time - last < 33) return;
+      if (document.hidden || time - last < (live.current.reduced ? 1000 : 33)) return;
+      const dt = last ? Math.min(0.25, (time - last) / 1000) : 0;
       last = time;
-      const state = live.current,
-        moving = state.running && !state.reduced;
-      // Reuse the scene and GPU resources across rounds. Reset only interpolation.
-      if (renderedRound !== state.round.id) {
-        renderedRound = state.round.id;
-        displayed = state.round.positions.map((p) => p * 180);
-        sampleMotion = createRaceMotion(displayed);
-        strides = horses.map(() => createStrideClock());
+      try {
+        const state = live.current,
+          moving = state.running && !state.reduced;
+        // Reuse the scene and GPU resources across rounds. Reset only interpolation.
+        if (renderedRound !== state.round.id) {
+          renderedRound = state.round.id;
+          displayed = state.round.positions.map((p) => p * 180);
+          sampleMotion = createRaceMotion(displayed);
+          strides = horses.map(() => createStrideClock());
+        }
+        const previous = displayed;
+        displayed = sampleMotion(
+          time,
+          state.round.positions.map((p) => p * 180),
+          !moving
+        );
+        horses.forEach((horse, i) => {
+          horse.root.position.x = displayed[i];
+          contacts[i].position.x = displayed[i];
+          // Keep the running pose across polling jitter. Travel controls gait phase;
+          // stale data, reduced motion and round status still stop the presentation.
+          const phase = strides[i](displayed[i] - previous[i], moving);
+          horse.animate(phase, moving && displayed[i] - previous[i] > 0.0001);
+        });
+        const center = frameDerbyField(camera, displayed, round.field, state.reduced ? 0 : dt);
+        backdrop.position.x = center - 35;
+        if (fittedDistance !== camera.position.z || fittedAspect !== camera.aspect) {
+          const size = backdropSize(camera, backdrop.position);
+          backdrop.scale.set(size.width / 200, size.height / 66.67, 1);
+          backdrop.position.y = size.centerY;
+          backdrop.rotation.y = size.rotationY;
+          fittedDistance = camera.position.z;
+          fittedAspect = camera.aspect;
+        }
+        sun.position.set(center + 30, 40, 20);
+        sun.target.position.set(center, 0, 0);
+        renderer.render(scene, camera);
+      } catch {
+        disposed = true;
+        cancelAnimationFrame(frame);
+        setFailed(true);
       }
-      const previous = displayed;
-      displayed = sampleMotion(
-        time,
-        state.round.positions.map((p) => p * 180),
-        !moving
-      );
-      horses.forEach((horse, i) => {
-        horse.root.position.x = displayed[i];
-        contacts[i].position.x = displayed[i];
-        // Keep the running pose across polling jitter. Travel controls gait phase;
-        // stale data, reduced motion and round status still stop the presentation.
-        const phase = strides[i](displayed[i] - previous[i], moving);
-        horse.animate(phase, moving && phase > 0);
-      });
-      const center = frameDerbyField(camera, displayed, round.field);
-      backdrop.position.x = center - 35;
-      if (fittedDistance !== camera.position.z || fittedAspect !== camera.aspect) {
-        const size = backdropSize(camera, backdrop.position);
-        backdrop.scale.set(size.width / 200, size.height / 66.67, 1);
-        backdrop.position.y = size.centerY;
-        backdrop.rotation.y = size.rotationY;
-        fittedDistance = camera.position.z;
-        fittedAspect = camera.aspect;
-      }
-      sun.position.set(center + 30, 40, 20);
-      sun.target.position.set(center, 0, 0);
-      renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(draw);
     return () => {
@@ -415,7 +427,10 @@ export default function RaceScene({
       {failed && (
         <div className="derby-scene-fallback">
           3D view unavailable on this device. Follow the numbered race progress and official results
-          above.
+          above.{' '}
+          <button type="button" onClick={() => setContextRevision((r) => r + 1)}>
+            Retry 3D view
+          </button>
         </div>
       )}
     </div>

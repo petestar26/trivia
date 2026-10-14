@@ -413,9 +413,11 @@ export function createRiggedHorse(
     model.worldToLocal(spinePosition);
     const bounce = spinePosition.y - spineRest.y;
     rider.position.y = 1.65 - 0.917 * 0.79 + bounce * 0.55;
-    rider.rotation.x = moving
-      ? Math.sin((clipSeconds / assets.run.duration) * Math.PI * 2 + index * 0.861) * 0.025
-      : 0;
+    const strideAngle = (clipSeconds / assets.run.duration) * Math.PI * 2 + index * 0.861;
+    // The rider absorbs the authored stride rather than bouncing rigidly with the saddle.
+    rider.rotation.x = moving ? Math.sin(strideAngle - 0.35) * 0.04 : 0;
+    rider.rotation.z = moving ? Math.sin(strideAngle) * 0.012 : 0;
+    rider.position.z = -0.12 + (moving ? Math.sin(strideAngle - 0.35) * 0.018 : 0);
     saddle.position.y = 1.52 + bounce;
     cloth.position.y = 1.43 + bounce;
     model.updateMatrixWorld(true);
