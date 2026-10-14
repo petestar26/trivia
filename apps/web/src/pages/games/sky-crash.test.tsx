@@ -47,6 +47,10 @@ function setup() {
   );
 }
 beforeEach(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  });
   elapsedTime = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => elapsedTime);
   sessionStorage.clear();
@@ -125,7 +129,7 @@ it('shows impact only after server reveal, preserves it on refresh, and resets f
     client.setQueryData(['sky-crash', 'u1'], { snapshot, sent: 5000, received: 5000 });
   });
   const impact = await screen.findByTestId('sky-crash-impact');
-  expect(screen.getByText('CRASHED')).toBeInTheDocument();
+  expect(screen.getByText('FLEW AWAY!')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
   await act(async () => {
     client.setQueryData(['sky-crash', 'u1'], {
@@ -827,5 +831,47 @@ it('shows a concise unentered result and Done restores its history opener', asyn
   fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+it('floats only settled positive returns from the displayed round and hides them while disconnected', async () => {
+  get.mockImplementation(async (path: string, params?: { roundId: string }) => ({
+    success: true,
+    data: path.endsWith('/activity')
+      ? {
+          roundId: params?.roundId,
+          totalTickets: 3,
+          tickets: [
+            { player: 'Settled pilot', stake: 25, payout: 50, paidCents: 200 },
+            { player: 'Pending pilot', stake: 25, payout: null, paidCents: null },
+            { player: 'Lost pilot', stake: 25, payout: 0, paidCents: null },
+          ],
+        }
+      : snapshot,
+  }));
+  setup();
+  const returns = await screen.findByLabelText('Server-confirmed practice returns');
+  expect(returns).toHaveTextContent('Settled pilot');
+  expect(returns).toHaveTextContent('50 credits returned');
+  expect(returns).not.toHaveTextContent('Pending pilot');
+  expect(returns).not.toHaveTextContent('Lost pilot');
+  elapsedTime = 5000;
+  await screen.findByText('SYNCHRONIZING');
+  expect(screen.queryByLabelText('Server-confirmed practice returns')).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});
+it('does not float a response belonging to a previous round', async () => {
+  get.mockImplementation(async (path: string) => ({
+    success: true,
+    data: path.endsWith('/activity')
+      ? {
+          roundId: 'old-round',
+          totalTickets: 1,
+          tickets: [{ player: 'Old pilot', stake: 25, payout: 50, paidCents: 200 }],
+        }
+      : snapshot,
+  }));
+  setup();
+  await screen.findByText('ENTRY OPEN');
+  expect(screen.queryByLabelText('Server-confirmed practice returns')).toBeNull();
   expect(post).not.toHaveBeenCalled();
 });
