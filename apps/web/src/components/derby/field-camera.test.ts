@@ -45,3 +45,31 @@ it('contains the field immediately on spread and eases a contracting lens withou
     });
   }
 });
+
+it('contains the enlarged billboard number quads for six/eight runners at phone stage sizes', () => {
+  for (const field of [6, 8])
+    for (const [width, height] of [
+      [390, 292],
+      [390, 600],
+      [844, 230],
+    ]) {
+      const positions = Array.from({ length: field }, (_, i) => 100 - i * 1.62);
+      const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 2000);
+      frameDerbyField(camera, positions, field);
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      positions.forEach((x, i) => {
+        const centre = new THREE.Vector3(x, 4.235, (i - (field - 1) / 2) * 2.15);
+        for (const dx of [-0.8, 0.8])
+          for (const dy of [-0.8, 0.8]) {
+            const screen = centre
+              .clone()
+              .addScaledVector(right, dx)
+              .addScaledVector(up, dy)
+              .project(camera);
+            expect(Math.abs(screen.x)).toBeLessThan(1);
+            expect(Math.abs(screen.y)).toBeLessThan(1);
+          }
+      });
+    }
+});

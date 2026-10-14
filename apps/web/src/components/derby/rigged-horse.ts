@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { constrainHoof, measureHoofWindows } from './authored-contact';
 import { CONTACT_FRACTION, STRIDE_SECONDS } from './gallop';
 
 export type HorseAssets = {
@@ -76,6 +77,7 @@ export function continuousGallop(source: THREE.AnimationClip) {
   return clip;
 }
 
+const contactCache = new WeakMap<HorseAssets, ReturnType<typeof measureHoofWindows>>();
 const vector = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /** Anatomical skinned horse and human, with a separately posed racing jockey. */
@@ -85,6 +87,11 @@ export function createRiggedHorse(
   silkColor: string,
   index: number
 ): RaceHorse {
+  let contacts = contactCache.get(assets);
+  if (!contacts) {
+    contacts = measureHoofWindows(assets.horse, continuousGallop(assets.run));
+    contactCache.set(assets, contacts);
+  }
   const root = new THREE.Group();
   const model = clone(assets.horse) as THREE.Group;
   const rider = clone(assets.rider) as THREE.Group;
@@ -252,6 +259,10 @@ export function createRiggedHorse(
         if (digit) digit.rotateZ(sign * 0.55);
       }
   }
+  const riderPose = new Map<THREE.Object3D, THREE.Quaternion>();
+  rider.traverse((o) => {
+    if (o instanceof THREE.Bone) riderPose.set(o, o.quaternion.clone());
+  });
   function addMesh(
     parent: THREE.Object3D,
     geometry: THREE.BufferGeometry,
@@ -314,12 +325,15 @@ export function createRiggedHorse(
     vector(0, 1.43, -0.13),
     vector(0.33, 0.075, 0.32)
   );
+  const stirrups: THREE.Mesh[] = [];
   for (const side of [-1, 1]) {
-    addMesh(
-      model,
-      new THREE.TorusGeometry(0.06, 0.009, 6, 12),
-      gold,
-      vector(side * 0.38, 1.15, -0.26)
+    stirrups.push(
+      addMesh(
+        model,
+        new THREE.TorusGeometry(0.06, 0.009, 6, 12),
+        gold,
+        vector(side * 0.38, 1.15, -0.26)
+      )
     );
   }
   // Tack follows the animated head; rein endpoints are resampled from the real hands.
@@ -409,6 +423,14 @@ export function createRiggedHorse(
     // Each runner has an independent mixer and a frame-rate-independent phase.
     mixer.setTime(moving ? clipSeconds + index * assets.run.duration * 0.137 : 0);
     model.updateMatrixWorld(true);
+    if (moving)
+      for (const contact of contacts!)
+        constrainHoof(
+          model,
+          contact,
+          clipSeconds + index * assets.run.duration * 0.137,
+          assets.run.duration
+        );
     const spinePosition = spine.getWorldPosition(new THREE.Vector3());
     model.worldToLocal(spinePosition);
     const bounce = spinePosition.y - spineRest.y;
@@ -420,6 +442,44 @@ export function createRiggedHorse(
     rider.position.z = -0.12 + (moving ? Math.sin(strideAngle - 0.35) * 0.018 : 0);
     saddle.position.y = 1.52 + bounce;
     cloth.position.y = 1.43 + bounce;
+    model.updateMatrixWorld(true);
+    // Reset to the fitted pose so repeated sampling and different frame steps agree.
+    riderPose.forEach((q, joint) => joint.quaternion.copy(q));
+    pelvis.rotateX(moving ? Math.sin(strideAngle - 0.35) * 0.035 : 0);
+    rider.updateMatrixWorld(true);
+    for (const stirrup of stirrups) stirrup.position.y = 1.15 + bounce;
+    for (const [side, sign] of [
+      ['l', 1],
+      ['r', -1],
+    ] as const) {
+      const anchor = (x: number, y: number, z: number) => model.localToWorld(vector(x, y, z));
+      solveLimb(
+        bone(`thigh_${side}`),
+        bone(`calf_${side}`),
+        bone(`foot_${side}`),
+        anchor(sign * 0.38, 1.15 + bounce, -0.26),
+        anchor(sign * 0.72 * 0.79, 1.5 + bounce, 0.6)
+      );
+      aim(
+        bone(`foot_${side}`),
+        bone(`ball_${side}`),
+        worldPosition(bone(`foot_${side}`)).add(
+          model.localToWorld(vector(0, -0.03, 0.16)).sub(model.localToWorld(vector(0, 0, 0)))
+        )
+      );
+      solveLimb(
+        bone(`upperarm_${side}`),
+        bone(`lowerarm_${side}`),
+        bone(`hand_${side}`),
+        anchor(
+          sign * 0.21 * 0.79,
+          1.65 - 0.917 * 0.79 + 1.14 * 0.79 + bounce * 0.85,
+          -0.12 + 0.77 * 0.79
+        ),
+        anchor(sign * 0.5, 1.55 + bounce, 0.5)
+      );
+    }
+    headFrame.position.copy(rider.worldToLocal(worldPosition(head)));
     model.updateMatrixWorld(true);
     for (let side = 0; side < 2; side++) {
       const start = model.worldToLocal(headBone.localToWorld(bitPoints[side].clone()));

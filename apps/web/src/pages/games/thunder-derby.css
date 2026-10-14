@@ -1,6 +1,6 @@
 .derby-page {
-  --derby-gold: #e5c383;
-  --derby-ink: #0c1715;
+  --derby-gold: #e4b496;
+  --derby-ink: #100b0e;
   max-width: 1500px;
   margin: auto;
   padding: 24px;
@@ -94,11 +94,11 @@
 .derby-markets button,
 .derby-amounts button,
 .derby-dialog button {
-  border: 1px solid #385346;
+  border: 1px solid #755345;
   border-radius: 9px;
   padding: 10px 14px;
   color: #eaf3ed;
-  background: #14241e;
+  background: #25151d;
 }
 .derby-toolbar small {
   display: block;
@@ -106,7 +106,7 @@
   color: #aabbaf;
 }
 .derby-page button[aria-pressed='true'] {
-  background: #314932;
+  background: #542538;
   border-color: var(--derby-gold);
   box-shadow: inset 0 0 0 1px #e5c38355;
   color: #ffe7b7;
@@ -218,8 +218,8 @@
 .derby-arena,
 .derby-slip {
   min-width: 0;
-  background: linear-gradient(140deg, #172b22, #0c1915 70%);
-  border: 1px solid #385044;
+  background: linear-gradient(140deg, #351724, #120c10 70%);
+  border: 1px solid #755345;
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 16px 40px #0004;
@@ -782,5 +782,210 @@
   }
   .derby-broadcast-label span {
     display: none;
+  }
+}
+
+/* Normal short-landscape view exposes the course while history remains scrollable. */
+.derby-display .game-arena__toggle,
+.derby-display .game-arena__return {
+  background: #351724;
+  border-color: #755345;
+  color: #fff0e6;
+}
+@media (min-width: 750px) and (max-height: 480px) and (orientation: landscape) {
+  .derby-page > * {
+    grid-column: 1 / -1;
+  }
+  .derby-page {
+    padding: 6px 12px 8px;
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) auto minmax(300px, 1.3fr);
+    column-gap: 12px;
+    gap: 4px 10px;
+  }
+  .derby-header {
+    margin-bottom: 6px;
+    gap: 8px;
+    display: contents;
+  }
+  .derby-header h1 {
+    font-size: 16px;
+    margin-top: 2px;
+    margin: 0;
+  }
+  .derby-header h1 small {
+    margin-top: 3px;
+    letter-spacing: 0.2em;
+    font-size: 7px;
+    margin-left: 26px;
+  }
+  .derby-crest {
+    font-size: 26px;
+    margin-right: 7px;
+  }
+  .derby-credit strong {
+    font-size: 17px;
+  }
+  .derby-toolbar {
+    margin-bottom: 4px;
+    gap: 6px;
+  }
+  .derby-toolbar button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .derby-history {
+    padding: 0;
+    gap: 6px;
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+  .derby-history button {
+    padding: 4px 6px;
+  }
+  .derby-history b {
+    padding: 1px;
+    font-size: 12px;
+  }
+  .derby-race-heading {
+    padding: 6px 12px;
+  }
+  .derby-race-heading h2 {
+    margin: 2px 0;
+    font-size: 18px;
+  }
+  .derby-countdown strong {
+    font-size: 24px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-scene-shell {
+    min-height: 200px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-scene {
+    min-height: 200px;
+    height: 230px;
+  }
+  .derby-header > div:first-child {
+    display: block;
+    align-items: center;
+    gap: 12px;
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+  .derby-credit p {
+    font-size: 10px;
+    grid-column: 1 / -1;
+  }
+  .derby-page > .game-round-summary {
+    padding: 4px 7px;
+    margin-bottom: 6px;
+    font-size: 10px;
+    background: #25151d;
+    border-color: #755345;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
+    margin: 0;
+  }
+  .derby-display:not(.game-arena--expanded) .game-arena__toolbar {
+    padding-bottom: 4px;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 4;
+    padding: 0;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-race-heading {
+    padding: 4px 10px;
+    padding-right: 145px;
+    min-height: 44px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-race-heading > div:first-child {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 8px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-race-heading p {
+    flex-basis: 100%;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-race-heading h2 {
+    font-size: 14px;
+  }
+  .derby-credit {
+    line-height: 1.2;
+    display: block;
+    grid-template-columns: auto auto;
+    align-items: center;
+    column-gap: 8px;
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .derby-page > .derby-toolbar {
+    grid-column: 3;
+    grid-row: 1;
+    margin: 0;
+  }
+  .derby-credit > span,
+  .derby-credit p {
+    font-size: 9px;
+  }
+  .derby-history > span {
+    min-width: 55px;
+    max-width: 55px;
+    font-size: 8px;
+  }
+  .derby-history p {
+    margin: 0;
+    font-size: 10px;
+  }
+  .derby-display:not(.game-arena--expanded) {
+    position: relative;
+  }
+  .derby-display:not(.game-arena--expanded) .game-arena__toolbar > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .derby-display:not(.game-arena--expanded) .derby-eyebrow {
+    font-size: 8px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-countdown {
+    min-width: 64px;
+  }
+  .derby-display:not(.game-arena--expanded) .derby-countdown strong {
+    line-height: 1.1;
+    font-size: 20px;
+  }
+  .derby-page > .game-round-summary .game-round-summary__outcome {
+    gap: 2px 5px;
+  }
+  .derby-page > .game-round-summary .game-round-summary__outcome > strong {
+    font-size: 12px;
+  }
+  .derby-page > .game-round-summary .game-round-summary__outcome > span,
+  .derby-page > .game-round-summary .game-round-summary__clock {
+    font-size: 9px;
+  }
+  .derby-page > .game-round-summary .game-round-summary__outcome > small {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .derby-display:not(.game-arena--expanded) .derby-race-heading .derby-eyebrow {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .derby-display:not(.game-arena--expanded) .derby-countdown span {
+    line-height: 1.2;
+    font-size: 8px;
   }
 }

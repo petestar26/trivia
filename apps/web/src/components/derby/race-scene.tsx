@@ -64,9 +64,14 @@ export default function RaceScene({
     renderer.domElement.addEventListener('webglcontextrestored', restored);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#bad1dc');
-    scene.fog = new THREE.Fog('#d5d5bf', 80, 280);
+    scene.fog = new THREE.Fog('#dbe4d4', 65, 230);
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 2000);
-    scene.add(new THREE.HemisphereLight('#e4eff6', '#586333', 1.25));
+    scene.add(new THREE.HemisphereLight('#e4eff6', '#788064', 1.45));
+    // A broad unshadowed fill reveals the dark coats/rider silhouettes without
+    // adding another shadow map, geometry or per-runner light.
+    const fill = new THREE.DirectionalLight('#e3edf5', 0.55);
+    fill.position.set(-15, 18, 24);
+    scene.add(fill, fill.target);
     const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
     sun.position.set(30, 40, 20);
     sun.castShadow = true;
@@ -167,7 +172,9 @@ export default function RaceScene({
     // Original sunlit racecourse artwork sits behind the real geometry. It is
     // decorative only; progress, runners and finish remain server-fed 3D objects.
     let disposed = false;
-    const backdropMat = new THREE.MeshBasicMaterial({ color: '#ffffff', fog: false });
+    // The distant artwork shares the scene's atmospheric depth rather than
+    // presenting a sharper, brighter surface than the nearby animated rigs.
+    const backdropMat = new THREE.MeshBasicMaterial({ color: '#e4e8df', fog: true });
     materials.push(backdropMat);
     const backdrop = mesh(scene, new THREE.PlaneGeometry(200, 66.67), backdropMat, 90, 16, -65);
     backdrop.castShadow = backdrop.receiveShadow = false;
@@ -269,9 +276,11 @@ export default function RaceScene({
       materials.push(labelMat);
       const label = new THREE.Sprite(labelMat);
       label.position.set(0, 4.2, 0);
-      label.scale.set(1.25, 1.25, 1);
+      label.scale.set(1.6, 1.6, 1);
       root.add(label);
-      root.position.set(0, 0, (i - (round.field - 1) / 2) * 2.15);
+      // The track box is centred at .01 with .05 height. The gait's local
+      // ground datum is zero, so lift the complete runner to its .035 top.
+      root.position.set(0, 0.035, (i - (round.field - 1) / 2) * 2.15);
       return horse;
     });
     let assets: HorseAssets | undefined;
@@ -394,6 +403,8 @@ export default function RaceScene({
         }
         sun.position.set(center + 30, 40, 20);
         sun.target.position.set(center, 0, 0);
+        fill.position.set(center - 15, 18, 24);
+        fill.target.position.set(center, 1.2, 0);
         renderer.render(scene, camera);
       } catch {
         disposed = true;

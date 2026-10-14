@@ -88,31 +88,63 @@ describe('shipped horse and jockey rigs', () => {
   });
 });
 
-it('matches forward travel to the authored hoof contact instead of the procedural cadence', async () => {
-  const a = await assets(),
-    horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
-  const foot = horse.root.getObjectByName('front_leg_foot_l')!;
-  const samples: THREE.Vector3[] = [];
-  for (let i = 0; i < 100; i++) {
-    const travel = (i / 100) * a.run.duration * 10 * 1.5;
+it('bounds world stance slip across all four authored hooves and preserves suspension', async () => {
+  const { measureHoofWindows, stanceOffset, sampledHoofSole } = await import('./authored-contact');
+  const a = await assets();
+  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  const horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const sample = (time: number) => {
+    const travel = time * 15;
     horse.root.position.x = travel;
     horse.animate((travel * 0.74) / (1.04 / 0.22), true);
     horse.root.updateMatrixWorld(true);
-    samples.push(foot.getWorldPosition(new THREE.Vector3()));
+  };
+  for (const w of windows) {
+    const points: THREE.Vector3[] = [];
+    const soles: number[] = [];
+    for (let i = 0; i <= 12; i++) {
+      sample(w.center + (i / 12 - 0.5) * w.halfWidth);
+      points.push(horse.root.getObjectByName(w.name)!.getWorldPosition(new THREE.Vector3()));
+      soles.push(sampledHoofSole(horse.root.children[0], w.name) * 1.5);
+    }
+    const slip = Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x));
+    const clearance = Math.max(...points.map((p) => Math.abs(p.y + w.soleOffset * 1.5)));
+    const soleResidual = Math.max(...soles.map(Math.abs));
+    console.log('central half stance residual', w.name, {
+      slip,
+      estimatedClearance: clearance,
+      soleResidual,
+    });
+    expect(soleResidual).toBeLessThan(0.025);
+    expect(slip).toBeLessThan(0.005);
+    expect(clearance).toBeLessThan(0.025);
+    const fullContact: THREE.Vector3[] = [];
+    const fullSoles: number[] = [];
+    for (let i = 0; i <= 24; i++) {
+      sample(w.center + (i / 24 - 0.5) * 2 * w.halfWidth);
+      fullContact.push(horse.root.getObjectByName(w.name)!.getWorldPosition(new THREE.Vector3()));
+      fullSoles.push(sampledHoofSole(horse.root.children[0], w.name) * 1.5);
+    }
+    const transitionSlip =
+      Math.max(...fullContact.map((p) => p.x)) - Math.min(...fullContact.map((p) => p.x));
+    const fullSoleResidual = Math.max(...fullSoles.map(Math.abs));
+    console.log('full stance including eased transitions', w.name, {
+      transitionSlip,
+      fullSoleResidual,
+    });
+    expect(fullSoleResidual).toBeLessThan(0.025);
+    expect(transitionSlip).toBeLessThan(0.11);
   }
-  const lowest = Math.min(...samples.map((p) => p.y));
-  const groups: THREE.Vector3[][] = [[]];
-  for (const sample of samples) {
-    if (sample.y < lowest + 0.035) groups.at(-1)!.push(sample);
-    else if (groups.at(-1)!.length) groups.push([]);
-  }
-  // The cycle starts in the planted fore-hoof contact. The later low
-  // approach is the next landing, not a planted segment.
-  const contacts = groups[0];
-  expect(contacts.length).toBeGreaterThan(5);
-  expect(
-    Math.max(...contacts.map((p) => p.x)) - Math.min(...contacts.map((p) => p.x))
-  ).toBeLessThan(0.15);
+  const airborne = Array.from({ length: 100 }, (_, i) => (i * a.run.duration) / 100).filter((t) =>
+    windows.every((w) => Math.abs(stanceOffset(t, a.run.duration, w)) > w.halfWidth)
+  );
+  expect(airborne.length).toBeGreaterThan(12);
+  const suspended = airborne.filter((time) => {
+    sample(time);
+    return windows.every((w) => sampledHoofSole(horse.root.children[0], w.name) * 1.5 > 0.04);
+  });
+  console.log('natural all-four-sole airborne samples', suspended.length);
+  expect(suspended.length).toBeGreaterThan(8);
   horse.dispose!();
 });
 
@@ -126,4 +158,169 @@ it('removes the leading frame hold and closes every gallop track at the loop sea
     expect(Array.from(track.values.slice(-size))).toEqual(Array.from(track.values.slice(0, size)));
     expect(track.times.at(-1)).toBeCloseTo(run.duration);
   }
+});
+
+it('measures four real authored stance windows and visible sole clearance', async () => {
+  const { measureHoofWindows } = await import('./authored-contact');
+  const a = await assets();
+  const started = performance.now();
+  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  console.log(
+    'authored contact calibration',
+    performance.now() - started,
+    windows.map(({ soleHeights, ...window }) => ({
+      ...window,
+      soleProfileSamples: soleHeights.length,
+    }))
+  );
+  expect(windows).toHaveLength(4);
+  for (const w of windows) {
+    expect(w.halfWidth).toBeGreaterThan(0.008);
+    expect(w.soleOffset).toBeLessThan(0);
+    expect(w.soleOffset).toBeGreaterThan(-0.3);
+  }
+});
+
+it('articulates rider knees/elbows against anchored boots/hands with frame-step independence', async () => {
+  const a = await assets();
+  const one = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const two = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const riderSkeleton = (horse: ReturnType<typeof createRiggedHorse>) => {
+    let result: THREE.Skeleton | undefined;
+    horse.root.traverse((o) => {
+      if (o instanceof THREE.SkinnedMesh && o.skeleton.getBoneByName('pelvis')) result = o.skeleton;
+    });
+    return result!;
+  };
+  const rig = riderSkeleton(one);
+  const knees: THREE.Quaternion[] = [],
+    elbows: THREE.Quaternion[] = [];
+  let maxBootError = 0,
+    maxHandError = 0;
+  for (let i = 0; i <= 60; i++) {
+    const time = (i / 60) * a.run.duration;
+    const travel = time * 15;
+    one.root.position.x = travel;
+    one.animate((travel * 0.74) / (1.04 / 0.22), true);
+    one.root.updateMatrixWorld(true);
+    knees.push(rig.getBoneByName('calf_l')!.quaternion.clone());
+    elbows.push(rig.getBoneByName('lowerarm_l')!.quaternion.clone());
+    const model = one.root.children[0];
+    const spine = model.worldToLocal(
+      model.getObjectByName('spine_2')!.getWorldPosition(new THREE.Vector3())
+    );
+    // Tack/saddle anchor height is exposed by the original saddle mesh, not a synthetic rider target.
+    const saddle = model.children.find(
+      (o) => o instanceof THREE.Mesh && Math.abs(o.position.z + 0.12) < 1e-8
+    )!;
+    const bounce = saddle.position.y - 1.52;
+    const localFoot = model.worldToLocal(
+      rig.getBoneByName('foot_l')!.getWorldPosition(new THREE.Vector3())
+    );
+    const localHand = model.worldToLocal(
+      rig.getBoneByName('hand_l')!.getWorldPosition(new THREE.Vector3())
+    );
+    maxBootError = Math.max(
+      maxBootError,
+      localFoot.distanceTo(new THREE.Vector3(0.38, 1.15 + bounce, -0.26))
+    );
+    maxHandError = Math.max(
+      maxHandError,
+      localHand.distanceTo(
+        new THREE.Vector3(
+          0.21 * 0.79,
+          1.65 - 0.917 * 0.79 + 1.14 * 0.79 + bounce * 0.85,
+          -0.12 + 0.77 * 0.79
+        )
+      )
+    );
+    expect(Number.isFinite(spine.y)).toBe(true);
+  }
+  console.log('rider anchor residuals model units', { maxBootError, maxHandError });
+  expect(Math.max(...knees.map((q) => q.angleTo(knees[0])))).toBeGreaterThan(0.02);
+  expect(Math.max(...elbows.map((q) => q.angleTo(elbows[0])))).toBeGreaterThan(0.02);
+  expect(maxBootError).toBeLessThan(0.015);
+  expect(maxHandError).toBeLessThan(0.015);
+  // Compare direct sampling against a runner with a full stride history, during fore stance.
+  one.root.position.x = 0.3171006973522405 * 15;
+  one.animate((one.root.position.x * 0.74) / (1.04 / 0.22), true);
+  one.root.updateMatrixWorld(true);
+  two.root.position.x = one.root.position.x;
+  two.animate((one.root.position.x * 0.74) / (1.04 / 0.22), true);
+  two.root.updateMatrixWorld(true);
+  const other = riderSkeleton(two);
+  for (const name of [
+    'front_leg_foot_l',
+    'front_leg_foot_r',
+    'back_leg_foot_l',
+    'back_leg_foot_r',
+  ]) {
+    expect(
+      two.root
+        .getObjectByName(name)!
+        .getWorldPosition(new THREE.Vector3())
+        .distanceTo(one.root.getObjectByName(name)!.getWorldPosition(new THREE.Vector3()))
+    ).toBeLessThan(1e-7);
+  }
+  for (const name of ['calf_l', 'lowerarm_l', 'foot_l', 'hand_l']) {
+    expect(
+      other
+        .getBoneByName(name)!
+        .getWorldPosition(new THREE.Vector3())
+        .distanceTo(rig.getBoneByName(name)!.getWorldPosition(new THREE.Vector3()))
+    ).toBeLessThan(1e-7);
+  }
+  one.dispose!();
+  two.dispose!();
+});
+
+it('bounds visible skin penetration over the entire cycle while preserving positive authored clearance', async () => {
+  const { measureHoofWindows, stanceOffset, sampledHoofSole } = await import('./authored-contact');
+  const a = await assets();
+  const windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  const rawMixer = new THREE.AnimationMixer(a.horse);
+  rawMixer.clipAction(continuousGallop(a.run)).play();
+  const horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const metrics = windows.map((w) => ({
+    name: w.name,
+    minimumAll: Infinity,
+    minimumOutside: Infinity,
+    unchangedPositiveSamples: 0,
+  }));
+  for (let i = 0; i < 384; i++) {
+    const time = (i * a.run.duration) / 384;
+    const travel = time * 15;
+    rawMixer.setTime(time);
+    a.horse.updateMatrixWorld(true);
+    horse.root.position.x = travel;
+    horse.animate((travel * 0.74) / (1.04 / 0.22), true);
+    horse.root.updateMatrixWorld(true);
+    const model = horse.root.children[0];
+    windows.forEach((w, hoof) => {
+      const sole = sampledHoofSole(model, w.name) * 1.5;
+      const outside = Math.abs(stanceOffset(time, a.run.duration, w)) >= w.halfWidth;
+      const m = metrics[hoof];
+      m.minimumAll = Math.min(m.minimumAll, sole);
+      if (outside) m.minimumOutside = Math.min(m.minimumOutside, sole);
+      if (outside && sampledHoofSole(a.horse, w.name) > 0.005) {
+        const authored = a.horse.worldToLocal(
+          a.horse.getObjectByName(w.name)!.getWorldPosition(new THREE.Vector3())
+        );
+        const final = model.worldToLocal(
+          model.getObjectByName(w.name)!.getWorldPosition(new THREE.Vector3())
+        );
+        expect(final.distanceTo(authored)).toBeLessThan(1e-6);
+        m.unchangedPositiveSamples++;
+      }
+    });
+  }
+  console.log('entire cycle actual skinned hoof minima', metrics);
+  for (const m of metrics) {
+    expect(m.minimumAll).toBeGreaterThan(-0.025);
+    expect(m.minimumOutside).toBeGreaterThan(-0.025);
+    expect(m.unchangedPositiveSamples).toBeGreaterThan(100);
+  }
+  rawMixer.stopAllAction();
+  rawMixer.uncacheRoot(a.horse);
+  horse.dispose!();
 });

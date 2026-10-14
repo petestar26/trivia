@@ -9,7 +9,7 @@ export function frameDerbyField(
 ) {
   const left = Math.min(...positions) - 3.3,
     right = Math.max(...positions) + 3.3;
-  const center = new THREE.Vector3((left + right) / 2, 2.3, 0);
+  const center = new THREE.Vector3((left + right) / 2, 2.335, 0);
   const direction = new THREE.Vector3(0.25, 0.32, 1).normalize();
   const side = new THREE.Vector3(direction.z, 0, -direction.x).normalize();
   const up = new THREE.Vector3().crossVectors(direction, side).normalize();
@@ -18,7 +18,7 @@ export function frameDerbyField(
   const laneDepth = (field - 1) * 1.075 + 0.8;
   let distance = 15;
   for (const x of [left, right])
-    for (const y of [0, 5])
+    for (const y of [0.035, 5.035])
       for (const z of [-laneDepth, laneDepth]) {
         const offset = new THREE.Vector3(x, y, z).sub(center);
         distance = Math.max(
