@@ -17,9 +17,12 @@ const RELEASED_ROUTES: Record<string, string> = {
   trivia: '/games/trivia',
   number_challenge: '/games/number-challenge',
 };
+const VISUAL_PREVIEW_GAMES = ['sky_crash', 'virtual_football_3d', 'thunder_derby_3d'];
 
 /** A decorative card never enables an unreleased game or bypasses server availability. */
 export function memberGameDestination(game: MemberGame): string | undefined {
+  if (import.meta.env.VITE_VISUAL_PREVIEW === 'true' && !VISUAL_PREVIEW_GAMES.includes(game.key))
+    return undefined;
   if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
     return undefined;
   if (game.catalogStatus === 'RETIRED') return undefined;
@@ -30,6 +33,8 @@ export function memberGameDestination(game: MemberGame): string | undefined {
 }
 
 export function memberGameLabel(game: MemberGame) {
+  if (import.meta.env.VITE_VISUAL_PREVIEW === 'true' && !VISUAL_PREVIEW_GAMES.includes(game.key))
+    return 'Catalog preview';
   if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
     return 'Coming soon';
   if (PRACTICE_ROUTES[game.key]) return 'Free practice';
