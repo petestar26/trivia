@@ -151,6 +151,9 @@ class ApiClient {
   }
 
   private async performRequest<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
+    if (import.meta.env.VITE_VISUAL_PREVIEW === 'true' && !['GET', 'HEAD', 'OPTIONS'].includes(options.method ?? 'GET')) {
+      throw new Error(JSON.stringify({ status: 403, code: 'PREVIEW_READ_ONLY', message: 'Visual preview only. Bets, payments and account changes are disabled.' }));
+    }
     const { params, headers, ...fetchOptions } = options;
     const url = this.buildUrl(endpoint, params);
     const revision = sessionRevision();
