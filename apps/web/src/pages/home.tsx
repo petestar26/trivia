@@ -152,7 +152,9 @@ export function HomePage() {
                           ? game.mode === 'BONUS'
                             ? 'Test your knowledge. Play for free.'
                             : 'Explore the game and its published rules.'
-                          : 'A new experience is on its way.'}
+                          : import.meta.env.VITE_VISUAL_PREVIEW === 'true'
+                            ? 'Catalog artwork only. This game is not connected in this visual preview.'
+                            : 'A new experience is on its way.'}
                     </p>
                     <span className="ruby-game-action">
                       {to ? (
@@ -161,7 +163,7 @@ export function HomePage() {
                         </>
                       ) : (
                         <>
-                          <LockKeyhole size={13} /> Not yet available
+                          <LockKeyhole size={13} /> {import.meta.env.VITE_VISUAL_PREVIEW === 'true' ? 'Catalog only' : 'Not yet available'}
                         </>
                       )}
                     </span>
