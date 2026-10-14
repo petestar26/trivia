@@ -4,7 +4,8 @@ import type * as ThreeModule from 'three';
 import { PITCH, GOAL_SEQUENCE, type ReleasedGoal } from './director';
 import { createEngine, type Engine, type MatchInput } from './engine';
 
-const rendererState = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn() }));
+const rosterState = vi.hoisted(() => ({ details: [] as string[] }));
+const rendererState = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), detail: vi.fn() }));
 vi.mock('three', async (original) => {
   const three = await original<typeof ThreeModule>();
   return {
@@ -26,8 +27,14 @@ vi.mock('./players', async () => {
   return {
     createPlayerPool: () => ({
       group: new Group(),
+      rigs: rosterState.details.map((detail) => {
+        const root = new Group();
+        root.userData.playerDetail = detail;
+        return { root };
+      }),
       setTeams: vi.fn(),
       apply: vi.fn(),
+      setDetail: rendererState.detail,
       dispose: vi.fn(),
     }),
   };
@@ -77,6 +84,7 @@ function setup(reduced = false, width = 1440, height = 810) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  rosterState.details = [];
   rendererState.render.mockReset();
   nextFrame = 1;
   frames.clear();
@@ -324,4 +332,29 @@ it.each([600, 292])('gives the fixed portrait pitch readable depth at 390×%i', 
     (Math.max(...corners.map((p) => p.x)) - Math.min(...corners.map((p) => p.x))) / 2;
   expect(screenHeight).toBeGreaterThan(0.18);
   expect(screenWidth).toBeGreaterThan(0.6);
+});
+
+it('selects player detail using the established camera and CSS viewport before every draw', () => {
+  const { engine } = setup(false, 390, 293);
+  rendererState.render.mockImplementation((_scene, camera) => {
+    const call = rendererState.detail.mock.calls.at(-1)!;
+    expect(call[0]).toBe(camera);
+    expect(call[1]).toBe(293);
+    expect(camera.matrixWorldInverse.elements.every(Number.isFinite)).toBe(true);
+  });
+  engine.renderAt(8050);
+  engine.renderAt(8060);
+  expect(rendererState.detail).toHaveBeenCalledTimes(2);
+});
+
+it('reports the actually selected roster detail counts without changing renderer work statistics', () => {
+  rosterState.details = ['high', 'high', 'mid', 'low', 'low', 'unknown'];
+  const { engine } = setup();
+  expect(engine.info()).toEqual({
+    triangles: 0,
+    calls: 0,
+    geometries: 0,
+    textures: 0,
+    playerDetails: { high: 2, mid: 1, low: 2 },
+  });
 });

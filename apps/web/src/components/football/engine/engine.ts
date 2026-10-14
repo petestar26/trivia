@@ -45,7 +45,13 @@ export interface Engine {
   /** Deterministic single-frame render (used by tests, the lab and capture scripts). */
   renderAt(elapsedMs: number, dt?: number): Frame;
   resize(): void;
-  info(): { triangles: number; calls: number; geometries: number; textures: number };
+  info(): {
+    triangles: number;
+    calls: number;
+    geometries: number;
+    textures: number;
+    playerDetails?: { high: number; mid: number; low: number };
+  };
   dispose(): void;
 }
 
@@ -313,6 +319,8 @@ export function createEngine(options: EngineOptions): Engine {
     sun.target.position.set(camLook.x, 0, camLook.z);
     fill.position.set(camLook.x - 22, 20, camLook.z + 28);
     fill.target.position.set(camLook.x, 0.8, camLook.z);
+    camera.updateMatrixWorld(true);
+    pool.setDetail?.(camera, host.clientHeight);
     renderer.render(scene, camera);
     renderedOnce = true;
     return frame;
@@ -400,6 +408,18 @@ export function createEngine(options: EngineOptions): Engine {
       calls: renderer.info.render.calls,
       geometries: renderer.info.memory.geometries,
       textures: renderer.info.memory.textures,
+      ...(pool.rigs
+        ? {
+            playerDetails: pool.rigs.reduce(
+              (counts, rig) => {
+                const detail: unknown = rig.root.userData.playerDetail;
+                if (detail === 'high' || detail === 'mid' || detail === 'low') counts[detail]++;
+                return counts;
+              },
+              { high: 0, mid: 0, low: 0 }
+            ),
+          }
+        : {}),
     }),
     dispose() {
       if (disposed) return;
