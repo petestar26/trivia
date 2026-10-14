@@ -91,7 +91,12 @@ export function Scoreboard({
     <div className="vf-board" role="group" aria-label={`Scoreboard, ${week}`}>
       <span className="vf-board-team">
         <ClubBadge club={home.id} size={30} />
-        <b>{home.name}</b>
+        <b>
+          <span className="vf-team-name">{home.name}</span>
+          <span className="vf-team-code" aria-hidden="true">
+            {home.code}
+          </span>
+        </b>
       </span>
       <span
         className="vf-board-score"
@@ -108,11 +113,22 @@ export function Scoreboard({
         </span>
       </span>
       <span className="vf-board-team vf-board-team--away">
-        <b>{away.name}</b>
+        <b>
+          <span className="vf-team-name">{away.name}</span>
+          <span className="vf-team-code" aria-hidden="true">
+            {away.code}
+          </span>
+        </b>
         <ClubBadge club={away.id} size={30} />
       </span>
       <span className="vf-board-clock">
-        {display.status === 'SCHEDULED' ? 'Pre-match' : display.minute}
+        <b>{display.status === 'SCHEDULED' ? 'Pre-match' : display.minute}</b>
+        <span>
+          {display.status === 'FULL_TIME' && !display.fullTime
+            ? 'Result pending'
+            : STATUS_TEXT[display.status]}{' '}
+          · Simulated
+        </span>
       </span>
     </div>
   );
@@ -155,5 +171,35 @@ export function MatchCentre({
         </p>
       )}
     </section>
+  );
+}
+
+/** Uses the same delayed display facts as the score, including reduced-motion/text views. */
+export function BroadcastCaption({
+  fixture,
+  display,
+}: {
+  fixture: VfFixtureView;
+  display: DisplayFixture;
+}) {
+  const last = display.events.at(-1);
+  return (
+    <div className="vf-broadcast-caption" aria-label="Match broadcast status">
+      <span>PLAYQUBE / SIMULATED MATCH</span>
+      <strong>
+        {display.fullTime
+          ? 'FULL TIME'
+          : display.scoring
+            ? 'MATCH ACTION'
+            : display.status === 'FULL_TIME'
+              ? 'RESULT PENDING'
+              : STATUS_TEXT[display.status].toUpperCase()}
+      </strong>
+      <small>
+        {last
+          ? `${last.minute}′ · ${clubById(last.side === 'H' ? fixture.homeClub : fixture.awayClub).name}`
+          : 'Released match events appear here'}
+      </small>
+    </div>
   );
 }

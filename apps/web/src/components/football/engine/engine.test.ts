@@ -162,3 +162,13 @@ describe('scheduled render failures', () => {
     expect(onRenderError).not.toHaveBeenCalled();
   });
 });
+it('holds a fixed broadcast camera in reduced motion while refreshing released match facts', () => {
+  const { engine } = setup(true);
+  engine.renderAt(1000);
+  const camera = rendererState.render.mock.calls.at(-1)![1] as ThreeModule.PerspectiveCamera;
+  const position = camera.position.clone(),
+    rotation = camera.quaternion.clone();
+  engine.renderAt(15000);
+  expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
+  expect(camera.quaternion.toArray()).toEqual(rotation.toArray());
+});

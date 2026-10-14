@@ -1,3 +1,4 @@
+import { SceneLoadBoundary } from '@/components/games/scene-load-boundary';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { clubById } from '@/lib/football/clubs';
 import {
@@ -32,7 +33,13 @@ import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 import { ClubBadge } from '@/components/football/club-badge';
-import { MatchCentre, Scoreboard, Scorecard, scoreText } from '@/components/football/match-centre';
+import {
+  BroadcastCaption,
+  MatchCentre,
+  Scoreboard,
+  Scorecard,
+  scoreText,
+} from '@/components/football/match-centre';
 import { MarketPanel } from '@/components/football/markets';
 import { ReviewDialog, Slip } from '@/components/football/slip';
 import { ResultsPanel, StandingsPanel, TicketsPanel } from '@/components/football/results';
@@ -812,25 +819,28 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
               fixture && <LiveCentre fixture={fixture} week={stageWeek} />
             ) : (
               <>
-                <Suspense
-                  fallback={
-                    <div className="vf-scene-loading" role="status">
-                      Preparing the stadium…
-                    </div>
-                  }
-                >
-                  <FootballScene
-                    match={matchInput}
-                    getElapsed={getElapsed}
-                    reduced={reduced}
-                    label={`3D view of ${matchTitle(fixture)}`}
-                    onGoalMoment={onGoalMoment}
-                    fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
-                  />
-                </Suspense>
+                <SceneLoadBoundary fallback={<LiveCentre fixture={fixture} week={stageWeek} />}>
+                  <Suspense
+                    fallback={
+                      <div className="vf-scene-loading" role="status">
+                        Preparing the stadium…
+                      </div>
+                    }
+                  >
+                    <FootballScene
+                      match={matchInput}
+                      getElapsed={getElapsed}
+                      reduced={reduced}
+                      label={`3D view of ${matchTitle(fixture)}`}
+                      onGoalMoment={onGoalMoment}
+                      fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
+                    />
+                  </Suspense>
+                </SceneLoadBoundary>
                 <div className="vf-board-overlay">
                   <LiveBoard fixture={fixture} week={stageWeek} />
                 </div>
+                <LiveCaption fixture={fixture} week={stageWeek} />
               </>
             )}
           </div>
@@ -981,4 +991,9 @@ function MobileTray({ count, stake }: { count: number; stake: number }) {
       </button>
     </div>
   );
+}
+
+function LiveCaption({ fixture, week }: { fixture: VfFixtureView; week: VfMatchweekView }) {
+  const display = useDisplay(fixture, week, 100);
+  return <BroadcastCaption fixture={fixture} display={display} />;
 }

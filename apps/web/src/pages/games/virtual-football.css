@@ -1264,8 +1264,145 @@ code {
   }
 }
 
-.vf-overview-codes { display: none; }
+.vf-overview-codes {
+  display: none;
+}
 @media (max-width: 640px) {
-  .vf-overview-names { display: none; }
-  .vf-overview-codes { display: inline; }
+  .vf-overview-names {
+    display: none;
+  }
+  .vf-overview-codes {
+    display: inline;
+  }
+}
+
+/* Broadcast presentation keeps the scoreboard clear of the action. */
+.vf-board-overlay {
+  top: 10px;
+  left: 10px;
+  right: 10px;
+}
+.vf-board-overlay .vf-board {
+  width: auto;
+  min-width: min(100%, 360px);
+  max-width: 500px;
+  border-radius: 6px;
+  border-color: #caa58288;
+  background: #1c1425ed;
+  padding: 6px 10px;
+  gap: 3px 10px;
+  box-shadow: 0 4px 20px #05090c66;
+}
+.vf-board-score {
+  background: #5a263b;
+  border-radius: 4px;
+}
+.vf-board-clock {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #e4c6a6;
+  letter-spacing: 0.06em;
+}
+.vf-board-clock b {
+  background: #e4c6a6;
+  color: #2a1a25;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.vf-team-code {
+  display: none;
+}
+.vf-broadcast-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  pointer-events: none;
+  color: #fff3df;
+  background: #191727e8;
+  border-left: 3px solid #dbb38a;
+  padding: 7px 12px;
+  border-radius: 3px;
+  box-shadow: 0 3px 20px #0004;
+}
+.vf-broadcast-caption span,
+.vf-broadcast-caption small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #decbb6;
+}
+.vf-broadcast-caption strong {
+  display: block;
+  font-size: 14px;
+  letter-spacing: 0.07em;
+  margin: 2px 0;
+}
+.vf-stage-frame {
+  min-height: 260px;
+}
+.vf-strip {
+  padding: 8px 0;
+  scroll-snap-type: x proximity;
+}
+.vf-card {
+  scroll-snap-align: start;
+}
+@media (max-width: 600px) {
+  .vf-stage-frame {
+    aspect-ratio: 4 / 3;
+    min-height: 260px;
+  }
+  .vf-board-overlay .vf-board {
+    width: 100%;
+    min-width: 0;
+    padding: 5px 8px;
+  }
+  .vf-board-team {
+    gap: 5px;
+  }
+  .vf-board-team svg {
+    width: 22px;
+    height: 22px;
+  }
+  .vf-board-team .vf-team-name {
+    display: none;
+  }
+  .vf-board-team .vf-team-code {
+    display: inline;
+  }
+  .vf-board-overlay .vf-board-score {
+    font-size: 22px;
+  }
+  .vf-broadcast-caption {
+    left: 8px;
+    bottom: 8px;
+    padding: 5px 8px;
+  }
+  .vf-broadcast-caption strong {
+    font-size: 12px;
+  }
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .vf-broadcast-caption {
+    bottom: 6px;
+    padding: 4px 8px;
+  }
+  .vf-broadcast-caption > span {
+    display: none;
+  }
+  .vf-board-overlay .vf-board {
+    min-width: 320px;
+  }
+}
+/* The text fallback owns its scoreboard and status; scene overlays must not cover it. */
+.vf-stage-frame:has(.vf-scene-fallback) .vf-board-overlay,
+.vf-stage-frame:has(.vf-scene-fallback) .vf-broadcast-caption,
+.vf-stage-frame:has(.game-scene-recovery) .vf-board-overlay,
+.vf-stage-frame:has(.game-scene-recovery) .vf-broadcast-caption {
+  display: none;
 }

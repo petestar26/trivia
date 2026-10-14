@@ -1,3 +1,4 @@
+import { broadcastFov } from './broadcast-fov';
 import * as THREE from 'three';
 import { statusAt } from '../../../lib/football/reveal';
 import {
@@ -223,7 +224,7 @@ export function createEngine(options: EngineOptions): Engine {
     stadium.update(dt, reduced ? 0.2 : frame.crowd);
 
     // Camera: restrained tracking, with a hard cut when the director changes shot.
-    const target = frame.camera;
+    const target = reduced ? { x: 0, y: 18, z: 62, lx: 0, ly: 0.9, lz: 0, fov: 34 } : frame.camera;
     const cut =
       lastMode !== null &&
       lastMode !== frame.mode &&
@@ -238,7 +239,7 @@ export function createEngine(options: EngineOptions): Engine {
     camLook.x += (target.lx - camLook.x) * k;
     camLook.y += (target.ly - camLook.y) * k;
     camLook.z += (target.lz - camLook.z) * k;
-    camFov += (target.fov - camFov) * k;
+    camFov += (broadcastFov(target.fov, camera.aspect) - camFov) * k;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     if (Math.abs(camera.fov - camFov) > 0.01) {

@@ -43,3 +43,11 @@ Models load only in Football; load failures retain complete fallback figures. La
 ## Related open-source research
 
 No verified public source release of MOHIO Virtual Football was found. [Google Research Football](https://github.com/google-research/football) is a related native C++/Python football environment, not a drop-in browser game. [Striker 3D](https://github.com/kendrekaran/striker-3d) is a related browser project, but its game-code reuse licence was not established; no code was copied. [Quaternius](https://quaternius.com/packs/universalanimationlibrary.html) offers CC0 animation assets, but none were imported in this revision.
+
+## Broadcast presentation follow-up (October 2026)
+
+The scoreboard now uses burgundy and rose-gold accents, club codes on narrow screens, an explicit simulated-match label and a compact match caption. Both caption and scoreboard consume the existing delayed `DisplayFixture`; a pending last goal cannot become a final-result caption. A bounded portrait field-of-view adjustment improves scene coverage. Reduced motion holds one fixed broadcast camera while refreshing released match facts. The existing anatomical geometry, travel-driven gait, foot-contact IK, goal scripts and source assets are unchanged.
+
+An outer boundary catches renderer lazy-import failures before the inner renderer can mount, retaining the live text match centre and offering a full-page reload. The reload is explicit because a rejected ESM chunk may remain cached; this is containment, not proof of automatic stale-version recovery. Existing saved confirmations remain managed by the original receipt code.
+
+All new presentation, camera calculations and UI are original source code. No new model, texture, animation, audio, vendor media or asset licence was introduced. Software-rendered local synthetic screenshots/captures are separate from physical iPhone/Safari and low-end Android acceptance.
