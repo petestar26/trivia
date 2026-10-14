@@ -1,3 +1,4 @@
+import { SceneLoadBoundary } from '@/components/games/scene-load-boundary';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -396,11 +397,33 @@ export function DerbyView({
             {latestFinished && (
               <FinishOrder round={latestFinished} previous={latestFinished.id !== round.id} />
             )}
-            <Suspense
-              fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}
-            >
-              <RaceScene round={round} running={running && fresh} reduced={reduced} />
-            </Suspense>
+            <div className="derby-scene-shell">
+              <SceneLoadBoundary
+                fallback={
+                  <p>
+                    Follow numbered runner progress below and the official finishing order above.
+                  </p>
+                }
+              >
+                <Suspense
+                  fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}
+                >
+                  <RaceScene round={round} running={running && fresh} reduced={reduced} />
+                </Suspense>
+              </SceneLoadBoundary>
+              <div className="derby-broadcast-label">
+                <span>PLAYQUBE / EMERALD COURSE</span>
+                <strong>
+                  {!fresh
+                    ? 'VIEW PAUSED · RECONNECTING'
+                    : round.order
+                      ? 'OFFICIAL FINISH'
+                      : running
+                        ? 'LIVE PUBLISHED POSITIONS'
+                        : 'AT THE STARTING GATE'}
+                </strong>
+              </div>
+            </div>
             <div className="derby-race-footer">
               <span>{fresh ? '● Connected' : '○ Refreshing race status'}</span>
               <label>

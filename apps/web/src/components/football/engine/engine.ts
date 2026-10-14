@@ -1,3 +1,4 @@
+import { broadcastFov } from './broadcast-fov';
 import * as THREE from 'three';
 import { statusAt } from '../../../lib/football/reveal';
 import {
@@ -81,6 +82,50 @@ function ballTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** A fixed view fitted to the pitch, nets and decorative aerial play, never to released events. */
+function reducedPitchCamera(aspect: number): Frame['camera'] {
+  const fov = broadcastFov(34, aspect);
+  const centre = new THREE.Vector3(0, 0.9, 0);
+  // An elevated fixed view gives the touchlines depth on portrait stages instead
+  // of squeezing the pitch into a narrow horizon strip. It still depends only
+  // on geometry/aspect, never the ball or a released goal.
+  const direction = new THREE.Vector3(0, 64, 62).normalize();
+  const right = new THREE.Vector3(1, 0, 0);
+  const up = new THREE.Vector3().crossVectors(direction, right);
+  const verticalTan = Math.tan((fov * Math.PI) / 360);
+  const horizontalTan = verticalTan * aspect;
+  let distance = Math.hypot(64, 62);
+  // Include net depth/ripple, touchline clearance and the director's 8 m long-ball arc.
+  for (const x of [-1, 1])
+    for (const y of [-0.3, 9])
+      for (const z of [-1, 1]) {
+        const offset = new THREE.Vector3(
+          x * (PITCH.halfLength + PITCH.goalDepth + 1.8),
+          y,
+          z * (PITCH.halfWidth + 1)
+        ).sub(centre);
+        distance = Math.max(
+          distance,
+          offset.dot(direction) +
+            1.08 *
+              Math.max(
+                Math.abs(offset.dot(right)) / horizontalTan,
+                Math.abs(offset.dot(up)) / verticalTan
+              )
+        );
+      }
+  const position = centre.clone().addScaledVector(direction, distance);
+  return {
+    x: position.x,
+    y: position.y,
+    z: position.z,
+    lx: centre.x,
+    ly: centre.y,
+    lz: centre.z,
+    fov,
+  };
+}
+
 export function createEngine(options: EngineOptions): Engine {
   const { host } = options;
   const renderer = new THREE.WebGLRenderer({
@@ -102,7 +147,12 @@ export function createEngine(options: EngineOptions): Engine {
   const sky = skyTexture();
   scene.background = sky;
   scene.fog = new THREE.Fog('#243a5e', 140, 420);
-  scene.add(new THREE.HemisphereLight('#c7dcff', '#27402b', 1.15));
+  scene.add(new THREE.HemisphereLight('#e0ebf7', '#657455', 1.45));
+  // Broad skylight fill preserves skin/kit detail behind the warm key light.
+  // It adds no shadow pass or geometry to the mobile rendering budget.
+  const fill = new THREE.DirectionalLight('#dce7f6', 0.75);
+  fill.position.set(-22, 20, 28);
+  scene.add(fill, fill.target);
   const sun = new THREE.DirectionalLight('#fff3d9', 2.4);
   sun.position.set(24, 52, 36);
   sun.castShadow = true;
@@ -153,12 +203,24 @@ export function createEngine(options: EngineOptions): Engine {
   let visible = true;
   let renderedOnce = false;
 
+  const fitReducedCamera = () => {
+    const target = reducedPitchCamera(camera.aspect);
+    camPos.set(target.x, target.y, target.z);
+    camLook.set(target.lx, target.ly, target.lz);
+    camFov = camera.fov = target.fov;
+    camera.position.copy(camPos);
+    camera.lookAt(camLook);
+    camera.far = Math.max(700, camPos.distanceTo(camLook) + 100);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  };
   const resize = () => {
     const w = host.clientWidth;
     const h = host.clientHeight;
     if (!w || !h) return;
     camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    if (reduced) fitReducedCamera();
+    else camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
   };
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
@@ -223,7 +285,7 @@ export function createEngine(options: EngineOptions): Engine {
     stadium.update(dt, reduced ? 0.2 : frame.crowd);
 
     // Camera: restrained tracking, with a hard cut when the director changes shot.
-    const target = frame.camera;
+    const target = reduced ? reducedPitchCamera(camera.aspect) : frame.camera;
     const cut =
       lastMode !== null &&
       lastMode !== frame.mode &&
@@ -238,7 +300,7 @@ export function createEngine(options: EngineOptions): Engine {
     camLook.x += (target.lx - camLook.x) * k;
     camLook.y += (target.ly - camLook.y) * k;
     camLook.z += (target.lz - camLook.z) * k;
-    camFov += (target.fov - camFov) * k;
+    camFov += ((reduced ? target.fov : broadcastFov(target.fov, camera.aspect)) - camFov) * k;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     if (Math.abs(camera.fov - camFov) > 0.01) {
@@ -249,6 +311,8 @@ export function createEngine(options: EngineOptions): Engine {
     lastMode = frame.mode;
     sun.position.set(camLook.x + 24, 52, camLook.z + 36);
     sun.target.position.set(camLook.x, 0, camLook.z);
+    fill.position.set(camLook.x - 22, 20, camLook.z + 28);
+    fill.target.position.set(camLook.x, 0.8, camLook.z);
     renderer.render(scene, camera);
     renderedOnce = true;
     return frame;
@@ -316,6 +380,11 @@ export function createEngine(options: EngineOptions): Engine {
     setReduced(value) {
       if (reduced === value) return;
       reduced = value;
+      if (reduced) fitReducedCamera();
+      else {
+        camera.far = 700;
+        camera.updateProjectionMatrix();
+      }
       schedule();
     },
     start() {

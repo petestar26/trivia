@@ -1906,3 +1906,315 @@
     top: 44%;
   }
 }
+
+/* Original runway-to-cloud flight. The decorative world never supplies a result. */
+.sky-arena,
+.sky-arena--altitude,
+.sky-arena.crashed {
+  background: #29445c;
+  isolation: isolate;
+}
+.sky-arena::before {
+  display: none;
+}
+.sky-graph-shell {
+  position: relative;
+  margin: 0;
+  height: 350px;
+}
+.sky-flight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.sky-flight-world {
+  width: 100%;
+  height: 100%;
+}
+.sky-arena-top,
+.sky-multiplier,
+.sky-countdown-track {
+  z-index: 3;
+}
+.sky-arena-top {
+  background: linear-gradient(#091a32b0, transparent);
+}
+.sky-multiplier {
+  top: 26%;
+  pointer-events: none;
+}
+.sky-multiplier strong {
+  font-size: clamp(60px, 8cqw, 108px);
+  color: #fff5df;
+}
+.sky-multiplier p {
+  font-size: 12px;
+}
+.sky-arena.crashed .sky-multiplier strong {
+  color: #ffdbad;
+  animation: none;
+}
+.sky-flight-location {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  color: #fff1d5;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-shadow: 0 1px 4px #071322;
+}
+.sky-clouds,
+.sky-runway-stripes {
+  animation-play-state: paused;
+}
+.sky-clouds--far {
+  animation: sky-cloud-drift 35s linear infinite;
+  animation-play-state: paused;
+}
+.sky-clouds--near {
+  animation: sky-cloud-drift 20s linear infinite;
+  animation-play-state: paused;
+}
+.sky-runway-stripes {
+  animation: sky-runway-roll 0.8s linear infinite;
+  animation-play-state: paused;
+}
+.is-moving .sky-clouds,
+.is-moving .sky-runway-stripes {
+  animation-play-state: running;
+}
+.sky-flight-departure {
+  animation: sky-flew-away 0.85s ease-in both;
+}
+.sky-confirmed-returns {
+  position: absolute;
+  z-index: 4;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  flex-direction: column;
+  pointer-events: none;
+}
+.sky-return-pill {
+  padding: 6px 10px;
+  border: 1px solid #cce7cb66;
+  border-radius: 8px;
+  background: #152c27e8;
+  color: #ddf4dd;
+  box-shadow: 0 3px 12px #091b2940;
+  animation: sky-return-arrive 0.45s ease-out both;
+}
+.sky-return-pill span,
+.sky-return-pill small {
+  display: block;
+  font-size: 9px;
+}
+.sky-return-pill strong {
+  font-size: 13px;
+}
+@keyframes sky-cloud-drift {
+  to {
+    transform: translateX(-70px);
+  }
+}
+@keyframes sky-runway-roll {
+  to {
+    transform: translateX(-105px);
+  }
+}
+@keyframes sky-flew-away {
+  to {
+    transform: translate(350px, -130px);
+    opacity: 0;
+  }
+}
+@keyframes sky-return-arrive {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+@container sky (max-width: 680px) {
+  .sky-graph-shell {
+    height: 238px;
+  }
+  .sky-multiplier {
+    top: 26%;
+  }
+  .sky-multiplier strong {
+    font-size: clamp(52px, 16cqw, 76px);
+  }
+  .sky-dual-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .sky-controls {
+    padding: 7px;
+    background: linear-gradient(150deg, #30202d, #191722);
+    border-color: #a5806766;
+  }
+  .sky-ticket-header {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .sky-ticket-header > div > span {
+    display: none;
+  }
+  .sky-ticket-header h2 {
+    font-size: 14px;
+  }
+  .sky-ticket-state {
+    font-size: 8px;
+    padding: 3px 4px;
+  }
+  .sky-bet-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sky-auto-field {
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr) 58px;
+  }
+  .sky-auto {
+    font-size: 9px;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+  .sky-stake-field,
+  .sky-submit-field {
+    grid-column: 1;
+  }
+  .sky-target-options {
+    grid-column: 1 / -1;
+  }
+  .sky-input input {
+    min-width: 0;
+    padding: 6px 3px;
+  }
+  .sky-input > span {
+    padding-right: 4px;
+  }
+  .sky-amount-adjust {
+    min-width: 30px;
+    width: 30px;
+    padding: 0;
+  }
+  .sky-ticket-result {
+    padding: 6px;
+  }
+  .sky-ticket-result strong {
+    font-size: 11px;
+  }
+  .sky-ticket-result span {
+    font-size: 9px;
+  }
+  .sky-autoplay-controls {
+    flex-wrap: wrap;
+  }
+  .sky-autoplay-controls button {
+    font-size: 9px;
+  }
+  .sky-return-pill {
+    padding: 4px 7px;
+  }
+  .sky-return-pill strong {
+    font-size: 11px;
+  }
+  .sky-confirmed-returns .sky-return-pill:nth-child(n + 2) {
+    display: none;
+  }
+  .sky-display.game-arena--expanded .sky-arena {
+    flex-basis: clamp(238px, 36dvh, 350px);
+    min-height: 238px;
+  }
+  .sky-display.game-arena--expanded .sky-multiplier {
+    top: 26%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sky-clouds,
+  .sky-runway-stripes,
+  .sky-return-pill {
+    animation: none;
+  }
+  .sky-flight-departure {
+    animation: none;
+    opacity: 0;
+  }
+}
+.sky-flight-plane {
+  position: absolute;
+  width: clamp(100px, 18%, 148px);
+  height: auto;
+  overflow: visible;
+  transform: translate(-50%, -50%);
+}
+.sky-controls {
+  background: linear-gradient(150deg, #30202d, #191722);
+  border-color: #a5806766;
+}
+.sky-ticket-state {
+  background: #402b39;
+  border-color: #a5806766;
+  color: #f1d5b6;
+}
+@container sky (max-width: 680px) {
+  .sky-auto-field {
+    grid-template-columns: minmax(0, 1fr) 68px;
+  }
+  .sky-auto-field .sky-input {
+    padding: 0 3px;
+    gap: 2px;
+  }
+  .sky-auto-field .sky-input input {
+    padding: 6px 0;
+  }
+  .sky-auto-field .sky-input > span {
+    padding: 0;
+  }
+}
+
+/* Ruby Grand shell controls; flight scenery and confirmed activity are unchanged. */
+.sky-controls {
+  background: linear-gradient(150deg, #381522, #160e12);
+  border-color: #a5806766;
+}
+.sky-ticket-state {
+  background: #512338;
+}
+.sky-controls .sky-input,
+.sky-controls .sky-auto-input,
+.sky-controls .sky-target-options,
+.sky-controls .sky-presets button,
+.sky-controls .sky-targets button {
+  background: #190f14;
+  border-color: #80574c;
+}
+.sky-controls .sky-presets button[aria-pressed='true'],
+.sky-controls .sky-targets button[aria-pressed='true'] {
+  background: #542538;
+  border-color: #e4b496;
+  color: #ffe5d3;
+}
+/* Completed tickets retain disabled styling in the same Ruby Grand palette. */
+.sky-controls .sky-action:disabled {
+  background: linear-gradient(160deg, #79334d, #4c2032);
+  border-color: #d3a18a;
+  color: #fff0e6;
+  box-shadow:
+    inset 0 2px 5px #e4b49630,
+    0 3px 0 #2c1420,
+    0 7px 16px #0003;
+}
+.sky-controls .sky-amount-adjust {
+  background: #542538;
+  border-color: #d3a18a;
+  color: #ffe5d3;
+  box-shadow: inset 0 1px #e4b4963d;
+}
+.sky-controls .sky-autoplay-controls > button {
+  background: #28151e;
+  border-color: #80574c;
+  color: #e6c8bc;
+}

@@ -1,3 +1,4 @@
+import { FlightScene } from '@/components/sky-crash/flight-scene';
 import { GameArena } from '@/components/games/game-arena';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
@@ -300,23 +301,6 @@ function SkyCrash({
         ? Math.min(skyCrashCrossingMs(2001), Math.max(0, now - shown.startsAt))
         : 0
     : 0;
-  const timeRange = Math.max(10000, elapsed * 1.2);
-  const valueRange =
-    [2, 5, 10, 20, 25].find((value) => value >= Math.exp(elapsed / 10000) * 1.15) ?? 25;
-  const progress = Math.min(1, elapsed / timeRange);
-  const points = Array.from({ length: 61 }, (_, i) => {
-    const t = (elapsed * i) / 60;
-    return `${72 + (t / timeRange) * 560},${330 - ((Math.exp(t / 10000) - 1) / (valueRange - 1)) * 260}`;
-  }).join(' ');
-  const x = 72 + progress * 560,
-    y = 330 - ((Math.exp(elapsed / 10000) - 1) / (valueRange - 1)) * 260;
-  const arrowAngle =
-    (-Math.atan2(
-      (Math.exp(elapsed / rules.growthMs) * 260) / (rules.growthMs * (valueRange - 1)),
-      560 / timeRange
-    ) *
-      180) /
-    Math.PI;
   const draftStake =
     /^\d+$/.test(stakeText) &&
     Number.isSafeInteger(Number(stakeText)) &&
@@ -329,6 +313,31 @@ function SkyCrash({
   const shownTickets = shown?.tickets ?? (shown?.ticket ? [{ ...shown.ticket, slot: 1 }] : []);
   // Only the server's revealed result ends the flight, never the local clock.
   const crashed = shown?.crashCents != null;
+  const activity = useQuery({
+    queryKey: ['sky-crash-activity', userId, shown?.id],
+    enabled: !controlsOnly && connected && !!shown,
+    queryFn: async ({ signal }) =>
+      unwrapData(
+        await boundedRequest(
+          (s) =>
+            api.get<SkyCrashActivity>(
+              `${endpoint}/activity`,
+              { roundId: shown!.id },
+              { signal: s }
+            ),
+          signal
+        )
+      ),
+    refetchInterval: 3000,
+    retry: false,
+    refetchOnReconnect: true,
+  });
+  const confirmedReturns =
+    connected && !activity.isError && activity.data && activity.data.roundId === shown?.id
+      ? activity.data.tickets
+          .filter((t) => t.payout !== null && t.payout > 0 && t.paidCents !== null)
+          .slice(-3)
+      : [];
   const controls = (
     <aside className="sky-controls" aria-label={`Bet ${slot} controls`}>
       <div className="sky-ticket-header">
@@ -683,7 +692,7 @@ function SkyCrash({
               </div>
               <div className="sky-multiplier">
                 <span>
-                  {shown?.crashCents ? 'CRASHED' : open ? 'READY FOR THE RISE' : 'LIVE MULTIPLIER'}
+                  {crashed ? 'FLEW AWAY!' : open ? 'READY FOR TAKEOFF' : 'LIVE MULTIPLIER'}
                 </span>
                 <strong>
                   {open ? (remainingMs / 1000).toFixed(1) : (cents / 100).toFixed(2)}
@@ -695,8 +704,8 @@ function SkyCrash({
                     : open
                       ? 'Confirm your ticket before the round starts'
                       : shown?.crashCents
-                        ? 'The server has revealed this round’s result'
-                        : 'Cash out before the curve stops'}
+                        ? 'Final multiplier · confirmed by the server'
+                        : 'Flight in progress · server confirms cash-out'}
                 </p>
               </div>
               {open && (
@@ -707,97 +716,31 @@ function SkyCrash({
                 </div>
               )}
               <div className="sky-graph-shell" aria-hidden="true">
-                <svg className="sky-graph" viewBox="0 0 800 390">
-                  <defs>
-                    <linearGradient id="sky-line">
-                      <stop stopColor="#c77b38" />
-                      <stop offset="0.55" stopColor="#e8b26b" />
-                      <stop offset="1" stopColor="#ffe4b1" />
-                    </linearGradient>
-                    <linearGradient id="sky-area" x1="0" y1="0" x2="0" y2="1">
-                      <stop stopColor="#f4bd77" stopOpacity=".28" />
-                      <stop offset="1" stopColor="#f4bd77" stopOpacity="0" />
-                    </linearGradient>
-                    <filter id="sky-glow">
-                      <feGaussianBlur stdDeviation="6" />
-                    </filter>
-                  </defs>
-                  {[4, 3, 2, 1, 0].map((index) => {
-                    const value = 1 + ((valueRange - 1) * index) / 4;
-                    const v = 330 - (index / 4) * 260;
-                    return (
-                      <g key={v}>
-                        <path d={`M72 ${v}H745`} className="grid" />
-                        <text x="790" y={v + 5} textAnchor="end">
-                          {Number(value.toFixed(2))}×
-                        </text>
-                      </g>
-                    );
-                  })}
-                  {[72, 235, 397, 560, 722].map((v, i) => (
-                    <g key={v}>
-                      <path d={`M${v} 60V330`} className="grid" />
-                      <text x={v - 8} y="365">
-                        {Math.round((i * timeRange) / 4000)}s
-                      </text>
-                    </g>
-                  ))}
-                  <polygon points={`72,330 ${points} ${x},330`} fill="url(#sky-area)" />
-                  <polyline points={points} className="curve depth" transform="translate(0 9)" />
-                  <polyline points={points} className="curve glow" filter="url(#sky-glow)" />
-                  <polyline points={points} className="curve" />
-                  <g key={shown?.id ?? 'waiting'} transform={`translate(${x} ${y})`}>
-                    <g className={crashed ? 'sky-impact-plane' : undefined}>
-                      <g transform={`rotate(${Math.max(-18, arrowAngle)})`}>
-                        <image
-                          className={flying && connected ? 'sky-aircraft flying' : 'sky-aircraft'}
-                          href="/images/sky-crash/aircraft.webp"
-                          x="-63"
-                          y="-47"
-                          width="126"
-                          height="84"
-                        />
-                      </g>
-                    </g>
-                    {crashed && (
-                      <g className="sky-impact" data-testid="sky-crash-impact">
-                        <g className="sky-impact-smoke" fill="#526071">
-                          <circle cx="-8" cy="-26" r="17" />
-                          <circle cx="12" cy="-40" r="22" />
-                          <circle cx="-9" cy="-59" r="18" />
-                        </g>
-                        <ellipse
-                          className="sky-impact-halo"
-                          cy="4"
-                          rx="47"
-                          ry="30"
-                          fill="#fb8129"
-                        />
-                        <g className="sky-impact-flames">
-                          <path
-                            fill="#ee6028"
-                            d="M-27 18C-45-1-19-13-25-35C-10-28-13-11-4-16C4-26-6-43 8-56C5-26 33-24 25-8C41-15 32 13 22 21C8 30-12 30-27 18Z"
-                          />
-                          <path
-                            fill="#ffb64d"
-                            d="M-18 18C-28 5-8-3-13-18C0-12-2-4 5-10C13-19 5-28 13-34C12-14 27 1 19 15C12 26-8 28-18 18Z"
-                          />
-                          <path
-                            fill="#fff0b2"
-                            d="M-9 18C-15 7 2 4 0-9C14 1 17 16 8 22C2 25-5 24-9 18Z"
-                          />
-                        </g>
-                        <g className="sky-impact-embers" fill="#ffc270">
-                          <circle cx="-35" cy="-20" r="2" />
-                          <circle cx="30" cy="-32" r="2.5" />
-                          <circle cx="-20" cy="-51" r="2" />
-                          <circle cx="24" cy="-65" r="1.5" />
-                        </g>
-                      </g>
-                    )}
-                  </g>
-                </svg>
+                <FlightScene
+                  key={shown?.id ?? 'waiting'}
+                  elapsed={elapsed}
+                  flying={flying}
+                  connected={connected}
+                  departed={crashed}
+                />
               </div>
+              {!!confirmedReturns.length && (
+                <div
+                  className="sky-confirmed-returns"
+                  aria-label="Server-confirmed practice returns"
+                >
+                  {confirmedReturns.map((t) => (
+                    <div
+                      className="sky-return-pill"
+                      key={`${shown?.id}:${t.player}:${t.payout}:${t.paidCents}`}
+                    >
+                      <span>{t.player}</span>
+                      <strong>{t.payout} credits returned</strong>
+                      <small>Confirmed · {((t.paidCents ?? 0) / 100).toFixed(2)}×</small>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
             <section id="sky-betting" className="sky-betting" aria-labelledby="sky-betting-title">
               <div className="sky-betting-heading">

@@ -1,3 +1,4 @@
+import { placeFoot, reachHand } from './ik';
 import { loadPlayerGeometry } from './human-model';
 import { matchKits, clubById } from '@/lib/football/clubs';
 import * as THREE from 'three';
@@ -12,6 +13,8 @@ import {
   poseKeeperReady,
   poseKick,
   poseRun,
+  plantRunFeet,
+  type RunPlant,
   strideLength,
   type PoseSnapshot,
 } from './poses';
@@ -57,13 +60,13 @@ const lightness = (hex: string) => {
 interface RigState {
   kind: Frame['actors'][number]['anim']['kind'] | 'none';
   phase: number;
-  speed: number;
   yaw: number;
   lastX: number;
   lastZ: number;
   blend: number;
   from: PoseSnapshot | null;
   seen: boolean;
+  plants: RunPlant;
 }
 
 export interface PlayerPool {
@@ -92,13 +95,13 @@ export function createPlayerPool(): PlayerPool {
   const states: RigState[] = rigs.map(() => ({
     kind: 'none',
     phase: 0,
-    speed: 0,
     yaw: 0,
     lastX: 0,
     lastZ: 0,
     blend: 1,
     from: null,
     seen: false,
+    plants: {},
   }));
   let owned: Array<{ dispose(): void }> = [];
   const plates: Array<THREE.Mesh | null> = rigs.map(() => null);
@@ -215,24 +218,35 @@ export function createPlayerPool(): PlayerPool {
       const rig = rigs[i];
       const st = states[i];
       const kind = actor.anim.kind;
-      const snapHeading = kind === 'kick' || kind === 'keeperDive' || !st.seen;
+      const snapHeading = !st.seen || !animate;
       const moved = Math.hypot(actor.x - st.lastX, actor.z - st.lastZ);
       const teleported = !st.seen || moved > 4;
       if (teleported) {
         st.phase = 0;
-        st.speed = actor.speed;
+        st.plants = {};
         st.from = null;
         st.blend = 1;
       }
+      // A long suspension can skip a whole stance window; do not retain a stale world plant.
+      if (dt > 0.25) st.plants = {};
       const yawBefore = st.yaw;
       if (snapHeading || teleported) st.yaw = actor.heading;
-      else st.yaw += clampAbs(wrap(actor.heading - st.yaw), 9 * Math.max(dt, 0.001)); // at most ~9 rad/s
+      else {
+        // Integrate a bounded angular velocity analytically: linear at large errors, then
+        // exponential near the target. Constant headings agree across different frame steps.
+        const error = wrap(actor.heading - st.yaw);
+        const magnitude = Math.abs(error);
+        const linear = Math.min(Math.max(dt, 0), Math.max(0, (magnitude - 9 / 14) / 9));
+        const remaining = magnitude - 9 * linear;
+        st.yaw +=
+          Math.sign(error) *
+          (9 * linear + remaining * (1 - Math.exp(-14 * Math.max(0, dt - linear))));
+      }
       const yawRate = dt > 0 ? wrap(st.yaw - yawBefore) / dt : 0;
       rig.root.position.set(actor.x, 0, actor.z);
       rig.root.rotation.y = st.yaw;
-      st.speed += (actor.speed - st.speed) * Math.min(1, Math.max(dt, 0) * 8);
       if (!teleported && kind === 'run')
-        st.phase = (st.phase + moved / strideLength(Math.max(st.speed, 1.2))) % 1;
+        st.phase = (st.phase + moved / strideLength(Math.max(actor.speed, 1.2))) % 1;
       st.lastX = actor.x;
       st.lastZ = actor.z;
       st.seen = true;
@@ -240,9 +254,11 @@ export function createPlayerPool(): PlayerPool {
       if (!animate) {
         poseIdle(rig, 0, i * 0.37);
         st.kind = 'none';
+        st.plants = {};
         continue;
       }
       if (kind !== st.kind) {
+        st.plants = {};
         st.from = st.kind === 'none' ? null : capture(rig);
         st.blend = st.from ? 0 : 1;
         st.kind = kind;
@@ -270,10 +286,33 @@ export function createPlayerPool(): PlayerPool {
           break;
       }
       if (st.from && st.blend < 1) {
+        // Preserve the authored world IK targets while blending the torso. Blending local leg
+        // rotations alone lifts planted feet and displaces the boot at the unchanged kick clock.
+        const feet = (['L', 'R'] as const).map((side) => ({
+          side,
+          ankle: rig.bones[`foot${side}`].getWorldPosition(new THREE.Vector3()),
+          angles: new THREE.Euler().setFromQuaternion(
+            rig.bones[`foot${side}`].getWorldQuaternion(new THREE.Quaternion()),
+            'YXZ'
+          ),
+        }));
+        const hands =
+          kind === 'keeperDive'
+            ? (['L', 'R'] as const).map((side) => ({
+                side,
+                target: rig.bones[`hand${side}`].getWorldPosition(new THREE.Vector3()),
+              }))
+            : [];
         st.blend = Math.min(1, st.blend + dt / 0.14);
-        blendTo(rig, st.from, st.blend);
+        const weight = st.blend * st.blend * (3 - 2 * st.blend);
+        blendTo(rig, st.from, weight);
+        if (kind === 'run' || kind === 'kick' || kind === 'keeperDive') {
+          for (const f of feet) placeFoot(rig, f.side, f.ankle, f.angles.x, f.angles.y, f.angles.z);
+          for (const h of hands) reachHand(rig, h.side, h.target, new THREE.Vector3(0, -1, 0.2));
+        }
         if (st.blend >= 1) st.from = null;
       }
+      if (kind === 'run') plantRunFeet(rig, st.phase, Math.max(actor.speed, 1.2), st.plants);
     }
   }
 

@@ -1,0 +1,21 @@
+.game-scene-recovery {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: auto;
+  padding: 12px;
+  color: #f3e7d9;
+  background: #171820;
+}
+.game-scene-recovery > p {
+  font: 13px/1.5 system-ui;
+  padding: 8px;
+}
+.game-scene-recovery button {
+  border: 1px solid #be9b78;
+  border-radius: 8px;
+  background: #34202a;
+  color: #ffdbb8;
+  padding: 10px 12px;
+  min-height: 44px;
+}

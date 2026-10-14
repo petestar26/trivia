@@ -43,3 +43,21 @@ Models load only in Football; load failures retain complete fallback figures. La
 ## Related open-source research
 
 No verified public source release of MOHIO Virtual Football was found. [Google Research Football](https://github.com/google-research/football) is a related native C++/Python football environment, not a drop-in browser game. [Striker 3D](https://github.com/kendrekaran/striker-3d) is a related browser project, but its game-code reuse licence was not established; no code was copied. [Quaternius](https://quaternius.com/packs/universalanimationlibrary.html) offers CC0 animation assets, but none were imported in this revision.
+
+## Broadcast presentation follow-up (October 2026)
+
+The scoreboard now uses burgundy and rose-gold accents, club codes on narrow screens, an explicit simulated-match label and a compact match caption. Both caption and scoreboard consume the existing delayed `DisplayFixture`; a pending last goal cannot become a final-result caption. A bounded portrait field-of-view adjustment improves scene coverage. Reduced motion holds one fixed broadcast camera while refreshing released match facts. The existing anatomical geometry, travel-driven gait, foot-contact IK, goal scripts and source assets are unchanged.
+
+An outer boundary catches renderer lazy-import failures before the inner renderer can mount, retaining the live text match centre and offering a full-page reload. The reload is explicit because a rejected ESM chunk may remain cached; this is containment, not proof of automatic stale-version recovery. Existing saved confirmations remain managed by the original receipt code.
+
+All new presentation, camera calculations and UI are original source code. No new model, texture, animation, audio, vendor media or asset licence was introduced. Software-rendered local synthetic screenshots/captures are separate from physical iPhone/Safari and low-end Android acceptance.
+
+## Motion and readable framing follow-up (15 October 2026)
+
+The existing 140 ms pose blend now preserves its target before interpolation; previously it copied the source over the target. Stance anchors are stored per player in world space and re-solved after blending. A loaded sole can pivot about its contact once torso/boot yaw reaches 45 degrees. A bounded support-height correction (at most 6 cm) and a short lifted replant handle unreachable anchors during a sharp reversal, rather than forcing an anatomically impossible fixed-foot twist. IK lengths respect the existing 0.96–1.04 uniform player-height variation. Kick preparation/settling and goalkeeper load, landing compression and recovery are articulated without changing the released ball sequence, KICK contact clock or goal reveal gate. Heading response is continuous, limited to 9 rad/s and tested across frame steps.
+
+Tests measure actual FK heel/forefoot contacts under both directions, scale variation, sharp turns during blending, loaded pivots, exact released kick contact, reach bounds and explicit short replant phases. These proxies do not establish every skinned boot surface or a complete hip-twist/collision simulation. Hands/fingers remain constrained by the existing 19-bone retargeted rig; there is no new geometry, cloth, facial animation or motion capture.
+
+The reduced camera retains geometry-only pitch/net/aerial coverage and immobility, now with an elevated fixed angle that gives the pitch depth rather than a thin horizon strip. Portrait expanded stages use a compact 4:3 proportion. Broad unshadowed fill improves dark goal-area body/kit visibility without adding a shadow pass, mesh or texture. The shell uses burgundy/black/rose gold; short wide landscape headers/history are compact, and the caption explicitly labels the released last-goal minute. No server clock, score, odds, admission, receipt or credit path changed.
+
+All additions are original renderer/UI code; shipped CC0 source assets and hashes above are unchanged. Deterministic matched-time production-camera captures and labelled pivot/rig diagnostics are separate from actual running-browser timing measurements and physical/live acceptance.

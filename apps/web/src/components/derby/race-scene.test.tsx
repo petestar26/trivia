@@ -54,6 +54,7 @@ beforeEach(() => {
     beginPath() {},
     arc() {},
     fill() {},
+    stroke() {},
     fillText() {},
     createRadialGradient: () => ({ addColorStop() {} }),
   } as unknown as ReturnType<HTMLCanvasElement['getContext']>);
@@ -149,4 +150,20 @@ it('releases each runner rig and its shared asset set on a field change', async 
   view.rerender(<RaceScene round={round(8)} running reduced={false} />);
   expect(dispose).toHaveBeenCalledOnce();
   rigDisposers.forEach((d) => expect(d).toHaveBeenCalledOnce());
+});
+it('contains a scheduled draw failure, stops its loop and can rebuild on explicit retry', () => {
+  const view = render(<RaceScene round={round(6)} running reduced={false} />);
+  const frame = vi.mocked(requestAnimationFrame).mock.calls[0][0];
+  state.draw.mockImplementationOnce(() => {
+    throw Error('lost graphics resource');
+  });
+  act(() => frame(1000));
+  expect(screen.getByText(/3D view unavailable/)).toBeVisible();
+  expect(cancelAnimationFrame).toHaveBeenCalled();
+  const count = vi.mocked(requestAnimationFrame).mock.calls.length;
+  act(() => frame(1100));
+  expect(requestAnimationFrame).toHaveBeenCalledTimes(count);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry 3D view' }));
+  expect(screen.queryByText(/3D view unavailable/)).toBeNull();
+  expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
 });
