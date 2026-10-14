@@ -28,6 +28,9 @@ export function retargetHuman(mesh: THREE.SkinnedMesh, face?: THREE.BufferGeomet
       return { anchor: name, targets: [[`upperArm${side}`, 1]], angle };
     if (name.startsWith('lowerarm'))
       return { anchor: name, targets: [[`foreArm${side}`, 1]], angle };
+    const finger = /^(thumb|index|middle|ring|pinky)_0([123])_/.exec(name);
+    if (finger)
+      return { anchor: name, targets: [[`${finger[1]}${finger[2]}${side}` as BoneName, 1]], angle };
     if (/^(hand|index|middle|ring|pinky|thumb)/.test(name))
       return { anchor: `hand_${suffix}`, targets: [[`hand${side}`, 1]], angle };
     if (name.startsWith('thigh'))
