@@ -296,6 +296,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
   const audio = useMemo(() => createFootballAudio(), []);
   const [sound, setSound] = useState(false);
   const busyRef = useRef(false);
+  const ticketControls = useRef<HTMLDivElement>(null);
   const autoTried = useRef(false);
 
   const query = useQuery({
@@ -721,11 +722,6 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           Refresh to try again.
         </p>
       )}
-      {(!fresh || query.isError) && (
-        <p role="alert" className="vf-alert">
-          Connection interrupted. Selections are paused until the game status refreshes.
-        </p>
-      )}
       {notice && (
         <p
           role={notice.kind === 'error' ? 'alert' : 'status'}
@@ -812,7 +808,21 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           }
         />
       )}
-      <GameArena title="Virtual Football" className="vf-arena">
+      <GameArena
+        title="Virtual Football"
+        className="vf-arena"
+        onReturnToControls={() => {
+          ticketControls.current?.scrollIntoView({
+            behavior: reduced ? 'auto' : 'smooth',
+            block: 'start',
+          });
+          ticketControls.current?.focus({ preventScroll: true });
+        }}
+      >
+        <p className="vf-connection" role="status" aria-live="polite" aria-atomic="true">
+          {(!fresh || query.isError) &&
+            'Connection interrupted. Selections are paused until the game status refreshes.'}
+        </p>
         <section className="vf-stage" aria-label="Match view">
           <div className="vf-stage-frame">
             {text || !fixture ? (
@@ -857,6 +867,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             ))}
           </div>
         </section>
+        {fixture && <ExpandedMatchDetails fixture={fixture} week={stageWeek} />}
       </GameArena>
 
       <div className="vf-layout">
@@ -944,7 +955,15 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             )}
           </div>
         </section>
-        <div className="vf-side">{slipView}</div>
+        <div
+          className="vf-side"
+          ref={ticketControls}
+          tabIndex={-1}
+          role="region"
+          aria-label="Your ticket controls"
+        >
+          {slipView}
+        </div>
       </div>
 
       <p className="vf-disclaimer">
@@ -996,4 +1015,35 @@ function MobileTray({ count, stake }: { count: number; stake: number }) {
 function LiveCaption({ fixture, week }: { fixture: VfFixtureView; week: VfMatchweekView }) {
   const display = useDisplay(fixture, week, 100);
   return <BroadcastCaption fixture={fixture} display={display} />;
+}
+
+/** Portrait expansion uses the spare space for already released facts, without another live scoreboard. */
+function ExpandedMatchDetails({
+  fixture,
+  week,
+}: {
+  fixture: VfFixtureView;
+  week: VfMatchweekView;
+}) {
+  const display = useDisplay(fixture, week, 100);
+  return (
+    <section className="vf-expanded-details" aria-label="Released match details">
+      <h2>Released goals</h2>
+      {display.events.length ? (
+        <ol aria-label="Released goals">
+          {display.events.map((goal) => (
+            <li key={goal.n}>
+              <b>{goal.minute}′</b>{' '}
+              {clubById(goal.side === 'H' ? fixture.homeClub : fixture.awayClub).name}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p>No goals released yet.</p>
+      )}
+      <p>
+        Choose another fixture above, or minimize to return to your selections and ticket draft.
+      </p>
+    </section>
+  );
 }

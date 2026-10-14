@@ -1,11 +1,12 @@
 import { clubById } from '@/lib/football/clubs';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type * as ApiModule from '@/lib/api';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   VF_RULES_ID,
+  cycleBySeasonWeek,
   fixtureOffer,
   parseTicketInput,
   type VfAdmission,
@@ -15,6 +16,7 @@ import {
 import { VirtualFootballPage } from './virtual-football';
 import { VerifyResults } from '@/components/football/results';
 import { buildWeek, openAt, snapshotAt } from '@/test/football-fixtures';
+import { GOAL_REVEAL_MS } from '@/lib/football/reveal';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'fan-1' } }) }));
@@ -513,6 +515,67 @@ describe('Virtual Football page', () => {
     expect(stake).toHaveValue(25);
     expect(review).toBeEnabled();
     expect(review.closest('[inert]')).toBeNull();
+    scroll.mockRestore();
+  });
+
+  for (const width of [320, 390, 768]) {
+    it(`keeps one accessible reconnect status inside the expanded ${width}px portrait view`, async () => {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+      await setup();
+      const scene = await screen.findByTestId('scene');
+      fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+      mocks.get.mockRejectedValue(new Error('offline'));
+      await act(async () => {
+        await client.refetchQueries({ queryKey: ['vf3d'] });
+      });
+      const dialog = screen.getByRole('dialog', { name: 'Virtual Football expanded view' });
+      const status = await within(dialog).findByRole('status');
+      expect(status).toHaveTextContent('Connection interrupted.');
+      expect(status).toHaveAttribute('aria-live', 'polite');
+      expect(status.closest('[inert], [aria-hidden="true"]')).toBeNull();
+      expect(screen.getAllByText(/Connection interrupted\. Selections are paused/)).toHaveLength(1);
+      expect(within(dialog).getByTestId('scene')).toBe(scene);
+      expect(
+        within(dialog).getByRole('region', { name: 'Released match details' })
+      ).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByTestId('scene')).toBe(scene);
+      scroll.mockRestore();
+    });
+  }
+
+  it('keeps expanded goal details behind the same delayed release gate as the scoreboard', async () => {
+    const goal = buildWeek(1, 5).timelines[0].goals[0];
+    const cycle = cycleBySeasonWeek(1, 5);
+    const before = snapshotAt({ serverTime: cycle.kickoffAt + goal.atMs + 400 });
+    const minute = before.current!.fixtures[0].live.events[0].minute;
+    serve(before);
+    await setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+    const details = screen.getByRole('region', { name: 'Released match details' });
+    expect(within(details).queryByText(`${minute}′`)).toBeNull();
+    serve(snapshotAt({ serverTime: cycle.kickoffAt + goal.atMs + GOAL_REVEAL_MS + 500 }));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['vf3d'] });
+    });
+    expect(await within(details).findByText(`${minute}′`)).toBeInTheDocument();
+  });
+
+  it('returns to the existing ticket draft controls from the mounted expanded view', async () => {
+    const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    await setup();
+    pressPrice(/Full time: .* win, price/);
+    const stake = screen.getByRole('spinbutton', { name: /Single 1 stake/ });
+    fireEvent.change(stake, { target: { value: '25' } });
+    const scene = await screen.findByTestId('scene');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Bet controls' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Your ticket controls' })).toHaveFocus();
+    expect(stake).toHaveValue(25);
+    expect(screen.getByTestId('scene')).toBe(scene);
     scroll.mockRestore();
   });
 
