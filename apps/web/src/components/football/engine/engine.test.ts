@@ -308,3 +308,20 @@ it('fits immediately when reduced motion is enabled on a stopped, narrow view', 
   engine.setReduced(false);
   expect(camera.far).toBe(700);
 });
+
+it.each([600, 292])('gives the fixed portrait pitch readable depth at 390×%i', (height) => {
+  const { engine } = setup(true, 390, height);
+  engine.renderAt(8050);
+  const camera = renderedCamera();
+  const corners = [-PITCH.halfLength, PITCH.halfLength].flatMap((x) =>
+    [-PITCH.halfWidth, PITCH.halfWidth].map((z) => new THREE.Vector3(x, 0, z).project(camera))
+  );
+  // A measurable minimum footprint prevents returning to the old horizon-strip
+  // camera; the separate volume/goal tests continue to require full containment.
+  const screenHeight =
+    (Math.max(...corners.map((p) => p.y)) - Math.min(...corners.map((p) => p.y))) / 2;
+  const screenWidth =
+    (Math.max(...corners.map((p) => p.x)) - Math.min(...corners.map((p) => p.x))) / 2;
+  expect(screenHeight).toBeGreaterThan(0.18);
+  expect(screenWidth).toBeGreaterThan(0.6);
+});

@@ -197,7 +197,7 @@ export function BroadcastCaption({
       </strong>
       <small>
         {last
-          ? `${last.minute}′ · ${clubById(last.side === 'H' ? fixture.homeClub : fixture.awayClub).name}`
+          ? `Last goal ${last.minute}′ · ${clubById(last.side === 'H' ? fixture.homeClub : fixture.awayClub).name}`
           : 'Released match events appear here'}
       </small>
     </div>

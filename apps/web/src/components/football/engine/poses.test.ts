@@ -14,6 +14,10 @@ import {
   poseKeeperReady,
   poseKick,
   poseRun,
+  plantRunFeet,
+  MAX_PLANT_TWIST,
+  MAX_SUPPORT_DROP,
+  type RunPlant,
   STANCE_ANKLE,
   stanceDuty,
   strideLength,
@@ -340,4 +344,137 @@ describe('celebrations and blending', () => {
     BONES.forEach((n, i) => expect(rig.bones[n].quaternion.angleTo(target[i])).toBeLessThan(1e-4));
     rig.dispose();
   });
+});
+
+describe('world plants and pose continuity', () => {
+  for (const direction of [-1, 1]) {
+    for (const scale of [0.96, 1, 1.04])
+      it(`pivots around the grounded sole with bounded leg twist through a tight ${direction > 0 ? 'left' : 'right'} pivot at scale ${scale}`, () => {
+        const rig = makeRig();
+        rig.root.scale.setScalar(scale);
+        const plants: RunPlant = {};
+        const speed = 4;
+        const phase = stanceDuty(speed) * 0.4; // flat sole, stationary pivot
+        let first: THREE.Vector3 | undefined;
+        for (let step = 0; step <= 30; step++) {
+          rig.root.rotation.y = (direction * Math.PI * step) / 30;
+          poseRun(rig, phase, speed, { bank: direction * 0.12 });
+          plantRunFeet(rig, phase, speed, plants);
+          rig.root.updateMatrixWorld(true);
+          const k = 0.4 * 0.4 * (3 - 2 * 0.4); // sole handover at stance u=.4
+          const contact = new THREE.Vector3(0, -0.07 + 0.002 * k, -0.07 + 0.22 * k).applyMatrix4(
+            rig.bones.footL.matrixWorld
+          );
+          first ??= contact.clone();
+          expect(contact.distanceTo(first)).toBeLessThan(0.002);
+          expect(Math.abs(contact.y)).toBeLessThan(0.002);
+          const yaw = (bone: THREE.Bone) =>
+            new THREE.Euler().setFromQuaternion(
+              bone.getWorldQuaternion(new THREE.Quaternion()),
+              'YXZ'
+            ).y;
+          const difference = yaw(rig.bones.hips) - yaw(rig.bones.footL);
+          expect(
+            Math.abs(Math.atan2(Math.sin(difference), Math.cos(difference)))
+          ).toBeLessThanOrEqual(MAX_PLANT_TWIST + 1e-6);
+          expect(finite(rig)).toBe(true);
+        }
+        rig.dispose();
+      });
+    it(`plants both feet on a changing travel direction (${direction})`, () => {
+      const rig = makeRig();
+      const plants: RunPlant = {};
+      const speed = 3;
+      const duty = stanceDuty(speed);
+      let phase = 0;
+      const previous: Partial<Record<'L' | 'R', THREE.Vector3>> = {};
+      let contacts = 0;
+      for (let step = 0; step < 240; step++) {
+        const yaw = ((direction * step) / 240) * Math.PI * 2;
+        rig.root.position.x += (Math.sin(yaw) * speed) / 120;
+        rig.root.position.z += (Math.cos(yaw) * speed) / 120;
+        rig.root.rotation.y = yaw;
+        phase += speed / 120 / strideLength(speed);
+        poseRun(rig, phase, speed);
+        plantRunFeet(rig, phase, speed, plants);
+        for (const side of ['L', 'R'] as const) {
+          rig.root.updateMatrixWorld(true);
+          const point = new THREE.Vector3(0, -0.07, -0.07).applyMatrix4(
+            rig.bones[`foot${side}`].matrixWorld
+          );
+          const p = (phase + (side === 'L' ? 0 : 0.5)) % 1;
+          if (p > duty * 0.32 && p < duty * 0.52) {
+            if (previous[side]) {
+              expect(point.distanceTo(previous[side]!)).toBeLessThan(0.008);
+              contacts++;
+            }
+            previous[side] = point;
+          } else delete previous[side];
+        }
+      }
+      expect(contacts).toBeGreaterThan(15);
+      rig.dispose();
+    });
+  }
+  for (const scale of [0.96, 1.04])
+    it(`applies only the bounded reach support drop to a blended torso (${scale})`, () => {
+      const rig = makeRig();
+      rig.root.scale.setScalar(scale);
+      poseIdle(rig, 0);
+      const from = capture(rig);
+      poseRun(rig, 0.015, 4);
+      blendTo(rig, from, 0.01);
+      rig.bones.hips.position.y += 0.045 / scale;
+      rig.root.updateMatrixWorld(true);
+      const before = wp(rig, 'hips').y;
+      const chest = rig.bones.chest.quaternion.clone();
+      plantRunFeet(rig, 0.015, 4, {});
+      const drop = before - wp(rig, 'hips').y;
+      expect(drop).toBeGreaterThan(0.005);
+      expect(drop).toBeLessThanOrEqual(MAX_SUPPORT_DROP + 1e-6);
+      expect(rig.bones.chest.quaternion.angleTo(chest)).toBeLessThan(1e-6);
+      rig.root.updateMatrixWorld(true);
+      const heel = new THREE.Vector3(0, -0.07, -0.07).applyMatrix4(rig.bones.footL.matrixWorld);
+      expect(Math.abs(heel.y)).toBeLessThan(0.002);
+      rig.dispose();
+    });
+  it('interpolates intermediate pose values instead of holding the old pose until 140ms', () => {
+    const rig = makeRig();
+    poseIdle(rig, 0);
+    const from = capture(rig);
+    poseRun(rig, 0.3, 6);
+    const target = capture(rig);
+    blendTo(rig, from, 0.5);
+    const index = BONES.indexOf('upperArmL');
+    const q = rig.bones.upperArmL.quaternion;
+    expect(q.angleTo(from.q[index])).toBeGreaterThan(0.1);
+    expect(q.angleTo(target.q[index])).toBeGreaterThan(0.1);
+    expect(q.angleTo(from.q[index])).toBeCloseTo(q.angleTo(target.q[index]), 5);
+    expect(rig.bones.hips.position.y).toBeCloseTo((from.p[0].y + target.p[0].y) / 2, 6);
+    rig.dispose();
+  });
+});
+
+describe('keeper transition phases', () => {
+  for (const direction of [-1, 1] as const) {
+    it(`loads before launch, absorbs landing, and returns to crouch (${direction})`, () => {
+      const rig = makeRig();
+      const spec = { direction, reach: 1.3, height: 1.1 };
+      const ball = new THREE.Vector3(direction * 1.3, 1.1, 0.4);
+      const height = (t: number) => {
+        rig.root.position.copy(diveRoot(spec, t));
+        poseKeeperDive(rig, t, spec, ball);
+        return wp(rig, 'hips').y;
+      };
+      const ready = height(0);
+      expect(height(0.065)).toBeLessThan(ready);
+      expect(height(0.3)).toBeGreaterThan(ready);
+      expect(height(0.8)).toBeLessThan(0.22);
+      expect(height(1.4)).toBeGreaterThan(height(1.1));
+      expect(height(DIVE_DURATION)).toBeCloseTo(0.76, 3);
+      expect(KICK.contact).toBe(0.3);
+      expect(DIVE_CONTACT).toBe(0.45);
+      rig.dispose();
+    });
+  }
 });

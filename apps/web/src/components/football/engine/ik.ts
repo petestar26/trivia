@@ -74,6 +74,9 @@ export function solveTwoBone(
 
 const FOOT = new THREE.Quaternion();
 const TILT = new THREE.Quaternion();
+/** Player height variation is uniform; IK distances are world metres, bone lengths are local. */
+const SCALE = new THREE.Vector3();
+const scaleOf = (rig: Rig) => rig.root.getWorldScale(SCALE).y;
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** Plants a foot: leg IK to `ankle`, then foot orientation = heading yaw + pitch (toes down +). */
 export function placeFoot(
@@ -88,7 +91,15 @@ export function placeFoot(
   const lower = rig.bones[`lowerLeg${side}`];
   const foot = rig.bones[`foot${side}`];
   const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-  const result = solveTwoBone(upper, lower, DIM.thigh, DIM.shin, ankle, forward, forward);
+  const result = solveTwoBone(
+    upper,
+    lower,
+    DIM.thigh * scaleOf(rig),
+    DIM.shin * scaleOf(rig),
+    ankle,
+    forward,
+    forward
+  );
   FOOT.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   TILT.setFromAxisAngle(AXIS_X, pitch);
   FOOT.multiply(TILT);
@@ -110,7 +121,15 @@ export function reachHand(
   const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(
     rig.root.getWorldQuaternion(new THREE.Quaternion())
   );
-  return solveTwoBone(upper, fore, DIM.upperArm, DIM.foreArm, target, pole, forward);
+  return solveTwoBone(
+    upper,
+    fore,
+    DIM.upperArm * scaleOf(rig),
+    DIM.foreArm * scaleOf(rig),
+    target,
+    pole,
+    forward
+  );
 }
 
 export const worldPositionOf = (bone: THREE.Object3D) => bone.getWorldPosition(new THREE.Vector3());

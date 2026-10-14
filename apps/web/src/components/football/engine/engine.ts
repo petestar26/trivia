@@ -86,12 +86,15 @@ function ballTexture(): THREE.CanvasTexture {
 function reducedPitchCamera(aspect: number): Frame['camera'] {
   const fov = broadcastFov(34, aspect);
   const centre = new THREE.Vector3(0, 0.9, 0);
-  const direction = new THREE.Vector3(0, 17.1, 62).normalize();
+  // An elevated fixed view gives the touchlines depth on portrait stages instead
+  // of squeezing the pitch into a narrow horizon strip. It still depends only
+  // on geometry/aspect, never the ball or a released goal.
+  const direction = new THREE.Vector3(0, 64, 62).normalize();
   const right = new THREE.Vector3(1, 0, 0);
   const up = new THREE.Vector3().crossVectors(direction, right);
   const verticalTan = Math.tan((fov * Math.PI) / 360);
   const horizontalTan = verticalTan * aspect;
-  let distance = Math.hypot(17.1, 62);
+  let distance = Math.hypot(64, 62);
   // Include net depth/ripple, touchline clearance and the director's 8 m long-ball arc.
   for (const x of [-1, 1])
     for (const y of [-0.3, 9])
@@ -144,7 +147,12 @@ export function createEngine(options: EngineOptions): Engine {
   const sky = skyTexture();
   scene.background = sky;
   scene.fog = new THREE.Fog('#243a5e', 140, 420);
-  scene.add(new THREE.HemisphereLight('#c7dcff', '#27402b', 1.15));
+  scene.add(new THREE.HemisphereLight('#e0ebf7', '#657455', 1.45));
+  // Broad skylight fill preserves skin/kit detail behind the warm key light.
+  // It adds no shadow pass or geometry to the mobile rendering budget.
+  const fill = new THREE.DirectionalLight('#dce7f6', 0.75);
+  fill.position.set(-22, 20, 28);
+  scene.add(fill, fill.target);
   const sun = new THREE.DirectionalLight('#fff3d9', 2.4);
   sun.position.set(24, 52, 36);
   sun.castShadow = true;
@@ -303,6 +311,8 @@ export function createEngine(options: EngineOptions): Engine {
     lastMode = frame.mode;
     sun.position.set(camLook.x + 24, 52, camLook.z + 36);
     sun.target.position.set(camLook.x, 0, camLook.z);
+    fill.position.set(camLook.x - 22, 20, camLook.z + 28);
+    fill.target.position.set(camLook.x, 0.8, camLook.z);
     renderer.render(scene, camera);
     renderedOnce = true;
     return frame;
