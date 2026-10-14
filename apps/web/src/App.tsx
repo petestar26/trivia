@@ -64,6 +64,12 @@ export function App() {
   }
 
   return (
+    <>
+    {import.meta.env.VITE_VISUAL_PREVIEW === 'true' && (
+      <div role="status" style={{ position: 'sticky', top: 0, zIndex: 100, background: '#111827', color: '#fef3c7', textAlign: 'center', padding: '8px 12px', fontWeight: 700, fontSize: 13 }}>
+        VISUAL PREVIEW · Synthetic data · Bets, payments and account changes are disabled
+      </div>
+    )}
     <Routes>
       <Route path="/games/spin-win/verify" element={
         <Suspense fallback={<main className="min-h-screen bg-slate-950 p-8 text-slate-100">Loading round verifier…</main>}>
@@ -161,5 +167,6 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </>
   );
 }
