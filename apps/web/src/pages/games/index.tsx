@@ -182,6 +182,10 @@ export function GamesPage({
                       Play practice →
                     </p>
                   </div>
+                ) : import.meta.env.VITE_VISUAL_PREVIEW === 'true' ? (
+                  <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    Catalog preview only · no game connection
+                  </div>
                 ) : isComingSoon ? (
                   <div className="mt-3">
                     <span className="inline-block text-xs font-medium px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
