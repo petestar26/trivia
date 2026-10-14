@@ -67,7 +67,7 @@ export function App() {
     <>
     {import.meta.env.VITE_VISUAL_PREVIEW === 'true' && (
       <div role="status" style={{ position: 'sticky', top: 0, zIndex: 100, background: '#111827', color: '#fef3c7', textAlign: 'center', padding: '8px 12px', fontWeight: 700, fontSize: 13 }}>
-        VISUAL PREVIEW · Synthetic data · Bets, payments and account changes are disabled
+        VISUAL PREVIEW · Three game scenes, other cards are catalog only · Bets and payments are disabled
       </div>
     )}
     <Routes>
