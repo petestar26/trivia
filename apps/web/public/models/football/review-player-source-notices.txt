@@ -93,5 +93,3 @@ SHA256: 54c8892c2ba577f4152d779ce1f20f7cd323beb8cbd9cb701796165c221b4f5b
 # The primary legal contact for MakeHuman is Data Collection AB.
 #
 # For more information, see homepage at http://www.makehumancommunity.org
-
-

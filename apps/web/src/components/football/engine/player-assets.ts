@@ -34,7 +34,7 @@ function meshGeometry(result: PromiseSettledResult<GLTF>) {
 }
 /** Clip the source's clavicle extraction to the under-jaw/neck seam once per
  * shared asset. Interpolate every relative morph as well as the neutral surface. */
-function trimClavicles(source: THREE.BufferGeometry) {
+function trimClavicles(source: THREE.BufferGeometry, anatomicalNeck = false) {
   const attributes = Object.entries(source.attributes),
     morphs = Object.entries(source.morphAttributes);
   const p = source.getAttribute('position'),
@@ -58,6 +58,10 @@ function trimClavicles(source: THREE.BufferGeometry) {
   };
   const scalar = (v: V) => {
     const [x, y, z] = v.values.position;
+    if (anatomicalNeck) {
+      const width = 0.065 + Math.max(0, y - 1.535) * 4;
+      return Math.min(y - 1.485, width - Math.abs(x));
+    }
     const underJaw = THREE.MathUtils.smoothstep(z, 0.005, 0.1);
     return y - (1.585 - underJaw * 0.052);
   };
@@ -113,13 +117,63 @@ function trimClavicles(source: THREE.BufferGeometry) {
   g.userData = { ...source.userData };
   return g;
 }
-function headGeometry(result: PromiseSettledResult<GLTF>) {
+export function headGeometry(result: PromiseSettledResult<GLTF>, anatomicalNeck = false) {
   const mesh = meshGeometry(result),
-    g = trimClavicles(mesh.geometry),
+    g = trimClavicles(mesh.geometry, anatomicalNeck),
     p = g.getAttribute('position');
   try {
     if (!p || !g.getAttribute('_part') || (g.morphAttributes.position?.length ?? 0) !== 8)
       throw new Error('Incomplete player head');
+    if (anatomicalNeck) {
+      // Fit the textured core neck into the review jersey rather than keeping its clavicle apron.
+      const fit = (x: number, y: number, z: number) => {
+        const t = THREE.MathUtils.smoothstep(y, 1.485, 1.53);
+        const radius = Math.hypot(x / 0.058, (z - 0.008) / 0.052);
+        const scale = 1 + (Math.min(1, 1 / Math.max(radius, 1e-8)) - 1) * (1 - t);
+        return new THREE.Vector3(x * scale, y - 0.022 * (1 - t), 0.008 + (z - 0.008) * scale);
+      };
+      const morphs = g.morphAttributes.position ?? [],
+        normalMorphs = g.morphAttributes.normal ?? [],
+        normal = g.getAttribute('normal');
+      const fitNormal = (x: number, y: number, z: number, n: THREE.Vector3) => {
+        const axis = Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+        const u = axis.cross(n).normalize(),
+          v = n.clone().cross(u).normalize(),
+          eps = 0.00001;
+        const derivative = (t: THREE.Vector3) =>
+          fit(x + eps * t.x, y + eps * t.y, z + eps * t.z).sub(
+            fit(x - eps * t.x, y - eps * t.y, z - eps * t.z)
+          );
+        const transformed = derivative(u).cross(derivative(v)).normalize();
+        return transformed.lengthSq() > 0.5 ? transformed : n.clone();
+      };
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i),
+          y = p.getY(i),
+          z = p.getZ(i);
+        if (y >= 1.53) continue;
+        const neutral = fit(x, y, z),
+          beforeNormal = new THREE.Vector3(normal.getX(i), normal.getY(i), normal.getZ(i));
+        const nextNormal = fitNormal(x, y, z, beforeNormal);
+        morphs.forEach((m, k) => {
+          const tx = x + m.getX(i),
+            ty = y + m.getY(i),
+            tz = z + m.getZ(i),
+            target = fit(tx, ty, tz),
+            nm = normalMorphs[k];
+          if (nm) {
+            const posedNormal = beforeNormal
+              .clone()
+              .add(new THREE.Vector3(nm.getX(i), nm.getY(i), nm.getZ(i)));
+            const result = fitNormal(tx, ty, tz, posedNormal).sub(nextNormal);
+            nm.setXYZ(i, result.x, result.y, result.z);
+          }
+          m.setXYZ(i, target.x - neutral.x, target.y - neutral.y, target.z - neutral.z);
+        });
+        p.setXYZ(i, neutral.x, neutral.y, neutral.z);
+        normal.setXYZ(i, nextNormal.x, nextNormal.y, nextNormal.z);
+      }
+    }
     const ix = new Uint16Array(p.count * 4),
       w = new Float32Array(p.count * 4);
     for (let n = 0; n < p.count; n++) {

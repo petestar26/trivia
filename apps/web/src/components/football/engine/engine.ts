@@ -51,6 +51,7 @@ export interface Engine {
     geometries: number;
     textures: number;
     playerDetails?: { high: number; mid: number; low: number };
+    reviewPlayers?: number;
   };
   dispose(): void;
 }
@@ -410,6 +411,7 @@ export function createEngine(options: EngineOptions): Engine {
       textures: renderer.info.memory.textures,
       ...(pool.rigs
         ? {
+            reviewPlayers: pool.rigs.filter((r) => r.root.userData.reviewPlayer).length,
             playerDetails: pool.rigs.reduce(
               (counts, rig) => {
                 const detail: unknown = rig.root.userData.playerDetail;

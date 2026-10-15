@@ -9,6 +9,18 @@ import {
   attachBootDetails,
 } from '../components/football/engine/player-appearance';
 import {
+  loadReviewPlayerAssets,
+  attachReviewHead,
+} from '../components/football/engine/review-player';
+import { attachReviewBody } from '../components/football/engine/review-player-body';
+import {
+  sampleReviewMotionScenario,
+  applyReviewPlayerMotion,
+  poseReviewPlayerHands,
+  REVIEW_MOTION_SCENARIOS,
+  type ReviewMotionScenario,
+} from '../components/football/engine/review-player-motion';
+import {
   createRig,
   lookGeometry,
   kitTexture,
@@ -20,12 +32,22 @@ import {
   poseKick,
   kickGeometry,
   plantRunFeet,
-  strideLength,
   poseKeeperDive,
+  type RunPlant,
+  KICK,
+  DIVE_CONTACT,
 } from '../components/football/engine/poses';
+
 const q = new URLSearchParams(location.search),
   scene = new THREE.Scene();
 const reduced = q.has('reduced') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const requested = q.get('scenario') ?? 'jog';
+const scenario: ReviewMotionScenario = REVIEW_MOTION_SCENARIOS.includes(
+  requested as ReviewMotionScenario
+)
+  ? (requested as ReviewMotionScenario)
+  : 'jog';
+const keeper = q.has('keeper') || scenario === 'keeperDive';
 scene.background = new THREE.Color('#8fa39b');
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -33,11 +55,11 @@ renderer.setPixelRatio(1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.append(renderer.domElement);
-scene.add(new THREE.HemisphereLight('#e8f1f6', '#786c5d', 2.1));
+scene.add(new THREE.HemisphereLight('#e8f1f6', '#786c5d', 1.6));
 const sun = new THREE.DirectionalLight('#fff2df', 2.2);
 sun.position.set(2, 4, 5);
 scene.add(sun);
-const fill = new THREE.DirectionalLight('#edf3ff', 0.85);
+const fill = new THREE.DirectionalLight('#edf3ff', 0.65);
 fill.position.set(-3, 2, 1);
 scene.add(fill);
 const ground = new THREE.Mesh(
@@ -47,27 +69,41 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.001;
 scene.add(ground);
-const base = await loadPlayerUpgrade(),
-  heads = base.heads!,
-  identity = playerIdentity(Number(q.get('club') ?? 1), Number(q.get('slot') ?? 1));
-const kit = kitFromClub({ primary: '#6b233c', secondary: '#d5b292', pattern: 'solid' });
+const base = await loadPlayerUpgrade();
+const assets = await loadReviewPlayerAssets().catch(() => undefined);
+const identity = playerIdentity(Number(q.get('club') ?? 1), Number(q.get('slot') ?? 1));
+const kit = kitFromClub({
+  primary: keeper ? '#397477' : '#6b233c',
+  secondary: keeper ? '#d5b292' : '#d5b292',
+  pattern: 'solid',
+});
 kit.shorts = '#202126';
-const lg = lookGeometry({ kit, skin: identity.skin, hair: identity.hair }, base),
-  fabric = appearanceTextures('fabric');
-const rig = createRig(
-  new THREE.MeshStandardMaterial({
+if (keeper) {
+  kit.keeper = true;
+  kit.glove = '#deded8';
+}
+const look = { kit, skin: identity.skin, hair: identity.hair },
+  lg = lookGeometry(look, base),
+  fabric = appearanceTextures('fabric'),
+  skin = appearanceTextures('skin');
+const kitMap = kitTexture(kit),
+  material = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    map: kitTexture(kit),
+    map: kitMap,
     normalMap: fabric.normal,
-    normalScale: new THREE.Vector2(0.35, 0.35),
+    normalScale: new THREE.Vector2(0.2, 0.2),
     roughness: 0.9,
-  }),
-  lg.geometry
-);
+    side: THREE.DoubleSide,
+  });
+const rig = createRig(material, lg.geometry);
 scene.add(rig.root);
-const skin = appearanceTextures('skin'),
-  head = attachPlayerHead(rig, heads, identity, headMaterial(skin));
+const fallback = headMaterial(skin);
+const head = assets
+  ? attachReviewHead(rig, base.heads!, identity, fallback, assets, skin)
+  : attachPlayerHead(rig, base.heads!, identity, fallback);
+const body = assets ? attachReviewBody(rig, base, look, material) : undefined;
 head.setDetail('high');
+body?.setDetail('high');
 const boots = attachBootDetails(rig);
 boots.setDetail('high');
 const ball = new THREE.Mesh(
@@ -75,66 +111,86 @@ const ball = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color: '#f6f3ed', roughness: 0.55 })
 );
 scene.add(ball);
-const plants = {};
+let plants: RunPlant = {};
 const camera = new THREE.PerspectiveCamera(
-  q.has('face') ? 27 : 35,
+  q.has('face') ? 30 : 35,
   innerWidth / innerHeight,
   0.01,
   1000
 );
+const kick = {
+  ball: new THREE.Vector3(0, 0.11, 0),
+  dir: new THREE.Vector3(0, 0, 1),
+  foot: 'R' as const,
+  power: 0.75,
+  loft: 0.2,
+};
 function draw(t = 0, exportFrame = false) {
   if (reduced) t = 0;
   const close = q.has('face'),
-    phase = t % 9;
-  let x = phase < 2 ? phase * 2 : phase < 4 ? 4 : phase < 6 ? 4 - (phase - 4) * 2 : 0;
-  const heading =
-    phase < 2 ? Math.PI / 2 : phase < 4 ? Math.PI / 2 + ((phase - 2) * Math.PI) / 2 : Math.PI * 1.5;
-  rig.root.position.set(x, 0, 0);
-  rig.root.rotation.y = close ? 0 : heading;
-  const spec = {
-    ball: new THREE.Vector3(0, 0.11, 0),
-    dir: new THREE.Vector3(-1, 0, 0),
-    foot: 'R' as const,
-    power: 0.75,
-    loft: 0.2,
-  };
-  ball.visible = !close && phase >= 6;
-  ball.position.copy(spec.ball);
-  if (phase > 6.3)
-    ball.position.addScaledVector(spec.dir, (phase - 6.3) * 5).y +=
-      Math.sin(Math.min(1, (phase - 6.3) / 1.5) * Math.PI) * 0.5;
+    s = sampleReviewMotionScenario(close ? 'idle' : scenario, t);
+  rig.root.position.set(s.position.x, s.position.y, s.position.z);
+  rig.root.rotation.y = close ? 0 : s.heading;
+  ball.visible = !close && (scenario === 'kick' || scenario === 'keeperDive');
+  ball.position.copy(kick.ball);
   if (close || reduced) poseIdle(rig, 0);
-  else if (phase < 2) {
-    poseRun(rig, (phase * 2) / strideLength(2), 2, {
-      acceleration: Math.max(0, 1 - phase),
-      accelerationTime: phase,
+  else if (s.motion.kind === 'run') {
+    poseRun(rig, s.phase, Math.max(1.2, s.speed), {
+      acceleration: Math.max(0, s.motion.acceleration ?? 0) / 4,
+      accelerationTime: t,
+      turn: s.motion.turn,
+      turnTime: t,
     });
-    plantRunFeet(rig, (phase * 2) / strideLength(2), 2, plants);
-  } else if (phase < 4) {
-    poseRun(rig, (2 * 2) / strideLength(2), 1.2, { turn: 0.5, turnTime: phase - 2 });
-    plantRunFeet(rig, (2 * 2) / strideLength(2), 1.2, plants);
-  } else if (phase < 6) {
-    poseRun(rig, ((phase - 4) * 2) / strideLength(2), 2);
-    plantRunFeet(rig, ((phase - 4) * 2) / strideLength(2), 2, plants);
-  } else if (phase < 7.2) {
-    rig.root.position.copy(kickGeometry(spec).root);
-    rig.root.rotation.y = -Math.PI / 2;
-    poseKick(rig, phase - 6, spec);
-  } else poseIdle(rig, 0);
-  poseFingers(rig, phase < 2 ? 'run' : 'idle', !reduced);
-  head.animate(t, close ? 'idle' : phase < 2 ? 'run' : 'idle', !reduced);
+  } else if (scenario === 'kick') {
+    const root = kickGeometry(kick).root;
+    rig.root.position.copy(root);
+    poseKick(rig, t, kick);
+    if (t > KICK.contact)
+      ball.position.addScaledVector(kick.dir, (t - KICK.contact) * 5).y +=
+        Math.sin(Math.min(1, (t - KICK.contact) / 1.5) * Math.PI) * 0.5;
+  } else if (scenario === 'keeperDive' && s.keeperSpec) {
+    const target = new THREE.Vector3(s.keeperSpec.reach, s.keeperSpec.height, 0.12);
+    poseKeeperDive(rig, t, s.keeperSpec, target);
+    ball.position.copy(target);
+    if (t < DIVE_CONTACT) ball.position.z += (DIVE_CONTACT - t) * 3;
+  } else poseIdle(rig, t);
+  if (assets)
+    applyReviewPlayerMotion(rig, {
+      ...s.motion,
+      time: close ? t : s.motion.time,
+      reducedMotion: reduced,
+    });
+  if (s.motion.kind === 'run' && !reduced)
+    plantRunFeet(rig, s.phase, Math.max(1.2, s.speed), plants);
+  poseFingers(rig, s.motion.kind, !reduced);
+  if (assets) poseReviewPlayerHands(rig, s.motion.kind, !reduced, s.phase);
+  head.animate(t, s.motion.kind, !reduced);
   rig.root.updateMatrixWorld(true);
+  const position = rig.root.position;
   if (close) {
-    camera.position.set(x + (q.has('profile') ? 0.9 : 0.22), 1.66, q.has('profile') ? 0.4 : 0.96);
-    camera.lookAt(x, 1.63, 0.015);
+    camera.position.set(
+      position.x + (q.has('profile') ? 1.05 : 0.22),
+      1.7,
+      position.z + (q.has('profile') ? 0.45 : 1.16)
+    );
+    camera.lookAt(position.x, 1.67, position.z + 0.015);
   } else {
-    camera.position.set(x + 2.2, 1.6, 4.9);
-    camera.lookAt(x, 0.92, 0);
+    camera.position.set(position.x + 2.1, 1.6, position.z + 3.8);
+    camera.lookAt(position.x, 0.92, position.z);
   }
   renderer.render(scene, camera);
+  const caption = document.querySelector('#caption');
+  if (caption)
+    caption.textContent = `Simulated character diagnostic · ${identity.name} · ${keeper ? 'goalkeeper kit' : 'outfield kit'} · ${reduced ? 'reduced motion' : s.label} · ${assets ? 'review assets' : 'PR59 fallback'}`;
   return {
     t,
+    scenario,
+    label: s.label,
+    sample: s,
     identity,
+    reviewAssets: !!assets,
+    keeper,
+    reduced,
     camera: { position: camera.position.toArray(), quaternion: camera.quaternion.toArray() },
     info: { ...renderer.info.render },
     jpeg: exportFrame ? renderer.domElement.toDataURL('image/jpeg', 0.94) : undefined,
@@ -149,7 +205,28 @@ function draw(t = 0, exportFrame = false) {
   scene,
   renderer,
   reset() {
-    for (const key of Object.keys(plants)) delete (plants as any)[key];
+    plants = {};
+  },
+  dispose() {
+    head.dispose();
+    body?.dispose();
+    boots.dispose();
+    rig.dispose();
+    lg.dispose();
+    material.dispose();
+    kitMap.dispose();
+    fallback.dispose();
+    skin.dispose();
+    fabric.dispose();
+    assets?.dispose();
+    base.geometry.dispose();
+    for (const g of Object.values(base.heads ?? {})) g.dispose();
+    for (const b of Object.values(base.bodyLods ?? {})) b.geometry.dispose();
+    (ground.geometry as THREE.BufferGeometry).dispose();
+    (ground.material as THREE.Material).dispose();
+    ball.geometry.dispose();
+    (ball.material as THREE.Material).dispose();
+    renderer.dispose();
   },
 };
 draw(Number(q.get('t') ?? 0));

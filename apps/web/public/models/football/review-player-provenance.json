@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "exportVersion": "original-football-review-player-cc0-v2-mhclo-fit",
-  "authoringScriptSHA256": "1d5d9ffefce3f3982dabb7c61a9dbc0c9c900cce167526e61f749fd55019a8aa",
+  "authoringScriptSHA256": "eff48de3a68af0d00f214ef9c47ebbd62b02ee0c68b6c07886c3dbd05bde31a3",
   "software": {
     "Pillow": "12.3.0",
     "libwebp": "1.6.0"
@@ -434,8 +434,8 @@
     },
     {
       "file": "review-player-source-notices.txt",
-      "sha256": "180bea4b44a1804cd40a05fe381f03aa7082277706fd7ed05ea1ce8d9f78978b",
-      "bytes": 3585,
+      "sha256": "538aa363909728d966d57f9b48b422d34657311fb75e0fa551b4d4edc30b13a6",
+      "bytes": 3583,
       "retainedSourceHeaders": 5
     }
   ],

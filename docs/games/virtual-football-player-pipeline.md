@@ -45,3 +45,7 @@ This is a reproducible authored-player foundation, not accepted console photorea
 No Blender/MPFB authoring application or licensed photorealistic skin/hair/garment package was available in this workspace. Original Python/Three authoring makes this pipeline reviewable, but does not substitute for an artist-authored production character/material/animation pass. Further realism work and independent visual acceptance remain required.
 
 Evidence distinguishes exact matched-time engine/character captures from naturally advancing local page QA, encoded24fps playback from elapsed-wallclock software-renderer observations, and browser viewport emulation from physical/live acceptance. Physical iPhone/Safari/Android GPU, thermal, touch, rotation and live-server acceptance remain pending. Injected local imports/assets/WebGL failures establish containment; retired production/PWA chunk recovery remains separate. The inherited Crash Point PG16 CI failure and gateway full-path cache-header defect are unchanged and not repaired by these visual checks.
+
+## Single-player review continuation
+
+The review actor and its keeper diagnostic variant are described in [virtual-football-review-player-pipeline.md](virtual-football-review-player-pipeline.md). One fixed home formation slot uses the new fitted CC0 core skin/accessories and original garment/posture adapter. Other roster actors retain the foundation above; broader adoption waits for visual approval. The facial state reset and normal phone ordering are separately corrected.

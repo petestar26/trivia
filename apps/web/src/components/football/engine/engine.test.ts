@@ -355,6 +355,7 @@ it('reports the actually selected roster detail counts without changing renderer
     calls: 0,
     geometries: 0,
     textures: 0,
+    reviewPlayers: 0,
     playerDetails: { high: 2, mid: 1, low: 2 },
   });
 });

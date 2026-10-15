@@ -12,6 +12,14 @@ import {
   type PlayerDetail,
 } from './player-appearance';
 import { sampleAuthoredControl, type AuthoredMotionName } from './authored-motion';
+import {
+  loadReviewPlayerAssets,
+  attachReviewHead,
+  REVIEW_PLAYER_SLOT,
+  type ReviewPlayerAssets,
+} from './review-player';
+import { applyReviewPlayerMotion, poseReviewPlayerHands } from './review-player-motion';
+import { attachReviewBody } from './review-player-body';
 import { matchKits, clubById } from '@/lib/football/clubs';
 import * as THREE from 'three';
 import { keeperColour, type ClubKit } from '@socialplay/shared';
@@ -140,6 +148,9 @@ export function createPlayerPool(): PlayerPool {
   let disposed = false;
   let anatomical: HumanGeometry | undefined;
   let upgraded = false;
+  let reviewAssets: ReviewPlayerAssets | undefined;
+  let reviewLoadStarted = false;
+  let reviewBody: ReturnType<typeof attachReviewBody> | undefined;
   let skinMaps: ReturnType<typeof appearanceTextures> | undefined;
   let fabricMaps: ReturnType<typeof appearanceTextures> | undefined;
   let sharedHeadMaterial: THREE.Material | undefined;
@@ -158,6 +169,21 @@ export function createPlayerPool(): PlayerPool {
     const previous = anatomical;
     anatomical = base;
     upgraded = upgrade;
+    if (upgrade && base.heads && !reviewLoadStarted) {
+      reviewLoadStarted = true;
+      void loadReviewPlayerAssets()
+        .then((assets) => {
+          if (disposed) {
+            assets.dispose();
+            return;
+          }
+          reviewAssets = assets;
+          if (teams) setTeams(...teams);
+        })
+        .catch(() => {
+          /* Keep the complete PR59 character if any review asset fails. */
+        });
+    }
     if (teams) setTeams(...teams);
     if (previous && previous !== base) disposePlayerGeometry(previous);
   }
@@ -175,6 +201,8 @@ export function createPlayerPool(): PlayerPool {
   function setTeams(homeClub: number, awayClub: number) {
     if (disposed) return;
     teams = [homeClub, awayClub];
+    reviewBody?.dispose();
+    reviewBody = undefined;
     for (const head of heads) head?.dispose();
     for (const boot of boots) boot?.dispose();
     boots.fill(undefined);
@@ -266,12 +294,30 @@ export function createPlayerPool(): PlayerPool {
       rig.root.userData.playerIdentity = identity;
       rig.root.userData.playerDetail = details[i];
       if (anatomical?.heads && sharedHeadMaterial) {
-        heads[i] = attachPlayerHead(rig, anatomical.heads, identity, sharedHeadMaterial);
+        heads[i] =
+          i === REVIEW_PLAYER_SLOT && reviewAssets && skinMaps
+            ? attachReviewHead(
+                rig,
+                anatomical.heads,
+                identity,
+                sharedHeadMaterial,
+                reviewAssets,
+                skinMaps
+              )
+            : attachPlayerHead(rig, anatomical.heads, identity, sharedHeadMaterial);
         heads[i]!.setDetail(details[i]);
         boots[i] = attachBootDetails(rig);
         boots[i]!.setDetail(details[i]);
       }
       rig.mesh.material = materialFor(kit);
+      rig.root.userData.reviewPlayer = i === REVIEW_PLAYER_SLOT && !!reviewAssets;
+      if (i === REVIEW_PLAYER_SLOT && reviewAssets && anatomical?.heads) {
+        const reviewMaterial = own(materialFor(kit).clone());
+        reviewMaterial.side = THREE.DoubleSide;
+        rig.mesh.material = reviewMaterial;
+        reviewBody = attachReviewBody(rig, anatomical, look, reviewMaterial);
+        reviewBody.setDetail(details[i]);
+      }
       plates[i]?.removeFromParent();
       plates[i] = null;
       if (i !== REFEREE) {
@@ -337,8 +383,8 @@ export function createPlayerPool(): PlayerPool {
         st.phase = (st.phase + moved / strideLength(Math.max(actor.speed, 1.2))) % 1;
       st.lastX = actor.x;
       st.lastZ = actor.z;
-      const acceleration =
-        !teleported && dt > 0 ? Math.max(0, (actor.speed - st.lastSpeed) / dt) : 0;
+      const signedAcceleration = !teleported && dt > 0 ? (actor.speed - st.lastSpeed) / dt : 0;
+      const acceleration = Math.max(0, signedAcceleration);
       st.lastSpeed = actor.speed;
       if (teleported || !animate) {
         st.accelerationTime = 0;
@@ -359,6 +405,7 @@ export function createPlayerPool(): PlayerPool {
         st.kind = 'none';
         st.plants = {};
         poseFingers(rig, kind, false);
+        if (i === REVIEW_PLAYER_SLOT && reviewAssets) poseReviewPlayerHands(rig, kind, false);
         heads[i]?.animate(0, kind, false);
         continue;
       }
@@ -421,8 +468,29 @@ export function createPlayerPool(): PlayerPool {
         }
         if (st.blend >= 1) st.from = null;
       }
+      if (i === REVIEW_PLAYER_SLOT && reviewAssets) {
+        applyReviewPlayerMotion(rig, {
+          kind,
+          time:
+            actor.anim.kind === 'kick' || actor.anim.kind === 'keeperDive' ? actor.anim.t : time,
+          phase: st.phase,
+          speed: actor.speed,
+          acceleration: signedAcceleration,
+          turn: clampAbs(yawRate / 6, 1),
+          direction:
+            actor.anim.kind === 'kick'
+              ? actor.anim.spec.foot === 'R'
+                ? 1
+                : -1
+              : actor.anim.kind === 'keeperDive'
+                ? actor.anim.spec.direction
+                : 1,
+        });
+      }
       if (kind === 'run') plantRunFeet(rig, st.phase, Math.max(actor.speed, 1.2), st.plants);
       poseFingers(rig, kind, true, handControls(actor, st.phase, time + i));
+      if (i === REVIEW_PLAYER_SLOT && reviewAssets)
+        poseReviewPlayerHands(rig, kind, true, st.phase);
       const fingerWeight = 1 - Math.exp(-14 * Math.max(dt, 0));
       // Capture target before copying the previous pose; palm/wrist IK is never touched.
       fingers.forEach((name, joint) => {
@@ -476,6 +544,7 @@ export function createPlayerPool(): PlayerPool {
       if (bodyLooks[i]) rigs[i].mesh.geometry = bodyLooks[i]![next].geometry;
       heads[i]?.setDetail(next);
       boots[i]?.setDetail(next);
+      if (i === REVIEW_PLAYER_SLOT) reviewBody?.setDetail(next);
     }
   }
 
@@ -488,6 +557,7 @@ export function createPlayerPool(): PlayerPool {
     dispose() {
       if (disposed) return;
       disposed = true;
+      reviewBody?.dispose();
       for (const head of heads) head?.dispose();
       for (const boot of boots) boot?.dispose();
       for (const o of owned) o.dispose();
@@ -495,6 +565,7 @@ export function createPlayerPool(): PlayerPool {
       for (const r of rigs) r.dispose();
       firstLook.dispose();
       if (anatomical) disposePlayerGeometry(anatomical);
+      reviewAssets?.dispose();
       sharedHeadMaterial?.dispose();
       skinMaps?.dispose();
       fabricMaps?.dispose();

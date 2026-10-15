@@ -421,7 +421,7 @@ def main():
                 else:
                     break
             notices.extend(["Source: " + name, "SHA256: " + sha(raw), "".join(header), ""])
-    notice_bytes = ("\n".join(notices) + "\n").encode()
+    notice_bytes = ("\n".join(notices).rstrip("\n") + "\n").encode()
     output["review-player-source-notices.txt"] = notice_bytes
     exports.append({"file": "review-player-source-notices.txt", "sha256": sha(notice_bytes),
                     "bytes": len(notice_bytes), "retainedSourceHeaders": 5})
