@@ -388,7 +388,7 @@ describe('Virtual Football page', () => {
     expect(await within(panel).findByText(/Verified: all 10 matches/)).toBeInTheDocument();
   });
 
-  it('keeps the previous featured final score and winner beside the pitch without opening results', async () => {
+  it('keeps the previous featured final score and winner after the pitch without opening results', async () => {
     const previous = snapshotAt().latestCompleted!;
     const fixture = previous.fixtures[0];
     const final = fixture.live.fullTime!;
@@ -407,7 +407,9 @@ describe('Virtual Football page', () => {
         : `${clubById(final.home > final.away ? fixture.homeClub : fixture.awayClub).name} wins`;
     expect(within(banner).getByText(`Full time · ${outcome}`)).toBeInTheDocument();
     const stage = screen.getByRole('region', { name: 'Match view' });
-    expect(banner.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(stage.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const identityNote = screen.getByText(/Premier League club-themed simulation/);
+    expect(stage.compareDocumentPosition(identityNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(banner).getByRole('button', { name: 'All results' }));
     expect(screen.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
 

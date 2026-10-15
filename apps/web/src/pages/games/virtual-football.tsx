@@ -674,11 +674,6 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         </div>
       </header>
 
-      <p className="vf-scene-note">
-        Premier League club-themed simulation · Original kits and badges · Not real fixtures or
-        player likenesses
-      </p>
-
       <div className="vf-toolbar">
         <PhaseBar week={stageWeek} live={!!liveWeek} nextOpensAt={cycle?.endsAt ?? null} />
         <div className="vf-toolbar-actions">
@@ -747,36 +742,6 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             Check this confirmation
           </button>
         </div>
-      )}
-
-      {previousWeek && previousFixture && previousFinal && (
-        <section className="vf-previous-result" aria-label="Previous featured result">
-          <div>
-            <small>
-              Last completed matchweek · {weekLabel(previousWeek.seasonNo, previousWeek.weekNo)}
-            </small>
-            <strong>
-              {clubById(previousFixture.homeClub).name} {previousFinal.home} – {previousFinal.away}{' '}
-              {clubById(previousFixture.awayClub).name}
-            </strong>
-            <span>
-              Full time ·{' '}
-              {previousFinal.home === previousFinal.away
-                ? 'Draw'
-                : `${clubById(previousFinal.home > previousFinal.away ? previousFixture.homeClub : previousFixture.awayClub).name} wins`}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="vf-secondary"
-            onClick={() => {
-              setWeekView(null);
-              setTab('results');
-            }}
-          >
-            All results
-          </button>
-        </section>
       )}
 
       {fixture && overview && (
@@ -869,6 +834,41 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         </section>
         {fixture && <ExpandedMatchDetails fixture={fixture} week={stageWeek} />}
       </GameArena>
+
+      {previousWeek && previousFixture && previousFinal && (
+        <section className="vf-previous-result" aria-label="Previous featured result">
+          <div>
+            <small>
+              Last completed matchweek · {weekLabel(previousWeek.seasonNo, previousWeek.weekNo)}
+            </small>
+            <strong>
+              {clubById(previousFixture.homeClub).name} {previousFinal.home} – {previousFinal.away}{' '}
+              {clubById(previousFixture.awayClub).name}
+            </strong>
+            <span>
+              Full time ·{' '}
+              {previousFinal.home === previousFinal.away
+                ? 'Draw'
+                : `${clubById(previousFinal.home > previousFinal.away ? previousFixture.homeClub : previousFixture.awayClub).name} wins`}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="vf-secondary"
+            onClick={() => {
+              setWeekView(null);
+              setTab('results');
+            }}
+          >
+            All results
+          </button>
+        </section>
+      )}
+
+      <p className="vf-scene-note">
+        Premier League club-themed simulation · Original kits and badges · Not real fixtures or
+        player likenesses
+      </p>
 
       <div className="vf-layout">
         <section className="vf-main">
