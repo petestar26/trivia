@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "exportVersion": "original-football-review-head-uv-v1",
+  "authoringScriptSHA256": "7b766b9eb0ef93887f1142ccfd8d49457341784a09f533ee166597bd4ed1dd5c",
+  "sources": [
+    {
+      "asset": "MakeHuman core base.obj",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "sha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/3dobjs/base.obj",
+      "license": "CC0-1.0",
+      "retainedLicenseFile": "LICENSE-CC0.txt",
+      "licenseSHA256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c"
+    },
+    {
+      "asset": "player-head-high.glb",
+      "sha256": "8afedf4d02b1fd60acbec56994b9ca29992ecf30538f67d2f31842b181a4ccfc",
+      "provenance": "player-head-provenance.json",
+      "license": "CC0-1.0 source plus original authored attachments/morphs"
+    }
+  ],
+  "reproduce": "python3 scripts/assets/build-football-review-head.py path/to/pinned/base.obj --check",
+  "uvContract": {
+    "TEXCOORD_0": "Existing authored cylindrical/attachment UV retained exactly",
+    "TEXCOORD_1": "MakeHuman base.obj core UV [u,1-v]; Three uv1; texture.flipY=false",
+    "attachments": "Added fitted eyes, iris, pupils and brows use [0,0] on TEXCOORD_1"
+  },
+  "exports": [
+    {
+      "vertices": 5561,
+      "triangles": 9984,
+      "sourceUVTriangleCornersChecked": 26016,
+      "neutralAndMorphAccessorsCompared": 22,
+      "passes": [
+        "GLB headers, aligned buffer views and accessor bounds",
+        "finite attributes and in-range triangle indices",
+        "all neutral triangle-corner attributes preserved exactly",
+        "all eight POSITION and NORMAL morph triangle-corner deltas preserved exactly",
+        "every anatomical triangle UV matches pinned OBJ with V converted to glTF",
+        "fitted attachments retain original attributes and blank source UV"
+      ],
+      "file": "review-head-high.glb",
+      "sha256": "4da1ae346dadb2f4a4a7f523b11aaca652211132550de0cc6bfb878914364a5f",
+      "bytes": 1468600,
+      "sourceSurfaceVerticesAfterUVSplit": 4561,
+      "addedSeamVertices": 194
+    }
+  ],
+  "runtimeDependencies": [],
+  "textures": [],
+  "limits": [
+    "Review-only high detail alternative; shipped player head LODs remain unchanged.",
+    "No texture, hairstyle, material or runtime loader included in this UV adapter.",
+    "Source head remains unskinned; existing runtime trimming and normalized neck/head binding apply.",
+    "Structural correspondence is not rendered visual or physical-device acceptance."
+  ]
+}

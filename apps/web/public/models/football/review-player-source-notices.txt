@@ -1,0 +1,97 @@
+MakeHuman selected core asset source notices
+
+Official CC0 listing: https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html
+Archive: https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
+ETag: "10bbb7ea-6160e7c0d7996"
+Retained CC0 legal text: LICENSE-CC0.txt
+
+Source: skins/young_caucasian_male/young_caucasian_male.mhmat
+SHA256: 6eda60b07ff2afbde078a2535ef3913593d84e9de92b2eb76c30f396a181fe2e
+# This is a material file for MakeHuman
+#
+# This asset was explicitly released as CC0 in september 2020. The license
+# text for CC0 can be found in the root of this repository.
+#
+# The copyright holders at the point of the release to CC0 were:
+#
+# Copyright (C) 2020 Data Collection AB, https://www.datacollection.se
+# Copyright (C) 2020 Joel Palmius
+# Copyright (C) 2020 Jonas Hauquier
+#
+# The primary legal contact for MakeHuman is Data Collection AB.
+#
+# For more information, see homepage at http://www.makehumancommunity.org
+
+
+Source: hair/short01/short01.mhmat
+SHA256: 01e2e12ce3f3d3c859225456660acadcdd27d4f4b4d888bcbd6f11998cadd975
+# This is a material file for MakeHuman
+#
+# This asset was explicitly released as CC0 in september 2020. The license
+# text for CC0 can be found in the root of this repository.
+#
+# The copyright holders at the point of the release to CC0 were:
+#
+# Copyright (C) 2020 Data Collection AB, https://www.datacollection.se
+# Copyright (C) 2020 Joel Palmius
+# Copyright (C) 2020 Jonas Hauquier
+#
+# The primary legal contact for MakeHuman is Data Collection AB.
+#
+# For more information, see homepage at http://www.makehumancommunity.org
+
+
+Source: hair/short01/short01.mhclo
+SHA256: ae1ffaa98da5753b803b3a173bede4895d2215e6bb94763f3765a71f0e984f35
+# This is a clothes file for MakeHuman
+#
+# This asset was explicitly released as CC0 in september 2020. The license
+# text for CC0 can be found in the root of this repository.
+#
+# The copyright holders at the point of the release to CC0 were:
+#
+# Copyright (C) 2020 Data Collection AB, https://www.datacollection.se
+# Copyright (C) 2020 Joel Palmius
+# Copyright (C) 2020 Jonas Hauquier
+#
+# The primary legal contact for MakeHuman is Data Collection AB.
+#
+# For more information, see homepage at http://www.makehumancommunity.org
+
+
+Source: eyebrows/eyebrow001/eyebrow001.mhmat
+SHA256: 976e5f4f1d3922d7a11c6e2db233f8b4584b068d00619d5749687e81c92d61fc
+# This is a material file for MakeHuman
+#
+# This asset was explicitly released as CC0 in september 2020. The license
+# text for CC0 can be found in the root of this repository.
+#
+# The copyright holders at the point of the release to CC0 were:
+#
+# Copyright (C) 2020 Data Collection AB, https://www.datacollection.se
+# Copyright (C) 2020 Joel Palmius
+# Copyright (C) 2020 Jonas Hauquier
+#
+# The primary legal contact for MakeHuman is Data Collection AB.
+#
+# For more information, see homepage at http://www.makehumancommunity.org
+
+
+Source: eyebrows/eyebrow001/eyebrow001.mhclo
+SHA256: 54c8892c2ba577f4152d779ce1f20f7cd323beb8cbd9cb701796165c221b4f5b
+# This is a clothes file for MakeHuman
+#
+# This asset was explicitly released as CC0 in september 2020. The license
+# text for CC0 can be found in the root of this repository.
+#
+# The copyright holders at the point of the release to CC0 were:
+#
+# Copyright (C) 2020 Data Collection AB, https://www.datacollection.se
+# Copyright (C) 2020 Joel Palmius
+# Copyright (C) 2020 Jonas Hauquier
+#
+# The primary legal contact for MakeHuman is Data Collection AB.
+#
+# For more information, see homepage at http://www.makehumancommunity.org
+
+
