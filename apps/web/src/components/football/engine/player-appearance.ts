@@ -374,27 +374,40 @@ export function attachPlayerHead(
   rig.root.add(hair);
   hair.bind(rig.skeleton, rig.mesh.bindMatrix);
   let detail: PlayerDetail = 'mid';
+  let animationTime = 0,
+    animationKind = 'idle',
+    animationMoving = false;
   function morphs() {
     mesh.updateMorphTargets();
     const names = assets.high.userData.morphNames as Record<string, number> | undefined;
     if (names) mesh.morphTargetDictionary = { ...names };
+    // Detail selection runs after animation in the pool. Three resets the weights
+    // above, so restore this frame's identity/pose before the next render.
+    applyFacialState();
   }
   morphs();
   function set(name: string, value: number) {
     const i = mesh.morphTargetDictionary?.[name];
     if (i !== undefined && mesh.morphTargetInfluences) mesh.morphTargetInfluences[i] = value;
   }
-  function animate(time: number, kind: string, moving: boolean) {
+  function applyFacialState() {
     set('noseWidth', identity.nose);
     set('lipFullness', identity.lips);
     set('earSize', identity.ears);
-    const clock = (((time + (identity.seed % 997) * 0.007) % 4.7) + 4.7) % 4.7;
-    const blink = moving && detail !== 'low' && clock < 0.2 ? Math.sin((clock / 0.2) * Math.PI) : 0;
+    const active = animationMoving && detail !== 'low';
+    const clock = (((animationTime + (identity.seed % 997) * 0.007) % 4.7) + 4.7) % 4.7;
+    const blink = active && clock < 0.2 ? Math.sin((clock / 0.2) * Math.PI) : 0;
     set('blinkLeft', blink);
     set('blinkRight', blink);
-    set('jawOpen', moving && kind === 'run' ? 0.08 : 0);
-    set('browRaise', moving && kind === 'celebrate' ? 0.2 : 0);
-    set('smile', moving && kind === 'celebrate' ? 0.28 : 0);
+    set('jawOpen', active && animationKind === 'run' ? 0.08 : 0);
+    set('browRaise', active && animationKind === 'celebrate' ? 0.2 : 0);
+    set('smile', active && animationKind === 'celebrate' ? 0.28 : 0);
+  }
+  function animate(time: number, kind: string, moving: boolean) {
+    animationTime = time;
+    animationKind = kind;
+    animationMoving = moving;
+    applyFacialState();
   }
   return {
     mesh,
