@@ -15,6 +15,7 @@ import {
   createRig,
   humanGeometry,
   kitFromClub,
+  kitTexture,
   restLocalPosition,
   type HumanGeometry,
   type Look,
@@ -354,7 +355,7 @@ describe('atomic loading and ownership', () => {
   });
 });
 
-async function characterFixture() {
+async function characterFixture(kitMap?: THREE.Texture) {
   await fixture();
   const assets = own(await loadContinuousPlayerAssets());
   const original = await raw('head');
@@ -394,7 +395,7 @@ async function characterFixture() {
     skin: '#a86b45',
     hair: '#201a18',
   };
-  const material = own(new THREE.MeshStandardMaterial()),
+  const material = own(new THREE.MeshStandardMaterial({ map: kitMap ?? null })),
     source = humanGeometry();
   const rig = own(createRig(material, source.geometry));
   const identity = { ...playerIdentity(1, 1), seed: 0, nose: 0.2, lips: 0.15, ears: 0.1 };
@@ -404,6 +405,132 @@ async function characterFixture() {
 }
 
 describe('same-person continuous body/head adapter', () => {
+  it('borrows the original kit atlas without tinting it or replacing authored garment UVs', async () => {
+    const atlas = own(
+      kitTexture(kitFromClub({ primary: '#f2cf12', secondary: '#111111', pattern: 'stripes' }))
+    );
+    const atlasDisposed = vi.spyOn(atlas, 'dispose');
+    const f = await characterFixture(atlas);
+    const jersey = f.body.meshes.jersey;
+    const material = jersey.material as THREE.MeshStandardMaterial;
+    const uv = f.assets.jersey.getAttribute('uv');
+    const before = fingerprint(f.assets.jersey);
+    expect(material.map).toBe(atlas);
+    expect(material.color.getHex()).toBe(0xffffff);
+    expect(material.vertexColors).toBe(false);
+    expect(material.map!.wrapS).toBe(THREE.RepeatWrapping);
+    expect(material.map!.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(jersey.geometry.getAttribute('uv')).toBe(uv);
+    expect(fingerprint(f.assets.jersey)).toBe(before);
+    f.body.dispose();
+    expect(atlasDisposed).not.toHaveBeenCalled();
+    expect(f.material.map).toBe(atlas);
+    expect(fingerprint(f.assets.jersey)).toBe(before);
+  });
+
+  it('projects the diffuse atlas once per fragment and paints white number ink after the real Three map chunk', async () => {
+    const atlas = own(
+      kitTexture(kitFromClub({ primary: '#f2cf12', secondary: '#111111', pattern: 'stripes' }))
+    );
+    const f = await characterFixture(atlas);
+    const shader = {
+      uniforms: {},
+      vertexShader: THREE.ShaderLib.standard.vertexShader,
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+    } as Parameters<THREE.Material['onBeforeCompile']>[0];
+    const material = f.body.meshes.jersey.material as THREE.MeshStandardMaterial;
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    const atlasChunk = THREE.ShaderChunk.map_fragment
+      .replaceAll('vMapUv', 'computedKitUv')
+      .replace(
+        'texture2D( map, computedKitUv )',
+        'textureGrad( map, computedKitUv, kitUvDx, kitUvDy )'
+      );
+    expect(shader.fragmentShader).toContain(atlasChunk);
+    expect(shader.fragmentShader).not.toContain('#include <map_fragment>');
+    expect(shader.fragmentShader.match(/vec2 computedKitUv=/g)).toHaveLength(1);
+    expect(shader.vertexShader).not.toContain('computedKitUv');
+    expect(shader.fragmentShader.indexOf('diffuseColor *= sampledDiffuseColor')).toBeLessThan(
+      shader.fragmentShader.indexOf('vec4 numberInk=')
+    );
+    expect(shader.fragmentShader).toContain('dFdx(vNumberBindPosition)');
+    expect(shader.fragmentShader).toContain('dFdy(vNumberBindPosition)');
+    expect(shader.fragmentShader).not.toContain('dFdx(computedKitUv)');
+    expect(material.customProgramCacheKey()).toBe('playqube-continuous-shirt-atlas-number-v3');
+    const repeat = (u: number) => ((u % 1) + 1) % 1;
+    const projectedU = (x: number, z: number) => repeat(0.75 + Math.atan2(x, z) / (2 * Math.PI));
+    // Builder uses x=cos(theta), z=sin(theta), u=1-theta/(2PI).
+    // This also locks the direction of the original front PQ badge at u=.75.
+    for (const theta of [0, 0.1, 0.5, 1, 1.49, 1.51, 1.9].map((v) => v * Math.PI))
+      expect(projectedU(Math.cos(theta), Math.sin(theta))).toBeCloseTo(
+        repeat(1 - theta / (2 * Math.PI)),
+        12
+      );
+    expect(projectedU(0, 1)).toBe(0.75);
+    // The back angular branch differs by one full texture repeat. Computing it
+    // from position in the fragment avoids interpolating a source UV wrap seam.
+    expect(Math.abs(projectedU(-1e-7, -1) - projectedU(1e-7, -1))).toBeLessThan(1e-7);
+  });
+
+  it('keeps analytic atlas gradients continuous across the back wrap and zero outside the height clamp', () => {
+    type Point = [number, number, number];
+    const uv = ([x, y, z]: Point) => [
+      0.75 + Math.atan2(x, z) / (2 * Math.PI),
+      0.5 + 0.5 * THREE.MathUtils.clamp((y - 0.95) / 0.57, 0.0001, 0.9999),
+    ];
+    const gradient = ([x, y, z]: Point, [dx, dy, dz]: Point) => {
+      const height = (y - 0.95) / 0.57;
+      return [
+        (z * dx - x * dz) / (2 * Math.PI * Math.max(x * x + z * z, 1e-8)),
+        height > 0.0001 && height < 0.9999 ? (0.5 / 0.57) * dy : 0,
+      ];
+    };
+    const difference = (point: Point, delta: Point) => {
+      const epsilon = 1e-3;
+      const a = uv(point.map((v, i) => v - epsilon * delta[i]) as Point);
+      const b = uv(point.map((v, i) => v + epsilon * delta[i]) as Point);
+      const rawU = b[0] - a[0];
+      return [(rawU - Math.round(rawU)) / (2 * epsilon), (b[1] - a[1]) / (2 * epsilon)];
+    };
+    const back: Point = [0, 1.3, -0.08],
+      screenX: Point = [0.001, 0, 0];
+    const rawPixelDelta = uv([0.001, 1.3, -0.08])[0] - uv([-0.001, 1.3, -0.08])[0];
+    expect(Math.abs(rawPixelDelta)).toBeGreaterThan(0.99);
+    expect(Math.abs(gradient(back, screenX)[0])).toBeLessThan(0.0021);
+    const samples: Array<[Point, Point]> = [
+      [back, screenX],
+      [back, [0.0002, 0.001, -0.0001]],
+      [
+        [0.03, 1.23, 0.08],
+        [0.004, 0.003, -0.002],
+      ],
+      [
+        [-0.12, 1.4, -0.04],
+        [-0.002, -0.001, 0.003],
+      ],
+      [
+        [0.03, 0.94, 0.08],
+        [0.001, 0.001, -0.001],
+      ],
+      [
+        [0.03, 1.53, 0.08],
+        [0.001, 0.001, -0.001],
+      ],
+    ];
+    for (const [point, delta] of samples) {
+      const analytic = gradient(point, delta),
+        measured = difference(point, delta);
+      analytic.forEach((value, i) => {
+        expect(Number.isFinite(value)).toBe(true);
+        expect(value).toBeCloseTo(measured[i], 8);
+      });
+    }
+    expect(gradient([0, 0.94, -0.08], [0, 1, 0])[1]).toBe(0);
+    expect(gradient([0, 1.53, -0.08], [0, 1, 0])[1]).toBe(0);
+    expect(gradient([0, 1.235, -0.08], [0, 1, 0])[1]).toBeCloseTo(0.5 / 0.57, 12);
+    expect(gradient([0, 1.3, 0], [1, 1, 1]).every(Number.isFinite)).toBe(true);
+  });
+
   it('paints the borrowed number on the existing skinned shirt and updates the compiled material without new geometry', async () => {
     const f = await characterFixture();
     const garment = f.body.meshes.jersey.geometry;
@@ -412,6 +539,8 @@ describe('same-person continuous body/head adapter', () => {
     const number = own(new THREE.CanvasTexture(document.createElement('canvas')));
     const disposeNumber = vi.spyOn(number, 'dispose');
     const material = f.body.meshes.jersey.material as THREE.MeshStandardMaterial;
+    expect(material.map).toBeNull();
+    expect(material.color.equals(new THREE.Color(f.look.kit.primary))).toBe(true);
     const shader = {
       uniforms: {},
       vertexShader: '#include <common>\n#include <begin_vertex>',

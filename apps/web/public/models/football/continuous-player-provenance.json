@@ -215,7 +215,7 @@
     "coveredSkin": "Original generated render-only mask from1496 original preferred-shirt MHCLO body reference IDs plus one anatomical topology adjacency ring; collar/cuff/hem footprint gates preserve neck opening, bare distal arms and hands. Source MHCLO has no delete_verts. Feet hidden at ankle transition. Complete source GLB remains unchanged.",
     "footwear": "Existing accepted BOOT geometry and short SOCK cuff reused on same production49 rig. Source anatomical feet are hidden; contacts, sole targets and rig dimensions unchanged.",
     "lowerKit": "Shorts and socks are shader material regions on the continuous anatomical surface, not separate tailored garment geometry.",
-    "shirtMaterial": "Original reversible solid kit primary color plus existing fictional number canvas projected in bind space onto the back shirt material. Number follows garment skin deformation; no additional asset imported. Source garment textures remain retained, not used by this material.",
+    "shirtMaterial": "Existing repository-original club kit atlas supplies the club pattern and fictional PQ badge, projected from garment bind position. Existing fictional number canvas is composited afterward on the back shirt material. Original OBJ UVs are retained unchanged; no additional asset imported. Source garment textures remain retained, not used by this material. Atlas is borrowed from the player pool; actor disposal does not dispose the pool-owned texture.",
     "detail": "Existing optional review actor adoption and distant low-detail fallback; no roster-wide character replacement",
     "generatedCoverage": {
       "file": "apps/web/src/components/football/engine/continuous-player-coverage.ts",
@@ -237,6 +237,16 @@
       ],
       "hemFootprintVertices": 36,
       "maskMeaning": "Render-only coverage on pinned exported topology; helper rejects count/checksum mismatch; no source mask inferred."
+    },
+    "shirtAtlasProjection": {
+      "source": "apps/web/src/components/football/engine/rig.ts kitTexture; existing original club kit atlas",
+      "coordinates": "Garment production bind position interpolated over the skinned shirt",
+      "u": "0.75 + atan2(x,z)/(2*pi)",
+      "v": "0.5 + 0.5*clamp((y-0.95)/0.57,0.0001,0.9999)",
+      "filtering": "Analytic angular and clamped-height gradients supplied to native WebGL2 textureGrad avoid a false mip footprint at the angular wrap",
+      "originalOBJUVsModified": false,
+      "numberCompositing": "Existing fictional number canvas is composited after club-atlas sampling",
+      "textureOwnership": "Borrowed; player pool retains ownership and disposal responsibility"
     }
   },
   "outputs": [

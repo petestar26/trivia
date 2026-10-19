@@ -293,8 +293,7 @@ export function attachContinuousPlayer(
   bodyMaterial.customProgramCacheKey = () => 'playqube-continuous-body-v1';
   const shirtMaterial = (kitMaterial as THREE.MeshStandardMaterial).clone();
   shirtMaterial.vertexColors = false;
-  shirtMaterial.map = null;
-  shirtMaterial.color.set(look.kit.primary);
+  shirtMaterial.color.set(shirtMaterial.map ? '#ffffff' : look.kit.primary);
   shirtMaterial.roughness = 0.9;
   shirtMaterial.side = THREE.DoubleSide;
   // Borrow the existing fictional number canvas. Project in the shirt's bind
@@ -319,6 +318,27 @@ export function attachContinuousPlayer(
         '#include <common>\nuniform sampler2D continuousNumberMap; uniform float continuousNumberEnabled; varying vec3 vNumberBindPosition; varying float vNumberBack;'
       )
       .replace(
+        '#include <map_fragment>',
+        // Project only the diffuse atlas in the fragment. The source garment
+        // UVs remain available to its fabric normal/roughness channels, and
+        // angular wrap is never interpolated across a source triangle.
+        'float kitHeight=(vNumberBindPosition.y-0.95)/0.57;\n' +
+          'vec2 computedKitUv=vec2(0.75+atan(vNumberBindPosition.x,vNumberBindPosition.z)/(2.0*PI),0.5+0.5*clamp(kitHeight,0.0001,0.9999));\n' +
+          // Analytic angular gradients avoid treating atan's one-repeat branch
+          // as a huge texture footprint when choosing a mip at the back seam.
+          'vec3 kitPositionDx=dFdx(vNumberBindPosition); vec3 kitPositionDy=dFdy(vNumberBindPosition);\n' +
+          'float kitAngularDenominator=2.0*PI*max(dot(vNumberBindPosition.xz,vNumberBindPosition.xz),1e-8);\n' +
+          'float kitHeightGradient=(kitHeight>0.0001 && kitHeight<0.9999)?0.5/0.57:0.0;\n' +
+          'vec2 kitUvDx=vec2((vNumberBindPosition.z*kitPositionDx.x-vNumberBindPosition.x*kitPositionDx.z)/kitAngularDenominator,kitHeightGradient*kitPositionDx.y);\n' +
+          'vec2 kitUvDy=vec2((vNumberBindPosition.z*kitPositionDy.x-vNumberBindPosition.x*kitPositionDy.z)/kitAngularDenominator,kitHeightGradient*kitPositionDy.y);\n' +
+          THREE.ShaderChunk.map_fragment
+            .replaceAll('vMapUv', 'computedKitUv')
+            .replace(
+              'texture2D( map, computedKitUv )',
+              'textureGrad( map, computedKitUv, kitUvDx, kitUvDy )'
+            )
+      )
+      .replace(
         '#include <color_fragment>',
         '#include <color_fragment>\n' +
           'vec2 numberUv=vec2(0.5-vNumberBindPosition.x/0.3,(vNumberBindPosition.y-1.15)/0.3);\n' +
@@ -326,7 +346,7 @@ export function attachContinuousPlayer(
           'vec4 numberInk=texture2D(continuousNumberMap,numberUv); diffuseColor.rgb=mix(diffuseColor.rgb,numberInk.rgb,numberInk.a);\n}'
       );
   };
-  shirtMaterial.customProgramCacheKey = () => 'playqube-continuous-shirt-number-v1';
+  shirtMaterial.customProgramCacheKey = () => 'playqube-continuous-shirt-atlas-number-v3';
   const make = (g: THREE.BufferGeometry, m: THREE.Material, name: string) => {
     const mesh = new THREE.SkinnedMesh(g, m);
     mesh.name = name;

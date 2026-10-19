@@ -15,7 +15,11 @@ https://files.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip
 
 Original source OBJ/MHCLO, native skeleton/weights and their notices are retained
 in the evidence bundle. Source garment textures/materials are retained there;
-the runtime shirt uses an original reversible solid kit material. Application
+the runtime shirt borrows the existing repository-original club kit atlas for
+its pattern and fictional PQ badge, projected from the garment bind position.
+Original garment OBJ UVs remain unchanged. The existing fictional number canvas
+is composited afterward; no additional asset is imported. The player pool owns
+the shared atlas; the shirt material borrows it without disposing it. Application
 code licensing is separate from these CC0 asset declarations.
 
 Original repository work includes the fixed production49 bind adapter, bounded
