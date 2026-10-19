@@ -388,8 +388,9 @@ describe('optional single review player assets', () => {
     const prepared = dispose.mock.instances.filter(
       (g) => !fixture.resources.some((r) => r.resource === (g as unknown))
     );
-    expect(prepared).toHaveLength(3);
-    expect(new Set(prepared).size).toBe(3);
+    // Legacy neck, continuous neck, hair and brows are independently owned.
+    expect(prepared).toHaveLength(4);
+    expect(new Set(prepared).size).toBe(4);
   });
 
   it('loads real source UV/morph data, discards raw preview assets and releases successful assets exactly once', async () => {

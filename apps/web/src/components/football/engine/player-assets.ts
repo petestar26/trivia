@@ -34,7 +34,10 @@ function meshGeometry(result: PromiseSettledResult<GLTF>) {
 }
 /** Clip the source's clavicle extraction to the under-jaw/neck seam once per
  * shared asset. Interpolate every relative morph as well as the neutral surface. */
-function trimClavicles(source: THREE.BufferGeometry, anatomicalNeck = false) {
+function trimClavicles(
+  source: THREE.BufferGeometry,
+  anatomicalNeck: boolean | 'continuous' = false
+) {
   const attributes = Object.entries(source.attributes),
     morphs = Object.entries(source.morphAttributes);
   const p = source.getAttribute('position'),
@@ -58,6 +61,7 @@ function trimClavicles(source: THREE.BufferGeometry, anatomicalNeck = false) {
   };
   const scalar = (v: V) => {
     const [x, y, z] = v.values.position;
+    if (anatomicalNeck === 'continuous') return y - 1.53;
     if (anatomicalNeck) {
       const width = 0.065 + Math.max(0, y - 1.535) * 4;
       return Math.min(y - 1.485, width - Math.abs(x));
@@ -117,14 +121,17 @@ function trimClavicles(source: THREE.BufferGeometry, anatomicalNeck = false) {
   g.userData = { ...source.userData };
   return g;
 }
-export function headGeometry(result: PromiseSettledResult<GLTF>, anatomicalNeck = false) {
+export function headGeometry(
+  result: PromiseSettledResult<GLTF>,
+  anatomicalNeck: boolean | 'continuous' = false
+) {
   const mesh = meshGeometry(result),
     g = trimClavicles(mesh.geometry, anatomicalNeck),
     p = g.getAttribute('position');
   try {
     if (!p || !g.getAttribute('_part') || (g.morphAttributes.position?.length ?? 0) !== 8)
       throw new Error('Incomplete player head');
-    if (anatomicalNeck) {
+    if (anatomicalNeck === true) {
       // Fit the textured core neck into the review jersey rather than keeping its clavicle apron.
       const fit = (x: number, y: number, z: number) => {
         const t = THREE.MathUtils.smoothstep(y, 1.485, 1.53);

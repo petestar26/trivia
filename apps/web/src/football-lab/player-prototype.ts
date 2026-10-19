@@ -14,6 +14,10 @@ import {
 } from '../components/football/engine/review-player';
 import { attachReviewBody } from '../components/football/engine/review-player-body';
 import {
+  loadContinuousPlayerAssets,
+  attachContinuousPlayer,
+} from '../components/football/engine/continuous-player';
+import {
   sampleReviewMotionScenario,
   applyReviewPlayerMotion,
   poseReviewPlayerHands,
@@ -36,6 +40,7 @@ import {
   type RunPlant,
   KICK,
   DIVE_CONTACT,
+  resetPose,
 } from '../components/football/engine/poses';
 
 const q = new URLSearchParams(location.search),
@@ -71,6 +76,10 @@ ground.position.y = -0.001;
 scene.add(ground);
 const base = await loadPlayerUpgrade();
 const assets = await loadReviewPlayerAssets().catch(() => undefined);
+const continuousAssets =
+  !q.has('baseline') && assets
+    ? await loadContinuousPlayerAssets().catch(() => undefined)
+    : undefined;
 const identity = playerIdentity(Number(q.get('club') ?? 1), Number(q.get('slot') ?? 1));
 const kit = kitFromClub({
   primary: keeper ? '#397477' : '#6b233c',
@@ -99,9 +108,13 @@ const rig = createRig(material, lg.geometry);
 scene.add(rig.root);
 const fallback = headMaterial(skin);
 const head = assets
-  ? attachReviewHead(rig, base.heads!, identity, fallback, assets, skin)
+  ? attachReviewHead(rig, base.heads!, identity, fallback, assets, skin, !!continuousAssets)
   : attachPlayerHead(rig, base.heads!, identity, fallback);
-const body = assets ? attachReviewBody(rig, base, look, material) : undefined;
+const body = assets
+  ? continuousAssets
+    ? attachContinuousPlayer(rig, base, look, material, continuousAssets, assets, skin, head)
+    : attachReviewBody(rig, base, look, material)
+  : undefined;
 head.setDetail('high');
 body?.setDetail('high');
 const boots = attachBootDetails(rig);
@@ -165,6 +178,23 @@ function draw(t = 0, exportFrame = false) {
   poseFingers(rig, s.motion.kind, !reduced);
   if (assets) poseReviewPlayerHands(rig, s.motion.kind, !reduced, s.phase);
   head.animate(t, s.motion.kind, !reduced);
+  const proofPose = q.get('pose');
+  if (proofPose) {
+    resetPose(rig);
+    if (proofPose === 'shoulders') {
+      rig.bones.upperArmL.rotation.z = Math.PI / 2;
+      rig.bones.upperArmR.rotation.z = -Math.PI / 2;
+    } else if (proofPose === 'elbows') {
+      rig.bones.foreArmL.rotation.x = rig.bones.foreArmR.rotation.x = (-Math.PI * 2) / 3;
+    } else if (proofPose === 'knees') {
+      rig.bones.hips.position.y -= (0.43 + 0.42) * (1 - Math.cos(Math.PI / 3));
+      rig.bones.upperLegL.rotation.x = rig.bones.upperLegR.rotation.x = -Math.PI / 3;
+      rig.bones.lowerLegL.rotation.x = rig.bones.lowerLegR.rotation.x = (Math.PI * 2) / 3;
+      rig.bones.footL.rotation.x = rig.bones.footR.rotation.x = -Math.PI / 3;
+    }
+    head.animate(0, 'idle', false);
+  }
+  if (body && 'syncFace' in body) body.syncFace();
   rig.root.updateMatrixWorld(true);
   const position = rig.root.position;
   if (close) {
@@ -175,13 +205,18 @@ function draw(t = 0, exportFrame = false) {
     );
     camera.lookAt(position.x, 1.67, position.z + 0.015);
   } else {
-    camera.position.set(position.x + 2.1, 1.6, position.z + 3.8);
+    const view = q.get('view');
+    camera.position.set(
+      position.x + (view === 'front' || view === 'back' ? 0 : view === 'side' ? 4.2 : 2.1),
+      1.2,
+      position.z + (view === 'back' ? -4.2 : view === 'side' ? 0 : view === 'front' ? 4.2 : 3.8)
+    );
     camera.lookAt(position.x, 0.92, position.z);
   }
   renderer.render(scene, camera);
   const caption = document.querySelector('#caption');
   if (caption)
-    caption.textContent = `Simulated character diagnostic · ${identity.name} · ${keeper ? 'goalkeeper kit' : 'outfield kit'} · ${reduced ? 'reduced motion' : s.label} · ${assets ? 'review assets' : 'PR59 fallback'}`;
+    caption.textContent = `Simulated character diagnostic · ${identity.name} · ${proofPose ? `${proofPose} deformation proof` : reduced ? 'reduced motion' : s.label} · ${continuousAssets ? 'continuous body / MHCLO shirt' : assets ? 'reviewed baseline' : 'PR59 fallback'}`;
   return {
     t,
     scenario,
@@ -189,6 +224,7 @@ function draw(t = 0, exportFrame = false) {
     sample: s,
     identity,
     reviewAssets: !!assets,
+    continuousAssets: !!continuousAssets,
     keeper,
     reduced,
     camera: { position: camera.position.toArray(), quaternion: camera.quaternion.toArray() },
@@ -201,6 +237,7 @@ function draw(t = 0, exportFrame = false) {
   draw,
   rig,
   head,
+  body,
   camera,
   scene,
   renderer,
@@ -219,6 +256,7 @@ function draw(t = 0, exportFrame = false) {
     skin.dispose();
     fabric.dispose();
     assets?.dispose();
+    continuousAssets?.dispose();
     base.geometry.dispose();
     for (const g of Object.values(base.heads ?? {})) g.dispose();
     for (const b of Object.values(base.bodyLods ?? {})) b.geometry.dispose();

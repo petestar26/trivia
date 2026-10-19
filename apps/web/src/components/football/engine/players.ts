@@ -20,6 +20,11 @@ import {
 } from './review-player';
 import { applyReviewPlayerMotion, poseReviewPlayerHands } from './review-player-motion';
 import { attachReviewBody } from './review-player-body';
+import {
+  loadContinuousPlayerAssets,
+  attachContinuousPlayer,
+  type ContinuousPlayerAssets,
+} from './continuous-player';
 import { matchKits, clubById } from '@/lib/football/clubs';
 import * as THREE from 'three';
 import { keeperColour, type ClubKit } from '@socialplay/shared';
@@ -151,6 +156,9 @@ export function createPlayerPool(): PlayerPool {
   let reviewAssets: ReviewPlayerAssets | undefined;
   let reviewLoadStarted = false;
   let reviewBody: ReturnType<typeof attachReviewBody> | undefined;
+  let continuousAssets: ContinuousPlayerAssets | undefined;
+  let continuousLoadStarted = false;
+  let continuousPlayer: ReturnType<typeof attachContinuousPlayer> | undefined;
   let skinMaps: ReturnType<typeof appearanceTextures> | undefined;
   let fabricMaps: ReturnType<typeof appearanceTextures> | undefined;
   let sharedHeadMaterial: THREE.Material | undefined;
@@ -184,6 +192,21 @@ export function createPlayerPool(): PlayerPool {
           /* Keep the complete PR59 character if any review asset fails. */
         });
     }
+    if (upgrade && base.heads && !continuousLoadStarted) {
+      continuousLoadStarted = true;
+      void loadContinuousPlayerAssets()
+        .then((assets) => {
+          if (disposed) {
+            assets.dispose();
+            return;
+          }
+          continuousAssets = assets;
+          if (teams && reviewAssets) setTeams(...teams);
+        })
+        .catch(() => {
+          /* The complete reviewed player remains the fallback. */
+        });
+    }
     if (teams) setTeams(...teams);
     if (previous && previous !== base) disposePlayerGeometry(previous);
   }
@@ -201,6 +224,8 @@ export function createPlayerPool(): PlayerPool {
   function setTeams(homeClub: number, awayClub: number) {
     if (disposed) return;
     teams = [homeClub, awayClub];
+    continuousPlayer?.dispose();
+    continuousPlayer = undefined;
     reviewBody?.dispose();
     reviewBody = undefined;
     for (const head of heads) head?.dispose();
@@ -302,7 +327,8 @@ export function createPlayerPool(): PlayerPool {
                 identity,
                 sharedHeadMaterial,
                 reviewAssets,
-                skinMaps
+                skinMaps,
+                !!continuousAssets
               )
             : attachPlayerHead(rig, anatomical.heads, identity, sharedHeadMaterial);
         heads[i]!.setDetail(details[i]);
@@ -315,8 +341,23 @@ export function createPlayerPool(): PlayerPool {
         const reviewMaterial = own(materialFor(kit).clone());
         reviewMaterial.side = THREE.DoubleSide;
         rig.mesh.material = reviewMaterial;
-        reviewBody = attachReviewBody(rig, anatomical, look, reviewMaterial);
-        reviewBody.setDetail(details[i]);
+        if (continuousAssets && skinMaps && heads[i]) {
+          continuousPlayer = attachContinuousPlayer(
+            rig,
+            anatomical,
+            look,
+            reviewMaterial,
+            continuousAssets,
+            reviewAssets,
+            skinMaps,
+            heads[i]!
+          );
+          continuousPlayer.setDetail(details[i]);
+        } else {
+          reviewBody = attachReviewBody(rig, anatomical, look, reviewMaterial);
+          reviewBody.setDetail(details[i]);
+        }
+        rig.root.userData.continuousPlayer = !!continuousPlayer;
       }
       plates[i]?.removeFromParent();
       plates[i] = null;
@@ -334,6 +375,10 @@ export function createPlayerPool(): PlayerPool {
         plate.position.set(0, 0.03, -0.128);
         plate.rotation.y = Math.PI;
         rig.bones.chest.add(plate);
+        if (i === REVIEW_PLAYER_SLOT && continuousPlayer) {
+          continuousPlayer.setNumberTexture(pm.map!);
+          plate.visible = details[i] === 'low';
+        }
         plates[i] = plate;
       }
       // Slight height variation; referee is a touch older/smaller.
@@ -407,6 +452,7 @@ export function createPlayerPool(): PlayerPool {
         poseFingers(rig, kind, false);
         if (i === REVIEW_PLAYER_SLOT && reviewAssets) poseReviewPlayerHands(rig, kind, false);
         heads[i]?.animate(0, kind, false);
+        if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.syncFace();
         continue;
       }
       if (kind !== st.kind) {
@@ -498,6 +544,7 @@ export function createPlayerPool(): PlayerPool {
         rig.bones[name].quaternion.copy(st.fingerFrom[joint]).slerp(fingerTarget, fingerWeight);
       });
       heads[i]?.animate(time, kind, true);
+      if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.syncFace();
     }
   }
 
@@ -545,6 +592,9 @@ export function createPlayerPool(): PlayerPool {
       heads[i]?.setDetail(next);
       boots[i]?.setDetail(next);
       if (i === REVIEW_PLAYER_SLOT) reviewBody?.setDetail(next);
+      if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.setDetail(next);
+      if (i === REVIEW_PLAYER_SLOT && continuousPlayer && plates[i])
+        plates[i]!.visible = next === 'low';
     }
   }
 
@@ -557,6 +607,7 @@ export function createPlayerPool(): PlayerPool {
     dispose() {
       if (disposed) return;
       disposed = true;
+      continuousPlayer?.dispose();
       reviewBody?.dispose();
       for (const head of heads) head?.dispose();
       for (const boot of boots) boot?.dispose();
@@ -566,6 +617,7 @@ export function createPlayerPool(): PlayerPool {
       firstLook.dispose();
       if (anatomical) disposePlayerGeometry(anatomical);
       reviewAssets?.dispose();
+      continuousAssets?.dispose();
       sharedHeadMaterial?.dispose();
       skinMaps?.dispose();
       fabricMaps?.dispose();

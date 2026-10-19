@@ -15,6 +15,7 @@ import {
 export const REVIEW_PLAYER_SLOT = 1;
 export interface ReviewPlayerAssets {
   head: THREE.BufferGeometry;
+  continuousHead?: THREE.BufferGeometry;
   hair: THREE.BufferGeometry;
   brows: THREE.BufferGeometry;
   skin: THREE.Texture;
@@ -183,6 +184,9 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     const head = headGeometry(results[0] as PromiseFulfilledResult<GLTF>, true);
     prepared.push(head);
     validateReviewHead(head);
+    const continuousHead = headGeometry(results[0] as PromiseFulfilledResult<GLTF>, 'continuous');
+    prepared.push(continuousHead);
+    validateReviewHead(continuousHead);
     const gltf = (results[1] as PromiseFulfilledResult<GLTF>).value;
     const find = (name: string) => {
       const mesh = gltf.scene.getObjectByName(name);
@@ -210,6 +214,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     let disposed = false;
     return {
       head,
+      continuousHead,
       hair,
       brows,
       skin,
@@ -231,7 +236,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     throw error;
   }
 }
-function reviewSkinMaterial(
+export function reviewSkinMaterial(
   assets: ReviewPlayerAssets,
   maps: ReturnType<typeof appearanceTextures>
 ) {
@@ -284,12 +289,17 @@ export function attachReviewHead(
   identity: PlayerIdentity,
   fallbackMaterial: THREE.Material,
   assets: ReviewPlayerAssets,
-  maps: ReturnType<typeof appearanceTextures>
+  maps: ReturnType<typeof appearanceTextures>,
+  continuous = false
 ): HeadVisual {
   const material = reviewSkinMaterial(assets, maps);
   const visual = attachPlayerHead(
     rig,
-    { high: assets.head, mid: assets.head, low: base.low },
+    {
+      high: continuous && assets.continuousHead ? assets.continuousHead : assets.head,
+      mid: continuous && assets.continuousHead ? assets.continuousHead : assets.head,
+      low: base.low,
+    },
     identity,
     material
   );
