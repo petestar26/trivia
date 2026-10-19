@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "exportVersion": "original-football-continuous-player-binding-v1",
+  "capturedDate": "2026-10-20",
+  "stage": "Implemented single review actor continuous anatomical body and preferred MHCLO shirt binding; artist refinement and broader acceptance remain pending",
+  "scope": {
+    "reviewActor": "Existing PR59 home review actor, formation slot1/shirt2",
+    "runtimeDocument": "docs/games/virtual-football-continuous-player-binding.md",
+    "fixedContactRig": true,
+    "serverOutcomeOrTimingChanges": false
+  },
+  "sources": [
+    {
+      "file": "packet/sources/makehuman-core-base.obj",
+      "bytes": 1749303,
+      "sha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+      "asset": "MakeHuman core makehuman-core-base.obj",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/3dobjs/base.obj",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "source-foundation/default.mhskel",
+      "bytes": 117790,
+      "sha256": "99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24",
+      "asset": "MakeHuman core default.mhskel",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default.mhskel",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "source-foundation/default_weights.mhw",
+      "bytes": 897521,
+      "sha256": "0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625",
+      "asset": "MakeHuman core default_weights.mhw",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default_weights.mhw",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "packet/sources/MakeHuman-LICENSE.ASSETS.md",
+      "bytes": 6962,
+      "sha256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
+      "asset": "MakeHuman core MakeHuman-LICENSE.ASSETS.md",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.ASSETS.md",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "packet/sources/clothes/toigo_basic_tucked_t-shirt/t_shirt_basic_tucked.obj",
+      "bytes": 109974,
+      "sha256": "22159cf14d1f6831f931b49625f8f7692910bac22499c43466c0b5a2159b4d03",
+      "asset": "Preferred tucked shirt t_shirt_basic_tucked.obj",
+      "license": "CC0-1.0",
+      "authors": {
+        "listing": "MargaretToigo",
+        "embedded": "MRT"
+      },
+      "sourceListing": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+      "archiveEntry": "clothes/toigo_basic_tucked_t-shirt/t_shirt_basic_tucked.obj"
+    },
+    {
+      "file": "packet/sources/clothes/toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo",
+      "bytes": 94278,
+      "sha256": "c34bd03895c5ad9ec46965ef7d5f3e5e8c567630797ab312f8762c1d9fde8f71",
+      "asset": "Preferred tucked shirt toigo_basic_tucked_t-shirt.mhclo",
+      "license": "CC0-1.0",
+      "authors": {
+        "listing": "MargaretToigo",
+        "embedded": "MRT"
+      },
+      "sourceListing": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+      "archiveEntry": "clothes/toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo"
+    },
+    {
+      "file": "review-head-high.glb",
+      "bytes": 1468600,
+      "sha256": "4da1ae346dadb2f4a4a7f523b11aaca652211132550de0cc6bfb878914364a5f",
+      "asset": "Accepted anatomical review head and original attachments/morphs",
+      "provenance": "review-head-provenance.json",
+      "license": "CC0-1.0 anatomical source; original repository additions retain existing provenance"
+    }
+  ],
+  "shirtArchive": {
+    "url": "https://files.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip",
+    "bytes": 24479483,
+    "sha256": "a5a723b0e84a109bb190fcfeac7f1de4138d875da3e30fe5b3340eac9f38bcd3",
+    "completeArchiveDownloadedAndHashed": true,
+    "verification": "Archive hash retained from supplied packet SOURCES.json; consumed OBJ/MHCLO bytes rehashed for this manifest",
+    "runtimeArchiveImported": false
+  },
+  "packetManifest": {
+    "file": "packet/SOURCES.json",
+    "bytes": 3628,
+    "sha256": "4c388701fdbc35ebc60b765a5675e1411f789f109e3ca479214198de85a7c719"
+  },
+  "retainedLicense": {
+    "file": "LICENSE-CC0.txt",
+    "bytes": 6962,
+    "sha256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c"
+  },
+  "exporters": [
+    {
+      "file": "scripts/assets/build-football-continuous-body.py",
+      "bytes": 29136,
+      "sha256": "00724e2c0bf56f4e1b2b1935a9f5a55328dfc0880726d13b6f87fdd6937358cf"
+    },
+    {
+      "file": "scripts/assets/build-football-continuous-garment.py",
+      "bytes": 21549,
+      "sha256": "7a794b545a7f336e133dc0ba07d8355a5b906c7dc328bef37ddca1e816ddd570"
+    },
+    {
+      "file": "scripts/assets/build-football-review-head.py",
+      "bytes": 15698,
+      "sha256": "7b766b9eb0ef93887f1142ccfd8d49457341784a09f533ee166597bd4ed1dd5c"
+    },
+    {
+      "file": "scripts/assets/build-football-continuous-coverage.py",
+      "bytes": 8158,
+      "sha256": "9ca472d1980c09dbabf4dfc1df4c3add93732b5d681829a21c5a0787b888f6d6"
+    }
+  ],
+  "versions": {
+    "python": "3.9.6; standard library only",
+    "gltf": "2.0",
+    "nativeRigFormatVersion": 110,
+    "nativeWeightsFormatVersion": 110,
+    "sourceMakeClothesVersion": "Not specified in retained OBJ/MHCLO headers",
+    "blender": "No Blender project/exporter used for this milestone"
+  },
+  "contract": {
+    "file": "docs/games/virtual-football-continuous-player-contract.json",
+    "bytes": 16276,
+    "sha256": "699fee1903505dbdba1a0e977fcbd574543da7b6f12617c4e389eedde1f69cb8"
+  },
+  "bodyBinding": {
+    "artifact": "continuous-body-bind.json",
+    "sha256": "6ff0026b485230a2fc20f3e86827ec896f043a36312e7b682681c4f8cd72fc0b",
+    "bytes": 7339382,
+    "originalVertexIds": 19158,
+    "anatomicalSurfaceVertices": 13380,
+    "anatomicalSourceTriangles": 26756,
+    "nativeBones": 163,
+    "nativeWeightedBoneGroups": 139,
+    "productionJoints": 49,
+    "retarget": "Resolve original helper-vertex joint centers; weighted native-to-production segment affine maps with endpoint/length alignment, arms down, leg desplay, palm frame and individual finger mapping; fixed translation-only production rest and inverse binds",
+    "weights": "Normalize native weights; consolidate deliberate native-to49 mapping; stable greatest4 cap; normalize again. Full normalized49 influence lists retained before cap for MHCLO transfer.",
+    "capAudit": {
+      "cappedAnatomicalVertices": 2,
+      "maximumDiscardedAnatomicalWeight": 0.008000000000000007,
+      "meanDiscardedAnatomicalWeight": 1.1958146487296471e-06
+    },
+    "editableData": "Original source IDs, native positions, production bind positions, per-source offset transforms, full49 and capped4 weights, native bone mapping/transforms, anatomical triangles and UV corners are retained in the evidence bundle.",
+    "originalAthleticReshape": {
+      "chestYMetres": [
+        1.12,
+        1.47
+      ],
+      "frontZMetres": [
+        0.07,
+        0.15
+      ],
+      "maximumAnteriorCompressionOfZMinus07": 0.6,
+      "waistYMetres": [
+        0.96,
+        1.25
+      ],
+      "maximumWaistWidthExpansion": 0.15,
+      "trunkInfluenceWeighted": true,
+      "neckJoinAndContactRigUnchanged": true,
+      "garmentOffsetTransform": "Numeric production-space reshape derivative composed with native retarget3x3; source correspondence weights frozen"
+    }
+  },
+  "shirtBinding": {
+    "selectedSource": "toigo_basic_tucked_t-shirt",
+    "sourceVertices": 1391,
+    "mhcloTriples": 1391,
+    "sourceUVs": 1644,
+    "sourcePolygons": 1350,
+    "exportVertices": 1644,
+    "triangles": 2700,
+    "positionRecipe": "sum(coeff_i * (bodyBindPosition_i + bodyNativeToProductionDerivative_i * axisScaledMHCLOOffset))",
+    "weightRecipe": "sum(coeff_i * fullNormalized49BodyWeights_i), merge joint IDs, clamp negative merged influence, normalize, stable greatest4 cap, normalize",
+    "negativeCoefficientRows": 43,
+    "negativeMergedWeightVerticesClamped": 2,
+    "maximumDiscardedNormalizedWeight": 0.00041487487487479324,
+    "UV": "Retain original OBJ polygon corners/UV seams; glTF V=1-OBJ_V",
+    "staticPreviewConversionUsed": false,
+    "sourceBodyHideMask": {
+      "deleteVertsPresent": false,
+      "runtimeMaskIsOriginal": true
+    }
+  },
+  "headJoin": {
+    "planeYMetres": 1.53,
+    "sourceTransform": "[.12*x,1.50+(y-5.89)*.12,.12*(z-.161)]",
+    "sourceExactFromNativeY": 5.68,
+    "skinFormula": "head=clamp((worldY-1.49)/.11,0,1); neck=1-head",
+    "morphNames": [
+      "blinkLeft",
+      "blinkRight",
+      "jawOpen",
+      "browRaise",
+      "smile",
+      "noseWidth",
+      "lipFullness",
+      "earSize"
+    ],
+    "recipe": "Copy accepted review-head positions, normals and all8 relative POSITION/NORMAL morph deltas by original source IDs before shared plane interpolation. Continue lower-neck jaw response with smooth fade; runtime mirrors head morph influences to body.",
+    "acceptedFaceAbovePlane": "Positions, normals, UVs, morph deltas and attachments preserved above1.53; original head GLB remains unchanged."
+  },
+  "runtimeAdaptation": {
+    "source": "apps/web/src/components/football/engine/continuous-player.ts",
+    "coveredSkin": "Original generated render-only mask from1496 original preferred-shirt MHCLO body reference IDs plus one anatomical topology adjacency ring; collar/cuff/hem footprint gates preserve neck opening, bare distal arms and hands. Source MHCLO has no delete_verts. Feet hidden at ankle transition. Complete source GLB remains unchanged.",
+    "footwear": "Existing accepted BOOT geometry and short SOCK cuff reused on same production49 rig. Source anatomical feet are hidden; contacts, sole targets and rig dimensions unchanged.",
+    "lowerKit": "Shorts and socks are shader material regions on the continuous anatomical surface, not separate tailored garment geometry.",
+    "shirtMaterial": "Original reversible solid kit primary color plus existing fictional number canvas projected in bind space onto the back shirt material. Number follows garment skin deformation; no additional asset imported. Source garment textures remain retained, not used by this material.",
+    "detail": "Existing optional review actor adoption and distant low-detail fallback; no roster-wide character replacement",
+    "generatedCoverage": {
+      "file": "apps/web/src/components/football/engine/continuous-player-coverage.ts",
+      "bytes": 3202,
+      "sha256": "d761cdf8c298c388687a9ca9680e71c219c06b8d2468ed883847801def2e6fe1",
+      "bodySHA256": "828350611f3f26761f8394ffd929ed1148aebd4526e4c4ccb1ebe0393a9cf957",
+      "vertices": 10212,
+      "indices": 55320,
+      "positionIndexFNVChecksum": 3419636755,
+      "coveredExportVertices": 1654,
+      "protectedSeamVertices": 87,
+      "coveredArmVerticesBelowCuff": 0,
+      "sourceReferenceIds": 1496,
+      "referencesPlusOneRing": 1798,
+      "collarFootprintVertices": 26,
+      "cuffFootprintVertices": [
+        12,
+        12
+      ],
+      "hemFootprintVertices": 36,
+      "maskMeaning": "Render-only coverage on pinned exported topology; helper rejects count/checksum mismatch; no source mask inferred."
+    }
+  },
+  "outputs": [
+    {
+      "file": "continuous-body.glb",
+      "bytes": 2736232,
+      "sha256": "828350611f3f26761f8394ffd929ed1148aebd4526e4c4ccb1ebe0393a9cf957",
+      "vertices": 10212,
+      "triangles": 18440,
+      "joints": 49,
+      "morphTargets": 8
+    },
+    {
+      "file": "continuous-jersey.glb",
+      "bytes": 133196,
+      "sha256": "056179d9e81177381bdd8ec5b8b9b61e46eb61e604182de0ffa0ea07a146f3dd",
+      "vertices": 1644,
+      "triangles": 2700,
+      "joints": 49,
+      "maxInfluences": 4
+    }
+  ],
+  "verification": {
+    "bodyRegenerateAndCheck": "PASS; body exporter --glb --check",
+    "seam": "PASS;87 boundary vertices,8 position/normal morphs,49 exact rest joints,48 posed scale/jaw stress samples (including inward shoulder rotations, not outward abduction acceptance); max posed seam gap7.769552235966582e-8m",
+    "garmentTransfer": "PASS;1391 original MHCLO rows,8100 original topology corners; zero independent position/weight/UV transfer error",
+    "scope": "CPU structure/transfer/seam evidence; rendered clips and physical-device acceptance are distinct. Evidence bundle includes raw reports.",
+    "coverage": "PASS; deterministic coverage regeneration/check and2 CPU regressions preserve all87seamvertices, hands and bare arms below source sleeve footprint; altered position/index/count rejected. Continuous-player/pool/coverage focused suite36tests passed. Render proof acceptance remains separate.",
+    "coverageRayProbes": "Sparse CPU ray probes identify the inward-pose stripe as exposed opposing forearm occlusion. Correct outward L+90/R-90 pose has no visible body hit at12 queried shoulder pixels with shirt hits present;9 queried neutral-back pixels likewise have shirt hits and no body hits. Sparse probes do not certify complete collision clearance.",
+    "outwardRenderedView": "Corrected outward L+90/R-90 browser diagnostic front/close views show continuous skin-to-cuff coverage without an observed hole or body poke in those sampled cameras. Angular outer-shoulder and underarm cloth folds remain; no global collision clearance inferred."
+  },
+  "reproduce": {
+    "instructions": "docs/games/virtual-football-continuous-player-binding.md",
+    "inputs": "Supplied editable packet source OBJ/MHCLO plus pinned source-foundation rig/weights and retained accepted head/contract; no network, purchase, or proprietary motion input",
+    "nativeRigSourceDirectory": "source-foundation",
+    "packetDirectory": "PlayQube_Football_Garment_Fit_Packet_20261020",
+    "coverageInputs": "continuous-body-bind.json, continuous-body-glb-report.json and continuous-jersey.mapping.json generated by preceding commands; retained original source IDs and MHCLO triples, pinned public body GLB"
+  },
+  "limits": [
+    "No editable .blend project or non-destructive artist rig/corrective setup delivered; original editable OBJ, MHCLO, native rig/weights and mapping JSON are retained instead.",
+    "No new mocap, complete football motion package, tailored shorts/socks, original boot model or goalkeeper glove/long-sleeve garment delivered.",
+    "Eight inner-elbow triangles fall below5% neutral area in the120-degree stress probe; this metric requires visual assessment and does not establish failure in natural bends.",
+    "Extreme neck yaw stretches the shirt collar; collar/hem thickness, tailoring and pose correctives remain artist work.",
+    "Unmasked full-body closest-triangle diagnostics include negative oriented gaps; these are clipping flags, not a collision certificate. Runtime coverage masks intentionally covered anatomy.",
+    "Corrected outward shoulder front/close samples show a sharp outer-shoulder sleeve peak and underarm crease; cloth tailoring/correctives remain pending despite no observed hole/body poke in those sampled views.",
+    "No console-quality realism, physical-device acceptance, live deployment or full-action collision clearance claimed."
+  ],
+  "inheritedReviewAssets": {
+    "provenance": "review-player-provenance.json",
+    "license": "CC0-1.0 per retained review-player source notices; unchanged accepted assets",
+    "files": [
+      {
+        "file": "review-player-hair.glb",
+        "bytes": 131956,
+        "sha256": "c7c72da98f9c06dbfe679a0c52a8090ad9b67076b7bb1aae45d7e86367bce178"
+      },
+      {
+        "file": "review-skin-basecolor.webp",
+        "bytes": 541954,
+        "sha256": "7628814980308b9525b27f09f98a099a0144d1a29e67bc6377702b4605678c04"
+      },
+      {
+        "file": "review-hair.webp",
+        "bytes": 596164,
+        "sha256": "392c211067c0a1c26bd279cbb405159ae0cbf5ee94271fd00aa3db8442fbfb4d"
+      },
+      {
+        "file": "review-brows.webp",
+        "bytes": 61814,
+        "sha256": "25ba8445a6e362cbcad8fd83fb2a45c8ae06b29cb83313abf87d22b5aeba5db6"
+      },
+      {
+        "file": "review-player-source-notices.txt",
+        "bytes": 3583,
+        "sha256": "538aa363909728d966d57f9b48b422d34657311fb75e0fa551b4d4edc30b13a6"
+      }
+    ],
+    "footwearProvenance": "player-body-provenance.json and original rig.ts geometry; no new boot source imported"
+  }
+}

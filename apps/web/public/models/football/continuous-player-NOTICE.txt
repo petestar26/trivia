@@ -1,0 +1,44 @@
+Continuous Football review player binding milestone, 2026-10-20
+
+continuous-body.glb derives from MakeHuman core base.obj and its native default
+rig/weights at commit a8bc2d54ff0ac92e78ff71431b1023eda42bf482. The native JSON
+files declare CC0; the core asset grant is retained as LICENSE-CC0.txt.
+Native skeleton notice: (c) 2020 Data Collection AB, Joel Palmius, Jonas Hauquier.
+Native weight notice: (c) 2021 Data Collection AB, Joel Palmius, Jonas Hauquier.
+https://github.com/makehumancommunity/makehuman/tree/a8bc2d54ff0ac92e78ff71431b1023eda42bf482
+
+continuous-jersey.glb derives from toigo_basic_tucked_t-shirt in the official
+MakeHuman shirts01 CC0 pack. Listing author: MargaretToigo. Embedded OBJ/MHCLO
+author: MRT. Both retained geometry/fitting headers declare license CC0.
+https://static.makehumancommunity.org/assets/assetpacks/shirts01.html
+https://files.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip
+
+Original source OBJ/MHCLO, native skeleton/weights and their notices are retained
+in the evidence bundle. Source garment textures/materials are retained there;
+the runtime shirt uses an original reversible solid kit material. Application
+code licensing is separate from these CC0 asset declarations.
+
+Original repository work includes the fixed production49 bind adapter, bounded
+athletic torso adjustment, source-correspondence garment transfer and offset
+transforms, generated render coverage mask and shared expression seam. The
+coverage mask derives from original MHCLO body references and anatomical
+adjacency, with original collar/cuff/hem footprints preserving openings. Its
+position/index checksum guards the pinned body topology; all 87 seam vertices
+remain visible. The existing fictional number canvas is projected onto the
+skinned back-shirt material without adding an asset. Accepted
+review-head attachments/morphs retain review-head-provenance.json. Unchanged
+review skin, hair and brows retain review-player-provenance.json and
+review-player-source-notices.txt. Existing
+accepted footwear/cuff geometry and contact targets are reused unchanged.
+
+Shorts/socks are material regions; this milestone supplies no new tailored lower
+kit, boot model, goalkeeper garment/gloves, mocap or complete football motion
+package. Original editable sources and maps are supplied; no .blend project is
+claimed. Pose correction, collar refinement, angular outward-shoulder/underarm cloth
+fold refinement and physical-device acceptance remain pending. Corrected
+outward shoulder samples show no hole/body poke in their sampled cameras;
+no global garment collision clearance is claimed. CPU transfer/seam diagnostics are not a collision certificate.
+
+Exact consumed-source/output/exporter hashes, versions and reproduction details:
+continuous-player-provenance.json
+docs/games/virtual-football-continuous-player-binding.md
