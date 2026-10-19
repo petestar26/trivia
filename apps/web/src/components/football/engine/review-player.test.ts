@@ -427,6 +427,42 @@ describe('optional single review player assets', () => {
     expectReleased(fixture.resources);
   });
 
+  it('releases regular and continuous shared procedural hair caches once through the asset owner', async () => {
+    localAssets();
+    const assets = own(await real.loadReviewPlayerAssets()),
+      base = await baseHeads();
+    const material = own(new THREE.MeshBasicMaterial());
+    const maps = {
+      normal: own(new THREE.CanvasTexture(document.createElement('canvas'))),
+      roughness: own(new THREE.CanvasTexture(document.createElement('canvas'))),
+      dispose() {},
+    };
+    const identity = { ...playerIdentity(1, 1), seed: 0 };
+    const visuals = [false, true].map((continuous) => {
+      const rig = own(createRig(material, humanGeometry().geometry));
+      return real.attachReviewHead(rig, base, identity, material, assets, maps, continuous);
+    });
+    let disposed = false;
+    cleanups.push(() => {
+      if (!disposed) visuals.forEach((visual) => visual.dispose());
+    });
+    const cached = new Set<THREE.BufferGeometry>();
+    for (const visual of visuals)
+      for (const detail of ['high', 'mid'] as const) {
+        visual.setDetail(detail);
+        cached.add(visual.hair.geometry);
+      }
+    expect(cached.size).toBe(4);
+    const released = [...cached].map((g) => vi.spyOn(g, 'dispose'));
+    visuals.forEach((visual) => visual.dispose());
+    disposed = true;
+    // Instance disposal retains shared caches; the loaded asset set owns them.
+    released.forEach((dispose) => expect(dispose).not.toHaveBeenCalled());
+    assets.dispose();
+    assets.dispose();
+    released.forEach((dispose) => expect(dispose).toHaveBeenCalledOnce());
+  });
+
   it('preserves live/reduced facial state and borrowed surfaces/maps across all review LOD transitions', async () => {
     localAssets();
     const assets = own(await real.loadReviewPlayerAssets()),

@@ -224,7 +224,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
       dispose() {
         if (disposed) return;
         disposed = true;
-        disposeHairAssets({ high: head, mid: head, low: head });
+        disposeHairAssets({ high: head, mid: continuousHead, low: head });
         prepared.forEach((g) => g.dispose());
         textures.forEach((t) => t.dispose());
         environment.dispose();
