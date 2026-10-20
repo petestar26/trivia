@@ -421,7 +421,12 @@ describe('same-person continuous body/head adapter', () => {
     expect(material.map!.wrapS).toBe(THREE.RepeatWrapping);
     expect(material.map!.colorSpace).toBe(THREE.SRGBColorSpace);
     expect(jersey.geometry.getAttribute('uv')).not.toBe(uv);
-    expect(Array.from(jersey.geometry.getAttribute('uv').array)).toEqual(Array.from(uv.array));
+    // Original authored UV corners remain byte-for-byte. Tailored boundary
+    // midpoints/cloth returns append separately traced UV vertices.
+    const tailoredUv = jersey.geometry.getAttribute('uv');
+    expect(tailoredUv.count).toBeGreaterThan(uv.count);
+    expect(Array.from(tailoredUv.array).slice(0, uv.array.length)).toEqual(Array.from(uv.array));
+    expect(jersey.geometry.userData.garmentTailoring.originalVertices).toBe(uv.count);
     expect(fingerprint(f.assets.jersey)).toBe(before);
     f.body.dispose();
     expect(atlasDisposed).not.toHaveBeenCalled();

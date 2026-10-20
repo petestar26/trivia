@@ -116,7 +116,10 @@ describe('continuous actor construction and detail work', () => {
       expect(boot).toHaveBeenCalledTimes(3);
       expect(f.actor.meshes.body.morphTargetInfluences![2]).toBe(0);
       expect(f.actor.meshes.body.visible).toBe(true);
-      f.actor.setDetail('mid');
+      f.head.mesh.morphTargetInfluences![2] = 0.31;
+      f.actor.setDetail('mid'); // Direct head animation must mirror at unchanged detail too.
+      expect(f.actor.meshes.body.morphTargetInfluences![2]).toBe(0.31);
+      expect(f.actor.meshes.lowBody.morphTargetInfluences![2]).toBe(0.31);
       expect(boot).toHaveBeenCalledTimes(3);
     } finally {
       f.dispose();

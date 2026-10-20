@@ -552,8 +552,8 @@
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-player.ts",
-      "bytes": 16387,
-      "sha256": "049d7df586cfa2d0b92c2d455eae6329d808eb49257d79b0ef66240a23408a3e",
+      "bytes": 16524,
+      "sha256": "55556dd9be0e99b0b4641826187f7efdd672c729a9370c19e010a5ae42d7074a",
       "version": "single-player-finishing-r5-20261020"
     },
     {
@@ -688,14 +688,14 @@
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-player.ts",
-        "sha256": "049d7df586cfa2d0b92c2d455eae6329d808eb49257d79b0ef66240a23408a3e",
-        "bytes": 16387,
+        "sha256": "55556dd9be0e99b0b4641826187f7efdd672c729a9370c19e010a5ae42d7074a",
+        "bytes": 16524,
         "version": "renderer-garment-repair-r6-20261020"
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-player-perf.test.ts",
-        "sha256": "37c1415f65af4f3d8b977490887685cdd6544875b71ef4a86918e94ba210954b",
-        "bytes": 5331,
+        "sha256": "73555cf27e0c0a15ee1e835cab4ece9c567e21844591acd5064b7c418c35ab69",
+        "bytes": 5592,
         "version": "renderer-garment-repair-r6-20261020"
       },
       {
@@ -715,6 +715,12 @@
         "sha256": "6faab5ae9c47fc884132f6c0ab77eeae136eb073217d89f5cb29e05595ab759f",
         "bytes": 24130,
         "version": "renderer-garment-repair-r6-20261020"
+      },
+      {
+        "file": "apps/web/src/components/football/engine/continuous-player.test.ts",
+        "sha256": "59ae66c8091bf4c87a26fc69a352bb920bf2fdf90a30e02042468b6fb1b6d9a3",
+        "bytes": 29781,
+        "version": "renderer-garment-repair-r6-20261020"
       }
     ],
     "garmentSampledResults": {
@@ -726,6 +732,7 @@
       "minimumTransitionVertexTriangleDistanceMm": 2.674,
       "protectedFootToeWorldMatrixError": 0,
       "limitation": "Targeted vertex/triangle samples only, not full triangle collision or physical-device validation."
-    }
+    },
+    "facialSyncRegressionAccounted": "First combined339test run at8f21a62 found repeated-detail jaw synchronization regression and stale whole-array UV assertion. Cheap morph mirroring now always runs on unchanged detail; only duplicate pose-deformation work is skipped. Existing jaw-boundary regression stays unchanged. UV check retains every original corner and separately traces appended seam vertices. Exact finalhead rerun recorded in evidence."
   }
 }

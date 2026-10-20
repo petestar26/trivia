@@ -335,14 +335,17 @@ export function attachContinuousPlayer(
   let disposed = false,
     close = true;
   let currentDetail: PlayerDetail | undefined;
-  function syncFace() {
-    if (disposed) return;
+  function mirrorFaceMorphs() {
     for (const surface of [body, lowBody])
       for (const [name, target] of Object.entries(surface.morphTargetDictionary ?? {})) {
         const index = head.mesh.morphTargetDictionary?.[name];
         surface.morphTargetInfluences![target] =
           index === undefined ? 0 : (head.mesh.morphTargetInfluences?.[index] ?? 0);
       }
+  }
+  function syncFace() {
+    if (disposed) return;
+    mirrorFaceMorphs();
     if (close) corrective.update();
     if (close) shirtCorrective.update();
     else lowShirtCorrective.update();
@@ -357,9 +360,13 @@ export function attachContinuousPlayer(
       numberEnabled.value = 1;
     },
     setDetail(detail: PlayerDetail) {
-      // apply() already synchronizes the released frame. A repeated detail
-      // selection must not run boot/shirt deformation a second time.
-      if (disposed || currentDetail === detail) return;
+      if (disposed) return;
+      // Facial inputs may change independently of the pose/apply path. Always
+      // mirror them, while avoiding duplicate pose deformation at unchanged LOD.
+      if (currentDetail === detail) {
+        mirrorFaceMorphs();
+        return;
+      }
       currentDetail = detail;
       close = detail !== 'low';
       body.visible = jersey.visible = close;
