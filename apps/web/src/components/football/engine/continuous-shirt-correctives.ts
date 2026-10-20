@@ -2,12 +2,246 @@ import * as THREE from 'three';
 import { BONES, type Rig } from './rig';
 
 const smooth = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
+/** Original edge tailoring; every original preferred-source vertex/UV corner
+ * remains present. Derived edge points retain explicit interpolation records. */
+function tailoredEdges(source: THREE.BufferGeometry) {
+  const g = source.clone(),
+    p = source.getAttribute('position'),
+    joints = source.getAttribute('skinIndex'),
+    weights = source.getAttribute('skinWeight');
+  const attributes = Object.fromEntries(
+    Object.entries(source.attributes).map(([name, a]) => [
+      name,
+      { size: a.itemSize, values: Array.from(a.array) as number[], integer: name === 'skinIndex' },
+    ])
+  );
+  const positions = attributes.position.values,
+    canonical = new Map<string, number>(),
+    representative: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i),
+      y = p.getY(i),
+      z = p.getZ(i);
+    const key =
+      [x, y, z].map((v) => Math.round(v * 1e7)).join(',') +
+      '|' +
+      Array.from(
+        { length: 4 },
+        (_, k) => joints.getComponent(i, k) + ':' + weights.getComponent(i, k)
+      ).join(',');
+    if (!canonical.has(key)) canonical.set(key, i);
+    representative.push(canonical.get(key)!);
+  }
+  const edgeCounts = new Map<string, { count: number; a: number; b: number }>(),
+    sourceIndex = source.index!;
+  for (let k = 0; k < sourceIndex.count; k += 3) {
+    const tri = [sourceIndex.getX(k), sourceIndex.getX(k + 1), sourceIndex.getX(k + 2)];
+    for (let e = 0; e < 3; e++) {
+      const a = tri[e],
+        b = tri[(e + 1) % 3],
+        ca = representative[a],
+        cb = representative[b],
+        key = [Math.min(ca, cb), Math.max(ca, cb)].join(',');
+      const entry = edgeCounts.get(key);
+      if (entry) entry.count++;
+      else edgeCounts.set(key, { count: 1, a, b });
+    }
+  }
+  const next = new Map<number, { a: number; b: number }>();
+  for (const e of edgeCounts.values()) if (e.count === 1) next.set(representative[e.a], e);
+  const visited = new Set<number>(),
+    loops: number[][] = [];
+  for (const start of next.keys()) {
+    if (visited.has(start)) continue;
+    const loop: number[] = [];
+    let at = start;
+    while (!visited.has(at) && next.has(at)) {
+      visited.add(at);
+      const e = next.get(at)!;
+      loop.push(e.a);
+      at = representative[e.b];
+    }
+    if (at === start && loop.length > 4) loops.push(loop);
+  }
+  const originalPositionDeltas = Array.from({ length: p.count }, (_, i) => [
+    positions[i * 3] - p.getX(i),
+    positions[i * 3 + 1] - p.getY(i),
+    positions[i * 3 + 2] - p.getZ(i),
+  ]);
+  const derived: Array<{
+    vertex: number;
+    positionSourceVertices: number[];
+    positionCoefficients: number[];
+    positionOffset: number[];
+    linearUVWeightSourceVertices: number[];
+    linearUVWeightCoefficients: number[];
+    operation: string;
+  }> = [];
+  const append = (
+    a: number,
+    b: number,
+    point: THREE.Vector3,
+    operation: string,
+    positionSourceVertices = [a, b],
+    positionCoefficients = [0.5, 0.5],
+    positionOffset = [0, 0, 0]
+  ) => {
+    const id = positions.length / 3;
+    for (const [name, attr] of Object.entries(attributes)) {
+      if (name === 'position') attr.values.push(point.x, point.y, point.z);
+      else if (name === 'skinIndex' || name === 'skinWeight') continue;
+      else
+        for (let k = 0; k < attr.size; k++)
+          attr.values.push((attr.values[a * attr.size + k] + attr.values[b * attr.size + k]) / 2);
+    }
+    const merged = new Map<number, number>();
+    for (const v of [a, b])
+      for (let k = 0; k < 4; k++) {
+        const j = attributes.skinIndex.values[v * 4 + k],
+          w = attributes.skinWeight.values[v * 4 + k] / 2;
+        merged.set(j, (merged.get(j) ?? 0) + w);
+      }
+    const selected = [...merged.entries()]
+        .filter(([, w]) => w > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4),
+      sum = selected.reduce((s, [, w]) => s + w, 0);
+    for (let k = 0; k < 4; k++) {
+      attributes.skinIndex.values.push(selected[k]?.[0] ?? 0);
+      attributes.skinWeight.values.push((selected[k]?.[1] ?? 0) / sum);
+    }
+    derived.push({
+      vertex: id,
+      positionSourceVertices,
+      positionCoefficients,
+      positionOffset,
+      linearUVWeightSourceVertices: [a, b],
+      linearUVWeightCoefficients: [0.5, 0.5],
+      operation,
+    });
+    return id;
+  };
+  const read = (id: number) =>
+    new THREE.Vector3(positions[id * 3], positions[id * 3 + 1], positions[id * 3 + 2]);
+  const midpointByEdge = new Map<string, number>(),
+    returns: number[] = [];
+  for (const loop of loops) {
+    const meanY = loop.reduce((s, i) => s + positions[i * 3 + 1], 0) / loop.length;
+    if (meanY < 1.22) continue; // Keep the existing tucked waist opening.
+    const collar = meanY > 1.43,
+      refined: number[] = [];
+    for (let k = 0; k < loop.length; k++) {
+      const a = loop[k],
+        b = loop[(k + 1) % loop.length],
+        before = read(loop[(k + loop.length - 1) % loop.length]),
+        start = read(a),
+        end = read(b),
+        after = read(loop[(k + 2) % loop.length]);
+      // Catmull midpoint rounds the coarse 12-point cuff / 26-point neckline.
+      const mid = before
+        .multiplyScalar(-1 / 16)
+        .addScaledVector(start, 9 / 16)
+        .addScaledVector(end, 9 / 16)
+        .addScaledVector(after, -1 / 16);
+      const id = append(
+        a,
+        b,
+        mid,
+        'original Catmull edge midpoint; linear UV/weight interpolation',
+        [loop[(k + loop.length - 1) % loop.length], a, b, loop[(k + 2) % loop.length]],
+        [-1 / 16, 9 / 16, 9 / 16, -1 / 16]
+      );
+      midpointByEdge.set(
+        [
+          Math.min(representative[a], representative[b]),
+          Math.max(representative[a], representative[b]),
+        ].join(','),
+        id
+      );
+      refined.push(a, id);
+    }
+    const inside: number[] = [];
+    for (const a of refined) {
+      const point = read(a),
+        centreX = collar ? 0 : point.x > 0 ? 0.195 : -0.195;
+      const radial = new THREE.Vector3(point.x - centreX, 0, point.z)
+        .normalize()
+        .multiplyScalar(-0.0015);
+      point.add(radial);
+      point.y += collar ? -0.002 : 0.002;
+      inside.push(
+        append(
+          a,
+          a,
+          point,
+          collar ? '2mm connected collar cloth return' : '2mm connected fitted cuff return',
+          [a],
+          [1],
+          [radial.x, collar ? -0.002 : 0.002, radial.z]
+        )
+      );
+    }
+    for (let k = 0; k < refined.length; k++) {
+      const j = (k + 1) % refined.length;
+      returns.push(refined[k], inside[k], refined[j], refined[j], inside[k], inside[j]);
+    }
+  }
+  const index: number[] = [];
+  for (let k = 0; k < sourceIndex.count; k += 3) {
+    const tri = [sourceIndex.getX(k), sourceIndex.getX(k + 1), sourceIndex.getX(k + 2)];
+    let split = false;
+    for (let e = 0; e < 3; e++) {
+      const a = tri[e],
+        b = tri[(e + 1) % 3],
+        c = tri[(e + 2) % 3],
+        mid = midpointByEdge.get(
+          [
+            Math.min(representative[a], representative[b]),
+            Math.max(representative[a], representative[b]),
+          ].join(',')
+        );
+      if (mid !== undefined) {
+        index.push(a, mid, c, mid, b, c);
+        split = true;
+        break;
+      }
+    }
+    if (!split) index.push(...tri);
+  }
+  for (const [name, attr] of Object.entries(attributes))
+    g.setAttribute(
+      name,
+      attr.integer
+        ? new THREE.Uint16BufferAttribute(attr.values, attr.size)
+        : new THREE.Float32BufferAttribute(attr.values, attr.size)
+    );
+  g.setIndex([...index, ...returns]);
+  g.computeVertexNormals();
+  // Accepted source neck normals are preserved; new sewn return has its own.
+  const normals = g.getAttribute('normal'),
+    originalNormals = source.getAttribute('normal');
+  for (let i = 0; i < p.count; i++)
+    if (Math.abs(p.getX(i)) < 0.1 && p.getY(i) > 1.43)
+      normals.setXYZ(i, originalNormals.getX(i), originalNormals.getY(i), originalNormals.getZ(i));
+  g.userData.garmentTailoring = {
+    originalVertices: p.count,
+    originalSourceVerticesRetained: true,
+    originalPositionDeltas,
+    referenceSpace:
+      'Tailored vertex dependency graph; original IDs begin at source position plus originalPositionDeltas',
+    cuffTaper: 0,
+    returnThicknessMetres: 0.0015,
+    returnDepthMetres: 0.002,
+    derived,
+  };
+  return g;
+}
 /** Original visual-only pose adapter on the retained preferred MHCLO shirt.
  * Owns a private geometry clone, including normals. Never edits the supplied
  * asset, skeleton, contact targets or clocks. update after final pose solving. */
 export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: Rig) {
   const source = mesh.geometry,
-    geometry = source.clone();
+    geometry = tailoredEdges(source);
   mesh.geometry = geometry;
   const position = geometry.getAttribute('position') as THREE.BufferAttribute;
   const neutral = new Float32Array(position.array),
@@ -126,7 +360,7 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
         // same adjacency and corrected coordinate, so no opening/flap is made.
         // Never inflate an inside radius out onto a cylinder: that inverted
         // concave source folds and produced cap flaps in actual capture.
-        for (let pass = 0; pass < 24; pass++) {
+        for (let pass = 0; pass < 8; pass++) {
           next.set(fair);
           for (const { id, side, fade } of samples) {
             if (representative[id] !== id) continue;
@@ -137,8 +371,8 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
             radial.copy(posed).sub(arm.origin);
             const axial = radial.dot(arm.axis);
             const envelope = smooth(-0.13, -0.06, axial) * (1 - smooth(0.1, 0.23, axial));
-            const amount = 0.52 * fade * arm.activation * envelope;
-            if (amount <= 0) continue;
+            const amount = (pass % 2 === 0 ? 0.45 : -0.47) * fade * arm.activation * envelope;
+            if (amount === 0) continue;
             target.set(0, 0, 0);
             for (const j of peers) {
               target.x += fair[j * 3];

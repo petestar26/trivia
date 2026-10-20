@@ -27,10 +27,70 @@ async function fixture() {
   };
 }
 describe('preferred shirt original shoulder corrective', () => {
+  it('retains source UV corners and records original fitted cuff/collar edge construction', async () => {
+    const f = await fixture(),
+      originalCount = f.source.getAttribute('position').count,
+      adapter = createContinuousShirtCorrectives(f.mesh, f.rig),
+      g = f.mesh.geometry,
+      p = g.getAttribute('position'),
+      w = g.getAttribute('skinWeight');
+    expect(g.userData.garmentTailoring.originalVertices).toBe(originalCount);
+    expect(g.userData.garmentTailoring.originalSourceVerticesRetained).toBe(true);
+    expect(g.userData.garmentTailoring.derived.length).toBeGreaterThan(100);
+    expect(p.count).toBeGreaterThan(originalCount);
+    for (let i = 0; i < p.count; i++) {
+      expect(w.getX(i) + w.getY(i) + w.getZ(i) + w.getW(i)).toBeCloseTo(1, 5);
+      expect([p.getX(i), p.getY(i), p.getZ(i)].every(Number.isFinite)).toBe(true);
+      if (i < originalCount) {
+        expect(g.getAttribute('uv').getX(i)).toBe(f.source.getAttribute('uv').getX(i));
+        expect(g.getAttribute('uv').getY(i)).toBe(f.source.getAttribute('uv').getY(i));
+      }
+    }
+    const original = f.source.getAttribute('position');
+    const reconstructed: THREE.Vector3[] = Array.from({ length: originalCount }, (_, i) =>
+      new THREE.Vector3()
+        .fromBufferAttribute(original, i)
+        .add(new THREE.Vector3().fromArray(g.userData.garmentTailoring.originalPositionDeltas[i]))
+    );
+    for (const record of g.userData.garmentTailoring.derived) {
+      const point = new THREE.Vector3().fromArray(record.positionOffset);
+      record.positionSourceVertices.forEach((id: number, k: number) =>
+        point.addScaledVector(reconstructed[id], record.positionCoefficients[k])
+      );
+      reconstructed[record.vertex] = point;
+      expect(
+        point.distanceTo(new THREE.Vector3().fromBufferAttribute(p, record.vertex))
+      ).toBeLessThan(2e-7);
+      const uv = g.getAttribute('uv');
+      for (let k = 0; k < 2; k++) {
+        const expected = record.linearUVWeightSourceVertices.reduce(
+          (sum: number, id: number, at: number) =>
+            sum + uv.getComponent(id, k) * record.linearUVWeightCoefficients[at],
+          0
+        );
+        expect(uv.getComponent(record.vertex, k)).toBeCloseTo(expected, 6);
+      }
+    }
+    let beforeRadius = 0,
+      afterRadius = 0,
+      count = 0;
+    for (let i = 0; i < originalCount; i++)
+      if (original.getY(i) > 1.24 && original.getY(i) < 1.26 && Math.abs(original.getX(i)) > 0.12) {
+        const centre = original.getX(i) > 0 ? 0.195 : -0.195;
+        beforeRadius += Math.hypot(original.getX(i) - centre, original.getZ(i));
+        afterRadius += Math.hypot(p.getX(i) - centre, p.getZ(i));
+        count++;
+      }
+    expect(count).toBeGreaterThan(15);
+    expect(afterRadius / beforeRadius).toBeCloseTo(1, 6);
+    adapter.dispose();
+    f.dispose();
+  });
   it('rounds raised caps with bounded private geometry while pinning collar and all bones', async () => {
     const f = await fixture(),
-      source = new Float32Array(f.source.getAttribute('position').array),
-      adapter = createContinuousShirtCorrectives(f.mesh, f.rig);
+      original = new Float32Array(f.source.getAttribute('position').array),
+      adapter = createContinuousShirtCorrectives(f.mesh, f.rig),
+      source = new Float32Array(f.mesh.geometry.getAttribute('position').array);
     f.rig.bones.upperArmL.rotation.z = Math.PI / 2;
     f.rig.bones.upperArmR.rotation.z = -Math.PI / 2;
     const bones = f.rig.skeleton.bones.map((b) => ({
@@ -64,7 +124,7 @@ describe('preferred shirt original shoulder corrective', () => {
       expect(f.rig.skeleton.bones[i].position.equals(b.p)).toBe(true);
       expect(f.rig.skeleton.bones[i].quaternion.equals(b.q)).toBe(true);
     });
-    expect(Array.from(f.source.getAttribute('position').array)).toEqual(Array.from(source));
+    expect(Array.from(f.source.getAttribute('position').array)).toEqual(Array.from(original));
     const beforePoints: THREE.Vector3[] = [],
       afterPoints: THREE.Vector3[] = [],
       peers = Array.from({ length: p.count }, () => new Set<number>());
@@ -117,14 +177,13 @@ describe('preferred shirt original shoulder corrective', () => {
   it('restores exact source for neutral/reduced motion and gives repeatable random access', async () => {
     const f = await fixture(),
       adapter = createContinuousShirtCorrectives(f.mesh, f.rig);
+    const neutral = Array.from(f.mesh.geometry.getAttribute('position').array);
     f.rig.bones.upperArmL.rotation.z = 1.3;
     adapter.update();
     const raised = Array.from(f.mesh.geometry.getAttribute('position').array);
     f.rig.bones.upperArmL.quaternion.identity();
     adapter.update();
-    expect(Array.from(f.mesh.geometry.getAttribute('position').array)).toEqual(
-      Array.from(f.source.getAttribute('position').array)
-    );
+    expect(Array.from(f.mesh.geometry.getAttribute('position').array)).toEqual(neutral);
     f.rig.bones.upperArmL.rotation.z = 1.3;
     adapter.update();
     expect(Array.from(f.mesh.geometry.getAttribute('position').array)).toEqual(raised);

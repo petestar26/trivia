@@ -469,7 +469,17 @@ export function createPlayerPool(): PlayerPool {
         st.kind = 'none';
         st.plants = {};
         poseFingers(rig, kind, false);
-        if (i === REVIEW_PLAYER_SLOT && reviewAssets) poseReviewPlayerHands(rig, kind, false);
+        if (i === REVIEW_PLAYER_SLOT && reviewAssets) {
+          applyReviewPlayerMotion(rig, {
+            kind,
+            time: 0,
+            phase: 0,
+            speed: 0,
+            reducedMotion: true,
+            motionState: reviewMotionState,
+          });
+          poseReviewPlayerHands(rig, kind, false);
+        }
         heads[i]?.animate(0, kind, false);
         if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.syncFace();
         continue;

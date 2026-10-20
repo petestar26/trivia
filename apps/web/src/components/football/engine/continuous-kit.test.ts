@@ -90,7 +90,8 @@ describe('original continuous player kit', () => {
   it('keeps a flat neutral sole and heel/ball bounds; flex preserves fixed contact datums', () => {
     const kit = createContinuousKit(look),
       g = kit.geometries.boots,
-      p = g.getAttribute('position'), neutral = p.clone();
+      p = g.getAttribute('position'),
+      neutral = p.clone();
     expect(Math.min(...Array.from({ length: p.count }, (_, i) => p.getY(i)))).toBeCloseTo(0.01, 5);
     const front = Array.from({ length: p.count }, (_, i) => i).filter((i) => p.getZ(i) > 0.17);
     expect(Math.min(...front.map((i) => p.getY(i)))).toBeLessThan(0.013);
@@ -105,9 +106,9 @@ describe('original continuous player kit', () => {
     for (let i = 0; i < p.count; i++) {
       if (p.getX(i) < 0) expect(p.getY(i) - neutral.getY(i)).toBeCloseTo(0, 6);
     }
-    expect(Math.max(...front.filter((i) => p.getX(i) > 0).map((i) => p.getY(i) - neutral.getY(i)))).toBeGreaterThan(
-      0.03
-    );
+    expect(
+      Math.max(...front.filter((i) => p.getX(i) > 0).map((i) => p.getY(i) - neutral.getY(i)))
+    ).toBeGreaterThan(0.03);
     mesh.removeFromParent();
     rig.skeleton.dispose();
     source.geometry.dispose();
@@ -133,8 +134,7 @@ describe('original continuous player kit', () => {
       maxDelta = Math.max(maxDelta, Number(mesh.geometry.userData.maxVisualBootDisplacementMetres));
       const p = mesh.geometry.getAttribute('position');
       for (let i = 0; i < p.count; i++) {
-        const v = new THREE.Vector3()
-          .fromBufferAttribute(p, i);
+        const v = new THREE.Vector3().fromBufferAttribute(p, i);
         mesh.applyBoneTransform(i, v);
         v.applyMatrix4(mesh.matrixWorld);
         minimum = Math.min(minimum, v.y);
@@ -211,13 +211,18 @@ describe('original continuous player kit', () => {
     expect(minimum).toBeGreaterThan(-0.004);
     expect(Number.isFinite(afterGap)).toBe(true);
     expect(maxDelta).toBeLessThan(0.18);
-    console.log({ minimum, canonicalMinimum,
+    console.log({
+      minimum,
+      canonicalMinimum,
       rawNearestVertexToBallCentreMetres: beforeGap,
       deformedNearestVertexToBallCentreMetres: afterGap,
-      deformedSignedVertexToBallSurfaceMetres: afterGap - .11,
+      deformedSignedVertexToBallSurfaceMetres: afterGap - 0.11,
       legacyNearestVertexToBallCentreMetres: oldGapMinimum,
-      ballRadiusMetres: .11, maxDelta,
-      limitation: 'Bounded vertex samples only; negative signed surface distance is overlap, not a full triangle collision result.' });
+      ballRadiusMetres: 0.11,
+      maxDelta,
+      limitation:
+        'Bounded vertex samples only; negative signed surface distance is overlap, not a full triangle collision result.',
+    });
     mesh.removeFromParent();
     rig.dispose();
     mat.dispose();

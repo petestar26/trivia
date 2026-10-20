@@ -12,6 +12,19 @@ const smooth = (v: number) => {
 const cycle = (v: number) => ((v % 1) + 1) % 1;
 type Angles = readonly [number, number, number];
 type Posture = Partial<Record<BoneName, Angles>>;
+const OUTFIELD_REST_ABDUCTION = (5 * Math.PI) / 180;
+const restArmLeft = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(0, 0, 1),
+  OUTFIELD_REST_ABDUCTION
+);
+const restArmRight = restArmLeft.clone().invert();
+/** Apply once after the freshly sampled fixed outfield base pose, never to a keeper.
+ * No animation clock or accumulated offsets: the caller resets the base each frame. */
+function applyOutfieldRestingArms(rig: Rig) {
+  rig.bones.upperArmL.quaternion.multiply(restArmLeft);
+  rig.bones.upperArmR.quaternion.multiply(restArmRight);
+  rig.root.updateMatrixWorld(true);
+}
 
 /** One review actor owns this decorative history; never share it across rigs. */
 export interface ReviewMotionState {
@@ -67,8 +80,8 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
       chest: [0.01, -sway * 0.018, -sway * 0.008],
       neck: [0.008, sway * 0.008, 0],
       head: [-0.008, -sway * 0.009, 0],
-      upperArmL: [0.009 * breathe, 0.015, -0.012],
-      upperArmR: [-0.009 * breathe, -0.015, 0.012],
+      upperArmL: [0.009 * breathe, 0.015, OUTFIELD_REST_ABDUCTION],
+      upperArmR: [-0.009 * breathe, -0.015, -OUTFIELD_REST_ABDUCTION],
     };
   if (input.kind === 'run') {
     const p = cycle(input.phase),
@@ -205,9 +218,16 @@ function releasedPosture(input: ReviewMotionInput): Posture {
  * reduce torso weight when required for reach, then use the existing IK and wrist rotation.
  */
 export function applyReviewPlayerMotion(rig: Rig, input: ReviewMotionInput) {
-  const weight = input.reducedMotion ? 0 : clamp(input.weight ?? 1);
+  const weight = clamp(input.weight ?? 1);
   if (!weight) {
     if (input.motionState) resetReviewMotionState(input.motionState);
+    return;
+  }
+  if (input.reducedMotion) {
+    if (input.motionState) resetReviewMotionState(input.motionState);
+    // Reduced outfield players use only the same fixed 5-degree rest correction.
+    // Keeper wrist targets and all breathing/transition motion remain untouched.
+    if (input.kind !== 'keeperReady' && input.kind !== 'keeperDive') applyOutfieldRestingArms(rig);
     return;
   }
   const posture = releasedPosture(input);

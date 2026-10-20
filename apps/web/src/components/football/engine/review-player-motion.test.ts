@@ -283,21 +283,85 @@ describe('isolated review player posture adapter', () => {
     b.dispose();
   });
 
-  it('leaves every bone unchanged under reduced motion or zero weight', () => {
-    const rig = makeRig();
-    poseRun(rig, 0.2, 4);
-    const before = BONES.map((name) => world(rig, name));
-    for (const options of [{ reducedMotion: true }, { weight: 0 }]) {
+  it('uses a fixed 5-degree outward outfield rest after each reduced base pose, preserving root/feet', () => {
+    const rig = makeRig(),
+      state = createReviewMotionState();
+    const rest = sampleReviewPlayerPosture({ kind: 'idle', time: 0, phase: 0, speed: 0 });
+    expect(rest.upperArmL![2]).toBeCloseTo((5 * Math.PI) / 180, 12);
+    expect(rest.upperArmR![2]).toBeCloseTo((-5 * Math.PI) / 180, 12);
+    poseIdle(rig, 0);
+    const before = BONES.map((name) => rig.bones[name].quaternion.clone());
+    const feet = protectedBones.map((name) => world(rig, name));
+    const root = rig.root.matrixWorld.clone();
+    applyReviewPlayerMotion(rig, {
+      kind: 'idle',
+      time: 10,
+      phase: 0.7,
+      speed: 4,
+      reducedMotion: true,
+      motionState: state,
+    });
+    BONES.forEach((name, i) => {
+      const angle = rig.bones[name].quaternion.angleTo(before[i]);
+      if (name === 'upperArmL' || name === 'upperArmR')
+        expect(angle).toBeCloseTo((5 * Math.PI) / 180, 10);
+      else expect(angle).toBeLessThan(1e-7);
+    });
+    protectedBones.forEach((name, i) =>
+      expect(matrixError(world(rig, name), feet[i])).toBeLessThan(1e-12)
+    );
+    expect(matrixError(rig.root.matrixWorld, root)).toBeLessThan(1e-12);
+    const fixed = BONES.map((name) => rig.bones[name].quaternion.clone());
+    for (const time of [0, 0.1, 1, 7, 20]) {
+      poseRun(rig, 0.4, 4); // A prior moving pose must not leak into the reduced reset.
+      poseIdle(rig, 0); // Production samples a fresh fixed base before the adapter.
       applyReviewPlayerMotion(rig, {
         kind: 'run',
-        time: 0.4,
-        phase: 0.2,
+        time,
+        phase: time,
         speed: 4,
-        acceleration: 4,
-        ...options,
+        reducedMotion: true,
+        motionState: state,
       });
-      BONES.forEach((name, i) => expect(matrixError(world(rig, name), before[i])).toBe(0));
+      BONES.forEach((name, i) =>
+        expect(rig.bones[name].quaternion.angleTo(fixed[i])).toBeLessThan(1e-7)
+      );
     }
+    expect(state.kind).toBeUndefined();
+    rig.dispose();
+  });
+
+  it('bypasses resting-arm offsets for keeper contacts and preserves zero-weight poses', () => {
+    const rig = makeRig();
+    for (const kind of ['keeperReady', 'keeperDive'] as const) {
+      const input = { kind, time: DIVE_CONTACT, phase: 0, speed: 0 };
+      basePose(rig, input);
+      const before = BONES.map((name) => world(rig, name));
+      applyReviewPlayerMotion(rig, { ...input, reducedMotion: true });
+      BONES.forEach((name, i) =>
+        expect(matrixError(world(rig, name), before[i])).toBeLessThan(1e-12)
+      );
+    }
+    poseRun(rig, 0.2, 4);
+    const before = BONES.map((name) => world(rig, name));
+    applyReviewPlayerMotion(rig, {
+      kind: 'run',
+      time: 0.4,
+      phase: 0.2,
+      speed: 4,
+      acceleration: 4,
+      weight: 0,
+    });
+    BONES.forEach((name, i) => expect(matrixError(world(rig, name), before[i])).toBe(0));
+    applyReviewPlayerMotion(rig, {
+      kind: 'idle',
+      time: 0,
+      phase: 0,
+      speed: 0,
+      weight: 0,
+      reducedMotion: true,
+    });
+    BONES.forEach((name, i) => expect(matrixError(world(rig, name), before[i])).toBe(0));
     rig.dispose();
   });
 });

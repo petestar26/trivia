@@ -327,13 +327,14 @@ export function attachContinuousPlayer(
   const lowJerseyGeometry = createContinuousPlayerLod(assets.jersey, { protectNeck: false });
   const lowJersey = make(lowJerseyGeometry, shirtMaterial, 'continuous-player-jersey-low');
   const lowShirtCorrective = createContinuousShirtCorrectives(lowJersey, rig);
-  const kit = createContinuousKit(look);
+  const kit = createContinuousKit(look, assets.body);
   const shorts = make(kit.geometries.shorts, kit.materials.shorts, 'continuous-player-shorts');
   const socks = make(kit.geometries.socks, kit.materials.socks, 'continuous-player-socks');
   const boots = make(kit.geometries.boots, kit.materials.boots, 'continuous-player-footwear');
   lowBody.visible = lowJersey.visible = false;
   let disposed = false,
     close = true;
+  let currentDetail: PlayerDetail | undefined;
   function syncFace() {
     if (disposed) return;
     for (const surface of [body, lowBody])
@@ -356,7 +357,10 @@ export function attachContinuousPlayer(
       numberEnabled.value = 1;
     },
     setDetail(detail: PlayerDetail) {
-      if (disposed) return;
+      // apply() already synchronizes the released frame. A repeated detail
+      // selection must not run boot/shirt deformation a second time.
+      if (disposed || currentDetail === detail) return;
+      currentDetail = detail;
       close = detail !== 'low';
       body.visible = jersey.visible = close;
       lowBody.visible = lowJersey.visible = !close;

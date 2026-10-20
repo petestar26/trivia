@@ -54,58 +54,270 @@ class Tailor {
 
 /** A connected pair-of-pants surface: one waist/seat, sewn rise, shared crotch
  * saddle and two open returned hems. All seam vertices share binding too. */
-function sewnShorts(shorts: Tailor) {
-  shorts.rings(
+function sewnShorts(shorts: Tailor, bodyFit?: THREE.BufferGeometry) {
+  const smooth = (a: number, b: number, v: number) => THREE.MathUtils.smoothstep(v, a, b);
+  const skinPosition = bodyFit?.getAttribute('position'),
+    skinJoints = bodyFit?.getAttribute('skinIndex'),
+    skinWeights = bodyFit?.getAttribute('skinWeight');
+  const skinTriangles: Array<{
+    ids: number[];
+    triangle: THREE.Triangle;
+    lowY: number;
+    highY: number;
+  }> = [];
+  if (bodyFit?.index && skinPosition && skinJoints && skinWeights)
+    for (let k = 0; k < bodyFit.index.count; k += 3) {
+      const ids = [bodyFit.index.getX(k), bodyFit.index.getX(k + 1), bodyFit.index.getX(k + 2)];
+      let arm = 0;
+      for (const id of ids)
+        for (let c = 0; c < 4; c++)
+          if (
+            /^(upperArm|foreArm|hand|thumb|index|middle|ring|pinky)/.test(
+              BONES[skinJoints.getComponent(id, c)]
+            )
+          )
+            arm += skinWeights.getComponent(id, c) / 3;
+      const lowY = Math.min(...ids.map((id) => skinPosition.getY(id))),
+        highY = Math.max(...ids.map((id) => skinPosition.getY(id)));
+      if (arm < 0.1 && highY > 0.65 && lowY < 1.08)
+        skinTriangles.push({
+          ids,
+          triangle: new THREE.Triangle(
+            ...(ids.map((id) => new THREE.Vector3().fromBufferAttribute(skinPosition, id)) as [
+              THREE.Vector3,
+              THREE.Vector3,
+              THREE.Vector3,
+            ])
+          ),
+          lowY,
+          highY,
+        });
+    }
+  const fieldCache = new Map<string, Weight>(),
+    fieldSources = new Map<
+      string,
+      { sourceTriangle: number[]; barycentric: number[]; discardedMass: number }
+    >(),
+    point3 = new THREE.Vector3(),
+    closest = new THREE.Vector3(),
+    barycentric = new THREE.Vector3();
+  const field = (point: Point): Weight => {
+    const x = Math.round(point[0] * 1e7) / 1e7,
+      y = Math.round(point[1] * 1e7) / 1e7;
+    const key = point.map((v) => Math.round(v * 1e7)).join(',');
+    if (fieldCache.has(key)) return fieldCache.get(key)!;
+    point3.fromArray(point);
+    let nearest: (typeof skinTriangles)[number] | undefined,
+      distance = 0.025 ** 2;
+    for (const triangle of skinTriangles) {
+      if (y < triangle.lowY - 0.025 || y > triangle.highY + 0.025) continue;
+      const d = triangle.triangle.closestPointToPoint(point3, closest).distanceToSquared(point3);
+      if (d < distance) {
+        distance = d;
+        nearest = triangle;
+      }
+    }
+    if (nearest && skinJoints && skinWeights) {
+      nearest.triangle.closestPointToPoint(point3, closest);
+      nearest.triangle.getBarycoord(closest, barycentric);
+      const merged = new Map<number, number>();
+      nearest.ids.forEach((id, n) => {
+        for (let k = 0; k < 4; k++) {
+          const joint = skinJoints.getComponent(id, k),
+            mass = skinWeights.getComponent(id, k) * barycentric.getComponent(n);
+          merged.set(joint, (merged.get(joint) ?? 0) + mass);
+        }
+      });
+      const selected = [...merged.entries()]
+          .filter(([, w]) => w > 1e-8)
+          .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+          .slice(0, 4),
+        total = selected.reduce((sum, [, w]) => sum + w, 0);
+      const result = selected.map(([j, w]) => [BONES[j], w / total] as [BoneName, number]);
+      fieldSources.set(key, {
+        sourceTriangle: [...nearest.ids],
+        barycentric: barycentric.toArray(),
+        discardedMass: Math.max(0, 1 - total),
+      });
+      fieldCache.set(key, result);
+      return result;
+    }
+    const leg = 1 - smooth(0.775, 1.035, y),
+      left = smooth(-0.075, 0.075, x);
+    const result: Weight = [
+      ['hips', 1 - leg],
+      ['upperLegL', leg * left],
+      ['upperLegR', leg * (1 - left)],
+    ];
+    fieldCache.set(key, result);
+    return result;
+  };
+  // Exact horizontal intersections of the anatomical mesh provide the fitted
+  // cloth profile. Arms are a separate obstacle, never hidden or moved.
+  const sections = new Map<number, { body: number[][]; arms: number[][] }>();
+  const section = (y: number) => {
+    if (sections.has(y)) return sections.get(y)!;
+    const result = { body: [] as number[][], arms: [] as number[][] };
+    if (bodyFit?.index) {
+      const p = bodyFit.getAttribute('position'),
+        joints = bodyFit.getAttribute('skinIndex'),
+        weights = bodyFit.getAttribute('skinWeight');
+      const armWeight = (i: number) => {
+        let total = 0;
+        for (let k = 0; k < 4; k++)
+          if (
+            /^(upperArm|foreArm|hand|thumb|index|middle|ring|pinky)/.test(
+              BONES[joints.getComponent(i, k)]
+            )
+          )
+            total += weights.getComponent(i, k);
+        return total;
+      };
+      for (let k = 0; k < bodyFit.index.count; k += 3) {
+        const tri = [bodyFit.index.getX(k), bodyFit.index.getX(k + 1), bodyFit.index.getX(k + 2)];
+        const points: number[][] = [];
+        for (let e = 0; e < 3; e++) {
+          const a = tri[e],
+            b = tri[(e + 1) % 3],
+            ya = p.getY(a),
+            yb = p.getY(b);
+          if ((ya <= y && yb > y) || (yb <= y && ya > y)) {
+            const t = (y - ya) / (yb - ya);
+            points.push([
+              THREE.MathUtils.lerp(p.getX(a), p.getX(b), t),
+              THREE.MathUtils.lerp(p.getZ(a), p.getZ(b), t),
+            ]);
+          }
+        }
+        if (points.length === 2)
+          (tri.reduce((v, i) => v + armWeight(i), 0) / 3 > 0.5 ? result.arms : result.body).push([
+            ...points[0],
+            ...points[1],
+          ]);
+      }
+    }
+    sections.set(y, result);
+    return result;
+  };
+  const ray = (segments: number[][], cx: number, cz: number, dx: number, dz: number) => {
+    let nearest = Infinity;
+    for (const [ax, az, bx, bz] of segments) {
+      const ex = bx - ax,
+        ez = bz - az,
+        det = dx * ez - dz * ex;
+      if (Math.abs(det) < 1e-10) continue;
+      const qx = ax - cx,
+        qz = az - cz;
+      const t = (qx * ez - qz * ex) / det,
+        u = (qx * dz - qz * dx) / det;
+      if (t > 0.005 && u >= 0 && u <= 1) nearest = Math.min(nearest, t);
+    }
+    return nearest;
+  };
+  const fitted = (
+    y: number,
+    t: number,
+    cx: number,
+    rx: number,
+    rz: number,
+    returned = false
+  ): Point => {
+    const dx = Math.cos(t),
+      dz = Math.sin(t),
+      cz = -0.007;
+    const raw = Math.hypot(rx * dx, rz * dz),
+      direction = Math.atan2(rz * dz, rx * dx);
+    const ux = Math.cos(direction),
+      uz = Math.sin(direction),
+      slices = section(y);
+    const anatomy = ray(slices.body, cx, cz, ux, uz),
+      arm = ray(slices.arms, cx, cz, ux, uz);
+    // Keep a close fit rather than the former 40–50mm oversized side panel.
+    // If source anatomy conflicts with an arm corridor, retain the anatomy
+    // envelope and expose that remaining conflict in geometric validation.
+    let radius = Number.isFinite(anatomy) ? anatomy + 0.007 : raw;
+    // Spend only the available cloth ease in a feasible arm corridor. Keep
+    // at least .5mm anatomy clearance; never invent a 3mm arm-clearance pass
+    // when the original body and arm surfaces themselves conflict.
+    if (Number.isFinite(anatomy) && Number.isFinite(arm) && arm - 0.003 >= anatomy + 0.0005)
+      radius = Math.min(radius, arm - 0.003);
+    if (returned) radius -= 0.0012;
+    return [cx + ux * radius, y, cz + uz * radius];
+  };
+  const loft = (rows: Array<{ point(t: number): Point }>) => {
+    const base = shorts.p.length / 3,
+      segments = 64;
+    rows.forEach((row, r) => {
+      for (let j = 0; j <= segments; j++) {
+        const p = row.point((j / segments) * Math.PI * 2);
+        shorts.vertex(p, [j / segments, r / (rows.length - 1)], field(p));
+      }
+    });
+    for (let r = 0; r < rows.length - 1; r++)
+      for (let j = 0; j < segments; j++) {
+        const a = base + r * (segments + 1) + j,
+          b = a + segments + 1;
+        shorts.ids.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+  };
+  loft(
     [
       [1.045, 0.191, 0.106],
       [1.025, 0.198, 0.113],
+      [1.005, 0.204, 0.118],
+      [0.985, 0.209, 0.122],
       [0.965, 0.213, 0.124],
+      [0.94, 0.214, 0.123],
+      [0.915, 0.215, 0.122],
       [0.89, 0.215, 0.12],
     ].map(([y, rx, rz]) => ({
       point(t: number): Point {
-        return [rx * Math.cos(t), y, rz * Math.sin(t) - 0.007];
+        return fitted(y, t, 0, rx, rz);
       },
-      weights: [['hips', 1]] as Weight,
-    })),
-    64
+    }))
   );
   for (const side of ['L', 'R'] as const) {
-    const sign = side === 'L' ? 1 : -1,
-      upper: BoneName = `upperLeg${side}`;
-    const rows: { point(t: number): Point; weights: Weight }[] = [
+    const sign = side === 'L' ? 1 : -1;
+    const fork = (t: number): Point => {
+      const c = Math.cos(t),
+        outer = c * sign >= 0;
+      if (outer) return fitted(0.89, t, 0, 0.215, 0.12);
+      const front = fitted(0.89, Math.PI / 2, 0, 0.215, 0.12)[2],
+        back = fitted(0.89, -Math.PI / 2, 0, 0.215, 0.12)[2];
+      return [
+        0,
+        0.89 - 0.055 * Math.abs(c),
+        THREE.MathUtils.lerp(back, front, (Math.sin(t) + 1) / 2),
+      ];
+    };
+    const rows: { point(t: number): Point }[] = [
       {
-        point(t: number): Point {
-          const c = Math.cos(t),
-            outer = c * sign >= 0;
-          return [
-            outer ? 0.215 * c : 0,
-            outer ? 0.89 : 0.89 - 0.055 * Math.abs(c),
-            0.12 * Math.sin(t) - 0.007,
-          ];
-        },
-        weights: [['hips', 1]],
+        point: fork,
       },
     ];
+    for (const u of [0.25, 0.5, 0.75])
+      rows.push({
+        point(t: number): Point {
+          const a = fork(t),
+            b = fitted(0.79, t, 0.1 * sign, 0.097, 0.109);
+          return a.map((v, k) => THREE.MathUtils.lerp(v, b[k], u)) as Point;
+        },
+      });
     for (const [y, rx, rz] of [
-      [0.81, 0.102, 0.113],
-      [0.77, 0.099, 0.108],
+      [0.79, 0.097, 0.109],
+      [0.75, 0.098, 0.106],
       [0.72, 0.096, 0.102],
       [0.691, 0.094, 0.098],
       [0.682, 0.094, 0.098],
-      [0.686, 0.09, 0.094],
+      [0.684, 0.094, 0.098],
     ]) {
-      const hip = Math.max(0, (y - 0.79) / 0.15);
       rows.push({
         point(t: number): Point {
-          return [0.1 * sign + rx * Math.cos(t), y, rz * Math.sin(t) - 0.007];
+          return fitted(y, t, 0.1 * sign, rx, rz, y === 0.684);
         },
-        weights: [
-          ['hips', hip],
-          [upper, 1 - hip],
-        ],
       });
     }
-    shorts.rings(rows, 64);
+    loft(rows);
   }
   // Weld the pelvis-to-leg outer arcs and mirrored crotch saddle exactly.
   // Keeping original cloth UV coordinates at the seam is unnecessary for this
@@ -138,14 +350,36 @@ function sewnShorts(shorts: Tailor) {
   shorts.joints = joints;
   shorts.weights = weights;
   shorts.ids = shorts.ids.map((i) => remap[i]);
+  const records = Array.from({ length: shorts.p.length / 3 }, (_, i) => {
+    const point = shorts.p.slice(i * 3, i * 3 + 3),
+      key = point.map((v) => Math.round(v * 1e7)).join(',');
+    return {
+      vertex: i,
+      ...(fieldSources.get(key) ?? { sourceTriangle: [], barycentric: [], discardedMass: 0 }),
+      analyticFallback: !fieldSources.has(key),
+    };
+  });
+  const buildGeometry = shorts.geometry;
+  shorts.geometry = function (name: string) {
+    const geometry = buildGeometry.call(this, name);
+    geometry.userData.garmentFit = {
+      sourceVertices: skinPosition?.count ?? 0,
+      nominalRadialEaseMetres: 0.007,
+      minimumFeasibleArmCorridorMetres: 0.003,
+      weightRecipe:
+        'nearest non-arm anatomical triangle within25mm; barycentric production49 merge; stable greatest4 normalize; welded identical-position cache',
+      records,
+    };
+    return geometry;
+  };
 }
 
 /** Owns all returned geometries/materials; caller owns bound mesh wrappers. Idempotent disposal. */
-export function createContinuousKit(look: Look) {
+export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) {
   const shorts = new Tailor(),
     socks = new Tailor(),
     boots = new Tailor();
-  sewnShorts(shorts);
+  sewnShorts(shorts, bodyFit);
   const tongueRanges: number[][] = [],
     laceRanges: number[][] = [];
   for (const side of ['L', 'R'] as const) {
@@ -283,8 +517,12 @@ export function createContinuousKit(look: Look) {
   geometries.boots.setAttribute('color', new THREE.Float32BufferAttribute(bootColors, 3));
   // Ordinary dynamic attributes are versioned by Three's WebGLAttributes.
   // Changing morph arrays after first render is unsupported by its morph atlas.
-  (geometries.boots.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
-  (geometries.boots.getAttribute('normal') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+  (geometries.boots.getAttribute('position') as THREE.BufferAttribute).setUsage(
+    THREE.DynamicDrawUsage
+  );
+  (geometries.boots.getAttribute('normal') as THREE.BufferAttribute).setUsage(
+    THREE.DynamicDrawUsage
+  );
   bootStates.set(geometries.boots, createBootState(geometries.boots));
   const material = (color: THREE.ColorRepresentation, roughness: number) =>
     new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, side: THREE.DoubleSide });
@@ -320,8 +558,16 @@ function createBootState(g: THREE.BufferGeometry) {
     worldSole: new THREE.Vector3(),
     lifted: new THREE.Vector3(),
     matrices: [
-      { world: new THREE.Matrix4(), inverse: new THREE.Matrix4(), rest: new THREE.Vector3(.1, .08, 0) },
-      { world: new THREE.Matrix4(), inverse: new THREE.Matrix4(), rest: new THREE.Vector3(-.1, .08, 0) },
+      {
+        world: new THREE.Matrix4(),
+        inverse: new THREE.Matrix4(),
+        rest: new THREE.Vector3(0.1, 0.08, 0),
+      },
+      {
+        world: new THREE.Matrix4(),
+        inverse: new THREE.Matrix4(),
+        rest: new THREE.Vector3(-0.1, 0.08, 0),
+      },
     ],
   };
 }
@@ -342,7 +588,8 @@ export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
     const object = j === 0 ? rig.root : rig.bones[j === 1 ? 'footL' : 'footR'];
     object.updateWorldMatrix(true, false);
     for (let k = 0; k < 16; k++) {
-      const value = object.matrixWorld.elements[k], index = j * 16 + k;
+      const value = object.matrixWorld.elements[k],
+        index = j * 16 + k;
       if (!(Math.abs(value - state.previous[index]) <= 1e-10)) changed = true;
       state.previous[index] = value;
     }
@@ -364,7 +611,9 @@ export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
   const { bindPoint, worldSole, lifted, neutral, matrices } = state;
   let maxDisplacement = 0;
   for (let i = 0; i < p.count; i++) {
-    const x = neutral[i * 3], y = neutral[i * 3 + 1], z = neutral[i * 3 + 2];
+    const x = neutral[i * 3],
+      y = neutral[i * 3 + 1],
+      z = neutral[i * 3 + 2];
     const left = x > 0,
       m = matrices[left ? 0 : 1];
     const flex = Math.max(0, z - 0.15) * (left ? l : r);
