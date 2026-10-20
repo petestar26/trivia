@@ -330,9 +330,10 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
           .sub(arm.origin)
           .normalize();
         // Shoulder elevation relative to its chest frame, independent of root
-        // heading/scale. Ordinary low arm swings receive only a small fade.
+        // heading/scale. Measured resting breathing stays below 0.26 radians,
+        // avoiding idle skinning, fairing and geometry uploads.
         const direction = new THREE.Vector3(0, -1, 0).applyQuaternion(bone.quaternion);
-        arm.activation = smooth(0.18, 1.1, Math.acos(THREE.MathUtils.clamp(-direction.y, -1, 1)));
+        arm.activation = smooth(0.26, 1.1, Math.acos(THREE.MathUtils.clamp(-direction.y, -1, 1)));
       }
       const active = arms.L.activation > 0 || arms.R.activation > 0;
       if (!active && !wasActive) return;

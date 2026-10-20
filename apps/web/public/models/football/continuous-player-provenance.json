@@ -558,8 +558,8 @@
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-shirt-correctives.ts",
-      "bytes": 18215,
-      "sha256": "1790d649078954c4ef6196b2b650b6f843f2a6d9a2841076753bca59a9a259eb",
+      "bytes": 18282,
+      "sha256": "ea9f7ef69bcb031e970b197f580df4e81a261f41e65a9aae1bdad76c71b388ed",
       "version": "single-player-finishing-r5-20261020"
     },
     {
@@ -676,14 +676,14 @@
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-shirt-correctives.ts",
-        "sha256": "1790d649078954c4ef6196b2b650b6f843f2a6d9a2841076753bca59a9a259eb",
-        "bytes": 18215,
+        "sha256": "ea9f7ef69bcb031e970b197f580df4e81a261f41e65a9aae1bdad76c71b388ed",
+        "bytes": 18282,
         "version": "renderer-garment-repair-r6-20261020"
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-shirt-correctives.test.ts",
-        "sha256": "7310c1838031d286f6d4d9f1da0dd2b247ecfcc83832679c5f73c1019279a291",
-        "bytes": 8559,
+        "sha256": "d5992645d068c66de79b53e8ff2d1b69f9df13685ad06a82cf4e08a7368dab0f",
+        "bytes": 10192,
         "version": "renderer-garment-repair-r6-20261020"
       },
       {
@@ -733,6 +733,13 @@
       "protectedFootToeWorldMatrixError": 0,
       "limitation": "Targeted vertex/triangle samples only, not full triangle collision or physical-device validation."
     },
-    "facialSyncRegressionAccounted": "First combined339test run at8f21a62 found repeated-detail jaw synchronization regression and stale whole-array UV assertion. Cheap morph mirroring now always runs on unchanged detail; only duplicate pose-deformation work is skipped. Existing jaw-boundary regression stays unchanged. UV check retains every original corner and separately traces appended seam vertices. Exact finalhead rerun recorded in evidence."
+    "facialSyncRegressionAccounted": "First combined339test run at8f21a62 found repeated-detail jaw synchronization regression and stale whole-array UV assertion. Cheap morph mirroring now always runs on unchanged detail; only duplicate pose-deformation work is skipped. Existing jaw-boundary regression stays unchanged. UV check retains every original corner and separately traces appended seam vertices. Exact finalhead rerun recorded in evidence.",
+    "idleClothHotPathRepair": {
+      "activationOnsetRadians": 0.26,
+      "priorOnsetRadians": 0.18,
+      "reason": "Measured naturalrest localshoulderangles~.217/.235 exceeded oldonset and tinyactivation invoked full lowshirtfairing. Newonset keepsrest belowactivation; raisedshoulders stillcontinuous throughsame1.1rad endpoint.",
+      "regression": "Actual20secondidle sweep botharms, unchangedposition/normalversions; raisedarm activates, neutralreset once, secondidle sweep no uploads. No bone/clock/contact changes.",
+      "profiling": "Intermediatea289 profiles/ownertrace preserved separately; newexacthead remeasured. No overallphysicalspeedupclaim."
+    }
   }
 }

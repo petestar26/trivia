@@ -4,6 +4,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRig, BONES } from './rig';
 import { createContinuousShirtCorrectives } from './continuous-shirt-correctives';
+import { poseIdle } from './poses';
+import { applyReviewPlayerMotion } from './review-player-motion';
 
 async function fixture() {
   const raw = readFileSync('public/models/football/continuous-jersey.glb');
@@ -172,6 +174,46 @@ describe('preferred shirt original shoulder corrective', () => {
     expect(ownedDispose).toHaveBeenCalledTimes(1);
     expect(sourceDispose).not.toHaveBeenCalled();
     expect(f.mesh.geometry).toBe(f.source);
+    f.dispose();
+  });
+  it('leaves idle breathing buffers untouched and resets once after raised arms', async () => {
+    const f = await fixture(),
+      adapter = createContinuousShirtCorrectives(f.mesh, f.rig);
+    const p = f.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const n = f.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const neutral = Array.from(p.array),
+      neutralNormals = Array.from(n.array);
+    let maxAngle = 0;
+    const idle = (time: number) => {
+      poseIdle(f.rig, time, 0.37);
+      applyReviewPlayerMotion(f.rig, { kind: 'idle', time, phase: 0, speed: 0 });
+      adapter.update();
+    };
+    const sweep = () => {
+      const pv = p.version,
+        nv = n.version;
+      for (let step = 0; step <= 400; step++) {
+        idle(step / 20);
+        for (const side of ['L', 'R'] as const) {
+          const direction = new THREE.Vector3(0, -1, 0).applyQuaternion(
+            f.rig.bones[`upperArm${side}`].quaternion
+          );
+          maxAngle = Math.max(maxAngle, Math.acos(THREE.MathUtils.clamp(-direction.y, -1, 1)));
+        }
+        expect(p.version).toBe(pv);
+        expect(n.version).toBe(nv);
+      }
+    };
+    sweep();
+    expect(maxAngle).toBeLessThan(0.26);
+    f.rig.bones.upperArmL.rotation.z = 1.3;
+    adapter.update();
+    expect(Array.from(p.array)).not.toEqual(neutral);
+    idle(0);
+    expect(Array.from(p.array)).toEqual(neutral);
+    expect(Array.from(n.array)).toEqual(neutralNormals);
+    sweep();
+    adapter.dispose();
     f.dispose();
   });
   it('restores exact source for neutral/reduced motion and gives repeatable random access', async () => {
