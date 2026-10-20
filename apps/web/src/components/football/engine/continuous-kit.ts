@@ -281,13 +281,11 @@ export function createContinuousKit(look: Look) {
   for (const [a, b] of laceRanges)
     for (let i = a; i < b; i++) bootColors.set(laceColor.toArray(), i * 3);
   geometries.boots.setAttribute('color', new THREE.Float32BufferAttribute(bootColors, 3));
-  // Correct only the visible forefoot beyond the fixed ball datum. It allows a
-  // flat neutral last to roll on the ball during loaded plantar flexion.
-  const p = geometries.boots.getAttribute('position'),
-    flex = new Float32Array(p.count * 3);
-  for (let i = 0; i < p.count; i++) flex[i * 3 + 1] = Math.max(0, p.getZ(i) - 0.15);
-  geometries.boots.morphAttributes.position = [new THREE.Float32BufferAttribute(flex, 3)];
-  geometries.boots.morphTargetsRelative = true;
+  // Ordinary dynamic attributes are versioned by Three's WebGLAttributes.
+  // Changing morph arrays after first render is unsupported by its morph atlas.
+  (geometries.boots.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+  (geometries.boots.getAttribute('normal') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+  bootStates.set(geometries.boots, createBootState(geometries.boots));
   const material = (color: THREE.ColorRepresentation, roughness: number) =>
     new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, side: THREE.DoubleSide });
   const materials = {
@@ -303,59 +301,87 @@ export function createContinuousKit(look: Look) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      bootStates.delete(geometries.boots);
       Object.values(geometries).forEach((g) => g.dispose());
       Object.values(materials).forEach((m) => m.dispose());
     },
   };
 }
 
+function createBootState(g: THREE.BufferGeometry) {
+  const p = g.getAttribute('position');
+  return {
+    neutral: new Float32Array(p.array),
+    previous: new Float64Array(48).fill(Number.NaN),
+    rootQuaternion: new THREE.Quaternion(),
+    footQuaternion: new THREE.Quaternion(),
+    forward: new THREE.Vector3(),
+    bindPoint: new THREE.Vector3(),
+    worldSole: new THREE.Vector3(),
+    lifted: new THREE.Vector3(),
+    matrices: [
+      { world: new THREE.Matrix4(), inverse: new THREE.Matrix4(), rest: new THREE.Vector3(.1, .08, 0) },
+      { world: new THREE.Matrix4(), inverse: new THREE.Matrix4(), rest: new THREE.Vector3(-.1, .08, 0) },
+    ],
+  };
+}
+const bootStates = new WeakMap<THREE.BufferGeometry, ReturnType<typeof createBootState>>();
+
 /** Call after final contact solving; does not alter bones, anchors or timing.
  * Coherent forefoot/sole sections bend visually; legacy kick BALL markers may
  * cross turf, so their visible sole correspondence is explicitly not retained.
- * Per-side morph attributes are set independently on the owned boot geometry. */
+ * The owned dynamic position buffer uploads every changed pose. */
 export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
   const g = mesh.geometry,
-    p = g.getAttribute('position'),
-    delta = g.morphAttributes.position?.[0];
-  if (!delta) return;
-  const rootQ = rig.root.getWorldQuaternion(new THREE.Quaternion()).invert();
+    p = g.getAttribute('position') as THREE.BufferAttribute,
+    state = bootStates.get(g);
+  if (!state) return;
+  rig.root.updateWorldMatrix(true, false);
+  let changed = false;
+  for (let j = 0; j < 3; j++) {
+    const object = j === 0 ? rig.root : rig.bones[j === 1 ? 'footL' : 'footR'];
+    object.updateWorldMatrix(true, false);
+    for (let k = 0; k < 16; k++) {
+      const value = object.matrixWorld.elements[k], index = j * 16 + k;
+      if (!(Math.abs(value - state.previous[index]) <= 1e-10)) changed = true;
+      state.previous[index] = value;
+    }
+    if (j > 0) {
+      state.matrices[j - 1].world.copy(object.matrixWorld);
+      state.matrices[j - 1].inverse.copy(object.matrixWorld).invert();
+    }
+  }
+  if (!changed) return;
+  const rootQ = rig.root.getWorldQuaternion(state.rootQuaternion).invert();
   const pitch = (side: 'L' | 'R') => {
     const bone = rig.skeleton.bones[BONES.indexOf(`foot${side}`)];
-    const q = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(rootQ);
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const q = bone.getWorldQuaternion(state.footQuaternion).premultiply(rootQ);
+    const forward = state.forward.set(0, 0, 1).applyQuaternion(q);
     return Math.min(2.5, Math.max(0, -forward.y / Math.max(0.25, forward.z)));
   };
   const l = pitch('L'),
     r = pitch('R');
-  const matrices = (['L', 'R'] as const).map((side) => {
-    const bone = rig.bones[`foot${side}`];
-    bone.updateWorldMatrix(true, false);
-    return {
-      world: bone.matrixWorld.clone(),
-      inverse: bone.matrixWorld.clone().invert(),
-      rest: new THREE.Vector3(side === 'L' ? 0.1 : -0.1, 0.08, 0),
-    };
-  });
-  const bindPoint = new THREE.Vector3(),
-    worldSole = new THREE.Vector3(),
-    lifted = new THREE.Vector3();
+  const { bindPoint, worldSole, lifted, neutral, matrices } = state;
   let maxDisplacement = 0;
   for (let i = 0; i < p.count; i++) {
-    const left = p.getX(i) > 0,
+    const x = neutral[i * 3], y = neutral[i * 3 + 1], z = neutral[i * 3 + 2];
+    const left = x > 0,
       m = matrices[left ? 0 : 1];
-    const flex = Math.max(0, p.getZ(i) - 0.15) * (left ? l : r);
+    const flex = Math.max(0, z - 0.15) * (left ? l : r);
     // Coherent cross-section bend: the entire last section translates together
     // by its sole's shortfall, retaining toe-box thickness and curved upper.
     // No rendered point is independently clamped. Neutral sole remains flat.
-    bindPoint.set(p.getX(i), 0.01 + flex, p.getZ(i)).sub(m.rest);
+    bindPoint.set(x, 0.01 + flex, z).sub(m.rest);
     worldSole.copy(bindPoint).applyMatrix4(m.world);
     lifted.copy(worldSole);
     lifted.y += Math.min(0.12, Math.max(0, 0.001 - worldSole.y));
     lifted.applyMatrix4(m.inverse).sub(bindPoint);
-    delta.setXYZ(i, lifted.x, flex + lifted.y, lifted.z);
+    p.setXYZ(i, x + lifted.x, y + flex + lifted.y, z + lifted.z);
     maxDisplacement = Math.max(maxDisplacement, Math.hypot(lifted.x, flex + lifted.y, lifted.z));
   }
   g.userData.maxVisualBootDisplacementMetres = maxDisplacement;
-  delta.needsUpdate = true;
-  if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[0] = 1;
+  p.needsUpdate = true;
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
 }
