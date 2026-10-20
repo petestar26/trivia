@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { BONES, type Rig, type HumanGeometry } from './rig';
 import { headGeometry } from './player-assets';
+import { createContinuousPlayerLod } from './continuous-player-lod';
 import {
   attachPlayerHead,
   disposeHairAssets,
@@ -16,6 +17,7 @@ export const REVIEW_PLAYER_SLOT = 1;
 export interface ReviewPlayerAssets {
   head: THREE.BufferGeometry;
   continuousHead?: THREE.BufferGeometry;
+  continuousLowHead?: THREE.BufferGeometry;
   hair: THREE.BufferGeometry;
   brows: THREE.BufferGeometry;
   skin: THREE.Texture;
@@ -187,6 +189,13 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     const continuousHead = headGeometry(results[0] as PromiseFulfilledResult<GLTF>, 'continuous');
     prepared.push(continuousHead);
     validateReviewHead(continuousHead);
+    const continuousLowHead = createContinuousPlayerLod(continuousHead, {
+      protectNeck: false,
+      cellSize: 0.016,
+      fineCellSize: 0.008,
+    });
+    prepared.push(continuousLowHead);
+    validateReviewHead(continuousLowHead);
     const gltf = (results[1] as PromiseFulfilledResult<GLTF>).value;
     const find = (name: string) => {
       const mesh = gltf.scene.getObjectByName(name);
@@ -215,6 +224,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     return {
       head,
       continuousHead,
+      continuousLowHead,
       hair,
       brows,
       skin,
@@ -224,7 +234,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
       dispose() {
         if (disposed) return;
         disposed = true;
-        disposeHairAssets({ high: head, mid: continuousHead, low: head });
+        disposeHairAssets({ high: head, mid: continuousHead, low: continuousLowHead });
         prepared.forEach((g) => g.dispose());
         textures.forEach((t) => t.dispose());
         environment.dispose();
@@ -298,7 +308,9 @@ export function attachReviewHead(
     {
       high: continuous && assets.continuousHead ? assets.continuousHead : assets.head,
       mid: continuous && assets.continuousHead ? assets.continuousHead : assets.head,
-      low: base.low,
+      low: continuous
+        ? (assets.continuousLowHead ?? assets.continuousHead ?? assets.head)
+        : base.low,
     },
     identity,
     material
@@ -346,9 +358,10 @@ export function attachReviewHead(
     visual.setDetail(next);
     prepareLook();
     const close = next !== 'low';
-    visual.mesh.material = close ? material : fallbackMaterial;
-    visual.hair.visible = !close;
-    hair.visible = brows.visible = close;
+    const reviewSurface = close || continuous;
+    visual.mesh.material = reviewSurface ? material : fallbackMaterial;
+    visual.hair.visible = !reviewSurface;
+    hair.visible = brows.visible = reviewSurface;
   }
   setDetail('mid');
   return {

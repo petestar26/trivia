@@ -18,7 +18,12 @@ import {
   REVIEW_PLAYER_SLOT,
   type ReviewPlayerAssets,
 } from './review-player';
-import { applyReviewPlayerMotion, poseReviewPlayerHands } from './review-player-motion';
+import {
+  applyReviewPlayerMotion,
+  poseReviewPlayerHands,
+  createReviewMotionState,
+  resetReviewMotionState,
+} from './review-player-motion';
 import { attachReviewBody } from './review-player-body';
 import {
   loadContinuousPlayerAssets,
@@ -159,6 +164,8 @@ export function createPlayerPool(): PlayerPool {
   let continuousAssets: ContinuousPlayerAssets | undefined;
   let continuousLoadStarted = false;
   let continuousPlayer: ReturnType<typeof attachContinuousPlayer> | undefined;
+  const reviewMotionState = createReviewMotionState();
+  let reviewMotionTime: number | undefined;
   let skinMaps: ReturnType<typeof appearanceTextures> | undefined;
   let fabricMaps: ReturnType<typeof appearanceTextures> | undefined;
   let sharedHeadMaterial: THREE.Material | undefined;
@@ -223,6 +230,8 @@ export function createPlayerPool(): PlayerPool {
 
   function setTeams(homeClub: number, awayClub: number) {
     if (disposed) return;
+    resetReviewMotionState(reviewMotionState);
+    reviewMotionTime = undefined;
     teams = [homeClub, awayClub];
     continuousPlayer?.dispose();
     continuousPlayer = undefined;
@@ -406,6 +415,16 @@ export function createPlayerPool(): PlayerPool {
         st.from = null;
         st.blend = 1;
       }
+      if (i === REVIEW_PLAYER_SLOT) {
+        if (
+          teleported ||
+          !animate ||
+          dt > 0.25 ||
+          (reviewMotionTime !== undefined && time < reviewMotionTime)
+        )
+          resetReviewMotionState(reviewMotionState);
+        reviewMotionTime = time;
+      }
       // A long suspension can skip a whole stance window; do not retain a stale world plant.
       if (dt > 0.25) st.plants = {};
       const yawBefore = st.yaw;
@@ -516,6 +535,8 @@ export function createPlayerPool(): PlayerPool {
       }
       if (i === REVIEW_PLAYER_SLOT && reviewAssets) {
         applyReviewPlayerMotion(rig, {
+          motionState: reviewMotionState,
+          deltaSeconds: dt,
           kind,
           time:
             actor.anim.kind === 'kick' || actor.anim.kind === 'keeperDive' ? actor.anim.t : time,
@@ -593,8 +614,8 @@ export function createPlayerPool(): PlayerPool {
       boots[i]?.setDetail(next);
       if (i === REVIEW_PLAYER_SLOT) reviewBody?.setDetail(next);
       if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.setDetail(next);
-      if (i === REVIEW_PLAYER_SLOT && continuousPlayer && plates[i])
-        plates[i]!.visible = next === 'low';
+      if (i === REVIEW_PLAYER_SLOT && continuousPlayer) boots[i]?.setDetail('low');
+      if (i === REVIEW_PLAYER_SLOT && continuousPlayer && plates[i]) plates[i]!.visible = false;
     }
   }
 

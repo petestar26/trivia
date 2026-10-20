@@ -420,7 +420,8 @@ describe('same-person continuous body/head adapter', () => {
     expect(material.vertexColors).toBe(false);
     expect(material.map!.wrapS).toBe(THREE.RepeatWrapping);
     expect(material.map!.colorSpace).toBe(THREE.SRGBColorSpace);
-    expect(jersey.geometry.getAttribute('uv')).toBe(uv);
+    expect(jersey.geometry.getAttribute('uv')).not.toBe(uv);
+    expect(Array.from(jersey.geometry.getAttribute('uv').array)).toEqual(Array.from(uv.array));
     expect(fingerprint(f.assets.jersey)).toBe(before);
     f.body.dispose();
     expect(atlasDisposed).not.toHaveBeenCalled();
@@ -557,7 +558,8 @@ describe('same-person continuous body/head adapter', () => {
     expect(shader.vertexShader).toContain('vNumberBack=-normal.z');
     expect(shader.fragmentShader).toContain('vNumberBack>0.25');
     expect(shader.fragmentShader).toContain('numberInk.a');
-    expect(garment).toBe(f.assets.jersey);
+    expect(garment).not.toBe(f.assets.jersey);
+    expect(garment).toBe(f.body.meshes.jersey.geometry);
     expect(garment.getAttribute('position').count).toBe(vertexCount);
     expect(fingerprint(garment)).toBe(original);
     f.body.dispose();
@@ -616,10 +618,19 @@ describe('same-person continuous body/head adapter', () => {
         f.body.setDetail(detail);
         expect(body.visible).toBe(detail !== 'low');
         expect(f.body.meshes.jersey.visible).toBe(detail !== 'low');
-        expect(f.rig.mesh.visible).toBe(detail === 'low');
+        expect(f.rig.mesh.visible).toBe(false);
+        expect(f.body.meshes.lowBody.visible).toBe(detail === 'low');
+        expect(f.body.meshes.lowJersey.visible).toBe(detail === 'low');
+        expect(f.body.meshes.shorts.visible).toBe(true);
+        expect(f.body.meshes.socks.visible).toBe(true);
+        expect(f.body.meshes.boots.visible).toBe(true);
         for (const [name, target] of Object.entries(body.morphTargetDictionary!))
           expect(body.morphTargetInfluences![target]).toBe(
             f.face.mesh.morphTargetInfluences![f.face.mesh.morphTargetDictionary![name]]
+          );
+        for (const [name, target] of Object.entries(f.body.meshes.lowBody.morphTargetDictionary!))
+          expect(f.body.meshes.lowBody.morphTargetInfluences![target]).toBe(
+            body.morphTargetInfluences![body.morphTargetDictionary![name]]
           );
         expect(body.morphTargetInfluences![body.morphTargetDictionary!.noseWidth]).toBe(
           f.identity.nose

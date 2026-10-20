@@ -432,7 +432,7 @@ describe('optional continuous character pool lifecycle', () => {
     camera.updateProjectionMatrix();
     current.setDetail!(camera, 1);
     expect(current.rigs[1].root.userData.playerDetail).toBe('low');
-    expect(plate.visible).toBe(true);
+    expect(plate.visible).toBe(false);
     expect(visual.captured.jawOpen).toBe(0);
     expect(visual.captured).toEqual(face(visual.head));
     current.setDetail!(camera, 120);

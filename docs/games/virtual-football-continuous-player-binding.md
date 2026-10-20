@@ -1,4 +1,6 @@
-# Continuous review player: implemented binding milestone
+# Continuous review player: historical binding milestone
+
+**Finishing update:** [Single-player finishing implementation](virtual-football-single-player-finishing.md) supersedes the historical body/shirt hashes, raw zero-transfer-error claim, lower-kit/boot omissions and low-detail fallback description below. It documents the implemented pelvis refinement, intentional shirt tailoring, original welded shorts/socks/boots, bounded correctives, continuous motion sequence and reduced continuous low detail. Current verification and limitations live there and in `continuous-player-provenance.json`; the following retains the preceding binding milestone's evidence context.
 
 Implemented 2026-10-20 for the existing PR59 home review actor (formation slot 1, shirt 2). The actor now has one continuous MakeHuman-derived anatomical body, the preferred tucked shirt transferred through its original MakeClothes correspondence, and the accepted review face joined at 1.53 m. This is an implementation milestone with retained editable inputs and reproducible exports. The [earlier artist brief](virtual-football-continuous-player-artist-brief.md) remains the broader finishing specification; its requested `.blend`, tailoring, corrective and full-motion deliverables are still pending where described below.
 

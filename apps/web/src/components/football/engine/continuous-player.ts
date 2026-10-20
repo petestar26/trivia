@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { continuousShirtCoverage } from './continuous-player-coverage';
+import { createContinuousBodyCorrectives } from './continuous-body-correctives';
+import { createContinuousKit, syncContinuousBootFlex } from './continuous-kit';
+import { createContinuousPlayerLod } from './continuous-player-lod';
+import { createContinuousShirtCorrectives } from './continuous-shirt-correctives';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   BONES,
-  Region,
   boneParent,
   restLocalPosition,
   restPosition,
-  lookGeometry,
   type HumanGeometry,
   type Look,
   type Rig,
@@ -186,32 +188,11 @@ export async function loadContinuousPlayerAssets(): Promise<ContinuousPlayerAsse
   }
 }
 
-/** Keep only genuinely covered old footwear, with its verified sole/contact fit. */
-function footwear(source: HumanGeometry, look: Look) {
-  const result = lookGeometry(look, source),
-    g = result.geometry,
-    index = g.index!;
-  const keep: number[] = [];
-  for (let i = 0; i < index.count; i += 3) {
-    const ids = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
-    if (
-      ids.every(
-        (id) =>
-          source.region[id] === Region.BOOT ||
-          (source.region[id] === Region.SOCK && g.getAttribute('position').getY(id) < 0.23)
-      )
-    )
-      keep.push(...ids);
-  }
-  g.setIndex(keep);
-  return result;
-}
-
 /** One continuous anatomical surface plus the separately authored CC0 shirt.
- * Low detail remains the reviewed efficient distant player, with its own head. */
+ * Only this actor receives the fitted kit and reduced distant surface. */
 export function attachContinuousPlayer(
   rig: Rig,
-  source: HumanGeometry,
+  _source: HumanGeometry,
   look: Look,
   kitMaterial: THREE.Material,
   assets: ContinuousPlayerAssets,
@@ -252,7 +233,13 @@ export function attachContinuousPlayer(
     index = bodyGeometry.index!;
   for (let i = 0; i < index.count; i += 3) {
     const ids = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
-    if (ids.some((id) => positions.getY(id) < 0.16) || ids.every((id) => covered[id])) continue;
+    if (
+      ids.some((id) => positions.getY(id) < 0.16) ||
+      ids.every((id) => covered[id]) ||
+      ids.every((id) => outfit[id] < 0.1 && positions.getY(id) < 0.474) ||
+      ids.every((id) => outfit[id] < 0.1 && positions.getY(id) > 0.68 && positions.getY(id) < 1.07)
+    )
+      continue;
     visible.push(...ids);
   }
   bodyGeometry.setIndex(visible);
@@ -260,37 +247,11 @@ export function attachContinuousPlayer(
     originalTriangles: index.count / 3,
     visibleTriangles: visible.length / 3,
     reason:
-      'MHCLO correspondence/adjacency shirt coverage with collar/cuff openings; accepted contact footwear/cuff retained',
+      'MHCLO shirt coverage plus fitted shorts/socks/footwear coverage; full editable source retained',
   };
   bodyGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   bodyGeometry.setAttribute('outfit', new THREE.Float32BufferAttribute(outfit, 1));
-  const bodyMaterial = reviewSkinMaterial(review, maps),
-    beforeCompile = bodyMaterial.onBeforeCompile;
-  bodyMaterial.onBeforeCompile = (shader, renderer) => {
-    beforeCompile.call(bodyMaterial, shader, renderer);
-    shader.uniforms.continuousShorts = { value: new THREE.Color(look.kit.shorts) };
-    shader.uniforms.continuousSocks = { value: new THREE.Color(look.kit.socks) };
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nattribute float outfit; varying float vOutfit; varying float vRestY;'
-      )
-      .replace(
-        '#include <begin_vertex>',
-        '#include <begin_vertex>\nvOutfit=outfit; vRestY=position.y;'
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nvarying float vOutfit; varying float vRestY; uniform vec3 continuousShorts; uniform vec3 continuousSocks;'
-      )
-      .replace('#include <color_fragment>', '#include <color_fragment>')
-      .replace(
-        '#include <roughnessmap_fragment>',
-        'if(vOutfit<0.1 && vRestY>0.64 && vRestY<1.07) diffuseColor.rgb=continuousShorts; else if(vRestY<0.43) diffuseColor.rgb=continuousSocks;\n#include <roughnessmap_fragment>'
-      );
-  };
-  bodyMaterial.customProgramCacheKey = () => 'playqube-continuous-body-v1';
+  const bodyMaterial = reviewSkinMaterial(review, maps);
   const shirtMaterial = (kitMaterial as THREE.MeshStandardMaterial).clone();
   shirtMaterial.vertexColors = false;
   shirtMaterial.color.set(shirtMaterial.map ? '#ffffff' : look.kit.primary);
@@ -358,21 +319,36 @@ export function attachContinuousPlayer(
     return mesh;
   };
   const body = make(bodyGeometry, bodyMaterial, 'continuous-player-body');
+  const corrective = createContinuousBodyCorrectives(body);
+  const lowBodyGeometry = createContinuousPlayerLod(bodyGeometry, { protectNeck: true });
+  const lowBody = make(lowBodyGeometry, bodyMaterial, 'continuous-player-body-low');
   const jersey = make(assets.jersey, shirtMaterial, 'continuous-player-jersey');
-  const bootLook = footwear(source, look),
-    boots = make(bootLook.geometry, kitMaterial, 'continuous-player-footwear');
+  const shirtCorrective = createContinuousShirtCorrectives(jersey, rig);
+  const lowJerseyGeometry = createContinuousPlayerLod(assets.jersey, { protectNeck: false });
+  const lowJersey = make(lowJerseyGeometry, shirtMaterial, 'continuous-player-jersey-low');
+  const lowShirtCorrective = createContinuousShirtCorrectives(lowJersey, rig);
+  const kit = createContinuousKit(look);
+  const shorts = make(kit.geometries.shorts, kit.materials.shorts, 'continuous-player-shorts');
+  const socks = make(kit.geometries.socks, kit.materials.socks, 'continuous-player-socks');
+  const boots = make(kit.geometries.boots, kit.materials.boots, 'continuous-player-footwear');
+  lowBody.visible = lowJersey.visible = false;
   let disposed = false,
     close = true;
   function syncFace() {
     if (disposed) return;
-    for (const [name, target] of Object.entries(body.morphTargetDictionary ?? {})) {
-      const index = head.mesh.morphTargetDictionary?.[name];
-      body.morphTargetInfluences![target] =
-        index === undefined ? 0 : (head.mesh.morphTargetInfluences?.[index] ?? 0);
-    }
+    for (const surface of [body, lowBody])
+      for (const [name, target] of Object.entries(surface.morphTargetDictionary ?? {})) {
+        const index = head.mesh.morphTargetDictionary?.[name];
+        surface.morphTargetInfluences![target] =
+          index === undefined ? 0 : (head.mesh.morphTargetInfluences?.[index] ?? 0);
+      }
+    if (close) corrective.update();
+    if (close) shirtCorrective.update();
+    else lowShirtCorrective.update();
+    syncContinuousBootFlex(boots, rig);
   }
   return {
-    meshes: { body, jersey, boots },
+    meshes: { body, lowBody, jersey, lowJersey, shorts, socks, boots },
     syncFace,
     setNumberTexture(texture: THREE.Texture) {
       if (disposed) return;
@@ -382,20 +358,31 @@ export function attachContinuousPlayer(
     setDetail(detail: PlayerDetail) {
       if (disposed) return;
       close = detail !== 'low';
-      body.visible = jersey.visible = boots.visible = close;
-      rig.mesh.visible = !close;
+      body.visible = jersey.visible = close;
+      lowBody.visible = lowJersey.visible = !close;
+      rig.mesh.visible = false;
+      rig.root.userData.continuousPlayerDetail = detail;
       syncFace();
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       body.removeFromParent();
+      lowBody.removeFromParent();
       jersey.removeFromParent();
+      lowJersey.removeFromParent();
+      shorts.removeFromParent();
+      socks.removeFromParent();
       boots.removeFromParent();
+      corrective.dispose();
+      shirtCorrective.dispose();
+      lowShirtCorrective.dispose();
       bodyGeometry.dispose();
+      lowBodyGeometry.dispose();
+      lowJerseyGeometry.dispose();
       bodyMaterial.dispose();
       shirtMaterial.dispose();
-      bootLook.dispose();
+      kit.dispose();
       rig.mesh.visible = true;
     },
   };

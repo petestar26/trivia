@@ -388,9 +388,10 @@ describe('optional single review player assets', () => {
     const prepared = dispose.mock.instances.filter(
       (g) => !fixture.resources.some((r) => r.resource === (g as unknown))
     );
-    // Legacy neck, continuous neck, hair and brows are independently owned.
-    expect(prepared).toHaveLength(4);
-    expect(new Set(prepared).size).toBe(4);
+    // Legacy neck, continuous high/low neck, hair and brows are owned.
+    // The LOD topology audit can also dispose rejected temporary candidates.
+    expect(prepared.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(prepared).size).toBe(prepared.length);
   });
 
   it('loads real source UV/morph data, discards raw preview assets and releases successful assets exactly once', async () => {
@@ -418,9 +419,14 @@ describe('optional single review player assets', () => {
         expect(weights.getX(i)).toBe(1);
       }
     }
-    const prepared = [assets.head, assets.hair, assets.brows, assets.environment].map((g) =>
-      vi.spyOn(g, 'dispose')
-    );
+    const prepared = [
+      assets.head,
+      assets.continuousHead!,
+      assets.continuousLowHead!,
+      assets.hair,
+      assets.brows,
+      assets.environment,
+    ].map((g) => vi.spyOn(g, 'dispose'));
     assets.dispose();
     assets.dispose();
     prepared.forEach((dispose) => expect(dispose).toHaveBeenCalledOnce());
@@ -447,12 +453,13 @@ describe('optional single review player assets', () => {
       if (!disposed) visuals.forEach((visual) => visual.dispose());
     });
     const cached = new Set<THREE.BufferGeometry>();
-    for (const visual of visuals)
-      for (const detail of ['high', 'mid'] as const) {
+    for (const [i, visual] of visuals.entries())
+      for (const detail of ['high', 'mid', 'low'] as const) {
         visual.setDetail(detail);
-        cached.add(visual.hair.geometry);
+        // The base-head asset owner retains the regular actor's low cache.
+        if (i === 1 || detail !== 'low') cached.add(visual.hair.geometry);
       }
-    expect(cached.size).toBe(4);
+    expect(cached.size).toBe(5);
     const released = [...cached].map((g) => vi.spyOn(g, 'dispose'));
     visuals.forEach((visual) => visual.dispose());
     disposed = true;
@@ -657,5 +664,89 @@ describe('review roster adoption boundaries', () => {
         (r) => r.root.children.filter((o) => o instanceof THREE.SkinnedMesh).length >= 3
       )
     ).toBe(true);
+  });
+});
+
+describe('continuous review low head', () => {
+  it('retains the exact cut boundary, semantic regions and all eight morphs', async () => {
+    localAssets();
+    const assets = own(await real.loadReviewPlayerAssets());
+    const high = assets.continuousHead!,
+      low = assets.continuousLowHead!;
+    expect(low.index!.count / 3).toBeLessThanOrEqual(5500);
+    expect(low.index!.count).toBeLessThanOrEqual(high.index!.count);
+    expect(low.morphAttributes.position).toHaveLength(8);
+    expect(low.morphAttributes.normal).toHaveLength(8);
+    const hp = high.getAttribute('position'),
+      lp = low.getAttribute('position');
+    const boundary = Array.from({ length: hp.count }, (_, i) => i).filter(
+      (i) => Math.abs(hp.getY(i) - 1.53) < 1e-6
+    );
+    expect(boundary.length).toBeGreaterThanOrEqual(87);
+    const positionMap = new Map<string, number[]>();
+    for (let i = 0; i < lp.count; i++) {
+      const key = [lp.getX(i), lp.getY(i), lp.getZ(i)].join(':');
+      const ids = positionMap.get(key) ?? [];
+      ids.push(i);
+      positionMap.set(key, ids);
+    }
+    for (const i of boundary) {
+      const candidates = positionMap.get([hp.getX(i), hp.getY(i), hp.getZ(i)].join(':')) ?? [];
+      expect(candidates.length).toBeGreaterThan(0);
+      const same = candidates.some((j) => {
+        for (const name of ['normal', 'skinIndex', 'skinWeight', '_part', 'uv', 'uv1']) {
+          const a = high.getAttribute(name),
+            b = low.getAttribute(name);
+          for (let k = 0; k < a.itemSize; k++)
+            if (a.getComponent(i, k) !== b.getComponent(j, k)) return false;
+        }
+        for (const name of ['position', 'normal'] as const)
+          for (let target = 0; target < 8; target++) {
+            const a = high.morphAttributes[name]![target],
+              b = low.morphAttributes[name]![target];
+            for (let k = 0; k < 3; k++)
+              if (a.getComponent(i, k) !== b.getComponent(j, k)) return false;
+          }
+        return true;
+      });
+      expect(same).toBe(true);
+    }
+    const sourceParts = new Set(Array.from(high.getAttribute('_part').array));
+    for (const part of Array.from(low.getAttribute('_part').array))
+      expect(sourceParts.has(part)).toBe(true);
+  });
+
+  it('uses the same review identity, licensed surface and hair through low/high transitions', async () => {
+    localAssets();
+    const assets = own(await real.loadReviewPlayerAssets()),
+      base = await baseHeads();
+    const material = own(new THREE.MeshBasicMaterial());
+    const rig = own(createRig(material, humanGeometry().geometry));
+    const maps = {
+      normal: own(new THREE.CanvasTexture(document.createElement('canvas'))),
+      roughness: own(new THREE.CanvasTexture(document.createElement('canvas'))),
+      dispose() {},
+    };
+    const identity = { ...playerIdentity(1, 1), seed: 0 };
+    const visual = real.attachReviewHead(rig, base, identity, material, assets, maps, true);
+    cleanups.push(() => visual.dispose());
+    const accessories = rig.root.children.filter(
+      (o) =>
+        o instanceof THREE.SkinnedMesh && o !== rig.mesh && o !== visual.mesh && o !== visual.hair
+    );
+    for (const detail of ['low', 'high', 'low', 'mid'] as const) {
+      visual.setDetail(detail);
+      visual.animate(0.1, 'run', true);
+      expectFacial(visual, identity, detail, true);
+      expect(visual.mesh.geometry.getAttribute('position')).toBe(
+        (detail === 'low' ? assets.continuousLowHead! : assets.continuousHead!).getAttribute(
+          'position'
+        )
+      );
+      expect(visual.mesh.material).not.toBe(material);
+      expect(visual.hair.visible).toBe(false);
+      expect(accessories.length).toBe(2);
+      expect(accessories.every((o) => o.visible)).toBe(true);
+    }
   });
 });
