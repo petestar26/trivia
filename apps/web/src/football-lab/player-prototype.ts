@@ -23,6 +23,9 @@ import {
   poseReviewPlayerHands,
   REVIEW_MOTION_SCENARIOS,
   type ReviewMotionScenario,
+  createReviewMotionState,
+  resetReviewMotionState,
+  sampleReviewFinishingSequence,
 } from '../components/football/engine/review-player-motion';
 import {
   createRig,
@@ -41,12 +44,17 @@ import {
   KICK,
   DIVE_CONTACT,
   resetPose,
+  capture,
+  blendTo,
+  type PoseSnapshot,
 } from '../components/football/engine/poses';
+import { placeFoot } from '../components/football/engine/ik';
 
 const q = new URLSearchParams(location.search),
   scene = new THREE.Scene();
 const reduced = q.has('reduced') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const requested = q.get('scenario') ?? 'jog';
+const finishingSequence = requested === 'finishingSequence';
 const scenario: ReviewMotionScenario = REVIEW_MOTION_SCENARIOS.includes(
   requested as ReviewMotionScenario
 )
@@ -74,6 +82,12 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.001;
 scene.add(ground);
+// Original diagnostic markings expose travelled distance and planted turns even
+// while the close camera follows the actor. They are not match outcome inputs.
+const markings = new THREE.GridHelper(60, 30, '#a8bfa7', '#496f54');
+markings.position.y = 0.0005;
+markings.visible = finishingSequence || q.has('markers');
+scene.add(markings);
 const base = await loadPlayerUpgrade();
 const assets = await loadReviewPlayerAssets().catch(() => undefined);
 const continuousAssets =
@@ -115,16 +129,22 @@ const body = assets
     ? attachContinuousPlayer(rig, base, look, material, continuousAssets, assets, skin, head)
     : attachReviewBody(rig, base, look, material)
   : undefined;
-head.setDetail('high');
-body?.setDetail('high');
+const detail = q.get('detail') === 'low' ? 'low' : q.get('detail') === 'mid' ? 'mid' : 'high';
+head.setDetail(detail);
+body?.setDetail(detail);
 const boots = attachBootDetails(rig);
-boots.setDetail('high');
+boots.setDetail(continuousAssets ? 'low' : detail);
 const ball = new THREE.Mesh(
   new THREE.SphereGeometry(0.11, 16, 10),
   new THREE.MeshStandardMaterial({ color: '#f6f3ed', roughness: 0.55 })
 );
 scene.add(ball);
 let plants: RunPlant = {};
+const motionState = createReviewMotionState();
+let lastDrawTime: number | undefined;
+let lastKind: string | undefined;
+let transitionFrom: PoseSnapshot | undefined;
+let transitionAge = 1;
 const camera = new THREE.PerspectiveCamera(
   q.has('face') ? 30 : 35,
   innerWidth / innerHeight,
@@ -140,12 +160,27 @@ const kick = {
 };
 function draw(t = 0, exportFrame = false) {
   if (reduced) t = 0;
-  const close = q.has('face'),
-    s = sampleReviewMotionScenario(close ? 'idle' : scenario, t);
+  const dt = lastDrawTime === undefined ? 0 : Math.max(0, t - lastDrawTime);
+  if (lastDrawTime === undefined || t < lastDrawTime || dt > 0.25) {
+    resetReviewMotionState(motionState);
+    transitionFrom = undefined;
+    lastKind = undefined;
+  }
+  lastDrawTime = t;
+  const close = q.has('face');
+  const finishing = finishingSequence && !close ? sampleReviewFinishingSequence(t) : undefined;
+  const s = finishing ?? sampleReviewMotionScenario(close ? 'idle' : scenario, t);
+  const activeKick = finishing?.kickSpec ?? kick;
+  if (finishing && lastKind !== undefined && lastKind !== s.motion.kind) {
+    transitionFrom = capture(rig);
+    transitionAge = 0;
+    plants = {};
+  }
+  lastKind = s.motion.kind;
   rig.root.position.set(s.position.x, s.position.y, s.position.z);
   rig.root.rotation.y = close ? 0 : s.heading;
-  ball.visible = !close && (scenario === 'kick' || scenario === 'keeperDive');
-  ball.position.copy(kick.ball);
+  ball.visible = !close && (s.motion.kind === 'kick' || s.motion.kind === 'keeperDive');
+  ball.position.copy(activeKick.ball);
   if (close || reduced) poseIdle(rig, 0);
   else if (s.motion.kind === 'run') {
     poseRun(rig, s.phase, Math.max(1.2, s.speed), {
@@ -154,24 +189,42 @@ function draw(t = 0, exportFrame = false) {
       turn: s.motion.turn,
       turnTime: t,
     });
-  } else if (scenario === 'kick') {
-    const root = kickGeometry(kick).root;
+  } else if (s.motion.kind === 'kick') {
+    const root = kickGeometry(activeKick).root;
     rig.root.position.copy(root);
-    poseKick(rig, t, kick);
-    if (t > KICK.contact)
-      ball.position.addScaledVector(kick.dir, (t - KICK.contact) * 5).y +=
-        Math.sin(Math.min(1, (t - KICK.contact) / 1.5) * Math.PI) * 0.5;
+    poseKick(rig, s.motion.time, activeKick);
+    if (s.motion.time > KICK.contact)
+      ball.position.addScaledVector(activeKick.dir, (s.motion.time - KICK.contact) * 5).y +=
+        Math.sin(Math.min(1, (s.motion.time - KICK.contact) / 1.5) * Math.PI) * 0.5;
   } else if (scenario === 'keeperDive' && s.keeperSpec) {
     const target = new THREE.Vector3(s.keeperSpec.reach, s.keeperSpec.height, 0.12);
     poseKeeperDive(rig, t, s.keeperSpec, target);
     ball.position.copy(target);
     if (t < DIVE_CONTACT) ball.position.z += (DIVE_CONTACT - t) * 3;
   } else poseIdle(rig, t);
+  if (finishing && transitionFrom && transitionAge < 0.14 && !reduced) {
+    // Use the match renderer's contact-preserving base-pose transition.
+    const feet = (['L', 'R'] as const).map((side) => ({
+      side,
+      ankle: rig.bones[`foot${side}`].getWorldPosition(new THREE.Vector3()),
+      angles: new THREE.Euler().setFromQuaternion(
+        rig.bones[`foot${side}`].getWorldQuaternion(new THREE.Quaternion()),
+        'YXZ'
+      ),
+    }));
+    transitionAge = Math.min(0.14, transitionAge + dt);
+    const u = transitionAge / 0.14;
+    blendTo(rig, transitionFrom, u * u * (3 - 2 * u));
+    if (s.motion.kind === 'run' || s.motion.kind === 'kick')
+      feet.forEach((f) => placeFoot(rig, f.side, f.ankle, f.angles.x, f.angles.y, f.angles.z));
+  }
   if (assets)
     applyReviewPlayerMotion(rig, {
       ...s.motion,
       time: close ? t : s.motion.time,
       reducedMotion: reduced,
+      motionState,
+      deltaSeconds: dt,
     });
   if (s.motion.kind === 'run' && !reduced)
     plantRunFeet(rig, s.phase, Math.max(1.2, s.speed), plants);
@@ -191,6 +244,9 @@ function draw(t = 0, exportFrame = false) {
       rig.bones.upperLegL.rotation.x = rig.bones.upperLegR.rotation.x = -Math.PI / 3;
       rig.bones.lowerLegL.rotation.x = rig.bones.lowerLegR.rotation.x = (Math.PI * 2) / 3;
       rig.bones.footL.rotation.x = rig.bones.footR.rotation.x = -Math.PI / 3;
+    } else if (proofPose === 'neck') {
+      rig.bones.neck.rotation.y = 0.25;
+      rig.bones.head.rotation.y = 0.8;
     }
     head.animate(0, 'idle', false);
   }
@@ -219,7 +275,7 @@ function draw(t = 0, exportFrame = false) {
     caption.textContent = `Simulated character diagnostic · ${identity.name} · ${proofPose ? `${proofPose} deformation proof` : reduced ? 'reduced motion' : s.label} · ${continuousAssets ? 'continuous body / MHCLO shirt' : assets ? 'reviewed baseline' : 'PR59 fallback'}`;
   return {
     t,
-    scenario,
+    scenario: finishingSequence ? 'finishingSequence' : scenario,
     label: s.label,
     sample: s,
     identity,
@@ -243,6 +299,10 @@ function draw(t = 0, exportFrame = false) {
   renderer,
   reset() {
     plants = {};
+    lastDrawTime = undefined;
+    lastKind = undefined;
+    transitionFrom = undefined;
+    resetReviewMotionState(motionState);
   },
   dispose() {
     head.dispose();
@@ -265,6 +325,11 @@ function draw(t = 0, exportFrame = false) {
     ball.geometry.dispose();
     (ball.material as THREE.Material).dispose();
     renderer.dispose();
+    markings.geometry.dispose();
+    for (const material of Array.isArray(markings.material)
+      ? markings.material
+      : [markings.material])
+      material.dispose();
   },
 };
 draw(Number(q.get('t') ?? 0));

@@ -16,13 +16,19 @@ import {
   poseKick,
   poseRun,
   type RunPlant,
+  strideLength,
 } from './poses';
 import {
   applyReviewPlayerMotion,
+  createReviewMotionState,
+  resetReviewMotionState,
   poseReviewPlayerHands,
   REVIEW_MOTION_SCENARIOS,
   sampleReviewMotionScenario,
   sampleReviewPlayerPosture,
+  sampleReviewFinishingSequence,
+  REVIEW_FINISHING_JOINS,
+  REVIEW_FINISHING_DURATION,
   type ReviewMotionInput,
 } from './review-player-motion';
 
@@ -187,6 +193,92 @@ describe('isolated review player posture adapter', () => {
       expect(a.bones[name].quaternion.angleTo(expected[i])).toBeLessThan(1e-7);
       expect(b.bones[name].quaternion.angleTo(otherBefore[i])).toBeLessThan(1e-7);
     });
+    a.dispose();
+    b.dispose();
+  });
+
+  it('blends released run into kick offsets and settles without moving protected contacts', () => {
+    const rig = makeRig(),
+      state = createReviewMotionState();
+    const run = { kind: 'run' as const, time: 2, phase: 0.23, speed: 4, acceleration: -4 };
+    basePose(rig, run);
+    applyReviewPlayerMotion(rig, { ...run, motionState: state, deltaSeconds: 1 / 60 });
+    const outgoing = state.posture.spine![0];
+    const kickInput = { kind: 'kick' as const, time: 0, phase: 0, speed: 0 };
+    basePose(rig, kickInput);
+    const protectedBefore = protectedBones.map((name) => world(rig, name));
+    applyReviewPlayerMotion(rig, { ...kickInput, motionState: state, deltaSeconds: 0 });
+    expect(state.posture.spine![0]).toBe(outgoing);
+    protectedBones.forEach((name, i) =>
+      expect(matrixError(world(rig, name), protectedBefore[i])).toBeLessThan(1e-12)
+    );
+    for (let frame = 1; frame <= 12; frame++) {
+      const input = { ...kickInput, time: frame / 60 };
+      basePose(rig, input);
+      applyReviewPlayerMotion(rig, { ...input, motionState: state, deltaSeconds: 1 / 60 });
+    }
+    expect(state.posture.spine![0]).toBeCloseTo(
+      sampleReviewPlayerPosture({ ...kickInput, time: 0.2 }).spine![0],
+      12
+    );
+    resetReviewMotionState(state);
+    expect(state.kind).toBeUndefined();
+    expect(state.posture).toEqual({});
+    rig.dispose();
+  });
+
+  it('discards locomotion transition history at the exact keeper interception', () => {
+    const rig = makeRig(),
+      state = createReviewMotionState();
+    const run = { kind: 'run' as const, time: 2, phase: 0.2, speed: 4, turn: 1 };
+    basePose(rig, run);
+    applyReviewPlayerMotion(rig, { ...run, motionState: state });
+    const input = { kind: 'keeperDive' as const, time: DIVE_CONTACT, phase: 0, speed: 0 };
+    basePose(rig, input);
+    const before = BONES.map((name) => world(rig, name));
+    applyReviewPlayerMotion(rig, { ...input, motionState: state, deltaSeconds: 1 / 60 });
+    BONES.forEach((name, i) =>
+      expect(matrixError(world(rig, name), before[i])).toBeLessThan(1e-12)
+    );
+    for (const angles of Object.values(state.posture))
+      for (const value of angles) expect(value).toBe(0);
+    rig.dispose();
+  });
+
+  it('filters turn and brake effort by elapsed seconds and clears history for still motion', () => {
+    const a = makeRig(),
+      b = makeRig();
+    const states = [createReviewMotionState(), createReviewMotionState()];
+    for (let i = 0; i < 2; i++) {
+      const rig = i ? b : a,
+        state = states[i],
+        frames = i ? 24 : 12;
+      const input = { kind: 'run' as const, time: 0, phase: 0.2, speed: 3 };
+      basePose(rig, input);
+      applyReviewPlayerMotion(rig, { ...input, motionState: state, deltaSeconds: 0 });
+      for (let frame = 0; frame < frames; frame++) {
+        basePose(rig, input);
+        applyReviewPlayerMotion(rig, {
+          ...input,
+          acceleration: -4,
+          turn: 1,
+          motionState: state,
+          deltaSeconds: 0.2 / frames,
+        });
+      }
+    }
+    expect(states[0].acceleration).toBeCloseTo(states[1].acceleration, 12);
+    expect(states[0].turn).toBeCloseTo(states[1].turn, 12);
+    applyReviewPlayerMotion(a, {
+      kind: 'run',
+      time: 1,
+      phase: 0.2,
+      speed: 3,
+      reducedMotion: true,
+      motionState: states[0],
+    });
+    expect(states[0].kind).toBeUndefined();
+    expect(states[1].kind).toBe('run');
     a.dispose();
     b.dispose();
   });
@@ -396,5 +488,62 @@ describe('review-only anatomical hand gestures', () => {
       rig.dispose();
       (rig.mesh.material as THREE.Material).dispose();
     }
+  });
+});
+
+describe('continuous finishing diagnostic journey', () => {
+  it('joins moving paths, heading, travel and cadence continuously through the settled kick', () => {
+    const epsilon = 1e-7;
+    for (const t of REVIEW_FINISHING_JOINS) {
+      const a = sampleReviewFinishingSequence(t - epsilon),
+        b = sampleReviewFinishingSequence(t + epsilon);
+      expect(new THREE.Vector3().copy(a.position).distanceTo(b.position)).toBeLessThan(1e-5);
+      expect(Math.abs(a.heading - b.heading)).toBeLessThan(1e-6);
+      expect(Math.abs(a.speed - b.speed)).toBeLessThan(1e-5);
+      expect(Math.abs(a.distance - b.distance)).toBeLessThan(1e-5);
+      expect(Math.abs(a.phase - b.phase)).toBeLessThan(1e-5);
+    }
+    for (const t of [0.2, 1.2, 2.2, 3.2, 3.8, 4.8, 5.6, 6, 6.15]) {
+      const a = sampleReviewFinishingSequence(t),
+        b = sampleReviewFinishingSequence(t + 1e-6);
+      expect((b.distance - a.distance) / 1e-6).toBeCloseTo(a.speed, 4);
+      expect((b.phase - a.phase) / 1e-6).toBeCloseTo(a.speed / strideLength(a.speed), 4);
+      const dx = b.position.x - a.position.x,
+        dz = b.position.z - a.position.z;
+      expect(Math.hypot(dx, dz) / 1e-6).toBeCloseTo(a.speed, 4);
+      expect(Math.atan2(dx, dz)).toBeCloseTo(a.heading, 4);
+      expect(a.motion.kind).toBe('run');
+      expect(a.speed).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps a genuine moving ninety-degree turn and exact existing kick root/contact clock', () => {
+    for (const t of [3.1, 3.5, 4.1]) {
+      const a = sampleReviewFinishingSequence(t),
+        b = sampleReviewFinishingSequence(t + 0.01);
+      expect(a.speed).toBeGreaterThan(4);
+      expect(b.heading).toBeGreaterThan(a.heading);
+      expect(b.distance - a.distance).toBeGreaterThan(0.04);
+    }
+    const idle = sampleReviewFinishingSequence(6.5),
+      start = sampleReviewFinishingSequence(6.8);
+    const contact = sampleReviewFinishingSequence(6.8 + KICK.contact);
+    expect(idle.motion.kind).toBe('idle');
+    expect(idle.speed).toBe(0);
+    expect(start.motion.kind).toBe('kick');
+    expect(start.motion.time).toBe(0);
+    expect(contact.motion.time).toBeCloseTo(0.3, 12);
+    expect(contact.heading).toBe(Math.PI / 2);
+    for (const t of [6.8, 7.1, REVIEW_FINISHING_DURATION]) {
+      const sample = sampleReviewFinishingSequence(t),
+        root = kickGeometry(sample.kickSpec!).root;
+      expect(root.distanceTo(new THREE.Vector3().copy(sample.position))).toBeLessThan(1e-12);
+      expect(sample.position).toEqual(idle.position);
+      expect(sample.distance).toBe(idle.distance);
+      expect(sample.phase).toBe(idle.phase);
+    }
+    expect(sampleReviewFinishingSequence(100)).toEqual(
+      sampleReviewFinishingSequence(REVIEW_FINISHING_DURATION)
+    );
   });
 });

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ActorState } from './director';
 import { reachHand, setWorldQuaternion } from './ik';
 import { DIM, type BoneName, type Rig, type Side } from './rig';
-import { DIVE_CONTACT, DIVE_DURATION, KICK, diveRoot, type DiveSpec } from './poses';
+import { DIVE_CONTACT, DIVE_DURATION, KICK, diveRoot, type DiveSpec, type KickSpec } from './poses';
 
 const clamp = (v: number, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
 const smooth = (v: number) => {
@@ -12,6 +12,26 @@ const smooth = (v: number) => {
 const cycle = (v: number) => ((v % 1) + 1) % 1;
 type Angles = readonly [number, number, number];
 type Posture = Partial<Record<BoneName, Angles>>;
+
+/** One review actor owns this decorative history; never share it across rigs. */
+export interface ReviewMotionState {
+  kind?: ReviewMotionInput['kind'];
+  posture: Posture;
+  outgoing: Posture;
+  elapsed: number;
+  acceleration: number;
+  turn: number;
+}
+export const createReviewMotionState = (): ReviewMotionState => ({
+  posture: {},
+  outgoing: {},
+  elapsed: 1,
+  acceleration: 0,
+  turn: 0,
+});
+export function resetReviewMotionState(state: ReviewMotionState) {
+  Object.assign(state, createReviewMotionState(), { kind: undefined });
+}
 
 export interface ReviewMotionInput {
   kind: ActorState['anim']['kind'];
@@ -29,6 +49,10 @@ export interface ReviewMotionInput {
   direction?: 1 | -1;
   weight?: number;
   reducedMotion?: boolean;
+  /** Optional history from released frames only. Omit for deterministic seek diagnostics. */
+  motionState?: ReviewMotionState;
+  /** Actual elapsed frame seconds; history does not advance without this value. */
+  deltaSeconds?: number;
 }
 
 /** Small original posture offsets, not mocap or a replacement authored/contact pipeline. */
@@ -48,7 +72,8 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
     };
   if (input.kind === 'run') {
     const p = cycle(input.phase),
-      load = Math.sin(p * Math.PI * 2);
+      load = Math.sin(p * Math.PI * 2),
+      compression = Math.cos(p * Math.PI * 4);
     const drive = clamp(input.acceleration ?? 0, -4, 4) / 4;
     const effort =
       clamp(input.turn ?? 0, -1, 1) *
@@ -56,26 +81,34 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
     const speed = clamp(input.speed / 6);
     return {
       spine: [
-        0.018 + drive * 0.075,
+        0.018 + drive * 0.075 + compression * 0.009 * speed,
         -load * 0.028 - effort * 0.055,
-        -effort * 0.085 + load * 0.012,
+        -effort * 0.105 + load * 0.019 * speed,
       ],
       chest: [
         -0.01 + drive * 0.025,
         load * (0.035 + 0.02 * speed) + effort * 0.025,
-        effort * 0.025,
+        effort * 0.035 - load * 0.012 * speed,
       ],
       neck: [-drive * 0.055 - 0.008, effort * 0.025, effort * 0.035],
       head: [0.005, effort * 0.045 - load * 0.008, 0],
-      upperArmL: [-load * 0.055 + drive * 0.035, -effort * 0.04, -0.018 - effort * 0.035],
-      upperArmR: [load * 0.055 + drive * 0.035, -effort * 0.04, 0.018 - effort * 0.035],
-      foreArmL: [-Math.max(0, drive) * 0.035, 0, 0],
-      foreArmR: [-Math.max(0, drive) * 0.035, 0, 0],
+      upperArmL: [
+        -load * (0.045 + speed * 0.045) + drive * 0.035,
+        -effort * 0.04,
+        -0.018 - Math.max(0, effort) * 0.075,
+      ],
+      upperArmR: [
+        load * (0.045 + speed * 0.045) + drive * 0.035,
+        -effort * 0.04,
+        0.018 + Math.max(0, -effort) * 0.075,
+      ],
+      foreArmL: [-Math.max(0, drive) * 0.035 - (1 + load) * speed * 0.022, 0, 0],
+      foreArmR: [-Math.max(0, drive) * 0.035 - (1 - load) * speed * 0.022, 0, 0],
     };
   }
   if (input.kind === 'kick') {
-    const load = Math.sin(Math.PI * clamp(t / KICK.contact));
-    const follow = Math.sin(Math.PI * clamp((t - KICK.contact) / (KICK.duration - KICK.contact)));
+    const load = Math.sin(Math.PI * smooth(t / KICK.contact));
+    const follow = Math.sin(Math.PI * smooth((t - KICK.contact) / (KICK.duration - KICK.contact)));
     return {
       spine: [
         -0.018 * load + 0.055 * follow,
@@ -123,6 +156,48 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
   return {};
 }
 
+/** Transition only decorative offsets, never blend solved leg/hand transforms.
+ * The outgoing offset is captured once, avoiding frame-dependent recursive pose blending.
+ * A turn/brake filter uses seconds rather than frame count and cannot inspect future states.
+ */
+function releasedPosture(input: ReviewMotionInput): Posture {
+  const state = input.motionState;
+  if (!state) return sampleReviewPlayerPosture(input);
+  const dt = clamp(input.deltaSeconds ?? 0, 0, 0.1);
+  const first = state.kind === undefined;
+  const response = first ? 1 : 1 - Math.exp(-dt / 0.085);
+  state.acceleration += (clamp(input.acceleration ?? 0, -4, 4) - state.acceleration) * response;
+  state.turn += (clamp(input.turn ?? 0, -1, 1) - state.turn) * response;
+  const target = sampleReviewPlayerPosture({
+    ...input,
+    acceleration: state.acceleration,
+    turn: state.turn,
+  });
+  if (first || input.kind === 'keeperDive' || input.kind === 'keeperReady') {
+    state.elapsed = 1;
+    state.outgoing = {};
+  } else if (state.kind !== input.kind) {
+    state.outgoing = state.posture;
+    state.elapsed = 0;
+  }
+  state.kind = input.kind;
+  state.elapsed += dt;
+  const blend = smooth(state.elapsed / 0.2);
+  const posture: Posture = {};
+  const names = new Set([...Object.keys(target), ...Object.keys(state.outgoing)] as BoneName[]);
+  for (const name of names) {
+    const a = state.outgoing[name] ?? [0, 0, 0],
+      b = target[name] ?? [0, 0, 0];
+    posture[name] = [
+      a[0] + (b[0] - a[0]) * blend,
+      a[1] + (b[1] - a[1]) * blend,
+      a[2] + (b[2] - a[2]) * blend,
+    ];
+  }
+  state.posture = posture;
+  return posture;
+}
+
 /**
  * Call once after a freshly evaluated base pose/blend and before final foot contacts.
  * Only the explicitly selected review actor should call this. No root, pelvis, lower-body,
@@ -131,8 +206,11 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
  */
 export function applyReviewPlayerMotion(rig: Rig, input: ReviewMotionInput) {
   const weight = input.reducedMotion ? 0 : clamp(input.weight ?? 1);
-  if (!weight) return;
-  const posture = sampleReviewPlayerPosture(input);
+  if (!weight) {
+    if (input.motionState) resetReviewMotionState(input.motionState);
+    return;
+  }
+  const posture = releasedPosture(input);
   const rotate = (name: BoneName, angles: Angles, w: number) =>
     rig.bones[name].quaternion.multiply(
       new THREE.Quaternion().setFromEuler(
@@ -321,6 +399,124 @@ export function sampleReviewMotionScenario(
     speed,
     keeperSpec,
     motion: { kind, time: t, phase, speed, acceleration, turn, turnPhase, direction: 1 },
+  };
+}
+
+export const REVIEW_FINISHING_JOINS = [1.8, 3, 4.4, 6.2, 6.8] as const;
+export const REVIEW_FINISHING_DURATION = 6.8 + KICK.duration;
+export interface ReviewFinishingSample extends ReviewMotionSample {
+  kickSpec?: KickSpec;
+}
+
+/** One continuous diagnostic journey. These clocks decorate simulated diagnostics,
+ * and never feed the match director or predict a released result. */
+export function sampleReviewFinishingSequence(seconds: number): ReviewFinishingSample {
+  const t = clamp(seconds, 0, REVIEW_FINISHING_DURATION);
+  const accelerationEnd = sampleReviewMotionScenario('acceleration', 1.8);
+  const v = accelerationEnd.speed,
+    beforeTurn = accelerationEnd.distance + 1.2 * v;
+  const turnDuration = 1.4,
+    radius = (v * turnDuration) / (Math.PI / 2);
+  const turnDistance = turnDuration * v,
+    beforeBrake = beforeTurn + turnDistance;
+  const brakeDuration = 1.8;
+  const brakeDistance = (u: number) => v * brakeDuration * (u - u ** 3 + 0.5 * u ** 4);
+  const end = { x: radius + brakeDistance(1), y: 0, z: beforeTurn + radius };
+  const dir = new THREE.Vector3(1, 0, 0),
+    left = new THREE.Vector3(0, 0, -1);
+  const kickSpec: KickSpec = {
+    ball: new THREE.Vector3(end.x, 0.11, end.z)
+      .addScaledVector(dir, 0.11)
+      .addScaledVector(left, -0.14),
+    dir,
+    foot: 'R',
+    power: 0.75,
+    loft: 0.2,
+  };
+  let speed = 0,
+    distance = beforeBrake + brakeDistance(1),
+    heading = Math.PI / 2;
+  let position = { ...end },
+    phase = 0,
+    acceleration = 0,
+    turn = 0,
+    turnPhase: number | undefined;
+  let kind: ReviewMotionInput['kind'] = 'run',
+    label = 'Acceleration — forward drive';
+  if (t < 1.8) {
+    const sample = sampleReviewMotionScenario('acceleration', t);
+    return { ...sample, duration: REVIEW_FINISHING_DURATION, kickSpec };
+  }
+  if (t < 3) {
+    const local = t - 1.8;
+    speed = v;
+    distance = accelerationEnd.distance + local * v;
+    heading = 0;
+    position = { x: 0, y: 0, z: distance };
+    label = 'Jog — approach';
+  } else if (t < 4.4) {
+    const sample = sampleReviewMotionScenario('plantedTurn', t - 3 + 0.6);
+    const scale = v / sample.speed;
+    speed = v;
+    distance = beforeTurn + (t - 3) * v;
+    heading = sample.heading;
+    position = {
+      x: sample.position.x * scale,
+      y: 0,
+      z: beforeTurn + (sample.position.z - 0.6 * sample.speed) * scale,
+    };
+    turn = 1;
+    turnPhase = (t - 3) / turnDuration;
+    label = 'Moving quarter-turn';
+  } else if (t < 6.2) {
+    const u = (t - 4.4) / brakeDuration;
+    speed = v * (1 - smooth(u));
+    acceleration = (-v * 6 * u * (1 - u)) / brakeDuration;
+    distance = beforeBrake + brakeDistance(u);
+    position = { x: radius + brakeDistance(u), y: 0, z: end.z };
+    label = 'Braking — settle';
+  } else {
+    kind = t < 6.8 ? 'idle' : 'kick';
+    label = kind === 'idle' ? 'Settled idle' : 'Kick — load / contact / follow-through';
+  }
+  // Integrate exact cadence: v/stride(v) = min(2.5v, 1.45+.085v).
+  // The smooth brake crosses the minimum-stride threshold once. Solve its fixed
+  // split independently of frame history, then use the analytic distance primitive.
+  const threshold = 0.58 / 0.966;
+  let lo = 0,
+    hi = 1;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    if (v * (1 - smooth(mid)) > threshold) lo = mid;
+    else hi = mid;
+  }
+  const split = (lo + hi) / 2,
+    u = clamp((t - 4.4) / brakeDuration),
+    fast = Math.min(u, split);
+  const brakePhase =
+    1.45 * brakeDuration * fast +
+    0.085 * brakeDistance(fast) +
+    Math.max(0, brakeDistance(u) - brakeDistance(split)) / 0.4;
+  phase = t <= 4.4 ? 1.45 * t + 0.085 * distance : 1.45 * 4.4 + 0.085 * beforeBrake + brakePhase;
+  return {
+    label,
+    duration: REVIEW_FINISHING_DURATION,
+    position,
+    heading,
+    distance,
+    phase,
+    speed,
+    kickSpec,
+    motion: {
+      kind,
+      time: kind === 'kick' ? t - 6.8 : t,
+      phase,
+      speed,
+      acceleration,
+      turn,
+      turnPhase,
+      direction: 1,
+    },
   };
 }
 
