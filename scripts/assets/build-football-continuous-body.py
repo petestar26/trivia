@@ -109,7 +109,7 @@ def smoothstep(a,b,x):
     return t*t*(3-2*t)
 
 
-def athletic_torso(position, trunk_weight):
+def athletic_torso(position, trunk_weight, pelvic_weight=0.):
     """Original bounded neutral torso adjustment; topology and contact rig stay fixed.
 
     Only positive-Z chest volume is reduced. Broad waist adjustment avoids the
@@ -120,19 +120,23 @@ def athletic_torso(position, trunk_weight):
     chest = smoothstep(1.12,1.22,y)*(1-smoothstep(1.36,1.47,y))
     front = smoothstep(.07,.15,z)
     waist = smoothstep(.96,1.04,y)*(1-smoothstep(1.15,1.25,y))
-    return [x*(1+.15*waist*trunk_weight),y,
-            z-.60*chest*front*max(0.,z-.07)*trunk_weight]
+    # Smooth compact athletic pelvis; no root, hip, knee or ankle datum moves.
+    pelvis = smoothstep(.70,.83,y)*(1-smoothstep(1.00,1.12,y))*pelvic_weight
+    rear = 1-smoothstep(-.07,.015,z)
+    return [x*(1+.15*waist*trunk_weight)*(1-.14*pelvis),y,
+            z-.60*chest*front*max(0.,z-.07)*trunk_weight
+            +.24*pelvis*rear*max(0.,-z-.025)]
 
 
-def reshape_with_derivative(position, matrix, trunk_weight):
-    q=athletic_torso(position,trunk_weight)
+def reshape_with_derivative(position, matrix, trunk_weight, pelvic_weight=0.):
+    q=athletic_torso(position,trunk_weight,pelvic_weight)
     eps=1e-6
     columns=[]
     for axis in range(3):
         positive=position[:];negative=position[:]
         positive[axis]+=eps;negative[axis]-=eps
-        columns.append(scale(sub(athletic_torso(positive,trunk_weight),
-                                 athletic_torso(negative,trunk_weight)),.5/eps))
+        columns.append(scale(sub(athletic_torso(positive,trunk_weight,pelvic_weight),
+                                 athletic_torso(negative,trunk_weight,pelvic_weight)),.5/eps))
     correction=[columns[col][row] for row in range(3)for col in range(3)]
     composed=[sum(correction[r*3+k]*matrix[k*3+c]for k in range(3))for r in range(3)for c in range(3)]
     return q,composed
@@ -307,7 +311,9 @@ def build_binding(source_path, skeleton_path, weights_path, contract_path=CONTRA
             q = add(scale(q,1-blend), scale(point(fixed_head,p),blend))
             matrix = [(1-blend)*matrix[a] + blend*I[a] for a in range(9)]
         trunk_weight = sum(w for native,w in entries if mapping[native] in ['hips','spine','chest'])
-        q,matrix = reshape_with_derivative(q,matrix,trunk_weight)
+        pelvic_weight = sum(w for native,w in entries if mapping[native] in
+                            ['hips','spine','upperLegL','upperLegR'])
+        q,matrix = reshape_with_derivative(q,matrix,trunk_weight,pelvic_weight)
         merged = defaultdict(float)
         for native,w in entries:
             merged[names.index(mapping[native])] += w
@@ -329,6 +335,8 @@ def build_binding(source_path, skeleton_path, weights_path, contract_path=CONTRA
         'nativeBoneToProduction':mapping, 'nativeBoneTransforms':transforms,
         'athleticTorsoReshape':{'authorship':'Original bounded PlayQube proportional adjustment',
             'frontChestYRange':[1.12,1.47],'frontChestZRange':[.07,.15],
+            'pelvisYRange':[.70,1.12],'maxPelvisWidthReduction':.14,
+            'maxPosteriorReductionBeyondZMinus025':.24,
             'maxAnteriorCompression':.60,'waistYRange':[.96,1.25],'maxWaistExpansion':.15,
             'derivative':'Central numeric production-space derivative, composed with native retarget3x3'},
         'headBoundary':{'sourceYMin':5.68, 'matrix':I, 'translation':HEAD_T,

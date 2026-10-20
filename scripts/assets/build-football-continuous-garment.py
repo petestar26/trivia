@@ -177,6 +177,58 @@ def fit_and_transfer(binding, body_weights, rows):
     return positions, normalized, capped, reports
 
 
+def tailor_shirt(points, normalized, polygons, joint_names):
+    """Original reversible tailoring on the exact MHCLO-correspondence surface.
+
+    Retains topology/UV/source IDs. Fair the sleeve-cap/underarm transitions,
+    lower the pointed lateral cap and anchor the neckline to chest cloth.
+    """
+    original = [p[:] for p in points]
+    adjacency = [set() for _ in points]
+    for face in polygons:
+        for k, (a, _) in enumerate(face):
+            b = face[(k + 1) % len(face)][0]
+            adjacency[a].add(b); adjacency[b].add(a)
+    def smooth(a, b, x):
+        t = max(0., min(1., (x-a)/(b-a)))
+        return t*t*(3-2*t)
+    # Small local fairing removes the inherited sharp seam shelf without
+    # replacing the preferred source by an unrelated procedural torso.
+    for _ in range(5):
+        before = [p[:] for p in points]
+        for i, (x,y,z) in enumerate(before):
+            lateral = smooth(.12,.19,abs(x))
+            amount = .38*lateral*smooth(1.22,1.36,y)
+            if not adjacency[i]: continue
+            mean = [sum(before[j][k] for j in adjacency[i])/len(adjacency[i]) for k in range(3)]
+            points[i] = [v+amount*(m-v) for v,m in zip(before[i],mean)]
+    chest, neck = joint_names.index('chest'), joint_names.index('neck')
+    cap_count = collar_count = 0
+    for i, point in enumerate(points):
+        x,y,z=point
+        cap = 1.488 - .48*max(0.,abs(x)-.155)
+        if abs(x)>.155 and y>cap:
+            point[1]=cap; cap_count+=1
+        # The collar belongs to the chest; neck turn must not pull a triangular
+        # wedge out of the jersey or stretch its opening into the lower jaw.
+        if abs(x)<.10 and y>1.43:
+            row=dict(normalized[i]); mass=row.pop(neck,0.)+row.pop(joint_names.index("head"),0.)
+            row[chest]=row.get(chest,0.)+mass
+            normalized[i]=sorted(row.items(),key=lambda v:(-v[1],v[0])); collar_count+=1
+    capped=[]
+    for row in normalized:
+        selected=sorted(row,key=lambda v:(-v[1],v[0]))[:4]
+        total=sum(w for _,w in selected)
+        capped.append(([j for j,_ in selected]+[0]*(4-len(selected)),
+                       [w/total for _,w in selected]+[0.]*(4-len(selected))))
+    audit={"recipe":"original local sleeve-cap/underarm fairing, lowered lateral cap, chest-anchored collar",
+           "iterations":5,"capVertices":cap_count,"collarVertices":collar_count,
+           "deltas":[[b-a for a,b in zip(src,dst)] for src,dst in zip(original,points)],
+           "maxDisplacementMetres":max(math.dist(a,b) for a,b in zip(original,points)),
+           "sourceCorrespondenceRetained":True}
+    return capped,audit
+
+
 def export_geometry(points, uvs, polygons, capped):
     triangles = [[face[0], face[i], face[i + 1]] for face in polygons for i in range(1, len(face) - 1)]
     normals = [[0., 0., 0.] for _ in points]
@@ -294,9 +346,12 @@ def build(packet, body_binding, output, contract_path):
     contract = json.loads(contract_raw)
     body_weights = validate_binding(binding, base, contract["rig"]["boneOrder"])
     points, normalized, capped, reports = fit_and_transfer(binding, body_weights, rows)
+    correspondence_points = [p[:] for p in points]
+    capped, tailoring = tailor_shirt(points, normalized, polygons, binding["jointNames49"])
     geometry = export_geometry(points, uvs, polygons, capped)
     mapping = {"schemaVersion": 1, "originalSourceVertexIdsPreserved": True,
                "sourcePositions": original, "sourceUVs": uvs, "sourcePolygons": polygons,
+               "originalTailoring": tailoring, "correspondenceBindPositions": correspondence_points,
                "mhcloRows": rows, "mhcloAxisScaleDirectives": directives, "bindPositions": points,
                "sourceBodyHideMask": {"directivePresent": False, "baseVertexIds": [],
                                       "semantics": "Original preferred MHCLO supplies no delete_verts. No body removal inferred by exporter."},
@@ -310,6 +365,7 @@ def build(packet, body_binding, output, contract_path):
     provenance = {"schemaVersion": 1, "sourceName": NAME, "authors": sources["authors"][NAME],
                   "license": sources["license"], "sourceListing": sources["listing"], "archive": sources["archive"],
                   "pinnedSourceFiles": records, "baseSource": sources["base"],
+                  "originalTailoring": {k:v for k,v in tailoring.items() if k != "deltas"},
                   "bodyBindingSHA256": sha(binding_raw), "productionContractSHA256": sha(contract_raw),
                   "exporterSHA256": sha(Path(__file__).read_bytes()),
                   "counts": {"sourceVertices": len(original), "mhcloTriples": len(rows), "sourceUVs": len(uvs),
