@@ -481,7 +481,8 @@ export function createPlayerPool(): PlayerPool {
           poseReviewPlayerHands(rig, kind, false);
         }
         heads[i]?.animate(0, kind, false);
-        if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.syncFace();
+        if (i === REVIEW_PLAYER_SLOT)
+          continuousPlayer?.syncFace({ center: frame.ball, radius: 0.11 });
         continue;
       }
       if (kind !== st.kind) {
@@ -575,7 +576,8 @@ export function createPlayerPool(): PlayerPool {
         rig.bones[name].quaternion.copy(st.fingerFrom[joint]).slerp(fingerTarget, fingerWeight);
       });
       heads[i]?.animate(time, kind, true);
-      if (i === REVIEW_PLAYER_SLOT) continuousPlayer?.syncFace();
+      if (i === REVIEW_PLAYER_SLOT)
+        continuousPlayer?.syncFace({ center: frame.ball, radius: 0.11 });
     }
   }
 

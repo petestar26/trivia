@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { continuousShirtCoverage } from './continuous-player-coverage';
 import { createContinuousBodyCorrectives } from './continuous-body-correctives';
-import { createContinuousKit, syncContinuousBootFlex } from './continuous-kit';
+import {
+  createContinuousKit,
+  syncContinuousBootFlex,
+  type VisualBallEnvelope,
+} from './continuous-kit';
 import { createContinuousPlayerLod } from './continuous-player-lod';
 import { createContinuousShirtCorrectives } from './continuous-shirt-correctives';
+import { createContinuousSockCorrectives } from './continuous-sock-correctives';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   BONES,
@@ -330,6 +335,7 @@ export function attachContinuousPlayer(
   const kit = createContinuousKit(look, assets.body);
   const shorts = make(kit.geometries.shorts, kit.materials.shorts, 'continuous-player-shorts');
   const socks = make(kit.geometries.socks, kit.materials.socks, 'continuous-player-socks');
+  const sockCorrective = createContinuousSockCorrectives(socks, rig);
   const boots = make(kit.geometries.boots, kit.materials.boots, 'continuous-player-footwear');
   lowBody.visible = lowJersey.visible = false;
   let disposed = false,
@@ -343,13 +349,16 @@ export function attachContinuousPlayer(
           index === undefined ? 0 : (head.mesh.morphTargetInfluences?.[index] ?? 0);
       }
   }
-  function syncFace() {
+  let currentVisualBall: VisualBallEnvelope | undefined;
+  function syncFace(visualBall?: VisualBallEnvelope) {
     if (disposed) return;
+    currentVisualBall = visualBall;
     mirrorFaceMorphs();
     if (close) corrective.update();
     if (close) shirtCorrective.update();
     else lowShirtCorrective.update();
-    syncContinuousBootFlex(boots, rig);
+    sockCorrective.update();
+    syncContinuousBootFlex(boots, rig, visualBall);
   }
   return {
     meshes: { body, lowBody, jersey, lowJersey, shorts, socks, boots },
@@ -373,7 +382,7 @@ export function attachContinuousPlayer(
       lowBody.visible = lowJersey.visible = !close;
       rig.mesh.visible = false;
       rig.root.userData.continuousPlayerDetail = detail;
-      syncFace();
+      syncFace(currentVisualBall);
     },
     dispose() {
       if (disposed) return;
@@ -386,6 +395,7 @@ export function attachContinuousPlayer(
       socks.removeFromParent();
       boots.removeFromParent();
       corrective.dispose();
+      sockCorrective.dispose();
       shirtCorrective.dispose();
       lowShirtCorrective.dispose();
       bodyGeometry.dispose();

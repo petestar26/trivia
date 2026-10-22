@@ -250,7 +250,8 @@ function draw(t = 0, exportFrame = false) {
     }
     head.animate(0, 'idle', false);
   }
-  if (body && 'syncFace' in body) body.syncFace();
+  if (body && 'syncFace' in body)
+    body.syncFace(ball.visible ? { center: ball.position, radius: 0.11 } : undefined);
   rig.root.updateMatrixWorld(true);
   const position = rig.root.position;
   if (close) {

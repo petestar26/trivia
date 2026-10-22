@@ -374,6 +374,132 @@ function sewnShorts(shorts: Tailor, bodyFit?: THREE.BufferGeometry) {
   };
 }
 
+/** Fit only the returned cuff and its upper-calf transition. Horizontal rays
+ * intersect the same-side anatomy; weights come from that exact hit triangle. */
+function fitSockCuffs(socks: Tailor, bodyFit?: THREE.BufferGeometry) {
+  const records: { vertex: number; sourceTriangle: number[]; barycentric: number[] }[] = [];
+  const p = bodyFit?.getAttribute('position'),
+    joints = bodyFit?.getAttribute('skinIndex'),
+    weights = bodyFit?.getAttribute('skinWeight'),
+    index = bodyFit?.index;
+  if (!p || !joints || !weights || !index) return records;
+  const triangles = new Map<number, { ids: number[]; triangle: THREE.Triangle }[]>();
+  for (const sign of [-1, 1]) {
+    const side = sign > 0 ? 'L' : 'R',
+      leg = new Set([BONES.indexOf(`upperLeg${side}`), BONES.indexOf(`lowerLeg${side}`)]),
+      selected: { ids: number[]; triangle: THREE.Triangle }[] = [];
+    for (let k = 0; k < index.count; k += 3) {
+      const ids = [index.getX(k), index.getX(k + 1), index.getX(k + 2)];
+      if (
+        ids.some((i) => p.getX(i) * sign <= 0) ||
+        Math.min(...ids.map((i) => p.getY(i))) > 0.473 ||
+        Math.max(...ids.map((i) => p.getY(i))) < 0.4
+      )
+        continue;
+      let legMass = 0;
+      for (const i of ids)
+        for (let c = 0; c < 4; c++)
+          if (leg.has(joints.getComponent(i, c))) legMass += weights.getComponent(i, c) / 3;
+      if (legMass > 0.8)
+        selected.push({
+          ids,
+          triangle: new THREE.Triangle(
+            ...(ids.map((i) => new THREE.Vector3().fromBufferAttribute(p, i)) as [
+              THREE.Vector3,
+              THREE.Vector3,
+              THREE.Vector3,
+            ])
+          ),
+        });
+    }
+    triangles.set(sign, selected);
+  }
+  const ray = new THREE.Ray(),
+    hit = new THREE.Vector3(),
+    closest = new THREE.Vector3(),
+    barycentric = new THREE.Vector3(),
+    cache = new Map<
+      string,
+      { point: Point; binding: Weight; ids: number[]; barycentric: number[] }
+    >();
+  for (let i = 0; i < socks.p.length / 3; i++) {
+    const original = socks.p.slice(i * 3, i * 3 + 3) as Point,
+      [x, y, z] = original;
+    if (y <= 0.4) continue;
+    const key = original.map((v) => Math.round(v * 1e7)).join(',');
+    let fit = cache.get(key);
+    if (!fit) {
+      const sign = x > 0 ? 1 : -1;
+      ray.origin.set(0.1 * sign, y, 0);
+      ray.direction.set(x - ray.origin.x, 0, z).normalize();
+      let nearest: { ids: number[]; triangle: THREE.Triangle } | undefined,
+        distance = 0.12;
+      for (const candidate of triangles.get(sign)!)
+        if (
+          ray.intersectTriangle(
+            candidate.triangle.a,
+            candidate.triangle.b,
+            candidate.triangle.c,
+            false,
+            hit
+          )
+        ) {
+          const d = ray.origin.distanceTo(hit);
+          if (d > 0.005 && d < distance) {
+            nearest = candidate;
+            distance = d;
+            closest.copy(hit);
+          }
+        }
+      if (!nearest) continue;
+      nearest.triangle.getBarycoord(closest, barycentric);
+      const merged = new Map<number, number>();
+      nearest.ids.forEach((id, n) => {
+        for (let c = 0; c < 4; c++) {
+          const j = joints.getComponent(id, c);
+          merged.set(
+            j,
+            (merged.get(j) ?? 0) + weights.getComponent(id, c) * barycentric.getComponent(n)
+          );
+        }
+      });
+      const selected = [...merged.entries()]
+          .filter(([, w]) => w > 1e-8)
+          .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+          .slice(0, 4),
+        total = selected.reduce((sum, [, w]) => sum + w, 0),
+        transition = THREE.MathUtils.smoothstep(y, 0.4, 0.442),
+        // Preserve the original 3mm fold and fine ribs without a bulky knee pad.
+        ease =
+          (y === 0.468 || y === 0.448 ? 0.009 : 0.006) +
+          0.0005 * Math.cos(Math.atan2(z, x - 0.1 * sign) * 24),
+        radius = THREE.MathUtils.lerp(Math.hypot(x - 0.1 * sign, z), distance + ease, transition);
+      fit = {
+        point: [ray.origin.x + ray.direction.x * radius, y, ray.direction.z * radius],
+        binding: selected.map(([j, w]) => [BONES[j], w / total]),
+        ids: nearest.ids,
+        barycentric: barycentric.toArray(),
+      };
+      cache.set(key, fit);
+    }
+    socks.p.splice(i * 3, 3, ...fit.point);
+    socks.joints.splice(
+      i * 4,
+      4,
+      ...fit.binding.map(([b]) => BONES.indexOf(b)),
+      ...Array(4 - fit.binding.length).fill(0)
+    );
+    socks.weights.splice(
+      i * 4,
+      4,
+      ...fit.binding.map(([, w]) => w),
+      ...Array(4 - fit.binding.length).fill(0)
+    );
+    records.push({ vertex: i, sourceTriangle: fit.ids, barycentric: fit.barycentric });
+  }
+  return records;
+}
+
 /** Owns all returned geometries/materials; caller owns bound mesh wrappers. Idempotent disposal. */
 export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) {
   const shorts = new Tailor(),
@@ -432,7 +558,9 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
     boots.rings(
       rows.map(([z, rx, bottom, top]) => ({
         point(t: number): Point {
-          const h = (Math.sin(t) + 1) / 2;
+          // The lower semicircle is the flat sole; the upper half is a dome.
+          // A fully elliptical last leaves the outer sole lip floating in air.
+          const h = Math.max(0, Math.sin(t));
           return [0.1 * s + rx * Math.cos(t), bottom + (top - bottom) * Math.pow(h, 0.65), z];
         },
         weights: [[foot, 1]] as Weight,
@@ -491,19 +619,25 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
       }
     // Sole lip, separate profile integrated into the same owned geometry.
     boots.rings(
-      [0.012, 0.017, 0.021].map((y) => ({
+      rows.map(([z, rx, bottom]) => ({
         point(t: number): Point {
-          return [0.1 * s + 0.052 * Math.cos(t), y, 0.061 + 0.135 * Math.sin(t)];
+          return [0.1 * s + rx * Math.cos(t), bottom + (0.003 * (Math.sin(t) + 1)) / 2, z];
         },
         weights: [[foot, 1]] as Weight,
       })),
-      40
+      32
     );
   }
+  const sockFit = fitSockCuffs(socks, bodyFit);
   const geometries = {
     shorts: shorts.geometry('original-sewn-football-shorts'),
     socks: socks.geometry('original-ribbed-football-socks'),
     boots: boots.geometry('original-rounded-football-boots'),
+  };
+  geometries.socks.userData.garmentFit = {
+    region: 'returned cuff and upper calf above 0.4m',
+    nominalRadialEaseMetres: [0.006, 0.009],
+    records: sockFit,
   };
   const bootColors = new Float32Array(geometries.boots.getAttribute('position').count * 3),
     bootBase = new THREE.Color('#161b24'),
@@ -551,6 +685,10 @@ function createBootState(g: THREE.BufferGeometry) {
   return {
     neutral: new Float32Array(p.array),
     previous: new Float64Array(48).fill(Number.NaN),
+    previousBall: new Float64Array(4).fill(Number.NaN),
+    fitted: new Float64Array(p.count * 3),
+    ballOffset: new THREE.Vector3(),
+    retreat: [0, 0],
     rootQuaternion: new THREE.Quaternion(),
     footQuaternion: new THREE.Quaternion(),
     forward: new THREE.Vector3(),
@@ -573,11 +711,21 @@ function createBootState(g: THREE.BufferGeometry) {
 }
 const bootStates = new WeakMap<THREE.BufferGeometry, ReturnType<typeof createBootState>>();
 
+/** Read-only released scene geometry for visual footwear fitting. */
+export type VisualBallEnvelope = {
+  center: Readonly<{ x: number; y: number; z: number }>;
+  radius: number;
+};
+
 /** Call after final contact solving; does not alter bones, anchors or timing.
  * Coherent forefoot/sole sections bend visually; legacy kick BALL markers may
  * cross turf, so their visible sole correspondence is explicitly not retained.
  * The owned dynamic position buffer uploads every changed pose. */
-export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
+export function syncContinuousBootFlex(
+  mesh: THREE.SkinnedMesh,
+  rig: Rig,
+  ball?: VisualBallEnvelope
+) {
   const g = mesh.geometry,
     p = g.getAttribute('position') as THREE.BufferAttribute,
     state = bootStates.get(g);
@@ -597,6 +745,28 @@ export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
       state.matrices[j - 1].world.copy(object.matrixWorld);
       state.matrices[j - 1].inverse.copy(object.matrixWorld).invert();
     }
+  }
+  // A remote ball cannot influence this last. Normalize it out of the key so
+  // stationary/reduced-motion actors do not upload for unrelated ball travel.
+  const effectiveBall =
+    ball &&
+    [ball.center.x, ball.center.y, ball.center.z, ball.radius].every(Number.isFinite) &&
+    ball.radius > 0 &&
+    state.matrices.some((m) => {
+      state.worldSole.setFromMatrixPosition(m.world);
+      return (
+        state.worldSole.distanceTo(state.ballOffset.copy(ball.center)) <
+        ball.radius + 0.5 * m.world.getMaxScaleOnAxis()
+      );
+    })
+      ? ball
+      : undefined;
+  const ballValues = effectiveBall
+    ? [effectiveBall.center.x, effectiveBall.center.y, effectiveBall.center.z, effectiveBall.radius]
+    : [0, 0, 0, 0];
+  for (let k = 0; k < 4; k++) {
+    if (state.previousBall[k] !== ballValues[k]) changed = true;
+    state.previousBall[k] = ballValues[k];
   }
   if (!changed) return;
   const rootQ = rig.root.getWorldQuaternion(state.rootQuaternion).invert();
@@ -628,7 +798,68 @@ export function syncContinuousBootFlex(mesh: THREE.SkinnedMesh, rig: Rig) {
     p.setXYZ(i, x + lifted.x, y + flex + lifted.y, z + lifted.z);
     maxDisplacement = Math.max(maxDisplacement, Math.hypot(lifted.x, flex + lifted.y, lifted.z));
   }
+  // Fit the entire forefoot with one smooth section field per foot. A common
+  // horizontal retreat preserves each cross-section's thickness and turf fit;
+  // the ankle stays pinned. Inputs are read-only released ball geometry.
+  state.retreat.fill(0);
+  const sectionWeight = (z: number) => THREE.MathUtils.smoothstep(z, 0.025, 0.125);
+  if (effectiveBall) {
+    state.fitted.set(p.array);
+    for (let side = 0; side < 2; side++) {
+      const m = matrices[side];
+      state.forward.set(0, 0, 1).transformDirection(m.world);
+      state.forward.y = 0;
+      if (state.forward.lengthSq() < 1e-8) continue;
+      state.forward.normalize();
+      const radius = effectiveBall.radius + 0.003;
+      for (let i = 0; i < p.count; i++) {
+        if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
+        const weight = sectionWeight(neutral[i * 3 + 2]);
+        if (weight < 0.02) continue;
+        bindPoint.fromBufferAttribute(p, i).sub(m.rest).applyMatrix4(m.world);
+        state.ballOffset.copy(bindPoint).sub(effectiveBall.center);
+        if (state.ballOffset.lengthSq() > (radius + 0.055) ** 2) continue;
+        const along = state.ballOffset.dot(state.forward);
+        const transverseSq = Math.max(0, state.ballOffset.lengthSq() - along * along);
+        if (transverseSq >= radius * radius) continue;
+        const required = along + Math.sqrt(radius * radius - transverseSq);
+        if (required > 0)
+          state.retreat[side] = Math.max(
+            state.retreat[side],
+            Math.min(0.055 * m.world.getMaxScaleOnAxis(), required / weight)
+          );
+      }
+      if (!state.retreat[side]) continue;
+      for (let i = 0; i < p.count; i++) {
+        if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
+        const amount = state.retreat[side] * sectionWeight(neutral[i * 3 + 2]);
+        bindPoint
+          .set(state.fitted[i * 3], state.fitted[i * 3 + 1], state.fitted[i * 3 + 2])
+          .sub(m.rest);
+        worldSole.copy(bindPoint).applyMatrix4(m.world).addScaledVector(state.forward, -amount);
+        lifted.copy(worldSole).applyMatrix4(m.inverse).add(m.rest);
+        p.setXYZ(i, lifted.x, lifted.y, lifted.z);
+      }
+    }
+  }
+  g.userData.visualBallFit = {
+    retreatMetres: [...state.retreat],
+    limitBindMetres: 0.055,
+    maximumSectionDerivative: 0.825,
+    marginMetres: 0.003,
+  };
+  maxDisplacement = 0;
+  for (let i = 0; i < p.count; i++)
+    maxDisplacement = Math.max(
+      maxDisplacement,
+      Math.hypot(
+        p.getX(i) - neutral[i * 3],
+        p.getY(i) - neutral[i * 3 + 1],
+        p.getZ(i) - neutral[i * 3 + 2]
+      )
+    );
   g.userData.maxVisualBootDisplacementMetres = maxDisplacement;
+  g.userData.visualBootDisplacementSpace = 'production bind metres; world scales with actor root';
   p.needsUpdate = true;
   g.computeVertexNormals();
   g.computeBoundingBox();

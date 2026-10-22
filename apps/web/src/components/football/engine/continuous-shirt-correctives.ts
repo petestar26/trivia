@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { BONES, type Rig } from './rig';
 
 const smooth = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
+const CAP_FAIRING_PASSES = 8;
+const CAP_FAIRING_STRENGTH = 0.4;
 /** Original edge tailoring; every original preferred-source vertex/UV corner
  * remains present. Derived edge points retain explicit interpolation records. */
 function tailoredEdges(source: THREE.BufferGeometry) {
@@ -216,15 +218,9 @@ function tailoredEdges(source: THREE.BufferGeometry) {
         : new THREE.Float32BufferAttribute(attr.values, attr.size)
     );
   g.setIndex([...index, ...returns]);
-  g.computeVertexNormals();
-  // Accepted source neck normals are preserved; new sewn return has its own.
-  const normals = g.getAttribute('normal'),
-    originalNormals = source.getAttribute('normal');
-  for (let i = 0; i < p.count; i++)
-    if (Math.abs(p.getX(i)) < 0.1 && p.getY(i) > 1.43)
-      normals.setXYZ(i, originalNormals.getX(i), originalNormals.getY(i), originalNormals.getZ(i));
   g.userData.garmentTailoring = {
     originalVertices: p.count,
+    surfaceIndexCount: index.length,
     originalSourceVerticesRetained: true,
     originalPositionDeltas,
     referenceSpace:
@@ -249,12 +245,15 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
     neutralNormal = new Float32Array(normal.array);
   const indices = geometry.getAttribute('skinIndex'),
     weights = geometry.getAttribute('skinWeight');
-  const samples: Array<{ id: number; side: 'L' | 'R'; fade: number }> = [];
+  const samples: Array<{ id: number; side: 'L' | 'R'; fade: number; capFade: number }> = [];
   for (let id = 0; id < position.count; id++) {
     const x = position.getX(id),
       y = position.getY(id);
     const fade = smooth(0.105, 0.17, Math.abs(x)) * smooth(1.265, 1.36, y);
-    if (fade > 0) samples.push({ id, side: x > 0 ? 'L' : 'R', fade });
+    // The upper cap receives positive fairing; the lower sleeve/underarm keeps
+    // the existing shape-preserving passes. Collar and cuff positions stay pinned.
+    const capFade = smooth(1.34, 1.42, y);
+    if (fade > 0) samples.push({ id, side: x > 0 ? 'L' : 'R', fade, capFade });
   }
   const seamMap = new Map<string, number[]>();
   for (let i = 0; i < position.count; i++) {
@@ -272,7 +271,8 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
     seamMap.set(key, group);
   }
   const seams = [...seamMap.values()].filter((g) => g.length > 1),
-    corrected = new Set<number>();
+    corrected = new Set<number>(),
+    normalAffected = new Set<number>();
   const representative = new Int32Array(position.count);
   for (const group of seamMap.values()) for (const i of group) representative[i] = group[0];
   const adjacency = Array.from({ length: position.count }, () => new Set<number>());
@@ -286,6 +286,50 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
       adjacency[tri[(k + 1) % 3]].add(tri[k]);
     }
   }
+  const surfaceIndexCount = geometry.userData.garmentTailoring.surfaceIndexCount as number,
+    outerCloth = new Uint8Array(position.count),
+    areaNormals = new Float64Array(position.count * 3);
+  for (let k = 0; k < surfaceIndexCount; k++) outerCloth[triangleIndex.getX(k)] = 1;
+  const computeSeamNormals = () => {
+    areaNormals.fill(0);
+    for (let k = 0; k < triangleIndex.count; k += 3) {
+      const a = triangleIndex.getX(k),
+        b = triangleIndex.getX(k + 1),
+        c = triangleIndex.getX(k + 2),
+        abX = position.getX(b) - position.getX(a),
+        abY = position.getY(b) - position.getY(a),
+        abZ = position.getZ(b) - position.getZ(a),
+        acX = position.getX(c) - position.getX(a),
+        acY = position.getY(c) - position.getY(a),
+        acZ = position.getZ(c) - position.getZ(a),
+        nx = abY * acZ - abZ * acY,
+        ny = abZ * acX - abX * acZ,
+        nz = abX * acY - abY * acX;
+      for (let corner = 0; corner < 3; corner++) {
+        const id = triangleIndex.getX(k + corner);
+        // The thin sewn return must not rotate the outer cloth normal. Its
+        // separate inset vertices still receive the return's own face normals.
+        if (k >= surfaceIndexCount && outerCloth[id]) continue;
+        const canonical = representative[id] * 3;
+        areaNormals[canonical] += nx;
+        areaNormals[canonical + 1] += ny;
+        areaNormals[canonical + 2] += nz;
+      }
+    }
+    for (let i = 0; i < position.count; i++) {
+      const canonical = representative[i] * 3,
+        x = areaNormals[canonical],
+        y = areaNormals[canonical + 1],
+        z = areaNormals[canonical + 2],
+        length = Math.hypot(x, y, z);
+      if (length > 1e-15) normal.setXYZ(i, x / length, y / length, z / length);
+    }
+  };
+  // Accumulate unnormalized face areas across source UV splits. Equal votes
+  // from normalized split normals overemphasize tiny folded collar triangles.
+  // Cache the neutral field once so idle and reset retain exact buffer values.
+  computeSeamNormals();
+  neutralNormal.set(normal.array);
   const posedBase = new Float64Array(position.count * 3),
     fair = new Float64Array(position.count * 3),
     next = new Float64Array(position.count * 3);
@@ -361,9 +405,11 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
         // same adjacency and corrected coordinate, so no opening/flap is made.
         // Never inflate an inside radius out onto a cylinder: that inverted
         // concave source folds and produced cap flaps in actual capture.
-        for (let pass = 0; pass < 8; pass++) {
+        // Extra positive passes round the abduction valley in the upper cap;
+        // alternating fairing alone preserves that broad source/LBS fold.
+        for (let pass = 0; pass < 8 + CAP_FAIRING_PASSES; pass++) {
           next.set(fair);
-          for (const { id, side, fade } of samples) {
+          for (const { id, side, fade, capFade } of samples) {
             if (representative[id] !== id) continue;
             const arm = arms[side],
               peers = adjacency[id];
@@ -372,7 +418,9 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
             radial.copy(posed).sub(arm.origin);
             const axial = radial.dot(arm.axis);
             const envelope = smooth(-0.13, -0.06, axial) * (1 - smooth(0.1, 0.23, axial));
-            const amount = (pass % 2 === 0 ? 0.45 : -0.47) * fade * arm.activation * envelope;
+            const strength =
+              pass < 8 ? (pass % 2 === 0 ? 0.45 : -0.47) : CAP_FAIRING_STRENGTH * capFade;
+            const amount = strength * fade * arm.activation * envelope;
             if (amount === 0) continue;
             target.set(0, 0, 0);
             for (const j of peers) {
@@ -403,43 +451,35 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
           delta.copy(target).sub(posed);
           if (delta.length() > 0.045) delta.setLength(0.045);
           maximum = Math.max(maximum, delta.length());
-          if (delta.lengthSq() > 1e-14) corrected.add(id);
           blendVertex(id);
           if (Math.abs(blended.determinant()) < 0.05) continue;
           p.set(neutral[id * 3], neutral[id * 3 + 1], neutral[id * 3 + 2]);
           target.copy(posed).add(delta).applyMatrix4(inverse.copy(blended).invert());
           maxBind = Math.max(maxBind, target.distanceTo(p));
           position.setXYZ(id, target.x, target.y, target.z);
+          if (delta.lengthSq() > 1e-14) corrected.add(id);
         }
       }
       position.needsUpdate = true;
-      if (active) geometry.computeVertexNormals();
-      else normal.array.set(neutralNormal);
-      const seamNormal = new THREE.Vector3();
-      for (const group of seams) {
-        if (!group.some((i) => corrected.has(i))) continue;
-        seamNormal.set(0, 0, 0);
-        for (const i of group) seamNormal.add(p.fromBufferAttribute(normal, i));
-        seamNormal.normalize();
-        for (const i of group) normal.setXYZ(i, seamNormal.x, seamNormal.y, seamNormal.z);
-      }
-      for (let i = 0; i < position.count; i++)
-        if (!corrected.has(i))
-          normal.setXYZ(
-            i,
-            neutralNormal[i * 3],
-            neutralNormal[i * 3 + 1],
-            neutralNormal[i * 3 + 2]
-          );
-      // Preserve exact original neckline normals and source torso/cuff normals.
-      for (let i = 0; i < position.count; i++)
-        if (Math.abs(neutral[i * 3]) < 0.1 && neutral[i * 3 + 1] > 1.43)
-          normal.setXYZ(
-            i,
-            neutralNormal[i * 3],
-            neutralNormal[i * 3 + 1],
-            neutralNormal[i * 3 + 2]
-          );
+      if (active) {
+        normalAffected.clear();
+        for (const id of corrected) {
+          const canonical = representative[id];
+          normalAffected.add(canonical);
+          // A moved vertex changes its incident faces and every corner normal
+          // on those faces, including pinned collar vertices and UV equivalents.
+          for (const peer of adjacency[canonical]) normalAffected.add(peer);
+        }
+        computeSeamNormals();
+        for (let i = 0; i < position.count; i++)
+          if (!normalAffected.has(representative[i]))
+            normal.setXYZ(
+              i,
+              neutralNormal[i * 3],
+              neutralNormal[i * 3 + 1],
+              neutralNormal[i * 3 + 2]
+            );
+      } else normal.array.set(neutralNormal);
       normal.needsUpdate = true;
       wasActive = active;
       geometry.userData.shirtCorrective = {
@@ -448,7 +488,7 @@ export function createContinuousShirtCorrectives(mesh: THREE.SkinnedMesh, rig: R
         maxBindDisplacementMetres: maxBind,
         limitMetres: 0.045,
         recipe:
-          'original connected posed shoulder fairing; inverse production49 LBS; pinned neckline',
+          'original connected posed shoulder/cap fairing; seam-aware normal halo; inverse production49 LBS; pinned neckline',
       };
     },
     dispose() {
