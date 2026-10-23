@@ -681,12 +681,31 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
 }
 
 function createBootState(g: THREE.BufferGeometry) {
-  const p = g.getAttribute('position');
+  const p = g.getAttribute('position'),
+    index = g.index!,
+    sides = [[], []] as number[][];
+  for (let i = 0; i < index.count; i += 3)
+    sides[p.getX(index.getX(i)) > 0 ? 0 : 1].push(
+      index.getX(i),
+      index.getX(i + 1),
+      index.getX(i + 2)
+    );
   return {
     neutral: new Float32Array(p.array),
     previous: new Float64Array(48).fill(Number.NaN),
     previousBall: new Float64Array(4).fill(Number.NaN),
     fitted: new Float64Array(p.count * 3),
+    previousPositions: new Float32Array(p.count * 3),
+    worldPositions: new Float64Array(p.count * 3),
+    sectionWeights: Float64Array.from({ length: p.count }, (_, i) =>
+      THREE.MathUtils.smoothstep(p.getZ(i), 0.025, 0.125)
+    ),
+    sides,
+    triangle: new THREE.Triangle(),
+    edge: new THREE.Line3(),
+    closest: new THREE.Vector3(),
+    barycentric: new THREE.Vector3(),
+    ballCenter: new THREE.Vector3(),
     ballOffset: new THREE.Vector3(),
     retreat: [0, 0],
     rootQuaternion: new THREE.Quaternion(),
@@ -769,6 +788,7 @@ export function syncContinuousBootFlex(
     state.previousBall[k] = ballValues[k];
   }
   if (!changed) return;
+  state.previousPositions.set(p.array);
   const rootQ = rig.root.getWorldQuaternion(state.rootQuaternion).invert();
   const pitch = (side: 'L' | 'R') => {
     const bone = rig.skeleton.bones[BONES.indexOf(`foot${side}`)];
@@ -802,9 +822,9 @@ export function syncContinuousBootFlex(
   // horizontal retreat preserves each cross-section's thickness and turf fit;
   // the ankle stays pinned. Inputs are read-only released ball geometry.
   state.retreat.fill(0);
-  const sectionWeight = (z: number) => THREE.MathUtils.smoothstep(z, 0.025, 0.125);
   if (effectiveBall) {
     state.fitted.set(p.array);
+    state.ballCenter.copy(effectiveBall.center);
     for (let side = 0; side < 2; side++) {
       const m = matrices[side];
       state.forward.set(0, 0, 1).transformDirection(m.world);
@@ -812,34 +832,99 @@ export function syncContinuousBootFlex(
       if (state.forward.lengthSq() < 1e-8) continue;
       state.forward.normalize();
       const radius = effectiveBall.radius + 0.003;
-      for (let i = 0; i < p.count; i++) {
-        if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
-        const weight = sectionWeight(neutral[i * 3 + 2]);
-        if (weight < 0.02) continue;
-        bindPoint.fromBufferAttribute(p, i).sub(m.rest).applyMatrix4(m.world);
-        state.ballOffset.copy(bindPoint).sub(effectiveBall.center);
-        if (state.ballOffset.lengthSq() > (radius + 0.055) ** 2) continue;
-        const along = state.ballOffset.dot(state.forward);
-        const transverseSq = Math.max(0, state.ballOffset.lengthSq() - along * along);
-        if (transverseSq >= radius * radius) continue;
-        const required = along + Math.sqrt(radius * radius - transverseSq);
-        if (required > 0)
-          state.retreat[side] = Math.max(
-            state.retreat[side],
-            Math.min(0.055 * m.world.getMaxScaleOnAxis(), required / weight)
-          );
+      let requested = 0;
+      const applyRetreat = (retreat: number) => {
+        for (let i = 0; i < p.count; i++) {
+          if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
+          if (!retreat) {
+            p.setXYZ(i, state.fitted[i * 3], state.fitted[i * 3 + 1], state.fitted[i * 3 + 2]);
+            continue;
+          }
+          bindPoint.fromArray(state.fitted, i * 3).sub(m.rest);
+          worldSole
+            .copy(bindPoint)
+            .applyMatrix4(m.world)
+            .addScaledVector(state.forward, -retreat * state.sectionWeights[i]);
+          lifted.copy(worldSole).applyMatrix4(m.inverse).add(m.rest);
+          p.setXYZ(i, lifted.x, lifted.y, lifted.z);
+        }
+      };
+      // Measure complete faces, not only their vertices. The closest point's
+      // barycentric section weight also catches face-interior margin contacts.
+      const clearance = (findRequest: boolean) => {
+        for (let i = 0; i < p.count; i++) {
+          if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
+          bindPoint.fromBufferAttribute(p, i).sub(m.rest).applyMatrix4(m.world);
+          bindPoint.toArray(state.worldPositions, i * 3);
+        }
+        let minimum = Infinity;
+        const indices = state.sides[side],
+          { triangle, closest, edge } = state;
+        for (let j = 0; j < indices.length; j += 3) {
+          const a = indices[j],
+            b = indices[j + 1],
+            c = indices[j + 2];
+          triangle.a.fromArray(state.worldPositions, a * 3);
+          triangle.b.fromArray(state.worldPositions, b * 3);
+          triangle.c.fromArray(state.worldPositions, c * 3);
+          triangle.closestPointToPoint(state.ballCenter, closest);
+          let distance = closest.distanceTo(state.ballCenter);
+          const degenerate = triangle.getArea() < 1e-13;
+          if (degenerate || !Number.isFinite(distance)) {
+            distance = Infinity;
+            for (let k = 0; k < 3; k++) {
+              const start = k === 0 ? triangle.a : k === 1 ? triangle.b : triangle.c,
+                end = k === 0 ? triangle.b : k === 1 ? triangle.c : triangle.a;
+              edge.set(start, end).closestPointToPoint(state.ballCenter, true, lifted);
+              const segmentDistance = lifted.distanceTo(state.ballCenter),
+                d = Math.min(
+                  Number.isFinite(segmentDistance) ? segmentDistance : Infinity,
+                  start.distanceTo(state.ballCenter),
+                  end.distanceTo(state.ballCenter)
+                );
+              if (d < distance) {
+                distance = d;
+                closest.copy(lifted);
+              }
+            }
+          }
+          minimum = Math.min(minimum, distance);
+          if (!findRequest || distance >= radius || degenerate) continue;
+          state.ballOffset.copy(closest).sub(state.ballCenter);
+          const along = state.ballOffset.dot(state.forward);
+          // Backward retreat helps only on the rear-facing half of the sphere;
+          // moving an already-forward point backwards first worsens its gap.
+          if (along >= 0) continue;
+          triangle.getBarycoord(closest, state.barycentric);
+          const weight =
+            state.barycentric.x * state.sectionWeights[a] +
+            state.barycentric.y * state.sectionWeights[b] +
+            state.barycentric.z * state.sectionWeights[c];
+          if (weight < 0.02) continue;
+          const transverseSq = Math.max(0, distance * distance - along * along),
+            required = along + Math.sqrt(Math.max(0, radius * radius - transverseSq));
+          requested = Math.max(requested, required / weight);
+        }
+        return minimum;
+      };
+      const before = clearance(true);
+      if (before >= radius || !requested) continue;
+      requested = Math.min(0.055 * m.world.getMaxScaleOnAxis(), requested);
+      let best = before,
+        chosen = 0;
+      // A small bounded fallback retains useful contact fitting without allowing
+      // side/rear contact or pinned triangles to worsen the complete-foot gap.
+      for (const fraction of [1, 0.75, 0.5, 0.25]) {
+        const retreat = requested * fraction;
+        applyRetreat(retreat);
+        const candidate = clearance(false);
+        if (candidate > best + 1e-8 || (candidate >= radius && best >= radius)) {
+          best = candidate;
+          chosen = retreat;
+        }
       }
-      if (!state.retreat[side]) continue;
-      for (let i = 0; i < p.count; i++) {
-        if ((neutral[i * 3] > 0 ? 0 : 1) !== side) continue;
-        const amount = state.retreat[side] * sectionWeight(neutral[i * 3 + 2]);
-        bindPoint
-          .set(state.fitted[i * 3], state.fitted[i * 3 + 1], state.fitted[i * 3 + 2])
-          .sub(m.rest);
-        worldSole.copy(bindPoint).applyMatrix4(m.world).addScaledVector(state.forward, -amount);
-        lifted.copy(worldSole).applyMatrix4(m.inverse).add(m.rest);
-        p.setXYZ(i, lifted.x, lifted.y, lifted.z);
-      }
+      state.retreat[side] = chosen;
+      applyRetreat(chosen);
     }
   }
   g.userData.visualBallFit = {
@@ -860,8 +945,11 @@ export function syncContinuousBootFlex(
     );
   g.userData.maxVisualBootDisplacementMetres = maxDisplacement;
   g.userData.visualBootDisplacementSpace = 'production bind metres; world scales with actor root';
-  p.needsUpdate = true;
-  g.computeVertexNormals();
-  g.computeBoundingBox();
-  g.computeBoundingSphere();
+  if (p.array.some((value, i) => value !== state.previousPositions[i])) {
+    p.needsUpdate = true;
+    g.computeVertexNormals();
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+  }
+  if (!g.boundingBox) g.computeBoundingBox();
 }

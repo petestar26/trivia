@@ -528,9 +528,9 @@
   "editableRuntimeSources": [
     {
       "file": "apps/web/src/components/football/engine/continuous-kit.ts",
-      "bytes": 32704,
-      "sha256": "662ca0d1456f9223adacdddb4b0fd76f50f41876be2b85c2e34f393b035b7407",
-      "version": "single-player-finishing-r5-20261020"
+      "bytes": 36465,
+      "sha256": "1303166dc386289ae5e394b8ac4ab5e48c5284729ef11a0ec657f91a851fda5f",
+      "version": "single-player-boot-clearance-r8-20261023"
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-body-correctives.ts",
@@ -658,15 +658,15 @@
     "sourceFiles": [
       {
         "file": "apps/web/src/components/football/engine/continuous-kit.ts",
-        "sha256": "662ca0d1456f9223adacdddb4b0fd76f50f41876be2b85c2e34f393b035b7407",
-        "bytes": 32704,
-        "version": "renderer-garment-repair-r6-20261020"
+        "sha256": "1303166dc386289ae5e394b8ac4ab5e48c5284729ef11a0ec657f91a851fda5f",
+        "bytes": 36465,
+        "version": "single-player-boot-clearance-r8-20261023"
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-boot-upload.test.ts",
-        "sha256": "501df17323e58abaa0a528de4ed671fbdbaf69f3609274f3fe267c0d4a1e4d28",
-        "bytes": 23186,
-        "version": "renderer-garment-repair-r6-20261020"
+        "sha256": "497406dbd721716dfaf0e2eee71fb460dbe36bc233906b37e27af92eafc23170",
+        "bytes": 34415,
+        "version": "single-player-boot-clearance-r8-20261023"
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-garment-fit.test.ts",
@@ -747,15 +747,15 @@
     "scope": "Same single outfield actor; presentation only; no asset or rig/pose/director changes. Original R6 and independent review evidence preserved unchanged.",
     "shoulder": "Eight additional localized positive cap passes after retained shape-preserving fairing;45mm posed displacement limit; source collar positions pinned; area-weighted canonical UV seam normals exclude inward return face contributions.",
     "sock": "Upper cuff fit to retained same-leg anatomy and barycentric weights; original shaft/ankle retained. Six posed cyclic passes at.35 with15mm bound; exact seams; inactive/repeat/reset cache. Applies at all continuous detail levels.",
-    "boot": "Ordinary dynamic buffer repair retained. Flat-bottom last and matching sole lip; coherent bounded forefoot retreat against optional current visible/director-frame ball envelope (3mm margin;55mm bind-equivalent retreat bound (actor scale applied in world space)). Inputs read-only; far balls normalized out of cache; moved/removed envelopes invalidate cache. Full final displacement recorded in bind metres. No target/bone/ball/clock writes.",
+    "boot": "Ordinary dynamic buffer repair retained. Flat-bottom last and matching sole lip; coherent bounded forefoot retreat against optional current visible/director-frame ball envelope (3mm margin;55mm bind-equivalent retreat bound (actor scale applied in world space)). Inputs read-only; far balls normalized out of cache; moved/removed envelopes invalidate cache. Full final displacement recorded in bind metres. No target/bone/ball/clock writes. Complete-triangle margin gate; closest-point directional candidates; four bounded sampled retreats accepted only when complete-foot clearance improves, preferring the smallest sampled fit reaching the margin. Already-clear geometry/normals retain exact bytes and unchanged buffers do not upload. Follow-through limitations remain.",
     "remaining": "Visual acceptance and roster expansion held. Thin collar seam/angular inner opening and extreme knee shape remain; bounded probes are not global cloth/contact clearance. Physical-device and authenticated live-server acceptance pending.",
     "captureRepair": "View-dependent shoulder front/profile close cameras; after-position transform includes position,target,rotation/quaternion,projection and lights. Both10a/97 historical pair and97/final pair freshly captured with matched inputs.",
     "sourceFiles": [
       {
         "file": "apps/web/src/components/football/engine/continuous-kit.ts",
-        "sha256": "662ca0d1456f9223adacdddb4b0fd76f50f41876be2b85c2e34f393b035b7407",
-        "bytes": 32704,
-        "version": "single-player-finishing-r7-20261022"
+        "sha256": "1303166dc386289ae5e394b8ac4ab5e48c5284729ef11a0ec657f91a851fda5f",
+        "bytes": 36465,
+        "version": "single-player-boot-clearance-r8-20261023"
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-player.ts",
@@ -789,9 +789,9 @@
       },
       {
         "file": "apps/web/src/components/football/engine/continuous-boot-upload.test.ts",
-        "sha256": "501df17323e58abaa0a528de4ed671fbdbaf69f3609274f3fe267c0d4a1e4d28",
-        "bytes": 23186,
-        "version": "single-player-finishing-r7-20261022"
+        "sha256": "497406dbd721716dfaf0e2eee71fb460dbe36bc233906b37e27af92eafc23170",
+        "bytes": 34415,
+        "version": "single-player-boot-clearance-r8-20261023"
       },
       {
         "file": "apps/web/src/components/football/engine/players.ts",

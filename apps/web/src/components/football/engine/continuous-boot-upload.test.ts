@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { WebGLAttributes } from 'three/src/renderers/webgl/WebGLAttributes.js';
 import { createContinuousKit, syncContinuousBootFlex } from './continuous-kit';
 import { createRig, humanGeometry, kitFromClub, type Look } from './rig';
-import { resetPose, poseRun, plantRunFeet, poseKick, kickGeometry } from './poses';
+import { resetPose, poseRun, plantRunFeet, poseKick, kickGeometry, poseIdle } from './poses';
+import { applyReviewPlayerMotion } from './review-player-motion';
 
 const look = {
   skin: '#b97c57',
@@ -57,6 +58,231 @@ function fixture() {
     },
   };
 }
+
+// Scan all actual skinned triangles, including segment/point fallbacks. Vertex
+// distances alone cannot prove clearance of a face's interior.
+function triangleBallGap(mesh: THREE.SkinnedMesh, center: THREE.Vector3, radius: number) {
+  const p = mesh.geometry.getAttribute('position'),
+    index = mesh.geometry.index!,
+    points = Array.from({ length: p.count }, (_, i) => {
+      const point = new THREE.Vector3().fromBufferAttribute(p, i);
+      mesh.applyBoneTransform(i, point);
+      return point.applyMatrix4(mesh.matrixWorld);
+    }),
+    triangle = new THREE.Triangle(),
+    closest = new THREE.Vector3(),
+    edge = new THREE.Line3();
+  let distance = Infinity;
+  for (let i = 0; i < index.count; i += 3) {
+    triangle.set(points[index.getX(i)], points[index.getX(i + 1)], points[index.getX(i + 2)]);
+    let d = triangle.closestPointToPoint(center, closest).distanceTo(center);
+    if (triangle.getArea() < 1e-13 || !Number.isFinite(d)) {
+      d = Infinity;
+      for (const [a, b] of [
+        [triangle.a, triangle.b],
+        [triangle.b, triangle.c],
+        [triangle.c, triangle.a],
+      ]) {
+        edge.set(a, b);
+        const segmentDistance = edge.closestPointToPoint(center, true, closest).distanceTo(center);
+        d = Math.min(
+          d,
+          Number.isFinite(segmentDistance) ? segmentDistance : Infinity,
+          a.distanceTo(center),
+          b.distanceTo(center)
+        );
+      }
+    }
+    if (!Number.isFinite(d)) throw new Error(`Unresolved boot triangle ${i / 3}`);
+    distance = Math.min(distance, d);
+  }
+  return distance - radius;
+}
+
+describe('nearby already-clear released ball preserves the whole boot', () => {
+  const cases = (['L', 'R'] as const).flatMap((foot) =>
+    [false, true].flatMap((reducedMotion) =>
+      [
+        { scale: 1, heading: 0 },
+        { scale: 0.8, heading: -0.6 },
+        { scale: 1.15, heading: 1.3 },
+      ].map((transform) => ({ foot, reducedMotion, ...transform }))
+    )
+  );
+  it.each(cases)(
+    '$foot raw/idle-reduced=$reducedMotion scale=$scale heading=$heading keeps clear front/side/rear envelopes unchanged',
+    ({ foot, reducedMotion, scale, heading }) => {
+      const f = fixture(),
+        sink = uploadSink();
+      try {
+        if (reducedMotion) {
+          poseIdle(f.rig, 0, 0);
+          applyReviewPlayerMotion(f.rig, {
+            kind: 'idle',
+            time: 0,
+            phase: 0,
+            speed: 0,
+            reducedMotion: true,
+          });
+        }
+        f.rig.root.scale.setScalar(scale);
+        f.rig.root.rotation.y = heading;
+        f.rig.root.position.set(scale === 1 ? 0 : 1.2, 0, scale === 1 ? 0 : -0.4);
+        f.rig.root.updateMatrixWorld(true);
+        f.rig.skeleton.update();
+        syncContinuousBootFlex(f.mesh, f.rig);
+        const p = f.mesh.geometry.getAttribute('position') as THREE.BufferAttribute,
+          n = f.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute,
+          baselinePosition = sink.read(p).slice(),
+          baselineNormal = sink.read(n).slice(),
+          objects = [f.rig.root, ...f.rig.skeleton.bones],
+          authority = objects.map((o) => ({
+            local: o.matrix.elements.slice(),
+            world: o.matrixWorld.elements.slice(),
+          })),
+          footMatrix = f.rig.bones[foot === 'L' ? 'footL' : 'footR'].matrixWorld,
+          sign = foot === 'L' ? 1 : -1;
+        for (const offset of [
+          new THREE.Vector3(sign * 0.14, 0.05, -0.07),
+          new THREE.Vector3(sign * 0.195, 0.03, 0.07),
+          new THREE.Vector3(0, 0, 0.33),
+        ]) {
+          const center = offset.applyMatrix4(footMatrix),
+            radius = 0.11 * scale,
+            envelope = Object.freeze({ center: Object.freeze({ ...center }), radius }),
+            beforeGap = triangleBallGap(f.mesh, center, radius),
+            clearVersions = [p.version, n.version],
+            clearUploads = sink.gl.bufferSubData.mock.calls.length;
+          expect(beforeGap).toBeGreaterThan(0.003);
+          if (foot === 'L' && scale === 1 && center.z < 0) {
+            expect(center.x).toBeCloseTo(reducedMotion ? 0.26 : 0.24, 10);
+            expect(center.y).toBeCloseTo(reducedMotion ? 0.128 : 0.13, 10);
+            expect(center.z).toBeCloseTo(reducedMotion ? -0.05 : -0.07, 10);
+            expect(beforeGap).toBeCloseTo(0.005903194958076341, 10);
+          }
+          syncContinuousBootFlex(f.mesh, f.rig, envelope);
+          expect(Array.from(sink.read(p))).toEqual(Array.from(baselinePosition));
+          expect(Array.from(sink.read(n))).toEqual(Array.from(baselineNormal));
+          expect([p.version, n.version]).toEqual(clearVersions);
+          expect(sink.gl.bufferSubData.mock.calls.length).toBe(clearUploads);
+          expect(f.mesh.geometry.userData.visualBallFit.retreatMetres).toEqual([0, 0]);
+          expect(triangleBallGap(f.mesh, center, radius)).toBeCloseTo(beforeGap, 10);
+          const versions = [p.version, n.version],
+            uploads = sink.gl.bufferSubData.mock.calls.length;
+          syncContinuousBootFlex(f.mesh, f.rig, envelope);
+          sink.read(p);
+          sink.read(n);
+          expect([p.version, n.version]).toEqual(versions);
+          expect(sink.gl.bufferSubData.mock.calls.length).toBe(uploads);
+          syncContinuousBootFlex(f.mesh, f.rig);
+          expect(Array.from(sink.read(p))).toEqual(Array.from(baselinePosition));
+          expect(Array.from(sink.read(n))).toEqual(Array.from(baselineNormal));
+        }
+        objects.forEach((object, i) => {
+          expect(object.matrix.elements).toEqual(authority[i].local);
+          expect(object.matrixWorld.elements).toEqual(authority[i].world);
+        });
+        expect(f.mesh.geometry.getAttribute('position')).toBe(p);
+        expect(f.mesh.geometry.getAttribute('normal')).toBe(n);
+        expect(sink.gl.createBuffer).toHaveBeenCalledTimes(2);
+      } finally {
+        f.dispose();
+      }
+    }
+  );
+});
+
+describe('complete triangle contact fitting remains useful and bounded', () => {
+  it.each(['L', 'R'] as const)(
+    'fits a %s face-interior margin contact missed by every vertex',
+    (foot) => {
+      const f = fixture(),
+        sink = uploadSink();
+      try {
+        f.rig.root.updateMatrixWorld(true);
+        f.rig.skeleton.update();
+        syncContinuousBootFlex(f.mesh, f.rig);
+        const p = f.mesh.geometry.getAttribute('position') as THREE.BufferAttribute,
+          n = f.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute,
+          center = new THREE.Vector3(
+            foot === 'L' ? 0.23679238069316505 : -0.23679238069316505,
+            0.10812667638988555,
+            0.15255144596400716
+          ),
+          radius = 0.11,
+          before = triangleBallGap(f.mesh, center, radius);
+        let vertexGap = Infinity;
+        for (let i = 0; i < p.count; i++) {
+          const point = new THREE.Vector3().fromBufferAttribute(p, i);
+          f.mesh.applyBoneTransform(i, point);
+          point.applyMatrix4(f.mesh.matrixWorld);
+          vertexGap = Math.min(vertexGap, point.distanceTo(center) - radius);
+        }
+        expect(before).toBeCloseTo(foot === 'L' ? 0.002 : 0.002035139065915098, 8);
+        expect(vertexGap).toBeGreaterThan(0.003);
+        sink.read(p);
+        sink.read(n);
+        syncContinuousBootFlex(f.mesh, f.rig, { center, radius });
+        expect(triangleBallGap(f.mesh, center, radius)).toBeGreaterThan(before + 0.0001);
+        expect(Math.max(...f.mesh.geometry.userData.visualBallFit.retreatMetres)).toBeGreaterThan(
+          0
+        );
+        expect(Array.from(sink.read(p))).toEqual(Array.from(p.array));
+        expect(Array.from(sink.read(n))).toEqual(Array.from(n.array));
+      } finally {
+        f.dispose();
+      }
+    }
+  );
+
+  const cases = (['L', 'R'] as const).flatMap((foot) =>
+    [0.8, 1, 1.15].map((scale) => ({ foot, scale, heading: scale === 1 ? 0 : 0.7 }))
+  );
+  it.each(cases)(
+    '$foot front/side/rear contacts at scale $scale never worsen whole-foot clearance',
+    ({ foot, scale, heading }) => {
+      const f = fixture(),
+        sink = uploadSink();
+      try {
+        f.rig.root.scale.setScalar(scale);
+        f.rig.root.rotation.y = heading;
+        f.rig.root.position.set(-1.3, 0, 0.7);
+        f.rig.root.updateMatrixWorld(true);
+        f.rig.skeleton.update();
+        syncContinuousBootFlex(f.mesh, f.rig);
+        const p = f.mesh.geometry.getAttribute('position') as THREE.BufferAttribute,
+          n = f.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute,
+          baselineP = sink.read(p).slice(),
+          baselineN = sink.read(n).slice(),
+          footMatrix = f.rig.bones[foot === 'L' ? 'footL' : 'footR'].matrixWorld,
+          sign = foot === 'L' ? 1 : -1;
+        for (const [name, offset] of [
+          ['front', new THREE.Vector3(0, 0, 0.28)],
+          ['side', new THREE.Vector3(sign * 0.13, 0.03, 0.1)],
+          ['rear', new THREE.Vector3(sign * 0.04, 0.02, -0.14)],
+        ] as const) {
+          const center = offset.applyMatrix4(footMatrix),
+            radius = 0.11 * scale,
+            before = triangleBallGap(f.mesh, center, radius);
+          expect(before).toBeLessThan(0.003);
+          syncContinuousBootFlex(f.mesh, f.rig, { center, radius });
+          const after = triangleBallGap(f.mesh, center, radius);
+          expect(after, name).toBeGreaterThanOrEqual(before - 1e-8);
+          if (name === 'front') expect(after).toBeGreaterThan(before + 0.005 * scale);
+          for (const retreat of f.mesh.geometry.userData.visualBallFit.retreatMetres)
+            expect(retreat).toBeLessThanOrEqual(0.055 * scale + 1e-9);
+          expect(Array.from(sink.read(p))).toEqual(Array.from(p.array));
+          expect(Array.from(sink.read(n))).toEqual(Array.from(n.array));
+          syncContinuousBootFlex(f.mesh, f.rig);
+          expect(Array.from(sink.read(p))).toEqual(Array.from(baselineP));
+          expect(Array.from(sink.read(n))).toEqual(Array.from(baselineN));
+        }
+      } finally {
+        f.dispose();
+      }
+    }
+  );
+});
 
 describe('actual Three boot attribute uploads after the first render', () => {
   it.each([false, true])(
@@ -464,18 +690,36 @@ describe('saturated ball fitting preserves forefoot longitudinal order', () => {
         f.mesh.applyBoneTransform(stressVertex, point);
         point.applyMatrix4(f.mesh.matrixWorld);
         // Put the sphere on a current forefoot section, rather than relying on
-        // incidental contact overlap, to force the retreat cap at every scale.
+        // incidental contact overlap, to request a bounded saturated fit.
         const center = Object.freeze({ x: point.x, y: point.y, z: point.z }),
-          envelope = Object.freeze({ center, radius: 0.11 });
+          envelope = Object.freeze({ center, radius: 0.11 }),
+          beforeGap = triangleBallGap(f.mesh, point, envelope.radius);
         syncContinuousBootFlex(f.mesh, f.rig, envelope);
         const fit = f.mesh.geometry.userData.visualBallFit;
         expect(fit.limitBindMetres).toBeCloseTo(0.055, 10);
         expect(fit.maximumSectionDerivative).toBeCloseTo(0.825, 10);
-        expect(fit.retreatMetres[side]).toBeCloseTo(0.055 * scale, 8);
+        expect(fit.retreatMetres[side]).toBeGreaterThan(0);
         for (const retreat of fit.retreatMetres) {
           expect(retreat).toBeGreaterThanOrEqual(0);
           expect(retreat).toBeLessThanOrEqual(0.055 * scale + 1e-9);
         }
+        const fitted = p.array.slice(),
+          fittedGap = triangleBallGap(f.mesh, point, envelope.radius),
+          ratio = (0.055 * scale) / fit.retreatMetres[side];
+        // The old exact-cap assertion prescribed the old algorithm's choice.
+        // Compare complete geometry instead: a smaller selected fit must be at
+        // least as useful as blindly spending the full unchanged 55mm budget.
+        for (let i = base; i < base + p.count / 2; i++)
+          for (let axis = 0; axis < 3; axis++)
+            p.setComponent(
+              i,
+              axis,
+              unfitted[i * 3 + axis] + (fitted[i * 3 + axis] - unfitted[i * 3 + axis]) * ratio
+            );
+        const fullCapGap = triangleBallGap(f.mesh, point, envelope.radius);
+        p.array.set(fitted);
+        expect(fittedGap).toBeGreaterThan(beforeGap + 1e-5);
+        expect(fittedGap).toBeGreaterThanOrEqual(fullCapGap - 1e-7);
         expect(Array.from(p.array).every(Number.isFinite)).toBe(true);
         expect(Array.from(sink.read(p))).toEqual(Array.from(p.array));
         const n = f.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
@@ -519,6 +763,9 @@ describe('saturated ball fitting preserves forefoot longitudinal order', () => {
           minimumMeasuredSectionSecant: minimumSecant,
           stressVertexSignedBallGapMetres:
             point.distanceTo(new THREE.Vector3(center.x, center.y, center.z)) - envelope.radius,
+          beforeCompleteGapMetres: beforeGap,
+          fittedCompleteGapMetres: fittedGap,
+          fullCapCompleteGapMetres: fullCapGap,
         });
       }
       console.log(
