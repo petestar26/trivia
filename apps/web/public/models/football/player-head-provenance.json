@@ -1,0 +1,404 @@
+{
+  "schemaVersion": 1,
+  "exportVersion": "original-football-head-v1",
+  "normalTargetLODs": [
+    "high",
+    "mid"
+  ],
+  "exportSteps": [
+    "Verify pinned source base.obj and retained LICENSE-CC0.txt SHA-256.",
+    "Extract core body-group faces wholly above source Y=5.68; retain all high facial triangles.",
+    "Build mid/low with original feature-weighted quadric collapse and face-fold rejection; protect mid inner-lid loops.",
+    "Add original fitted spherical eye caps, iris/pupil discs and brow ribbons.",
+    "Generate bounded facial/identity POSITION morphs and posed NORMAL deltas for high/mid.",
+    "Write local glTF 2.0 GLB buffers with UVs, normals, semantic _PART and neutral preview COLOR_0.",
+    "Run independent source-topology, aperture, bounds, normal-target and manifest validation."
+  ],
+  "authoringScriptSHA256": "e2fa1cfa358b84872af133557079836089eaa5a3bf3a20877536aac1d2797307",
+  "sources": [
+    {
+      "asset": "MakeHuman core base.obj",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/3dobjs/base.obj",
+      "sha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+      "license": "CC0-1.0",
+      "licenseSHA256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
+      "retainedLicenseFile": "LICENSE-CC0.txt",
+      "licenseUrl": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.ASSETS.md",
+      "licenseVerification": "Core asset policy verified 2026-10-15 at https://static.makehumancommunity.org/about/license.html and https://static.makehumancommunity.org/mpfb/faq/use_in_closed_source.html; third-party assets excluded."
+    }
+  ],
+  "originalAdditions": [
+    "Fitted 2mm pupils, original iris radial colour/relief, 1.2mm raised brows and tapered brow fibre triangles",
+    "Eight fitted expression/shape targets authored with coordinate functions",
+    "UVs, vertex normals, semantic material IDs",
+    "Feature-priority LOD authoring and standalone GLB writer"
+  ],
+  "reproduce": "python3 scripts/assets/build-football-heads.py path/to/verified/base.obj --reuse-current-lods --check",
+  "authoringSoftware": "Python 3 standard library; original repository script. No Blender/MakeHuman/MPFB application source included.",
+  "runtimeDependencies": [],
+  "textures": [],
+  "exports": [
+    {
+      "file": "player-head-high.glb",
+      "sha256": "8afedf4d02b1fd60acbec56994b9ca29992ecf30538f67d2f31842b181a4ccfc",
+      "bytes": 1376156,
+      "vertices": 5367,
+      "triangles": 9984,
+      "anatomicalSurfaceTriangles": 8672,
+      "bounds": {
+        "min": [
+          -0.184476,
+          1.4748240000000001,
+          -0.066888
+        ],
+        "max": [
+          0.184476,
+          1.812156,
+          0.182364
+        ]
+      },
+      "semanticCounts": {
+        "2": 392,
+        "0": 3693,
+        "1": 186,
+        "7": 96,
+        "3": 386,
+        "5": 50,
+        "4": 240,
+        "6": 324
+      },
+      "lod": "high",
+      "coordinateSpace": "world rest; metres; +Z forward; +Y up",
+      "headAnchor": [
+        0,
+        1.66,
+        0
+      ],
+      "parts": {
+        "skin": 0,
+        "lip": 1,
+        "socket": 2,
+        "sclera": 3,
+        "iris": 4,
+        "pupil": 5,
+        "brow": 6,
+        "mouthInterior": 7
+      },
+      "targetNames": [
+        "blinkLeft",
+        "blinkRight",
+        "jawOpen",
+        "browRaise",
+        "smile",
+        "noseWidth",
+        "lipFullness",
+        "earSize"
+      ],
+      "sourceSurfaceVertices": 4367,
+      "morphRanges": {
+        "blinkLeft": [
+          0,
+          1
+        ],
+        "blinkRight": [
+          0,
+          1
+        ],
+        "jawOpen": [
+          0,
+          1
+        ],
+        "browRaise": [
+          0,
+          1
+        ],
+        "smile": [
+          0,
+          1
+        ],
+        "noseWidth": [
+          0,
+          1
+        ],
+        "lipFullness": [
+          0,
+          1
+        ],
+        "earSize": [
+          0,
+          1
+        ]
+      },
+      "eyeCenters": [
+        [
+          -0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ],
+        [
+          0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ]
+      ],
+      "eyeRadius": 0.017598,
+      "irisRadius": 0.0072,
+      "pupilRadius": 0.002,
+      "irisDetail": "Original analytic radial colour and 0.02mm fibre relief; _IRIS multiplies runtime iris colour.",
+      "seamSlope": 0.1,
+      "sourceTriangles": 8672,
+      "decimation": {
+        "requestedTriangles": 8672,
+        "achievedTriangles": 8672,
+        "method": "source topology untouched"
+      },
+      "morphNormals": true,
+      "authoring": "Pinned CC0 source skin; original spherical cornea/iris, brow ribbons, fitted lid deformation and bounded expression/shape functions."
+    },
+    {
+      "file": "player-head-mid.glb",
+      "sha256": "b9b46d13ea4bc366732a75df0480f68a2abeb832d8f651bfb744534d787004cc",
+      "bytes": 541172,
+      "vertices": 2098,
+      "triangles": 3736,
+      "anatomicalSurfaceTriangles": 3000,
+      "bounds": {
+        "min": [
+          -0.11816400289535522,
+          1.4796960353851318,
+          -0.06578399986028671
+        ],
+        "max": [
+          0.11816400289535522,
+          1.8121559619903564,
+          0.18236400187015533
+        ]
+      },
+      "semanticCounts": {
+        "2": 186,
+        "0": 1212,
+        "1": 86,
+        "7": 30,
+        "3": 194,
+        "5": 34,
+        "4": 160,
+        "6": 196
+      },
+      "lod": "mid",
+      "coordinateSpace": "world rest; metres; +Z forward; +Y up",
+      "headAnchor": [
+        0,
+        1.66,
+        0
+      ],
+      "parts": {
+        "skin": 0,
+        "lip": 1,
+        "socket": 2,
+        "sclera": 3,
+        "iris": 4,
+        "pupil": 5,
+        "brow": 6,
+        "mouthInterior": 7
+      },
+      "targetNames": [
+        "blinkLeft",
+        "blinkRight",
+        "jawOpen",
+        "browRaise",
+        "smile",
+        "noseWidth",
+        "lipFullness",
+        "earSize"
+      ],
+      "sourceSurfaceVertices": 1514,
+      "morphRanges": {
+        "blinkLeft": [
+          0,
+          1
+        ],
+        "blinkRight": [
+          0,
+          1
+        ],
+        "jawOpen": [
+          0,
+          1
+        ],
+        "browRaise": [
+          0,
+          1
+        ],
+        "smile": [
+          0,
+          1
+        ],
+        "noseWidth": [
+          0,
+          1
+        ],
+        "lipFullness": [
+          0,
+          1
+        ],
+        "earSize": [
+          0,
+          1
+        ]
+      },
+      "eyeCenters": [
+        [
+          -0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ],
+        [
+          0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ]
+      ],
+      "eyeRadius": 0.017598,
+      "irisRadius": 0.0072,
+      "pupilRadius": 0.002,
+      "irisDetail": "Original analytic radial colour and 0.02mm fibre relief; _IRIS multiplies runtime iris colour.",
+      "seamSlope": 0.1,
+      "sourceTriangles": 8672,
+      "decimation": {
+        "requestedTriangles": 3000,
+        "achievedTriangles": 3000,
+        "foldRejections": 64,
+        "method": "original feature-weighted quadric collapse; normals/fold guard; mid inner-lid loops protected"
+      },
+      "morphNormals": true,
+      "authoring": "Pinned CC0 source skin; original spherical cornea/iris, brow ribbons, fitted lid deformation and bounded expression/shape functions."
+    },
+    {
+      "file": "player-head-low.glb",
+      "sha256": "520810801bfa7c943607156ef3f10e8e00507ea3d1f8b2496852f6dd1b02cbf6",
+      "bytes": 80188,
+      "vertices": 480,
+      "triangles": 750,
+      "anatomicalSurfaceTriangles": 550,
+      "bounds": {
+        "min": [
+          -0.10551600158214569,
+          1.5009007453918457,
+          -0.06331200152635574
+        ],
+        "max": [
+          0.10551600158214569,
+          1.805016040802002,
+          0.18231000006198883
+        ]
+      },
+      "semanticCounts": {
+        "0": 223,
+        "2": 33,
+        "1": 19,
+        "7": 5,
+        "3": 50,
+        "5": 18,
+        "4": 48,
+        "6": 84
+      },
+      "lod": "low",
+      "coordinateSpace": "world rest; metres; +Z forward; +Y up",
+      "headAnchor": [
+        0,
+        1.66,
+        0
+      ],
+      "parts": {
+        "skin": 0,
+        "lip": 1,
+        "socket": 2,
+        "sclera": 3,
+        "iris": 4,
+        "pupil": 5,
+        "brow": 6,
+        "mouthInterior": 7
+      },
+      "targetNames": [
+        "blinkLeft",
+        "blinkRight",
+        "jawOpen",
+        "browRaise",
+        "smile",
+        "noseWidth",
+        "lipFullness",
+        "earSize"
+      ],
+      "sourceSurfaceVertices": 280,
+      "morphRanges": {
+        "blinkLeft": [
+          0,
+          1
+        ],
+        "blinkRight": [
+          0,
+          1
+        ],
+        "jawOpen": [
+          0,
+          1
+        ],
+        "browRaise": [
+          0,
+          1
+        ],
+        "smile": [
+          0,
+          1
+        ],
+        "noseWidth": [
+          0,
+          1
+        ],
+        "lipFullness": [
+          0,
+          1
+        ],
+        "earSize": [
+          0,
+          1
+        ]
+      },
+      "eyeCenters": [
+        [
+          -0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ],
+        [
+          0.036930000000000004,
+          1.6672980000000002,
+          0.130122
+        ]
+      ],
+      "eyeRadius": 0.017598,
+      "irisRadius": 0.0072,
+      "pupilRadius": 0.002,
+      "irisDetail": "Original analytic radial colour and 0.02mm fibre relief; _IRIS multiplies runtime iris colour.",
+      "seamSlope": 0.1,
+      "sourceTriangles": 8672,
+      "decimation": {
+        "requestedTriangles": 550,
+        "achievedTriangles": 550,
+        "foldRejections": 129,
+        "method": "original feature-weighted quadric collapse; normals/fold guard; mid inner-lid loops protected"
+      },
+      "authoring": "Pinned CC0 source skin; original spherical cornea/iris, brow ribbons, fitted lid deformation and bounded expression/shape functions.",
+      "morphNormals": false
+    }
+  ],
+  "limits": [
+    "Neutral generic core anatomy with original fictional variants; no scan or real player likeness.",
+    "PBR skin, strand hair/beards, lashes and kit cloth handled by runtime; no skin texture imported.",
+    "Mid preserves inner-lid loops; low is distant-only and cannot prove close-up facial quality.",
+    "Jaw morph is a restrained surface deformation; no dental/tongue or full lip-sync rig.",
+    "Rendered review and device acceptance remain separate from structural checks."
+  ],
+  "lodSurfaceInput": "Mid/low attachment revisions use retained encoded facial surface prefixes from the delivered GLBs; cold full LOD authoring remains available without --reuse-current-lods."
+}

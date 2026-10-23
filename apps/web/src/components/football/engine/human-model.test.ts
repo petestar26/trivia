@@ -6,6 +6,7 @@ import { retargetHuman } from './human-model';
 import { BONES, createRig, lookGeometry, kitFromClub } from './rig';
 import { poseRun, poseIdle } from './poses';
 import { spectatorGeometry } from './spectator';
+import { poseFingers } from './player-appearance';
 async function base() {
   const loader = new GLTFLoader();
   loader.register(() => ({
@@ -73,6 +74,33 @@ describe('anatomical football human', () => {
     other.dispose();
     look.dispose();
     g.dispose();
+  });
+  it('articulates real weighted finger surfaces without moving the hand contact or another rig', async () => {
+    const b = await base(), material = new THREE.MeshBasicMaterial();
+    const a = createRig(material, b.geometry), other = createRig(material, b.geometry);
+    const skin = b.geometry.getAttribute('skinIndex'), weights = b.geometry.getAttribute('skinWeight');
+    const fingerVertices: number[] = [];
+    for (let i = 0; i < skin.count; i++)
+      if ([0, 1, 2, 3].some(k => weights.getComponent(i, k) > .5 && /^(index|middle|ring|pinky|thumb)/.test(BONES[skin.getComponent(i, k)]))) fingerVertices.push(i);
+    expect(fingerVertices.length).toBeGreaterThan(100);
+    poseIdle(other, 0); other.root.updateMatrixWorld(true);
+    const independent = other.bones.handL.matrixWorld.clone();
+    for (const scale of [.96, 1.04]) for (const direction of [-1, 1]) {
+      a.root.scale.setScalar(scale); a.root.rotation.y = direction * Math.PI / 2;
+      poseRun(a, .37, 5); poseFingers(a, 'run', true, [0, 0, 0]);
+      a.root.updateMatrixWorld(true); a.skeleton.update();
+      const palms = (['handL', 'handR'] as const).map(name => a.bones[name].matrixWorld.clone());
+      const before = fingerVertices.map(i => a.mesh.getVertexPosition(i, new THREE.Vector3()));
+      poseFingers(a, 'celebrate', true, [.8, .8, .12]);
+      a.root.updateMatrixWorld(true); a.skeleton.update();
+      (['handL', 'handR'] as const).forEach((name, i) => expect(a.bones[name].matrixWorld.equals(palms[i])).toBe(true));
+      const displacement = fingerVertices.map((i, k) => a.mesh.getVertexPosition(i, new THREE.Vector3()).distanceTo(before[k]));
+      expect(Math.max(...displacement)).toBeGreaterThan(.01);
+      expect(displacement.every(Number.isFinite)).toBe(true);
+      expect(Math.max(...displacement)).toBeLessThan(.15);
+      expect(other.bones.handL.matrixWorld.equals(independent)).toBe(true);
+    }
+    a.dispose(); other.dispose(); material.dispose(); b.geometry.dispose();
   });
   it('builds seated spectators with separated skin/clothing and bounded geometry', () => {
     const parts = spectatorGeometry();
