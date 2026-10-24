@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import poseStudy from './review-authored-poses.json';
 import type { ActorState } from './director';
 import { reachHand, setWorldQuaternion } from './ik';
 import { DIM, type BoneName, type Rig, type Side } from './rig';
@@ -12,6 +13,168 @@ const smooth = (v: number) => {
 const cycle = (v: number) => ((v % 1) + 1) % 1;
 type Angles = readonly [number, number, number];
 type Posture = Partial<Record<BoneName, Angles>>;
+/** Editable original key-pose study; not imported mocap or an artist-approved take. */
+type StudyKey = {
+  time: number;
+  offsets?: Record<string, number[]>;
+  arms?: Record<string, number[]>;
+  armOffsets?: Record<string, number[]>;
+};
+type StudyClip = { duration: number; loop: boolean; keys: StudyKey[] };
+type Curve = { times: number[]; values: number[][]; slopes: number[][] };
+type CompiledStudy = { duration: number; loop: boolean; tracks: Record<string, Curve> };
+function compileStudy(
+  duration: number,
+  loop: boolean,
+  keys: Array<{ time: number; values: Record<string, number[]> }>
+): CompiledStudy {
+  const tracks: Record<string, Curve> = {};
+  const names = new Set(keys.flatMap((key) => Object.keys(key.values)));
+  for (const name of names) {
+    const times = keys.map((key) => key.time);
+    const dimension = keys.find((key) => key.values[name])!.values[name].length;
+    const values = keys.map((key) => key.values[name] ?? Array(dimension).fill(0));
+    const slope = (at: number, axis: number) => {
+      if (loop && at === keys.length - 1) at = 0;
+      if (!loop && (at === 0 || at === keys.length - 1)) return 0;
+      const before = at === 0 ? keys.length - 2 : at - 1;
+      const after = at + 1;
+      const lSpan = at === 0 ? duration - times[before] : times[at] - times[before];
+      const rSpan = times[after] - times[at];
+      const left = (values[at][axis] - values[before][axis]) / lSpan;
+      const right = (values[after][axis] - values[at][axis]) / rSpan;
+      if (left * right <= 0) return 0;
+      const w1 = 2 * rSpan + lSpan,
+        w2 = rSpan + 2 * lSpan;
+      return (w1 + w2) / (w1 / left + w2 / right);
+    };
+    tracks[name] = {
+      times,
+      values,
+      slopes: keys.map((_, i) => Array.from({ length: dimension }, (__, axis) => slope(i, axis))),
+    };
+  }
+  return { duration, loop, tracks };
+}
+const studies = Object.fromEntries(
+  Object.entries(poseStudy.clips).map(([name, raw]) => {
+    const clip = raw as StudyClip;
+    return [
+      name,
+      compileStudy(
+        clip.duration,
+        clip.loop,
+        clip.keys.map((key) => ({
+          time: key.time,
+          values: Object.fromEntries(
+            ['offsets', 'arms', 'armOffsets'].flatMap((field) =>
+              Object.entries(key[field as keyof StudyKey] ?? {}).map(([bone, values]) => [
+                field + '.' + bone,
+                values as number[],
+              ])
+            )
+          ),
+        }))
+      ),
+    ];
+  })
+) as Record<keyof typeof poseStudy.clips, CompiledStudy>;
+const handStudies = Object.fromEntries(
+  Object.entries(poseStudy.hands).map(([name, clip]) => [
+    name,
+    compileStudy(
+      clip.duration,
+      clip.loop,
+      clip.keys.map((key) => ({
+        time: key.time,
+        values: { left: key.left, right: key.right },
+      }))
+    ),
+  ])
+) as Record<keyof typeof poseStudy.hands, CompiledStudy>;
+function sampleStudy(clip: CompiledStudy, time: number): Record<string, number[]> {
+  const t = clip.loop ? cycle(time / clip.duration) * clip.duration : clamp(time, 0, clip.duration);
+  const sampled: Record<string, number[]> = {};
+  for (const [name, curve] of Object.entries(clip.tracks)) {
+    const { times, values, slopes } = curve;
+    let i = 0;
+    while (i < times.length - 2 && t > times[i + 1]) i++;
+    const span = times[i + 1] - times[i],
+      u = clamp((t - times[i]) / span),
+      u2 = u * u,
+      u3 = u2 * u;
+    sampled[name] = values[i].map(
+      (value, axis) =>
+        (2 * u3 - 3 * u2 + 1) * value +
+        (u3 - 2 * u2 + u) * slopes[i][axis] * span +
+        (-2 * u3 + 3 * u2) * values[i + 1][axis] +
+        (u3 - u2) * slopes[i + 1][axis] * span
+    );
+  }
+  return sampled;
+}
+function poseChannels(
+  clip: CompiledStudy,
+  time: number,
+  field: 'offsets' | 'arms' | 'armOffsets'
+): Posture {
+  return Object.fromEntries(
+    Object.entries(sampleStudy(clip, time))
+      .filter(([name]) => name.startsWith(field + '.'))
+      .map(([name, angles]) => [name.slice(field.length + 1), angles.map(THREE.MathUtils.degToRad)])
+  ) as Posture;
+}
+function addPose(target: Posture, delta: Posture, weight: number) {
+  for (const [name, angles] of Object.entries(delta)) {
+    const previous = target[name as BoneName] ?? [0, 0, 0];
+    target[name as BoneName] = [
+      previous[0] + angles[0] * weight,
+      previous[1] + angles[1] * weight,
+      previous[2] + angles[2] * weight,
+    ];
+  }
+}
+function mirrorPose(pose: Posture): Posture {
+  return Object.fromEntries(
+    Object.entries(pose).map(([name, a]) => [
+      /[LR]$/.test(name) ? name.slice(0, -1) + (name.endsWith('L') ? 'R' : 'L') : name,
+      [a[0], -a[1], -a[2]],
+    ])
+  ) as Posture;
+}
+/** Absolute free-arm targets replace exaggerated shared run carriage on this actor only. */
+export function sampleReviewArmTargets(input: ReviewMotionInput): Posture {
+  if (input.kind === 'idle') return poseChannels(studies.idle, input.time, 'arms');
+  if (input.kind === 'kick') {
+    const pose = poseChannels(studies.kick, input.time, 'arms');
+    return input.direction === -1 ? mirrorPose(pose) : pose;
+  }
+  if (input.kind !== 'run') return {};
+  const pose = poseChannels(studies.jog, input.phase, 'arms');
+  addPose(
+    pose,
+    poseChannels(studies.drive, input.phase, 'armOffsets'),
+    clamp((input.acceleration ?? 0) / 4)
+  );
+  addPose(
+    pose,
+    poseChannels(studies.brake, input.phase, 'armOffsets'),
+    clamp(-(input.acceleration ?? 0) / 4)
+  );
+  const turn =
+    clamp(input.turn ?? 0, -1, 1) *
+    (input.turnPhase === undefined ? 1 : Math.sin(Math.PI * clamp(input.turnPhase)));
+  const turnPose = poseChannels(studies.turn, input.phase, 'armOffsets');
+  addPose(pose, turn < 0 ? mirrorPose(turnPose) : turnPose, Math.abs(turn));
+  return pose;
+}
+export const REVIEW_AUTHORED_POSE_STUDY = Object.freeze({
+  format: poseStudy.format,
+  origin: poseStudy.origin,
+  markers: Object.freeze({ ...poseStudy.markers }),
+  clips: Object.freeze(Object.keys(poseStudy.clips)),
+});
+
 const OUTFIELD_REST_ABDUCTION = (5 * Math.PI) / 180;
 const restArmLeft = new THREE.Quaternion().setFromAxisAngle(
   new THREE.Vector3(0, 0, 1),
@@ -31,6 +194,8 @@ export interface ReviewMotionState {
   kind?: ReviewMotionInput['kind'];
   posture: Posture;
   outgoing: Posture;
+  arms: Posture;
+  outgoingArms: Posture;
   elapsed: number;
   acceleration: number;
   turn: number;
@@ -38,6 +203,8 @@ export interface ReviewMotionState {
 export const createReviewMotionState = (): ReviewMotionState => ({
   posture: {},
   outgoing: {},
+  arms: {},
+  outgoingArms: {},
   elapsed: 1,
   acceleration: 0,
   turn: 0,
@@ -74,98 +241,28 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
     side = input.direction ?? 1;
   const breathe = Math.sin(t * 1.9),
     sway = Math.sin(t * 0.7);
-  if (input.kind === 'idle')
-    return {
-      spine: [-0.012 + breathe * 0.005, sway * 0.012, sway * 0.016],
-      chest: [0.01, -sway * 0.018, -sway * 0.008],
-      neck: [0.008, sway * 0.008, 0],
-      head: [-0.008, -sway * 0.009, 0],
-      upperArmL: [0.009 * breathe, 0.015, OUTFIELD_REST_ABDUCTION],
-      upperArmR: [-0.009 * breathe, -0.015, -OUTFIELD_REST_ABDUCTION],
-    };
+  if (input.kind === 'idle') return poseChannels(studies.idle, t, 'offsets');
   if (input.kind === 'run') {
-    const p = cycle(input.phase),
-      load = Math.sin(p * Math.PI * 2),
-      // Shoulder/forearm recoil follows the support cycle instead of every
-      // upper-body segment reversing on the same frame. This is sampled from
-      // the existing distance phase, never a second free-running animation clock.
-      shoulderRecoil = Math.sin(p * Math.PI * 2 - 0.22),
-      elbowRecoil = Math.sin(p * Math.PI * 2 - 0.38),
-      compression = Math.cos(p * Math.PI * 4);
-    const drive = clamp(input.acceleration ?? 0, -4, 4) / 4;
-    const braking = Math.max(0, -drive);
-    const effort =
+    const pose = poseChannels(studies.jog, input.phase, 'offsets');
+    addPose(
+      pose,
+      poseChannels(studies.drive, input.phase, 'offsets'),
+      clamp((input.acceleration ?? 0) / 4)
+    );
+    addPose(
+      pose,
+      poseChannels(studies.brake, input.phase, 'offsets'),
+      clamp(-(input.acceleration ?? 0) / 4)
+    );
+    const turnWeight =
       clamp(input.turn ?? 0, -1, 1) *
       (input.turnPhase === undefined ? 1 : Math.sin(Math.PI * clamp(input.turnPhase)));
-    const speed = clamp(input.speed / 6);
-    return {
-      spine: [
-        0.018 + drive * 0.075 + compression * 0.009 * speed,
-        -load * 0.028 - effort * 0.055,
-        -effort * 0.105 + load * 0.019 * speed,
-      ],
-      chest: [
-        -0.01 + drive * 0.025,
-        shoulderRecoil * (0.035 + 0.02 * speed) + effort * 0.025,
-        effort * 0.035 - load * 0.012 * speed,
-      ],
-      neck: [-drive * 0.055 - 0.008, effort * 0.025, effort * 0.035],
-      head: [0.005, effort * 0.045 - shoulderRecoil * 0.008, 0],
-      upperArmL: [
-        -shoulderRecoil * (0.045 + speed * 0.045) + drive * 0.035 - braking * 0.025,
-        -effort * 0.04,
-        -0.018 - Math.max(0, effort) * 0.075,
-      ],
-      upperArmR: [
-        shoulderRecoil * (0.045 + speed * 0.045) + drive * 0.035 - braking * 0.025,
-        -effort * 0.04,
-        0.018 + Math.max(0, -effort) * 0.075,
-      ],
-      // Both arms catch the deceleration; the stride-dependent elbow response
-      // remains opposed. Only decorative upper-body rotations are affected.
-      foreArmL: [
-        -Math.max(0, drive) * 0.035 - (1 + elbowRecoil) * speed * 0.022 - braking * 0.035,
-        0,
-        0,
-      ],
-      foreArmR: [
-        -Math.max(0, drive) * 0.035 - (1 - elbowRecoil) * speed * 0.022 - braking * 0.035,
-        0,
-        0,
-      ],
-    };
+    addPose(pose, poseChannels(studies.turn, input.phase, 'offsets'), turnWeight);
+    return pose;
   }
   if (input.kind === 'kick') {
-    const windUp = smooth(t / KICK.contact);
-    const load = Math.sin(Math.PI * windUp);
-    const follow = Math.sin(Math.PI * smooth((t - KICK.contact) / (KICK.duration - KICK.contact)));
-    // Carry the balancing torso/arms through impact instead of returning every
-    // decorative joint to neutral exactly when the leg transfers momentum.
-    // Existing contact/follow-through/end markers and the solved legs are unchanged.
-    const strike = windUp * (1 - smooth((t - KICK.through) / (KICK.duration - KICK.through)));
-    return {
-      spine: [
-        -0.018 * load + 0.055 * follow,
-        side * (-0.04 * load + 0.035 * strike + 0.085 * follow),
-        side * (-0.018 * strike + 0.025 * follow),
-      ],
-      chest: [
-        0.025 * load - 0.025 * follow,
-        side * (0.025 * load - 0.025 * strike - 0.05 * follow),
-        side * 0.012 * strike,
-      ],
-      neck: [-0.02 * follow, -side * 0.025 * follow, 0],
-      upperArmL: [
-        -0.035 * follow - side * 0.025 * strike,
-        side * (0.03 * follow + 0.015 * strike),
-        -0.04 * follow + 0.025 * strike,
-      ],
-      upperArmR: [
-        0.035 * follow + side * 0.025 * strike,
-        side * (0.03 * follow + 0.015 * strike),
-        0.04 * follow - 0.025 * strike,
-      ],
-    };
+    const pose = poseChannels(studies.kick, t, 'offsets');
+    return side < 0 ? mirrorPose(pose) : pose;
   }
   if (input.kind === 'keeperReady')
     return {
@@ -214,16 +311,16 @@ function releasedPosture(input: ReviewMotionInput): Posture {
   const response = first ? 1 : 1 - Math.exp(-dt / 0.085);
   state.acceleration += (clamp(input.acceleration ?? 0, -4, 4) - state.acceleration) * response;
   state.turn += (clamp(input.turn ?? 0, -1, 1) - state.turn) * response;
-  const target = sampleReviewPlayerPosture({
-    ...input,
-    acceleration: state.acceleration,
-    turn: state.turn,
-  });
+  const filtered = { ...input, acceleration: state.acceleration, turn: state.turn };
+  const target = sampleReviewPlayerPosture(filtered);
+  const armTarget = sampleReviewArmTargets(filtered);
   if (first || input.kind === 'keeperDive' || input.kind === 'keeperReady') {
     state.elapsed = 1;
     state.outgoing = {};
+    state.outgoingArms = {};
   } else if (state.kind !== input.kind) {
     state.outgoing = state.posture;
+    state.outgoingArms = state.arms;
     state.elapsed = 0;
   }
   state.kind = input.kind;
@@ -238,6 +335,15 @@ function releasedPosture(input: ReviewMotionInput): Posture {
       a[0] + (b[0] - a[0]) * blend,
       a[1] + (b[1] - a[1]) * blend,
       a[2] + (b[2] - a[2]) * blend,
+    ];
+  }
+  state.arms = {};
+  for (const [name, target] of Object.entries(armTarget)) {
+    const from = state.outgoingArms[name as BoneName] ?? target;
+    state.arms[name as BoneName] = [
+      from[0] + (target[0] - from[0]) * blend,
+      from[1] + (target[1] - from[1]) * blend,
+      from[2] + (target[2] - from[2]) * blend,
     ];
   }
   state.posture = posture;
@@ -273,6 +379,12 @@ export function applyReviewPlayerMotion(rig: Rig, input: ReviewMotionInput) {
   const keeper = input.kind === 'keeperReady' || input.kind === 'keeperDive';
   if (!keeper) {
     for (const [name, angles] of Object.entries(posture)) rotate(name as BoneName, angles, weight);
+    const arms = input.motionState?.arms ?? sampleReviewArmTargets(input);
+    for (const [name, angles] of Object.entries(arms))
+      rig.bones[name as BoneName].quaternion.slerp(
+        reviewArmTarget.setFromEuler(reviewArmEuler.set(...angles)),
+        weight
+      );
     rig.root.updateMatrixWorld(true);
     return;
   }
@@ -573,6 +685,8 @@ export function sampleReviewFinishingSequence(seconds: number): ReviewFinishingS
   };
 }
 
+const reviewArmEuler = new THREE.Euler(),
+  reviewArmTarget = new THREE.Quaternion();
 const reviewFingerEuler = new THREE.Euler();
 /** Natural relaxed cascade/opposition on the review actor only. Wrist/palm and
  * contact targets stay untouched; reduced motion uses one fixed resting pose. */
@@ -580,21 +694,31 @@ export function poseReviewPlayerHands(
   rig: Rig,
   kind: ActorState['anim']['kind'],
   moving: boolean,
-  phase = 0
+  phase = 0,
+  action?: { time: number; direction?: 1 | -1 }
 ) {
   const keeper = kind === 'keeperDive' || kind === 'keeperReady';
+  const clip = !moving
+    ? handStudies.fixedRest
+    : keeper
+      ? handStudies.keeper
+      : kind === 'run'
+        ? handStudies.run
+        : kind === 'kick'
+          ? handStudies.kick
+          : handStudies.idle;
+  const time = kind === 'run' ? phase : kind === 'kick' ? (action?.time ?? 0) : 0;
+  const hands = sampleStudy(clip, moving ? time : 0);
   const fingers = ['index', 'middle', 'ring', 'pinky'] as const;
   for (const side of ['L', 'R'] as const) {
+    const mirrored = moving && kind === 'kick' && action?.direction === -1;
+    const channel = (side === 'L') !== mirrored ? hands.left : hands.right;
+    const values = channel.map(THREE.MathUtils.degToRad);
     const sign = side === 'L' ? 1 : -1;
-    const pulse =
-      moving && kind === 'run'
-        ? Math.sin(phase * Math.PI * 2 + (side === 'L' ? 0 : Math.PI)) * 0.018
-        : 0;
     fingers.forEach((finger, digit) => {
-      const rest = keeper ? 0.045 : 0.18 + digit * 0.045 + pulse;
       for (let joint = 1; joint <= 3; joint++) {
-        const bend = rest * (joint === 1 ? 0.55 : joint === 2 ? 1 : 0.72);
-        const splay = joint === 1 ? sign * (digit - 1.1) * (keeper ? 0.045 : 0.012) : 0;
+        const bend = values[digit] * (joint === 1 ? 0.55 : joint === 2 ? 1 : 0.72);
+        const splay = joint === 1 ? sign * (digit - 1.1) * values[7] : 0;
         rig.bones[`${finger}${joint}${side}` as BoneName].quaternion.setFromEuler(
           reviewFingerEuler.set(-bend, 0, splay)
         );
@@ -603,9 +727,9 @@ export function poseReviewPlayerHands(
     for (let joint = 1; joint <= 3; joint++)
       rig.bones[`thumb${joint}${side}` as BoneName].quaternion.setFromEuler(
         reviewFingerEuler.set(
-          -0.07 * joint,
-          sign * (joint === 1 ? 0.24 : 0.06),
-          sign * (keeper ? 0.18 : 0.12)
+          -values[4] * (joint === 1 ? 0.55 : joint === 2 ? 1 : 0.75),
+          sign * values[5] * (joint === 1 ? 1 : joint === 2 ? 0.2 : 0.05),
+          sign * values[6] * (joint === 1 ? 1 : joint === 2 ? 0.3 : 0)
         )
       );
   }

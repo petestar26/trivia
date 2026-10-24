@@ -229,7 +229,11 @@ function draw(t = 0, exportFrame = false) {
   if (s.motion.kind === 'run' && !reduced)
     plantRunFeet(rig, s.phase, Math.max(1.2, s.speed), plants);
   poseFingers(rig, s.motion.kind, !reduced);
-  if (assets) poseReviewPlayerHands(rig, s.motion.kind, !reduced, s.phase);
+  if (assets)
+    poseReviewPlayerHands(rig, s.motion.kind, !reduced, s.phase, {
+      time: s.motion.time,
+      direction: s.motion.kind === 'kick' && activeKick.foot === 'L' ? -1 : 1,
+    });
   head.animate(t, s.motion.kind, !reduced);
   const proofPose = q.get('pose');
   if (proofPose) {

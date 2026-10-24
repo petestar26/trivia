@@ -568,7 +568,10 @@ export function createPlayerPool(): PlayerPool {
       if (kind === 'run') plantRunFeet(rig, st.phase, Math.max(actor.speed, 1.2), st.plants);
       poseFingers(rig, kind, true, handControls(actor, st.phase, time + i));
       if (i === REVIEW_PLAYER_SLOT && reviewAssets)
-        poseReviewPlayerHands(rig, kind, true, st.phase);
+        poseReviewPlayerHands(rig, kind, true, st.phase, {
+          time: actor.anim.kind === 'kick' ? actor.anim.t : time,
+          direction: actor.anim.kind === 'kick' && actor.anim.spec.foot === 'L' ? -1 : 1,
+        });
       const fingerWeight = 1 - Math.exp(-14 * Math.max(dt, 0));
       // Capture target before copying the previous pose; palm/wrist IK is never touched.
       fingers.forEach((name, joint) => {

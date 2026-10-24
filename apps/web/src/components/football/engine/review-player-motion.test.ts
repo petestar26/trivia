@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import poseStudy from './review-authored-poses.json';
 import { readFileSync } from 'node:fs';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
@@ -26,6 +27,8 @@ import {
   REVIEW_MOTION_SCENARIOS,
   sampleReviewMotionScenario,
   sampleReviewPlayerPosture,
+  sampleReviewArmTargets,
+  REVIEW_AUTHORED_POSE_STUDY,
   sampleReviewFinishingSequence,
   REVIEW_FINISHING_JOINS,
   REVIEW_FINISHING_DURATION,
@@ -82,22 +85,34 @@ function basePose(rig: Rig, input: ReviewMotionInput) {
 }
 
 describe('isolated review player posture adapter', () => {
-  it('samples shoulder and elbow recoil from the unchanged periodic distance phase', () => {
+  it('samples delayed shoulder and elbow recoil from the unchanged periodic distance phase', () => {
     const input = { kind: 'run' as const, time: 0, phase: 0, speed: 4 };
-    const first = sampleReviewPlayerPosture(input);
-    // A support reversal is not simultaneously the reversal of every upper-body segment.
+    // Arms are authored absolute targets, while the torso remains additive. Both
+    // channels must follow the same released distance phase and loop smoothly.
+    const sample = (phase: number, time = 0) => ({
+      ...sampleReviewPlayerPosture({ ...input, phase, time }),
+      ...sampleReviewArmTargets({ ...input, phase, time }),
+    });
+    const first = sample(0);
     expect(Math.abs(first.chest![1])).toBeGreaterThan(0.005);
     expect(Math.abs(first.upperArmL![0])).toBeGreaterThan(0.005);
+    // Explicit shoulder peak follows support reversal; elbow recoil follows it.
+    const shoulder = sample(0.04),
+      elbow = sample(0.125);
+    expect(shoulder.upperArmL![0]).toBeGreaterThan(first.upperArmL![0]);
+    expect(Math.abs(shoulder.upperArmR![0])).toBeGreaterThan(Math.abs(first.upperArmR![0]));
+    expect(elbow.foreArmL![0]).toBeLessThan(shoulder.foreArmL![0]);
+    expect(elbow.upperArmL![0]).toBeLessThan(shoulder.upperArmL![0]);
     for (let step = 0; step <= 120; step++) {
       const phase = step / 120;
-      const a = sampleReviewPlayerPosture({ ...input, phase });
-      const b = sampleReviewPlayerPosture({ ...input, time: 900, phase: phase + 7 });
+      const a = sample(phase),
+        b = sample(phase + 7, 900);
       for (const name of Object.keys(a) as (keyof typeof a)[])
         a[name]!.forEach((angle, axis) => expect(angle).toBeCloseTo(b[name]![axis], 12));
     }
     const epsilon = 1e-6;
-    const left = sampleReviewPlayerPosture({ ...input, phase: -epsilon });
-    const right = sampleReviewPlayerPosture({ ...input, phase: epsilon });
+    const left = sample(-epsilon),
+      right = sample(epsilon);
     for (const name of Object.keys(first) as (keyof typeof first)[])
       first[name]!.forEach((angle, axis) => {
         const incoming = (angle - left[name]![axis]) / epsilon;
@@ -106,13 +121,31 @@ describe('isolated review player posture adapter', () => {
       });
   });
 
+  it('releases keyed turn arm effort at the same turn envelope boundaries as the torso', () => {
+    const input = { kind: 'run' as const, time: 1, phase: 0.23, speed: 4 };
+    const coast = sampleReviewArmTargets(input);
+    for (const direction of [-1, 1]) {
+      for (const turnPhase of [0, 1]) {
+        const arms = sampleReviewArmTargets({ ...input, turn: direction, turnPhase });
+        for (const name of Object.keys(coast) as (keyof typeof coast)[])
+          arms[name]!.forEach((angle, axis) => expect(angle).toBeCloseTo(coast[name]![axis], 12));
+      }
+      const balancing = sampleReviewArmTargets({ ...input, turn: direction, turnPhase: 0.5 });
+      expect(balancing).not.toEqual(coast);
+    }
+  });
+
   it('coordinates both balancing arms during braking without changing its support phase', () => {
     for (const phase of [0, 0.2, 0.49, 0.73]) {
       const input = { kind: 'run' as const, time: 0.8, phase, speed: 4 };
-      const coast = sampleReviewPlayerPosture(input);
-      const brake = sampleReviewPlayerPosture({ ...input, acceleration: -4 });
+      const coast = sampleReviewArmTargets(input);
+      const brake = sampleReviewArmTargets({ ...input, acceleration: -4 });
       for (const side of ['L', 'R'] as const) {
-        expect(brake[`foreArm${side}`]![0] - coast[`foreArm${side}`]![0]).toBeCloseTo(-0.035, 12);
+        // Intent is retained in the editable source, replacing formula-only radians.
+        expect(brake[`foreArm${side}`]![0] - coast[`foreArm${side}`]![0]).toBeCloseTo(
+          THREE.MathUtils.degToRad(-2),
+          12
+        );
         expect(brake[`upperArm${side}`]![0]).toBeLessThan(coast[`upperArm${side}`]![0]);
       }
       expect(input.phase).toBe(phase);
@@ -123,19 +156,32 @@ describe('isolated review player posture adapter', () => {
     for (const direction of [-1, 1] as const) {
       const input = { kind: 'kick' as const, speed: 0, phase: 0, direction };
       const impact = sampleReviewPlayerPosture({ ...input, time: KICK.contact });
-      expect(impact.spine![1]).toBeCloseTo(direction * 0.035, 12);
-      expect(Math.abs(impact.upperArmL![0])).toBeCloseTo(0.025, 12);
+      expect(impact.spine![1]).toBeCloseTo(direction * THREE.MathUtils.degToRad(2), 12);
+      for (const time of [KICK.contact, KICK.through]) {
+        const arms = sampleReviewArmTargets({ ...input, time });
+        expect(arms.upperArmL![0] * arms.upperArmR![0]).toBeLessThan(0);
+        expect(Math.abs(arms.upperArmL![0])).toBeGreaterThan(0.3);
+        expect(Math.abs(arms.upperArmR![0])).toBeGreaterThan(0.3);
+      }
       for (const marker of [0, KICK.contact, KICK.through, KICK.duration]) {
-        const a = sampleReviewPlayerPosture({ ...input, time: Math.max(0, marker - 1e-6) });
-        const b = sampleReviewPlayerPosture({ ...input, time: marker + 1e-6 });
-        for (const name of Object.keys(a) as (keyof typeof a)[])
-          a[name]!.forEach((angle, axis) =>
-            expect(Math.abs(angle - b[name]![axis])).toBeLessThan(0.00001)
-          );
+        for (const sampler of [sampleReviewPlayerPosture, sampleReviewArmTargets]) {
+          const a = sampler({ ...input, time: Math.max(0, marker - 1e-6) });
+          const b = sampler({ ...input, time: marker + 1e-6 });
+          for (const name of Object.keys(a) as (keyof typeof a)[])
+            a[name]!.forEach((angle, axis) =>
+              expect(Math.abs(angle - b[name]![axis])).toBeLessThan(0.00001)
+            );
+        }
       }
       const settled = sampleReviewPlayerPosture({ ...input, time: KICK.duration });
       for (const angles of Object.values(settled))
         for (const angle of angles) expect(Math.abs(angle)).toBeLessThan(1e-12);
+      const settledArms = sampleReviewArmTargets({ ...input, time: KICK.duration });
+      const restArms = sampleReviewArmTargets({ kind: 'idle', time: 0, phase: 0, speed: 0 });
+      // Mirror recovery still uses the accepted outward abduction on each side.
+      expect(settledArms.upperArmL![2]).toBeGreaterThan(0.2);
+      expect(settledArms.upperArmR![2]).toBeLessThan(-0.2);
+      if (direction === 1) expect(settledArms).toEqual(restArms);
     }
     expect(KICK).toMatchObject({ contact: 0.3, through: 0.34, duration: 0.85 });
   });
@@ -703,5 +749,209 @@ describe('continuous finishing diagnostic journey', () => {
     expect(sampleReviewFinishingSequence(100)).toEqual(
       sampleReviewFinishingSequence(REVIEW_FINISHING_DURATION)
     );
+  });
+});
+
+describe('original review-only key-pose study', () => {
+  it('retains explicit editable poses and unchanged authority markers without body-root/leg tracks', () => {
+    expect(REVIEW_AUTHORED_POSE_STUDY.markers).toEqual({
+      kickContact: KICK.contact,
+      kickThrough: KICK.through,
+      kickDuration: KICK.duration,
+    });
+    expect(REVIEW_AUTHORED_POSE_STUDY.origin).toContain('No imported action');
+    const allowed = new Set([
+      'spine',
+      'chest',
+      'neck',
+      'head',
+      'upperArmL',
+      'foreArmL',
+      'handL',
+      'upperArmR',
+      'foreArmR',
+      'handR',
+    ]);
+    for (const clip of Object.values(poseStudy.clips)) {
+      expect(clip.keys[0].time).toBe(0);
+      expect(clip.keys.at(-1)!.time).toBe(clip.duration);
+      clip.keys.forEach((key, i) => {
+        if (i) expect(key.time).toBeGreaterThan(clip.keys[i - 1].time);
+        expect(key.intent.length).toBeGreaterThan(5);
+        for (const field of ['offsets', 'arms', 'armOffsets'])
+          for (const [bone, values] of Object.entries(
+            (key as unknown as Record<string, unknown>)[field] ?? {}
+          )) {
+            expect(allowed.has(bone)).toBe(true);
+            expect((values as number[]).every(Number.isFinite)).toBe(true);
+          }
+      });
+    }
+  });
+
+  it('replaces exaggerated shared arm carriage with intentional compact key poses on one actor', () => {
+    const rig = makeRig();
+    try {
+      const input = { kind: 'run' as const, time: 0, phase: 0, speed: 4.4 };
+      basePose(rig, input);
+      const before = Math.abs(
+        new THREE.Euler().setFromQuaternion(rig.bones.upperArmR.quaternion).x
+      );
+      const fixed = protectedBones.map((bone) => world(rig, bone));
+      applyReviewPlayerMotion(rig, input);
+      const after = Math.abs(new THREE.Euler().setFromQuaternion(rig.bones.upperArmR.quaternion).x);
+      expect(after).toBeLessThan(before - 0.1);
+      const authored = sampleReviewArmTargets(input);
+      expect(authored.upperArmR![0]).toBeCloseTo(THREE.MathUtils.degToRad(-24), 12);
+      expect(
+        rig.bones.upperArmR.quaternion.angleTo(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(...authored.upperArmR!))
+        )
+      ).toBeLessThan(1e-7);
+      protectedBones.forEach((bone, i) =>
+        expect(matrixError(world(rig, bone), fixed[i])).toBeLessThan(1e-12)
+      );
+    } finally {
+      rig.dispose();
+    }
+  });
+
+  it('retains the accepted outward idle arm clearance and bent elbows in the absolute source', () => {
+    const rig = makeRig();
+    try {
+      poseIdle(rig, 0);
+      const expected = (['L', 'R'] as const).map((side) =>
+        rig.bones[`upperArm${side}`].quaternion
+          .clone()
+          .multiply(
+            new THREE.Quaternion().setFromAxisAngle(
+              new THREE.Vector3(0, 0, 1),
+              THREE.MathUtils.degToRad(side === 'L' ? 5 : -5)
+            )
+          )
+      );
+      applyReviewPlayerMotion(rig, { kind: 'idle', time: 0, phase: 0, speed: 0 });
+      (['L', 'R'] as const).forEach((side, i) =>
+        expect(rig.bones[`upperArm${side}`].quaternion.angleTo(expected[i])).toBeLessThan(1e-7)
+      );
+      expect(new THREE.Euler().setFromQuaternion(rig.bones.foreArmL.quaternion).x).toBeCloseTo(
+        THREE.MathUtils.degToRad(-17),
+        12
+      );
+      expect(new THREE.Euler().setFromQuaternion(rig.bones.foreArmR.quaternion).x).toBeCloseTo(
+        THREE.MathUtils.degToRad(-18),
+        12
+      );
+    } finally {
+      rig.dispose();
+    }
+  });
+
+  it('keeps authored locomotion cycle position and tangent continuity at its seam', () => {
+    const epsilon = 1e-5;
+    const sample = (phase: number) =>
+      sampleReviewArmTargets({
+        kind: 'run',
+        time: 0,
+        phase,
+        speed: 2.4,
+        acceleration: 1.2,
+        turn: 0.5,
+      });
+    const a = sample(-epsilon),
+      b = sample(0),
+      c = sample(epsilon);
+    for (const name of Object.keys(b) as Array<keyof typeof b>)
+      for (let axis = 0; axis < 3; axis++) {
+        expect(Math.abs(a[name]![axis] - c[name]![axis])).toBeLessThan(0.0002);
+        const incoming = (b[name]![axis] - a[name]![axis]) / epsilon;
+        const outgoing = (c[name]![axis] - b[name]![axis]) / epsilon;
+        expect(Math.abs(incoming - outgoing)).toBeLessThan(0.02);
+      }
+  });
+
+  it('blends absolute arm targets on run-to-kick without a target snap or hidden phase advancement', () => {
+    const rig = makeRig(),
+      state = createReviewMotionState();
+    try {
+      const run = { kind: 'run' as const, time: 1, phase: 0.23, speed: 4.4 };
+      basePose(rig, run);
+      applyReviewPlayerMotion(rig, { ...run, motionState: state, deltaSeconds: 0 });
+      const names = ['upperArmL', 'foreArmL', 'handL', 'upperArmR', 'foreArmR', 'handR'] as const;
+      const outgoing = names.map((name) => rig.bones[name].quaternion.clone());
+      const kickInput = { kind: 'kick' as const, time: 0, phase: 0, speed: 0 };
+      basePose(rig, kickInput);
+      applyReviewPlayerMotion(rig, { ...kickInput, motionState: state, deltaSeconds: 0 });
+      names.forEach((name, i) =>
+        expect(rig.bones[name].quaternion.angleTo(outgoing[i])).toBeLessThan(1e-7)
+      );
+      for (let frame = 1; frame <= 12; frame++) {
+        const input = { ...kickInput, time: frame / 60 };
+        basePose(rig, input);
+        applyReviewPlayerMotion(rig, { ...input, motionState: state, deltaSeconds: 1 / 60 });
+      }
+      const expected = sampleReviewArmTargets({ ...kickInput, time: 0.2 });
+      names.forEach((name) =>
+        expect(
+          rig.bones[name].quaternion.angleTo(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(...expected[name]!))
+          )
+        ).toBeLessThan(1e-7)
+      );
+      resetReviewMotionState(state);
+      expect(state.arms).toEqual({});
+      expect(state.outgoingArms).toEqual({});
+    } finally {
+      rig.dispose();
+    }
+  });
+
+  it('samples distinct authored hands at run phase and the released kick clock, with bilateral mirroring', () => {
+    const a = makeRig(),
+      b = makeRig();
+    try {
+      const nonFinger = BONES.filter((name) => !fingerNames.includes(name));
+      const fixed = nonFinger.map((name) => world(a, name));
+      poseReviewPlayerHands(a, 'run', true, 0);
+      const before = a.bones.index2L.quaternion.clone();
+      poseReviewPlayerHands(a, 'run', true, 0.5);
+      expect(a.bones.index2L.quaternion.angleTo(before)).toBeGreaterThan(0.04);
+      poseReviewPlayerHands(a, 'kick', true, 0.77, { time: 0.3, direction: 1 });
+      poseReviewPlayerHands(b, 'kick', true, 0.01, { time: 0.3, direction: -1 });
+      for (const finger of ['thumb', 'index', 'middle', 'ring', 'pinky'] as const)
+        for (const joint of [1, 2, 3] as const) {
+          const q = b.bones[`${finger}${joint}R`].quaternion;
+          expect(
+            a.bones[`${finger}${joint}L`].quaternion.angleTo(
+              new THREE.Quaternion(q.x, -q.y, -q.z, q.w)
+            )
+          ).toBeLessThan(1e-7);
+        }
+      const contact = a.bones.index2L.quaternion.clone();
+      poseReviewPlayerHands(a, 'kick', true, 0.77, { time: 0, direction: 1 });
+      expect(a.bones.index2L.quaternion.angleTo(contact)).toBeGreaterThan(0.04);
+      nonFinger.forEach((name, i) =>
+        expect(matrixError(world(a, name), fixed[i])).toBeLessThan(1e-12)
+      );
+    } finally {
+      a.dispose();
+      b.dispose();
+    }
+  });
+
+  it('keeps reduced-motion hand channels fixed regardless of action clock, phase or side', () => {
+    const rig = makeRig();
+    try {
+      poseReviewPlayerHands(rig, 'kick', false, 0, { time: 0, direction: 1 });
+      const expected = fingerNames.map((name) => rig.bones[name].quaternion.clone());
+      for (const time of [0.1, 0.3, 0.34, 0.85, 20]) {
+        poseReviewPlayerHands(rig, 'kick', false, time, { time, direction: -1 });
+        fingerNames.forEach((name, i) =>
+          expect(rig.bones[name].quaternion.angleTo(expected[i])).toBeLessThan(1e-7)
+        );
+      }
+    } finally {
+      rig.dispose();
+    }
   });
 });
