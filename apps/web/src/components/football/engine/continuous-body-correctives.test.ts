@@ -242,3 +242,168 @@ it('keeps a bent UV seam continuous and updates its incident normal halo without
   geometry.dispose();
   (mesh.material as THREE.Material).dispose();
 });
+
+import { readFileSync } from 'node:fs';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createRig } from './rig';
+
+it('keeps equivalent authored UV corners smooth through knee/elbow poses without moving authority', async () => {
+  const raw = readFileSync('public/models/football/continuous-body.glb');
+  const gltf = await new GLTFLoader().parseAsync(Uint8Array.from(raw).buffer, '');
+  const source = (gltf.scene.getObjectByName('continuous-body') as THREE.SkinnedMesh).geometry;
+  const material = new THREE.MeshStandardMaterial(),
+    rig = createRig(material, new THREE.BufferGeometry());
+  const mesh = new THREE.SkinnedMesh(source, material);
+  rig.root.add(mesh);
+  mesh.bind(rig.skeleton, rig.mesh.bindMatrix);
+  const originalPositions = source.getAttribute('position').array.slice(),
+    originalNormals = source.getAttribute('normal').array.slice();
+  const adapter = createContinuousBodyCorrectives(mesh);
+  const g = mesh.geometry,
+    p = g.getAttribute('position'),
+    n = g.getAttribute('normal'),
+    j = g.getAttribute('skinIndex'),
+    w = g.getAttribute('skinWeight');
+  const canonical = new Map<string, number[]>();
+  for (let i = 0; i < p.count; i++) {
+    const key =
+      [p.getX(i), p.getY(i), p.getZ(i)].map((v) => Math.round(v * 1e7)).join(',') +
+      '|' +
+      Array.from({ length: 4 }, (_, k) => j.getComponent(i, k) + ':' + w.getComponent(i, k)).join(
+        ','
+      );
+    const group = canonical.get(key) ?? [];
+    group.push(i);
+    canonical.set(key, group);
+  }
+  const seams = [...canonical.values()].filter((group) => group.length > 1);
+  expect(seams.length).toBeGreaterThan(100);
+  console.info(
+    'neutral authored seam gap',
+    Math.max(
+      ...seams.flatMap((group) =>
+        group
+          .slice(1)
+          .map((b) =>
+            new THREE.Vector3()
+              .fromBufferAttribute(n, group[0])
+              .distanceTo(new THREE.Vector3().fromBufferAttribute(n, b))
+          )
+      )
+    )
+  );
+  for (const angle of [0.8, 1.2, 2.094, 0.8]) {
+    rig.bones.foreArmL.rotation.x = angle;
+    rig.bones.lowerLegL.rotation.x = angle;
+    const authority = rig.skeleton.bones.map((b) => ({
+      p: b.position.toArray(),
+      q: b.quaternion.toArray(),
+      s: b.scale.toArray(),
+    }));
+    adapter.update();
+    let maximumSeamGap = 0,
+      maximumPositionSeamGap = 0,
+      tested = 0;
+    for (const group of seams) {
+      const a = group[0];
+      if (p.getY(a) > 1.4 || p.getY(a) < 0.4) continue;
+      for (const b of group.slice(1)) {
+        const na = new THREE.Vector3().fromBufferAttribute(n, a),
+          nb = new THREE.Vector3().fromBufferAttribute(n, b);
+        maximumSeamGap = Math.max(maximumSeamGap, na.distanceTo(nb));
+        tested++;
+        maximumPositionSeamGap = Math.max(
+          maximumPositionSeamGap,
+          new THREE.Vector3()
+            .fromBufferAttribute(p, a)
+            .distanceTo(new THREE.Vector3().fromBufferAttribute(p, b))
+        );
+      }
+    }
+    expect(tested).toBeGreaterThan(50);
+    expect(maximumPositionSeamGap).toBeLessThan(2e-7);
+    expect(maximumSeamGap).toBeLessThan(2e-6);
+    console.info('posed authored seam normal', { angle, maximumSeamGap, tested });
+    expect(
+      rig.skeleton.bones.map((b) => ({
+        p: b.position.toArray(),
+        q: b.quaternion.toArray(),
+        s: b.scale.toArray(),
+      }))
+    ).toEqual(authority);
+    expect(source.getAttribute('position').array).toEqual(originalPositions);
+    expect(source.getAttribute('normal').array).toEqual(originalNormals);
+  }
+  rig.bones.foreArmL.quaternion.identity();
+  rig.bones.lowerLegL.quaternion.identity();
+  adapter.update();
+  expect(p.array).toEqual(originalPositions);
+  expect(n.array).toEqual(originalNormals);
+  adapter.dispose();
+  rig.dispose();
+  material.dispose();
+  source.dispose();
+});
+
+it('updates incident indexed-face corner normals without modifying a disconnected neck', () => {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0.03, 0.02, 0, 0.03, 0, 0.12, 0.05, 0, 1.53, 0], 3)
+  );
+  g.setAttribute(
+    'skinIndex',
+    new THREE.Uint16BufferAttribute([0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], 4)
+  );
+  g.setAttribute(
+    'skinWeight',
+    new THREE.Float32BufferAttribute([0.5, 0.5, 0, 0, 0.5, 0.5, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], 4)
+  );
+  g.setIndex([0, 1, 2]);
+  g.computeVertexNormals();
+  const normal = g.getAttribute('normal') as THREE.BufferAttribute;
+  normal.setXYZ(3, 0.2, 0.9, 0.1);
+  const beforeNormal = new THREE.Vector3().fromBufferAttribute(normal, 2);
+  const bones = ['upperArmL', 'foreArmL', 'handL'].map((name) => {
+    const bone = new THREE.Bone();
+    bone.name = name;
+    return bone;
+  });
+  const material = new THREE.MeshBasicMaterial(),
+    mesh = new THREE.SkinnedMesh(g, material),
+    skeleton = new THREE.Skeleton(bones, [
+      new THREE.Matrix4(),
+      new THREE.Matrix4(),
+      new THREE.Matrix4().makeTranslation(0, 0.3, 0),
+    ]);
+  mesh.bind(skeleton, new THREE.Matrix4());
+  const adapter = createContinuousBodyCorrectives(mesh);
+  bones[1].rotation.x = 1.2;
+  adapter.update();
+  const p = mesh.geometry.getAttribute('position'),
+    n = mesh.geometry.getAttribute('normal');
+  const expected = new THREE.Triangle(
+    ...([0, 1, 2].map((i) => new THREE.Vector3().fromBufferAttribute(p, i)) as [
+      THREE.Vector3,
+      THREE.Vector3,
+      THREE.Vector3,
+    ])
+  ).getNormal(new THREE.Vector3());
+  expect(expected.distanceTo(beforeNormal)).toBeGreaterThan(0.01);
+  for (const id of [0, 1, 2])
+    expect(new THREE.Vector3().fromBufferAttribute(n, id).distanceTo(expected)).toBeLessThan(2e-6);
+  expect([n.getX(3), n.getY(3), n.getZ(3)]).toEqual([
+    normal.getX(3),
+    normal.getY(3),
+    normal.getZ(3),
+  ]);
+  expect([p.getX(2), p.getY(2), p.getZ(2)]).toEqual([
+    0,
+    g.getAttribute('position').getY(2),
+    g.getAttribute('position').getZ(2),
+  ]);
+  adapter.dispose();
+  g.dispose();
+  material.dispose();
+  skeleton.dispose();
+});

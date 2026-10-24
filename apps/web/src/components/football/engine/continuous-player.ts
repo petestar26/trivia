@@ -8,6 +8,7 @@ import {
 } from './continuous-kit';
 import { createContinuousPlayerLod } from './continuous-player-lod';
 import { createContinuousShirtCorrectives } from './continuous-shirt-correctives';
+import { createAuthoredContinuousShirtSource } from './continuous-shirt-authoring';
 import { createContinuousSockCorrectives } from './continuous-sock-correctives';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
@@ -331,9 +332,10 @@ export function attachContinuousPlayer(
   const corrective = createContinuousBodyCorrectives(body);
   const lowBodyGeometry = createContinuousPlayerLod(bodyGeometry, { protectNeck: true });
   const lowBody = make(lowBodyGeometry, bodyMaterial, 'continuous-player-body-low');
-  const jersey = make(assets.jersey, shirtMaterial, 'continuous-player-jersey');
+  const authoredJerseySource = createAuthoredContinuousShirtSource(assets.jersey);
+  const jersey = make(authoredJerseySource, shirtMaterial, 'continuous-player-jersey');
   const shirtCorrective = createContinuousShirtCorrectives(jersey, rig);
-  const lowJerseyGeometry = createContinuousPlayerLod(assets.jersey, { protectNeck: false });
+  const lowJerseyGeometry = createContinuousPlayerLod(authoredJerseySource, { protectNeck: false });
   const lowJersey = make(lowJerseyGeometry, shirtMaterial, 'continuous-player-jersey-low');
   const lowShirtCorrective = createContinuousShirtCorrectives(lowJersey, rig);
   const kit = createContinuousKit(look, assets.body);
@@ -404,6 +406,7 @@ export function attachContinuousPlayer(
       sockCorrective.dispose();
       shirtCorrective.dispose();
       lowShirtCorrective.dispose();
+      authoredJerseySource.dispose();
       bodyGeometry.dispose();
       lowBodyGeometry.dispose();
       lowJerseyGeometry.dispose();

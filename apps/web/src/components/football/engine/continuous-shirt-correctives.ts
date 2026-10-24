@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BONES, type Rig } from './rig';
+import { authorContinuousShirtCollar } from './continuous-shirt-authoring';
 
 const smooth = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
 const CAP_FAIRING_PASSES = 8;
@@ -20,6 +21,7 @@ function tailoredEdges(source: THREE.BufferGeometry) {
   const positions = attributes.position.values,
     canonical = new Map<string, number>(),
     representative: number[] = [];
+  const collarAuthoring = authorContinuousShirtCollar(source, positions);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i),
       y = p.getY(i),
@@ -219,6 +221,7 @@ function tailoredEdges(source: THREE.BufferGeometry) {
     );
   g.setIndex([...index, ...returns]);
   g.userData.garmentTailoring = {
+    collarAuthoring,
     originalVertices: p.count,
     surfaceIndexCount: index.length,
     originalSourceVerticesRetained: true,
