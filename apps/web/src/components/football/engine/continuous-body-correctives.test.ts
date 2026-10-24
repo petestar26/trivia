@@ -154,3 +154,91 @@ it('restores actual skinned hinge section area at 60/90 and bounds 120-degree co
     expect(after).toBeCloseTo(degrees === 120 ? 0.9 : 1, 5);
   }
 });
+
+it('keeps a bent UV seam continuous and updates its incident normal halo without moving the rig', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(
+      [
+        0, 0, 0.03, 0.04, 0, 0.03, 0, 0.12, 0.03, 0, 0, 0.03, -0.04, 0, 0.02, 0, -0.12, 0.03, 0,
+        1.53, 0, 0.01, 1.53, 0, 0, 1.54, 0,
+      ],
+      3
+    )
+  );
+  geometry.setAttribute(
+    'normal',
+    new THREE.Float32BufferAttribute(
+      [
+        ...Array.from({ length: 6 }, () => [0, 0, 1]).flat(),
+        0.2,
+        0.9,
+        0.1,
+        0.2,
+        0.9,
+        0.1,
+        0.2,
+        0.9,
+        0.1,
+      ],
+      3
+    )
+  );
+  geometry.setAttribute(
+    'skinIndex',
+    new THREE.Uint16BufferAttribute(Array.from({ length: 9 }, () => [0, 1, 0, 0]).flat(), 4)
+  );
+  geometry.setAttribute(
+    'skinWeight',
+    new THREE.Float32BufferAttribute(
+      Array.from({ length: 9 }, (_, i) =>
+        i === 0 || i === 3 ? [0.5, 0.5, 0, 0] : [1, 0, 0, 0]
+      ).flat(),
+      4
+    )
+  );
+  geometry.setIndex([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  const bones = ['upperArmL', 'foreArmL', 'handL'].map((name) => {
+    const bone = new THREE.Bone();
+    bone.name = name;
+    return bone;
+  });
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  mesh.bind(
+    new THREE.Skeleton(bones, [
+      new THREE.Matrix4(),
+      new THREE.Matrix4(),
+      new THREE.Matrix4().makeTranslation(0, 0.3, 0),
+    ]),
+    new THREE.Matrix4()
+  );
+  const corrective = createContinuousBodyCorrectives(mesh);
+  bones[1].rotation.x = 1.2;
+  const pose = bones.map((b) => b.quaternion.toArray());
+  corrective.update();
+  const normal = mesh.geometry.getAttribute('normal');
+  expect(
+    new THREE.Vector3()
+      .fromBufferAttribute(normal, 0)
+      .distanceTo(new THREE.Vector3().fromBufferAttribute(normal, 3))
+  ).toBeLessThan(1e-7);
+  const p = mesh.geometry.getAttribute('position');
+  const a = new THREE.Vector3().fromBufferAttribute(p, 0),
+    b = new THREE.Vector3().fromBufferAttribute(p, 1),
+    c = new THREE.Vector3().fromBufferAttribute(p, 2);
+  const face = b.sub(a).cross(c.sub(a)).normalize();
+  expect(new THREE.Vector3().fromBufferAttribute(normal, 2).distanceTo(face)).toBeLessThan(1e-7);
+  expect(normal.getX(6)).toBe(geometry.getAttribute('normal').getX(6));
+  expect(bones.map((b) => b.quaternion.toArray())).toEqual(pose);
+  expect(geometry.getAttribute('position').getZ(0)).toBeCloseTo(0.03);
+  bones[1].quaternion.identity();
+  corrective.update();
+  expect(mesh.geometry.getAttribute('position').array).toEqual(
+    geometry.getAttribute('position').array
+  );
+  expect(mesh.geometry.getAttribute('normal').array).toEqual(geometry.getAttribute('normal').array);
+  corrective.dispose();
+  geometry.dispose();
+  (mesh.material as THREE.Material).dispose();
+});

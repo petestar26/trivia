@@ -82,6 +82,100 @@ function basePose(rig: Rig, input: ReviewMotionInput) {
 }
 
 describe('isolated review player posture adapter', () => {
+  it('samples shoulder and elbow recoil from the unchanged periodic distance phase', () => {
+    const input = { kind: 'run' as const, time: 0, phase: 0, speed: 4 };
+    const first = sampleReviewPlayerPosture(input);
+    // A support reversal is not simultaneously the reversal of every upper-body segment.
+    expect(Math.abs(first.chest![1])).toBeGreaterThan(0.005);
+    expect(Math.abs(first.upperArmL![0])).toBeGreaterThan(0.005);
+    for (let step = 0; step <= 120; step++) {
+      const phase = step / 120;
+      const a = sampleReviewPlayerPosture({ ...input, phase });
+      const b = sampleReviewPlayerPosture({ ...input, time: 900, phase: phase + 7 });
+      for (const name of Object.keys(a) as (keyof typeof a)[])
+        a[name]!.forEach((angle, axis) => expect(angle).toBeCloseTo(b[name]![axis], 12));
+    }
+    const epsilon = 1e-6;
+    const left = sampleReviewPlayerPosture({ ...input, phase: -epsilon });
+    const right = sampleReviewPlayerPosture({ ...input, phase: epsilon });
+    for (const name of Object.keys(first) as (keyof typeof first)[])
+      first[name]!.forEach((angle, axis) => {
+        const incoming = (angle - left[name]![axis]) / epsilon;
+        const outgoing = (right[name]![axis] - angle) / epsilon;
+        expect(Math.abs(incoming - outgoing)).toBeLessThan(0.0001);
+      });
+  });
+
+  it('coordinates both balancing arms during braking without changing its support phase', () => {
+    for (const phase of [0, 0.2, 0.49, 0.73]) {
+      const input = { kind: 'run' as const, time: 0.8, phase, speed: 4 };
+      const coast = sampleReviewPlayerPosture(input);
+      const brake = sampleReviewPlayerPosture({ ...input, acceleration: -4 });
+      for (const side of ['L', 'R'] as const) {
+        expect(brake[`foreArm${side}`]![0] - coast[`foreArm${side}`]![0]).toBeCloseTo(-0.035, 12);
+        expect(brake[`upperArm${side}`]![0]).toBeLessThan(coast[`upperArm${side}`]![0]);
+      }
+      expect(input.phase).toBe(phase);
+    }
+  });
+
+  it('retains balancing torso and arms through the existing kick marker, then settles smoothly', () => {
+    for (const direction of [-1, 1] as const) {
+      const input = { kind: 'kick' as const, speed: 0, phase: 0, direction };
+      const impact = sampleReviewPlayerPosture({ ...input, time: KICK.contact });
+      expect(impact.spine![1]).toBeCloseTo(direction * 0.035, 12);
+      expect(Math.abs(impact.upperArmL![0])).toBeCloseTo(0.025, 12);
+      for (const marker of [0, KICK.contact, KICK.through, KICK.duration]) {
+        const a = sampleReviewPlayerPosture({ ...input, time: Math.max(0, marker - 1e-6) });
+        const b = sampleReviewPlayerPosture({ ...input, time: marker + 1e-6 });
+        for (const name of Object.keys(a) as (keyof typeof a)[])
+          a[name]!.forEach((angle, axis) =>
+            expect(Math.abs(angle - b[name]![axis])).toBeLessThan(0.00001)
+          );
+      }
+      const settled = sampleReviewPlayerPosture({ ...input, time: KICK.duration });
+      for (const angles of Object.values(settled))
+        for (const angle of angles) expect(Math.abs(angle)).toBeLessThan(1e-12);
+    }
+    expect(KICK).toMatchObject({ contact: 0.3, through: 0.34, duration: 0.85 });
+  });
+
+  it('leaves both-foot kick roots, legs and ball facts exact throughout recoil and follow-through', () => {
+    for (const scale of [0.96, 1.04])
+      for (const side of ['L', 'R'] as const) {
+        const rig = makeRig();
+        rig.root.scale.setScalar(scale);
+        const spec = { ...kick, foot: side };
+        const ballBefore = spec.ball.clone();
+        const dirBefore = spec.dir.clone();
+        try {
+          for (let frame = 0; frame <= 102; frame++) {
+            const time = frame / 120;
+            rig.root.position.copy(kickGeometry(spec).root);
+            poseKick(rig, time, spec);
+            const before = protectedBones.map((name) => world(rig, name));
+            const rootBefore = rig.root.matrixWorld.clone();
+            applyReviewPlayerMotion(rig, {
+              kind: 'kick',
+              time,
+              phase: 0,
+              speed: 0,
+              direction: side === 'R' ? 1 : -1,
+            });
+            protectedBones.forEach((name, i) =>
+              expect(matrixError(world(rig, name), before[i])).toBeLessThan(1e-12)
+            );
+            expect(matrixError(rig.root.matrixWorld, rootBefore)).toBeLessThan(1e-12);
+            expect(spec.ball.equals(ballBefore)).toBe(true);
+            expect(spec.dir.equals(dirBefore)).toBe(true);
+          }
+        } finally {
+          rig.dispose();
+          (rig.mesh.material as THREE.Material).dispose();
+        }
+      }
+  });
+
   it('adds distinct bounded idle, drive, brake, turn, kick, landing and recovery postures', () => {
     const drive = sampleReviewPlayerPosture({
       kind: 'run',

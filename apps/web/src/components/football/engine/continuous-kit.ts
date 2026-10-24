@@ -663,7 +663,17 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
   const materials = {
     shorts: material(look.kit.shorts, 0.94),
     socks: material(look.kit.socks, 0.96),
-    boots: material('#ffffff', 0.56),
+    // A restrained polyurethane/leather-like highlight reads the retained
+    // rounded last, tongue and laces without adding geometry or texture maps.
+    boots: new THREE.MeshPhysicalMaterial({
+      color: '#ffffff',
+      roughness: 0.46,
+      metalness: 0,
+      clearcoat: 0.12,
+      clearcoatRoughness: 0.48,
+      specularIntensity: 0.6,
+      side: THREE.DoubleSide,
+    }),
   };
   materials.boots.vertexColors = true;
   let disposed = false;

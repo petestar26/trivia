@@ -86,8 +86,14 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
   if (input.kind === 'run') {
     const p = cycle(input.phase),
       load = Math.sin(p * Math.PI * 2),
+      // Shoulder/forearm recoil follows the support cycle instead of every
+      // upper-body segment reversing on the same frame. This is sampled from
+      // the existing distance phase, never a second free-running animation clock.
+      shoulderRecoil = Math.sin(p * Math.PI * 2 - 0.22),
+      elbowRecoil = Math.sin(p * Math.PI * 2 - 0.38),
       compression = Math.cos(p * Math.PI * 4);
     const drive = clamp(input.acceleration ?? 0, -4, 4) / 4;
+    const braking = Math.max(0, -drive);
     const effort =
       clamp(input.turn ?? 0, -1, 1) *
       (input.turnPhase === undefined ? 1 : Math.sin(Math.PI * clamp(input.turnPhase)));
@@ -100,38 +106,65 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
       ],
       chest: [
         -0.01 + drive * 0.025,
-        load * (0.035 + 0.02 * speed) + effort * 0.025,
+        shoulderRecoil * (0.035 + 0.02 * speed) + effort * 0.025,
         effort * 0.035 - load * 0.012 * speed,
       ],
       neck: [-drive * 0.055 - 0.008, effort * 0.025, effort * 0.035],
-      head: [0.005, effort * 0.045 - load * 0.008, 0],
+      head: [0.005, effort * 0.045 - shoulderRecoil * 0.008, 0],
       upperArmL: [
-        -load * (0.045 + speed * 0.045) + drive * 0.035,
+        -shoulderRecoil * (0.045 + speed * 0.045) + drive * 0.035 - braking * 0.025,
         -effort * 0.04,
         -0.018 - Math.max(0, effort) * 0.075,
       ],
       upperArmR: [
-        load * (0.045 + speed * 0.045) + drive * 0.035,
+        shoulderRecoil * (0.045 + speed * 0.045) + drive * 0.035 - braking * 0.025,
         -effort * 0.04,
         0.018 + Math.max(0, -effort) * 0.075,
       ],
-      foreArmL: [-Math.max(0, drive) * 0.035 - (1 + load) * speed * 0.022, 0, 0],
-      foreArmR: [-Math.max(0, drive) * 0.035 - (1 - load) * speed * 0.022, 0, 0],
+      // Both arms catch the deceleration; the stride-dependent elbow response
+      // remains opposed. Only decorative upper-body rotations are affected.
+      foreArmL: [
+        -Math.max(0, drive) * 0.035 - (1 + elbowRecoil) * speed * 0.022 - braking * 0.035,
+        0,
+        0,
+      ],
+      foreArmR: [
+        -Math.max(0, drive) * 0.035 - (1 - elbowRecoil) * speed * 0.022 - braking * 0.035,
+        0,
+        0,
+      ],
     };
   }
   if (input.kind === 'kick') {
-    const load = Math.sin(Math.PI * smooth(t / KICK.contact));
+    const windUp = smooth(t / KICK.contact);
+    const load = Math.sin(Math.PI * windUp);
     const follow = Math.sin(Math.PI * smooth((t - KICK.contact) / (KICK.duration - KICK.contact)));
+    // Carry the balancing torso/arms through impact instead of returning every
+    // decorative joint to neutral exactly when the leg transfers momentum.
+    // Existing contact/follow-through/end markers and the solved legs are unchanged.
+    const strike = windUp * (1 - smooth((t - KICK.through) / (KICK.duration - KICK.through)));
     return {
       spine: [
         -0.018 * load + 0.055 * follow,
-        side * (-0.04 * load + 0.085 * follow),
-        side * 0.025 * follow,
+        side * (-0.04 * load + 0.035 * strike + 0.085 * follow),
+        side * (-0.018 * strike + 0.025 * follow),
       ],
-      chest: [0.025 * load - 0.025 * follow, side * (0.025 * load - 0.05 * follow), 0],
+      chest: [
+        0.025 * load - 0.025 * follow,
+        side * (0.025 * load - 0.025 * strike - 0.05 * follow),
+        side * 0.012 * strike,
+      ],
       neck: [-0.02 * follow, -side * 0.025 * follow, 0],
-      upperArmL: [-0.035 * follow, side * 0.03 * follow, -0.04 * follow],
-      upperArmR: [0.035 * follow, side * 0.03 * follow, 0.04 * follow],
+      upperArmL: [
+        -0.035 * follow - side * 0.025 * strike,
+        side * (0.03 * follow + 0.015 * strike),
+        -0.04 * follow + 0.025 * strike,
+      ],
+      upperArmR: [
+        0.035 * follow + side * 0.025 * strike,
+        side * (0.03 * follow + 0.015 * strike),
+        0.04 * follow - 0.025 * strike,
+      ],
     };
   }
   if (input.kind === 'keeperReady')

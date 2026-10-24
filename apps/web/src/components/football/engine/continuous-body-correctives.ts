@@ -73,6 +73,78 @@ export function createContinuousBodyCorrectives(mesh: THREE.SkinnedMesh) {
     }
   const axis = new THREE.Vector3(),
     offset = new THREE.Vector3();
+  // A moved vertex changes every incident face, including its unmodified
+  // neighbours. UV corners with identical bind position/weights must receive
+  // the same area normal; recomputing each UV island independently draws a
+  // lighting seam through a continuous knee/elbow. Preserve authored creases
+  // by also requiring the neutral normal to agree at the seam.
+  const representative = new Uint32Array(position.count);
+  const canonical = new Map<string, number>();
+  for (let i = 0; i < position.count; i++) {
+    const key = [
+      ...neutral.subarray(i * 3, i * 3 + 3),
+      ...Array.from({ length: 4 }, (_, k) => indices.getComponent(i, k)),
+      ...Array.from({ length: 4 }, (_, k) => weights.getComponent(i, k)),
+      ...Array.from({ length: 3 }, (_, k) => Math.round(neutralNormals[i * 3 + k] * 1e4)),
+    ].join(',');
+    if (!canonical.has(key)) canonical.set(key, i);
+    representative[i] = canonical.get(key)!;
+  }
+  const triangleIndex = geometry.index;
+  const normalAffected = new Set([...corrected].map((i) => representative[i]));
+  if (triangleIndex)
+    for (let k = 0; k < triangleIndex.count; k += 3) {
+      const ids = [0, 1, 2].map((c) => triangleIndex.getX(k + c));
+      if (ids.some((i) => corrected.has(i)))
+        ids.forEach((i) => normalAffected.add(representative[i]));
+    }
+  const areaNormals = new Float64Array(position.count * 3);
+  function updateNormals() {
+    if (!triangleIndex) {
+      geometry.computeVertexNormals();
+      for (let i = 0; i < normals.count; i++)
+        if (!corrected.has(i))
+          normals.setXYZ(
+            i,
+            neutralNormals[i * 3],
+            neutralNormals[i * 3 + 1],
+            neutralNormals[i * 3 + 2]
+          );
+      return;
+    }
+    areaNormals.fill(0);
+    for (let k = 0; k < triangleIndex.count; k += 3) {
+      const a = triangleIndex.getX(k),
+        b = triangleIndex.getX(k + 1),
+        c = triangleIndex.getX(k + 2);
+      const abX = position.getX(b) - position.getX(a),
+        abY = position.getY(b) - position.getY(a),
+        abZ = position.getZ(b) - position.getZ(a);
+      const acX = position.getX(c) - position.getX(a),
+        acY = position.getY(c) - position.getY(a),
+        acZ = position.getZ(c) - position.getZ(a);
+      const nx = abY * acZ - abZ * acY,
+        ny = abZ * acX - abX * acZ,
+        nz = abX * acY - abY * acX;
+      for (let corner = 0; corner < 3; corner++) {
+        const id = representative[triangleIndex.getX(k + corner)];
+        if (!normalAffected.has(id)) continue;
+        areaNormals[id * 3] += nx;
+        areaNormals[id * 3 + 1] += ny;
+        areaNormals[id * 3 + 2] += nz;
+      }
+    }
+    normals.array.set(neutralNormals);
+    for (let i = 0; i < normals.count; i++) {
+      const id = representative[i];
+      if (!normalAffected.has(id)) continue;
+      const x = areaNormals[id * 3],
+        y = areaNormals[id * 3 + 1],
+        z = areaNormals[id * 3 + 2];
+      const length = Math.hypot(x, y, z);
+      if (length > 1e-15) normals.setXYZ(i, x / length, y / length, z / length);
+    }
+  }
   const previous = hinges.map(() => new THREE.Quaternion());
   let disposed = false;
   let wasCorrected = false;
@@ -118,16 +190,7 @@ export function createContinuousBodyCorrectives(mesh: THREE.SkinnedMesh) {
         }
       }
       position.needsUpdate = true;
-      geometry.computeVertexNormals();
-      for (let i = 0; i < normals.count; i++)
-        if (!corrected.has(i)) {
-          normals.setXYZ(
-            i,
-            neutralNormals[i * 3],
-            neutralNormals[i * 3 + 1],
-            neutralNormals[i * 3 + 2]
-          );
-        }
+      updateNormals();
       normals.needsUpdate = true;
     },
     dispose() {

@@ -21,6 +21,7 @@ import {
 } from './rig';
 import type { HeadVisual, PlayerDetail, appearanceTextures } from './player-appearance';
 import { reviewSkinMaterial, type ReviewPlayerAssets } from './review-player';
+import { borrowReviewFabric } from './review-player-materials';
 
 export interface ContinuousPlayerAssets {
   body: THREE.BufferGeometry;
@@ -260,7 +261,10 @@ export function attachContinuousPlayer(
   const shirtMaterial = (kitMaterial as THREE.MeshStandardMaterial).clone();
   shirtMaterial.vertexColors = false;
   shirtMaterial.color.set(shirtMaterial.map ? '#ffffff' : look.kit.primary);
-  shirtMaterial.roughness = 0.9;
+  shirtMaterial.roughness = 0.96;
+  // The already-owned fabric maps supply restrained weave rather than another
+  // image/material layer. No source UV, pigmentation or kit marking changes.
+  shirtMaterial.normalScale.set(0.1, 0.1);
   shirtMaterial.side = THREE.DoubleSide;
   // Borrow the existing fictional number canvas. Project in the shirt's bind
   // coordinates so the marking follows the exact garment skin deformation.
@@ -333,6 +337,8 @@ export function attachContinuousPlayer(
   const lowJersey = make(lowJerseyGeometry, shirtMaterial, 'continuous-player-jersey-low');
   const lowShirtCorrective = createContinuousShirtCorrectives(lowJersey, rig);
   const kit = createContinuousKit(look, assets.body);
+  borrowReviewFabric(kit.materials.shorts, shirtMaterial);
+  borrowReviewFabric(kit.materials.socks, shirtMaterial);
   const shorts = make(kit.geometries.shorts, kit.materials.shorts, 'continuous-player-shorts');
   const socks = make(kit.geometries.socks, kit.materials.socks, 'continuous-player-socks');
   const sockCorrective = createContinuousSockCorrectives(socks, rig);

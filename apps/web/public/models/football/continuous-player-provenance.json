@@ -528,15 +528,15 @@
   "editableRuntimeSources": [
     {
       "file": "apps/web/src/components/football/engine/continuous-kit.ts",
-      "bytes": 36465,
-      "sha256": "1303166dc386289ae5e394b8ac4ab5e48c5284729ef11a0ec657f91a851fda5f",
-      "version": "single-player-boot-clearance-r8-20261023"
+      "bytes": 36815,
+      "sha256": "f995e07901497939f86e8ce31ec7bb5d673fea95cb9599ca360a90f9569cd446",
+      "version": "single-player-realism-milestone-20261025"
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-body-correctives.ts",
-      "bytes": 5819,
-      "sha256": "d7e84c06a170f7ed0ed10d8e6c28ba1ea3f10e4ba88f1ac45896ef66b64bbe44",
-      "version": "single-player-finishing-r5-20261020"
+      "bytes": 8611,
+      "sha256": "ab7f18e25a3f9345d4ce456ac6fbd0b82c70fec1a1f19bfb4772a6ab1cf9829f",
+      "version": "single-player-realism-milestone-20261025"
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-player-lod.ts",
@@ -546,15 +546,15 @@
     },
     {
       "file": "apps/web/src/components/football/engine/review-player-motion.ts",
-      "bytes": 21118,
-      "sha256": "9f4fb47d43a2d5eb60df7010f07a4fce3c6c5af5003b9300bc0d33163908e37b",
-      "version": "single-player-finishing-r5-20261020"
+      "bytes": 22512,
+      "sha256": "46ec87f61952112303d27f1c4b90b3056f160165462466ed50ce1eab78dc1421",
+      "version": "single-player-realism-milestone-20261025"
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-player.ts",
-      "bytes": 16921,
-      "sha256": "7755040403433ebb6aff7b3548ec5c67249792ea46b468532baa8532733233e0",
-      "version": "single-player-finishing-r5-20261020"
+      "bytes": 17303,
+      "sha256": "df8bba4ab5ec51b651fb04534c4507ebcd4e5a90ee9a59a65b225167926be46e",
+      "version": "single-player-realism-milestone-20261025"
     },
     {
       "file": "apps/web/src/components/football/engine/continuous-shirt-correctives.ts",
@@ -564,9 +564,15 @@
     },
     {
       "file": "apps/web/src/components/football/engine/review-player.ts",
-      "bytes": 14229,
-      "sha256": "3f8a46838adf801ac7050c398e8789a12d7f86dd05a45aecf68d631f60505698",
-      "version": "single-player-finishing-r5-20261020"
+      "bytes": 14571,
+      "sha256": "ea240554520d4c43a5704819183b6314916e5de6669071dc526fc23b67104793",
+      "version": "single-player-realism-milestone-20261025"
+    },
+    {
+      "file": "apps/web/src/components/football/engine/review-player-materials.ts",
+      "bytes": 533,
+      "sha256": "cdcbc36596f58fccd53ad34a6ddf7610e96f78e90f80f806a47e9ec16fe6edba",
+      "version": "single-player-realism-milestone-20261025"
     }
   ],
   "codeLicense": "Original editable Python/TypeScript application code retains repository application licensing. CC0 source-asset declarations do not relicense this code.",
@@ -806,5 +812,13 @@
         "version": "single-player-finishing-r7-20261022"
       }
     ]
+  },
+  "realismMilestone20261025": {
+    "base": "e7688bb8042e95cbd7b1e01318c261e3453c54fb",
+    "scope": "one review actor; original seam-aware normal halo, material response and coordinated upper-body posture; retained source geometry/UV/weights unchanged",
+    "addedGeometry": false,
+    "addedTextures": false,
+    "authority": "root/leg/ball facts/contact and reveal clocks unchanged; clear-boot solver retained",
+    "acceptance": "artist collar/shoulder/knee/hand/PBR/action finishing and physical-device validation remain open; not console realism"
   }
 }

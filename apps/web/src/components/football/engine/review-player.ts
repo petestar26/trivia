@@ -255,13 +255,14 @@ export function reviewSkinMaterial(
     vertexColors: true,
     normalMap: maps.normal,
     normalScale: new THREE.Vector2(0.18, 0.18),
+    roughnessMap: maps.roughness,
     roughness: 0.67,
     metalness: 0,
-    specularIntensity: 0.45,
+    specularIntensity: 0.32,
     clearcoat: 1,
-    clearcoatRoughness: 0.12,
+    clearcoatRoughness: 0.2,
     envMap: assets.environment,
-    envMapIntensity: 0.45,
+    envMapIntensity: 0.32,
   });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.reviewSkin = { value: assets.skin };
@@ -282,14 +283,17 @@ export function reviewSkinMaterial(
       )
       .replace(
         '#include <roughnessmap_fragment>',
-        '#include <roughnessmap_fragment>\nroughnessFactor=(vPart>2.5 && vPart<5.5)?0.12:(vPart>0.5 && vPart<1.5?0.48:0.67);'
+        // Borrow the existing shared pore roughness. Bound its response rather
+        // than turning a low-valued map into an oily full-body specular layer.
+        // Head, neck and hands use this same material/UV contract.
+        '#include <roughnessmap_fragment>\nfloat reviewSkinGrain=clamp(roughnessFactor/0.67,0.0,1.0);\nroughnessFactor=(vPart>2.5 && vPart<5.5)?0.12:(vPart>0.5 && vPart<1.5?0.48:0.59+0.12*reviewSkinGrain);'
       )
       .replace(
         '#include <lights_physical_fragment>',
-        '#include <lights_physical_fragment>\nmaterial.clearcoat=(vPart>2.5 && vPart<5.5)?0.85:0.025;'
+        '#include <lights_physical_fragment>\nmaterial.clearcoat=(vPart>2.5 && vPart<5.5)?0.85:0.006;'
       );
   };
-  material.customProgramCacheKey = () => 'playqube-single-review-skin-v1';
+  material.customProgramCacheKey = () => 'playqube-single-review-skin-v2';
   return material;
 }
 /** Same fictional identity and contact rig; no production close-up or result camera is added. */
@@ -339,9 +343,9 @@ export function attachReviewHead(
       alphaTest: 0.3,
       alphaToCoverage: true,
       side: THREE.DoubleSide,
-      roughness: 0.72,
+      roughness: 0.84,
       envMap: assets.environment,
-      envMapIntensity: 0.22,
+      envMapIntensity: 0.16,
     });
     const mesh = new THREE.SkinnedMesh(g, m);
     mesh.frustumCulled = false;
