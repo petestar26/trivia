@@ -303,7 +303,7 @@ export function sampleReviewPlayerPosture(input: ReviewMotionInput): Posture {
  * The outgoing offset is captured once, avoiding frame-dependent recursive pose blending.
  * A turn/brake filter uses seconds rather than frame count and cannot inspect future states.
  */
-function releasedPosture(input: ReviewMotionInput): Posture {
+function releasedPosture(rig: Rig, input: ReviewMotionInput): Posture {
   const state = input.motionState;
   if (!state) return sampleReviewPlayerPosture(input);
   const dt = clamp(input.deltaSeconds ?? 0, 0, 0.1);
@@ -339,7 +339,16 @@ function releasedPosture(input: ReviewMotionInput): Posture {
   }
   state.arms = {};
   for (const [name, target] of Object.entries(armTarget)) {
-    const from = state.outgoingArms[name as BoneName] ?? target;
+    const bone = name as BoneName;
+    let from = state.outgoingArms[bone];
+    if (!from && blend < 1) {
+      // Celebrations have no authored arm target. Freeze the already-blended
+      // local pose once, rather than using the incoming target as its own origin.
+      // Keeping the applied angles in state.arms also preserves interrupted blends.
+      const origin = new THREE.Euler().setFromQuaternion(rig.bones[bone].quaternion, 'XYZ');
+      from = state.outgoingArms[bone] = [origin.x, origin.y, origin.z];
+    }
+    from ??= target;
     state.arms[name as BoneName] = [
       from[0] + (target[0] - from[0]) * blend,
       from[1] + (target[1] - from[1]) * blend,
@@ -369,7 +378,7 @@ export function applyReviewPlayerMotion(rig: Rig, input: ReviewMotionInput) {
     if (input.kind !== 'keeperReady' && input.kind !== 'keeperDive') applyOutfieldRestingArms(rig);
     return;
   }
-  const posture = releasedPosture(input);
+  const posture = releasedPosture(rig, input);
   const rotate = (name: BoneName, angles: Angles, w: number) =>
     rig.bones[name].quaternion.multiply(
       new THREE.Quaternion().setFromEuler(

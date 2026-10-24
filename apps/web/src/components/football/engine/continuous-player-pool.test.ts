@@ -14,6 +14,7 @@ import {
 } from 'vitest';
 import { createPlayerPool, type PlayerPool } from './players';
 import { directorFrame } from './director';
+import { sampleReviewArmTargets } from './review-player-motion';
 import { Region, type HumanGeometry, type Rig } from './rig';
 import { headGeometry } from './player-assets';
 import type { HeadVisual, PlayerDetail } from './player-appearance';
@@ -278,6 +279,159 @@ async function loaded() {
   await settled();
   return { pool: result, review, continuous, visual: visuals.at(-1)! };
 }
+
+const armBones = ['upperArmL', 'foreArmL', 'handL', 'upperArmR', 'foreArmR', 'handR'] as const;
+const armPose = (rig: Rig) => armBones.map((name) => rig.bones[name].quaternion.clone());
+function expectArmPose(rig: Rig, expected: THREE.Quaternion[]) {
+  armBones.forEach((name, i) =>
+    expect(rig.bones[name].quaternion.angleTo(expected[i]), name).toBeLessThan(1e-6)
+  );
+}
+function transitionFrame() {
+  return directorFrame({
+    matchKey: 'fixed-review-arm-transition',
+    elapsedMs: 4000,
+    status: 'FIRST_HALF',
+    goals: [],
+    fullTime: null,
+  });
+}
+
+describe('fixed review actor arm transitions', () => {
+  for (const celebration of ['ARMS_UP', 'HUG', 'WINGS', 'DEJECTED'] as const)
+    for (const kind of ['idle', 'run'] as const)
+      it(`preserves ${celebration} → ${kind} at zero time, then converges continuously`, async () => {
+        const { pool: current } = await loaded();
+        const frame = transitionFrame();
+        frame.actors[1] = {
+          ...frame.actors[1],
+          speed: 0,
+          anim: { kind: 'celebrate', celebration, t: 0.5 },
+        };
+        current.apply(frame, 0, 4, true);
+        const rig = current.rigs[1],
+          outgoing = armPose(rig);
+        frame.actors[1] = { ...frame.actors[1], speed: kind === 'run' ? 2.4 : 0, anim: { kind } };
+        const facts = JSON.stringify(frame);
+        current.apply(frame, 0, 4, true);
+        const jump = THREE.MathUtils.radToDeg(outgoing[0].angleTo(rig.bones.upperArmL.quaternion));
+        console.info(JSON.stringify({ celebration, kind, zeroTimeUpperArmJumpDegrees: jump }));
+        expectArmPose(rig, outgoing);
+        let previous = outgoing;
+        for (let step = 1; step <= 15; step++) {
+          current.apply(frame, 1 / 60, 4 + step / 60, true);
+          armBones.forEach((name, i) =>
+            expect(rig.bones[name].quaternion.angleTo(previous[i]), name).toBeLessThan(0.7)
+          );
+          previous = armPose(rig);
+        }
+        const targets = sampleReviewArmTargets({
+          kind,
+          time: 4.25,
+          phase: 0,
+          speed: frame.actors[1].speed,
+        });
+        expectArmPose(
+          rig,
+          armBones.map((name) =>
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(...targets[name]!))
+          )
+        );
+        expect(JSON.stringify(frame)).toBe(facts);
+      });
+
+  for (const first of ['idle', 'run'] as const)
+    it(`preserves an interrupted celebration → ${first} introduction`, async () => {
+      const { pool: current } = await loaded();
+      const frame = transitionFrame(),
+        rig = current.rigs[1];
+      frame.actors[1] = {
+        ...frame.actors[1],
+        anim: { kind: 'celebrate', celebration: 'ARMS_UP', t: 0.5 },
+      };
+      current.apply(frame, 0, 4, true);
+      frame.actors[1] = {
+        ...frame.actors[1],
+        speed: first === 'run' ? 2.4 : 0,
+        anim: { kind: first },
+      };
+      current.apply(frame, 0, 4, true);
+      current.apply(frame, 0.05, 4.05, true);
+      const partial = armPose(rig);
+      const second = first === 'idle' ? 'run' : 'idle';
+      frame.actors[1] = {
+        ...frame.actors[1],
+        speed: second === 'run' ? 2.4 : 0,
+        anim: { kind: second },
+      };
+      current.apply(frame, 0, 4.05, true);
+      expectArmPose(rig, partial);
+      current.apply(frame, 0.02, 4.07, true);
+      const interrupted = armPose(rig);
+      frame.actors[1] = {
+        ...frame.actors[1],
+        anim: { kind: 'celebrate', celebration: 'WINGS', t: 0.5 },
+      };
+      current.apply(frame, 0, 4.07, true);
+      // The existing additive rest-abduction offset also blends into the
+      // celebration. Keep that sub-degree correction; wrists/elbows stay exact.
+      armBones.forEach((name, i) =>
+        expect(rig.bones[name].quaternion.angleTo(interrupted[i]), name).toBeLessThan(
+          name.startsWith('upperArm') ? 0.02 : 1e-6
+        )
+      );
+      current.apply(frame, 0.05, 4.12, true);
+      const celebration = armPose(rig);
+      frame.actors[1] = { ...frame.actors[1], speed: 0, anim: { kind: 'idle' } };
+      current.apply(frame, 0, 4.12, true);
+      expectArmPose(rig, celebration);
+    });
+
+  for (const kind of ['idle', 'run'] as const)
+    it(`introduces ${kind} continuously when its first frame has positive elapsed time`, async () => {
+      const { pool: current } = await loaded();
+      const frame = transitionFrame(),
+        rig = current.rigs[1];
+      frame.actors[1] = {
+        ...frame.actors[1],
+        speed: 0,
+        anim: { kind: 'celebrate', celebration: 'ARMS_UP', t: 0.5 },
+      };
+      current.apply(frame, 0, 4, true);
+      const outgoing = armPose(rig);
+      frame.actors[1] = { ...frame.actors[1], speed: kind === 'run' ? 2.4 : 0, anim: { kind } };
+      const facts = JSON.stringify(frame);
+      current.apply(frame, 1 / 60, 4 + 1 / 60, true);
+      armBones.forEach((name, i) =>
+        expect(rig.bones[name].quaternion.angleTo(outgoing[i]), name).toBeLessThan(0.4)
+      );
+      expect(JSON.stringify(frame)).toBe(facts);
+    });
+
+  for (const reset of ['teams', 'rewind'] as const)
+    it(`discards a partial arm introduction on explicit ${reset} reset`, async () => {
+      const { pool: current } = await loaded();
+      const frame = transitionFrame(),
+        rig = current.rigs[1];
+      frame.actors[1] = {
+        ...frame.actors[1],
+        anim: { kind: 'celebrate', celebration: 'ARMS_UP', t: 0.5 },
+      };
+      current.apply(frame, 0, 4, true);
+      frame.actors[1] = { ...frame.actors[1], speed: 0, anim: { kind: 'idle' } };
+      current.apply(frame, 0.02, 4.02, true);
+      if (reset === 'teams') current.setTeams(1, 6);
+      const time = reset === 'rewind' ? 2 : 4.02;
+      current.apply(frame, 0, time, true);
+      const targets = sampleReviewArmTargets({ kind: 'idle', time, phase: 0, speed: 0 });
+      expectArmPose(
+        rig,
+        armBones.map((name) =>
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(...targets[name]!))
+        )
+      );
+    });
+});
 
 describe('optional continuous character pool lifecycle', () => {
   for (const first of ['review', 'continuous'] as const)
