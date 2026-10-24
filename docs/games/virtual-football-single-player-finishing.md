@@ -42,6 +42,98 @@ The frozen handoff supplies exact commits/files, failing-before and passing-afte
 
 All browser evidence uses local simulated fixtures and released facts, with explicit diagnostic versus production camera labels. Physical-phone GPU, thermal, touch and live-server acceptance remain pending. No console-quality realism, global cloth collision clearance, roster acceptance, backend/gateway/retired-chunk repair or production readiness is claimed. PR59 remains draft; PR57/PR58 and other games are separate.
 
+## 2026-10-25 material source and response study
+
+The existing licensed anatomical/garment foundation was assessed before this
+material pass. The original requested `e7688bb` shader ignored its existing
+linear roughness map. During this work, accepted upstream `bb2ed040` independently
+restored bounded roughness and matte skin/hair response. This integration retains
+those accepted values: skin .59–.71, lips .48, eyes .12, specular intensity .32,
+dry clearcoat .006, skin environment intensity .32 and matte standard hair
+roughness .84/environment .16. The licensed diffuse retains source pigmentation
+and baked lighting. These preserved settings are now an editable study in
+`review-material-study.json`, not measured human PBR data, a new skin scan, a new
+hair groom or a completed artist material package.
+
+The source shirt's own material names `T-shirt_basic-bump.png`. That existing
+MargaretToigo/MRT asset is part of the pinned official CC0 Shirts 01 pack. Its
+2048px height image has ribbed collar/cuff strips and flat shirt panels. The
+unchanged PNG and material definition are now retained in
+`scripts/assets/sources/football-review-materials`, with author, license,
+archive/entry hashes and source notices. A reproducible lossless 1024px grayscale
+WebP derivative supplies a conservative 0.28mm artistic bump scale using the
+original garment UVs. The fictional club diffuse and number projection continue
+independently. The artist bump replaces the review jersey's generic normal map
+because Three's normal-map path otherwise takes precedence over bump mapping.
+The editable sheen setting defaults to zero, retaining the accepted matte cloth response.
+
+The accepted `borrowReviewFabric` API, ownership and shorts/sock use are retained.
+They borrow the original pool fabric maps, independently of the new jersey bump.
+The accepted upstream physical boot material remains unchanged in `continuous-kit.ts`.
+Boots additionally use immutable
+material response values captured from their existing neutral vertex color and
+sole height, so rubber, upper and lace roughness stays attached during toe flex.
+This adds one material scalar per boot vertex; position, normal, index, fit/cache
+arrays, the 55mm cap and contact datums remain unchanged. `continuous-kit.ts`
+remains unchanged by this material pass. Shared maps retain their original
+ownership; the extra bump participates in the optional atomic review asset load
+and its existing cleanup/fallback path. All changes apply to the same fixed
+review actor.
+
+The new derivative transfers 19,120 bytes and adds one 1024² texture, approximately
+5.33MiB of decoded RGBA storage with a full mip chain. There is no new mesh, draw
+call, shadow pass, simulation or post-process. These are dimensions/storage
+estimates, not measured GPU residency or physical-device performance.
+`build-football-review-materials.py --check` verifies source identity and exact
+derivative/provenance reproduction. The public
+`review-material-provenance.json` records color space, UV orientation and hashes.
+Rendered material quality and browser/device acceptance remain separate gates.
+
+## 2026-10-25 collar, normals and explicit action studies
+
+Assessment traced the dark closed outer neckline curve to a tight original
+source fold: eleven 26-point collar rings included 83 adjacent face pairs folded
+beyond 90 degrees. An original editable control mesh now records 286 explicit
+positions, forming a continuous Hermite strip from cleaned opening controls to
+the fixed body ring and its following tangent. The private derivative is authored
+once before high/low construction; the raw CC0 GLB, original UV corners, indices
+and skin weights remain unchanged. Maximum neutral editing is 13.245mm within an
+18mm guard. Source upper-strip folds beyond 90 degrees reduce from 83 to zero.
+The existing posed fairing count and 45mm cap remain. This is numerical source
+authoring, with no claim of a DCC sculpt or human artist authorship. The original
+requested `e7688bb` captures remain historical; final comparison uses accepted
+upstream `bb2ed040` as the integration baseline.
+
+The source body normal-continuity repair is inherited unchanged from accepted
+`bb2ed040`, including its hard-neutral-crease guard. R9 retains additional
+regression coverage that reproduced the earlier `e7688bb` 0.52427 normal-vector
+gap between equivalent UV corners and verifies zero gap for 600 equivalent
+corners across sampled flexion poses. This integration adds no new body adapter
+runtime fix. Body positions and the inverse-volume knee formula remain unchanged. The front closed collar line is visibly removed in
+the local study; inherited profile shoulder pinching and deep-knee/jagged-sock
+shape remain artist work. A shading repair does not establish natural knee
+anatomy or full cloth clearance.
+
+`review-authored-poses.json` supplies an original editable numerical key-pose
+study for idle, jog, drive, brake, turn and kick, with action-specific per-digit
+hand keys. Monotone cubic channel sampling replaces the selected player's former
+formula-based free-arm offsets and near-fixed finger cascade. The accepted idle
+arm abduction remains 12/-13 degrees; reduced motion retains its fixed pose.
+The existing kick time/direction is forwarded to the hands. Pelvis, root, leg
+articulation, distance phase, contact targets, ball facts and all reveal/action
+clocks retain their original ownership. Shared roster clips remain unchanged.
+This provides restrained arm/body lead and hand variety, without claiming new
+full-body choreography, motion capture or a physical centre-of-mass simulation.
+
+Current diagnostic visible character totals are 33,777 triangles at high/mid
+and 24,993 at low, excluding two ground triangles. The current boot construction
+is 3,776 triangles; older manifest totals undercounted it by 960. That geometry
+is byte-identical to the accepted baseline. New neutral collar positions reduce
+the clustered low shirt from 2,004 to 1,988 triangles; high remains 2,950. These
+counts describe this one actor and are not runtime FPS, GPU-memory or physical
+phone acceptance measurements. Native source/corrective/PBR/action deliverables,
+artist acceptance, physical-device checks and roster expansion remain open.
+
 
 ## 2026-10-22 single-player finishing continuation
 

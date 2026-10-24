@@ -319,6 +319,7 @@ describe('optional single review player assets', () => {
     'review-skin',
     'review-hair.webp',
     'review-brows.webp',
+    'review-shirt-bump.webp',
   ])
     it(`releases every fulfilled sibling and raw preview resource when ${fail} fails`, async () => {
       const fixture = localAssets({ fail });
@@ -406,6 +407,8 @@ describe('optional single review player assets', () => {
     expect(assets.head.index!.count / 3).toBeGreaterThan(9000);
     expect(assets.head.userData.morphNames.blinkLeft).toBe(0);
     expect(assets.skin.channel).toBe(1);
+    expect(assets.garmentBump!.colorSpace).toBe(THREE.NoColorSpace);
+    expect(assets.garmentBump!.flipY).toBe(false);
     expect(
       [assets.skin, assets.hairMap, assets.browMap].every(
         (t) => t.colorSpace === THREE.SRGBColorSpace && !t.flipY

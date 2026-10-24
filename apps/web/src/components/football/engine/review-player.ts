@@ -3,6 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { BONES, type Rig, type HumanGeometry } from './rig';
 import { headGeometry } from './player-assets';
 import { createContinuousPlayerLod } from './continuous-player-lod';
+import { reviewMaterialStudy as study } from './review-player-materials';
 import {
   attachPlayerHead,
   disposeHairAssets,
@@ -23,6 +24,7 @@ export interface ReviewPlayerAssets {
   skin: THREE.Texture;
   hairMap: THREE.Texture;
   browMap: THREE.Texture;
+  garmentBump?: THREE.Texture;
   environment: THREE.Texture;
   dispose(): void;
 }
@@ -164,6 +166,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     images.loadAsync('/models/football/review-skin-basecolor.webp'),
     images.loadAsync('/models/football/review-hair.webp'),
     images.loadAsync('/models/football/review-brows.webp'),
+    images.loadAsync('/models/football/review-shirt-bump.webp'),
   ]);
   const prepared: THREE.BufferGeometry[] = [];
   const releaseInputs = () =>
@@ -209,12 +212,12 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
     const textures = results
       .slice(2)
       .map((r) => (r as PromiseFulfilledResult<THREE.Texture>).value);
-    textures.forEach((t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
+    textures.forEach((t, i) => {
+      t.colorSpace = i < 3 ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.flipY = false;
       t.anisotropy = 4;
     });
-    const [skin, hairMap, browMap] = textures;
+    const [skin, hairMap, browMap, garmentBump] = textures;
     skin.channel = 1;
     const environment = reflection();
     // Parsed preview meshes/materials are never kept alive by the runtime.
@@ -230,6 +233,7 @@ export async function loadReviewPlayerAssets(): Promise<ReviewPlayerAssets> {
       skin,
       hairMap,
       browMap,
+      garmentBump,
       environment,
       dispose() {
         if (disposed) return;
@@ -254,18 +258,29 @@ export function reviewSkinMaterial(
     side: THREE.DoubleSide,
     vertexColors: true,
     normalMap: maps.normal,
-    normalScale: new THREE.Vector2(0.18, 0.18),
+    normalScale: new THREE.Vector2(study.skin.normalScale, study.skin.normalScale),
     roughnessMap: maps.roughness,
-    roughness: 0.67,
+    roughness: study.skin.roughnessMapScale,
     metalness: 0,
-    specularIntensity: 0.32,
+    specularIntensity: study.skin.specularIntensity,
     clearcoat: 1,
-    clearcoatRoughness: 0.2,
+    clearcoatRoughness: study.skin.clearcoatRoughness,
     envMap: assets.environment,
-    envMapIntensity: 0.32,
+    envMapIntensity: study.skin.envMapIntensity,
   });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.reviewSkin = { value: assets.skin };
+    shader.uniforms.reviewSkinResponse = {
+      value: new THREE.Vector4(
+        study.skin.roughnessMin,
+        study.skin.roughnessMax,
+        study.skin.lipMin,
+        study.skin.lipMax
+      ),
+    };
+    shader.uniforms.reviewSkinGrainScale = { value: study.skin.roughnessMapScale };
+    shader.uniforms.reviewEyeRoughness = { value: study.skin.eyeRoughness };
+    shader.uniforms.reviewDryClearcoat = { value: study.skin.clearcoat };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -275,7 +290,7 @@ export function reviewSkinMaterial(
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform sampler2D reviewSkin; varying float vPart; varying vec2 vReviewUv;'
+        '#include <common>\nuniform sampler2D reviewSkin; uniform vec4 reviewSkinResponse; uniform float reviewSkinGrainScale; uniform float reviewEyeRoughness; uniform float reviewDryClearcoat; varying float vPart; varying vec2 vReviewUv;'
       )
       .replace(
         '#include <color_fragment>',
@@ -283,17 +298,16 @@ export function reviewSkinMaterial(
       )
       .replace(
         '#include <roughnessmap_fragment>',
-        // Borrow the existing shared pore roughness. Bound its response rather
-        // than turning a low-valued map into an oily full-body specular layer.
-        // Head, neck and hands use this same material/UV contract.
-        '#include <roughnessmap_fragment>\nfloat reviewSkinGrain=clamp(roughnessFactor/0.67,0.0,1.0);\nroughnessFactor=(vPart>2.5 && vPart<5.5)?0.12:(vPart>0.5 && vPart<1.5?0.48:0.59+0.12*reviewSkinGrain);'
+        '#include <roughnessmap_fragment>\n' +
+          'float reviewPore=clamp(roughnessFactor/reviewSkinGrainScale,0.0,1.0);\n' +
+          'roughnessFactor=(vPart>2.5 && vPart<5.5)?reviewEyeRoughness:(vPart>0.5 && vPart<1.5?mix(reviewSkinResponse.z,reviewSkinResponse.w,reviewPore):mix(reviewSkinResponse.x,reviewSkinResponse.y,reviewPore));'
       )
       .replace(
         '#include <lights_physical_fragment>',
-        '#include <lights_physical_fragment>\nmaterial.clearcoat=(vPart>2.5 && vPart<5.5)?0.85:0.006;'
+        '#include <lights_physical_fragment>\nmaterial.clearcoat=(vPart>2.5 && vPart<5.5)?0.85:reviewDryClearcoat;'
       );
   };
-  material.customProgramCacheKey = () => 'playqube-single-review-skin-v2';
+  material.customProgramCacheKey = () => 'playqube-single-review-skin-r9-v3';
   return material;
 }
 /** Same fictional identity and contact rig; no production close-up or result camera is added. */
@@ -343,9 +357,9 @@ export function attachReviewHead(
       alphaTest: 0.3,
       alphaToCoverage: true,
       side: THREE.DoubleSide,
-      roughness: 0.84,
+      roughness: study.hair.roughness,
       envMap: assets.environment,
-      envMapIntensity: 0.16,
+      envMapIntensity: study.hair.envMapIntensity,
     });
     const mesh = new THREE.SkinnedMesh(g, m);
     mesh.frustumCulled = false;
