@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { constrainHoof, measureHoofWindows } from './authored-contact';
+import { constrainHoof, measureHoofWindows, sampleHoofSupport } from './authored-contact';
 import { CONTACT_FRACTION, STRIDE_SECONDS } from './gallop';
 
 export type HorseAssets = {
@@ -434,18 +434,26 @@ export function createRiggedHorse(
     const spinePosition = spine.getWorldPosition(new THREE.Vector3());
     model.worldToLocal(spinePosition);
     const bounce = spinePosition.y - spineRest.y;
-    rider.position.y = 1.65 - 0.917 * 0.79 + bounce * 0.55;
+    const support = sampleHoofSupport(
+      clipSeconds + index * assets.run.duration * 0.137 - 0.015,
+      assets.run.duration,
+      contacts!
+    );
+    rider.position.y = 1.65 - 0.917 * 0.79 + bounce * (moving ? 0.55 - 0.15 * support.load : 0.55);
     const strideAngle = (clipSeconds / assets.run.duration) * Math.PI * 2 + index * 0.861;
     // The rider absorbs the authored stride rather than bouncing rigidly with the saddle.
-    rider.rotation.x = moving ? Math.sin(strideAngle - 0.35) * 0.04 : 0;
-    rider.rotation.z = moving ? Math.sin(strideAngle) * 0.012 : 0;
-    rider.position.z = -0.12 + (moving ? Math.sin(strideAngle - 0.35) * 0.018 : 0);
+    rider.rotation.x = moving
+      ? (Math.sin(strideAngle - 0.35) * 0.6 + support.pitch * 0.4) * 0.04
+      : 0;
+    rider.rotation.z = moving ? (Math.sin(strideAngle) * 0.5 + support.roll * 0.5) * 0.012 : 0;
+    rider.position.z =
+      -0.12 + (moving ? (Math.sin(strideAngle - 0.35) * 0.5 + support.pitch * 0.5) * 0.018 : 0);
     saddle.position.y = 1.52 + bounce;
     cloth.position.y = 1.43 + bounce;
     model.updateMatrixWorld(true);
     // Reset to the fitted pose so repeated sampling and different frame steps agree.
     riderPose.forEach((q, joint) => joint.quaternion.copy(q));
-    pelvis.rotateX(moving ? Math.sin(strideAngle - 0.35) * 0.035 : 0);
+    pelvis.rotateX(moving ? (Math.sin(strideAngle - 0.35) * 0.5 + support.pitch * 0.5) * 0.035 : 0);
     rider.updateMatrixWorld(true);
     for (const stirrup of stirrups) stirrup.position.y = 1.15 + bounce;
     for (const [side, sign] of [
