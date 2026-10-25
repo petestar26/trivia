@@ -9,6 +9,8 @@ import { getErrorMessage } from '@/lib/error-message';
 import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MemberAuthShell } from '@/components/member/member-auth-shell';
+import { PasswordInput } from '@/components/member/password-input';
 import {
   Card,
   CardContent,
@@ -83,7 +85,7 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="qube-auth min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4 py-12">
+    <MemberAuthShell mode="register">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -95,7 +97,10 @@ export function RegisterPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg">
+            <div
+              role="alert"
+              className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -110,13 +115,19 @@ export function RegisterPage() {
               <Input
                 id="username"
                 type="text"
+                autoComplete="username"
                 placeholder="johndoe"
                 {...register('username')}
                 disabled={isLoading}
                 aria-invalid={!!errors.username}
+                aria-describedby={errors.username ? 'register-username-error' : undefined}
               />
               {errors.username && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                <p
+                  id="register-username-error"
+                  className="text-sm text-red-600 dark:text-red-400"
+                  role="alert"
+                >
                   {errors.username.message}
                 </p>
               )}
@@ -131,13 +142,19 @@ export function RegisterPage() {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 placeholder="you@example.com"
                 {...register('email')}
                 disabled={isLoading}
                 aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? 'register-email-error' : undefined}
               />
               {errors.email && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                <p
+                  id="register-email-error"
+                  className="text-sm text-red-600 dark:text-red-400"
+                  role="alert"
+                >
                   {errors.email.message}
                 </p>
               )}
@@ -152,15 +169,21 @@ export function RegisterPage() {
               <Input
                 id="displayName"
                 type="text"
+                autoComplete="nickname"
                 placeholder="John Doe"
                 {...register('displayName')}
                 disabled={isLoading}
                 aria-invalid={!!errors.displayName}
+                aria-describedby={errors.displayName ? 'register-displayName-error' : undefined}
               />
               {/* This field previously rendered no error element, so a failed
                   validation here was completely invisible. */}
               {errors.displayName && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                <p
+                  id="register-displayName-error"
+                  className="text-sm text-red-600 dark:text-red-400"
+                  role="alert"
+                >
                   {errors.displayName.message}
                 </p>
               )}
@@ -172,20 +195,29 @@ export function RegisterPage() {
               >
                 Password
               </label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
+                autoComplete="new-password"
                 placeholder="••••••••"
                 {...register('password')}
                 disabled={isLoading}
                 aria-invalid={!!errors.password}
+                aria-describedby={
+                  errors.password
+                    ? 'register-password-error register-password-help'
+                    : 'register-password-help'
+                }
               />
               {errors.password && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                <p
+                  id="register-password-error"
+                  className="text-sm text-red-600 dark:text-red-400"
+                  role="alert"
+                >
                   {errors.password.message}
                 </p>
               )}
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p id="register-password-help" className="text-xs text-gray-500 dark:text-gray-400">
                 Must be at least 8 characters with uppercase, lowercase, number, and special
                 character
               </p>
@@ -208,6 +240,6 @@ export function RegisterPage() {
           </p>
         </CardFooter>
       </Card>
-    </div>
+    </MemberAuthShell>
   );
 }

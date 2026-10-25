@@ -1,0 +1,334 @@
+.pq-auth-shell {
+  min-height: 100dvh;
+  color: #f7e7d9;
+  font-family: Inter, system-ui, sans-serif;
+}
+html.qube-member .pq-auth-shell {
+  overflow: clip;
+  background:
+    radial-gradient(ellipse at 15% 45%, #6b29343b, transparent 55%),
+    radial-gradient(ellipse at 95% 10%, #845b3a15, transparent 45%), #130e13;
+}
+.pq-auth-shell::before,
+.pq-auth-shell::after {
+  display: none;
+}
+.pq-auth-shell a:focus-visible,
+.pq-auth-shell button:focus-visible {
+  outline: 2px solid #ecc4a1;
+  outline-offset: 4px;
+}
+.pq-auth-shell .pq-auth-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 20px clamp(20px, 5vw, 80px);
+  border-bottom: 1px solid #e9c8a516;
+}
+.pq-auth-shell .pq-auth-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  min-height: 44px;
+  width: 175px;
+  font-size: 21px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #f7e7d9;
+}
+.pq-auth-shell .pq-auth-brand > span {
+  color: #dfb48c;
+}
+.pq-auth-shell .pq-auth-brand > small {
+  width: 100%;
+  margin-top: 7px;
+  color: #b79c8c;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+}
+.pq-auth-shell .pq-auth-browse {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: #cdb4a3;
+  font-size: 12px;
+}
+.pq-auth-shell .pq-auth-browse:hover {
+  color: #f5d5b6;
+}
+.pq-auth-shell .pq-auth-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(32px, 7vw, 105px);
+  width: min(1160px, 100%);
+  margin: 0 auto;
+  padding: 42px clamp(20px, 5vw, 64px) 48px;
+}
+.pq-auth-shell .pq-auth-story,
+.pq-auth-shell .pq-auth-form-panel {
+  min-width: 0;
+}
+.pq-auth-shell .pq-auth-eyebrow,
+.pq-auth-shell .pq-auth-form-eyebrow {
+  color: #d4ae8e;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1.7;
+}
+.pq-auth-shell .pq-auth-story h1 {
+  margin: 17px 0;
+  font:
+    clamp(34px, 4.2vw, 58px)/1.13 Georgia,
+    serif;
+  letter-spacing: -0.035em;
+  color: #f7e7d9;
+}
+.pq-auth-shell .pq-auth-story h1 em {
+  display: block;
+  color: #dfb48c;
+  font-style: normal;
+}
+.pq-auth-shell .pq-auth-description {
+  max-width: 350px;
+  color: #bda69b;
+  font-size: 13px;
+  line-height: 1.85;
+}
+.pq-auth-shell .pq-auth-art {
+  position: relative;
+  width: 100%;
+  max-width: 410px;
+  height: 248px;
+  margin-top: 12px;
+  perspective: 850px;
+}
+.pq-auth-shell .pq-auth-pass {
+  position: absolute;
+  inset: 35px 42px 30px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  border: 1px solid #dcae867d;
+  border-radius: 22px;
+  color: #efcaa4;
+  background: linear-gradient(135deg, #89515a, #421f2b 54%, #24131d);
+  box-shadow:
+    inset 2px 2px 0 #f2c4a04d,
+    inset -3px -3px 0 #140b13,
+    9px 13px 0 #1f121b,
+    15px 24px 28px #0005;
+  transform: rotateY(-17deg) rotateZ(-8deg);
+  animation: pq-auth-pass-float 8s ease-in-out infinite;
+}
+.pq-auth-shell .pq-auth-pass-label {
+  font-size: 7px;
+  letter-spacing: 0.25em;
+}
+.pq-auth-shell .pq-auth-pass-mark {
+  font:
+    90px/0.85 Georgia,
+    serif;
+}
+.pq-auth-shell .pq-auth-pass-footer {
+  font-size: 7px;
+  letter-spacing: 0.18em;
+}
+.pq-auth-shell .pq-auth-ring {
+  position: absolute;
+  inset: 18px 8px;
+  border: 1px solid #d9ac763d;
+  border-radius: 50%;
+  transform: rotateZ(-23deg) rotateX(47deg);
+}
+.pq-auth-shell .pq-auth-ring-two {
+  inset: -8px 56px;
+  transform: rotateY(61deg) rotateZ(23deg);
+}
+.pq-auth-shell .pq-auth-disc {
+  position: absolute;
+  width: 53px;
+  height: 53px;
+  border: 5px dashed #ddb187;
+  border-radius: 50%;
+  background: #512633;
+  box-shadow:
+    inset 0 0 0 2px #24121b,
+    0 4px #654338,
+    0 8px 14px #0006;
+  transform: rotateZ(-12deg);
+}
+.pq-auth-shell .pq-auth-disc-one {
+  top: 9px;
+  right: 14px;
+}
+.pq-auth-shell .pq-auth-disc-two {
+  bottom: 4px;
+  left: 12px;
+}
+.pq-auth-shell .pq-auth-motion {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 9px 0;
+  color: #c6aa98;
+  font-size: 10px;
+}
+.pq-auth-shell.is-paused .pq-auth-pass {
+  animation-play-state: paused;
+}
+.pq-auth-shell .pq-auth-story-footer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-top: 16px;
+  border-top: 1px solid #d2ad8a24;
+  color: #b99e8d;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.pq-auth-shell .pq-auth-form-panel {
+  width: 100%;
+  max-width: 430px;
+  justify-self: end;
+}
+.pq-auth-shell .pq-auth-form-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 14px 3px;
+  font-size: 8px;
+}
+.pq-auth-shell .pq-auth-form-eyebrow > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #deb48e;
+}
+html.qube-member .pq-auth-shell .pq-auth-form-panel > .bg-card {
+  width: 100%;
+  max-width: none;
+  border: 1px solid #b98a7447;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #302027, #1c141a 75%);
+  box-shadow:
+    inset 0 1px #f2c7a518,
+    0 20px 50px #0004;
+}
+.pq-auth-shell .pq-auth-form-panel input {
+  min-height: 48px;
+  border-radius: 10px;
+  background: #150f15;
+  border-color: #6b4d564f;
+  color: #f6e4d5;
+  font-size: 16px;
+}
+.pq-auth-shell .pq-auth-form-panel input::placeholder {
+  color: #9c8780;
+}
+.pq-auth-shell .pq-auth-form-panel input[aria-invalid='true'] {
+  border-color: #ed8898;
+}
+.pq-auth-shell .pq-auth-form-panel label {
+  color: #dcc5b7;
+  font-size: 12px;
+}
+.pq-auth-shell .pq-auth-form-panel button[type='submit'] {
+  min-height: 48px;
+  border: 1px solid #ffe0bd;
+  border-radius: 10px;
+  color: #2f181c;
+  background: linear-gradient(135deg, #efd1b0, #c79272);
+  box-shadow:
+    inset 0 1px #fff7,
+    0 5px 18px #b4714c18;
+}
+.pq-auth-shell .pq-auth-form-panel button[type='submit']:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f7ddc0, #dba684);
+}
+.pq-auth-shell .pq-auth-form-panel a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  line-height: 1.5;
+}
+@keyframes pq-auth-pass-float {
+  0%,
+  100% {
+    transform: translateY(0) rotateY(-17deg) rotateZ(-8deg);
+  }
+  50% {
+    transform: translateY(-9px) rotateY(-12deg) rotateZ(-5deg);
+  }
+}
+@media (max-width: 760px) {
+  .pq-auth-shell .pq-auth-header {
+    padding: 14px 20px;
+  }
+  .pq-auth-shell .pq-auth-brand {
+    width: 151px;
+    font-size: 19px;
+  }
+  .pq-auth-shell .pq-auth-browse {
+    font-size: 11px;
+  }
+  .pq-auth-shell .pq-auth-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    max-width: 490px;
+    padding: 26px 20px 36px;
+  }
+  .pq-auth-shell .pq-auth-story h1 {
+    margin: 10px 0 0;
+    font-size: clamp(28px, 7vw, 36px);
+  }
+  .pq-auth-shell .pq-auth-story {
+    text-align: center;
+  }
+  .pq-auth-shell .pq-auth-description,
+  .pq-auth-shell .pq-auth-art,
+  .pq-auth-shell .pq-auth-motion,
+  .pq-auth-shell .pq-auth-story-footer {
+    display: none;
+  }
+  .pq-auth-shell .pq-auth-form-panel {
+    max-width: none;
+  }
+  .pq-auth-shell .pq-auth-form-eyebrow {
+    justify-content: center;
+  }
+}
+@media (max-height: 560px) and (min-width: 761px) {
+  .pq-auth-shell .pq-auth-layout {
+    align-items: start;
+    padding-top: 24px;
+    padding-bottom: 24px;
+    gap: 40px;
+  }
+  .pq-auth-shell .pq-auth-story h1 {
+    font-size: 35px;
+  }
+  .pq-auth-shell .pq-auth-art {
+    height: 180px;
+  }
+  .pq-auth-shell .pq-auth-pass {
+    inset: 24px 30px;
+  }
+  .pq-auth-shell .pq-auth-pass-mark {
+    font-size: 64px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pq-auth-shell .pq-auth-pass {
+    animation: none;
+  }
+}
