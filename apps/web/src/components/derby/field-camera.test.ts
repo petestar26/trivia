@@ -73,3 +73,31 @@ it('contains the enlarged billboard number quads for six/eight runners at phone 
       });
     }
 });
+
+it('gives a close six/eight-runner field useful portrait space instead of mostly empty grass', () => {
+  for (const field of [6, 8]) {
+    const camera = new THREE.PerspectiveCamera(36, 390 / 844, 0.1, 2000);
+    const positions = Array.from({ length: field }, (_, i) => 100 + i * 0.936);
+    const published = [...positions];
+    frameDerbyField(camera, positions, field);
+    const x: number[] = [],
+      y: number[] = [];
+    // A conservative rectangular approximation of the shipped runner's skin
+    // envelope, independently measured across Run96/Idle1 source samples.
+    for (let i = 0; i < field; i++)
+      for (const dx of [-2.55, 2.55])
+        for (const height of [0.035, 3.25])
+          for (const dz of [-0.674, 0.674]) {
+            const p = new THREE.Vector3(
+              positions[i] + dx,
+              height,
+              (i - (field - 1) / 2) * 2.15 + dz
+            ).project(camera);
+            x.push(p.x);
+            y.push(p.y);
+          }
+    expect((Math.max(...x) - Math.min(...x)) / 2).toBeGreaterThan(0.6);
+    expect((Math.max(...y) - Math.min(...y)) / 2).toBeGreaterThan(0.32);
+    expect(positions).toEqual(published);
+  }
+});
