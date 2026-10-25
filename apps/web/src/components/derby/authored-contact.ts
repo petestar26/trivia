@@ -15,6 +15,13 @@ export type HoofWindow = {
   minimum: number;
   soleOffset: number;
   soleHeights: Float32Array;
+  /** Additional horizontal recovery only, outside the original measured stance. */
+  transitionWidth: number;
+  /** Actual skinned underside relative to the hoof joint at every authored phase. */
+  soleOffsets: Float32Array;
+  soleCorrections: Float32Array;
+  solveCompensationX: Float32Array;
+  solveCompensationZ: Float32Array;
 };
 const point = (node: THREE.Object3D, model: THREE.Object3D) =>
   model.worldToLocal(node.getWorldPosition(new THREE.Vector3()));
@@ -65,6 +72,11 @@ export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationC
       minimum,
       soleOffset: 0,
       soleHeights: soleHeights[hoof],
+      transitionWidth: ((Math.max(1, bestLength - 1) * clip.duration) / count / 2) * 0.75,
+      soleOffsets: Float32Array.from(soleHeights[hoof], (sole, phase) => sole - poses[phase].y),
+      soleCorrections: new Float32Array(count).fill(0.003),
+      solveCompensationX: new Float32Array(count),
+      solveCompensationZ: new Float32Array(count),
     };
   });
   for (const window of windows) {
@@ -74,6 +86,51 @@ export function measureHoofWindows(model: THREE.Object3D, clip: THREE.AnimationC
     const sole = sampledHoofSole(model, window.name);
     window.soleOffset = Number.isFinite(sole) ? sole - foot.y : 0;
     window.position.y = -window.soleOffset;
+  }
+  // Fit the visible skinned underside after the same bounded IK, once per asset
+  // set. Mixed ankle/lower-leg weights make a raw joint-to-sole offset insufficient.
+  // Staged passes avoid calibration order/history dependence; no runtime vertex scan.
+  for (let pass = 0; pass < 5; pass++) {
+    const next = windows.map((window) => window.soleCorrections.slice());
+    const nextX = windows.map((window) => window.solveCompensationX.slice()),
+      nextZ = windows.map((window) => window.solveCompensationZ.slice());
+    for (let phase = 0; phase < count; phase++) {
+      const time = (phase * clip.duration) / count;
+      mixer.setTime(time);
+      model.updateMatrixWorld(true);
+      for (const window of windows) constrainHoof(model, window, time, clip.duration);
+      windows.forEach((window, hoof) => {
+        const distance = Math.abs(stanceOffset(time, clip.duration, window));
+        if (distance >= window.halfWidth + window.transitionWidth && window.soleHeights[phase] >= 0)
+          return;
+        const weight = hoofContactWeight(time, clip.duration, window);
+        if (weight > 0.25) {
+          const foot = point(model.getObjectByName(window.name)!, model),
+            offset = stanceOffset(time, clip.duration, window);
+          nextX[hoof][phase] = THREE.MathUtils.clamp(
+            window.solveCompensationX[phase] + (window.position.x - foot.x) / weight,
+            -0.05,
+            0.05
+          );
+          nextZ[hoof][phase] = THREE.MathUtils.clamp(
+            window.solveCompensationZ[phase] + (window.position.z - 10 * offset - foot.z) / weight,
+            -0.05,
+            0.05
+          );
+        }
+        const residual = sampleSelectedSole(model, selections[hoof]);
+        next[hoof][phase] = THREE.MathUtils.clamp(
+          window.soleCorrections[phase] + THREE.MathUtils.clamp(0.003 - residual, -0.015, 0.015),
+          -0.05,
+          0.05
+        );
+      });
+    }
+    windows.forEach((window, hoof) => {
+      window.soleCorrections.set(next[hoof]);
+      window.solveCompensationX.set(nextX[hoof]);
+      window.solveCompensationZ.set(nextZ[hoof]);
+    });
   }
   mixer.stopAllAction();
   mixer.uncacheRoot(model);
@@ -87,6 +144,50 @@ export function stanceOffset(time: number, duration: number, window: HoofWindow)
   return ((time - window.center + duration * 1.5) % duration) - duration / 2;
 }
 
+/** C1 recovery shoulders, exactly one across the complete original stance window. */
+export function hoofContactWeight(time: number, duration: number, window: HoofWindow) {
+  const distance = Math.abs(stanceOffset(time, duration, window));
+  return (
+    1 -
+    THREE.MathUtils.smoothstep(
+      distance,
+      window.halfWidth,
+      window.halfWidth + window.transitionWidth
+    )
+  );
+}
+
+function samplePeriodic(values: Float32Array, time: number, duration: number) {
+  const phase = ((((time % duration) + duration) % duration) / duration) * values.length;
+  const whole = Math.floor(phase),
+    index = whole % values.length,
+    next = (index + 1) % values.length;
+  const previous = (index + values.length - 1) % values.length;
+  const after = (index + 2) % values.length;
+  const u = phase - whole,
+    u2 = u * u,
+    u3 = u2 * u;
+  const a = values[index],
+    b = values[next],
+    at = (values[next] - values[previous]) / 2,
+    bt = (values[after] - values[index]) / 2;
+  return (
+    (2 * u3 - 3 * u2 + 1) * a + (u3 - 2 * u2 + u) * at + (-2 * u3 + 3 * u2) * b + (u3 - u2) * bt
+  );
+}
+
+/** Decorative phase-only support response, no accumulated history or race inputs. */
+export function sampleHoofSupport(time: number, duration: number, windows: readonly HoofWindow[]) {
+  const weights = windows.map((window) => hoofContactWeight(time, duration, window));
+  const fore = (weights[0] + weights[1]) / 2,
+    hind = (weights[2] + weights[3]) / 2;
+  return {
+    load: Math.min(1, fore + hind),
+    pitch: fore - hind,
+    roll: (weights[0] + weights[2] - weights[1] - weights[3]) / 2,
+  };
+}
+
 /** Fixed work bound: three anatomical joints, six passes; no history or frame-delta dependency. */
 export function constrainHoof(
   model: THREE.Object3D,
@@ -95,33 +196,56 @@ export function constrainHoof(
   duration: number
 ) {
   const offset = stanceOffset(time, duration, window);
-  if (Math.abs(offset) >= window.halfWidth) {
+  if (Math.abs(offset) >= window.halfWidth + window.transitionWidth) {
     // Clearance only: no horizontal planting of slow approach/toe-roll frames.
-    const phase =
-      ((((time % duration) + duration) % duration) / duration) * window.soleHeights.length;
-    const sample = Math.floor(phase),
-      next = (sample + 1) % window.soleHeights.length;
-    const sole = THREE.MathUtils.lerp(
-      window.soleHeights[sample],
-      window.soleHeights[next],
-      phase - sample
-    );
+    const sole = samplePeriodic(window.soleHeights, time, duration);
     if (sole >= 0) return; // Preserve positive-height authored poses and suspension exactly.
     const target = point(model.getObjectByName(window.name)!, model);
-    target.y += Math.min(0.05, -sole + 0.003);
+    target.y += Math.max(
+      0,
+      Math.min(
+        0.05,
+        -sole +
+          THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05)
+      )
+    );
     solveHoofTarget(model, window.name, target);
     return;
   }
   const foot = model.getObjectByName(window.name)!;
   const current = point(foot, model);
-  const weight = THREE.MathUtils.smoothstep(1 - Math.abs(offset) / window.halfWidth, 0, 0.25);
+  const weight = hoofContactWeight(time, duration, window);
   const target = window.position.clone();
   target.z -= 10 * offset;
-  // The measured hoof joint is above the underside of the mesh. Preserve that clearance.
-  target.y = -window.soleOffset;
-  const correction = target.clone().sub(current);
+  target.x += THREE.MathUtils.clamp(
+    samplePeriodic(window.solveCompensationX, time, duration),
+    -0.05,
+    0.05
+  );
+  target.z += THREE.MathUtils.clamp(
+    samplePeriodic(window.solveCompensationZ, time, duration),
+    -0.05,
+    0.05
+  );
+  // The underside changes with the authored hoof rotation, rather than retaining
+  // the center pose's offset for the entire landing/loading/lift sequence.
+  target.y =
+    -samplePeriodic(window.soleOffsets, time, duration) +
+    THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05);
+  const correction = target.clone().sub(current).multiplyScalar(weight);
+  const rawSole = samplePeriodic(window.soleHeights, time, duration);
+  if (rawSole < 0)
+    correction.y = Math.max(
+      correction.y,
+      Math.min(
+        0.05,
+        -rawSole +
+          THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05)
+      )
+    );
+  if (Math.abs(offset) > window.halfWidth) correction.y = Math.min(0.05, correction.y);
   correction.clampLength(0, 0.28);
-  target.copy(current).addScaledVector(correction, weight);
+  target.copy(current).add(correction);
   solveHoofTarget(model, window.name, target);
 }
 
