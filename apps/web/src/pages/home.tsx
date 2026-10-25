@@ -380,6 +380,9 @@ export function HomePage() {
                   <span>{group.isPrivate ? 'PRIVATE · YOUR GROUP' : 'PUBLIC ROOM'}</span>
                 </div>
                 <div className="ruby-group-copy">
+                  <span className="ruby-group-privacy">
+                    {group.isPrivate ? 'Private · your group' : 'Public group'}
+                  </span>
                   <span className="ruby-group-members">
                     <span className="ruby-status-dot" />
                     {group.memberCount} member{group.memberCount === 1 ? '' : 's'}
