@@ -172,7 +172,7 @@ function draw(t = 0, exportFrame = false) {
   const dt = lastDrawTime === undefined ? 0 : Math.max(0, t - lastDrawTime);
   if (lastDrawTime === undefined || t < lastDrawTime || dt > 0.25) {
     resetReviewMotionState(motionState);
-    resetNativeJogState(nativeJogState);
+    resetNativeJogState(nativeJogState, rig);
     transitionFrom = undefined;
     lastKind = undefined;
   }
@@ -330,10 +330,10 @@ function draw(t = 0, exportFrame = false) {
     lastKind = undefined;
     transitionFrom = undefined;
     resetReviewMotionState(motionState);
-    resetNativeJogState(nativeJogState);
+    resetNativeJogState(nativeJogState, rig);
   },
   dispose() {
-    resetNativeJogState(nativeJogState);
+    resetNativeJogState(nativeJogState, rig);
     resetReviewMotionState(motionState);
     head.dispose();
     body?.dispose();

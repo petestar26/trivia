@@ -240,3 +240,48 @@ describe('native one-actor jog semantic controls', () => {
     expect(BONES).toContain('index1L');
   });
 });
+
+describe('native reset restoration boundary', () => {
+  it('restores original protected locals and identical world feet immediately while retaining actual arms', () => {
+    const rig = make(),
+      at = input(0.27),
+      state = createNativeJogState(),
+      owner = createReviewMotionState();
+    poseRun(rig, at.phase, at.speed);
+    const weight = prepareNativeJog(state, at);
+    applyReviewPlayerMotion(rig, {
+      ...at,
+      motionState: owner,
+      nativeJogWeight: weight,
+      nativeJogSample: state.sample,
+    });
+    plantRunFeet(rig, at.phase, at.speed, {});
+    applyNativeJogAfterPlant(rig, state, at, owner);
+    const original = state.baseline!,
+      feet = matrices(rig),
+      root = rig.root.matrixWorld.clone();
+    const arms = ['upperArmL', 'foreArmL', 'handL', 'upperArmR', 'foreArmR', 'handR'] as const;
+    const actualArms = arms.map((name) => rig.bones[name].quaternion.toArray());
+    resetNativeJogState(state, rig);
+    for (const name of [
+      'hips',
+      'upperLegL',
+      'lowerLegL',
+      'footL',
+      'toeL',
+      'upperLegR',
+      'lowerLegR',
+      'footR',
+      'toeR',
+    ] as const) {
+      const index = BONES.indexOf(name);
+      expect(rig.bones[name].position.toArray()).toEqual(original.p[index].toArray());
+      expect(rig.bones[name].quaternion.toArray()).toEqual(original.q[index].toArray());
+    }
+    expect(arms.map((name) => rig.bones[name].quaternion.toArray())).toEqual(actualArms);
+    for (const [name, matrix] of Object.entries(matrices(rig)))
+      expect(error(matrix, feet[name])).toBeLessThan(5e-12);
+    expect(error(root, rig.root.matrixWorld)).toBe(0);
+    expect(state).toEqual(createNativeJogState());
+  });
+});

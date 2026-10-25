@@ -239,7 +239,7 @@ export function createPlayerPool(): PlayerPool {
   function setTeams(homeClub: number, awayClub: number) {
     if (disposed) return;
     resetReviewMotionState(reviewMotionState);
-    resetNativeJogState(nativeJogState);
+    resetNativeJogState(nativeJogState, rigs[REVIEW_PLAYER_SLOT]);
     reviewMotionTime = undefined;
     teams = [homeClub, awayClub];
     continuousPlayer?.dispose();
@@ -432,7 +432,7 @@ export function createPlayerPool(): PlayerPool {
           (reviewMotionTime !== undefined && time < reviewMotionTime)
         ) {
           resetReviewMotionState(reviewMotionState);
-          resetNativeJogState(nativeJogState);
+          resetNativeJogState(nativeJogState, rigs[REVIEW_PLAYER_SLOT]);
         }
         reviewMotionTime = time;
       }
@@ -678,7 +678,7 @@ export function createPlayerPool(): PlayerPool {
     dispose() {
       if (disposed) return;
       disposed = true;
-      resetNativeJogState(nativeJogState);
+      resetNativeJogState(nativeJogState, rigs[REVIEW_PLAYER_SLOT]);
       resetReviewMotionState(reviewMotionState);
       continuousPlayer?.dispose();
       reviewBody?.dispose();

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import controls from './native-jog-controls.json';
 import { solveTwoBone, setWorldQuaternion } from './ik';
-import { DIM, type Rig, type BoneName } from './rig';
+import { BONES, DIM, type Rig, type BoneName } from './rig';
 import { capture, type PoseSnapshot } from './poses';
 import type { ReviewMotionInput, ReviewMotionState } from './review-player-motion';
 
@@ -101,7 +101,30 @@ export const createNativeJogState = (): NativeJogState => ({
   initialized: false,
   appliedWeight: 0,
 });
-export function resetNativeJogState(state: NativeJogState) {
+/** Remove only the previous visual hips/leg articulation before clearing history.
+ * A subsequent generic action crossfade must capture the original locals, rather
+ * than accidentally baking the outgoing native solution into its base pose.
+ * Full world feet remain unchanged; actual current arm locals retain their owner.
+ */
+export function resetNativeJogState(state: NativeJogState, rig?: Rig) {
+  if (rig && state.baseline) {
+    for (const name of [
+      'hips',
+      'upperLegL',
+      'lowerLegL',
+      'footL',
+      'toeL',
+      'upperLegR',
+      'lowerLegR',
+      'footR',
+      'toeR',
+    ] as const) {
+      const index = BONES.indexOf(name);
+      rig.bones[name].position.copy(state.baseline.p[index]);
+      rig.bones[name].quaternion.copy(state.baseline.q[index]);
+    }
+    rig.root.updateMatrixWorld(true);
+  }
   Object.assign(state, createNativeJogState(), { baseline: undefined, sample: undefined });
 }
 /** Only the 2.4m/s forward jog was authored. Conservative smooth shoulders

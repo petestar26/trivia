@@ -705,3 +705,131 @@ describe('one native jog actor in the actual pool pose pipeline', () => {
     ).toEqual(fixed);
   });
 });
+
+describe('native baseline ownership across explicit resets', () => {
+  for (const reset of ['rewind', 'teams', 'suspension'] as const)
+    it(reset, async () => {
+      const a = (await loaded()).pool,
+        b = (await loaded(true)).pool,
+        f = transitionFrame();
+      f.actors[1] = { ...f.actors[1], x: 0, z: 0, heading: 0, speed: 2.4, anim: { kind: 'run' } };
+      for (let step = 0; step < 40; step++) {
+        f.actors[1].z += 0.04;
+        a.apply(f, 1 / 60, 4 + step / 60, true);
+        b.apply(f, 1 / 60, 4 + step / 60, true);
+      }
+      if (reset === 'teams') {
+        a.setTeams(1, 6);
+        b.setTeams(1, 6);
+      }
+      f.actors[1] = { ...f.actors[1], speed: 0, anim: { kind: 'idle' } };
+      let max = 0,
+        where = '',
+        maxPosition = 0,
+        maxAngle = 0;
+      for (let step = 0; step < 12; step++) {
+        const t = reset === 'rewind' ? 2 + step / 60 : 5 + step / 60,
+          dt = step === 0 ? (reset === 'suspension' ? 0.4 : 0) : 1 / 60;
+        a.apply(f, dt, t, true);
+        b.apply(f, dt, t, true);
+        for (const n of ['footL', 'footR', 'toeL', 'toeR'] as const) {
+          const aa = a.rigs[1].bones[n].matrixWorld.elements,
+            bb = b.rigs[1].bones[n].matrixWorld.elements;
+          maxPosition = Math.max(
+            maxPosition,
+            new THREE.Vector3()
+              .setFromMatrixPosition(a.rigs[1].bones[n].matrixWorld)
+              .distanceTo(new THREE.Vector3().setFromMatrixPosition(b.rigs[1].bones[n].matrixWorld))
+          );
+          maxAngle = Math.max(
+            maxAngle,
+            a.rigs[1].bones[n]
+              .getWorldQuaternion(new THREE.Quaternion())
+              .angleTo(b.rigs[1].bones[n].getWorldQuaternion(new THREE.Quaternion()))
+          );
+          const err = Math.max(...aa.map((v, i) => Math.abs(v - bb[i])));
+          if (err > max) {
+            max = err;
+            where = `${step}:${n}`;
+          }
+        }
+      }
+      console.info(JSON.stringify({ reset, max, where, maxPosition, maxAngle }));
+      expect(max).toBeLessThan(5e-12);
+    });
+});
+
+describe('native asynchronous adoption baseline ownership', () => {
+  it('keeps original targets when the native asset resolves during a released run', async () => {
+    const reference = (await loaded()).pool;
+    const review = await reviewAssets(),
+      continuous = continuousAssets();
+    continuous.nativeAuthored = {
+      mode: 'native-authored-v5',
+      shorts: continuous.body,
+      socks: continuous.jersey,
+    };
+    const pending = deferred<ContinuousPlayerAssets>();
+    hooks.upgrade.mockResolvedValue(baseline());
+    hooks.review.mockResolvedValue(review);
+    hooks.continuous.mockReturnValue(pending.promise);
+    const candidate = pool();
+    await settled();
+    const frame = transitionFrame();
+    frame.actors[1] = {
+      ...frame.actors[1],
+      x: 0,
+      z: 0,
+      heading: 0,
+      speed: 2.4,
+      anim: { kind: 'run' },
+    };
+    for (let step = 0; step < 20; step++) {
+      frame.actors[1].z += 0.04;
+      reference.apply(frame, 1 / 60, 4 + step / 60, true);
+      candidate.apply(frame, 1 / 60, 4 + step / 60, true);
+    }
+    pending.resolve(continuous);
+    await settled();
+    // Asset replacement deliberately rebuilds both teams. Match that existing reset
+    // in the reference while comparing original contact planning with native adoption.
+    reference.setTeams(1, 6);
+    expect(candidate.rigs[1].root.userData.continuousPlayer).toBe(true);
+    for (let step = 0; step < 16; step++) {
+      frame.actors[1].z += 0.04;
+      reference.apply(frame, 1 / 60, 5 + step / 60, true);
+      candidate.apply(frame, 1 / 60, 5 + step / 60, true);
+      for (const name of ['footL', 'footR', 'toeL', 'toeR'] as const) {
+        const a = reference.rigs[1].bones[name].matrixWorld.elements,
+          b = candidate.rigs[1].bones[name].matrixWorld.elements;
+        expect(Math.max(...a.map((v, i) => Math.abs(v - b[i])))).toBeLessThan(5e-12);
+      }
+    }
+  });
+
+  it('ignores a late legacy body after native adoption without changing the current pose or instance', async () => {
+    const pending = deferred<HumanGeometry>();
+    hooks.legacy.mockReturnValue(pending.promise);
+    const { pool: current, visual } = await loaded(true),
+      frame = transitionFrame();
+    frame.actors[1] = { ...frame.actors[1], speed: 2.4, anim: { kind: 'run' } };
+    current.apply(frame, 1 / 60, 4, true);
+    const before = Object.values(current.rigs[1].bones).map((bone) => [
+      bone.position.toArray(),
+      bone.quaternion.toArray(),
+    ]);
+    const old = baseline(),
+      disposed = vi.spyOn(old.geometry, 'dispose');
+    pending.resolve(old);
+    await settled();
+    expect(disposed).toHaveBeenCalledOnce();
+    expect(visual.dispose).not.toHaveBeenCalled();
+    expect(
+      Object.values(current.rigs[1].bones).map((bone) => [
+        bone.position.toArray(),
+        bone.quaternion.toArray(),
+      ])
+    ).toEqual(before);
+    expect(hooks.attach).toHaveBeenCalledOnce();
+  });
+});
