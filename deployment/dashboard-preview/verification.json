@@ -1,0 +1,81 @@
+{
+  "sourceCommit": "d9ae2736e9568001cb8845d2ec834c4cad6701b7",
+  "localSourceCommit": "ca363ee16755225eb626bb9b1b15d03d1785d7af",
+  "sourceTree": "ce3a825ed341dafdb83d1d4cc72a072bca9f52e9",
+  "tests": 135,
+  "failures": 0,
+  "skips": 0,
+  "selection": [
+    {
+      "path": "src/lib/dashboard-returns.test.ts",
+      "tests": 59,
+      "status": "passed"
+    },
+    {
+      "path": "src/lib/derby-catalog.test.ts",
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "path": "src/lib/football-catalog.test.ts",
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "path": "src/lib/number-challenge-catalog.test.ts",
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "path": "src/lib/sky-crash-catalog.test.ts",
+      "tests": 1,
+      "status": "passed"
+    },
+    {
+      "path": "src/lib/use-favorite-games.test.tsx",
+      "tests": 29,
+      "status": "passed"
+    },
+    {
+      "path": "src/pages/home.test.tsx",
+      "tests": 15,
+      "status": "passed"
+    },
+    {
+      "path": "src/components/member/dashboard-highlights.test.tsx",
+      "tests": 16,
+      "status": "passed"
+    },
+    {
+      "path": "src/components/member/game-artwork.test.tsx",
+      "tests": 3,
+      "status": "passed"
+    },
+    {
+      "path": "src/components/member/motion-shelf.test.tsx",
+      "tests": 5,
+      "status": "passed"
+    },
+    {
+      "path": "src/pages/casino/casino.test.tsx",
+      "tests": 4,
+      "status": "passed"
+    }
+  ],
+  "previousCountReconciliation": {
+    "reviewedFiveSuites": 116,
+    "extraArtwork": 3,
+    "extraAvailability": 4,
+    "extraCasino": 4,
+    "previousBroadTotal": 127
+  },
+  "limits": [
+    "Web Locks serializes cooperating same-origin tabs; older clients or arbitrary direct localStorage writers are not serialized.",
+    "Mocked concurrency and remount regression coverage is not a native multi-process browser scheduling proof.",
+    "No authenticated backend, financial, physical-device or CI readiness claim."
+  ],
+  "build": "PASS",
+  "pwa": 27,
+  "gateway": 8,
+  "previewServerAndDOM": 7
+}

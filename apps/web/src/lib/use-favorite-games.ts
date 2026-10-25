@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useLayoutEffect, useRef } from 'react';
 
 const MAX_FAVORITES = 100;
 const MAX_STORAGE_CHARS = 65_536;
@@ -58,6 +58,14 @@ function parseFavorites(raw: string | null): readonly string[] {
 /** A device-local preference, isolated by authenticated account; never a play entitlement. */
 export function useFavoriteGames(userId: string | null | undefined) {
   const scope = storageScope(userId);
+  const active = useRef<{ scope: string | null; token: object } | null>(null);
+  useLayoutEffect(() => {
+    const token = {};
+    active.current = { scope, token };
+    return () => {
+      if (active.current?.token === token) active.current = null;
+    };
+  }, [scope]);
   const [state, setState] = useState<FavoriteState>({
     scope: null,
     ids: EMPTY_IDS,
@@ -72,6 +80,7 @@ export function useFavoriteGames(userId: string | null | undefined) {
         return;
       }
       try {
+        if (!navigator.locks?.request) throw new Error('Cross-tab serialization unavailable');
         setState({
           scope,
           ids: parseFavorites(window.localStorage.getItem(scope)),
@@ -93,15 +102,30 @@ export function useFavoriteGames(userId: string | null | undefined) {
   const toggleFavorite = useCallback(
     (id: string) => {
       if (!scope || !validId(id) || state.scope !== scope || state.unavailable) return;
+      const identity = active.current;
+      if (!identity || identity.scope !== scope) return;
+      const currentScope = () => active.current === identity;
+      const fail = () => {
+        if (currentScope()) setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
+      };
       try {
-        const current = parseFavorites(window.localStorage.getItem(scope));
-        const exists = current.includes(id);
-        if (!exists && current.length >= MAX_FAVORITES) return;
-        const ids = exists ? current.filter((value) => value !== id) : [...current, id];
-        window.localStorage.setItem(scope, JSON.stringify({ version: 1, ids }));
-        setState({ scope, ids, unavailable: false, dirty: false });
+        if (!navigator.locks?.request) {
+          fail();
+          return;
+        }
+        void navigator.locks
+          .request(scope, { mode: 'exclusive' }, () => {
+            if (!currentScope()) return;
+            const current = parseFavorites(window.localStorage.getItem(scope));
+            const exists = current.includes(id);
+            if (!exists && current.length >= MAX_FAVORITES) return;
+            const ids = exists ? current.filter((value) => value !== id) : [...current, id];
+            window.localStorage.setItem(scope, JSON.stringify({ version: 1, ids }));
+            if (currentScope()) setState({ scope, ids, unavailable: false, dirty: false });
+          })
+          .catch(fail);
       } catch {
-        setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
+        fail();
       }
     },
     [scope, state.scope, state.unavailable]

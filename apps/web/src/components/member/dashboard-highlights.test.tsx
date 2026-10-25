@@ -222,11 +222,15 @@ describe('dashboard confirmed practice-return board', () => {
     await act(async () => nextAccount.resolve(feed([ticket(99)])));
     expect(await screen.findByText('Player 0000000099')).toBeInTheDocument();
     expect(
-      client.getQueryData(['dashboard-top-returns', 'member-one', 'sky_crash', '0:true'])
-    ).toBeDefined();
+      client.getQueriesData({
+        queryKey: ['dashboard-top-returns', 'member-one', 'sky_crash', '0:true'],
+      })
+    ).toHaveLength(1);
     expect(
-      client.getQueryData(['dashboard-top-returns', 'member-two', 'sky_crash', '0:true'])
-    ).toBeDefined();
+      client.getQueriesData({
+        queryKey: ['dashboard-top-returns', 'member-two', 'sky_crash', '0:true'],
+      })
+    ).toHaveLength(1);
   });
 
   it('refreshes once per minute in the foreground and stops interval reads when unfocused', async () => {
@@ -323,4 +327,60 @@ it('independent: reconnect keeps previously hidden rows hidden until fresh respo
     await vi.advanceTimersByTimeAsync(1);
   });
   expect(screen.getByText('Player 0000000077')).toBeInTheDocument();
+});
+
+it.each(['sky_crash', 'crash_point'])(
+  'does not reuse %s success through offline unmount/remount with the same cache',
+  async (key) => {
+    const { client, props } = mount({ games: [game(key)] });
+    await screen.findByRole('table');
+    cleanup();
+    act(() => onlineManager.setOnline(false));
+    const pending = deferred<ReturnType<typeof feed>>();
+    get.mockReturnValue(pending.promise);
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={client}>
+          <DashboardHighlights {...props} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+    act(() => onlineManager.setOnline(true));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('table')).toBeNull();
+    expect(screen.queryByText(/Last received:/)).toBeNull();
+    await act(async () => pending.resolve(feed([ticket(66)])));
+    expect(await screen.findByText('Player 0000000066')).toBeInTheDocument();
+    expect(screen.queryByText('Player 0000000001')).not.toBeInTheDocument();
+  }
+);
+it('keeps old rows hidden after a remounted reconnect fails', async () => {
+  const { client, props } = mount();
+  await screen.findByRole('table');
+  cleanup();
+  act(() => onlineManager.setOnline(false));
+  let reject!: (error: Error) => void;
+  get.mockReturnValue(
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    })
+  );
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <DashboardHighlights {...props} />
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+  act(() => onlineManager.setOnline(true));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.queryByRole('table')).toBeNull();
+  await act(async () => reject(new Error('failed')));
+  expect(await screen.findByText('Results unavailable. Refresh to try again.')).toBeInTheDocument();
+  expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.queryByText(/Last received:/)).toBeNull();
 });

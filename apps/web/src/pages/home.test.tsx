@@ -61,6 +61,18 @@ function setup(Page = HomePage) {
   return client;
 }
 beforeEach(() => {
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (_name: string, _options: unknown, callback: () => unknown) => {
+        try {
+          return Promise.resolve(callback());
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      },
+    },
+  });
   get.mockImplementation(async (path: string) => ({
     success: true,
     data:

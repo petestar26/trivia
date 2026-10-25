@@ -1,0 +1,32 @@
+
+ RUN  v1.6.1 /workspace/scratch/1532f72184cc/playqube-dashboard-ui/apps/web
+
+stderr | src/components/member/dashboard-highlights.test.tsx > dashboard confirmed practice-return board > shows the ten highest individual returns with explicit period, stake and alias meanings
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/pages/home.test.tsx > dashboard favorites integration > saves games separately from their links, persists on reload and preserves access gates
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/member/dashboard-highlights.test.tsx  (13 tests) 428ms
+ ✓ src/lib/use-favorite-games.test.tsx  (24 tests) 42ms
+ ✓ src/pages/home.test.tsx  (15 tests) 1499ms
+ ✓ src/lib/dashboard-returns.test.ts  (59 tests) 15ms
+stderr | src/pages/casino/casino.test.tsx > Casino entry and catalog > shows session recovery rather than an empty catalog after a 401
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/casino/casino.test.tsx  (4 tests) 208ms
+ ✓ src/components/member/motion-shelf.test.tsx  (5 tests) 160ms
+ ✓ src/lib/football-catalog.test.ts  (1 test) 2ms
+ ✓ src/lib/number-challenge-catalog.test.ts  (1 test) 2ms
+ ✓ src/lib/derby-catalog.test.ts  (1 test) 2ms
+ ✓ src/components/member/game-artwork.test.tsx  (3 tests) 33ms
+ ✓ src/lib/sky-crash-catalog.test.ts  (1 test) 2ms
+
+ Test Files  11 passed (11)
+      Tests  127 passed (127)
+   Start at  01:53:25
+   Duration  5.65s (transform 453ms, setup 981ms, collect 1.50s, tests 2.39s, environment 3.33s, prepare 772ms)
+

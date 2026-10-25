@@ -20,6 +20,7 @@ const feeds = [
   { key: 'sky_crash', name: 'Sky Crash', endpoint: '/games/sky-crash/leaderboard' },
   { key: 'crash_point', name: 'Crash Point', endpoint: '/games/crash-point/leaderboard' },
 ] as const;
+let nextDashboardMount = 0;
 const credits = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
 interface DashboardHighlightsProps {
@@ -30,6 +31,7 @@ interface DashboardHighlightsProps {
 
 /** Read-only display of existing public practice receipts. No prize or entry logic lives here. */
 export function DashboardHighlights({ userId, games, catalogState }: DashboardHighlightsProps) {
+  const [mountNamespace] = useState(() => ++nextDashboardMount);
   const [selectedGame, setSelectedGame] = useState<string>('sky_crash');
   const disconnectGeneration = useRef(0);
   const subscribe = useCallback(
@@ -51,7 +53,7 @@ export function DashboardHighlights({ userId, games, catalogState }: DashboardHi
   );
   const selected = available.find((feed) => feed.key === selectedGame) ?? available[0];
   const results = useQuery({
-    queryKey: ['dashboard-top-returns', userId, selected?.key, connection],
+    queryKey: ['dashboard-top-returns', userId, selected?.key, connection, mountNamespace],
     enabled: online && !!userId && catalogState === 'ready' && !!selected,
     queryFn: async ({ signal }) => {
       if (!selected) throw new Error('No supported results feed');
