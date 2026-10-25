@@ -8,6 +8,18 @@ const saved = (ids: unknown[]) => JSON.stringify({ version: 1, ids });
 
 const originalStorage = Object.getOwnPropertyDescriptor(window, 'localStorage')!;
 beforeEach(() => {
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (_name: string, _options: unknown, callback: () => unknown) => {
+        try {
+          return Promise.resolve(callback());
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      },
+    },
+  });
   const values = new Map<string, string>();
   const storage: Storage = {
     get length() {
@@ -175,13 +187,13 @@ describe('account-scoped local favorite games', () => {
     expect(writes).not.toHaveBeenCalled();
   });
 
-  it('clears all displayed IDs and blocks further writes after persistence failure', () => {
+  it('clears all displayed IDs and blocks further writes after persistence failure', async () => {
     window.localStorage.setItem(key('alice'), saved(['sky']));
     const { result } = renderHook(() => useFavoriteGames('alice'));
     const writes = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
       throw new DOMException('Quota exceeded', 'QuotaExceededError');
     });
-    act(() => result.current.toggleFavorite('derby'));
+    await act(async () => result.current.toggleFavorite('derby'));
     expect(result.current.favoriteIds).toEqual([]);
     expect(result.current.storageUnavailable).toBe(true);
     act(() => result.current.toggleFavorite('football'));
@@ -213,4 +225,98 @@ it('independent: another tab favorite is retained by the next local toggle', () 
   );
   act(() => result.current.toggleFavorite('derby'));
   expect(JSON.parse(window.localStorage.getItem(key('alice'))!).ids).toEqual(['sky', 'derby']);
+});
+
+function queuedLocks() {
+  const queue: Array<{ name: string; run: () => void }> = [];
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (name: string, options: { mode: string }, callback: () => unknown) => {
+        expect(options.mode).toBe('exclusive');
+        return new Promise((resolve, reject) =>
+          queue.push({
+            name,
+            run: () => {
+              try {
+                resolve(callback());
+              } catch (error) {
+                reject(error);
+              }
+            },
+          })
+        );
+      },
+    },
+  });
+  return queue;
+}
+it('serializes concurrent additions and distinct add/removal using one account lock', async () => {
+  const queue = queuedLocks();
+  const a = renderHook(() => useFavoriteGames('alice'));
+  const b = renderHook(() => useFavoriteGames('alice'));
+  act(() => {
+    a.result.current.toggleFavorite('sky');
+    b.result.current.toggleFavorite('derby');
+  });
+  expect(window.localStorage.getItem(key('alice'))).toBeNull();
+  expect(queue.map((x) => x.name)).toEqual([key('alice'), key('alice')]);
+  await act(async () => {
+    queue.shift()!.run();
+    queue.shift()!.run();
+  });
+  expect(JSON.parse(window.localStorage.getItem(key('alice'))!).ids).toEqual(['sky', 'derby']);
+  act(() => {
+    a.result.current.toggleFavorite('sky');
+    b.result.current.toggleFavorite('dice');
+  });
+  await act(async () => {
+    queue.shift()!.run();
+    queue.shift()!.run();
+  });
+  expect(JSON.parse(window.localStorage.getItem(key('alice'))!).ids).toEqual(['derby', 'dice']);
+});
+it('does not access storage when the account changes while a lock is queued', async () => {
+  const queue = queuedLocks();
+  const { result, rerender } = renderHook(({ user }) => useFavoriteGames(user), {
+    initialProps: { user: 'alice' },
+  });
+  act(() => result.current.toggleFavorite('sky'));
+  rerender({ user: 'bob' });
+  const read = vi.spyOn(window.localStorage, 'getItem');
+  const write = vi.spyOn(window.localStorage, 'setItem');
+  await act(async () => queue.shift()!.run());
+  expect(read).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+  expect(result.current.favoriteIds).toEqual([]);
+});
+it('does not access storage after unmount while a lock is queued', async () => {
+  const queue = queuedLocks();
+  const { result, unmount } = renderHook(() => useFavoriteGames('alice'));
+  act(() => result.current.toggleFavorite('sky'));
+  unmount();
+  const read = vi.spyOn(window.localStorage, 'getItem');
+  const write = vi.spyOn(window.localStorage, 'setItem');
+  await act(async () => queue.shift()!.run());
+  expect(read).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+});
+it('disables persistence when cross-tab locks are unavailable', () => {
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+  const { result } = renderHook(() => useFavoriteGames('alice'));
+  const write = vi.spyOn(window.localStorage, 'setItem');
+  act(() => result.current.toggleFavorite('sky'));
+  expect(result.current.storageUnavailable).toBe(true);
+  expect(write).not.toHaveBeenCalled();
+});
+it('surfaces lock rejection without falling back to an unlocked write', async () => {
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: { request: () => Promise.reject(new Error('denied')) },
+  });
+  const { result } = renderHook(() => useFavoriteGames('alice'));
+  const write = vi.spyOn(window.localStorage, 'setItem');
+  await act(async () => result.current.toggleFavorite('sky'));
+  expect(result.current.storageUnavailable).toBe(true);
+  expect(write).not.toHaveBeenCalled();
 });
