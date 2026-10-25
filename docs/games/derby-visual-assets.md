@@ -50,3 +50,28 @@ Whole-cycle tests include 384 actual skinned samples (profile samples and midpoi
 The rider's pelvis, knees and elbows now articulate each stride through limb IK. Boots follow the moving stirrup centers; the rein targets and lines follow the actual hands, and the helmet follows the head. Direct and sequential samples agree within 1e-7 for tested joints. Independent runner skeletons, distance-linked stride phases, published-position interpolation and standing stops remain intact.
 
 Number billboards are enlarged within the tested six/eight-runner fit envelope. Broad fill reveals dark coats and rider detail without another shadow pass; distant artwork shares scene fog for depth. No meshes, textures, clips or asset bytes were added. Contact profile calibration measured approximately 62 ms in a local Node process before rendering; this is not a mobile startup benchmark. Browser render timing and software-rendered diagnostic playback are reported separately, with physical-device/live-server acceptance still open.
+
+## Hoof loading and broadcast follow-up (25 October 2026)
+
+The same CC0 horse, human and Run/Idle bytes remain in use. The complete original measured stance window now keeps its backwards-moving contact anchor, with a smooth recovery interval on either side equal to 75% of that hoof's original half-window. Positive-clearance authored XYZ remains unchanged beyond those declared intervals. Phase-specific visible-sole offsets and bounded solver compensation are calibrated in five stages once per shared asset set. Runtime retains three joints, six solver passes, the existing 0.28 model-unit total correction cap and 0.05 outside-stance upward cap; it performs no vertex scan. Four additional 192-float profiles per hoof total 12 KiB shared across the field.
+
+The rider absorbs the measured support pattern with a 15 ms visual lag, within the existing pitch/roll/fore-aft/pelvis amplitude limits. Stirrup, hand/rein targets, published root movement, buffered position interpolation and the distance-driven stride clock remain unchanged. Eight runners share one calibration, also after repeated animation calls.
+
+Dense actual-skin CPU sampling at the shipped scale compares the exact `b899e158` baseline with this contact implementation:
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Maximum central-half stance hoof-joint world-X range | 2.045 mm | 1.180 mm |
+| Maximum complete original stance-window range | 97.768 mm | 3.307 mm |
+| Worst selected-sole running penetration | 18.649 mm | 0.836 mm |
+| All four selected soles above 40 mm | 131 / 768 | 131 / 768 |
+
+These measurements use the existing vertices with at least 50% hoof-chain weight; they are not full collision/friction physics or a guarantee for every vertex. Positive release clearance still reaches about 23.19 mm within the retained 25 mm bound. Idle retains an approximately 13.10 mm sampled penetration. The original Run's loop velocity kink remains; only the new contact blend weights claim smooth boundary derivatives. A paired Node 24.19.0 calibration observation increased from about 49 to 184 ms; a contended prototype reached 422 ms. These are CPU observations, not browser/device startup or FPS.
+
+Broadcast changes fit horse silhouettes separately from the numbered annotations. The numbered silks and runner identities remain fixed; badge placement decorates current published positions and never selects a rank or finish. Course palette, turf repetition and broad lighting use the existing original textures and lights, with no new model, image, shader asset or runtime host. Normal and expanded views retain the mounted scene. A stale connection now also appears in the existing arena heading, where it remains visible in short landscape views without adding another alert region.
+
+Scene-owned geometry, materials, textures and the sun's shadow target are disposed before the renderer clears its bookkeeping. A software-WebGL API trace reproduced ten uploaded material handles still live after the old ordering; the corrected production path issues deletion for every uploaded material handle. This establishes owner disposal, not physical driver-memory reclamation. The diagnostic still observes the internal shared Sprite geometry and renderer-default handles while retaining the context.
+
+The retired-chunk limitation remains separate. A two-release fixture using the real Derby view and generated service worker caches release A without its optional renderer, then removes A's chunk in release B. The boundary retains text progress, but `Reload game view` repeats the stale A import/404. The separate explicit `Reload app` activates the waiting B worker and imports B's module in that controlled fixture, with WebGL deliberately unavailable. No PWA recovery code changed; automatic/live-server recovery is not established.
+
+The asset geometry, authored clip and materials remain stylized. Browser emulation, software-WebGL callbacks and encoded normal/slow playback are separate evidence categories; physical-phone GPU, thermal, touch/Safari and live-server acceptance remain pending. No outcome, odds, clock, rule, admission, receipt, balance, financial or activation behavior changes belong to this work.
