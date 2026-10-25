@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { loadNativePlayerAssets, NATIVE_PLAYER_MODE } from './native-player-assets';
+import { createNativePlayerCorrectives } from './native-player-correctives';
 import { continuousShirtCoverage } from './continuous-player-coverage';
 import { createContinuousBodyCorrectives } from './continuous-body-correctives';
 import {
@@ -27,6 +29,11 @@ import { reviewKitMaterials, reviewShirtMaterial } from './review-player-materia
 export interface ContinuousPlayerAssets {
   body: THREE.BufferGeometry;
   jersey: THREE.BufferGeometry;
+  nativeAuthored?: {
+    mode: typeof NATIVE_PLAYER_MODE;
+    shorts: THREE.BufferGeometry;
+    socks: THREE.BufferGeometry;
+  };
   dispose(): void;
 }
 
@@ -156,7 +163,16 @@ export function validateContinuousMesh(gltf: GLTF, name: string) {
 }
 
 /** All-or-nothing optional load; late adoption/disposal belongs to the player pool. */
-export async function loadContinuousPlayerAssets(): Promise<ContinuousPlayerAssets> {
+export async function loadContinuousPlayerAssets(
+  mode: 'legacy' | typeof NATIVE_PLAYER_MODE = 'legacy'
+): Promise<ContinuousPlayerAssets> {
+  if (mode === NATIVE_PLAYER_MODE) {
+    try {
+      return await loadNativePlayerAssets(validateContinuousMesh);
+    } catch {
+      return loadContinuousPlayerAssets('legacy');
+    }
+  }
   const loader = new GLTFLoader();
   const loaded = await Promise.allSettled(
     ['body', 'jersey'].map((part) => loader.loadAsync(`/models/football/continuous-${part}.glb`))
@@ -223,7 +239,8 @@ export function attachContinuousPlayer(
   tint.b /= reference.b;
   const joints = bodyGeometry.getAttribute('skinIndex'),
     weights = bodyGeometry.getAttribute('skinWeight');
-  const covered = continuousShirtCoverage(bodyGeometry);
+  const native = assets.nativeAuthored;
+  const covered = native ? undefined : continuousShirtCoverage(bodyGeometry);
   for (let i = 0; i < positions.count; i++) {
     colors.set(tint.toArray(), i * 3);
     let arm = 0;
@@ -238,21 +255,21 @@ export function attachContinuousPlayer(
   }
   const visible: number[] = [],
     index = bodyGeometry.index!;
-  for (let i = 0; i < index.count; i += 3) {
+  for (let i = 0; !native && i < index.count; i += 3) {
     const ids = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
     if (
       ids.some((id) => positions.getY(id) < 0.16) ||
-      ids.every((id) => covered[id]) ||
+      ids.every((id) => covered![id]) ||
       ids.every((id) => outfit[id] < 0.1 && positions.getY(id) < 0.474) ||
       ids.every((id) => outfit[id] < 0.1 && positions.getY(id) > 0.68 && positions.getY(id) < 1.07)
     )
       continue;
     visible.push(...ids);
   }
-  bodyGeometry.setIndex(visible);
+  if (!native) bodyGeometry.setIndex(visible);
   bodyGeometry.userData.coverage = {
     originalTriangles: index.count / 3,
-    visibleTriangles: visible.length / 3,
+    visibleTriangles: native ? index.count / 3 : visible.length / 3,
     reason:
       'MHCLO shirt coverage plus fitted shorts/socks/footwear coverage; full editable source retained',
   };
@@ -328,16 +345,27 @@ export function attachContinuousPlayer(
     return mesh;
   };
   const body = make(bodyGeometry, bodyMaterial, 'continuous-player-body');
-  const corrective = createContinuousBodyCorrectives(body);
+  const corrective = native
+    ? createNativePlayerCorrectives(body, 'niko-body')
+    : createContinuousBodyCorrectives(body);
   const lowBodyGeometry = createContinuousPlayerLod(bodyGeometry, { protectNeck: true });
   const lowBody = make(lowBodyGeometry, bodyMaterial, 'continuous-player-body-low');
-  const authoredJerseySource = createAuthoredContinuousShirtSource(assets.jersey);
+  const authoredJerseySource = native
+    ? assets.jersey.clone()
+    : createAuthoredContinuousShirtSource(assets.jersey);
   const jersey = make(authoredJerseySource, shirtMaterial, 'continuous-player-jersey');
-  const shirtCorrective = createContinuousShirtCorrectives(jersey, rig);
+  const shirtCorrective = native
+    ? createNativePlayerCorrectives(jersey, 'niko-jersey')
+    : createContinuousShirtCorrectives(jersey, rig);
   const lowJerseyGeometry = createContinuousPlayerLod(authoredJerseySource, { protectNeck: false });
   const lowJersey = make(lowJerseyGeometry, shirtMaterial, 'continuous-player-jersey-low');
-  const lowShirtCorrective = createContinuousShirtCorrectives(lowJersey, rig);
-  const kit = createContinuousKit(look, assets.body);
+  const lowShirtCorrective = native
+    ? createNativePlayerCorrectives(lowJersey, 'niko-jersey')
+    : createContinuousShirtCorrectives(lowJersey, rig);
+  const lowBodyCorrective = native
+    ? createNativePlayerCorrectives(lowBody, 'niko-body')
+    : undefined;
+  const kit = createContinuousKit(look, assets.body, native);
   reviewKitMaterials(
     kit.materials,
     kitMaterial as THREE.MeshStandardMaterial,
@@ -345,7 +373,9 @@ export function attachContinuousPlayer(
   );
   const shorts = make(kit.geometries.shorts, kit.materials.shorts, 'continuous-player-shorts');
   const socks = make(kit.geometries.socks, kit.materials.socks, 'continuous-player-socks');
-  const sockCorrective = createContinuousSockCorrectives(socks, rig);
+  const sockCorrective = native
+    ? createNativePlayerCorrectives(socks, 'niko-socks')
+    : createContinuousSockCorrectives(socks, rig);
   const boots = make(kit.geometries.boots, kit.materials.boots, 'continuous-player-footwear');
   lowBody.visible = lowJersey.visible = false;
   let disposed = false,
@@ -354,6 +384,7 @@ export function attachContinuousPlayer(
   function mirrorFaceMorphs() {
     for (const surface of [body, lowBody])
       for (const [name, target] of Object.entries(surface.morphTargetDictionary ?? {})) {
+        if (name.startsWith('R11_')) continue;
         const index = head.mesh.morphTargetDictionary?.[name];
         surface.morphTargetInfluences![target] =
           index === undefined ? 0 : (head.mesh.morphTargetInfluences?.[index] ?? 0);
@@ -365,6 +396,7 @@ export function attachContinuousPlayer(
     currentVisualBall = visualBall;
     mirrorFaceMorphs();
     if (close) corrective.update();
+    else lowBodyCorrective?.update();
     if (close) shirtCorrective.update();
     else lowShirtCorrective.update();
     sockCorrective.update();
@@ -405,6 +437,7 @@ export function attachContinuousPlayer(
       socks.removeFromParent();
       boots.removeFromParent();
       corrective.dispose();
+      lowBodyCorrective?.dispose();
       sockCorrective.dispose();
       shirtCorrective.dispose();
       lowShirtCorrective.dispose();

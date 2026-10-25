@@ -501,11 +501,15 @@ function fitSockCuffs(socks: Tailor, bodyFit?: THREE.BufferGeometry) {
 }
 
 /** Owns all returned geometries/materials; caller owns bound mesh wrappers. Idempotent disposal. */
-export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) {
+export function createContinuousKit(
+  look: Look,
+  bodyFit?: THREE.BufferGeometry,
+  authored?: { shorts: THREE.BufferGeometry; socks: THREE.BufferGeometry }
+) {
   const shorts = new Tailor(),
     socks = new Tailor(),
     boots = new Tailor();
-  sewnShorts(shorts, bodyFit);
+  if (!authored) sewnShorts(shorts, bodyFit);
   const tongueRanges: number[][] = [],
     laceRanges: number[][] = [];
   for (const side of ['L', 'R'] as const) {
@@ -514,32 +518,33 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
       lower: BoneName = `lowerLeg${side}`,
       foot: BoneName = `foot${side}`;
     // Ribbed fold-over cuff, calf shaping, ankle taper and narrow returned edge.
-    socks.rings(
-      [
-        [0.473, 0.066, 0.071],
-        [0.468, 0.069, 0.074],
-        [0.448, 0.069, 0.074],
-        [0.442, 0.066, 0.071],
-        [0.4, 0.067, 0.074],
-        [0.33, 0.061, 0.067],
-        [0.24, 0.049, 0.054],
-        [0.15, 0.04, 0.044],
-        [0.105, 0.037, 0.04],
-        [0.101, 0.034, 0.037],
-      ].map(([y, rx, rz]) => ({
-        point(t: number): Point {
-          const rib = 1 + 0.009 * Math.cos(t * 24);
-          return [0.1 * s + rx * Math.cos(t) * rib, y, rz * Math.sin(t) * rib];
-        },
-        weights:
-          y >= 0.15
-            ? [[lower, 1]]
-            : ([
-                [lower, (y - 0.08) / 0.07],
-                [foot, 1 - (y - 0.08) / 0.07],
-              ] as Weight),
-      }))
-    );
+    if (!authored)
+      socks.rings(
+        [
+          [0.473, 0.066, 0.071],
+          [0.468, 0.069, 0.074],
+          [0.448, 0.069, 0.074],
+          [0.442, 0.066, 0.071],
+          [0.4, 0.067, 0.074],
+          [0.33, 0.061, 0.067],
+          [0.24, 0.049, 0.054],
+          [0.15, 0.04, 0.044],
+          [0.105, 0.037, 0.04],
+          [0.101, 0.034, 0.037],
+        ].map(([y, rx, rz]) => ({
+          point(t: number): Point {
+            const rib = 1 + 0.009 * Math.cos(t * 24);
+            return [0.1 * s + rx * Math.cos(t) * rib, y, rz * Math.sin(t) * rib];
+          },
+          weights:
+            y >= 0.15
+              ? [[lower, 1]]
+              : ([
+                  [lower, (y - 0.08) / 0.07],
+                  [foot, 1 - (y - 0.08) / 0.07],
+                ] as Weight),
+        }))
+      );
     // Rounded anatomical last: a closed heel, broad ball and rounded toe. Sole
     // stays flat (no curled rest toe); heel and ball match contact datums.
     const rows = [
@@ -628,17 +633,18 @@ export function createContinuousKit(look: Look, bodyFit?: THREE.BufferGeometry) 
       32
     );
   }
-  const sockFit = fitSockCuffs(socks, bodyFit);
+  const sockFit = authored ? [] : fitSockCuffs(socks, bodyFit);
   const geometries = {
-    shorts: shorts.geometry('original-sewn-football-shorts'),
-    socks: socks.geometry('original-ribbed-football-socks'),
+    shorts: authored?.shorts.clone() ?? shorts.geometry('original-sewn-football-shorts'),
+    socks: authored?.socks.clone() ?? socks.geometry('original-ribbed-football-socks'),
     boots: boots.geometry('original-rounded-football-boots'),
   };
-  geometries.socks.userData.garmentFit = {
-    region: 'returned cuff and upper calf above 0.4m',
-    nominalRadialEaseMetres: [0.006, 0.009],
-    records: sockFit,
-  };
+  if (!authored)
+    geometries.socks.userData.garmentFit = {
+      region: 'returned cuff and upper calf above 0.4m',
+      nominalRadialEaseMetres: [0.006, 0.009],
+      records: sockFit,
+    };
   const bootColors = new Float32Array(geometries.boots.getAttribute('position').count * 3),
     bootBase = new THREE.Color('#161b24'),
     tongueColor = new THREE.Color('#303c4a'),

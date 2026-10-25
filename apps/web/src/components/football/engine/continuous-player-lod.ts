@@ -115,7 +115,7 @@ function buildLod(
     return new THREE.BufferAttribute(output, attribute.itemSize);
   };
   for (const [name, attribute] of Object.entries(source.attributes))
-    if (name !== 'skinIndex' && name !== 'skinWeight')
+    if (name !== 'skinIndex' && name !== 'skinWeight' && name !== '_runtimesourceid')
       result.setAttribute(name, average(attribute));
   const joints = new Uint16Array(members.length * 4),
     outputWeights = new Float32Array(members.length * 4);
@@ -150,6 +150,9 @@ function buildLod(
     result.morphAttributes[name as 'position' | 'normal' | 'color'] = attributes!.map(average);
   result.morphTargetsRelative = source.morphTargetsRelative;
   result.userData = { ...source.userData };
+  const sourceIds = source.getAttribute('_runtimesourceid');
+  if (sourceIds)
+    result.userData.runtimeSourceIDs = members.map((ids) => ids.map((id) => sourceIds.getX(id)));
   const triangles: number[] = [],
     outputEdges = new Map<string, number>();
   for (let i = 0; i < index.count; i += 3) {
