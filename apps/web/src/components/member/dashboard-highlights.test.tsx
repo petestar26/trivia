@@ -221,8 +221,12 @@ describe('dashboard confirmed practice-return board', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     await act(async () => nextAccount.resolve(feed([ticket(99)])));
     expect(await screen.findByText('Player 0000000099')).toBeInTheDocument();
-    expect(client.getQueryData(['dashboard-top-returns', 'member-one', 'sky_crash'])).toBeDefined();
-    expect(client.getQueryData(['dashboard-top-returns', 'member-two', 'sky_crash'])).toBeDefined();
+    expect(
+      client.getQueryData(['dashboard-top-returns', 'member-one', 'sky_crash', '0:true'])
+    ).toBeDefined();
+    expect(
+      client.getQueryData(['dashboard-top-returns', 'member-two', 'sky_crash', '0:true'])
+    ).toBeDefined();
   });
 
   it('refreshes once per minute in the foreground and stops interval reads when unfocused', async () => {
@@ -296,4 +300,27 @@ describe('dashboard confirmed practice-return board', () => {
     );
     expect(get).not.toHaveBeenCalled();
   });
+});
+
+it('independent: reconnect keeps previously hidden rows hidden until fresh response', async () => {
+  mount();
+  await screen.findByRole('table');
+  act(() => onlineManager.setOnline(false));
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.now() + 25 * 60 * 60 * 1000);
+  const pending = deferred<ReturnType<typeof feed>>();
+  get.mockReturnValue(pending.promise);
+  act(() => onlineManager.setOnline(true));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  expect(screen.queryByText(/Last received:/)).not.toBeInTheDocument();
+  await act(async () => pending.resolve(feed([ticket(77)])));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(screen.getByText('Player 0000000077')).toBeInTheDocument();
 });

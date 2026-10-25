@@ -107,7 +107,11 @@ describe('account-scoped local favorite games', () => {
       result.current.toggleFavorite('sky');
     });
     expect(result.current.favoriteIds).toEqual(['derby']);
-    expect(writes.mock.calls).toEqual([[key('alice'), saved(['derby'])]]);
+    expect(writes.mock.calls).toEqual([
+      [key('alice'), saved(['sky'])],
+      [key('alice'), saved(['sky', 'derby'])],
+      [key('alice'), saved(['derby'])],
+    ]);
   });
 
   it.each([
@@ -197,4 +201,16 @@ describe('account-scoped local favorite games', () => {
     expect(result.current.favoriteIds).toEqual([]);
     expect(window.localStorage.length).toBe(1);
   });
+});
+
+it('independent: another tab favorite is retained by the next local toggle', () => {
+  const { result } = renderHook(() => useFavoriteGames('alice'));
+  window.localStorage.setItem(key('alice'), saved(['sky']));
+  act(() =>
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: key('alice'), newValue: saved(['sky']) })
+    )
+  );
+  act(() => result.current.toggleFavorite('derby'));
+  expect(JSON.parse(window.localStorage.getItem(key('alice'))!).ids).toEqual(['sky', 'derby']);
 });
