@@ -235,3 +235,41 @@ it('waits for the official finish time even if an order is present early', () =>
     screen.queryByRole('region', { name: 'Official finishing order' })
   ).not.toBeInTheDocument();
 });
+
+it.each([6, 8] as const)(
+  'keeps reconnect state in the expanded heading without replacing the %i-runner scene',
+  async (field) => {
+    const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    data.rounds[0].field = field;
+    data.rounds[0].positions = Array(field).fill(0.1);
+    const props = { data, field, onField: vi.fn(), onSubmit: vi.fn(), updatedAt: Date.now() };
+    const page = (available: boolean) => (
+      <MemoryRouter>
+        <DerbyView
+          {...props}
+          available={available}
+          error={
+            available
+              ? ''
+              : 'Connection interrupted. Selections are paused until race status refreshes.'
+          }
+        />
+      </MemoryRouter>
+    );
+    const view = render(page(true));
+    const scene = await screen.findByText('3D race fixture');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Thunder Derby view' }));
+    view.rerender(page(false));
+    const dialog = screen.getByRole('dialog', { name: 'Thunder Derby expanded view' });
+    expect(
+      within(dialog).getByRole('heading', { name: 'View paused · Reconnecting' })
+    ).toBeVisible();
+    expect(within(dialog).getByText('3D race fixture')).toBe(scene);
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    view.rerender(page(true));
+    expect(within(dialog).getByRole('heading', { name: 'At the starting gate' })).toBeVisible();
+    expect(within(dialog).getByText('3D race fixture')).toBe(scene);
+    scroll.mockRestore();
+  }
+);
