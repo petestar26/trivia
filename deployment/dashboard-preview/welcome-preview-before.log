@@ -1,0 +1,83 @@
+✖ welcome animation can pause and resume before entering the collection (157.299619ms)
+✖ game sign-in and registration preserve destination without collecting credentials (48.273011ms)
+✖ group entry uses the same disconnected account gate (34.524476ms)
+✖ preview controls have no destination on alternate activation (50.226978ms)
+✔ artifact refuses outbound requests and labels its disconnected scope (39.713951ms)
+✔ serves the exact labelled disconnected welcome artifact (31.342652ms)
+✔ identifies reviewed source and disconnected backend through health (4.276511ms)
+✔ HEAD serves headers without a response body (8.733574ms)
+✔ has no API, login or filesystem route (7.022825ms)
+✔ refuses writes without executing a proxy (5.4858ms)
+✔ prevents indexing, caching and framing (1.208147ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 7
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 677.174937
+
+✖ failing tests:
+
+test at navigation.test.mjs:19:1
+✖ welcome animation can pause and resume before entering the collection (157.299619ms)
+  AssertionError [ERR_ASSERTION]: button Enter the lounge
+      at click (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:17:10)
+      at TestContext.<anonymous> (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:25:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at navigation.test.mjs:29:1
+✖ game sign-in and registration preserve destination without collecting credentials (48.273011ms)
+  AssertionError [ERR_ASSERTION]: button Enter the lounge
+      at click (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:17:10)
+      at TestContext.<anonymous> (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:31:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at navigation.test.mjs:43:1
+✖ group entry uses the same disconnected account gate (34.524476ms)
+  AssertionError [ERR_ASSERTION]: button Enter the lounge
+      at click (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:17:10)
+      at TestContext.<anonymous> (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:45:11)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at navigation.test.mjs:50:1
+✖ preview controls have no destination on alternate activation (50.226978ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(enter)
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/1532f72184cc/dashboard-public-preview/deployment/dashboard-preview/navigation.test.mjs:54:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

@@ -1,0 +1,19 @@
+✔ welcome animation can pause and resume before entering the collection (272.079175ms)
+✔ game sign-in and registration preserve destination without collecting credentials (180.651541ms)
+✔ group entry uses the same disconnected account gate (131.007316ms)
+✔ preview controls have no destination on alternate activation (68.23705ms)
+✔ artifact refuses outbound requests and labels its disconnected scope (65.31746ms)
+✔ serves the exact labelled disconnected welcome artifact (35.016926ms)
+✔ identifies reviewed source and disconnected backend through health (4.36915ms)
+✔ HEAD serves headers without a response body (10.384135ms)
+✔ has no API, login or filesystem route (4.789963ms)
+✔ refuses writes without executing a proxy (5.735595ms)
+✔ prevents indexing, caching and framing (1.299774ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1066.229726

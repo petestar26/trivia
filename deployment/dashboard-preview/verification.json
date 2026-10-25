@@ -1,14 +1,31 @@
 {
-  "sourceCommit": "e6c684588481a5269689ac1a47bb6acf4c3bab61",
-  "sourceTree": "22b2a6a4cb0f8e20f5dc61c3d61843287be231df",
-  "stylingOnly": true,
-  "focusedCurrent": 31,
-  "build": "PASS",
-  "historicalBaselineTests": 135,
-  "historicalBaselineCommit": "d9ae2736e9568001cb8845d2ec834c4cad6701b7",
-  "limits": [
-    "sample data only",
-    "no backend connection",
-    "browser and physical-device validation not established by local tests"
+  "sourceCommit": "1d5f0686a4f433ae4a78f371218a5f0b67bf9c96",
+  "sourceTree": "16f623e376748e8718fe74f1405d7f49c18deb4f",
+  "localSourceCommit": "17bd3ba42a36c0db0223f97e93330dc7ed1abf7a",
+  "htmlSha256": "50e2e4a9723b84ac7aaf6c2ca4644bc8323b7b840f5fa9dc36e555e6c6ec33d1",
+  "scope": "Welcome and public collection design preview; no accounts, credentials or backend",
+  "productVerification": {
+    "welcomeAndReturnPathTests": 72,
+    "productionBuild": "PASS",
+    "pwaChecks": {
+      "passed": 27,
+      "scope": "previous same welcome implementation before neutral copy-only change"
+    }
+  },
+  "independentRunsOverlap": true,
+  "notEstablished": [
+    "real authentication/backend",
+    "physical device behavior",
+    "financial readiness"
+  ],
+  "historicalLogs": "previous-127-tests.log and current-135-tests.log concern earlier dashboard versions, not this welcome run",
+  "previewVerification": {
+    "nodeServerAndCompiledDomTests": 11,
+    "failures": 0,
+    "skips": 0
+  },
+  "failureAccounting": [
+    "Initial pnpm launcher refused dependency maintenance before tests; direct installed Vitest passed72.",
+    "First portable preview had4 DOM test failures because a linked source root did not match canonical Vite module IDs. realpathSync correction restored5/5 flow tests plus6 server checks. Initial failure log retained separately."
   ]
 }

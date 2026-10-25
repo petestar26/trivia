@@ -1,0 +1,12 @@
+Independently review PlayQube welcome/public exploration and isolated design preview.
+Product source head: 1d5f0686a4f433ae4a78f371218a5f0b67bf9c96
+Product source tree: 16f623e376748e8718fe74f1405d7f49c18deb4f
+Parent source: e6c684588481a5269689ac1a47bb6acf4c3bab61
+Parent tree: 22b2a6a4cb0f8e20f5dc61c3d61843287be231df
+Local implementation head17bd3ba42a36c0db0223f97e93330dc7ed1abf7a shares exact source tree; GitHub-created commit has different metadata.
+Verify exact five product files: App.tsx, layout/sidebar.tsx, pages/welcome.tsx, welcome.css, welcome.test.tsx. Review deployment/dashboard-preview separately; HTML SHA25650e2e4a9723b84ac7aaf6c2ca4644bc8323b7b840f5fa9dc36e555e6c6ec33d1. Verify source/tree/hash against live /health before trusting the URL.
+Check public welcome/explore available during session bootstrap; signed-in redirects; private routes stay protected; game/group sign-in preserves selected route, safe return and existing login/register forms. No private catalog feeds, groups, balances or fabricated winners may leak. Current collection is a static brochure, not an availability assertion. Confirm sidebar Home points to /dashboard.
+Check animation pause/reduced-motion, decorative aria hiding, keyboard focus/touch sizes, 320px/short-landscape layouts. Neutral marketing copy must not imply enabled funding/payouts or remove truthful game/wallet modes. User target is a future real-money platform; there is no financial activation in this change.
+Preview must stay isolated: guest auth mock, no API, MemoryRouter only, no navigable destinations or credential inputs; backend/write routes refuse; CSP blocks connections. Rebuild portable builder from exact source and compare HTML; inspect canonical symlink path handling and original4-failure/11-pass accounting. Source production authentication stays distinct from credential-free preview gates.
+Evidence:72 product welcome/return-path tests and11 compiled-preview/server tests passed; production typecheck/build passed; previous same-welcome27PWA checks before neutral copy-only update. Overlapping independent72 run is not extra unique coverage. No full platform suite, current CI, real authenticated backend or physical-device tests established. Report actionable reproducible defects with exact file/line and smallest repair. Keep visual acceptance and device requirements separate.
+Read-only review only: no push, merge, deploy, credentials, database/provider/game transaction or financial activation. Football and PR57 are outside scope; PhaseA2 remains CLOSED.

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, symlinkSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 
 const qa = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(qa, '../../apps/web');
+const root = realpathSync(path.resolve(qa, '../../apps/web'));
 const sha = (value) => createHash('sha256').update(value).digest('hex');
 const recorded = new Map();
 function trackedRead(file) {
@@ -25,9 +25,8 @@ trackedRead(fileURLToPath(import.meta.url));
 trackedRead(path.join(root, 'postcss.config.js'));
 trackedRead(path.join(root, 'tailwind.config.js'));
 
-// Reuse the existing deliberately synthetic local QA fixtures, without starting its server.
-const serverSource = trackedRead(path.join(qa, 'fixtures.mjs')).toString('utf8');
-const { auth, api } = new Function(serverSource + '; return { auth, api };')();
+const auth = `export const useAuth = () => ({user:null,isAuthenticated:false,isLoading:false});`;
+const api = `export const api = {get:async()=>{throw new Error('Design preview has no backend')}}; export const unwrapData = ()=>{throw new Error('No backend')};`;
 const entrySource = trackedRead(path.join(qa, 'entry.tsx')).toString('utf8');
 const entryPath = path.join(qa, 'entry.offline.tsx');
 writeFileSync(entryPath, entrySource);
@@ -52,7 +51,7 @@ const uiSources = [
 for (const source of uiSources) trackedRead(path.join(root, source));
 
 const fixturePlugin = {
-  name: 'offline-dashboard-fixture', enforce: 'pre',
+  name: 'offline-welcome-fixture', enforce: 'pre',
   resolveId(id) {
     if (id === '@/providers/auth-provider' || /\/src\/providers\/auth-provider(?:\.tsx)?$/.test(id)) return '\0offline-auth.js';
     if (id === '@/lib/api' || /\/src\/lib\/api(?:\.ts)?$/.test(id)) return '\0offline-api.js';
@@ -66,8 +65,13 @@ const fixturePlugin = {
   transform(code, id) {
     const inputPath = id.split('?')[0];
     if (inputPath.startsWith(path.join(root, 'src') + '/') && existsSync(inputPath)) trackedRead(inputPath);
-    if (id === path.join(root, 'src/pages/home.tsx') || id === path.join(root, 'src/components/member/game-artwork.tsx')) {
+    if (id === path.join(root, 'src/pages/welcome.tsx') || id === path.join(root, 'src/components/member/game-artwork.tsx')) {
       let result = code;
+      if (id.endsWith('/welcome.tsx')) {
+        result = `import { useNavigate as useDesignNavigate } from 'react-router-dom';
+function DesignLink({to,state,children,...props}) { const navigate=useDesignNavigate(); return <button {...props} type="button" data-design-link="true" onClick={()=>navigate(to,{state})}>{children}</button>; }
+` + result.replace(/<Link\b/g, '<DesignLink').replace(/<\/Link>/g, '</DesignLink>');
+      }
       for (const [from, to] of assetReplacements) result = result.split(from).join(to);
       if (id.endsWith('/game-artwork.tsx')) {
         const from = 'src={`/art/ruby-grand/${asset}.webp`}';
@@ -92,7 +96,7 @@ const result = await build({
   build: {
     write: false, copyPublicDir: false, sourcemap: false, cssCodeSplit: false,
     minify: 'esbuild', target: 'es2020',
-    lib: { entry: entryPath, name: 'PlayQubeOfflineDashboard', formats: ['iife'], fileName: 'dashboard' },
+    lib: { entry: entryPath, name: 'PlayQubeWelcomeDesign', formats: ['iife'], fileName: 'dashboard' },
     rollupOptions: { output: { inlineDynamicImports: true } },
   },
 });
@@ -122,20 +126,21 @@ const networkGuard = `
   }, true);
 `;
 const escapeScript = value => value.replace(/<\/script/gi, '<\\/script');
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"><title>PlayQube · offline synthetic dashboard</title><style>${String(styles[0].source).replace(/<\/style/gi, '<\\/style')}</style><script>${escapeScript(networkGuard)}</script></head><body><div id="root"></div><script>${escapeScript(scripts[0].code)}</script></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"><title>PlayQube · welcome design preview</title><style>${String(styles[0].source).replace(/<\/style/gi, '<\\/style')}</style><script>${escapeScript(networkGuard)}</script></head><body><div id="root"></div><script>${escapeScript(scripts[0].code)}</script></body></html>`;
 for (const [file, inputHash] of recorded) if (sha(readFileSync(file)) !== inputHash) throw new Error(`Input changed after build: ${file}`);
 const htmlBytes = Buffer.from(html);
 const gz = gzipSync(htmlBytes, { level: 9, mtime: 0 });
 const b64 = gz.toString('base64');
 writeFileSync(path.join(qa, 'dashboard-preview.html'), htmlBytes);
+writeFileSync(path.join(qa, 'index.html'), htmlBytes);
 writeFileSync(path.join(qa, 'dashboard-preview.html.gz'), gz);
 writeFileSync(path.join(qa, 'dashboard-preview.gzip.base64.txt'), b64);
 const metadata = {
   syntheticData: true, localOnly: true, productFilesEditedByThisBuilder: false,
   network: 'CSP connect-src none plus fetch/XMLHttpRequest/WebSocket/sendBeacon denial',
   unrelatedNavigation: 'all anchor clicks prevented in document capture phase',
-  actualComponents: ['HomePage', 'Layout', 'Header', 'Sidebar', 'MotionShelf', 'GameArtwork'],
-  mockedComponents: ['auth-provider', 'lib/api', 'NotificationBell'],
+  actualComponents: ['WelcomePage', 'ExplorePage', 'GameArtwork'],
+  mockedComponents: ['auth-provider', 'lib/api', 'Sign-in/registration preview gate', 'Preview-only button links'],
   css: 'actual index.css, member.css and home.css processed using source Tailwind/PostCSS configuration',
   sourceFiles: Object.fromEntries([...recorded].map(([file, hash]) => [file, hash])),
   output: {

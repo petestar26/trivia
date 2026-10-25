@@ -13,13 +13,13 @@ after(async () => {
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
 });
-test('serves the exact labelled synthetic artifact', async () => {
+test('serves the exact labelled disconnected welcome artifact', async () => {
   const r = await fetch(base);
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-type'), /text\/html/);
   const html = await r.text();
   assert.equal(createHash('sha256').update(html).digest('hex'), HTML_SHA256);
-  assert.match(html, /SAMPLE RESULTS/);
+  assert.match(html, /INTERACTIVE DESIGN PREVIEW/);
   assert.match(html, /connect-src 'none'/);
 });
 test('identifies reviewed source and disconnected backend through health', async () => {
@@ -34,7 +34,7 @@ test('HEAD serves headers without a response body', async () => {
   const r = await fetch(base, { method: 'HEAD' });
   assert.equal(r.status, 200);
   assert.equal(await r.text(), '');
-  assert.ok(Number(r.headers.get('content-length')) > 1_000_000);
+  assert.equal(Number(r.headers.get('content-length')), Buffer.byteLength(await (await fetch(base)).text()));
 });
 test('has no API, login or filesystem route', async () => {
   for (const path of ['/login', '/api/v1/wallet', '/../server.mjs', '/%2e%2e/server.mjs', '/secret']) {
