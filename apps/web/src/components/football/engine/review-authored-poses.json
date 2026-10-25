@@ -1,0 +1,853 @@
+{
+  "format": "playqube-single-review-key-pose-study-v1",
+  "origin": "Original explicit numerical key-pose study for the single review actor. No imported action, mocap, copied runtime pose samples or specialist artist-reviewed takes. Repository code/data terms apply; no external asset.",
+  "rotationOrder": "XYZ",
+  "units": "degrees; seconds for idle/kick; normalized distance phase for locomotion",
+  "authority": "Actor root, hips translation/rotation, legs, ball, support targets and released clocks are not authored by this visual study. It replaces review free-arm carriage and small torso offsets only.",
+  "markers": {
+    "kickContact": 0.3,
+    "kickThrough": 0.34,
+    "kickDuration": 0.85
+  },
+  "interpolation": "Monotone cubic Hermite channels retain explicit pose extrema and cyclic seam tangents. All values are source-authored keys.",
+  "clips": {
+    "idle": {
+      "duration": 4,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "supported rest; retain accepted 5-degree extra abduction",
+          "offsets": {
+            "spine": [-0.6, 0, 0],
+            "chest": [0.4, 0, 0],
+            "neck": [0.2, 0, 0],
+            "head": [-0.1, 0, 0],
+            "upperArmL": [0, 0, 5],
+            "upperArmR": [0, 0, -5]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        },
+        {
+          "time": 1,
+          "intent": "quiet inhalation",
+          "offsets": {
+            "spine": [-0.4, 0.2, 0.1],
+            "chest": [0.3, -0.2, -0.1],
+            "neck": [0.2, 0, 0],
+            "head": [-0.1, 0, 0],
+            "upperArmL": [0, 0, 5],
+            "upperArmR": [0, 0, -5]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        },
+        {
+          "time": 2,
+          "intent": "settled breath",
+          "offsets": {
+            "spine": [-0.6, 0, 0],
+            "chest": [0.4, 0, 0],
+            "neck": [0.2, 0, 0],
+            "head": [-0.1, 0, 0],
+            "upperArmL": [0, 0, 5],
+            "upperArmR": [0, 0, -5]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        },
+        {
+          "time": 3,
+          "intent": "small gaze correction",
+          "offsets": {
+            "spine": [-0.7, -0.2, -0.1],
+            "chest": [0.4, 0.2, 0.1],
+            "neck": [0.2, 0, 0],
+            "head": [-0.1, 0, 0],
+            "upperArmL": [0, 0, 5],
+            "upperArmR": [0, 0, -5]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        },
+        {
+          "time": 4,
+          "intent": "closed cycle",
+          "offsets": {
+            "spine": [-0.6, 0, 0],
+            "chest": [0.4, 0, 0],
+            "neck": [0.2, 0, 0],
+            "head": [-0.1, 0, 0],
+            "upperArmL": [0, 0, 5],
+            "upperArmR": [0, 0, -5]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        }
+      ]
+    },
+    "jog": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "left heel load; compact opposite elbow",
+          "offsets": {
+            "spine": [1.4, -0.8, 0.7],
+            "chest": [-0.5, 1.8, -0.4],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [23, -3, 7],
+            "foreArmL": [-60, -3, 0],
+            "handL": [-2, 2, -2],
+            "upperArmR": [-24, 4, -7],
+            "foreArmR": [-67, 2, 0],
+            "handR": [-3, -2, 2]
+          }
+        },
+        {
+          "time": 0.04,
+          "intent": "delayed shoulder recoil; elbow response follows at next key",
+          "offsets": {
+            "spine": [1.528, -0.672, 0.796],
+            "chest": [-0.564, 1.608, -0.432],
+            "neck": [-0.4, 0.0, 0.0],
+            "head": [0.1, 0.0, 0.0]
+          },
+          "arms": {
+            "upperArmL": [25, -3.32, 7.32],
+            "foreArmL": [-62, -2.68, 0.0],
+            "handL": [-1.68, 2.0, -2.0],
+            "upperArmR": [-25, 4.32, -7.32],
+            "foreArmR": [-66, 2.0, 0.0],
+            "handR": [-2.68, -2.0, 2.0]
+          }
+        },
+        {
+          "time": 0.125,
+          "intent": "left support; sternum travels over planted side",
+          "offsets": {
+            "spine": [1.8, -0.4, 1.0],
+            "chest": [-0.7, 1.2, -0.5],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [15, -4, 8],
+            "foreArmL": [-68, -2, 0],
+            "handL": [-1, 2, -2],
+            "upperArmR": [-18, 5, -8],
+            "foreArmR": [-62, 2, 0],
+            "handR": [-2, -2, 2]
+          }
+        },
+        {
+          "time": 0.25,
+          "intent": "left push; hands pass close to waist",
+          "offsets": {
+            "spine": [1.6, 0, 0.6],
+            "chest": [-0.5, 0.3, -0.3],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [0, -3, 8],
+            "foreArmL": [-66, -1, 0],
+            "handL": [0, 1, -2],
+            "upperArmR": [1, 3, -8],
+            "foreArmR": [-58, 1, 0],
+            "handR": [-1, -1, 2]
+          }
+        },
+        {
+          "time": 0.375,
+          "intent": "right heel approaches; soft wrists",
+          "offsets": {
+            "spine": [1.3, 0.5, -0.2],
+            "chest": [-0.4, -1.1, 0.1],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [-15, 3, 7],
+            "foreArmL": [-63, -2, 0],
+            "handL": [-3, 1, -2],
+            "upperArmR": [16, -3, -7],
+            "foreArmR": [-58, 2, 0],
+            "handR": [-1, -1, 2]
+          }
+        },
+        {
+          "time": 0.5,
+          "intent": "right heel load; compact opposite elbow",
+          "offsets": {
+            "spine": [1.4, 0.8, -0.7],
+            "chest": [-0.5, -1.8, 0.4],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [-24, -4, 7],
+            "foreArmL": [-67, -2, 0],
+            "handL": [-3, 2, -2],
+            "upperArmR": [23, 3, -7],
+            "foreArmR": [-60, 3, 0],
+            "handR": [-2, -2, 2]
+          }
+        },
+        {
+          "time": 0.54,
+          "intent": "delayed shoulder recoil; elbow response follows at next key",
+          "offsets": {
+            "spine": [1.528, 0.672, -0.796],
+            "chest": [-0.564, -1.608, 0.432],
+            "neck": [-0.4, 0.0, 0.0],
+            "head": [0.1, 0.0, 0.0]
+          },
+          "arms": {
+            "upperArmL": [-25, -4.32, 7.32],
+            "foreArmL": [-66, -2.0, 0.0],
+            "handL": [-2.68, 2.0, -2.0],
+            "upperArmR": [25, 3.32, -7.32],
+            "foreArmR": [-62, 2.68, 0.0],
+            "handR": [-1.68, -2.0, 2.0]
+          }
+        },
+        {
+          "time": 0.625,
+          "intent": "right support; sternum travels over planted side",
+          "offsets": {
+            "spine": [1.8, 0.4, -1.0],
+            "chest": [-0.7, -1.2, 0.5],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [-18, -5, 8],
+            "foreArmL": [-62, -2, 0],
+            "handL": [-2, 2, -2],
+            "upperArmR": [15, 4, -8],
+            "foreArmR": [-68, 2, 0],
+            "handR": [-1, -2, 2]
+          }
+        },
+        {
+          "time": 0.75,
+          "intent": "right push; hands pass close to waist",
+          "offsets": {
+            "spine": [1.6, 0, -0.6],
+            "chest": [-0.5, -0.3, 0.3],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [1, -3, 8],
+            "foreArmL": [-58, -1, 0],
+            "handL": [-1, 1, -2],
+            "upperArmR": [0, 3, -8],
+            "foreArmR": [-66, 1, 0],
+            "handR": [0, -1, 2]
+          }
+        },
+        {
+          "time": 0.875,
+          "intent": "left heel approaches; soft wrists",
+          "offsets": {
+            "spine": [1.3, -0.5, 0.2],
+            "chest": [-0.4, 1.1, -0.1],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [16, 3, 7],
+            "foreArmL": [-58, -2, 0],
+            "handL": [-1, 1, -2],
+            "upperArmR": [-15, -3, -7],
+            "foreArmR": [-63, 2, 0],
+            "handR": [-3, -1, 2]
+          }
+        },
+        {
+          "time": 1,
+          "intent": "closed cycle",
+          "offsets": {
+            "spine": [1.4, -0.8, 0.7],
+            "chest": [-0.5, 1.8, -0.4],
+            "neck": [-0.4, 0, 0],
+            "head": [0.1, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [23, -3, 7],
+            "foreArmL": [-60, -3, 0],
+            "handL": [-2, 2, -2],
+            "upperArmR": [-24, 4, -7],
+            "foreArmR": [-67, 2, 0],
+            "handR": [-3, -2, 2]
+          }
+        }
+      ]
+    },
+    "drive": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "drive left load",
+          "offsets": {
+            "spine": [4.6, 0, 0],
+            "chest": [1.4, 0, 0],
+            "neck": [-3.0, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [2, 0, -1],
+            "upperArmR": [2, 0, 1],
+            "foreArmL": [-4, 0, 0],
+            "foreArmR": [-4, 0, 0]
+          }
+        },
+        {
+          "time": 0.25,
+          "intent": "drive left release",
+          "offsets": {
+            "spine": [4.9, 0, 0],
+            "chest": [1.4, 0, 0],
+            "neck": [-3.0, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [2, 0, -1],
+            "upperArmR": [2, 0, 1],
+            "foreArmL": [-4, 0, 0],
+            "foreArmR": [-4, 0, 0]
+          }
+        },
+        {
+          "time": 0.5,
+          "intent": "drive right load",
+          "offsets": {
+            "spine": [4.6, 0, 0],
+            "chest": [1.4, 0, 0],
+            "neck": [-3.0, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [2, 0, -1],
+            "upperArmR": [2, 0, 1],
+            "foreArmL": [-4, 0, 0],
+            "foreArmR": [-4, 0, 0]
+          }
+        },
+        {
+          "time": 0.75,
+          "intent": "drive right release",
+          "offsets": {
+            "spine": [4.9, 0, 0],
+            "chest": [1.4, 0, 0],
+            "neck": [-3.0, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [2, 0, -1],
+            "upperArmR": [2, 0, 1],
+            "foreArmL": [-4, 0, 0],
+            "foreArmR": [-4, 0, 0]
+          }
+        },
+        {
+          "time": 1,
+          "intent": "drive closed support",
+          "offsets": {
+            "spine": [4.6, 0, 0],
+            "chest": [1.4, 0, 0],
+            "neck": [-3.0, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [2, 0, -1],
+            "upperArmR": [2, 0, 1],
+            "foreArmL": [-4, 0, 0],
+            "foreArmR": [-4, 0, 0]
+          }
+        }
+      ]
+    },
+    "brake": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "brake left load; both elbows catch braking load",
+          "offsets": {
+            "spine": [-5.1, 0, 0],
+            "chest": [-1.3, 0, 0],
+            "neck": [2.7, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [-3.5, 0, 2],
+            "upperArmR": [-3.5, 0, -2],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [-2, 0, 0]
+          }
+        },
+        {
+          "time": 0.25,
+          "intent": "brake left release; both elbows catch braking load",
+          "offsets": {
+            "spine": [-5.2, 0, 0],
+            "chest": [-1.3, 0, 0],
+            "neck": [2.7, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [-3.5, 0, 2],
+            "upperArmR": [-3.5, 0, -2],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [-2, 0, 0]
+          }
+        },
+        {
+          "time": 0.5,
+          "intent": "brake right load; both elbows catch braking load",
+          "offsets": {
+            "spine": [-5.1, 0, 0],
+            "chest": [-1.3, 0, 0],
+            "neck": [2.7, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [-3.5, 0, 2],
+            "upperArmR": [-3.5, 0, -2],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [-2, 0, 0]
+          }
+        },
+        {
+          "time": 0.75,
+          "intent": "brake right release; both elbows catch braking load",
+          "offsets": {
+            "spine": [-5.2, 0, 0],
+            "chest": [-1.3, 0, 0],
+            "neck": [2.7, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [-3.5, 0, 2],
+            "upperArmR": [-3.5, 0, -2],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [-2, 0, 0]
+          }
+        },
+        {
+          "time": 1,
+          "intent": "brake closed support; both elbows catch braking load",
+          "offsets": {
+            "spine": [-5.1, 0, 0],
+            "chest": [-1.3, 0, 0],
+            "neck": [2.7, 0, 0],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [-3.5, 0, 2],
+            "upperArmR": [-3.5, 0, -2],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [-2, 0, 0]
+          }
+        }
+      ]
+    },
+    "turn": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "turn left load",
+          "offsets": {
+            "spine": [0, -3, -5.2],
+            "chest": [0, 1.4, 1.8],
+            "neck": [0, 1.2, 1.4],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [0, -2, -4],
+            "upperArmR": [0, -2, 1],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [2, 0, 0]
+          }
+        },
+        {
+          "time": 0.25,
+          "intent": "turn left release",
+          "offsets": {
+            "spine": [0, -2.4, -6],
+            "chest": [0, 1.4, 1.8],
+            "neck": [0, 1.2, 1.4],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [0, -2, -4],
+            "upperArmR": [0, -2, 1],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [2, 0, 0]
+          }
+        },
+        {
+          "time": 0.5,
+          "intent": "turn right load",
+          "offsets": {
+            "spine": [0, -3, -5.2],
+            "chest": [0, 1.4, 1.8],
+            "neck": [0, 1.2, 1.4],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [0, -2, -4],
+            "upperArmR": [0, -2, 1],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [2, 0, 0]
+          }
+        },
+        {
+          "time": 0.75,
+          "intent": "turn right release",
+          "offsets": {
+            "spine": [0, -2.4, -6],
+            "chest": [0, 1.4, 1.8],
+            "neck": [0, 1.2, 1.4],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [0, -2, -4],
+            "upperArmR": [0, -2, 1],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [2, 0, 0]
+          }
+        },
+        {
+          "time": 1,
+          "intent": "turn closed support",
+          "offsets": {
+            "spine": [0, -3, -5.2],
+            "chest": [0, 1.4, 1.8],
+            "neck": [0, 1.2, 1.4],
+            "head": [0, 0, 0]
+          },
+          "armOffsets": {
+            "upperArmL": [0, -2, -4],
+            "upperArmR": [0, -2, 1],
+            "foreArmL": [-2, 0, 0],
+            "foreArmR": [2, 0, 0]
+          }
+        }
+      ]
+    },
+    "kick": {
+      "duration": 0.85,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "find ball; arms supported",
+          "offsets": {
+            "spine": [0, 0, 0],
+            "chest": [0, 0, 0],
+            "neck": [0.0, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [14, -6, 8],
+            "foreArmL": [-45, 0, -2],
+            "handL": [1, 0, -4],
+            "upperArmR": [-8, 4, -7],
+            "foreArmR": [-52, 0, 2],
+            "handR": [-2, 0, 4]
+          }
+        },
+        {
+          "time": 0.1,
+          "intent": "load; opposite arm balances",
+          "offsets": {
+            "spine": [-1, -2, 0],
+            "chest": [1, 1, 0],
+            "neck": [0.35, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [24, -6, 12],
+            "foreArmL": [-58, 0, -4],
+            "handL": [0, 3, -4],
+            "upperArmR": [-18, 3, -12],
+            "foreArmR": [-61, 2, 3],
+            "handR": [-2, -2, 4]
+          }
+        },
+        {
+          "time": 0.22,
+          "intent": "coil settles before contact",
+          "offsets": {
+            "spine": [-0.5, -1, 0],
+            "chest": [0.8, 0.6, 0],
+            "neck": [0.175, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [28, -8, 18],
+            "foreArmL": [-48, 0, -3],
+            "handL": [-1, 4, -6],
+            "upperArmR": [-23, 6, -13],
+            "foreArmR": [-59, 0, 4],
+            "handR": [-3, -2, 3]
+          }
+        },
+        {
+          "time": 0.3,
+          "intent": "unchanged strike marker; retained torso and opposed-arm counterbalance",
+          "offsets": {
+            "spine": [0.2, 2, 0],
+            "chest": [0, -1.4, 0],
+            "neck": [-0.06999999999999999, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [29, -8, 20],
+            "foreArmL": [-40, 0, -3],
+            "handL": [-2, 4, -8],
+            "upperArmR": [-23, 6, -13],
+            "foreArmR": [-56, 0, 5],
+            "handR": [-3, -2, 3]
+          }
+        },
+        {
+          "time": 0.34,
+          "intent": "unchanged follow-through marker; carry counterbalance through impact",
+          "offsets": {
+            "spine": [0.8, 2.3, 0.3],
+            "chest": [-0.4, -1.6, 0],
+            "neck": [-0.27999999999999997, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [26, -6, 18],
+            "foreArmL": [-42, 0, -3],
+            "handL": [-2, 3, -7],
+            "upperArmR": [-20, 5, -12],
+            "foreArmR": [-54, 0, 4],
+            "handR": [-3, -2, 3]
+          }
+        },
+        {
+          "time": 0.5,
+          "intent": "ribs follow; hands arrest spin",
+          "offsets": {
+            "spine": [2.5, 3.6, 1.2],
+            "chest": [-1.2, -2.2, 0],
+            "neck": [-0.875, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [14, 5, 15],
+            "foreArmL": [-44, 0, -2],
+            "handL": [0, 2, -5],
+            "upperArmR": [-12, -4, -11],
+            "foreArmR": [-48, 0, 3],
+            "handR": [-1, -1, 3]
+          }
+        },
+        {
+          "time": 0.68,
+          "intent": "lower effort into balance",
+          "offsets": {
+            "spine": [1.8, 2, 0.7],
+            "chest": [-0.8, -1.2, 0],
+            "neck": [-0.63, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [4, 9, 10],
+            "foreArmL": [-30, 0, -1],
+            "handL": [0, 1, -3],
+            "upperArmR": [-6, -8, -8],
+            "foreArmR": [-32, 0, 2],
+            "handR": [0, -1, 2]
+          }
+        },
+        {
+          "time": 0.85,
+          "intent": "settled supported recovery",
+          "offsets": {
+            "spine": [0, 0, 0],
+            "chest": [0, 0, 0],
+            "neck": [0.0, 0, 0]
+          },
+          "arms": {
+            "upperArmL": [-3, 0, 12],
+            "foreArmL": [-17, 0, 0],
+            "handL": [0, 0, 5],
+            "upperArmR": [-4, 0, -13],
+            "foreArmR": [-18, 0, 0],
+            "handR": [0, 0, -5]
+          }
+        }
+      ]
+    }
+  },
+  "hands": {
+    "idle": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "relaxed cascade",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        },
+        {
+          "time": 1,
+          "intent": "same fixed rest",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        }
+      ]
+    },
+    "run": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "left hand lightly gathered; opposite hand releases",
+          "left": [22, 28, 33, 38, 9, 26, 4, 0.8],
+          "right": [19, 25, 30, 35, 8, 25, 5, 0.7]
+        },
+        {
+          "time": 0.25,
+          "intent": "hands pass hip without a fan",
+          "left": [23, 29, 34, 39, 9, 27, 4, 0.6],
+          "right": [21, 27, 32, 37, 9, 26, 4, 0.7]
+        },
+        {
+          "time": 0.5,
+          "intent": "opposite support",
+          "left": [19, 25, 30, 35, 8, 25, 5, 0.7],
+          "right": [22, 28, 33, 38, 9, 26, 4, 0.8]
+        },
+        {
+          "time": 0.75,
+          "intent": "return through hip",
+          "left": [21, 27, 32, 37, 9, 26, 4, 0.7],
+          "right": [23, 29, 34, 39, 9, 27, 4, 0.6]
+        },
+        {
+          "time": 1,
+          "intent": "closed cycle",
+          "left": [22, 28, 33, 38, 9, 26, 4, 0.8],
+          "right": [19, 25, 30, 35, 8, 25, 5, 0.7]
+        }
+      ]
+    },
+    "kick": {
+      "duration": 0.85,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "supported preparation",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        },
+        {
+          "time": 0.18,
+          "intent": "load; outside hand opens",
+          "left": [13, 19, 24, 29, 8, 24, 6, 1],
+          "right": [20, 26, 31, 36, 9, 26, 4, 0.7]
+        },
+        {
+          "time": 0.3,
+          "intent": "unchanged contact marker",
+          "left": [13, 18, 23, 28, 8, 24, 6, 1],
+          "right": [24, 30, 35, 40, 9, 27, 4, 0.6]
+        },
+        {
+          "time": 0.5,
+          "intent": "follow and release",
+          "left": [15, 21, 26, 31, 8, 25, 5, 0.8],
+          "right": [21, 27, 32, 37, 9, 26, 4, 0.7]
+        },
+        {
+          "time": 0.85,
+          "intent": "restored rest",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        }
+      ]
+    },
+    "keeper": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "open prepared fingers",
+          "left": [2, 2.3, 2.5, 2.7, 6, 18, 10, 2.6],
+          "right": [2, 2.3, 2.5, 2.7, 6, 18, 10, 2.6]
+        },
+        {
+          "time": 1,
+          "intent": "fixed keeper hand",
+          "left": [2, 2.3, 2.5, 2.7, 6, 18, 10, 2.6],
+          "right": [2, 2.3, 2.5, 2.7, 6, 18, 10, 2.6]
+        }
+      ]
+    },
+    "fixedRest": {
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "reduced-motion fixed cascade",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        },
+        {
+          "time": 1,
+          "intent": "fixed identical endpoint",
+          "left": [16, 22, 27, 32, 8, 25, 5, 0.7],
+          "right": [16, 22, 27, 32, 8, 25, 5, 0.7]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "stage": "Source-authored native single-player candidate, not runtime adoption/artistquality acceptance",
+  "runtimeSourceHead": "a27874c68fee6d505d901f2a1720ecd9ec96282a",
+  "originalNativeSource": {
+    "sha256": "39940432d673f0268b77e317058a6c71fca0998d84d9c37361814e220927d99e",
+    "bytes": 181919450,
+    "blendSHA256": "6a899f83bf3a8f26fa365ef1ad28acd074265fa0c5ea192ea502ea0f82a53e23"
+  },
+  "retainedCC0Assets": [
+    {
+      "file": "packet/sources/makehuman-core-base.obj",
+      "bytes": 1749303,
+      "sha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+      "asset": "MakeHuman core makehuman-core-base.obj",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/3dobjs/base.obj",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "source-foundation/default.mhskel",
+      "bytes": 117790,
+      "sha256": "99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24",
+      "asset": "MakeHuman core default.mhskel",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default.mhskel",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "source-foundation/default_weights.mhw",
+      "bytes": 897521,
+      "sha256": "0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625",
+      "asset": "MakeHuman core default_weights.mhw",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default_weights.mhw",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "packet/sources/MakeHuman-LICENSE.ASSETS.md",
+      "bytes": 6962,
+      "sha256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
+      "asset": "MakeHuman core MakeHuman-LICENSE.ASSETS.md",
+      "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+      "url": "https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.ASSETS.md",
+      "license": "CC0-1.0"
+    },
+    {
+      "file": "packet/sources/clothes/toigo_basic_tucked_t-shirt/t_shirt_basic_tucked.obj",
+      "bytes": 109974,
+      "sha256": "22159cf14d1f6831f931b49625f8f7692910bac22499c43466c0b5a2159b4d03",
+      "asset": "Preferred tucked shirt t_shirt_basic_tucked.obj",
+      "license": "CC0-1.0",
+      "authors": {
+        "listing": "MargaretToigo",
+        "embedded": "MRT"
+      },
+      "sourceListing": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+      "archiveEntry": "clothes/toigo_basic_tucked_t-shirt/t_shirt_basic_tucked.obj"
+    },
+    {
+      "file": "packet/sources/clothes/toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo",
+      "bytes": 94278,
+      "sha256": "c34bd03895c5ad9ec46965ef7d5f3e5e8c567630797ab312f8762c1d9fde8f71",
+      "asset": "Preferred tucked shirt toigo_basic_tucked_t-shirt.mhclo",
+      "license": "CC0-1.0",
+      "authors": {
+        "listing": "MargaretToigo",
+        "embedded": "MRT"
+      },
+      "sourceListing": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+      "archiveEntry": "clothes/toigo_basic_tucked_t-shirt/toigo_basic_tucked_t-shirt.mhclo"
+    }
+  ],
+  "parentV4Checkpoint": {
+    "combinedSHA256": "a7d496c22dea5775c5f53318e795a44884b3869fd0e4004060e53055636947fc",
+    "geometryJSONSHA256": "2109ac649da0f7b8120de5ce777f17607a1135ca45222bd5c873b564fb54bebd",
+    "strictNativeChecks": "425/425 plus10meaningfulnegativecontrolfailuresonca4",
+    "retainedUnder": "geometry/iterations/v4-a7d496c-checkpoint"
+  },
+  "motionCore": {
+    "path": "motion/v3/Player_Jog.blend",
+    "sha256": "c80d0910c4496324527de5adafc3199ea9a112a4fe5311c8e4139215a0cbd81d",
+    "controlsPath": "motion/v3/jog-controls.json",
+    "controlsSHA256": "f5d4b6bb8911693eccd798d83fff2c0be5cdca3c74038f83902b0925736c8422",
+    "sourceAuthorship": "Original numerical native authored supportedjog and anatomical handkeys, no mocap/humanartistclaim",
+    "protectedSourceContract": "Torso/hips/leg/foot/toe241channels and pelvis/poles/contactarrays exactlyV2 per motionowner checks"
+  },
+  "newV5Geometry": {
+    "authorship": "Original deliberate source frontpanel ease",
+    "editedVertices": 122,
+    "maximumMetres": 0.0055,
+    "noNewThirdPartyAssetsOrMaps": true,
+    "keyRelativeDeltasUnchanged": true,
+    "maskDeletion": false,
+    "normalQuantizationMaximumVectorDifference": 0.00033015050942274376,
+    "normalQuantizationExplicitBound": 0.0005
+  },
+  "nativeActorBudget": {
+    "expectedVertices": 25599,
+    "expectedTriangles": 34007,
+    "surfaces": 8,
+    "newV5VertexTriangleDelta": 0,
+    "groundPreviewTriangles": 2,
+    "isMeasuredBrowserDrawCalls": false
+  },
+  "preservedSourceBootAdapter": {
+    "samples": 241,
+    "scope": "AcceptedCPUboot output at frozen supportedjogcontext, not newbootart/pitchuniversal/contactoverlaprepair",
+    "source": "runtime-assessment/boot-reference/jog-context-boot-flex.json",
+    "sha256": "217aa045a5b06b725eebe7cd3eb76a7a1be514091dcb3c5f8f21b8f1b57cad5d"
+  },
+  "limitations": [
+    "No physicalphone/live/runtimeFPSclaim; nativeCPU encodedclips are playbackonly",
+    "No runtime asset adoption; oldJSrenderer rules untouched",
+    "73.156mmfollowthrough remainsOPEN",
+    "Stylizedcloth/anatomy/materials remain; no specialistcompleteartistpackage"
+  ],
+  "files": [
+    {
+      "path": "geometry/v5/README.md",
+      "bytes": 3454,
+      "sha256": "bc276acc4b139c6fb1bb18898025778949542928c72630f7427be982777c4365"
+    },
+    {
+      "path": "geometry/v5/author-front-ease-v5.py",
+      "bytes": 4189,
+      "sha256": "54c945154095ba1dea4bd0aa72f5f072a682aab4c668052c97b86703e4697837"
+    },
+    {
+      "path": "geometry/v5/merge-deformation-jog.py",
+      "bytes": 8422,
+      "sha256": "acac7bdd17e91bd31d1acd102468ba731211f67ad00ace6fead00762f9ca4d25"
+    },
+    {
+      "path": "geometry/v5/validate-front-ease.py",
+      "bytes": 3324,
+      "sha256": "a82654b277d31289dddd29b40d828fa6c6c934e09a8bafd20ee7d72f299b32d1"
+    },
+    {
+      "path": "geometry/v5/measure-front-ease.py",
+      "bytes": 2393,
+      "sha256": "67e0a5d08f7e96fcebb9274a024e5be128db3a582f514a084f8f30a33520a276"
+    },
+    {
+      "path": "geometry/v5/render-front-ease-pairs.py",
+      "bytes": 3923,
+      "sha256": "b1ea6883f3196cc54aee57fba2f6cdd98cf8a6b3b9b36d6642a3d20f6b87903d"
+    },
+    {
+      "path": "geometry/v5/render-geometry-pairs.py",
+      "bytes": 6411,
+      "sha256": "e125327e6cc0ab5b3dbf137db91eca954788c8b0509ae09aeaffe922d951753e"
+    },
+    {
+      "path": "geometry/v5/render-inspection-sweeps.py",
+      "bytes": 4773,
+      "sha256": "cef1863a7af140b9ed937ee87b3d099cf3da887604d6fad1f7be72bbc9df4182"
+    },
+    {
+      "path": "geometry/v5/deformation-authoring-source.json",
+      "bytes": 1983715,
+      "sha256": "a789a7a9635f8bc20829e59557b2f1c37d3de8788be2facd3687202bc5e4bc32"
+    },
+    {
+      "path": "geometry/v5/Player_Deformation.blend",
+      "bytes": 39569093,
+      "sha256": "11048754480e875596ab7482c20d58df53e0841f4ddd2f21cc17961b47ee6a80"
+    },
+    {
+      "path": "geometry/v5/Player_Combined.blend",
+      "bytes": 41316859,
+      "sha256": "196402fdca7bd447459412333698100e3ed36c7a59a73a0ff0d8aee04e6e76da"
+    },
+    {
+      "path": "geometry/author-deformation.py",
+      "bytes": 19751,
+      "sha256": "8a486505bc5779b004a89dd5691ae224427aff39f9f5073c25b90f48aeda9ce5"
+    },
+    {
+      "path": "geometry/sock-source-authoring.py",
+      "bytes": 11592,
+      "sha256": "a07ea19b1eeede7f9095531aea6941c63ec5cbc5562a504bb1bf561feca2c3c5"
+    },
+    {
+      "path": "geometry/deduplicate-native-images.py",
+      "bytes": 2023,
+      "sha256": "2512639f9eb204d90205b715160e9eb277107508129f34e61fee0dc7581968b4"
+    }
+  ],
+  "postValidationFormatting": "Trailing whitespace removed from the merge helper after native verification; semantics, arrays and frozen native bytes unchanged."
+}

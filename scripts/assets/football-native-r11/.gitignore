@@ -1,0 +1,11 @@
+verified-source/
+**/__pycache__/
+**/*.blend*
+**/*.png
+**/*.mp4
+**/*.log
+**/deformation-authoring-source.json
+**/jog-controls.json
+**/native-jog-local-poses.json
+**/baseline-contact-samples*.json
+**/jog-authoring-report.json

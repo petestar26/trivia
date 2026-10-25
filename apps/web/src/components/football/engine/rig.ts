@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 /**
- * Procedural human rig. Original geometry generated in code: no downloaded model, no
- * third-party animation data. Character frame: +Y up, +Z forward, +X the character's left.
+ * Original contact rig with 19 stable body joints and 30 articulated finger joints.
+ * It supports the licensed anatomical surfaces and a complete procedural fallback. Character frame: +Y up, +Z forward, +X the character's left.
  * One shared skinned body geometry; every player gets its OWN bone hierarchy, skeleton and
  * mesh, so poses never leak between players.
  */
@@ -26,6 +26,36 @@ export const BONES = [
   'lowerLegR',
   'footR',
   'toeR',
+  'thumb1L',
+  'thumb2L',
+  'thumb3L',
+  'index1L',
+  'index2L',
+  'index3L',
+  'middle1L',
+  'middle2L',
+  'middle3L',
+  'ring1L',
+  'ring2L',
+  'ring3L',
+  'pinky1L',
+  'pinky2L',
+  'pinky3L',
+  'thumb1R',
+  'thumb2R',
+  'thumb3R',
+  'index1R',
+  'index2R',
+  'index3R',
+  'middle1R',
+  'middle2R',
+  'middle3R',
+  'ring1R',
+  'ring2R',
+  'ring3R',
+  'pinky1R',
+  'pinky2R',
+  'pinky3R',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 export type Side = 'L' | 'R';
@@ -64,7 +94,45 @@ const REST: Record<BoneName, [BoneName | null, V3]> = {
   lowerLegR: ['upperLegR', [0, -DIM.thigh, 0]],
   footR: ['lowerLegR', [0, -DIM.shin, 0]],
   toeR: ['footR', [0, -0.045, 0.17]],
+  thumb1L: ['handL', [-0.0227997, -0.0272999, 0.0336]],
+  thumb2L: ['thumb1L', [-0.0232932, -0.0356859, 0.0259784]],
+  thumb3L: ['thumb2L', [-0.0202551, -0.0325625, 0.0212169]],
+  index1L: ['handL', [-0.0019997, -0.1135049, 0.0460282]],
+  index2L: ['index1L', [-2e-7, -0.037675, 0.0064589]],
+  index3L: ['index2L', [0, -0.0272016, 0.0057567]],
+  middle1L: ['handL', [0.0004003, -0.1180405, 0.0205332]],
+  middle2L: ['middle1L', [1e-7, -0.0414786, 0.0012857]],
+  middle3L: ['middle2L', [2e-7, -0.0330787, 0.0037023]],
+  ring1L: ['handL', [0.0001002, -0.1152665, -0.0080644]],
+  ring2L: ['ring1L', [0, -0.036562, -0.0014]],
+  ring3L: ['ring2L', [2e-7, -0.0330906, -0.0005524]],
+  pinky1L: ['handL', [-0.0015996, -0.1098902, -0.0355976]],
+  pinky2L: ['pinky1L', [2e-7, -0.0358193, -0.0010572]],
+  pinky3L: ['pinky2L', [-1e-7, -0.0256834, -0.0024476]],
+  thumb1R: ['handR', [0.0227999, -0.0272999, 0.0336]],
+  thumb2R: ['thumb1R', [0.0232931, -0.035686, 0.0259783]],
+  thumb3R: ['thumb2R', [0.020255, -0.0325626, 0.0212169]],
+  index1R: ['handR', [0.0019997, -0.1135051, 0.0460281]],
+  index2R: ['index1R', [1e-7, -0.037675, 0.0064589]],
+  index3R: ['index2R', [-2e-7, -0.0272016, 0.0057567]],
+  middle1R: ['handR', [-0.0004002, -0.1180409, 0.0205331]],
+  middle2R: ['middle1R', [-2e-7, -0.0414785, 0.0012857]],
+  middle3R: ['middle2R', [-1e-7, -0.0330786, 0.0037023]],
+  ring1R: ['handR', [-0.0001004, -0.1152668, -0.0080644]],
+  ring2R: ['ring1R', [1e-7, -0.036562, -0.0014]],
+  ring3R: ['ring2R', [-2e-7, -0.0330904, -0.0005524]],
+  pinky1R: ['handR', [0.0015994, -0.1098905, -0.0355977]],
+  pinky2R: ['pinky1R', [-4e-7, -0.0358191, -0.0010571]],
+  pinky3R: ['pinky2R', [2e-7, -0.0256834, -0.0024476]],
 };
+
+/** Finger rest offsets derive from the pinned CC0 human bind joints, preserving its palm geometry. */
+export function boneParent(name: BoneName) {
+  return REST[name][0];
+}
+export function restLocalPosition(name: BoneName): THREE.Vector3 {
+  return new THREE.Vector3(...REST[name][1]);
+}
 
 /** Rest-pose world position of a bone (root at the origin). */
 export function restPosition(name: BoneName): THREE.Vector3 {
@@ -334,6 +402,9 @@ export interface HumanGeometry {
   uvShirt: Float32Array;
   theta: Float32Array;
   positions: Float32Array;
+  /** Optional separately morphed, shared anatomical surfaces; never choose match facts. */
+  heads?: Record<'high' | 'mid' | 'low', THREE.BufferGeometry>;
+  bodyLods?: Record<'mid' | 'low', HumanGeometry>;
 }
 
 let sharedGeometry: HumanGeometry | undefined;
@@ -482,12 +553,42 @@ export function kitTexture(kit: KitLook): THREE.CanvasTexture {
       ctx.fill();
     }
   }
-  if (!kit.keeper) {
-    ctx.fillStyle = kit.pattern === 'solid' ? kit.secondary : 'rgba(255,255,255,0.85)';
-    ctx.font = 'bold 15px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('PQ', 192, 44);
+  // Original seam and woven jersey detail. The atlas white swatch remains neutral.
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.lineWidth = 1;
+  for (const u of [126, 130]) {
+    ctx.beginPath();
+    ctx.moveTo(u, 0);
+    ctx.lineTo(u, h);
+    ctx.stroke();
   }
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.setLineDash([2, 2]);
+  for (const y of [8, 118]) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(256, y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  for (let y = 1; y < h; y += 3) for (let x = y % 6; x < 256; x += 6) ctx.fillRect(x, y, 1, 1);
+  // Fictional PlayQube shield: repository-authored geometry and lettering.
+  ctx.beginPath();
+  ctx.moveTo(182, 28);
+  ctx.lineTo(202, 28);
+  ctx.lineTo(201, 44);
+  ctx.quadraticCurveTo(192, 51, 183, 44);
+  ctx.closePath();
+  ctx.fillStyle = '#381925';
+  ctx.fill();
+  ctx.strokeStyle = '#d7b08b';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#f4dfc8';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PQ', 192, 41);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
