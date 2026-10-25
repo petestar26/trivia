@@ -11,6 +11,7 @@ import { lazy, Suspense } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import { Layout } from '@/components/layout/layout';
 import { HomePage } from '@/pages/home';
+import { WelcomePage, ExplorePage } from '@/pages/welcome';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
 import { ProtectedRoute } from '@/components/auth/protected-route';
@@ -55,7 +56,7 @@ export function App() {
 
   // Offline public verification must also work while the unrelated session
   // probe is waiting on an unavailable API.
-  if (isLoading && !/^\/games\/spin-win\/verify\/?$/.test(location.pathname)) {
+  if (isLoading && !/^\/(?:explore\/?|login\/?|register\/?|games\/spin-win\/verify\/?)?$/.test(location.pathname)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
@@ -65,6 +66,8 @@ export function App() {
 
   return (
     <Routes>
+      <Route path="/" element={<WelcomePage />} />
+      <Route path="/explore" element={<ExplorePage />} />
       <Route path="/games/spin-win/verify" element={
         <Suspense fallback={<main className="min-h-screen bg-slate-950 p-8 text-slate-100">Loading round verifier…</main>}>
           <SpinWinVerifyPage />
@@ -101,7 +104,7 @@ export function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<HomePage />} />
+        <Route path="dashboard" element={<HomePage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="groups/invite/:token" element={<GroupInviteAcceptPage />} />
         <Route path="groups/:id" element={<GroupDetailPage />} />
