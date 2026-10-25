@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { frameDerbyField } from './field-camera';
-import { layoutDerbyNumbers } from './number-layout';
+import { createDerbyNumberLayout, layoutDerbyNumbers } from './number-layout';
 
 function check(points: ReturnType<typeof layoutDerbyNumbers>, width: number, height: number) {
   for (const point of points) {
@@ -80,5 +80,68 @@ describe('pixel-readable Derby numbers', () => {
     layoutDerbyNumbers([...points].reverse(), 358, 300);
     expect(layoutDerbyNumbers(points, 358, 300)).toEqual(before);
     expect(layoutDerbyNumbers([], 358, 300)).toEqual([]);
+  });
+});
+
+describe('per-scene number continuity', () => {
+  it.each([
+    [288, 300, 8],
+    [358, 300, 6],
+    [844, 230, 8],
+  ])('avoids free-region jumps at %s×%s with %s slowly moving runners', (width, height, field) => {
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 2000),
+      layout = createDerbyNumberLayout();
+    let previous: ReturnType<typeof layoutDerbyNumbers> | undefined,
+      maximumMove = 0;
+    for (let step = 0; step <= 1200; step++) {
+      const positions = Array.from(
+        { length: field },
+        (_, i) => 100 + step * 0.02 - (i * step) / 600
+      );
+      frameDerbyField(camera, positions, field, step ? 1 / 30 : 0);
+      const anchors = positions.map((x, i) => {
+        const p = new THREE.Vector3(x, 3.485, (i - (field - 1) / 2) * 2.15).project(camera);
+        return { x: ((p.x + 1) * width) / 2, y: ((1 - p.y) * height) / 2 };
+      });
+      const badges = layout.update(anchors, width, height, step ? 1 / 30 : 0);
+      if (previous)
+        badges.forEach((p, i) => {
+          maximumMove = Math.max(
+            maximumMove,
+            Math.hypot(p.x - previous![i].x, p.y - previous![i].y)
+          );
+        });
+      if (step % 100 === 0) check(badges, width, height);
+      previous = badges;
+    }
+    // Former stateless choices jumped25–66px on subpixel source movement.
+    expect(maximumMove).toBeLessThan(3);
+  });
+
+  it('resets prior placement for round resets, resize and reduced-motion snaps without cross-scene state', () => {
+    const points = Array.from({ length: 8 }, (_, i) => ({ x: 170 + i * 0.3, y: 80 + i * 3 }));
+    const a = createDerbyNumberLayout(),
+      b = createDerbyNumberLayout();
+    const initial = a.update(points, 358, 300, 0);
+    expect(
+      a.update(
+        points.map((p) => ({ x: p.x + 1e-10, y: p.y - 1e-10 })),
+        358,
+        300,
+        1 / 30
+      )
+    ).toEqual(initial);
+    for (let i = 0; i < 12; i++)
+      a.update(
+        points.map((p) => ({ x: p.x + i * 0.1, y: p.y })),
+        358,
+        300,
+        1 / 30
+      );
+    expect(b.update(points, 358, 300, 0)).toEqual(initial);
+    a.reset();
+    expect(a.update(points, 358, 300, 1 / 30)).toEqual(initial);
+    expect(a.update(points, 844, 230, 1 / 30)).toEqual(layoutDerbyNumbers(points, 844, 230));
+    expect(a.update(points, 358, 300, 0)).toEqual(initial);
   });
 });

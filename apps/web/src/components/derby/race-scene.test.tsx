@@ -213,3 +213,68 @@ it('releases scene GPU owners and the sunlight shadow before renderer state is d
   expect(events.filter((event) => event === 'shadow')).toHaveLength(1);
   expect(events.filter((event) => event === 'renderer')).toHaveLength(1);
 });
+
+it('keeps the same numbered sprites and leader buffer when deferred authored horses replace the fallback', async () => {
+  const three = await import('three');
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(358);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1000));
+  const scene = state.draw.mock.calls.at(-1)![0] as import('three').Scene;
+  const labels = Array.from(
+    { length: 8 },
+    (_, i) => scene.getObjectByName(`runner-number-${i + 1}`) as import('three').Sprite
+  );
+  const parents = labels.map((label) => label.parent);
+  const maps = labels.map((label) => label.material.map);
+  const leader = scene.getObjectByName('runner-number-leaders') as import('three').LineSegments;
+  const attribute = leader.geometry.getAttribute('position'),
+    array = attribute.array;
+  const before = labels.map((label) => label.getWorldPosition(new three.Vector3()).toArray());
+  const dispose = vi.fn();
+  await act(async () => pendingAssets[0]({ dispose }));
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1100));
+  labels.forEach((label, i) => {
+    expect(scene.getObjectByName(`runner-number-${i + 1}`)).toBe(label);
+    expect(label.parent).not.toBe(parents[i]);
+    expect(label.material.map).toBe(maps[i]);
+    const position = label.getWorldPosition(new three.Vector3()).toArray();
+    position.forEach((value, axis) => expect(value).toBeCloseTo(before[i][axis], 10));
+  });
+  expect(leader.geometry.getAttribute('position')).toBe(attribute);
+  expect(attribute.array).toBe(array);
+  view.unmount();
+  expect(dispose).toHaveBeenCalledOnce();
+});
+
+it('refits the reused camera immediately after orientation resize instead of retaining the old portrait zoom', async () => {
+  const three = await import('three'),
+    { frameDerbyField } = await import('./field-camera');
+  let width = 390,
+    height = 844,
+    resized!: () => void;
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(() => height);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1000));
+  const camera = state.draw.mock.calls.at(-1)![1] as import('three').PerspectiveCamera;
+  width = 844;
+  height = 230;
+  act(() => resized());
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1100));
+  const expected = new three.PerspectiveCamera(36, width / height, 0.1, 2000);
+  frameDerbyField(expected, Array(8).fill(18), 8);
+  expect(state.draw.mock.calls.at(-1)![1]).toBe(camera);
+  expect(camera.position.distanceTo(expected.position)).toBeLessThan(1e-9);
+  view.unmount();
+});

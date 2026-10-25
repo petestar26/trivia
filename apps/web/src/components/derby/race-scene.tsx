@@ -4,7 +4,7 @@ import { DERBY_HORSES } from '@socialplay/shared';
 import * as THREE from 'three';
 import { backdropSize } from './backdrop-fit';
 import { frameDerbyField } from './field-camera';
-import { layoutDerbyNumbers } from './number-layout';
+import { createDerbyNumberLayout } from './number-layout';
 import { createRaceMotion } from './race-motion';
 import { createHorse } from './horse-model';
 import {
@@ -318,7 +318,8 @@ export default function RaceScene({
       projections = horses.map(() => new THREE.Vector3());
     const worldPoint = new THREE.Vector3(),
       rootScale = new THREE.Vector3();
-    function placeNumbers() {
+    const numberLayout = createDerbyNumberLayout();
+    function placeNumbers(dt: number) {
       const width = container.clientWidth,
         height = container.clientHeight;
       if (!width || !height) return;
@@ -331,7 +332,7 @@ export default function RaceScene({
           y: ((1 - projections[i].y) * height) / 2,
         };
       });
-      const badges = layoutDerbyNumbers(pixels, width, height);
+      const badges = numberLayout.update(pixels, width, height, dt);
       let changed = false;
       const write = (offset: number, point: THREE.Vector3) => {
         for (let k = 0; k < 3; k++) {
@@ -438,7 +439,8 @@ export default function RaceScene({
       return contact;
     });
     let frame = 0,
-      last = 0;
+      last = 0,
+      freshFraming = true;
     let displayed = round.positions.map((p) => p * 180);
     let sampleMotion = createRaceMotion(displayed);
     let renderedRound = round.id;
@@ -452,6 +454,8 @@ export default function RaceScene({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      numberLayout.reset();
+      freshFraming = true;
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -471,6 +475,8 @@ export default function RaceScene({
           displayed = state.round.positions.map((p) => p * 180);
           sampleMotion = createRaceMotion(displayed);
           strides = horses.map(() => createStrideClock());
+          numberLayout.reset();
+          freshFraming = true;
         }
         const previous = displayed;
         displayed = sampleMotion(
@@ -486,7 +492,13 @@ export default function RaceScene({
           const phase = strides[i](displayed[i] - previous[i], moving);
           horse.animate(phase, moving && displayed[i] - previous[i] > 0.0001);
         });
-        const center = frameDerbyField(camera, displayed, round.field, state.reduced ? 0 : dt);
+        const center = frameDerbyField(
+          camera,
+          displayed,
+          round.field,
+          state.reduced || freshFraming ? 0 : dt
+        );
+        freshFraming = false;
         backdrop.position.x = center - 35;
         if (fittedDistance !== camera.position.z || fittedAspect !== camera.aspect) {
           const size = backdropSize(camera, backdrop.position);
@@ -500,7 +512,7 @@ export default function RaceScene({
         sun.target.position.set(center, 0, 0);
         fill.position.set(center - 15, 18, 24);
         fill.target.position.set(center, 1.2, 0);
-        placeNumbers();
+        placeNumbers(state.reduced ? 0 : dt);
         renderer.render(scene, camera);
       } catch {
         disposed = true;
