@@ -1,7 +1,10 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { DerbyRound } from '@socialplay/shared';
-const state = { fail: false, disposed: vi.fn(), draw: vi.fn() };
+const state = { fail: false, fallbackMotion: false, disposed: vi.fn(), draw: vi.fn() };
+const fallbackRigs: Array<{ root: import('three').Group; animate: Mock<[number, boolean], void> }> =
+  [];
+const authoredRigs: Array<{ root: import('three').Group; animate: ReturnType<typeof vi.fn> }> = [];
 vi.doMock('three', async (original) => {
   const three = await original<typeof import('three')>();
   return {
@@ -26,7 +29,21 @@ vi.doMock('three', async (original) => {
 });
 vi.doMock('./horse-model', async () => {
   const { Group } = await import('three');
-  return { createHorse: () => ({ root: new Group(), animate: vi.fn() }) };
+  const { gallopPose } = await import('./gallop');
+  return {
+    createHorse: (_coat: string, _silk: string, index: number) => {
+      const root = new Group();
+      const rig = {
+        root,
+        animate: vi.fn((seconds: number, moving: boolean) => {
+          // Faithful to the actual procedural adapter, backed by the retained CPU probe.
+          if (state.fallbackMotion) root.position.y = gallopPose(seconds, index, moving).bounce;
+        }),
+      };
+      fallbackRigs.push(rig);
+      return rig;
+    },
+  };
 });
 const pendingAssets: Array<(assets: { dispose: () => void }) => void> = [];
 const rigDisposers: Array<ReturnType<typeof vi.fn>> = [];
@@ -37,7 +54,9 @@ vi.doMock('./rigged-horse', async () => {
     createRiggedHorse: () => {
       const dispose = vi.fn();
       rigDisposers.push(dispose);
-      return { root: new Group(), animate: vi.fn(), dispose };
+      const rig = { root: new Group(), animate: vi.fn(), dispose };
+      authoredRigs.push(rig);
+      return rig;
     },
   };
 });
@@ -46,6 +65,9 @@ const round = (field: 6 | 8, id = 'round') =>
   ({ field, id, positions: Array(field).fill(0.1) }) as DerbyRound;
 beforeEach(() => {
   state.fail = false;
+  state.fallbackMotion = false;
+  fallbackRigs.length = 0;
+  authoredRigs.length = 0;
   pendingAssets.length = 0;
   rigDisposers.length = 0;
   vi.clearAllMocks();
@@ -278,3 +300,49 @@ it('refits the reused camera immediately after orientation resize instead of ret
   expect(camera.position.distanceTo(expected.position)).toBeLessThan(1e-9);
   view.unmount();
 });
+
+it.each(['idle', 'run'] as const)(
+  'restores the canonical authored ground datum after %s fallback frames before deferred assets resolve',
+  async (mode) => {
+    const { createStrideClock } = await import('./stride-clock');
+    state.fallbackMotion = true;
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(358);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+    const initialRound = round(6),
+      view = render(<RaceScene round={initialRound} running={mode === 'run'} reduced={false} />);
+    const datum = fallbackRigs[0].root.position.y;
+    expect(datum).toBe(0.035);
+    const controlClock = createStrideClock();
+    let previousDisplayed = initialRound.positions[0] * 180,
+      expectedPhase = 0;
+    const draw = (time: number) => {
+      act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](time));
+      const rig = authoredRigs[0] ?? fallbackRigs[0],
+        x = rig.root.position.x;
+      expectedPhase = controlClock(x - previousDisplayed, mode === 'run');
+      previousDisplayed = x;
+      expect(rig.animate.mock.calls.at(-1)![0]).toBeCloseTo(expectedPhase, 12);
+    };
+    draw(1000);
+    if (mode === 'run') {
+      const next = { ...initialRound, positions: Array(6).fill(0.2) };
+      view.rerender(<RaceScene round={next} running reduced={false} />);
+      draw(1100);
+      draw(1200);
+      expect(fallbackRigs[0].animate.mock.calls.at(-1)![1]).toBe(true);
+    }
+    const before = fallbackRigs.map((rig) => rig.root.position.toArray());
+    expect(before[0][1]).not.toBe(datum);
+    const dispose = vi.fn();
+    await act(async () => pendingAssets[0]({ dispose }));
+    authoredRigs.forEach((rig, i) => {
+      expect(rig.root.position.x).toBe(before[i][0]);
+      expect(rig.root.position.z).toBe(before[i][2]);
+      expect(rig.root.position.y).toBe(datum);
+    });
+    draw(mode === 'run' ? 1300 : 1100);
+    authoredRigs.forEach((rig) => expect(rig.root.position.y).toBe(datum));
+    view.unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  }
+);

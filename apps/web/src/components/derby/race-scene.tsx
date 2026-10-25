@@ -16,6 +16,8 @@ import {
 import { createStrideClock } from './stride-clock';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+const RUNNER_GROUND_Y = 0.035;
+
 /** Locally hosted CC0 rigs, original racecourse and server-authoritative race progress. */
 export default function RaceScene({
   round,
@@ -289,7 +291,7 @@ export default function RaceScene({
       numbers.push(label);
       // The track box is centred at .01 with .05 height. The gait's local
       // ground datum is zero, so lift the complete runner to its .035 top.
-      root.position.set(0, 0.035, (i - (round.field - 1) / 2) * 2.15);
+      root.position.set(0, RUNNER_GROUND_Y, (i - (round.field - 1) / 2) * 2.15);
       return horse;
     });
     // One stable dynamic buffer for all number leaders, shared in both the
@@ -399,7 +401,14 @@ export default function RaceScene({
         }
         replacements.forEach((horse, i) => {
           const previous = horses[i];
-          horse.root.position.copy(previous.root.position);
+          // The procedural fallback bounces its entire root, while the authored
+          // rig carries vertical gait in its bones. Preserve displayed progress
+          // and lane only; adopting its temporary root Y would float the hooves.
+          horse.root.position.set(
+            previous.root.position.x,
+            RUNNER_GROUND_Y,
+            previous.root.position.z
+          );
           const label = previous.root.children.find((child) => child instanceof THREE.Sprite);
           if (label) horse.root.add(label);
           scene.remove(previous.root);
