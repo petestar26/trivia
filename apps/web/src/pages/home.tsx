@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -10,9 +11,14 @@ import {
   Sparkles,
   LockKeyhole,
   Plus,
+  Search,
+  X,
+  Heart,
 } from 'lucide-react';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { MotionShelf } from '@/components/member/motion-shelf';
+import { DashboardHighlights } from '@/components/member/dashboard-highlights';
+import { useFavoriteGames } from '@/lib/use-favorite-games';
 import { api, unwrapData } from '@/lib/api';
 import {
   memberGameDestination,
@@ -20,6 +26,7 @@ import {
   PRACTICE_ROUTES,
   type MemberGame,
 } from '@/lib/member-game-catalog';
+import './home.css';
 
 interface LoungeGroup {
   id: string;
@@ -33,6 +40,10 @@ interface LoungeGroup {
 
 export function HomePage() {
   const { user } = useAuth();
+  const [gameSearch, setGameSearch] = useState('');
+  const [gameView, setGameView] = useState<'all' | 'ready' | 'upcoming' | 'favorites'>('all');
+  const { favoriteIds, toggleFavorite, storageUnavailable } = useFavoriteGames(user?.id);
+  const gameSearchInput = useRef<HTMLInputElement>(null);
   const catalog = useQuery({
     queryKey: ['games'],
     queryFn: async () =>
@@ -62,6 +73,30 @@ export function HomePage() {
         Number(!!memberGameDestination(b)) - Number(!!memberGameDestination(a)) ||
         a.name.localeCompare(b.name)
     );
+  const readyCount = games.filter((game) => !!memberGameDestination(game)).length;
+  const search = gameSearch.trim().toLocaleLowerCase();
+  const visibleGames = games.filter((game) => {
+    const ready = !!memberGameDestination(game);
+    return (
+      (gameView === 'all' ||
+        (gameView === 'favorites'
+          ? favoriteIds.includes(game.id)
+          : gameView === 'ready'
+            ? ready
+            : !ready)) &&
+      `${game.name} ${game.key.replace(/_/g, ' ')}`.toLocaleLowerCase().includes(search)
+    );
+  });
+  const showFutureCard = gameView === 'all' && !search;
+  function clearGameFilters() {
+    setGameSearch('');
+    setGameView('all');
+    gameSearchInput.current?.focus();
+  }
+  function clearGameSearch() {
+    setGameSearch('');
+    gameSearchInput.current?.focus();
+  }
   // Private rooms appear only for their own members. "Active" describes open rooms, not online presence.
   const activeGroups = (groups.data ?? []).filter(
     (g) => g.status === 'ACTIVE' && (!g.isPrivate || g.isMember)
@@ -80,12 +115,12 @@ export function HomePage() {
             <span>next game.</span>
           </h1>
           <p>
-            Welcome back, {user?.displayName || user?.username}. Your favorite games and your
-            people, all in one place.
+            Welcome back, {user?.displayName || user?.username || 'player'}. Your favorite games and
+            your people, all in one place.
           </p>
-          <Link to="/casino" className="qube-primary-link">
-            Explore games <ArrowUpRight size={18} />
-          </Link>
+          <a href="#lounge-games-title" className="qube-primary-link">
+            Browse the collection <ArrowUpRight size={18} />
+          </a>
           <p className="ruby-hero-note">Free practice · no cash prizes</p>
         </div>
         <span className="ruby-hero-seal">
@@ -94,30 +129,103 @@ export function HomePage() {
       </section>
       <div className="ruby-welcome-strip">
         <div>
-          <span className="ruby-status-dot" /> A new round every minute{' '}
-          <small>Spin · Keno · Dice · Crash Point practice</small>
+          <span className="ruby-status-dot" /> Your member lounge
+          <small>Discover games. Find your people.</small>
         </div>
         <Link to="/wallet">
           <Wallet size={18} />
           <span>
-            Coins <b>{wallet.data?.coinsBalance ?? '—'}</b>
+            Coins <b>{wallet.isError ? '—' : (wallet.data?.coinsBalance ?? '—')}</b>
           </span>
           <span>
-            Game Points <b>{wallet.data?.gamePointsBalance ?? '—'}</b>
+            Game Points <b>{wallet.isError ? '—' : (wallet.data?.gamePointsBalance ?? '—')}</b>
           </span>
           <ArrowUpRight size={16} />
         </Link>
+        {(wallet.isPending || wallet.isError) && (
+          <small className="ruby-wallet-state" role="status">
+            {wallet.isError
+              ? 'Balances unavailable. Open your wallet to retry.'
+              : 'Loading balances…'}
+          </small>
+        )}
       </div>
+      <DashboardHighlights
+        userId={user?.id}
+        games={games}
+        catalogState={catalog.isPending ? 'loading' : catalog.isError ? 'error' : 'ready'}
+      />
       <section aria-labelledby="lounge-games-title">
         <div className="qube-section-heading">
           <div>
             <p className="qube-eyebrow">THE GAME COLLECTION</p>
-            <h2 id="lounge-games-title">Every game. Your way.</h2>
+            <h2 id="lounge-games-title" tabIndex={-1}>
+              Every game. Your way.
+            </h2>
+            <p className="ruby-collection-caption">
+              The complete collection, including what’s coming next.
+            </p>
           </div>
           <Link to="/casino">
             Casino <ArrowRight size={16} />
           </Link>
         </div>
+        {!catalog.isPending && !catalog.isError && games.length > 0 && (
+          <div className="ruby-game-discovery">
+            <div className="ruby-game-toolbar">
+              <div className="ruby-game-filters" role="group" aria-label="Game availability">
+                {(
+                  [
+                    ['all', 'All games', games.length],
+                    ['ready', 'Ready to explore', readyCount],
+                    ['upcoming', 'Not yet available', games.length - readyCount],
+                    [
+                      'favorites',
+                      'Favorites',
+                      games.filter((game) => favoriteIds.includes(game.id)).length,
+                    ],
+                  ] as const
+                ).map(([value, label, count]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={gameView === value}
+                    onClick={() => setGameView(value)}
+                  >
+                    {label} <span>{count}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="ruby-game-search" role="search" aria-label="Game collection">
+                <label className="sr-only" htmlFor="lounge-game-search">
+                  Search game collection
+                </label>
+                <Search size={18} aria-hidden="true" />
+                <input
+                  ref={gameSearchInput}
+                  id="lounge-game-search"
+                  type="search"
+                  placeholder="Find your next game"
+                  value={gameSearch}
+                  onChange={(event) => setGameSearch(event.target.value)}
+                />
+                {gameSearch && (
+                  <button type="button" aria-label="Clear game search" onClick={clearGameSearch}>
+                    <X size={17} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="ruby-game-results" role="status">
+              Showing {visibleGames.length} of {games.length} games
+            </p>
+            <p className="ruby-favorites-note">
+              {storageUnavailable
+                ? 'Favorites are unavailable because this browser cannot safely load or save them.'
+                : 'Your favorites are saved for this account in this browser.'}
+            </p>
+          </div>
+        )}
         {catalog.isPending ? (
           <div className="ruby-loading" role="status">
             Loading the game collection…
@@ -127,9 +235,31 @@ export function HomePage() {
             <p>We couldn't load the games.</p>
             <button onClick={() => void catalog.refetch()}>Retry games</button>
           </div>
+        ) : games.length && !visibleGames.length ? (
+          <div className="ruby-empty ruby-game-no-results">
+            <Search size={28} aria-hidden="true" />
+            <h3>
+              {gameView === 'favorites' && !search
+                ? 'Your favorites start here.'
+                : 'No games match these filters.'}
+            </h3>
+            <p>
+              {gameView === 'favorites' && !search
+                ? 'Use the heart beside a game to save it to this collection.'
+                : 'Try another name or return to the full collection.'}
+            </p>
+            <button type="button" onClick={clearGameFilters}>
+              Clear filters
+            </button>
+          </div>
         ) : games.length ? (
-          <MotionShelf label="Games" count={games.length + 1} allowGrid>
-            {games.map((game) => {
+          <MotionShelf
+            label="Games"
+            count={visibleGames.length + Number(showFutureCard)}
+            allowGrid
+            initialView="grid"
+          >
+            {visibleGames.map((game) => {
               const to = memberGameDestination(game);
               const content = (
                 <>
@@ -144,10 +274,10 @@ export function HomePage() {
                         ? game.key === 'number_challenge'
                           ? 'Pick 1–100 · free practice scores, no stakes.'
                           : game.key === 'thunder_derby_3d'
-                          ? 'Six or eight horses · practice credits only.'
-                          : game.key === 'virtual_football_3d'
-                            ? 'Ten matches every five minutes · practice credits only.'
-                            : 'One-minute rounds · practice credits only.'
+                            ? 'Six or eight horses · practice credits only.'
+                            : game.key === 'virtual_football_3d'
+                              ? 'Ten matches every five minutes · practice credits only.'
+                              : 'One-minute rounds · practice credits only.'
                         : to
                           ? game.mode === 'BONUS'
                             ? 'Test your knowledge. Play for free.'
@@ -168,28 +298,51 @@ export function HomePage() {
                   </div>
                 </>
               );
-              return to ? (
-                <Link className="ruby-game-card" key={game.id} to={to}>
-                  {content}
-                </Link>
-              ) : (
-                <article className="ruby-game-card is-upcoming" key={game.id}>
-                  {content}
-                </article>
+              return (
+                <div className="ruby-game-tile" key={game.id}>
+                  {to ? (
+                    <Link className="ruby-game-card" to={to}>
+                      {content}
+                    </Link>
+                  ) : (
+                    <article className="ruby-game-card is-upcoming">{content}</article>
+                  )}
+                  <button
+                    type="button"
+                    className="ruby-favorite-button"
+                    disabled={storageUnavailable || !user?.id}
+                    aria-label={`${favoriteIds.includes(game.id) ? 'Remove' : 'Add'} ${game.name} ${favoriteIds.includes(game.id) ? 'from' : 'to'} favorites`}
+                    aria-pressed={favoriteIds.includes(game.id)}
+                    onClick={() => {
+                      // Removing the focused tile from the filtered view must leave focus on a stable control.
+                      if (gameView === 'favorites' && favoriteIds.includes(game.id))
+                        gameSearchInput.current?.focus();
+                      toggleFavorite(game.id);
+                    }}
+                  >
+                    <Heart
+                      size={18}
+                      aria-hidden="true"
+                      fill={favoriteIds.includes(game.id) ? 'currentColor' : 'none'}
+                    />
+                  </button>
+                </div>
               );
             })}
-            <article className="ruby-future-card">
-              <div className="ruby-future-gem">
-                <Plus size={36} />
-              </div>
-              <span>THE COLLECTION GROWS</span>
-              <h3>More to discover</h3>
-              <p>
-                A place for the next game.
-                <br />
-                New releases appear here when ready.
-              </p>
-            </article>
+            {showFutureCard && (
+              <article className="ruby-future-card">
+                <div className="ruby-future-gem">
+                  <Plus size={36} />
+                </div>
+                <span>THE COLLECTION GROWS</span>
+                <h3>More to discover</h3>
+                <p>
+                  A place for the next game.
+                  <br />
+                  New releases appear here when ready.
+                </p>
+              </article>
+            )}
           </MotionShelf>
         ) : (
           <div className="ruby-empty">The game collection is being prepared.</div>

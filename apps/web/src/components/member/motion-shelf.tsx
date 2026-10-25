@@ -6,17 +6,19 @@ export function MotionShelf({
   children,
   count,
   allowGrid = false,
+  initialView = 'carousel',
 }: {
   label: string;
   children: ReactNode;
   count: number;
   allowGrid?: boolean;
+  initialView?: 'carousel' | 'grid';
 }) {
   const shelf = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [grid, setGrid] = useState(false);
+  const [grid, setGrid] = useState(() => allowGrid && initialView === 'grid');
   const [reduced, setReduced] = useState(
     () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   );
