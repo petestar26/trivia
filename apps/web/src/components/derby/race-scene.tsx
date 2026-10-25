@@ -517,10 +517,15 @@ export default function RaceScene({
       renderer.domElement.removeEventListener('webglcontextrestored', restored);
       horses.forEach((horse) => horse.dispose?.());
       assets?.dispose();
-      renderer.dispose();
+      // Keep renderer bookkeeping alive while its resource dispose listeners
+      // release uploaded buffers, material textures and the owned shadow target.
+      // renderer.dispose() clears WebGLProperties, making later texture events
+      // unable to find the uploaded handles that still need gl.deleteTexture.
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
+      sun.shadow.dispose();
+      renderer.dispose();
       renderer.domElement.remove();
     };
   }, [round.field, contextRevision]);

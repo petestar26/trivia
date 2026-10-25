@@ -167,3 +167,49 @@ it('contains a scheduled draw failure, stops its loop and can rebuild on explici
   expect(screen.queryByText(/3D view unavailable/)).toBeNull();
   expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
 });
+
+it('releases scene GPU owners and the sunlight shadow before renderer state is discarded', async () => {
+  const three = await import('three');
+  const events: string[] = [];
+  const geometryDispose = three.BufferGeometry.prototype.dispose,
+    materialDispose = three.Material.prototype.dispose,
+    textureDispose = three.Texture.prototype.dispose;
+  vi.spyOn(three.BufferGeometry.prototype, 'dispose').mockImplementation(function (
+    this: import('three').BufferGeometry
+  ) {
+    events.push('geometry');
+    geometryDispose.call(this);
+  });
+  vi.spyOn(three.Material.prototype, 'dispose').mockImplementation(function (
+    this: import('three').Material
+  ) {
+    events.push('material');
+    materialDispose.call(this);
+  });
+  vi.spyOn(three.Texture.prototype, 'dispose').mockImplementation(function (
+    this: import('three').Texture
+  ) {
+    events.push('texture');
+    textureDispose.call(this);
+  });
+  const shadowPrototype = Object.getPrototypeOf(new three.DirectionalLight().shadow),
+    shadowDispose = shadowPrototype.dispose;
+  vi.spyOn(shadowPrototype, 'dispose').mockImplementation(function (this: object) {
+    events.push('shadow');
+    shadowDispose.call(this);
+  });
+  state.disposed.mockImplementationOnce(() => {
+    events.push('renderer');
+  });
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  events.length = 0; // Ignore temporary geometry merges during construction.
+  view.unmount();
+  const renderer = events.indexOf('renderer');
+  expect(renderer).toBeGreaterThan(-1);
+  for (const owner of ['geometry', 'material', 'texture', 'shadow']) {
+    expect(events).toContain(owner);
+    expect(events.every((event, index) => event !== owner || index < renderer)).toBe(true);
+  }
+  expect(events.filter((event) => event === 'shadow')).toHaveLength(1);
+  expect(events.filter((event) => event === 'renderer')).toHaveLength(1);
+});
