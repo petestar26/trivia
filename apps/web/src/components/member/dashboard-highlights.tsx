@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore, useRef, useCallback } from 'react';
 import { onlineManager, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -31,18 +31,28 @@ interface DashboardHighlightsProps {
 /** Read-only display of existing public practice receipts. No prize or entry logic lives here. */
 export function DashboardHighlights({ userId, games, catalogState }: DashboardHighlightsProps) {
   const [selectedGame, setSelectedGame] = useState<string>('sky_crash');
-  const online = useSyncExternalStore(
-    onlineManager.subscribe,
-    () => onlineManager.isOnline(),
-    () => true
+  const disconnectGeneration = useRef(0);
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      onlineManager.subscribe((online) => {
+        if (!online) disconnectGeneration.current += 1;
+        notify();
+      }),
+    []
   );
+  const connection = useSyncExternalStore(
+    subscribe,
+    () => `${disconnectGeneration.current}:${onlineManager.isOnline()}`,
+    () => '0:true'
+  );
+  const online = connection.endsWith(':true');
   const available = feeds.filter((feed) =>
     games.some((game) => game.key === feed.key && !!memberGameDestination(game))
   );
   const selected = available.find((feed) => feed.key === selectedGame) ?? available[0];
   const results = useQuery({
-    queryKey: ['dashboard-top-returns', userId, selected?.key],
-    enabled: !!userId && catalogState === 'ready' && !!selected,
+    queryKey: ['dashboard-top-returns', userId, selected?.key, connection],
+    enabled: online && !!userId && catalogState === 'ready' && !!selected,
     queryFn: async ({ signal }) => {
       if (!selected) throw new Error('No supported results feed');
       return parseDashboardReturns(

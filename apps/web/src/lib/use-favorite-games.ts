@@ -66,43 +66,45 @@ export function useFavoriteGames(userId: string | null | undefined) {
   });
 
   useEffect(() => {
-    if (!scope) {
-      setState({ scope: null, ids: EMPTY_IDS, unavailable: false, dirty: false });
-      return;
-    }
-    try {
-      const ids = parseFavorites(window.localStorage.getItem(scope));
-      setState({ scope, ids, unavailable: false, dirty: false });
-    } catch {
-      setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
-    }
+    const load = () => {
+      if (!scope) {
+        setState({ scope: null, ids: EMPTY_IDS, unavailable: false, dirty: false });
+        return;
+      }
+      try {
+        setState({
+          scope,
+          ids: parseFavorites(window.localStorage.getItem(scope)),
+          unavailable: false,
+          dirty: false,
+        });
+      } catch {
+        setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
+      }
+    };
+    const changed = (event: StorageEvent) => {
+      if (event.key === scope || event.key === null) load();
+    };
+    load();
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
   }, [scope]);
-
-  useEffect(() => {
-    if (!scope || state.scope !== scope || !state.dirty || state.unavailable) return;
-    try {
-      window.localStorage.setItem(scope, JSON.stringify({ version: 1, ids: state.ids }));
-    } catch {
-      setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
-    }
-  }, [scope, state]);
 
   const toggleFavorite = useCallback(
     (id: string) => {
-      if (!scope || !validId(id)) return;
-      setState((previous) => {
-        if (previous.scope !== scope || previous.unavailable) return previous;
-        const exists = previous.ids.includes(id);
-        if (!exists && previous.ids.length >= MAX_FAVORITES) return previous;
-        return {
-          scope,
-          ids: exists ? previous.ids.filter((value) => value !== id) : [...previous.ids, id],
-          unavailable: false,
-          dirty: true,
-        };
-      });
+      if (!scope || !validId(id) || state.scope !== scope || state.unavailable) return;
+      try {
+        const current = parseFavorites(window.localStorage.getItem(scope));
+        const exists = current.includes(id);
+        if (!exists && current.length >= MAX_FAVORITES) return;
+        const ids = exists ? current.filter((value) => value !== id) : [...current, id];
+        window.localStorage.setItem(scope, JSON.stringify({ version: 1, ids }));
+        setState({ scope, ids, unavailable: false, dirty: false });
+      } catch {
+        setState({ scope, ids: EMPTY_IDS, unavailable: true, dirty: false });
+      }
     },
-    [scope]
+    [scope, state.scope, state.unavailable]
   );
 
   // A changed account never sees the previous account's values, even before effects run.
