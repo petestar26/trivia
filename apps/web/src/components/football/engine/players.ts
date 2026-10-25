@@ -1,3 +1,10 @@
+import {
+  createNativeJogState,
+  resetNativeJogState,
+  prepareNativeJog,
+  applyNativeJogAfterPlant,
+  poseNativeJogFingers,
+} from './native-jog';
 import { placeFoot, reachHand } from './ik';
 import { loadPlayerGeometry } from './human-model';
 import { loadPlayerUpgrade, disposePlayerGeometry } from './player-assets';
@@ -165,6 +172,7 @@ export function createPlayerPool(): PlayerPool {
   let continuousLoadStarted = false;
   let continuousPlayer: ReturnType<typeof attachContinuousPlayer> | undefined;
   const reviewMotionState = createReviewMotionState();
+  const nativeJogState = createNativeJogState();
   let reviewMotionTime: number | undefined;
   let skinMaps: ReturnType<typeof appearanceTextures> | undefined;
   let fabricMaps: ReturnType<typeof appearanceTextures> | undefined;
@@ -201,7 +209,7 @@ export function createPlayerPool(): PlayerPool {
     }
     if (upgrade && base.heads && !continuousLoadStarted) {
       continuousLoadStarted = true;
-      void loadContinuousPlayerAssets()
+      void loadContinuousPlayerAssets('native-authored-v5')
         .then((assets) => {
           if (disposed) {
             assets.dispose();
@@ -231,6 +239,7 @@ export function createPlayerPool(): PlayerPool {
   function setTeams(homeClub: number, awayClub: number) {
     if (disposed) return;
     resetReviewMotionState(reviewMotionState);
+    resetNativeJogState(nativeJogState);
     reviewMotionTime = undefined;
     teams = [homeClub, awayClub];
     continuousPlayer?.dispose();
@@ -421,8 +430,10 @@ export function createPlayerPool(): PlayerPool {
           !animate ||
           dt > 0.25 ||
           (reviewMotionTime !== undefined && time < reviewMotionTime)
-        )
+        ) {
           resetReviewMotionState(reviewMotionState);
+          resetNativeJogState(nativeJogState);
+        }
         reviewMotionTime = time;
       }
       // A long suspension can skip a whole stance window; do not retain a stale world plant.
@@ -487,7 +498,12 @@ export function createPlayerPool(): PlayerPool {
       }
       if (kind !== st.kind) {
         st.plants = {};
-        st.from = st.kind === 'none' ? null : capture(rig);
+        st.from =
+          st.kind === 'none'
+            ? null
+            : i === REVIEW_PLAYER_SLOT && nativeJogState.baseline
+              ? nativeJogState.baseline
+              : capture(rig);
         st.blend = st.from ? 0 : 1;
         st.kind = kind;
       }
@@ -544,8 +560,23 @@ export function createPlayerPool(): PlayerPool {
         }
         if (st.blend >= 1) st.from = null;
       }
+      const nativeInput = {
+        kind,
+        time,
+        phase: st.phase,
+        speed: actor.speed,
+        acceleration: signedAcceleration,
+        turn: clampAbs(yawRate / 6, 1),
+        deltaSeconds: dt,
+      };
+      const nativeWeight =
+        i === REVIEW_PLAYER_SLOT && continuousPlayer && continuousAssets?.nativeAuthored
+          ? prepareNativeJog(nativeJogState, nativeInput)
+          : 0;
       if (i === REVIEW_PLAYER_SLOT && reviewAssets) {
         applyReviewPlayerMotion(rig, {
+          nativeJogWeight: nativeWeight,
+          nativeJogSample: nativeJogState.sample,
           motionState: reviewMotionState,
           deltaSeconds: dt,
           kind,
@@ -566,12 +597,16 @@ export function createPlayerPool(): PlayerPool {
         });
       }
       if (kind === 'run') plantRunFeet(rig, st.phase, Math.max(actor.speed, 1.2), st.plants);
+      if (i === REVIEW_PLAYER_SLOT && continuousPlayer && continuousAssets?.nativeAuthored)
+        applyNativeJogAfterPlant(rig, nativeJogState, nativeInput, reviewMotionState);
       poseFingers(rig, kind, true, handControls(actor, st.phase, time + i));
       if (i === REVIEW_PLAYER_SLOT && reviewAssets)
         poseReviewPlayerHands(rig, kind, true, st.phase, {
           time: actor.anim.kind === 'kick' ? actor.anim.t : time,
           direction: actor.anim.kind === 'kick' && actor.anim.spec.foot === 'L' ? -1 : 1,
         });
+      if (i === REVIEW_PLAYER_SLOT && continuousPlayer && continuousAssets?.nativeAuthored)
+        poseNativeJogFingers(rig, nativeJogState);
       const fingerWeight = 1 - Math.exp(-14 * Math.max(dt, 0));
       // Capture target before copying the previous pose; palm/wrist IK is never touched.
       fingers.forEach((name, joint) => {
@@ -643,6 +678,8 @@ export function createPlayerPool(): PlayerPool {
     dispose() {
       if (disposed) return;
       disposed = true;
+      resetNativeJogState(nativeJogState);
+      resetReviewMotionState(reviewMotionState);
       continuousPlayer?.dispose();
       reviewBody?.dispose();
       for (const head of heads) head?.dispose();

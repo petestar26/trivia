@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import poseStudy from './review-authored-poses.json';
+import { nativeJogArmTargets, type NativeJogSample } from './native-jog';
 import type { ActorState } from './director';
 import { reachHand, setWorldQuaternion } from './ik';
 import { DIM, type BoneName, type Rig, type Side } from './rig';
@@ -233,6 +234,9 @@ export interface ReviewMotionInput {
   motionState?: ReviewMotionState;
   /** Actual elapsed frame seconds; history does not advance without this value. */
   deltaSeconds?: number;
+  /** Private one-actor native visual target, using the existing arm transition owner. */
+  nativeJogWeight?: number;
+  nativeJogSample?: NativeJogSample;
 }
 
 /** Small original posture offsets, not mocap or a replacement authored/contact pipeline. */
@@ -313,7 +317,7 @@ function releasedPosture(rig: Rig, input: ReviewMotionInput): Posture {
   state.turn += (clamp(input.turn ?? 0, -1, 1) - state.turn) * response;
   const filtered = { ...input, acceleration: state.acceleration, turn: state.turn };
   const target = sampleReviewPlayerPosture(filtered);
-  const armTarget = sampleReviewArmTargets(filtered);
+  const armTarget = nativeJogArmTargets(filtered, sampleReviewArmTargets(filtered));
   if (first || input.kind === 'keeperDive' || input.kind === 'keeperReady') {
     state.elapsed = 1;
     state.outgoing = {};
@@ -388,7 +392,8 @@ export function applyReviewPlayerMotion(rig: Rig, input: ReviewMotionInput) {
   const keeper = input.kind === 'keeperReady' || input.kind === 'keeperDive';
   if (!keeper) {
     for (const [name, angles] of Object.entries(posture)) rotate(name as BoneName, angles, weight);
-    const arms = input.motionState?.arms ?? sampleReviewArmTargets(input);
+    const arms =
+      input.motionState?.arms ?? nativeJogArmTargets(input, sampleReviewArmTargets(input));
     for (const [name, angles] of Object.entries(arms))
       rig.bones[name as BoneName].quaternion.slerp(
         reviewArmTarget.setFromEuler(reviewArmEuler.set(...angles)),

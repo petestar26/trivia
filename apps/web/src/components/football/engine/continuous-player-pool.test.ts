@@ -39,7 +39,7 @@ vi.mock('./review-player', async (original) => ({
   loadReviewPlayerAssets: () => hooks.review(),
 }));
 vi.mock('./continuous-player', () => ({
-  loadContinuousPlayerAssets: () => hooks.continuous(),
+  loadContinuousPlayerAssets: (...args: unknown[]) => hooks.continuous(...args),
   attachContinuousPlayer: (...args: unknown[]) => hooks.attach(...args),
 }));
 vi.mock('./review-player-body', () => ({
@@ -269,9 +269,15 @@ function pool() {
   result.setTeams(1, 6);
   return result;
 }
-async function loaded() {
+async function loaded(native = false) {
   const review = await reviewAssets(),
     continuous = continuousAssets();
+  if (native)
+    continuous.nativeAuthored = {
+      mode: 'native-authored-v5',
+      shorts: continuous.body,
+      socks: continuous.jersey,
+    };
   hooks.upgrade.mockResolvedValue(baseline());
   hooks.review.mockResolvedValue(review);
   hooks.continuous.mockResolvedValue(continuous);
@@ -612,5 +618,90 @@ describe('optional continuous character pool lifecycle', () => {
     expect(visual.captured.jawOpen).toBe(0);
     expect(visual.captured).toEqual(face(visual.head));
     expect(JSON.stringify(frame)).toBe(facts);
+  });
+});
+
+describe('one native jog actor in the actual pool pose pipeline', () => {
+  it('preserves released facts, all roots, every other actor, and full foot/toe world matrices through run/action transitions', async () => {
+    const original = (await loaded()).pool;
+    const native = (await loaded(true)).pool;
+    expect(hooks.continuous).toHaveBeenLastCalledWith('native-authored-v5');
+    const frame = transitionFrame();
+    const selected = 1;
+    let changed = 0;
+    for (let step = 0; step < 110; step++) {
+      const kind = step < 75 ? 'run' : step < 90 ? 'idle' : 'run';
+      frame.actors[selected] = {
+        ...frame.actors[selected],
+        x: 0,
+        z: Math.min(step, 74) * 0.04,
+        heading: step < 55 ? 0 : Math.min(0.1, (step - 55) * 0.005),
+        speed: kind === 'run' ? 2.4 : 0,
+        anim: { kind },
+      };
+      const facts = JSON.stringify(frame);
+      original.apply(frame, 1 / 60, 4 + step / 60, true);
+      native.apply(frame, 1 / 60, 4 + step / 60, true);
+      expect(JSON.stringify(frame)).toBe(facts);
+      for (let i = 0; i < native.rigs.length; i++) {
+        const a = original.rigs[i],
+          b = native.rigs[i];
+        expect(b.root.matrixWorld.elements).toEqual(a.root.matrixWorld.elements);
+        if (i !== selected) {
+          expect(
+            Object.values(b.bones).map((bone) => [
+              bone.position.toArray(),
+              bone.quaternion.toArray(),
+            ])
+          ).toEqual(
+            Object.values(a.bones).map((bone) => [
+              bone.position.toArray(),
+              bone.quaternion.toArray(),
+            ])
+          );
+        } else {
+          for (const name of ['footL', 'footR', 'toeL', 'toeR'] as const) {
+            const am = a.bones[name].matrixWorld.elements,
+              bm = b.bones[name].matrixWorld.elements;
+            expect(
+              Math.max(...am.map((v, j) => Math.abs(v - bm[j]))),
+              `${step}:${name}`
+            ).toBeLessThan(5e-12);
+          }
+          if (a.bones.hips.position.distanceTo(b.bones.hips.position) > 1e-6) changed++;
+        }
+      }
+    }
+    expect(changed).toBeGreaterThan(50);
+  });
+
+  it('keeps native current arm locals on dt0 interrupted action introductions and resets reduced motion', async () => {
+    const { pool: current } = await loaded(true),
+      frame = transitionFrame(),
+      rig = current.rigs[1];
+    frame.actors[1] = { ...frame.actors[1], speed: 2.4, anim: { kind: 'run' } };
+    for (let step = 0; step < 20; step++) {
+      frame.actors[1].z += 0.04;
+      current.apply(frame, 1 / 60, 4 + step / 60, true);
+    }
+    let previous = armPose(rig);
+    let transitionTime = 4.4;
+    for (const kind of ['idle', 'run', 'idle'] as const) {
+      frame.actors[1] = { ...frame.actors[1], speed: kind === 'run' ? 2.4 : 0, anim: { kind } };
+      current.apply(frame, 0, transitionTime, true);
+      expectArmPose(rig, previous);
+      transitionTime += 1 / 60;
+      current.apply(frame, 1 / 60, transitionTime, true);
+      previous = armPose(rig);
+    }
+    current.apply(frame, 0, 5, false);
+    const fixed = Object.values(rig.bones).map((bone) => [
+      bone.position.toArray(),
+      bone.quaternion.toArray(),
+    ]);
+    current.apply(frame, 0.1, 6, false);
+    expect(
+      Object.values(rig.bones).map((bone) => [bone.position.toArray(), bone.quaternion.toArray()])
+    ).toEqual(fixed);
   });
 });

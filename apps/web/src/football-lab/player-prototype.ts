@@ -1,3 +1,10 @@
+import {
+  createNativeJogState,
+  resetNativeJogState,
+  prepareNativeJog,
+  applyNativeJogAfterPlant,
+  poseNativeJogFingers,
+} from '../components/football/engine/native-jog';
 import * as THREE from 'three';
 import { loadPlayerUpgrade } from '../components/football/engine/player-assets';
 import {
@@ -92,7 +99,7 @@ const base = await loadPlayerUpgrade();
 const assets = await loadReviewPlayerAssets().catch(() => undefined);
 const continuousAssets =
   !q.has('baseline') && assets
-    ? await loadContinuousPlayerAssets().catch(() => undefined)
+    ? await loadContinuousPlayerAssets('native-authored-v5').catch(() => undefined)
     : undefined;
 const identity = playerIdentity(Number(q.get('club') ?? 1), Number(q.get('slot') ?? 1));
 const kit = kitFromClub({
@@ -141,6 +148,8 @@ const ball = new THREE.Mesh(
 scene.add(ball);
 let plants: RunPlant = {};
 const motionState = createReviewMotionState();
+const nativeJogState = createNativeJogState();
+const nativeAdopted = !!body && !!continuousAssets?.nativeAuthored;
 let lastDrawTime: number | undefined;
 let lastKind: string | undefined;
 let transitionFrom: PoseSnapshot | undefined;
@@ -163,6 +172,7 @@ function draw(t = 0, exportFrame = false) {
   const dt = lastDrawTime === undefined ? 0 : Math.max(0, t - lastDrawTime);
   if (lastDrawTime === undefined || t < lastDrawTime || dt > 0.25) {
     resetReviewMotionState(motionState);
+    resetNativeJogState(nativeJogState);
     transitionFrom = undefined;
     lastKind = undefined;
   }
@@ -172,7 +182,7 @@ function draw(t = 0, exportFrame = false) {
   const s = finishing ?? sampleReviewMotionScenario(close ? 'idle' : scenario, t);
   const activeKick = finishing?.kickSpec ?? kick;
   if (finishing && lastKind !== undefined && lastKind !== s.motion.kind) {
-    transitionFrom = capture(rig);
+    transitionFrom = nativeJogState.baseline ?? capture(rig);
     transitionAge = 0;
     plants = {};
   }
@@ -218,8 +228,12 @@ function draw(t = 0, exportFrame = false) {
     if (s.motion.kind === 'run' || s.motion.kind === 'kick')
       feet.forEach((f) => placeFoot(rig, f.side, f.ankle, f.angles.x, f.angles.y, f.angles.z));
   }
+  const nativeInput = { ...s.motion, reducedMotion: reduced, deltaSeconds: dt };
+  const nativeWeight = nativeAdopted ? prepareNativeJog(nativeJogState, nativeInput) : 0;
   if (assets)
     applyReviewPlayerMotion(rig, {
+      nativeJogWeight: nativeWeight,
+      nativeJogSample: nativeJogState.sample,
       ...s.motion,
       time: close ? t : s.motion.time,
       reducedMotion: reduced,
@@ -228,12 +242,15 @@ function draw(t = 0, exportFrame = false) {
     });
   if (s.motion.kind === 'run' && !reduced)
     plantRunFeet(rig, s.phase, Math.max(1.2, s.speed), plants);
+  if (nativeAdopted && !reduced)
+    applyNativeJogAfterPlant(rig, nativeJogState, nativeInput, motionState);
   poseFingers(rig, s.motion.kind, !reduced);
   if (assets)
     poseReviewPlayerHands(rig, s.motion.kind, !reduced, s.phase, {
       time: s.motion.time,
       direction: s.motion.kind === 'kick' && activeKick.foot === 'L' ? -1 : 1,
     });
+  if (nativeAdopted && !reduced) poseNativeJogFingers(rig, nativeJogState);
   head.animate(t, s.motion.kind, !reduced);
   const proofPose = q.get('pose');
   if (proofPose) {
@@ -277,7 +294,7 @@ function draw(t = 0, exportFrame = false) {
   renderer.render(scene, camera);
   const caption = document.querySelector('#caption');
   if (caption)
-    caption.textContent = `Simulated character diagnostic · ${identity.name} · ${proofPose ? `${proofPose} deformation proof` : reduced ? 'reduced motion' : s.label} · ${continuousAssets ? 'continuous body / MHCLO shirt' : assets ? 'reviewed baseline' : 'PR59 fallback'}`;
+    caption.textContent = `Simulated character diagnostic · ${identity.name} · ${proofPose ? `${proofPose} deformation proof` : reduced ? 'reduced motion' : s.label} · ${nativeAdopted ? 'native authored V5 body / supported jog' : continuousAssets ? 'continuous body / MHCLO shirt' : assets ? 'reviewed baseline' : 'PR59 fallback'}`;
   return {
     t,
     scenario: finishingSequence ? 'finishingSequence' : scenario,
@@ -286,6 +303,9 @@ function draw(t = 0, exportFrame = false) {
     identity,
     reviewAssets: !!assets,
     continuousAssets: !!continuousAssets,
+    nativeAssets: nativeAdopted,
+    nativeMode: continuousAssets?.nativeAuthored?.mode ?? null,
+    nativeJogWeight: nativeJogState.appliedWeight,
     keeper,
     reduced,
     camera: { position: camera.position.toArray(), quaternion: camera.quaternion.toArray() },
@@ -295,6 +315,8 @@ function draw(t = 0, exportFrame = false) {
 }
 (window as any).__prototype = {
   ready: true,
+  nativeAssets: nativeAdopted,
+  nativeMode: continuousAssets?.nativeAuthored?.mode ?? null,
   draw,
   rig,
   head,
@@ -308,8 +330,11 @@ function draw(t = 0, exportFrame = false) {
     lastKind = undefined;
     transitionFrom = undefined;
     resetReviewMotionState(motionState);
+    resetNativeJogState(nativeJogState);
   },
   dispose() {
+    resetNativeJogState(nativeJogState);
+    resetReviewMotionState(motionState);
     head.dispose();
     body?.dispose();
     boots.dispose();
