@@ -23,6 +23,14 @@ The native contact cache is a retained steady-run reference at 2.4m/s. A fresh e
 
 The saved preview root, diagnostic ground, hidden65-joint source, old sampled keys and241 preserved native boot-reference keys are authoring context. Exclude them from a future runtime asset. Runtime must retain the accepted boot fitting once, freeze its original foot/toe/RunPlant targets before visual articulation, and preserve face ownership, reset, dynamic-buffer uploads and fallbacks. No production adapter is adopted by this change.
 
+### Switching native reference actions
+
+The older `verified-source/EDITING_GUIDE.md` describes the original baseline project. In the combined jog project, selecting a historical `REFERENCE_runtime_*` action on `Production49` also requires disabling the separate jog preview trajectory. Otherwise the historical action's root movement and the preview movement accumulate.
+
+Work on a copy. Record the current action and frame. Select `REFERENCE_JOG_ROOT_TRAJECTORY_2p4mps`, unlink its active action `REFERENCE_JOG_LINEAR_ROOT_NOT_RUNTIME` in the Action Editor, and reset that object's location and rotation to zero and scale to one. Keep the armature and meshes parented as supplied. Then select `Production49`, choose the desired `REFERENCE_runtime_*` action and set a frame inside its range. Merely unlinking the trajectory action leaves its last evaluated transform in place; resetting the object is required. Do not clear the historical action's own root channels.
+
+To return to the supported jog, unlink the historical action on `Production49` and reset that armature object's location and rotation to zero and scale to one before assigning `NIKO_JOG_SUPPORTED_V1`. The supported action contains in-place bone curves; it does not clear the last historical object transform automatically. Restore `REFERENCE_JOG_LINEAR_ROOT_NOT_RUNTIME` to `REFERENCE_JOG_ROOT_TRAJECTORY_2p4mps`, and change the scene frame to evaluate both actions. `BASELINE_CURRENT_JOG_2p4` uses the same separate preview trajectory. This is a reversible authoring-view operation; the delivered native file need not be resaved. Historical actions remain references, with the original corrective/context limitations described in the guide.
+
 ## Provenance and limits
 
 The body uses retained MakeHuman CC0 assets; the preferred tucked shirt is the separately licensed CC0 MRT/MargaretToigo asset. The jog uses the free CC0 Quaternius Standard source. Exact versions, source URLs, licences, hashes and modifications are retained in the geometry and motion provenance files and the supplied archive. New work is original numerical source geometry, weights, corrective shapes and animation fitting; it is not a professional artist sculpt or mocap take. No purchase or console-game asset is used.
