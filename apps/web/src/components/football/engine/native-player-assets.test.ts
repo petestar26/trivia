@@ -33,6 +33,18 @@ const authored = JSON.parse(
   readFileSync('../../scripts/assets/native-player/deformation-authoring-source.json', 'utf8')
 );
 const loaded: GLTF[] = [];
+// Node20 WebCrypto rejects a jsdom-realm raw ArrayBuffer. Keep fetch's
+// ArrayBuffer in that realm for GLTFLoader, then bridge only the real hash
+// operation through a Node-owned Buffer; never substitute an expected digest.
+function stubBrowserCrypto() {
+  vi.stubGlobal('crypto', {
+    subtle: {
+      digest: (algorithm: string, input: ArrayBuffer) =>
+        webcrypto.subtle.digest(algorithm, Buffer.from(new Uint8Array(input))),
+    },
+  });
+}
+
 async function parse(input = bytes) {
   const gltf = await new GLTFLoader().parseAsync(input.buffer, '');
   loaded.push(gltf);
@@ -200,7 +212,7 @@ describe('pinned native source-ID export', () => {
   });
 
   it('atomically loads explicit authored mode and rejects a mutated asset before parsing', async () => {
-    vi.stubGlobal('crypto', webcrypto);
+    stubBrowserCrypto();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: true, arrayBuffer: async () => bytes.buffer }))
@@ -222,7 +234,7 @@ describe('pinned native source-ID export', () => {
 
 describe('native renderer adoption', () => {
   it('falls back to complete strict legacy continuous assets on optional native failure', async () => {
-    vi.stubGlobal('crypto', webcrypto);
+    stubBrowserCrypto();
     const broken = bytes.slice();
     broken[broken.length - 1] ^= 1;
     vi.stubGlobal(
