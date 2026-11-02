@@ -115,39 +115,42 @@ export async function capturePaintedStage(page, path, measure = async () => ({})
         timeout: 90000,
       });
       const before = await paintedState(page);
-      if (!before.coherent) {
+      if (!before.coherent || !Array.isArray(before.paint.samples)) {
         attempts.push({ attempt, reason: 'Resize/layout changed after paint', before });
         continue;
       }
       const metadata = await measure(page);
       const png = await page.screenshot({ path, timeout: 90000 });
-      const pixelProof = await page.evaluate(async (base64) => {
-        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-        const decoded = new OffscreenCanvas(bitmap.width, bitmap.height);
-        const ctx = decoded.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(bitmap, 0, 0);
-        const p = window.__completedPaint;
-        const values = p.samples.map((s) => {
-          const actual = Array.from(ctx.getImageData(s.x, s.y, 1, 1).data);
+      const pixelProof = await page.evaluate(
+        async ({ base64, samples }) => {
+          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+          const decoded = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = decoded.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(bitmap, 0, 0);
+          const values = samples.map((s) => {
+            const actual = Array.from(ctx.getImageData(s.x, s.y, 1, 1).data);
+            return {
+              ...s,
+              screenshotRGBA: actual,
+              difference: Math.max(...actual.slice(0, 3).map((v, i) => Math.abs(v - s.rgba[i]))),
+            };
+          });
+          const unique = new Set(values.map((s) => s.rgba.slice(0, 3).join(','))).size;
+          const uniqueScreenshot = new Set(
+            values.map((s) => s.screenshotRGBA.slice(0, 3).join(','))
+          ).size;
           return {
-            ...s,
-            screenshotRGBA: actual,
-            difference: Math.max(...actual.slice(0, 3).map((v, i) => Math.abs(v - s.rgba[i]))),
+            samples: values,
+            sourceUniqueRGB: unique,
+            screenshotUniqueRGB: uniqueScreenshot,
+            within12Ratio: values.filter((s) => s.difference <= 12).length / values.length,
+            maxDifference: Math.max(...values.map((s) => s.difference)),
+            actualPNG: [bitmap.width, bitmap.height],
           };
-        });
-        const unique = new Set(values.map((s) => s.rgba.slice(0, 3).join(','))).size;
-        const uniqueScreenshot = new Set(values.map((s) => s.screenshotRGBA.slice(0, 3).join(',')))
-          .size;
-        return {
-          samples: values,
-          sourceUniqueRGB: unique,
-          screenshotUniqueRGB: uniqueScreenshot,
-          within12Ratio: values.filter((s) => s.difference <= 12).length / values.length,
-          maxDifference: Math.max(...values.map((s) => s.difference)),
-          actualPNG: [bitmap.width, bitmap.height],
-        };
-      }, png.toString('base64'));
+        },
+        { base64: png.toString('base64'), samples: before.paint.samples }
+      );
       const after = await paintedState(page);
       const same =
         after.coherent &&

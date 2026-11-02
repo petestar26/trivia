@@ -9,6 +9,8 @@ await installPaintObserver(page);
 const proof = await capturePaintedStage(page, outputPNG, () => measurePage(page));
 ```
 
+Install Playwright clock controls before installing the caller's deferred-RAF observer. A later clock installation can replace requestAnimationFrame and bypass the hold; the evidence retains a negative setup-order probe demonstrating this. The helper rejects a missing immutable readback and verifies the final frame even if callbacks unexpectedly continue.
+
 The helper observes each completed `renderer.render`. Every `renderer.setSize` increments a clear generation, including a resize to the same dimensions. It freezes RAF immediately after the requested draw and records the rendered frame, clear generation, actual canvas dimensions/rectangle, camera, round, published/displayed facts and movement mode. An observer callback changing the canvas after rendering invalidates the capture even if width and height did not change.
 
 It reads the actual GL framebuffer immediately after drawing, waits for screenshot pixels, then decodes the PNG in an independent 2D canvas. At least 80 in-viewport samples, more than 16 distinct RGB values in both sources and at least 90% RGB agreement within 12 levels are required. The grid avoids the lower HTML caption. This rejects a flat CSS background/transparent WebGL stage that dimensions and draw counters alone could accept. This conservative threshold is evidence validation for the textured Derby fixture, not a general game-image similarity score.
