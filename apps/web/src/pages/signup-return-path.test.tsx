@@ -20,6 +20,7 @@ import { RegisterPage } from './register';
 // network is mocked.
 
 vi.mock('@/lib/api', () => ({
+  googleClientId: () => undefined,
   api: { get: vi.fn(), post: vi.fn() },
 }));
 

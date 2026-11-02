@@ -143,7 +143,7 @@ class ApiClient {
   }
 
   private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
-    if (['/auth/login', '/auth/register', '/auth/logout'].includes(endpoint)) {
+    if (['/auth/login', '/auth/register', '/auth/logout', '/auth/google'].includes(endpoint)) {
       return credentialRequest(endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
     }
     assertSessionReadable();
@@ -171,7 +171,7 @@ class ApiClient {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...headers,
       },
-      credentials: read && sessionSignedOut() ? 'omit' : 'include',
+      credentials: read && endpoint !== '/auth/google/nonce' && sessionSignedOut() ? 'omit' : 'include',
     });
 
     let response = await execute();
@@ -512,6 +512,10 @@ class ApiClient {
   async listGiftTransactions(params?: { page?: number; limit?: number; role?: string }): Promise<ApiResponse<any>> {
     return this.get('/gifts/transactions', params);
   }
+  async googleNonce(): Promise<ApiResponse<{ nonce: string }>> {
+    return this.get('/auth/google/nonce');
+  }
+
 }
 
 export const api = new ApiClient();
@@ -600,4 +604,8 @@ export interface CreateCompetitionBody {
   maxParticipants?: number;
   rewardGamePoints?: number;
   rewardCoins?: number;
+}
+
+export function googleClientId(): string | undefined {
+  return import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || undefined;
 }

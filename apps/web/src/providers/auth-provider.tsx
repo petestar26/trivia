@@ -18,6 +18,7 @@ interface AuthContextType {
     password: string;
     displayName?: string;
   }) => Promise<void>;
+  googleAuthenticate: (data: { credential: string; username?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -198,6 +199,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const googleAuthenticate = async (data: { credential: string; username?: string }) => {
+    const claim = ++credGenRef.current;
+    pendingCredRef.current += 1;
+    try {
+      const response = await api.post<{ user: UserPublicProfile }>('/auth/google', data);
+      if (claim !== credGenRef.current) return;
+      if (!response.success || !response.data?.user) {
+        throw new Error(response.error?.message || 'Registration failed');
+      }
+      publishTransition(response.data.user);
+    } catch (err) {
+      if (claim !== credGenRef.current) return;
+      setIsLoading(false);
+      throw err;
+    } finally {
+      pendingCredRef.current -= 1;
+    }
+  };
+
   const logout = async () => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
@@ -250,6 +270,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         register,
+        googleAuthenticate,
         logout,
         refreshUser,
       }}

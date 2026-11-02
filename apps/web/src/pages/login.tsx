@@ -1,3 +1,4 @@
+import { GoogleSignInButton } from '@/components/google-sign-in-button';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -85,6 +86,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!workspace && <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />}
         {!workspace && <div role="group" aria-label="Sign-in method" className="flex gap-2">
           {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
             aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>

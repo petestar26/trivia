@@ -11,6 +11,7 @@ import { LoginPage } from './login';
 // REAL AuthProvider, ProtectedRoute and LoginPage. Only the network is mocked.
 
 vi.mock('@/lib/api', () => ({
+  googleClientId: () => undefined,
   api: { get: vi.fn(), post: vi.fn() },
 }));
 

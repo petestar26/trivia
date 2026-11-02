@@ -17,6 +17,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
+  GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
   API_PREFIX: z.string().default('/api/v1'),
   WS_PATH: z.string().default('/ws'),
   DATABASE_URL: z.string().url(),

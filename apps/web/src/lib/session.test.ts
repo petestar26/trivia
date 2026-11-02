@@ -191,3 +191,14 @@ describe('cookie session renewal', () => {
     expect(fetcher.mock.lastCall?.[1]).toMatchObject({ credentials: 'omit' });
   });
 });
+
+it('Google nonce includes cookies after logout and successful Google auth clears logout intent', async () => {
+  const fetcher = vi.fn().mockResolvedValue(ok()); vi.stubGlobal('fetch', fetcher);
+  const { api } = await import('./api'); const session = await import('./session');
+  await api.post('/auth/logout'); session.setSessionUser(null);
+  expect(session.sessionSignedOut()).toBe(true);
+  await api.googleNonce(); expect(fetcher.mock.lastCall?.[1]).toMatchObject({ credentials: 'include' });
+  await api.post('/auth/google', { credential: 'fixture-google' }); session.setSessionUser('google-user');
+  expect(session.sessionSignedOut()).toBe(false);
+  expect(navigator.locks.request).toHaveBeenCalledTimes(2);
+});

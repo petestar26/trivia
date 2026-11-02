@@ -1,3 +1,4 @@
+import { GoogleSignInButton } from '@/components/google-sign-in-button';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -99,12 +100,13 @@ export function RegisterPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+        <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />
           <div role="group" aria-label="Registration method" className="flex gap-2">
             {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
               aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>
               {option === 'email' ? 'Email' : 'Phone'}</Button>)}
           </div>
-          {method === 'phone' && <p className="text-sm">Use your country code and a password. No SMS code is sent. This number cannot be used to recover your account.</p>}
+        {method === 'phone' && <p className="text-sm">Use your country code and a password.</p>}
           {error && (
             <div
               role="alert"

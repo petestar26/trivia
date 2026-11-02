@@ -745,3 +745,19 @@ describe('explicit phone credential transport', () => {
     expect(apiPost).toHaveBeenCalledWith('/auth/register', data);
   });
 });
+
+describe('Google authentication uses the same identity boundary', () => {
+  it('clears the previous account cache before publishing Google identity', async () => {
+    apiGet.mockResolvedValue(meResponse(userA)); const client = makeClient(); renderStack(client); await waitForAuth();
+    client.setQueryData(['wallet'], { private: 'A' }); apiPost.mockResolvedValue(meResponse(userB));
+    await flushAuth(() => authStore.current!.googleAuthenticate({ credential: 'fixture-google' }));
+    expect(apiPost).toHaveBeenCalledWith('/auth/google', { credential: 'fixture-google' });
+    expect(authStore.current!.user?.id).toBe('user-b'); expect(client.getQueryData(['wallet'])).toBeUndefined();
+  });
+  it('surfaces username onboarding without publishing an identity', async () => {
+    apiGet.mockResolvedValue(meResponse(null)); renderStack(makeClient()); await waitForAuth();
+    apiPost.mockRejectedValue(authError(422, 'USERNAME_REQUIRED', 'Please choose a username'));
+    expect(await captureRejection(() => authStore.current!.googleAuthenticate({ credential: 'fixture-google' }))).toBeInstanceOf(Error);
+    expect(authStore.current!.user).toBeNull();
+  });
+});
