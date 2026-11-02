@@ -25,7 +25,7 @@ trackedRead(fileURLToPath(import.meta.url));
 trackedRead(path.join(root, 'postcss.config.js'));
 trackedRead(path.join(root, 'tailwind.config.js'));
 
-const auth = `export const useAuth = () => ({user:null,isAuthenticated:false,isLoading:false});`;
+const auth = `export const useAuth = () => ({user:null,isAuthenticated:false,isLoading:false,login:async()=>{throw new Error('Account design preview is disabled')},register:async()=>{throw new Error('Account design preview is disabled')}});`;
 const api = `export const api = {get:async()=>{throw new Error('Design preview has no backend')}}; export const unwrapData = ()=>{throw new Error('No backend')};`;
 const entrySource = trackedRead(path.join(qa, 'entry.tsx')).toString('utf8');
 const entryPath = path.join(qa, 'entry.offline.tsx');
@@ -65,9 +65,10 @@ const fixturePlugin = {
   transform(code, id) {
     const inputPath = id.split('?')[0];
     if (inputPath.startsWith(path.join(root, 'src') + '/') && existsSync(inputPath)) trackedRead(inputPath);
-    if (id === path.join(root, 'src/pages/welcome.tsx') || id === path.join(root, 'src/components/member/game-artwork.tsx')) {
+    const designLinkSources = ['src/pages/welcome.tsx','src/pages/login.tsx','src/pages/register.tsx','src/components/member/member-auth-shell.tsx'].map(file=>path.join(root,file));
+    if (designLinkSources.includes(id) || id === path.join(root, 'src/components/member/game-artwork.tsx')) {
       let result = code;
-      if (id.endsWith('/welcome.tsx')) {
+      if (designLinkSources.includes(id)) {
         result = `import { useNavigate as useDesignNavigate } from 'react-router-dom';
 function DesignLink({to,state,children,...props}) { const navigate=useDesignNavigate(); return <button {...props} type="button" data-design-link="true" onClick={()=>navigate(to,{state})}>{children}</button>; }
 ` + result.replace(/<Link\b/g, '<DesignLink').replace(/<\/Link>/g, '</DesignLink>');
@@ -139,8 +140,8 @@ const metadata = {
   syntheticData: true, localOnly: true, productFilesEditedByThisBuilder: false,
   network: 'CSP connect-src none plus fetch/XMLHttpRequest/WebSocket/sendBeacon denial',
   unrelatedNavigation: 'all anchor clicks prevented in document capture phase',
-  actualComponents: ['WelcomePage', 'ExplorePage', 'GameArtwork'],
-  mockedComponents: ['auth-provider', 'lib/api', 'Sign-in/registration preview gate', 'Preview-only button links'],
+  actualComponents: ['WelcomePage', 'ExplorePage', 'GameArtwork', 'LoginPage', 'RegisterPage', 'MemberAuthShell', 'PasswordInput'],
+  mockedComponents: ['auth-provider', 'lib/api', 'Disabled fieldset around actual sign-in/registration components', 'Preview-only button links'],
   css: 'actual index.css, member.css and home.css processed using source Tailwind/PostCSS configuration',
   sourceFiles: Object.fromEntries([...recorded].map(([file, hash]) => [file, hash])),
   output: {

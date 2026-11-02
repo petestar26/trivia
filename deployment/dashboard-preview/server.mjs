@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-export const SOURCE_COMMIT = '1d5f0686a4f433ae4a78f371218a5f0b67bf9c96';
-export const SOURCE_TREE = '16f623e376748e8718fe74f1405d7f49c18deb4f';
-export const HTML_SHA256 = '50e2e4a9723b84ac7aaf6c2ca4644bc8323b7b840f5fa9dc36e555e6c6ec33d1';
+export const SOURCE_COMMIT = 'd893ba6925715e2b513c32ee1b19c0db52331d97';
+export const SOURCE_TREE = '6c5456fa3f8ae1eed8667bde1c3c0fe3df224e82';
+export const HTML_SHA256 = 'ef43081e5b9ecc9bdbe24ed55fd0dbe7d3ca04276de444f04405646c98050005';
 
 /** Isolated UI-review artifact. No proxy, authentication, database or external requests. */
 export async function createPreviewServer() {

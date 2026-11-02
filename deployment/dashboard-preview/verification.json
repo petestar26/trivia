@@ -1,31 +1,29 @@
 {
-  "sourceCommit": "1d5f0686a4f433ae4a78f371218a5f0b67bf9c96",
-  "sourceTree": "16f623e376748e8718fe74f1405d7f49c18deb4f",
-  "localSourceCommit": "17bd3ba42a36c0db0223f97e93330dc7ed1abf7a",
-  "htmlSha256": "50e2e4a9723b84ac7aaf6c2ca4644bc8323b7b840f5fa9dc36e555e6c6ec33d1",
-  "scope": "Welcome and public collection design preview; no accounts, credentials or backend",
+  "sourceCommit": "d893ba6925715e2b513c32ee1b19c0db52331d97",
+  "sourceTree": "6c5456fa3f8ae1eed8667bde1c3c0fe3df224e82",
+  "localSourceCommit": "6c09ffbfa373bd9923ab34352cf92a8612991778",
+  "scope": "Welcome/public collection plus actual member sign-in/register design displayed under disabled fieldset; auth stubs throw; no backend",
   "productVerification": {
-    "welcomeAndReturnPathTests": 72,
+    "combinedWelcomeLoginRegistrationTests": 85,
+    "typecheck": "PASS",
     "productionBuild": "PASS",
-    "pwaChecks": {
-      "passed": 27,
-      "scope": "previous same welcome implementation before neutral copy-only change"
-    }
+    "pwaTests": 27
   },
-  "independentRunsOverlap": true,
-  "notEstablished": [
-    "real authentication/backend",
-    "physical device behavior",
-    "financial readiness"
-  ],
-  "historicalLogs": "previous-127-tests.log and current-135-tests.log concern earlier dashboard versions, not this welcome run",
   "previewVerification": {
     "nodeServerAndCompiledDomTests": 11,
     "failures": 0,
     "skips": 0
   },
   "failureAccounting": [
-    "Initial pnpm launcher refused dependency maintenance before tests; direct installed Vitest passed72.",
-    "First portable preview had4 DOM test failures because a linked source root did not match canonical Vite module IDs. realpathSync correction restored5/5 flow tests plus6 server checks. Initial failure log retained separately."
-  ]
+    "Initial typecheck rejected8 test role queries using unsupported exact:true; removed those test-only options, then85 tests/typecheck/build passed. Full initial tsc log was not retained; failure was observed in tool output. Earlier13/72/85 runs overlap final85 and are not additional unique coverage.",
+    "Prior portable welcome packaging failure remains separately retained as welcome-preview-before.log; it does not describe this final build."
+  ],
+  "notEstablished": [
+    "real backend authentication",
+    "real browser password manager",
+    "physical devices",
+    "current CI",
+    "financial readiness"
+  ],
+  "htmlSha256": "ef43081e5b9ecc9bdbe24ed55fd0dbe7d3ca04276de444f04405646c98050005"
 }

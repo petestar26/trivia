@@ -9,6 +9,8 @@ import { getErrorMessage } from '@/lib/error-message';
 import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MemberAuthShell } from '@/components/member/member-auth-shell';
+import { PasswordInput } from '@/components/member/password-input';
 import {
   Card,
   CardContent,
@@ -62,64 +64,64 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
     }
   };
 
-  return (
-    <div
-      className={`${workspace ? '' : 'qube-auth'} min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4`}
-    >
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
-            {workspace === 'admin'
-              ? 'Administrator sign in'
-              : workspace === 'agent'
-                ? 'Agent sign in'
-                : 'Welcome back'}
-          </CardTitle>
-          <CardDescription className="text-gray-600 dark:text-gray-400">
-            {workspace
-              ? `Sign in with your approved ${workspace === 'admin' ? 'administrator' : 'agent'} account`
-              : 'Sign in to your PlayQube account'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error && (
-            <div
-              role="alert"
-              className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
+  const form = (
+    <Card className="w-full max-w-md">
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
+          {workspace === 'admin'
+            ? 'Administrator sign in'
+            : workspace === 'agent'
+              ? 'Agent sign in'
+              : 'Welcome back'}
+        </CardTitle>
+        <CardDescription className="text-gray-600 dark:text-gray-400">
+          {workspace
+            ? `Sign in with your approved ${workspace === 'admin' ? 'administrator' : 'agent'} account`
+            : 'Sign in to your PlayQube account'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <div
+            role="alert"
+            className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
+          >
+            {error}
+          </div>
+        )}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Email
+            </label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="username"
+              placeholder="you@example.com"
+              {...register('email')}
+              disabled={isLoading}
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? 'login-email-error' : undefined}
+            />
+            {errors.email && (
+              <p
+                id="login-email-error"
+                className="text-sm text-red-600 dark:text-red-400"
+                role="alert"
+              >
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <label
+              htmlFor="password"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              {error}
-            </div>
-          )}
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="email"
-                className="text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                placeholder="you@example.com"
-                {...register('email')}
-                disabled={isLoading}
-                aria-invalid={!!errors.email}
-              />
-              {errors.email && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="password"
-                className="text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Password
-              </label>
+              Password
+            </label>
+            {workspace ? (
               <Input
                 id="password"
                 type="password"
@@ -128,56 +130,78 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 {...register('password')}
                 disabled={isLoading}
                 aria-invalid={!!errors.password}
+                aria-describedby={errors.password ? 'login-password-error' : undefined}
               />
-              {errors.password && (
-                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign in'}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex flex-col justify-center">
-          {workspace ? (
-            <div className="text-center text-sm space-y-3">
-              <p>
-                Access is assigned by the platform. Signing in here does not change your
-                permissions.
+            ) : (
+              <PasswordInput
+                id="password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                {...register('password')}
+                disabled={isLoading}
+                aria-invalid={!!errors.password}
+                aria-describedby={errors.password ? 'login-password-error' : undefined}
+              />
+            )}
+            {errors.password && (
+              <p
+                id="login-password-error"
+                className="text-sm text-red-600 dark:text-red-400"
+                role="alert"
+              >
+                {errors.password.message}
               </p>
-              {workspace === 'agent' && (
-                <p>
-                  <Link to="/agent/activate" className="text-primary-600">
-                    First sign-in? Set your private password
-                  </Link>
-                </p>
-              )}
-              <Link to="/login" className="text-primary-600">
-                Member sign in
-              </Link>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Don't have an account?{' '}
-                <Link
-                  to="/register"
-                  state={{ from: (location.state as { from?: unknown } | null)?.from }}
-                  className="text-primary-600 hover:text-primary-500 font-medium"
-                >
-                  Sign up
+            )}
+          </div>
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? 'Signing in...' : 'Sign in'}
+          </Button>
+        </form>
+      </CardContent>
+      <CardFooter className="flex flex-col justify-center">
+        {workspace ? (
+          <div className="text-center text-sm space-y-3">
+            <p>
+              Access is assigned by the platform. Signing in here does not change your permissions.
+            </p>
+            {workspace === 'agent' && (
+              <p>
+                <Link to="/agent/activate" className="text-primary-600">
+                  First sign-in? Set your private password
                 </Link>
               </p>
-              <div className="flex gap-4 text-sm mt-4">
-                <Link to="/admin/login">Admin sign in</Link>
-                <Link to="/agent/login">Agent sign in</Link>
-              </div>
-            </>
-          )}
-        </CardFooter>
-      </Card>
+            )}
+            <Link to="/login" className="text-primary-600">
+              Member sign in
+            </Link>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Don't have an account?{' '}
+              <Link
+                to="/register"
+                state={{ from: (location.state as { from?: unknown } | null)?.from }}
+                className="text-primary-600 hover:text-primary-500 font-medium"
+              >
+                Sign up
+              </Link>
+            </p>
+            <div className="flex gap-4 text-sm mt-4">
+              <Link to="/admin/login">Admin sign in</Link>
+              <Link to="/agent/login">Agent sign in</Link>
+            </div>
+          </>
+        )}
+      </CardFooter>
+    </Card>
+  );
+
+  return workspace ? (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+      {form}
     </div>
+  ) : (
+    <MemberAuthShell mode="login">{form}</MemberAuthShell>
   );
 }

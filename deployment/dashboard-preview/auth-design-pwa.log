@@ -1,0 +1,35 @@
+✔ failed entry gets one reload; a failed retry shows a usable recovery screen (6.501915ms)
+✔ offline or unavailable storage never creates an automatic reload loop (1.601668ms)
+✔ offline recovery enables the button on reconnection without refreshing automatically (0.901895ms)
+✔ empty root watchdog retries once, while a late successful mount cancels it (1.545684ms)
+✔ successful bootstrap resets the recovery budget and ignores unrelated resource errors (0.868325ms)
+✔ error during head parsing waits for the body before showing recovery (0.922077ms)
+✔ a waiting update activates before the one automatic reload (1.1774ms)
+✔ a controlled bootstrap waits for the updated controller, not only activation (2.098865ms)
+✔ an already activating or activated worker still requires control acknowledgement (1.590311ms)
+✔ registration lookup timeout leaves recovery usable and ignores late completion (1.159343ms)
+✔ activation timeout or failure does not reload later and still permits manual retry (2.180438ms)
+✔ late app rendering during recovery keeps the mounted UI and removes the native fallback (0.800864ms)
+✔ explicit retry still reloads after worker lookup or activation failures (2.564486ms)
+✔ an app mounting during worker activation is preserved instead of automatically reloaded (0.779312ms)
+✔ lazy preload failures notify a mounted app without auto-reloading or suppressing its boundary (0.802477ms)
+✔ the recovery listener loads before the application entry module (0.840974ms)
+✔ updates wait for explicit activation instead of taking over during a page load (0.843939ms)
+✔ release HTML installs its recovery guard before the generated entry module (4.631533ms)
+✔ gateway and asset navigations reach the network instead of the app shell (0.451398ms)
+✔ app navigation keeps its offline fallback, including similar prefixes (0.185949ms)
+✔ ordinary API fetches never match the navigation fallback (0.282755ms)
+✔ optional Sky Crash artwork is absent from the generated install precache (0.15328ms)
+✔ Sky Crash display assets stay within the mobile transfer budget (2.064875ms)
+✔ optional Derby renderer is bundled but absent from the install precache (0.783408ms)
+✔ optional Virtual Football renderer is bundled but absent from the install precache (0.616306ms)
+✔ Derby horse and human rigs ship locally within budget without install precaching (2.033908ms)
+✔ Football face is a small local optional asset, not install precache (0.753522ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 106.214403

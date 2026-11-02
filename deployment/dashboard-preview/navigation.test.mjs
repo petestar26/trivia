@@ -26,17 +26,23 @@ test('welcome animation can pause and resume before entering the collection',asy
     assert.equal(dom.window.document.querySelectorAll('.pq-public-game').length,9);
   } finally {dom.window.close();}
 });
-test('game sign-in and registration preserve destination without collecting credentials',async()=>{
+test('game sign-in and registration preserve destination with disabled design fields',async()=>{
   const dom=await rendered(); try {
     await click(dom,'Enter the lounge');
     const dice=[...dom.window.document.querySelectorAll('.pq-public-game')].find(node=>node.textContent.includes('Dice'));
     assert.ok(dice); dice.click(); await delay();
-    assert.match(dom.window.document.body.textContent,/Sign in to join/);
+    assert.match(dom.window.document.body.textContent,/Welcome back/);
     assert.match(dom.window.document.body.textContent,/Selected destination: \/games\/dice/);
     await click(dom,'View registration step');
-    assert.match(dom.window.document.body.textContent,/Create your account/);
+    assert.match(dom.window.document.body.textContent,/Create an account/);
     assert.match(dom.window.document.body.textContent,/Selected destination: \/games\/dice/);
-    assert.equal(dom.window.document.querySelectorAll('input,form').length,0);
+    const inputs=[...dom.window.document.querySelectorAll('input')];
+    assert.equal(inputs.length,4);
+    assert.ok(inputs.every(input=>input.matches(':disabled')));
+    const submit=dom.window.document.querySelector('button[type=submit]');
+    assert.ok(submit.matches(':disabled'));
+    submit.click(); await delay();
+    assert.equal(dom.window.document.querySelector('[role=alert]'),null);
     assert.equal(dom.window.location.href,'https://dashboard-preview.invalid/');
   } finally {dom.window.close();}
 });
@@ -44,7 +50,10 @@ test('group entry uses the same disconnected account gate',async()=>{
   const dom=await rendered(); try {
     await click(dom,'Enter the lounge'); await click(dom,'Find a group');
     assert.match(dom.window.document.body.textContent,/Selected destination: \/groups/);
-    assert.equal(dom.window.document.querySelectorAll('input,form,a[href]').length,0);
+    const inputs=[...dom.window.document.querySelectorAll('input')];
+    assert.equal(inputs.length,2);
+    assert.ok(inputs.every(input=>input.matches(':disabled')));
+    assert.equal(dom.window.document.querySelectorAll('a[href]').length,0);
   } finally {dom.window.close();}
 });
 test('preview controls have no destination on alternate activation',async()=>{

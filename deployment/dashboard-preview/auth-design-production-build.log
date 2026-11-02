@@ -1,0 +1,31 @@
+vite v5.4.21 building for production...
+transforming...
+✓ 1759 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/manifest.webmanifest                  1.01 kB
+dist/index.html                            1.03 kB │ gzip:   0.46 kB
+dist/assets/index-COnvIds9.css           265.22 kB │ gzip:  52.28 kB
+dist/assets/race-scene-BG1IPfyg.js        28.53 kB │ gzip:  12.32 kB │ map:   134.58 kB
+dist/assets/query-a9SlOeGY.js             50.61 kB │ gzip:  15.32 kB │ map:   174.99 kB
+dist/assets/ui-BRpdfUhK.js                58.71 kB │ gzip:  19.12 kB │ map:   277.26 kB
+dist/assets/football-scene-Ds2OwdH6.js    60.08 kB │ gzip:  24.05 kB │ map:   260.93 kB
+dist/assets/vendor-Dpo-y_nF.js           156.60 kB │ gzip:  51.27 kB │ map:   690.51 kB
+dist/assets/spin-win-verify-DgP9goHS.js  170.49 kB │ gzip:  59.99 kB │ map:   640.90 kB
+dist/assets/GLTFLoader-DOF-kAto.js       608.11 kB │ gzip: 155.18 kB │ map: 3,023.00 kB
+dist/assets/index-B2foTG6o.js            795.69 kB │ gzip: 222.96 kB │ map: 2,655.45 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 6.80s
+
+PWA v0.17.5
+mode      generateSW
+precache  11 entries (2066.18 KiB)
+files generated
+  dist/sw.js.map
+  dist/sw.js
+  dist/workbox-2fbc6a65.js.map
+  dist/workbox-2fbc6a65.js
