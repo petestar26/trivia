@@ -378,7 +378,27 @@ export function kickGeometry(spec: KickSpec) {
   root.y = 0;
   return { left, plant, root };
 }
-export function poseKick(rig: Rig, t: number, spec: KickSpec) {
+/** Original review-player airborne recovery: integrate a positive, decreasing
+ * speed profile. Strike/end position, initial speed, and settled speed stay fixed. */
+export function reviewKickFollowThroughProgress(value: number) {
+  const s = clamp(value, 0, 1);
+  if (s === 0 || s === 1) return s;
+  // Integrate a rapid strike-speed release plus a slower monotone recovery.
+  // v(s) = a*(1-s)^30 + b*(1-s^6)^2; a+b=3 and integral(v,0,1)=1.
+  const tailIntegral = 72 / 91,
+    tailWeight = (1 - 3 / 31) / (tailIntegral - 1 / 31),
+    strikeWeight = 3 - tailWeight;
+  return (
+    (strikeWeight / 31) * (1 - (1 - s) ** 31) + tailWeight * (s - (2 * s ** 7) / 7 + s ** 13 / 13)
+  );
+}
+
+export function poseKick(
+  rig: Rig,
+  t: number,
+  spec: KickSpec,
+  options?: { reviewFollowThrough?: boolean }
+) {
   begin(rig);
   const { left, plant } = kickGeometry(spec);
   const yaw = Math.atan2(spec.dir.x, spec.dir.z);
@@ -419,7 +439,12 @@ export function poseKick(rig: Rig, t: number, spec: KickSpec) {
   } else {
     // Follow-through decelerates after the strike, then the leg begins settling for recovery.
     const s = clamp((t - KICK.contact) / KICK.through, 0, 1);
-    ankle = contactAnkle.clone().lerp(through, 1 - (1 - s) ** 3);
+    // The selected continuous review actor sheds its strike speed sooner. Only
+    // its airborne intermediate path changes; every active contact stays fixed.
+    const progress = options?.reviewFollowThrough
+      ? reviewKickFollowThroughProgress(s)
+      : 1 - (1 - s) ** 3;
+    ankle = contactAnkle.clone().lerp(through, progress);
     pitch = lerp(0.62 - 0.15 * spec.loft, 0.3, s);
     const settle = smooth((t - 0.68) / 0.17);
     const recover = contactAnkle.clone().addScaledVector(dir, 0.16).setY(STANCE_ANKLE);

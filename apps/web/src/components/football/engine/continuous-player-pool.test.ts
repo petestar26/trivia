@@ -14,6 +14,7 @@ import {
 } from 'vitest';
 import { createPlayerPool, type PlayerPool } from './players';
 import { directorFrame } from './director';
+import * as poses from './poses';
 import { sampleReviewArmTargets } from './review-player-motion';
 import { Region, type HumanGeometry, type Rig } from './rig';
 import { headGeometry } from './player-assets';
@@ -440,6 +441,204 @@ describe('fixed review actor arm transitions', () => {
 });
 
 describe('optional continuous character pool lifecycle', () => {
+  it('holds a running kick profile across late body adoption and opts in on the next kick', async () => {
+    const continuous = continuousAssets(),
+      pending = deferred<ContinuousPlayerAssets>();
+    hooks.upgrade.mockResolvedValue(baseline());
+    hooks.review.mockResolvedValue(await reviewAssets());
+    hooks.continuous.mockReturnValue(pending.promise);
+    const current = pool();
+    await settled();
+    const kick = vi.spyOn(poses, 'poseKick');
+    const frame = transitionFrame();
+    const spec = {
+      foot: 'R' as const,
+      power: 0.75,
+      loft: 0.2,
+      ball: new THREE.Vector3(0, 0.11, 0),
+      dir: new THREE.Vector3(0, 0, 1),
+    };
+    const root = poses.kickGeometry(spec).root;
+    frame.actors[1] = {
+      ...frame.actors[1],
+      x: root.x,
+      z: root.z,
+      heading: 0,
+      speed: 0,
+      anim: { kind: 'kick', t: 0.34, spec },
+    };
+    const facts = JSON.stringify(frame);
+    current.apply(frame, 1 / 60, 4.34, true);
+    expect(kick.mock.calls.filter(([rig]) => rig === current.rigs[1]).at(-1)?.[3]).toEqual({
+      reviewFollowThrough: false,
+    });
+    const legNames = ['upperLegR', 'lowerLegR', 'footR', 'toeR'] as const;
+    const before = legNames.map((name) => current.rigs[1].bones[name].matrixWorld.toArray());
+    pending.resolve(continuous);
+    await settled();
+    expect(current.rigs[1].root.userData.continuousPlayer).toBe(true);
+    kick.mockClear();
+    current.apply(frame, 0, 4.34, true);
+    expect(kick.mock.calls.filter(([rig]) => rig === current.rigs[1]).at(-1)?.[3]).toEqual({
+      reviewFollowThrough: false,
+    });
+    legNames.forEach((name, i) =>
+      expect(
+        Math.max(
+          ...current.rigs[1].bones[name].matrixWorld.elements.map((v, j) =>
+            Math.abs(v - before[i][j])
+          )
+        ),
+        name
+      ).toBeLessThan(1e-12)
+    );
+    expect(JSON.stringify(frame)).toBe(facts);
+    frame.actors[1].anim = { kind: 'idle' };
+    current.apply(frame, 1 / 60, 4.4, true);
+    frame.actors[1].anim = { kind: 'kick', t: 0, spec };
+    current.apply(frame, 1 / 60, 4.5, true);
+    expect(kick.mock.calls.filter(([rig]) => rig === current.rigs[1]).at(-1)?.[3]).toEqual({
+      reviewFollowThrough: true,
+    });
+  });
+
+  it.each([
+    'same-team redress',
+    'changed teams',
+    'global time rewind',
+    'kick-clock rewind',
+    'official root teleport',
+    'reduced-motion exit',
+  ] as const)('handles latched profile context: %s', async (reset) => {
+    const continuous = continuousAssets(),
+      pending = deferred<ContinuousPlayerAssets>();
+    hooks.upgrade.mockResolvedValue(baseline());
+    hooks.review.mockResolvedValue(await reviewAssets());
+    hooks.continuous.mockReturnValue(pending.promise);
+    const current = pool();
+    await settled();
+    const kick = vi.spyOn(poses, 'poseKick');
+    const frame = transitionFrame();
+    const spec = {
+      foot: 'R' as const,
+      power: 0.75,
+      loft: 0.2,
+      ball: new THREE.Vector3(0, 0.11, 0),
+      dir: new THREE.Vector3(0, 0, 1),
+    };
+    const root = poses.kickGeometry(spec).root;
+    frame.actors[1] = {
+      ...frame.actors[1],
+      x: root.x,
+      z: root.z,
+      heading: 0,
+      speed: 0,
+      anim: { kind: 'kick', t: 0.34, spec },
+    };
+    const selectedProfile = () =>
+      kick.mock.calls.filter(([rig]) => rig === current.rigs[1]).at(-1)?.[3];
+    current.apply(frame, 1 / 60, 4.34, true);
+    expect(selectedProfile()).toEqual({ reviewFollowThrough: false });
+    pending.resolve(continuous);
+    await settled();
+    // Establish a same-context frame after the asynchronous same-team redress.
+    current.apply(frame, 0, 4.34, true);
+    expect(selectedProfile()).toEqual({ reviewFollowThrough: false });
+    const legNames = ['upperLegR', 'lowerLegR', 'footR', 'toeR'] as const;
+    const leg = legNames.map((name) => current.rigs[1].bones[name].matrixWorld.toArray());
+    let time = 4.4;
+    if (reset === 'same-team redress') current.setTeams(1, 6);
+    else if (reset === 'changed teams') current.setTeams(2, 7);
+    else if (reset === 'global time rewind') time = 4.2;
+    else if (reset === 'kick-clock rewind') frame.actors[1].anim = { kind: 'kick', t: 0.1, spec };
+    else if (reset === 'official root teleport') {
+      // New simulated authoritative inputs, not a runtime correction to conceal contact.
+      frame.actors[1].x += 5;
+      spec.ball.x += 5;
+    } else {
+      kick.mockClear();
+      current.apply(frame, 1 / 60, 4.35, false);
+      expect(kick).not.toHaveBeenCalled();
+    }
+    const facts = JSON.stringify(frame);
+    kick.mockClear();
+    current.apply(frame, 1 / 60, time, true);
+    expect(selectedProfile()).toEqual({ reviewFollowThrough: reset !== 'same-team redress' });
+    expect(JSON.stringify(frame)).toBe(facts);
+    expect(current.rigs[1].root.position.toArray()).toEqual([
+      frame.actors[1].x,
+      0,
+      frame.actors[1].z,
+    ]);
+    if (reset === 'same-team redress')
+      legNames.forEach((name, i) =>
+        expect(
+          Math.max(
+            ...current.rigs[1].bones[name].matrixWorld.elements.map((v, j) =>
+              Math.abs(v - leg[i][j])
+            )
+          ),
+          name
+        ).toBeLessThan(1e-12)
+      );
+  });
+
+  it('uses the new airborne profile only for the mounted review actor, with fallback/reduced-motion opting out', async () => {
+    const current = (await loaded(true)).pool;
+    const kick = vi.spyOn(poses, 'poseKick');
+    // Explicit simulated scope probe: make every slot kick so accidental roster-wide
+    // opt-in is observable even when ordinary fixtures select another kicker.
+    const frame = transitionFrame();
+    frame.actors = frame.actors.map((actor, i) => {
+      const spec = {
+        foot: 'R' as const,
+        power: 0.75,
+        loft: 0.2,
+        ball: new THREE.Vector3(i * 0.8, 0.11, 0),
+        dir: new THREE.Vector3(0, 0, 1),
+      };
+      const root = poses.kickGeometry(spec).root;
+      return {
+        ...actor,
+        x: root.x,
+        z: root.z,
+        heading: 0,
+        speed: 0,
+        anim: { kind: 'kick' as const, t: 0.34, spec },
+      };
+    });
+    const facts = JSON.stringify(frame);
+    current.apply(frame, 1 / 60, 4.34, true);
+    expect(kick).toHaveBeenCalledTimes(current.rigs.length);
+    kick.mock.calls.forEach(([rig, time, spec, options], i) => {
+      expect(rig).toBe(current.rigs[i]);
+      expect(time).toBe(0.34);
+      const animation = frame.actors[i].anim;
+      expect(spec).toBe(animation.kind === 'kick' ? animation.spec : null);
+      expect(options).toEqual({ reviewFollowThrough: i === 1 });
+    });
+    expect(JSON.stringify(frame)).toBe(facts);
+    kick.mockClear();
+    current.apply(frame, 1 / 60, 4.36, false);
+    expect(kick).not.toHaveBeenCalled();
+    expect(JSON.stringify(frame)).toBe(facts);
+
+    // A mounted accepted head without the optional continuous body keeps the old
+    // trajectory. Failure/late adoption must not silently enable the new profile.
+    hooks.upgrade.mockResolvedValue(baseline());
+    hooks.review.mockResolvedValue(await reviewAssets());
+    hooks.continuous.mockRejectedValue(new Error('simulated optional body failure'));
+    const fallback = pool();
+    await settled();
+    expect(fallback.rigs[1].root.userData.continuousPlayer).toBe(false);
+    fallback.apply(frame, 1 / 60, 4.34, true);
+    expect(kick).toHaveBeenCalledTimes(fallback.rigs.length);
+    kick.mock.calls.forEach(([, , , options]) =>
+      expect(options).toEqual({ reviewFollowThrough: false })
+    );
+    expect(JSON.stringify(frame)).toBe(facts);
+  });
+
   for (const first of ['review', 'continuous'] as const)
     it(`adopts exactly fixed slot 1 when ${first} resolves first`, async () => {
       const upgrade = deferred<HumanGeometry>(),

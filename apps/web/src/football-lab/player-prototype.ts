@@ -202,7 +202,9 @@ function draw(t = 0, exportFrame = false) {
   } else if (s.motion.kind === 'kick') {
     const root = kickGeometry(activeKick).root;
     rig.root.position.copy(root);
-    poseKick(rig, s.motion.time, activeKick);
+    poseKick(rig, s.motion.time, activeKick, {
+      reviewFollowThrough: !!body && 'syncFace' in body,
+    });
     if (s.motion.time > KICK.contact)
       ball.position.addScaledVector(activeKick.dir, (s.motion.time - KICK.contact) * 5).y +=
         Math.sin(Math.min(1, (s.motion.time - KICK.contact) / 1.5) * Math.PI) * 0.5;

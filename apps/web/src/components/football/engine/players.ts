@@ -110,6 +110,8 @@ interface RigState {
   seen: boolean;
   plants: RunPlant;
   fingerFrom: THREE.Quaternion[];
+  reviewKickProfile: boolean;
+  kickTime: number;
 }
 
 export interface PlayerPool {
@@ -158,6 +160,8 @@ export function createPlayerPool(): PlayerPool {
     seen: false,
     plants: {},
     fingerFrom: fingers.map(() => new THREE.Quaternion()),
+    reviewKickProfile: false,
+    kickTime: Number.NaN,
   }));
   let owned: Array<{ dispose(): void }> = [];
   const plates: Array<THREE.Mesh | null> = rigs.map(() => null);
@@ -241,6 +245,11 @@ export function createPlayerPool(): PlayerPool {
     resetReviewMotionState(reviewMotionState);
     resetNativeJogState(nativeJogState, rigs[REVIEW_PLAYER_SLOT]);
     reviewMotionTime = undefined;
+    if (!teams || teams[0] !== homeClub || teams[1] !== awayClub)
+      for (const state of states) {
+        state.reviewKickProfile = false;
+        state.kickTime = Number.NaN;
+      }
     teams = [homeClub, awayClub];
     continuousPlayer?.dispose();
     continuousPlayer = undefined;
@@ -431,6 +440,7 @@ export function createPlayerPool(): PlayerPool {
           dt > 0.25 ||
           (reviewMotionTime !== undefined && time < reviewMotionTime)
         ) {
+          if (reviewMotionTime !== undefined && time < reviewMotionTime) st.kickTime = Number.NaN;
           resetReviewMotionState(reviewMotionState);
           resetNativeJogState(nativeJogState, rigs[REVIEW_PLAYER_SLOT]);
         }
@@ -496,6 +506,21 @@ export function createPlayerPool(): PlayerPool {
           continuousPlayer?.syncFace({ center: frame.ball, radius: 0.11 });
         continue;
       }
+      if (actor.anim.kind === 'kick') {
+        // Appearance may load during an action. Keep its visual profile stable
+        // until a new kick/seek, rather than moving an airborne foot on adoption.
+        if (
+          kind !== st.kind ||
+          teleported ||
+          !Number.isFinite(st.kickTime) ||
+          actor.anim.t < st.kickTime
+        )
+          st.reviewKickProfile = i === REVIEW_PLAYER_SLOT && !!continuousPlayer;
+        st.kickTime = actor.anim.t;
+      } else {
+        st.reviewKickProfile = false;
+        st.kickTime = Number.NaN;
+      }
       if (kind !== st.kind) {
         st.plants = {};
         st.from =
@@ -521,7 +546,9 @@ export function createPlayerPool(): PlayerPool {
           });
           break;
         case 'kick':
-          poseKick(rig, actor.anim.t, actor.anim.spec);
+          poseKick(rig, actor.anim.t, actor.anim.spec, {
+            reviewFollowThrough: st.reviewKickProfile,
+          });
           break;
         case 'keeperReady':
           poseKeeperReady(rig, time + i, Math.sin(time * 0.7 + i));
