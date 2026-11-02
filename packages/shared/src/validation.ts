@@ -28,19 +28,27 @@ export const passwordSchema = z
   .regex(/[0-9]/, 'Password must contain at least one number')
   .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character');
 
+// Phone is an unverified login identifier, never proof of ownership/recovery.
+export const phoneSchema = z.string().max(40).transform(value => value.replace(/[ ()-]/g, ''))
+  .pipe(z.string().regex(/^\+[1-9][0-9]{7,14}$/, 'Use an international phone number, e.g. +251911234567'));
+const oneIdentifier = (value: { email?: string; phone?: string }) =>
+  (value.email !== undefined) !== (value.phone !== undefined);
+
 export const registerSchema = z.object({
   username: usernameSchema,
-  email: emailSchema,
+  email: emailSchema.optional(),
+  phone: phoneSchema.optional(),
   password: passwordSchema,
   displayName: z.string().min(1).max(100).optional(),
   referralCode: z.string().optional(),
-});
+}).refine(oneIdentifier, 'Provide exactly one email or phone number');
 
 export const loginSchema = z.object({
-  email: emailSchema,
+  email: emailSchema.optional(),
+  phone: phoneSchema.optional(),
   password: z.string().min(1, 'Password is required'),
   rememberMe: z.boolean().optional(),
-});
+}).refine(oneIdentifier, 'Provide exactly one email or phone number');
 
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),

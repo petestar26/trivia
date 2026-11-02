@@ -252,3 +252,35 @@ it.each(['admin', 'agent'] as const)(
     expect(screen.getByRole('link', { name: 'Member sign in' })).toHaveAttribute('href', '/login');
   }
 );
+
+describe('phone/password account access', () => {
+  it.each(['login', 'register'] as const)('submits normalized phone for %s without SMS', async mode => {
+    mount('/' + mode);
+    fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    if (mode === 'register') change('Username', 'phone_member');
+    change('Phone number', '+251 (911) 234-567');
+    change('Password', 'Example!Pass123');
+    submit();
+    await waitFor(() => expect(auth[mode]).toHaveBeenCalledTimes(1));
+    if (mode === 'login') expect(auth.login).toHaveBeenCalledWith('+251911234567', 'Example!Pass123', 'phone');
+    else expect(auth.register).toHaveBeenCalledWith({ username: 'phone_member', phone: '+251911234567', password: 'Example!Pass123', displayName: undefined });
+    expect(screen.getByText('Destination')).toBeInTheDocument();
+  });
+  it.each(['login', 'register'] as const)('rejects local phone without country code for %s', async mode => {
+    mount('/' + mode); fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    if (mode === 'register') change('Username', 'phone_member');
+    change('Phone number', '0911234567'); change('Password', 'Example!Pass123'); submit();
+    await screen.findByText(/Use an international phone number/);
+    expect(auth[mode]).not.toHaveBeenCalled();
+  });
+  it('switching back to email clears the phone and never submits both', () => {
+    mount('/register'); fireEvent.click(screen.getByRole('button', { name: 'Phone' }));
+    change('Phone number', '+251911234567');
+    fireEvent.click(screen.getByRole('button', { name: 'Email' }));
+    expect(screen.getByLabelText('Email', { exact: true })).toHaveValue('');
+  });
+  it.each(['admin', 'agent'] as const)('keeps %s sign-in email only', workspace => {
+    mount('/login', workspace);
+    expect(screen.queryByRole('button', { name: 'Phone' })).not.toBeInTheDocument();
+  });
+});

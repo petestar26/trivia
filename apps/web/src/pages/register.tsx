@@ -4,6 +4,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { phoneSchema } from '@socialplay/shared';
 import { useAuth } from '@/providers/auth-provider';
 import { getErrorMessage } from '@/lib/error-message';
 import { safeReturnTo } from '@/lib/safe-return-to';
@@ -52,15 +53,17 @@ export function RegisterPage() {
   const { register: registerUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [method, setMethod] = useState<'email' | 'phone'>('email');
 
   const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
 
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(method === 'phone' ? registerSchema.extend({ email: phoneSchema }) : registerSchema),
   });
 
   const onSubmit = async (data: RegisterForm) => {
@@ -69,7 +72,7 @@ export function RegisterPage() {
     try {
       await registerUser({
         username: data.username,
-        email: data.email,
+        ...(method === 'phone' ? { phone: data.email } : { email: data.email }),
         password: data.password,
         // Omit a blank display name rather than sending '': the API declares
         // displayName with minLength 1, and its handler already falls back to
@@ -96,6 +99,12 @@ export function RegisterPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div role="group" aria-label="Registration method" className="flex gap-2">
+            {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
+              aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>
+              {option === 'email' ? 'Email' : 'Phone'}</Button>)}
+          </div>
+          {method === 'phone' && <p className="text-sm">Use your country code and a password. No SMS code is sent. This number cannot be used to recover your account.</p>}
           {error && (
             <div
               role="alert"
@@ -137,13 +146,13 @@ export function RegisterPage() {
                 htmlFor="email"
                 className="text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Email
+                {method === 'email' ? 'Email' : 'Phone number'}
               </label>
               <Input
                 id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
+                type={method === 'email' ? 'email' : 'tel'}
+                autoComplete={method === 'email' ? 'email' : 'tel'}
+                placeholder={method === 'email' ? 'you@example.com' : '+251911234567'}
                 {...register('email')}
                 disabled={isLoading}
                 aria-invalid={!!errors.email}

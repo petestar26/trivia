@@ -4,6 +4,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { phoneSchema } from '@socialplay/shared';
 import { useAuth } from '@/providers/auth-provider';
 import { getErrorMessage } from '@/lib/error-message';
 import { safeReturnTo } from '@/lib/safe-return-to';
@@ -34,6 +35,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [method, setMethod] = useState<'email' | 'phone'>('email');
 
   // Where to go after signing in: the location ProtectedRoute turned the
   // visitor away from — path, query string and fragment — if it is a plain
@@ -43,16 +45,18 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
+    resolver: zodResolver(method === 'phone' ? loginSchema.extend({ email: phoneSchema }) : loginSchema),
   });
 
   const onSubmit = async (data: LoginForm) => {
     setError(null);
     setIsLoading(true);
     try {
-      await login(data.email, data.password);
+      if (method === 'phone') await login(data.email, data.password, 'phone');
+      else await login(data.email, data.password);
       // Replace, so the sign-in page does not stay behind as a Back target.
       navigate(workspace && !returnTo.startsWith(`/${workspace}/`) ? `/${workspace}` : returnTo, {
         replace: true,
@@ -81,6 +85,11 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!workspace && <div role="group" aria-label="Sign-in method" className="flex gap-2">
+          {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
+            aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>
+            {option === 'email' ? 'Email' : 'Phone'}</Button>)}
+        </div>}
         {error && (
           <div
             role="alert"
@@ -92,13 +101,13 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Email
+              {method === 'email' ? 'Email' : 'Phone number'}
             </label>
             <Input
               id="email"
-              type="email"
+              type={method === 'email' ? 'email' : 'tel'}
+              placeholder={method === 'email' ? 'you@example.com' : '+251911234567'}
               autoComplete="username"
-              placeholder="you@example.com"
               {...register('email')}
               disabled={isLoading}
               aria-invalid={!!errors.email}

@@ -726,3 +726,22 @@ it('keeps startup pending on 503 and restores the session when retry succeeds', 
   await waitForAuth();
   expect(authStore.current?.user?.id).toBe(userA.id);
 });
+
+describe('explicit phone credential transport', () => {
+  it.each(['email', 'phone'] as const)('sends only the selected %s identifier', async method => {
+    apiGet.mockResolvedValue(meResponse(null));
+    apiPost.mockResolvedValue(loginResponse(userA));
+    renderStack(makeClient());
+    const auth = await waitForAuth();
+    const identifier = method === 'phone' ? '+251911234567' : '+member@example.test';
+    await flushAuth(() => auth.login(identifier, 'Password123!', method));
+    expect(apiPost).toHaveBeenCalledWith('/auth/login', { [method]: identifier, password: 'Password123!' });
+  });
+  it('sends phone-only registration without fabricated email', async () => {
+    apiGet.mockResolvedValue(meResponse(null)); apiPost.mockResolvedValue(loginResponse(userA));
+    renderStack(makeClient()); const auth = await waitForAuth();
+    const data = { username: 'phone_member', phone: '+251911234567', password: 'Password123!' };
+    await flushAuth(() => auth.register(data));
+    expect(apiPost).toHaveBeenCalledWith('/auth/register', data);
+  });
+});

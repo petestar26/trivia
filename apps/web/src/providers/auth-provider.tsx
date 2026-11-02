@@ -10,10 +10,11 @@ interface AuthContextType {
   user: UserPublicProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, method?: 'email' | 'phone') => Promise<void>;
   register: (data: {
     username: string;
-    email: string;
+    email?: string;
+    phone?: string;
     password: string;
     displayName?: string;
   }) => Promise<void>;
@@ -147,12 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [probeRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, method: 'email' | 'phone' = 'email') => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
     try {
       const response = await api.post<{ user: UserPublicProfile }>('/auth/login', {
-        email,
+        ...(method === 'phone' ? { phone: email } : { email }),
         password,
       });
       if (claim !== credGenRef.current) return; // superseded — silently ignore
@@ -174,7 +175,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // identity must not observe any previous user's cached data.
   const register = async (data: {
     username: string;
-    email: string;
+    email?: string;
+    phone?: string;
     password: string;
     displayName?: string;
   }) => {

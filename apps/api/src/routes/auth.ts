@@ -33,10 +33,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       schema: {
         body: {
           type: 'object',
-          required: ['username', 'email', 'password'],
+          required: ['username', 'password'],
+          oneOf: [{ required: ['email'] }, { required: ['phone'] }],
           properties: {
             username: { type: 'string', minLength: 3, maxLength: 30, pattern: '^[a-zA-Z0-9_]+$' },
             email: { type: 'string', format: 'email', maxLength: 255 },
+            phone: { type: 'string', maxLength: 40 },
             // Mirrors the shared password policy (packages/shared passwordSchema):
             // min 8, max 128, at least one uppercase, lowercase, digit, special.
             password: {
@@ -57,7 +59,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { username, email, password, displayName } = request.body;
+      const parsed = registerSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('Invalid registration details');
+      const { username, email, phone, password, displayName } = parsed.data;
+      const provider = phone ? 'PHONE' : 'EMAIL';
+      const providerSubject = phone ?? email!;
+      const existingIdentity = phone ? await prisma.userAuthIdentity.findUnique({
+        where: { provider_providerSubject: { provider, providerSubject } },
+      }) : null;
+      if (existingIdentity) throw ApiError.conflict('Login identifier already registered');
 
       // ─── Referral code canonicalization (before any DB work) ───
       const rawReferralCode = (request.body as Record<string, unknown>).referralCode;
@@ -76,12 +86,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
       const existingUser = await prisma.user.findFirst({
         where: {
-          OR: [{ email }, { username }],
+          OR: [...(email ? [{ email }] : []), { username }],
         },
       });
 
       if (existingUser) {
-        if (existingUser.email === email) {
+        if (email && existingUser.email === email) {
           throw ApiError.conflict('Email already registered');
         }
         throw ApiError.conflict('Username already taken');
@@ -101,7 +111,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
             const user = await tx.user.create({
               data: {
-                email,
+                email: email ?? null,
                 username,
                 passwordHash,
                 displayName: displayName || username,
@@ -119,12 +129,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               },
             });
 
-            // Dual-write: create the EMAIL identity inside the same transaction.
+            // Identity is atomically reserved. No verification or account linking is implied.
             await tx.userAuthIdentity.create({
               data: {
                 userId: user.id,
-                provider: 'EMAIL',
-                providerSubject: email,
+                provider,
+                providerSubject,
                 verifiedAt: null,
               },
             });
@@ -193,7 +203,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             if (fields.includes('email')) throw ApiError.conflict('Email already registered');
             if (fields.includes('username')) throw ApiError.conflict('Username already taken');
             if (fields.includes('provider') && fields.includes('providerSubject')) {
-              throw ApiError.conflict('Email already registered');
+              throw ApiError.conflict(phone ? 'Login identifier already registered' : 'Email already registered');
             }
           }
           throw err;
@@ -214,9 +224,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       schema: {
         body: {
           type: 'object',
-          required: ['email', 'password'],
+          required: ['password'],
+          oneOf: [{ required: ['email'] }, { required: ['phone'] }],
           properties: {
             email: { type: 'string', format: 'email' },
+            phone: { type: 'string', maxLength: 40 },
             password: { type: 'string' },
             rememberMe: { type: 'boolean' },
           },
@@ -224,11 +236,14 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { email, password } = request.body;
-
-      const user = await prisma.user.findUnique({
-        where: { email },
-      });
+      const parsed = loginSchema.safeParse(request.body);
+      if (!parsed.success) throw ApiError.badRequest('Invalid login details');
+      const { email, phone, password } = parsed.data;
+      const identity = phone ? await prisma.userAuthIdentity.findUnique({
+        where: { provider_providerSubject: { provider: 'PHONE', providerSubject: phone } },
+        include: { user: true },
+      }) : null;
+      const user = phone ? identity?.user : await prisma.user.findUnique({ where: { email } });
 
       if (!user) {
         throw ApiError.unauthorized('Invalid credentials');
