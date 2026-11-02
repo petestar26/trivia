@@ -1,0 +1,8659 @@
+{
+  "format": "playqube-original-authored-motion-source-v1",
+  "rig": "football-body-19",
+  "rotationOrder": "YXZ",
+  "origin": "Original deliberately authored anatomical pose keys and IK control curves. No imported animation or motion capture. No samples of existing procedural pose functions.",
+  "coordinates": "+Y up, +Z forward, +X character left; degrees for source rotations, metres for reference hip positions; run phase and swing controls normalized",
+  "runtimeContactBoundary": "World-space support and ball/hand contact IK is applied after these authored body poses. The director owns event timing; exported markers do not schedule events.",
+  "contactMarkers": {
+    "kick": 0.3,
+    "keeper": 0.45,
+    "goal": 2.05
+  },
+  "clips": [
+    {
+      "name": "run",
+      "duration": 1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "left heel / opposite shoulder leads",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.814,
+            0
+          ]
+        },
+        {
+          "time": 0.12,
+          "intent": "left support / right knee gathers",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              4,
+              1
+            ],
+            "spine": [
+              7,
+              -2,
+              -1
+            ],
+            "chest": [
+              9,
+              -9,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              23,
+              -6,
+              11
+            ],
+            "foreArmL": [
+              -79,
+              0,
+              3
+            ],
+            "handL": [
+              0,
+              12,
+              8
+            ],
+            "upperArmR": [
+              -27,
+              5,
+              -12
+            ],
+            "foreArmR": [
+              -76,
+              -3,
+              -2
+            ],
+            "handR": [
+              -6,
+              -9,
+              -6
+            ],
+            "upperLegL": [
+              -5,
+              1,
+              0
+            ],
+            "lowerLegL": [
+              21,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              8,
+              -1,
+              0
+            ],
+            "lowerLegR": [
+              108,
+              0,
+              0
+            ],
+            "footR": [
+              43,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.789,
+            0
+          ]
+        },
+        {
+          "time": 0.25,
+          "intent": "left toeoff / sternum transfers",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              -2,
+              3
+            ],
+            "spine": [
+              6,
+              3,
+              -1
+            ],
+            "chest": [
+              7,
+              -1,
+              -2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -13,
+              -5,
+              12
+            ],
+            "foreArmL": [
+              -86,
+              2,
+              2
+            ],
+            "handL": [
+              -8,
+              6,
+              4
+            ],
+            "upperArmR": [
+              4,
+              4,
+              -10
+            ],
+            "foreArmR": [
+              -68,
+              0,
+              -1
+            ],
+            "handR": [
+              4,
+              -8,
+              -4
+            ],
+            "upperLegL": [
+              30,
+              1,
+              0
+            ],
+            "lowerLegL": [
+              61,
+              0,
+              0
+            ],
+            "footL": [
+              43,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -26,
+              -1,
+              0
+            ],
+            "lowerLegR": [
+              18,
+              0,
+              0
+            ],
+            "footR": [
+              -6,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.824,
+            0
+          ]
+        },
+        {
+          "time": 0.37,
+          "intent": "left knee leads / right shoulder trails",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              -6,
+              2
+            ],
+            "spine": [
+              6,
+              4,
+              -2
+            ],
+            "chest": [
+              9,
+              9,
+              1
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -38,
+              -3,
+              8
+            ],
+            "foreArmL": [
+              -92,
+              1,
+              2
+            ],
+            "handL": [
+              -9,
+              8,
+              4
+            ],
+            "upperArmR": [
+              25,
+              5,
+              -11
+            ],
+            "foreArmR": [
+              -62,
+              -2,
+              -3
+            ],
+            "handR": [
+              6,
+              -4,
+              -7
+            ],
+            "upperLegL": [
+              -37,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              101,
+              0,
+              0
+            ],
+            "footL": [
+              19,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              34,
+              0,
+              0
+            ],
+            "footR": [
+              -2,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.83,
+            0
+          ]
+        },
+        {
+          "time": 0.5,
+          "intent": "right heel / mirrored contralateral lead",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              -8,
+              3
+            ],
+            "spine": [
+              6,
+              5,
+              -1
+            ],
+            "chest": [
+              8,
+              12,
+              -2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmR": [
+              34,
+              4,
+              -8
+            ],
+            "foreArmR": [
+              -70,
+              6,
+              -3
+            ],
+            "handR": [
+              3,
+              -8,
+              -5
+            ],
+            "upperArmL": [
+              -46,
+              -7,
+              9
+            ],
+            "foreArmL": [
+              -86,
+              0,
+              2
+            ],
+            "handL": [
+              -8,
+              6,
+              8
+            ],
+            "upperLegR": [
+              -26,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              12,
+              0,
+              0
+            ],
+            "footR": [
+              -10,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ],
+            "upperLegL": [
+              32,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              74,
+              0,
+              0
+            ],
+            "footL": [
+              28,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.814,
+            0
+          ]
+        },
+        {
+          "time": 0.62,
+          "intent": "right support / left knee gathers",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              -4,
+              -1
+            ],
+            "spine": [
+              7,
+              2,
+              1
+            ],
+            "chest": [
+              9,
+              9,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmR": [
+              23,
+              6,
+              -11
+            ],
+            "foreArmR": [
+              -79,
+              0,
+              -3
+            ],
+            "handR": [
+              0,
+              -12,
+              -8
+            ],
+            "upperArmL": [
+              -27,
+              -5,
+              12
+            ],
+            "foreArmL": [
+              -76,
+              3,
+              2
+            ],
+            "handL": [
+              -6,
+              9,
+              6
+            ],
+            "upperLegR": [
+              -5,
+              -1,
+              0
+            ],
+            "lowerLegR": [
+              21,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ],
+            "upperLegL": [
+              8,
+              1,
+              0
+            ],
+            "lowerLegL": [
+              108,
+              0,
+              0
+            ],
+            "footL": [
+              43,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.789,
+            0
+          ]
+        },
+        {
+          "time": 0.75,
+          "intent": "right toeoff / sternum transfers",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              2,
+              -3
+            ],
+            "spine": [
+              6,
+              -3,
+              1
+            ],
+            "chest": [
+              7,
+              1,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmR": [
+              -13,
+              5,
+              -12
+            ],
+            "foreArmR": [
+              -86,
+              -2,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -4
+            ],
+            "upperArmL": [
+              4,
+              -4,
+              10
+            ],
+            "foreArmL": [
+              -68,
+              0,
+              1
+            ],
+            "handL": [
+              4,
+              8,
+              4
+            ],
+            "upperLegR": [
+              30,
+              -1,
+              0
+            ],
+            "lowerLegR": [
+              61,
+              0,
+              0
+            ],
+            "footR": [
+              43,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ],
+            "upperLegL": [
+              -26,
+              1,
+              0
+            ],
+            "lowerLegL": [
+              18,
+              0,
+              0
+            ],
+            "footL": [
+              -6,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.824,
+            0
+          ]
+        },
+        {
+          "time": 0.87,
+          "intent": "right knee leads / left shoulder trails",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              6,
+              -2
+            ],
+            "spine": [
+              6,
+              -4,
+              2
+            ],
+            "chest": [
+              9,
+              -9,
+              -1
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmR": [
+              -38,
+              3,
+              -8
+            ],
+            "foreArmR": [
+              -92,
+              -1,
+              -2
+            ],
+            "handR": [
+              -9,
+              -8,
+              -4
+            ],
+            "upperArmL": [
+              25,
+              -5,
+              11
+            ],
+            "foreArmL": [
+              -62,
+              2,
+              3
+            ],
+            "handL": [
+              6,
+              4,
+              7
+            ],
+            "upperLegR": [
+              -37,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              101,
+              0,
+              0
+            ],
+            "footR": [
+              19,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              34,
+              0,
+              0
+            ],
+            "footL": [
+              -2,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.83,
+            0
+          ]
+        },
+        {
+          "time": 1,
+          "intent": "closed cycle",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.814,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.42,
+                0.32,
+                0.18
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.25,
+              [
+                0.26,
+                0.47,
+                0.22
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.32,
+                0.42,
+                0.18
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.75,
+              [
+                0.47,
+                0.26,
+                0.22
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1,
+              [
+                0.42,
+                0.32,
+                0.18
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "acceleration",
+      "duration": 0.55,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "run entry",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.1,
+          "intent": "gather under centre of mass",
+          "rotationsDegrees": {
+            "hips": [
+              14,
+              0,
+              0
+            ],
+            "spine": [
+              13,
+              -4,
+              0
+            ],
+            "chest": [
+              12,
+              7,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              0,
+              0
+            ],
+            "upperArmL": [
+              38,
+              -7,
+              14
+            ],
+            "foreArmL": [
+              -93,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -48,
+              6,
+              -13
+            ],
+            "foreArmR": [
+              -96,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -28,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              35,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              38,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              91,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.785,
+            0
+          ]
+        },
+        {
+          "time": 0.24,
+          "intent": "drive rear elbow / project sternum",
+          "rotationsDegrees": {
+            "hips": [
+              18,
+              4,
+              -2
+            ],
+            "spine": [
+              10,
+              -2,
+              0
+            ],
+            "chest": [
+              10,
+              -9,
+              1
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              2,
+              0
+            ],
+            "upperArmL": [
+              45,
+              -9,
+              12
+            ],
+            "foreArmL": [
+              -91,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -60,
+              8,
+              -10
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -37,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              19,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              38,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              107,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.795,
+            0
+          ]
+        },
+        {
+          "time": 0.39,
+          "intent": "release effort without lifting head",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              4,
+              1
+            ],
+            "spine": [
+              7,
+              -2,
+              -1
+            ],
+            "chest": [
+              9,
+              -9,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              23,
+              -6,
+              11
+            ],
+            "foreArmL": [
+              -79,
+              0,
+              3
+            ],
+            "handL": [
+              0,
+              12,
+              8
+            ],
+            "upperArmR": [
+              -27,
+              5,
+              -12
+            ],
+            "foreArmR": [
+              -76,
+              -3,
+              -2
+            ],
+            "handR": [
+              -6,
+              -9,
+              -6
+            ],
+            "upperLegL": [
+              -5,
+              1,
+              0
+            ],
+            "lowerLegL": [
+              21,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              8,
+              -1,
+              0
+            ],
+            "lowerLegR": [
+              108,
+              0,
+              0
+            ],
+            "footR": [
+              43,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.807,
+            0
+          ]
+        },
+        {
+          "time": 0.55,
+          "intent": "join running",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {},
+      "markers": {
+        "maximumDrive": 0.24
+      }
+    },
+    {
+      "name": "plantedTurn",
+      "duration": 0.65,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "weight settles before pivot",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.1,
+          "intent": "outside arm opens / gaze leads",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              13,
+              -5
+            ],
+            "spine": [
+              7,
+              -11,
+              -3
+            ],
+            "chest": [
+              6,
+              -18,
+              3
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              15,
+              2
+            ],
+            "upperArmL": [
+              -12,
+              -9,
+              27
+            ],
+            "foreArmL": [
+              -78,
+              0,
+              2
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              14,
+              7,
+              -19
+            ],
+            "foreArmR": [
+              -72,
+              0,
+              -2
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.797,
+            0
+          ]
+        },
+        {
+          "time": 0.23,
+          "intent": "pelvis redirects / ribs counterbalance",
+          "rotationsDegrees": {
+            "hips": [
+              8,
+              19,
+              -8
+            ],
+            "spine": [
+              5,
+              -13,
+              -5
+            ],
+            "chest": [
+              3,
+              -24,
+              4
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -5,
+              16,
+              3
+            ],
+            "upperArmL": [
+              -21,
+              -12,
+              38
+            ],
+            "foreArmL": [
+              -82,
+              0,
+              5
+            ],
+            "handL": [
+              0,
+              -18,
+              12
+            ],
+            "upperArmR": [
+              9,
+              8,
+              -23
+            ],
+            "foreArmR": [
+              -71,
+              5,
+              -2
+            ],
+            "handR": [
+              -5,
+              17,
+              -9
+            ],
+            "upperLegL": [
+              -10,
+              -6,
+              -4
+            ],
+            "lowerLegL": [
+              37,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              19,
+              9,
+              7
+            ],
+            "lowerLegR": [
+              59,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.794,
+            0
+          ]
+        },
+        {
+          "time": 0.41,
+          "intent": "shoulders catch the new travel line",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              13,
+              -5
+            ],
+            "spine": [
+              7,
+              -11,
+              -3
+            ],
+            "chest": [
+              6,
+              -18,
+              3
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              15,
+              2
+            ],
+            "upperArmL": [
+              -12,
+              -9,
+              27
+            ],
+            "foreArmL": [
+              -78,
+              0,
+              2
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              14,
+              7,
+              -19
+            ],
+            "foreArmR": [
+              -72,
+              0,
+              -2
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.808,
+            0
+          ]
+        },
+        {
+          "time": 0.65,
+          "intent": "resume contralateral running",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              8,
+              -3
+            ],
+            "spine": [
+              6,
+              -5,
+              1
+            ],
+            "chest": [
+              8,
+              -12,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -8,
+              0,
+              0
+            ],
+            "upperArmL": [
+              34,
+              -4,
+              8
+            ],
+            "foreArmL": [
+              -70,
+              -6,
+              3
+            ],
+            "handL": [
+              3,
+              8,
+              5
+            ],
+            "upperArmR": [
+              -46,
+              7,
+              -9
+            ],
+            "foreArmR": [
+              -86,
+              0,
+              -2
+            ],
+            "handR": [
+              -8,
+              -6,
+              -8
+            ],
+            "upperLegL": [
+              -26,
+              2,
+              0
+            ],
+            "lowerLegL": [
+              12,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              32,
+              -2,
+              0
+            ],
+            "lowerLegR": [
+              74,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {},
+      "markers": {
+        "brace": 0.23
+      }
+    },
+    {
+      "name": "idle",
+      "duration": 4,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "settled alert stance",
+          "rotationsDegrees": {
+            "hips": [
+              1,
+              0,
+              0
+            ],
+            "spine": [
+              2,
+              0,
+              0
+            ],
+            "chest": [
+              2,
+              0,
+              0
+            ],
+            "neck": [
+              0,
+              0,
+              0
+            ],
+            "head": [
+              0,
+              -4,
+              0
+            ],
+            "upperArmL": [
+              -3,
+              0,
+              7
+            ],
+            "foreArmL": [
+              -17,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -4,
+              0,
+              -8
+            ],
+            "foreArmR": [
+              -18,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              0,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              0,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.925,
+            0
+          ]
+        },
+        {
+          "time": 1.1,
+          "intent": "inhale / relaxed scanning",
+          "rotationsDegrees": {
+            "hips": [
+              1,
+              0,
+              0
+            ],
+            "spine": [
+              2,
+              0,
+              0
+            ],
+            "chest": [
+              3,
+              2,
+              0
+            ],
+            "neck": [
+              0,
+              0,
+              0
+            ],
+            "head": [
+              -1,
+              5,
+              1
+            ],
+            "upperArmL": [
+              -3,
+              0,
+              7
+            ],
+            "foreArmL": [
+              -17,
+              0,
+              0
+            ],
+            "handL": [
+              2,
+              4,
+              3
+            ],
+            "upperArmR": [
+              -4,
+              0,
+              -8
+            ],
+            "foreArmR": [
+              -18,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              -3,
+              -3
+            ],
+            "upperLegL": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              0,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              0,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.929,
+            0
+          ]
+        },
+        {
+          "time": 2.5,
+          "intent": "settled alert stance",
+          "rotationsDegrees": {
+            "hips": [
+              1,
+              0,
+              0
+            ],
+            "spine": [
+              2,
+              0,
+              0
+            ],
+            "chest": [
+              2,
+              0,
+              0
+            ],
+            "neck": [
+              0,
+              0,
+              0
+            ],
+            "head": [
+              0,
+              -4,
+              0
+            ],
+            "upperArmL": [
+              -3,
+              0,
+              7
+            ],
+            "foreArmL": [
+              -17,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -4,
+              0,
+              -8
+            ],
+            "foreArmR": [
+              -18,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              0,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              0,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.925,
+            0
+          ]
+        },
+        {
+          "time": 3.3,
+          "intent": "small gaze correction",
+          "rotationsDegrees": {
+            "hips": [
+              1,
+              0,
+              0
+            ],
+            "spine": [
+              2,
+              0,
+              0
+            ],
+            "chest": [
+              3,
+              2,
+              0
+            ],
+            "neck": [
+              0,
+              0,
+              0
+            ],
+            "head": [
+              -1,
+              5,
+              1
+            ],
+            "upperArmL": [
+              -3,
+              0,
+              7
+            ],
+            "foreArmL": [
+              -17,
+              0,
+              0
+            ],
+            "handL": [
+              2,
+              4,
+              3
+            ],
+            "upperArmR": [
+              -4,
+              0,
+              -8
+            ],
+            "foreArmR": [
+              -18,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              -3,
+              -3
+            ],
+            "upperLegL": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              0,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              0,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.927,
+            0
+          ]
+        },
+        {
+          "time": 4,
+          "intent": "closed cycle",
+          "rotationsDegrees": {
+            "hips": [
+              1,
+              0,
+              0
+            ],
+            "spine": [
+              2,
+              0,
+              0
+            ],
+            "chest": [
+              2,
+              0,
+              0
+            ],
+            "neck": [
+              0,
+              0,
+              0
+            ],
+            "head": [
+              0,
+              -4,
+              0
+            ],
+            "upperArmL": [
+              -3,
+              0,
+              7
+            ],
+            "foreArmL": [
+              -17,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -4,
+              0,
+              -8
+            ],
+            "foreArmR": [
+              -18,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              0,
+              0,
+              0
+            ],
+            "footL": [
+              0,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              0,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              0,
+              0,
+              0
+            ],
+            "footR": [
+              0,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.925,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.12,
+                0.13,
+                0.12
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              2,
+              [
+                0.16,
+                0.14,
+                0.1
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              4,
+              [
+                0.12,
+                0.13,
+                0.12
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "kick",
+      "duration": 0.85,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "load / find ball",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              5,
+              -1
+            ],
+            "spine": [
+              5,
+              -3,
+              0
+            ],
+            "chest": [
+              3,
+              -6,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              4,
+              5,
+              0
+            ],
+            "upperArmL": [
+              -8,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -39,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -15,
+              0,
+              -19
+            ],
+            "foreArmR": [
+              -45,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -5,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              18,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -15,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              37,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.878,
+            0
+          ]
+        },
+        {
+          "time": 0.09,
+          "intent": "plant knee soft / hips wind",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              -16,
+              5
+            ],
+            "spine": [
+              6,
+              14,
+              -3
+            ],
+            "chest": [
+              6,
+              22,
+              -3
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              10,
+              -6,
+              0
+            ],
+            "upperArmL": [
+              -48,
+              7,
+              34
+            ],
+            "foreArmL": [
+              -46,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              -12,
+              13
+            ],
+            "upperArmR": [
+              22,
+              -9,
+              -24
+            ],
+            "foreArmR": [
+              -51,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              13,
+              -8
+            ],
+            "upperLegL": [
+              -6,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              16,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              39,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              76,
+              0,
+              0
+            ],
+            "footR": [
+              24,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.848,
+            0
+          ]
+        },
+        {
+          "time": 0.18,
+          "intent": "sternum held over support",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              -16,
+              5
+            ],
+            "spine": [
+              6,
+              14,
+              -3
+            ],
+            "chest": [
+              6,
+              22,
+              -3
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              10,
+              -6,
+              0
+            ],
+            "upperArmL": [
+              -48,
+              7,
+              34
+            ],
+            "foreArmL": [
+              -46,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              -12,
+              13
+            ],
+            "upperArmR": [
+              22,
+              -9,
+              -24
+            ],
+            "foreArmR": [
+              -51,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              13,
+              -8
+            ],
+            "upperLegL": [
+              -6,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              16,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              39,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              76,
+              0,
+              0
+            ],
+            "footR": [
+              24,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.843,
+            0
+          ]
+        },
+        {
+          "time": 0.26,
+          "intent": "unwind arm and pelvis ahead of boot",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              9,
+              -3
+            ],
+            "spine": [
+              8,
+              -8,
+              1
+            ],
+            "chest": [
+              7,
+              -16,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -29,
+              6,
+              40
+            ],
+            "foreArmL": [
+              -42,
+              0,
+              0
+            ],
+            "handL": [
+              -3,
+              -10,
+              14
+            ],
+            "upperArmR": [
+              -12,
+              -6,
+              -28
+            ],
+            "foreArmR": [
+              -53,
+              0,
+              0
+            ],
+            "handR": [
+              1,
+              11,
+              -12
+            ],
+            "upperLegL": [
+              -6,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              18,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -44,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              20,
+              0,
+              0
+            ],
+            "footR": [
+              35,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.875,
+            0
+          ]
+        },
+        {
+          "time": 0.3,
+          "intent": "unchanged ball-contact marker",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              9,
+              -3
+            ],
+            "spine": [
+              8,
+              -8,
+              1
+            ],
+            "chest": [
+              7,
+              -16,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -29,
+              6,
+              40
+            ],
+            "foreArmL": [
+              -42,
+              0,
+              0
+            ],
+            "handL": [
+              -3,
+              -10,
+              14
+            ],
+            "upperArmR": [
+              -12,
+              -6,
+              -28
+            ],
+            "foreArmR": [
+              -53,
+              0,
+              0
+            ],
+            "handR": [
+              1,
+              11,
+              -12
+            ],
+            "upperLegL": [
+              -6,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              18,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -44,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              20,
+              0,
+              0
+            ],
+            "footR": [
+              35,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.88,
+            0
+          ]
+        },
+        {
+          "time": 0.45,
+          "intent": "ribs follow / opposite hand arrests spin",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              19,
+              -4
+            ],
+            "spine": [
+              5,
+              -11,
+              -1
+            ],
+            "chest": [
+              3,
+              -25,
+              4
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              7,
+              4,
+              0
+            ],
+            "upperArmL": [
+              11,
+              5,
+              32
+            ],
+            "foreArmL": [
+              -54,
+              0,
+              0
+            ],
+            "handL": [
+              -4,
+              -6,
+              9
+            ],
+            "upperArmR": [
+              -44,
+              -6,
+              -34
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              3,
+              9,
+              -14
+            ],
+            "upperLegL": [
+              -7,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              24,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -69,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              18,
+              0,
+              0
+            ],
+            "footR": [
+              20,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.875,
+            0
+          ]
+        },
+        {
+          "time": 0.65,
+          "intent": "leg follow-through decelerates",
+          "rotationsDegrees": {
+            "hips": [
+              9,
+              19,
+              -4
+            ],
+            "spine": [
+              5,
+              -11,
+              -1
+            ],
+            "chest": [
+              3,
+              -25,
+              4
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              7,
+              4,
+              0
+            ],
+            "upperArmL": [
+              11,
+              5,
+              32
+            ],
+            "foreArmL": [
+              -54,
+              0,
+              0
+            ],
+            "handL": [
+              -4,
+              -6,
+              9
+            ],
+            "upperArmR": [
+              -44,
+              -6,
+              -34
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              3,
+              9,
+              -14
+            ],
+            "upperLegL": [
+              -7,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              24,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -69,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              18,
+              0,
+              0
+            ],
+            "footR": [
+              20,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.888,
+            0
+          ]
+        },
+        {
+          "time": 0.85,
+          "intent": "balanced recovery",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              5,
+              -1
+            ],
+            "spine": [
+              5,
+              -3,
+              0
+            ],
+            "chest": [
+              3,
+              -6,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              4,
+              5,
+              0
+            ],
+            "upperArmL": [
+              -8,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -39,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -15,
+              0,
+              -19
+            ],
+            "foreArmR": [
+              -45,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -5,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              18,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -15,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              37,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.89,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.18,
+                0.25,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.18,
+              [
+                0.12,
+                0.18,
+                0.48
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.3,
+              [
+                0.23,
+                0.22,
+                0.36
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.65,
+              [
+                0.28,
+                0.26,
+                0.27
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.85,
+              [
+                0.16,
+                0.16,
+                0.14
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {
+        "contact": 0.3,
+        "throughEnd": 0.64,
+        "recovered": 0.85
+      }
+    },
+    {
+      "name": "keeperReady",
+      "duration": 1.1,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "palms ready / knees soft",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.76,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "read ball with quiet head",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              10,
+              -3,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -19,
+              3,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              2,
+              9
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              -2,
+              -9
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.754,
+            0
+          ]
+        },
+        {
+          "time": 0.7,
+          "intent": "reset ready width",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.765,
+            0
+          ]
+        },
+        {
+          "time": 1.1,
+          "intent": "closed ready cycle",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.76,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.09,
+                0.09,
+                0.72
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.55,
+              [
+                0.16,
+                0.16,
+                0.65
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.1,
+              [
+                0.09,
+                0.09,
+                0.72
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "keeperDive",
+      "duration": 1.8,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "ready before load",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.76,
+            0
+          ]
+        },
+        {
+          "time": 0.07,
+          "intent": "load near knee / gaze fixed",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              0,
+              -4
+            ],
+            "spine": [
+              3,
+              0,
+              0
+            ],
+            "chest": [
+              13,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.71,
+            0
+          ]
+        },
+        {
+          "time": 0.16,
+          "intent": "launch through outside hip",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              0,
+              -23
+            ],
+            "spine": [
+              3,
+              0,
+              0
+            ],
+            "chest": [
+              4,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.79,
+            0
+          ]
+        },
+        {
+          "time": 0.29,
+          "intent": "reach through shoulder line",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              0,
+              -49
+            ],
+            "spine": [
+              3,
+              0,
+              0
+            ],
+            "chest": [
+              -1,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              76
+            ],
+            "foreArmL": [
+              -29,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -51
+            ],
+            "foreArmR": [
+              -33,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.92,
+            0
+          ]
+        },
+        {
+          "time": 0.45,
+          "intent": "unchanged interception-contact marker",
+          "rotationsDegrees": {
+            "hips": [
+              7,
+              0,
+              -79
+            ],
+            "spine": [
+              3,
+              0,
+              0
+            ],
+            "chest": [
+              -2,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              76
+            ],
+            "foreArmL": [
+              -29,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -51
+            ],
+            "foreArmR": [
+              -33,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.91,
+            0
+          ]
+        },
+        {
+          "time": 0.58,
+          "intent": "extend then prepare side landing",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -86
+            ],
+            "spine": [
+              8,
+              0,
+              -2
+            ],
+            "chest": [
+              2,
+              0,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              76
+            ],
+            "foreArmL": [
+              -29,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -51
+            ],
+            "foreArmR": [
+              -33,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.46,
+            0
+          ]
+        },
+        {
+          "time": 0.8,
+          "intent": "absorb through shoulder and ribs",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -82
+            ],
+            "spine": [
+              8,
+              0,
+              -2
+            ],
+            "chest": [
+              14,
+              0,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.16,
+            0
+          ]
+        },
+        {
+          "time": 1.02,
+          "intent": "protect hands / gather lower knee",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -78
+            ],
+            "spine": [
+              8,
+              0,
+              0
+            ],
+            "chest": [
+              10,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.17,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "push with support forearm",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -59
+            ],
+            "spine": [
+              8,
+              0,
+              0
+            ],
+            "chest": [
+              13,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              22,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.24,
+            0
+          ]
+        },
+        {
+          "time": 1.44,
+          "intent": "bring knee below pelvis",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -32
+            ],
+            "spine": [
+              8,
+              0,
+              0
+            ],
+            "chest": [
+              15,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.46,
+            0
+          ]
+        },
+        {
+          "time": 1.65,
+          "intent": "recover feet under centre",
+          "rotationsDegrees": {
+            "hips": [
+              10,
+              0,
+              -10
+            ],
+            "spine": [
+              8,
+              0,
+              0
+            ],
+            "chest": [
+              9,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -12,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -36,
+              -8,
+              43
+            ],
+            "foreArmL": [
+              68,
+              0,
+              0
+            ],
+            "handL": [
+              -8,
+              -7,
+              12
+            ],
+            "upperArmR": [
+              -40,
+              10,
+              -43
+            ],
+            "foreArmR": [
+              -64,
+              0,
+              0
+            ],
+            "handR": [
+              -5,
+              9,
+              -13
+            ],
+            "upperLegL": [
+              18,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              57,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -9,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              84,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.68,
+            0
+          ]
+        },
+        {
+          "time": 1.8,
+          "intent": "join ready posture",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.76,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.1,
+                0.1,
+                0.7
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.16,
+              [
+                0.02,
+                0.04,
+                0.92
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.45,
+              [
+                0.08,
+                0.1,
+                1
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.8,
+              [
+                0.4,
+                0.34,
+                0.2
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.25,
+                0.27,
+                0.34
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.8,
+              [
+                0.1,
+                0.1,
+                0.7
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {
+        "contact": 0.45,
+        "land": 0.8,
+        "recovered": 1.8
+      }
+    },
+    {
+      "name": "celebrate",
+      "duration": 1.35,
+      "loop": false,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "hands gather before lift",
+          "rotationsDegrees": {
+            "hips": [
+              13,
+              0,
+              0
+            ],
+            "spine": [
+              10,
+              0,
+              0
+            ],
+            "chest": [
+              8,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -28,
+              0,
+              43
+            ],
+            "foreArmL": [
+              -61,
+              0,
+              0
+            ],
+            "handL": [
+              4,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -28,
+              0,
+              -43
+            ],
+            "foreArmR": [
+              -61,
+              0,
+              0
+            ],
+            "handR": [
+              4,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -10,
+              0,
+              5
+            ],
+            "lowerLegL": [
+              25,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              -10,
+              0,
+              -5
+            ],
+            "lowerLegR": [
+              25,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.9,
+            0
+          ]
+        },
+        {
+          "time": 0.22,
+          "intent": "lift from shoulder / elbows soft",
+          "rotationsDegrees": {
+            "hips": [
+              0,
+              0,
+              0
+            ],
+            "spine": [
+              -6,
+              0,
+              0
+            ],
+            "chest": [
+              -9,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -164,
+              0,
+              24
+            ],
+            "foreArmL": [
+              -18,
+              0,
+              0
+            ],
+            "handL": [
+              -9,
+              -7,
+              9
+            ],
+            "upperArmR": [
+              -168,
+              0,
+              -22
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              -6,
+              9,
+              -8
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.92,
+            0
+          ]
+        },
+        {
+          "time": 0.52,
+          "intent": "asymmetric cheer accent",
+          "rotationsDegrees": {
+            "hips": [
+              0,
+              0,
+              0
+            ],
+            "spine": [
+              -6,
+              0,
+              0
+            ],
+            "chest": [
+              -11,
+              5,
+              -2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -171,
+              -4,
+              28
+            ],
+            "foreArmL": [
+              -29,
+              0,
+              0
+            ],
+            "handL": [
+              -9,
+              -7,
+              9
+            ],
+            "upperArmR": [
+              -157,
+              3,
+              -29
+            ],
+            "foreArmR": [
+              -33,
+              0,
+              0
+            ],
+            "handR": [
+              -6,
+              9,
+              -8
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.94,
+            0
+          ]
+        },
+        {
+          "time": 0.84,
+          "intent": "settled overhead gesture",
+          "rotationsDegrees": {
+            "hips": [
+              0,
+              0,
+              0
+            ],
+            "spine": [
+              -6,
+              0,
+              0
+            ],
+            "chest": [
+              -9,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -164,
+              0,
+              24
+            ],
+            "foreArmL": [
+              -18,
+              0,
+              0
+            ],
+            "handL": [
+              -9,
+              -7,
+              9
+            ],
+            "upperArmR": [
+              -168,
+              0,
+              -22
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              -6,
+              9,
+              -8
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.92,
+            0
+          ]
+        },
+        {
+          "time": 1.35,
+          "intent": "hold with relaxed wrists",
+          "rotationsDegrees": {
+            "hips": [
+              0,
+              0,
+              0
+            ],
+            "spine": [
+              -6,
+              0,
+              0
+            ],
+            "chest": [
+              -9,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -18,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -164,
+              0,
+              24
+            ],
+            "foreArmL": [
+              -18,
+              0,
+              0
+            ],
+            "handL": [
+              -9,
+              -7,
+              9
+            ],
+            "upperArmR": [
+              -168,
+              0,
+              -22
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              -6,
+              9,
+              -8
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.92,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.12,
+                0.12,
+                0.45
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.22,
+              [
+                0.05,
+                0.05,
+                0.8
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.52,
+              [
+                0.4,
+                0.45,
+                0.15
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.84,
+              [
+                0.08,
+                0.09,
+                0.7
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.35,
+              [
+                0.08,
+                0.09,
+                0.7
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "celebrateWings",
+      "duration": 1.2,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "gesture entry / load",
+          "rotationsDegrees": {
+            "hips": [
+              3,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -6,
+              0,
+              0
+            ],
+            "upperArmL": [
+              0,
+              0,
+              81
+            ],
+            "foreArmL": [
+              -10,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              0,
+              0,
+              -83
+            ],
+            "foreArmR": [
+              -10,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "individual torso accent",
+          "rotationsDegrees": {
+            "hips": [
+              3,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              7,
+              4,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -6,
+              -5,
+              1
+            ],
+            "upperArmL": [
+              0,
+              0,
+              81
+            ],
+            "foreArmL": [
+              -10,
+              0,
+              0
+            ],
+            "handL": [
+              -5,
+              6,
+              5
+            ],
+            "upperArmR": [
+              0,
+              0,
+              -83
+            ],
+            "foreArmR": [
+              -10,
+              0,
+              0
+            ],
+            "handR": [
+              -3,
+              -5,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.73,
+          "intent": "gesture settles",
+          "rotationsDegrees": {
+            "hips": [
+              3,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -6,
+              0,
+              0
+            ],
+            "upperArmL": [
+              0,
+              0,
+              81
+            ],
+            "foreArmL": [
+              -10,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              0,
+              0,
+              -83
+            ],
+            "foreArmR": [
+              -10,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "closed gesture cycle",
+          "rotationsDegrees": {
+            "hips": [
+              3,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              2
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -6,
+              0,
+              0
+            ],
+            "upperArmL": [
+              0,
+              0,
+              81
+            ],
+            "foreArmL": [
+              -10,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              0,
+              0,
+              -83
+            ],
+            "foreArmR": [
+              -10,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.24,
+                0.2,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "celebrateSlide",
+      "duration": 1.2,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "gesture entry / load",
+          "rotationsDegrees": {
+            "hips": [
+              -12,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -17,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -142,
+              0,
+              51
+            ],
+            "foreArmL": [
+              -25,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -147,
+              0,
+              -48
+            ],
+            "foreArmR": [
+              -25,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "individual torso accent",
+          "rotationsDegrees": {
+            "hips": [
+              -12,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -15,
+              4,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -22,
+              -5,
+              1
+            ],
+            "upperArmL": [
+              -142,
+              0,
+              51
+            ],
+            "foreArmL": [
+              -25,
+              0,
+              0
+            ],
+            "handL": [
+              -5,
+              6,
+              5
+            ],
+            "upperArmR": [
+              -147,
+              0,
+              -48
+            ],
+            "foreArmR": [
+              -25,
+              0,
+              0
+            ],
+            "handR": [
+              -3,
+              -5,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.73,
+          "intent": "gesture settles",
+          "rotationsDegrees": {
+            "hips": [
+              -12,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -17,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -142,
+              0,
+              51
+            ],
+            "foreArmL": [
+              -25,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -147,
+              0,
+              -48
+            ],
+            "foreArmR": [
+              -25,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "closed gesture cycle",
+          "rotationsDegrees": {
+            "hips": [
+              -12,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -17,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -142,
+              0,
+              51
+            ],
+            "foreArmL": [
+              -25,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -147,
+              0,
+              -48
+            ],
+            "foreArmR": [
+              -25,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.24,
+                0.2,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "celebrateLeap",
+      "duration": 1.2,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "gesture entry / load",
+          "rotationsDegrees": {
+            "hips": [
+              -4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -10,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -161,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -20,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -166,
+              0,
+              -20
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "individual torso accent",
+          "rotationsDegrees": {
+            "hips": [
+              -4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -8,
+              4,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              -5,
+              1
+            ],
+            "upperArmL": [
+              -161,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -20,
+              0,
+              0
+            ],
+            "handL": [
+              -5,
+              6,
+              5
+            ],
+            "upperArmR": [
+              -166,
+              0,
+              -20
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              -3,
+              -5,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.73,
+          "intent": "gesture settles",
+          "rotationsDegrees": {
+            "hips": [
+              -4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -10,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -161,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -20,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -166,
+              0,
+              -20
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "closed gesture cycle",
+          "rotationsDegrees": {
+            "hips": [
+              -4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              -10,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -17,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -161,
+              0,
+              19
+            ],
+            "foreArmL": [
+              -20,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -166,
+              0,
+              -20
+            ],
+            "foreArmR": [
+              -20,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.24,
+                0.2,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "celebrateHug",
+      "duration": 1.2,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "gesture entry / load",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -73,
+              11,
+              31
+            ],
+            "foreArmL": [
+              -41,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -76,
+              -9,
+              -29
+            ],
+            "foreArmR": [
+              -41,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "individual torso accent",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              7,
+              4,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              -5,
+              1
+            ],
+            "upperArmL": [
+              -73,
+              11,
+              31
+            ],
+            "foreArmL": [
+              -41,
+              0,
+              0
+            ],
+            "handL": [
+              -5,
+              6,
+              5
+            ],
+            "upperArmR": [
+              -76,
+              -9,
+              -29
+            ],
+            "foreArmR": [
+              -41,
+              0,
+              0
+            ],
+            "handR": [
+              -3,
+              -5,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.73,
+          "intent": "gesture settles",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -73,
+              11,
+              31
+            ],
+            "foreArmL": [
+              -41,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -76,
+              -9,
+              -29
+            ],
+            "foreArmR": [
+              -41,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "closed gesture cycle",
+          "rotationsDegrees": {
+            "hips": [
+              4,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              5,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              -7,
+              0,
+              0
+            ],
+            "upperArmL": [
+              -73,
+              11,
+              31
+            ],
+            "foreArmL": [
+              -41,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              -76,
+              -9,
+              -29
+            ],
+            "foreArmR": [
+              -41,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.24,
+                0.2,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "dejected",
+      "duration": 1.2,
+      "loop": true,
+      "keys": [
+        {
+          "time": 0,
+          "intent": "gesture entry / load",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              15,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              11,
+              0,
+              6
+            ],
+            "foreArmL": [
+              -11,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              9,
+              0,
+              -5
+            ],
+            "foreArmR": [
+              -11,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.32,
+          "intent": "individual torso accent",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              17,
+              4,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              22,
+              -5,
+              1
+            ],
+            "upperArmL": [
+              11,
+              0,
+              6
+            ],
+            "foreArmL": [
+              -11,
+              0,
+              0
+            ],
+            "handL": [
+              -5,
+              6,
+              5
+            ],
+            "upperArmR": [
+              9,
+              0,
+              -5
+            ],
+            "foreArmR": [
+              -11,
+              0,
+              0
+            ],
+            "handR": [
+              -3,
+              -5,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 0.73,
+          "intent": "gesture settles",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              15,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              11,
+              0,
+              6
+            ],
+            "foreArmL": [
+              -11,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              9,
+              0,
+              -5
+            ],
+            "foreArmR": [
+              -11,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        },
+        {
+          "time": 1.2,
+          "intent": "closed gesture cycle",
+          "rotationsDegrees": {
+            "hips": [
+              5,
+              0,
+              0
+            ],
+            "spine": [
+              5,
+              0,
+              0
+            ],
+            "chest": [
+              15,
+              0,
+              0
+            ],
+            "neck": [
+              -3,
+              0,
+              0
+            ],
+            "head": [
+              22,
+              0,
+              0
+            ],
+            "upperArmL": [
+              11,
+              0,
+              6
+            ],
+            "foreArmL": [
+              -11,
+              0,
+              0
+            ],
+            "handL": [
+              0,
+              0,
+              5
+            ],
+            "upperArmR": [
+              9,
+              0,
+              -5
+            ],
+            "foreArmR": [
+              -11,
+              0,
+              0
+            ],
+            "handR": [
+              0,
+              0,
+              -5
+            ],
+            "upperLegL": [
+              -24,
+              0,
+              0
+            ],
+            "lowerLegL": [
+              14,
+              0,
+              0
+            ],
+            "footL": [
+              -10,
+              0,
+              0
+            ],
+            "toeL": [
+              0,
+              0,
+              0
+            ],
+            "upperLegR": [
+              30,
+              0,
+              0
+            ],
+            "lowerLegR": [
+              78,
+              0,
+              0
+            ],
+            "footR": [
+              28,
+              0,
+              0
+            ],
+            "toeR": [
+              0,
+              0,
+              0
+            ]
+          },
+          "hipPosition": [
+            0,
+            0.81,
+            0
+          ]
+        }
+      ],
+      "controls": {
+        "hands": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.24,
+                0.2,
+                0.32
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ],
+            [
+              1.2,
+              [
+                0.15,
+                0.17,
+                0.42
+              ],
+              [
+                0,
+                0,
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    },
+    {
+      "name": "runSwing",
+      "duration": 1,
+      "loop": false,
+      "keys": [],
+      "controls": {
+        "footTarget": {
+          "dimension": 3,
+          "keys": [
+            [
+              0,
+              [
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                -0.7
+              ]
+            ],
+            [
+              0.13,
+              [
+                0.018,
+                0.43,
+                -0.045
+              ],
+              [
+                0.17,
+                3.2,
+                0.1
+              ]
+            ],
+            [
+              0.31,
+              [
+                0.055,
+                1.0,
+                0.08
+              ],
+              [
+                0.08,
+                1.2,
+                1.1
+              ]
+            ],
+            [
+              0.5,
+              [
+                0.062,
+                1.12,
+                0.4
+              ],
+              [
+                -0.07,
+                -0.7,
+                2
+              ]
+            ],
+            [
+              0.7,
+              [
+                0.035,
+                0.65,
+                0.79
+              ],
+              [
+                -0.14,
+                -2.5,
+                1.6
+              ]
+            ],
+            [
+              0.87,
+              [
+                0.012,
+                0.13,
+                1.01
+              ],
+              [
+                -0.11,
+                -1.7,
+                0.6
+              ]
+            ],
+            [
+              1,
+              [
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                -0.7
+              ]
+            ]
+          ]
+        },
+        "footPitch": {
+          "dimension": 1,
+          "keys": [
+            [
+              0,
+              [
+                0.85
+              ],
+              [
+                0
+              ]
+            ],
+            [
+              0.16,
+              [
+                0.58
+              ],
+              [
+                -1.6
+              ]
+            ],
+            [
+              0.39,
+              [
+                0.13
+              ],
+              [
+                -0.8
+              ]
+            ],
+            [
+              0.63,
+              [
+                -0.08
+              ],
+              [
+                -0.5
+              ]
+            ],
+            [
+              0.86,
+              [
+                -0.2
+              ],
+              [
+                0
+              ]
+            ],
+            [
+              1,
+              [
+                -0.2
+              ],
+              [
+                0
+              ]
+            ]
+          ]
+        }
+      },
+      "markers": {}
+    }
+  ],
+  "rotationInterpolation": "Monotone cubic Euler handles between intentional poses, exported as dense native quaternion keys; exact authored key poses and closed-cycle seam are retained."
+}

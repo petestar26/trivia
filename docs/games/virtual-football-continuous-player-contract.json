@@ -1,0 +1,752 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Source-derived artist input, not a newly exported runtime character",
+  "capturedAt": "2026-10-19T15:28:50.856073+00:00",
+  "base": "432edee2f506773b98f5f39f94b094befa052651",
+  "tree": "5df7bc3b7fffc41b14ff5e2a16ff079a402afae7",
+  "refs": {
+    "refs/evidence/pr59-r3": {
+      "sha": "432edee2f506773b98f5f39f94b094befa052651",
+      "isAncestorOfHead": true
+    },
+    "refs/evidence/pr58-r3": {
+      "sha": "b899e158bd84a6975011182c939ef62a6fcdc1ad",
+      "isAncestorOfHead": true
+    },
+    "refs/evidence/pr57-r3": {
+      "sha": "265f15688693d3ce73efa45daf5f387b1539bbec",
+      "isAncestorOfHead": false
+    }
+  },
+  "rig": {
+    "units": "metres",
+    "up": "+Y",
+    "forward": "+Z",
+    "characterLeft": "+X",
+    "dimensions": {
+      "hipsY": 0.95,
+      "thigh": 0.43,
+      "shin": 0.42,
+      "ankleY": 0.08,
+      "upperArm": 0.29,
+      "foreArm": 0.26,
+      "footLength": 0.27,
+      "heelBack": 0.07,
+      "ballRadius": 0.11,
+      "height": 1.8
+    },
+    "boneOrder": [
+      "hips",
+      "spine",
+      "chest",
+      "neck",
+      "head",
+      "upperArmL",
+      "foreArmL",
+      "handL",
+      "upperArmR",
+      "foreArmR",
+      "handR",
+      "upperLegL",
+      "lowerLegL",
+      "footL",
+      "toeL",
+      "upperLegR",
+      "lowerLegR",
+      "footR",
+      "toeR",
+      "thumb1L",
+      "thumb2L",
+      "thumb3L",
+      "index1L",
+      "index2L",
+      "index3L",
+      "middle1L",
+      "middle2L",
+      "middle3L",
+      "ring1L",
+      "ring2L",
+      "ring3L",
+      "pinky1L",
+      "pinky2L",
+      "pinky3L",
+      "thumb1R",
+      "thumb2R",
+      "thumb3R",
+      "index1R",
+      "index2R",
+      "index3R",
+      "middle1R",
+      "middle2R",
+      "middle3R",
+      "ring1R",
+      "ring2R",
+      "ring3R",
+      "pinky1R",
+      "pinky2R",
+      "pinky3R"
+    ],
+    "bones": {
+      "hips": {
+        "parent": null,
+        "localMetres": [
+          0,
+          0.95,
+          0
+        ],
+        "worldMetres": [
+          0,
+          0.95,
+          0
+        ]
+      },
+      "spine": {
+        "parent": "hips",
+        "localMetres": [
+          0,
+          0.1,
+          0
+        ],
+        "worldMetres": [
+          0,
+          1.05,
+          0
+        ]
+      },
+      "chest": {
+        "parent": "spine",
+        "localMetres": [
+          0,
+          0.22,
+          0
+        ],
+        "worldMetres": [
+          0,
+          1.27,
+          0
+        ]
+      },
+      "neck": {
+        "parent": "chest",
+        "localMetres": [
+          0,
+          0.24,
+          0
+        ],
+        "worldMetres": [
+          0,
+          1.51,
+          0
+        ]
+      },
+      "head": {
+        "parent": "neck",
+        "localMetres": [
+          0,
+          0.1,
+          0
+        ],
+        "worldMetres": [
+          0,
+          1.61,
+          0
+        ]
+      },
+      "upperArmL": {
+        "parent": "chest",
+        "localMetres": [
+          0.2,
+          0.17,
+          0
+        ],
+        "worldMetres": [
+          0.2,
+          1.44,
+          0
+        ]
+      },
+      "foreArmL": {
+        "parent": "upperArmL",
+        "localMetres": [
+          0,
+          -0.29,
+          0
+        ],
+        "worldMetres": [
+          0.2,
+          1.15,
+          0
+        ]
+      },
+      "handL": {
+        "parent": "foreArmL",
+        "localMetres": [
+          0,
+          -0.26,
+          0
+        ],
+        "worldMetres": [
+          0.2,
+          0.8899999999999999,
+          0
+        ]
+      },
+      "upperArmR": {
+        "parent": "chest",
+        "localMetres": [
+          -0.2,
+          0.17,
+          0
+        ],
+        "worldMetres": [
+          -0.2,
+          1.44,
+          0
+        ]
+      },
+      "foreArmR": {
+        "parent": "upperArmR",
+        "localMetres": [
+          0,
+          -0.29,
+          0
+        ],
+        "worldMetres": [
+          -0.2,
+          1.15,
+          0
+        ]
+      },
+      "handR": {
+        "parent": "foreArmR",
+        "localMetres": [
+          0,
+          -0.26,
+          0
+        ],
+        "worldMetres": [
+          -0.2,
+          0.8899999999999999,
+          0
+        ]
+      },
+      "upperLegL": {
+        "parent": "hips",
+        "localMetres": [
+          0.1,
+          -0.02,
+          0
+        ],
+        "worldMetres": [
+          0.1,
+          0.9299999999999999,
+          0
+        ]
+      },
+      "lowerLegL": {
+        "parent": "upperLegL",
+        "localMetres": [
+          0,
+          -0.43,
+          0
+        ],
+        "worldMetres": [
+          0.1,
+          0.49999999999999994,
+          0
+        ]
+      },
+      "footL": {
+        "parent": "lowerLegL",
+        "localMetres": [
+          0,
+          -0.42,
+          0
+        ],
+        "worldMetres": [
+          0.1,
+          0.07999999999999996,
+          0
+        ]
+      },
+      "toeL": {
+        "parent": "footL",
+        "localMetres": [
+          0,
+          -0.045,
+          0.17
+        ],
+        "worldMetres": [
+          0.1,
+          0.03499999999999996,
+          0.17
+        ]
+      },
+      "upperLegR": {
+        "parent": "hips",
+        "localMetres": [
+          -0.1,
+          -0.02,
+          0
+        ],
+        "worldMetres": [
+          -0.1,
+          0.9299999999999999,
+          0
+        ]
+      },
+      "lowerLegR": {
+        "parent": "upperLegR",
+        "localMetres": [
+          0,
+          -0.43,
+          0
+        ],
+        "worldMetres": [
+          -0.1,
+          0.49999999999999994,
+          0
+        ]
+      },
+      "footR": {
+        "parent": "lowerLegR",
+        "localMetres": [
+          0,
+          -0.42,
+          0
+        ],
+        "worldMetres": [
+          -0.1,
+          0.07999999999999996,
+          0
+        ]
+      },
+      "toeR": {
+        "parent": "footR",
+        "localMetres": [
+          0,
+          -0.045,
+          0.17
+        ],
+        "worldMetres": [
+          -0.1,
+          0.03499999999999996,
+          0.17
+        ]
+      },
+      "thumb1L": {
+        "parent": "handL",
+        "localMetres": [
+          -0.0227997,
+          -0.0272999,
+          0.0336
+        ],
+        "worldMetres": [
+          0.1772003,
+          0.8627000999999999,
+          0.0336
+        ]
+      },
+      "thumb2L": {
+        "parent": "thumb1L",
+        "localMetres": [
+          -0.0232932,
+          -0.0356859,
+          0.0259784
+        ],
+        "worldMetres": [
+          0.15390710000000002,
+          0.8270141999999998,
+          0.0595784
+        ]
+      },
+      "thumb3L": {
+        "parent": "thumb2L",
+        "localMetres": [
+          -0.0202551,
+          -0.0325625,
+          0.0212169
+        ],
+        "worldMetres": [
+          0.13365200000000002,
+          0.7944516999999998,
+          0.0807953
+        ]
+      },
+      "index1L": {
+        "parent": "handL",
+        "localMetres": [
+          -0.0019997,
+          -0.1135049,
+          0.0460282
+        ],
+        "worldMetres": [
+          0.19800030000000002,
+          0.7764950999999999,
+          0.0460282
+        ]
+      },
+      "index2L": {
+        "parent": "index1L",
+        "localMetres": [
+          -2e-07,
+          -0.037675,
+          0.0064589
+        ],
+        "worldMetres": [
+          0.1980001,
+          0.7388200999999999,
+          0.052487099999999995
+        ]
+      },
+      "index3L": {
+        "parent": "index2L",
+        "localMetres": [
+          0,
+          -0.0272016,
+          0.0057567
+        ],
+        "worldMetres": [
+          0.1980001,
+          0.7116184999999998,
+          0.0582438
+        ]
+      },
+      "middle1L": {
+        "parent": "handL",
+        "localMetres": [
+          0.0004003,
+          -0.1180405,
+          0.0205332
+        ],
+        "worldMetres": [
+          0.2004003,
+          0.7719594999999999,
+          0.0205332
+        ]
+      },
+      "middle2L": {
+        "parent": "middle1L",
+        "localMetres": [
+          1e-07,
+          -0.0414786,
+          0.0012857
+        ],
+        "worldMetres": [
+          0.2004004,
+          0.7304808999999999,
+          0.021818900000000002
+        ]
+      },
+      "middle3L": {
+        "parent": "middle2L",
+        "localMetres": [
+          2e-07,
+          -0.0330787,
+          0.0037023
+        ],
+        "worldMetres": [
+          0.2004006,
+          0.6974021999999999,
+          0.0255212
+        ]
+      },
+      "ring1L": {
+        "parent": "handL",
+        "localMetres": [
+          0.0001002,
+          -0.1152665,
+          -0.0080644
+        ],
+        "worldMetres": [
+          0.2001002,
+          0.7747335,
+          -0.0080644
+        ]
+      },
+      "ring2L": {
+        "parent": "ring1L",
+        "localMetres": [
+          0,
+          -0.036562,
+          -0.0014
+        ],
+        "worldMetres": [
+          0.2001002,
+          0.7381715,
+          -0.0094644
+        ]
+      },
+      "ring3L": {
+        "parent": "ring2L",
+        "localMetres": [
+          2e-07,
+          -0.0330906,
+          -0.0005524
+        ],
+        "worldMetres": [
+          0.2001004,
+          0.7050809,
+          -0.0100168
+        ]
+      },
+      "pinky1L": {
+        "parent": "handL",
+        "localMetres": [
+          -0.0015996,
+          -0.1098902,
+          -0.0355976
+        ],
+        "worldMetres": [
+          0.1984004,
+          0.7801098,
+          -0.0355976
+        ]
+      },
+      "pinky2L": {
+        "parent": "pinky1L",
+        "localMetres": [
+          2e-07,
+          -0.0358193,
+          -0.0010572
+        ],
+        "worldMetres": [
+          0.1984006,
+          0.7442905,
+          -0.0366548
+        ]
+      },
+      "pinky3L": {
+        "parent": "pinky2L",
+        "localMetres": [
+          -1e-07,
+          -0.0256834,
+          -0.0024476
+        ],
+        "worldMetres": [
+          0.1984005,
+          0.7186070999999999,
+          -0.0391024
+        ]
+      },
+      "thumb1R": {
+        "parent": "handR",
+        "localMetres": [
+          0.0227999,
+          -0.0272999,
+          0.0336
+        ],
+        "worldMetres": [
+          -0.1772001,
+          0.8627000999999999,
+          0.0336
+        ]
+      },
+      "thumb2R": {
+        "parent": "thumb1R",
+        "localMetres": [
+          0.0232931,
+          -0.035686,
+          0.0259783
+        ],
+        "worldMetres": [
+          -0.153907,
+          0.8270140999999999,
+          0.0595783
+        ]
+      },
+      "thumb3R": {
+        "parent": "thumb2R",
+        "localMetres": [
+          0.020255,
+          -0.0325626,
+          0.0212169
+        ],
+        "worldMetres": [
+          -0.133652,
+          0.7944514999999999,
+          0.0807952
+        ]
+      },
+      "index1R": {
+        "parent": "handR",
+        "localMetres": [
+          0.0019997,
+          -0.1135051,
+          0.0460281
+        ],
+        "worldMetres": [
+          -0.19800030000000002,
+          0.7764948999999999,
+          0.0460281
+        ]
+      },
+      "index2R": {
+        "parent": "index1R",
+        "localMetres": [
+          1e-07,
+          -0.037675,
+          0.0064589
+        ],
+        "worldMetres": [
+          -0.19800020000000002,
+          0.7388198999999999,
+          0.052487000000000006
+        ]
+      },
+      "index3R": {
+        "parent": "index2R",
+        "localMetres": [
+          -2e-07,
+          -0.0272016,
+          0.0057567
+        ],
+        "worldMetres": [
+          -0.19800040000000002,
+          0.7116182999999998,
+          0.05824370000000001
+        ]
+      },
+      "middle1R": {
+        "parent": "handR",
+        "localMetres": [
+          -0.0004002,
+          -0.1180409,
+          0.0205331
+        ],
+        "worldMetres": [
+          -0.2004002,
+          0.7719590999999999,
+          0.0205331
+        ]
+      },
+      "middle2R": {
+        "parent": "middle1R",
+        "localMetres": [
+          -2e-07,
+          -0.0414785,
+          0.0012857
+        ],
+        "worldMetres": [
+          -0.2004004,
+          0.7304805999999999,
+          0.0218188
+        ]
+      },
+      "middle3R": {
+        "parent": "middle2R",
+        "localMetres": [
+          -1e-07,
+          -0.0330786,
+          0.0037023
+        ],
+        "worldMetres": [
+          -0.2004005,
+          0.697402,
+          0.025521099999999998
+        ]
+      },
+      "ring1R": {
+        "parent": "handR",
+        "localMetres": [
+          -0.0001004,
+          -0.1152668,
+          -0.0080644
+        ],
+        "worldMetres": [
+          -0.2001004,
+          0.7747331999999999,
+          -0.0080644
+        ]
+      },
+      "ring2R": {
+        "parent": "ring1R",
+        "localMetres": [
+          1e-07,
+          -0.036562,
+          -0.0014
+        ],
+        "worldMetres": [
+          -0.2001003,
+          0.7381711999999999,
+          -0.0094644
+        ]
+      },
+      "ring3R": {
+        "parent": "ring2R",
+        "localMetres": [
+          -2e-07,
+          -0.0330904,
+          -0.0005524
+        ],
+        "worldMetres": [
+          -0.20010050000000001,
+          0.7050808,
+          -0.0100168
+        ]
+      },
+      "pinky1R": {
+        "parent": "handR",
+        "localMetres": [
+          0.0015994,
+          -0.1098905,
+          -0.0355977
+        ],
+        "worldMetres": [
+          -0.1984006,
+          0.7801094999999999,
+          -0.0355977
+        ]
+      },
+      "pinky2R": {
+        "parent": "pinky1R",
+        "localMetres": [
+          -4e-07,
+          -0.0358191,
+          -0.0010571
+        ],
+        "worldMetres": [
+          -0.19840100000000002,
+          0.7442903999999999,
+          -0.0366548
+        ]
+      },
+      "pinky3R": {
+        "parent": "pinky2R",
+        "localMetres": [
+          2e-07,
+          -0.0256834,
+          -0.0024476
+        ],
+        "worldMetres": [
+          -0.19840080000000002,
+          0.7186069999999999,
+          -0.0391024
+        ]
+      }
+    }
+  },
+  "sourceSHA256": {
+    "apps/web/src/components/football/engine/rig.ts": "df97f87e4cc497827ea542cf4465629678d5c0aa8ac00dceb684ce40f36a2f0d",
+    "apps/web/src/components/football/engine/poses.ts": "d97bff54aa110bbf04be552accd1df71f2ffaa6f09cf88e69172d886753da6ff",
+    "apps/web/src/components/football/engine/ik.ts": "b4d349c7d8e40bc585466f9f357bcafde164e24a0e38ae2f4a181731f1c5b4cc",
+    "apps/web/src/components/football/engine/director.ts": "502c3df170869e95f17aa803da1a9a49fa86914883b77484afa961249fdf6477",
+    "apps/web/src/components/football/engine/players.ts": "f8ab43b2afbe02216192e397c70f04735ba95853ff85919aed4a8f7ad0726af4",
+    "apps/web/src/components/football/engine/player-appearance.ts": "ff378ad581e882414f2e43787d5d4695cce85c5783e682ae50a68de854ae3577",
+    "apps/web/src/components/football/engine/review-player.ts": "25295198695817a45ac5cde637d3eb10febdb7493ebfa49e72d5cd56d8f0e88b",
+    "apps/web/src/components/football/engine/review-player-body.ts": "6e9921d6d8647b68138e4aba8d9a44921276616bdf5bc85fc10b428f11f21f1d",
+    "apps/web/src/components/football/engine/review-player-motion.ts": "23ef363743585204014336e49d28d894fb111699f87fbf38f856033579c6e96e",
+    "apps/web/src/components/football/engine/engine.ts": "e4f332bdcbc2556af5dea0099c0b23ce69c8cc14c3299e5edc722b49abbf10c5",
+    "apps/web/src/pages/games/virtual-football.tsx": "308ab3e39ac54f937435215c2924191c44c09a148a00f870ad3de8a69ba74871",
+    "apps/web/src/pages/games/virtual-football.css": "d8133ef431e9d0d30595f3a39aa502b0b7fa38801d2de6a4d5a54639560752aa"
+  },
+  "contactSourceExtracts": {
+    "KICK": "export const KICK = Object.freeze({ contact: 0.3, duration: 0.85, through: 0.34 });",
+    "DIVE_CONTACT": "export const DIVE_CONTACT = 0.45;",
+    "DIVE_DURATION": "export const DIVE_DURATION = 1.8;",
+    "HEEL": "const HEEL = { y: -0.07, z: -0.07 };",
+    "BALL": "const BALL = { y: -0.068, z: 0.15 };",
+    "GOAL_SEQUENCE": "export const GOAL_SEQUENCE = Object.freeze({\n  /** Whole sequence, seconds. Goals are at least 4 s apart so sequences never overlap. */\n  length: 4,\n  /** When the ball crosses the line, seconds after the goal is released. */\n  moment: 2.05,\n});"
+  },
+  "unchangedRules": "Only released server events may reach the director. No score/odds/admission/timing/balance/receipt/API/worker/flag/migration changes."
+}
