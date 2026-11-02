@@ -188,6 +188,13 @@ export function sampleHoofSupport(time: number, duration: number, windows: reado
   };
 }
 
+// Engage calibrated clearance over the existing 3 mm model-space sole margin.
+// A sign crossing must not apply a finite calibration offset in one frame:
+// both the value and slope of this extra release correction start at zero.
+function clearanceWeight(sole: number) {
+  return THREE.MathUtils.smoothstep(-sole, 0, 0.003);
+}
+
 /** Fixed work bound: three anatomical joints, six passes; no history or frame-delta dependency. */
 export function constrainHoof(
   model: THREE.Object3D,
@@ -201,14 +208,20 @@ export function constrainHoof(
     const sole = samplePeriodic(window.soleHeights, time, duration);
     if (sole >= 0) return; // Preserve positive-height authored poses and suspension exactly.
     const target = point(model.getObjectByName(window.name)!, model);
-    target.y += Math.max(
-      0,
-      Math.min(
-        0.05,
-        -sole +
-          THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05)
-      )
-    );
+    target.y +=
+      clearanceWeight(sole) *
+      Math.max(
+        0,
+        Math.min(
+          0.05,
+          -sole +
+            THREE.MathUtils.clamp(
+              samplePeriodic(window.soleCorrections, time, duration),
+              -0.05,
+              0.05
+            )
+        )
+      );
     solveHoofTarget(model, window.name, target);
     return;
   }
@@ -235,13 +248,21 @@ export function constrainHoof(
   const correction = target.clone().sub(current).multiplyScalar(weight);
   const rawSole = samplePeriodic(window.soleHeights, time, duration);
   if (rawSole < 0)
-    correction.y = Math.max(
+    correction.y = THREE.MathUtils.lerp(
       correction.y,
-      Math.min(
-        0.05,
-        -rawSole +
-          THREE.MathUtils.clamp(samplePeriodic(window.soleCorrections, time, duration), -0.05, 0.05)
-      )
+      Math.max(
+        correction.y,
+        Math.min(
+          0.05,
+          -rawSole +
+            THREE.MathUtils.clamp(
+              samplePeriodic(window.soleCorrections, time, duration),
+              -0.05,
+              0.05
+            )
+        )
+      ),
+      clearanceWeight(rawSole)
     );
   if (Math.abs(offset) > window.halfWidth) correction.y = Math.min(0.05, correction.y);
   correction.clampLength(0, 0.28);
