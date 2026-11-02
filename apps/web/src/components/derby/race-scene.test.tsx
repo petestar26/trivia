@@ -1,7 +1,10 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { DerbyRound } from '@socialplay/shared';
-const state = { fail: false, disposed: vi.fn(), draw: vi.fn() };
+const state = { fail: false, fallbackMotion: false, disposed: vi.fn(), draw: vi.fn() };
+const fallbackRigs: Array<{ root: import('three').Group; animate: Mock<[number, boolean], void> }> =
+  [];
+const authoredRigs: Array<{ root: import('three').Group; animate: ReturnType<typeof vi.fn> }> = [];
 vi.doMock('three', async (original) => {
   const three = await original<typeof import('three')>();
   return {
@@ -26,7 +29,21 @@ vi.doMock('three', async (original) => {
 });
 vi.doMock('./horse-model', async () => {
   const { Group } = await import('three');
-  return { createHorse: () => ({ root: new Group(), animate: vi.fn() }) };
+  const { gallopPose } = await import('./gallop');
+  return {
+    createHorse: (_coat: string, _silk: string, index: number) => {
+      const root = new Group();
+      const rig = {
+        root,
+        animate: vi.fn((seconds: number, moving: boolean) => {
+          // Faithful to the actual procedural adapter, backed by the retained CPU probe.
+          if (state.fallbackMotion) root.position.y = gallopPose(seconds, index, moving).bounce;
+        }),
+      };
+      fallbackRigs.push(rig);
+      return rig;
+    },
+  };
 });
 const pendingAssets: Array<(assets: { dispose: () => void }) => void> = [];
 const rigDisposers: Array<ReturnType<typeof vi.fn>> = [];
@@ -37,7 +54,9 @@ vi.doMock('./rigged-horse', async () => {
     createRiggedHorse: () => {
       const dispose = vi.fn();
       rigDisposers.push(dispose);
-      return { root: new Group(), animate: vi.fn(), dispose };
+      const rig = { root: new Group(), animate: vi.fn(), dispose };
+      authoredRigs.push(rig);
+      return rig;
     },
   };
 });
@@ -46,6 +65,9 @@ const round = (field: 6 | 8, id = 'round') =>
   ({ field, id, positions: Array(field).fill(0.1) }) as DerbyRound;
 beforeEach(() => {
   state.fail = false;
+  state.fallbackMotion = false;
+  fallbackRigs.length = 0;
+  authoredRigs.length = 0;
   pendingAssets.length = 0;
   rigDisposers.length = 0;
   vi.clearAllMocks();
@@ -167,3 +189,160 @@ it('contains a scheduled draw failure, stops its loop and can rebuild on explici
   expect(screen.queryByText(/3D view unavailable/)).toBeNull();
   expect(view.container.querySelectorAll('canvas')).toHaveLength(1);
 });
+
+it('releases scene GPU owners and the sunlight shadow before renderer state is discarded', async () => {
+  const three = await import('three');
+  const events: string[] = [];
+  const geometryDispose = three.BufferGeometry.prototype.dispose,
+    materialDispose = three.Material.prototype.dispose,
+    textureDispose = three.Texture.prototype.dispose;
+  vi.spyOn(three.BufferGeometry.prototype, 'dispose').mockImplementation(function (
+    this: import('three').BufferGeometry
+  ) {
+    events.push('geometry');
+    geometryDispose.call(this);
+  });
+  vi.spyOn(three.Material.prototype, 'dispose').mockImplementation(function (
+    this: import('three').Material
+  ) {
+    events.push('material');
+    materialDispose.call(this);
+  });
+  vi.spyOn(three.Texture.prototype, 'dispose').mockImplementation(function (
+    this: import('three').Texture
+  ) {
+    events.push('texture');
+    textureDispose.call(this);
+  });
+  const shadowPrototype = Object.getPrototypeOf(new three.DirectionalLight().shadow),
+    shadowDispose = shadowPrototype.dispose;
+  vi.spyOn(shadowPrototype, 'dispose').mockImplementation(function (this: object) {
+    events.push('shadow');
+    shadowDispose.call(this);
+  });
+  state.disposed.mockImplementationOnce(() => {
+    events.push('renderer');
+  });
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  events.length = 0; // Ignore temporary geometry merges during construction.
+  view.unmount();
+  const renderer = events.indexOf('renderer');
+  expect(renderer).toBeGreaterThan(-1);
+  for (const owner of ['geometry', 'material', 'texture', 'shadow']) {
+    expect(events).toContain(owner);
+    expect(events.every((event, index) => event !== owner || index < renderer)).toBe(true);
+  }
+  expect(events.filter((event) => event === 'shadow')).toHaveLength(1);
+  expect(events.filter((event) => event === 'renderer')).toHaveLength(1);
+});
+
+it('keeps the same numbered sprites and leader buffer when deferred authored horses replace the fallback', async () => {
+  const three = await import('three');
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(358);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1000));
+  const scene = state.draw.mock.calls.at(-1)![0] as import('three').Scene;
+  const labels = Array.from(
+    { length: 8 },
+    (_, i) => scene.getObjectByName(`runner-number-${i + 1}`) as import('three').Sprite
+  );
+  const parents = labels.map((label) => label.parent);
+  const maps = labels.map((label) => label.material.map);
+  const leader = scene.getObjectByName('runner-number-leaders') as import('three').LineSegments;
+  const attribute = leader.geometry.getAttribute('position'),
+    array = attribute.array;
+  const before = labels.map((label) => label.getWorldPosition(new three.Vector3()).toArray());
+  const dispose = vi.fn();
+  await act(async () => pendingAssets[0]({ dispose }));
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1100));
+  labels.forEach((label, i) => {
+    expect(scene.getObjectByName(`runner-number-${i + 1}`)).toBe(label);
+    expect(label.parent).not.toBe(parents[i]);
+    expect(label.material.map).toBe(maps[i]);
+    const position = label.getWorldPosition(new three.Vector3()).toArray();
+    position.forEach((value, axis) => expect(value).toBeCloseTo(before[i][axis], 10));
+  });
+  expect(leader.geometry.getAttribute('position')).toBe(attribute);
+  expect(attribute.array).toBe(array);
+  view.unmount();
+  expect(dispose).toHaveBeenCalledOnce();
+});
+
+it('refits the reused camera immediately after orientation resize instead of retaining the old portrait zoom', async () => {
+  const three = await import('three'),
+    { frameDerbyField } = await import('./field-camera');
+  let width = 390,
+    height = 844,
+    resized!: () => void;
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(() => height);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const view = render(<RaceScene round={round(8)} running reduced={false} />);
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1000));
+  const camera = state.draw.mock.calls.at(-1)![1] as import('three').PerspectiveCamera;
+  width = 844;
+  height = 230;
+  act(() => resized());
+  act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](1100));
+  const expected = new three.PerspectiveCamera(36, width / height, 0.1, 2000);
+  frameDerbyField(expected, Array(8).fill(18), 8);
+  expect(state.draw.mock.calls.at(-1)![1]).toBe(camera);
+  expect(camera.position.distanceTo(expected.position)).toBeLessThan(1e-9);
+  view.unmount();
+});
+
+it.each(['idle', 'run'] as const)(
+  'restores the canonical authored ground datum after %s fallback frames before deferred assets resolve',
+  async (mode) => {
+    const { createStrideClock } = await import('./stride-clock');
+    state.fallbackMotion = true;
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(358);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(300);
+    const initialRound = round(6),
+      view = render(<RaceScene round={initialRound} running={mode === 'run'} reduced={false} />);
+    const datum = fallbackRigs[0].root.position.y;
+    expect(datum).toBe(0.035);
+    const controlClock = createStrideClock();
+    let previousDisplayed = initialRound.positions[0] * 180,
+      expectedPhase = 0;
+    const draw = (time: number) => {
+      act(() => vi.mocked(requestAnimationFrame).mock.calls.at(-1)![0](time));
+      const rig = authoredRigs[0] ?? fallbackRigs[0],
+        x = rig.root.position.x;
+      expectedPhase = controlClock(x - previousDisplayed, mode === 'run');
+      previousDisplayed = x;
+      expect(rig.animate.mock.calls.at(-1)![0]).toBeCloseTo(expectedPhase, 12);
+    };
+    draw(1000);
+    if (mode === 'run') {
+      const next = { ...initialRound, positions: Array(6).fill(0.2) };
+      view.rerender(<RaceScene round={next} running reduced={false} />);
+      draw(1100);
+      draw(1200);
+      expect(fallbackRigs[0].animate.mock.calls.at(-1)![1]).toBe(true);
+    }
+    const before = fallbackRigs.map((rig) => rig.root.position.toArray());
+    expect(before[0][1]).not.toBe(datum);
+    const dispose = vi.fn();
+    await act(async () => pendingAssets[0]({ dispose }));
+    authoredRigs.forEach((rig, i) => {
+      expect(rig.root.position.x).toBe(before[i][0]);
+      expect(rig.root.position.z).toBe(before[i][2]);
+      expect(rig.root.position.y).toBe(datum);
+    });
+    draw(mode === 'run' ? 1300 : 1100);
+    authoredRigs.forEach((rig) => expect(rig.root.position.y).toBe(datum));
+    view.unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  }
+);

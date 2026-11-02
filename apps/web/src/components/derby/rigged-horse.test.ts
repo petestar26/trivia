@@ -116,7 +116,7 @@ it('bounds world stance slip across all four authored hooves and preserves suspe
       soleResidual,
     });
     expect(soleResidual).toBeLessThan(0.025);
-    expect(slip).toBeLessThan(0.005);
+    expect(slip).toBeLessThan(0.0021);
     expect(clearance).toBeLessThan(0.025);
     const fullContact: THREE.Vector3[] = [];
     const fullSoles: number[] = [];
@@ -133,7 +133,7 @@ it('bounds world stance slip across all four authored hooves and preserves suspe
       fullSoleResidual,
     });
     expect(fullSoleResidual).toBeLessThan(0.025);
-    expect(transitionSlip).toBeLessThan(0.11);
+    expect(transitionSlip).toBeLessThan(0.004);
   }
   const airborne = Array.from({ length: 100 }, (_, i) => (i * a.run.duration) / 100).filter((t) =>
     windows.every((w) => Math.abs(stanceOffset(t, a.run.duration, w)) > w.halfWidth)
@@ -168,10 +168,25 @@ it('measures four real authored stance windows and visible sole clearance', asyn
   console.log(
     'authored contact calibration',
     performance.now() - started,
-    windows.map(({ soleHeights, ...window }) => ({
-      ...window,
-      soleProfileSamples: soleHeights.length,
-    }))
+    windows.map(
+      ({
+        soleHeights,
+        soleOffsets,
+        soleCorrections,
+        solveCompensationX,
+        solveCompensationZ,
+        ...window
+      }) => ({
+        ...window,
+        soleProfileSamples: soleHeights.length,
+        cachedFitSamples: soleOffsets.length,
+        soleCorrectionRange: [Math.min(...soleCorrections), Math.max(...soleCorrections)],
+        planarCompensationMaximum: Math.max(
+          ...solveCompensationX.map(Math.abs),
+          ...solveCompensationZ.map(Math.abs)
+        ),
+      })
+    )
   );
   expect(windows).toHaveLength(4);
   for (const w of windows) {
@@ -302,7 +317,10 @@ it('bounds visible skin penetration over the entire cycle while preserving posit
       const m = metrics[hoof];
       m.minimumAll = Math.min(m.minimumAll, sole);
       if (outside) m.minimumOutside = Math.min(m.minimumOutside, sole);
-      if (outside && sampledHoofSole(a.horse, w.name) > 0.005) {
+      if (
+        Math.abs(stanceOffset(time, a.run.duration, w)) >= w.halfWidth + w.transitionWidth &&
+        sampledHoofSole(a.horse, w.name) > 0.005
+      ) {
         const authored = a.horse.worldToLocal(
           a.horse.getObjectByName(w.name)!.getWorldPosition(new THREE.Vector3())
         );
@@ -316,11 +334,103 @@ it('bounds visible skin penetration over the entire cycle while preserving posit
   }
   console.log('entire cycle actual skinned hoof minima', metrics);
   for (const m of metrics) {
-    expect(m.minimumAll).toBeGreaterThan(-0.025);
-    expect(m.minimumOutside).toBeGreaterThan(-0.025);
+    expect(m.minimumAll).toBeGreaterThan(-0.004);
+    expect(m.minimumOutside).toBeGreaterThan(-0.004);
     expect(m.unchangedPositiveSamples).toBeGreaterThan(100);
   }
   rawMixer.stopAllAction();
   rawMixer.uncacheRoot(a.horse);
+  horse.dispose!();
+});
+
+it('keeps recovery weights C1 at the declared buffers and bounds phase-only rider response', async () => {
+  const { measureHoofWindows, hoofContactWeight, sampleHoofSupport } =
+    await import('./authored-contact');
+  const a = await assets(),
+    windows = measureHoofWindows(a.horse, continuousGallop(a.run));
+  for (const w of windows) {
+    expect(w.transitionWidth).toBeCloseTo(w.halfWidth * 0.75, 12);
+    for (const edge of [
+      -w.halfWidth - w.transitionWidth,
+      -w.halfWidth,
+      w.halfWidth,
+      w.halfWidth + w.transitionWidth,
+    ]) {
+      const time = w.center + edge,
+        epsilon = 1e-7;
+      const left = hoofContactWeight(time - epsilon, a.run.duration, w),
+        at = hoofContactWeight(time, a.run.duration, w),
+        right = hoofContactWeight(time + epsilon, a.run.duration, w);
+      expect(Math.abs((at - left) / epsilon)).toBeLessThan(0.01);
+      expect(Math.abs((right - at) / epsilon)).toBeLessThan(0.01);
+    }
+    expect(w.soleOffsets).toHaveLength(192);
+    for (const v of [
+      ...w.soleOffsets,
+      ...w.soleCorrections,
+      ...w.solveCompensationX,
+      ...w.solveCompensationZ,
+    ])
+      expect(Number.isFinite(v)).toBe(true);
+    for (const v of w.soleCorrections) expect(Math.abs(v)).toBeLessThanOrEqual(0.050000001);
+    for (const v of [...w.solveCompensationX, ...w.solveCompensationZ])
+      expect(Math.abs(v)).toBeLessThanOrEqual(0.050000001);
+  }
+  for (let i = 0; i < 384; i++) {
+    const time = (i * a.run.duration) / 384,
+      response = sampleHoofSupport(time, a.run.duration, windows);
+    expect(response.load).toBeGreaterThanOrEqual(0);
+    expect(response.load).toBeLessThanOrEqual(1);
+    expect(Math.abs(response.pitch)).toBeLessThanOrEqual(1);
+    expect(Math.abs(response.roll)).toBeLessThanOrEqual(1);
+    const loop = sampleHoofSupport(time + a.run.duration, a.run.duration, windows);
+    for (const key of ['load', 'pitch', 'roll'] as const)
+      expect(response[key]).toBeCloseTo(loop[key], 10);
+  }
+});
+
+it('keeps actual hoof positions and normalized limb rotations continuous at subframe buffer and loop boundaries', async () => {
+  const { measureHoofWindows } = await import('./authored-contact');
+  const a = await assets(),
+    windows = measureHoofWindows(a.horse, continuousGallop(a.run)),
+    horse = createRiggedHorse(a, '#774532', '#aa2244', 0);
+  const sample = (time: number, name: string) => {
+    const travel = time * 15;
+    horse.root.position.x = travel;
+    horse.animate((travel * 0.74) / (1.04 / 0.22), true);
+    horse.root.updateMatrixWorld(true);
+    const family = name.startsWith('front') ? 'front' : 'back',
+      side = name.endsWith('_l') ? 'l' : 'r';
+    return {
+      position: horse.root.getObjectByName(name)!.getWorldPosition(new THREE.Vector3()),
+      rotations: ['upper', 'lower', 'ankle', 'foot'].map((part) =>
+        horse.root
+          .getObjectByName(`${family}_leg_${part}_${side}`)!
+          .getWorldQuaternion(new THREE.Quaternion())
+          .normalize()
+      ),
+    };
+  };
+  let maxPosition = 0,
+    maxRotation = 0;
+  for (const w of windows)
+    for (const time of [
+      0,
+      w.center - w.halfWidth - w.transitionWidth,
+      w.center - w.halfWidth,
+      w.center + w.halfWidth,
+      w.center + w.halfWidth + w.transitionWidth,
+    ]) {
+      const left = sample(time - 1e-4, w.name),
+        right = sample(time + 1e-4, w.name);
+      maxPosition = Math.max(maxPosition, left.position.distanceTo(right.position));
+      maxRotation = Math.max(
+        maxRotation,
+        ...left.rotations.map((q, i) => q.angleTo(right.rotations[i]))
+      );
+    }
+  console.info('actual subframe continuity at epsilon .1ms', { maxPosition, maxRotation });
+  expect(maxPosition).toBeLessThan(0.01);
+  expect(maxRotation).toBeLessThan(0.05);
   horse.dispose!();
 });
