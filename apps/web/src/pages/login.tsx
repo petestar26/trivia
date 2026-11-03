@@ -198,10 +198,6 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 Sign up
               </Link>
             </p>
-            <div className="flex gap-4 text-sm mt-4">
-              <Link to="/admin/login">Admin sign in</Link>
-              <Link to="/agent/login">Agent sign in</Link>
-            </div>
           </>
         )}
       </CardFooter>
