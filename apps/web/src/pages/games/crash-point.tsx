@@ -594,7 +594,7 @@ function CrashPoint({
           <ArrowLeft size={16} />
           Casino
         </Link>
-        <span>PLAYQUBE ORIGINALS / CRASH POINT</span>
+        <span>SALEM BET ORIGINALS / CRASH POINT</span>
         <span className={connected ? 'online' : 'offline'}>
           {connected ? <Wifi size={15} /> : <WifiOff size={15} />}{' '}
           {connected ? 'Connected' : 'Connecting'}
@@ -992,7 +992,7 @@ function CrashPointMark() {
       className="crash-brand-mark"
       viewBox="0 0 280 106"
       role="img"
-      aria-label="PlayQube Crash Point"
+      aria-label="Salem Bet Crash Point"
     >
       <defs>
         <linearGradient id="cp-brand-face" x1="0" y1="0" x2="0" y2="1">
@@ -1045,7 +1045,7 @@ function CrashPointMark() {
         letterSpacing="3"
         fontFamily="system-ui, sans-serif"
       >
-        PLAYQUBE ORIGINAL
+        SALEM BET ORIGINAL
       </text>
     </svg>
   );
@@ -1130,7 +1130,7 @@ function CrashRulesDialog() {
           <Dialog.Close className="crash-history-close" aria-label="Close game rules">
             <X size={20} />
           </Dialog.Close>
-          <p className="crash-history-eyebrow">PLAYQUBE · PRACTICE ONLY</p>
+          <p className="crash-history-eyebrow">SALEM BET · PRACTICE ONLY</p>
           <Dialog.Title>Crash Point rules</Dialog.Title>
           <Dialog.Description>
             Choose a stake, follow the rising multiplier, and cash out before the crash.

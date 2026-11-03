@@ -123,7 +123,7 @@ export function AuthenticatorSetup() {
             <>
               <p>
                 In your authenticator app, add an account with a setup key. Choose time-based, name
-                it PlayQube, and enter this key. Keep it private.
+                it Salem Bet, and enter this key. Keep it private.
               </p>
               <label className="block">
                 Setup key

@@ -33,7 +33,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         )}
         <div>
           <span className="qube-header-eyebrow">MEMBER LOUNGE</span>
-          <p className="qube-header-title">{labels[section] || 'Welcome to PlayQube'}</p>
+          <p className="qube-header-title">{labels[section] || 'Welcome to Salem Bet'}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">

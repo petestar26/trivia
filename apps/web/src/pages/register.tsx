@@ -96,7 +96,7 @@ export function RegisterPage() {
             Create an account
           </CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            Join PlayQube and start connecting
+            Join Salem Bet and start connecting
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

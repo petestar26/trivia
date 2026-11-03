@@ -412,7 +412,7 @@ export function DerbyView({
                 </Suspense>
               </SceneLoadBoundary>
               <div className="derby-broadcast-label">
-                <span>PLAYQUBE / EMERALD COURSE</span>
+                <span>SALEM BET / EMERALD COURSE</span>
                 <strong>
                   {!fresh
                     ? 'VIEW PAUSED · RECONNECTING'

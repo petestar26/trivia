@@ -121,7 +121,7 @@ export function FlightScene({
             ? 'ABOVE THE CLOUDS'
             : lift > 0
               ? 'CLIMBING OUT'
-              : 'RUNWAY 09 · PLAYQUBE'}
+              : 'RUNWAY 09 · SALEM BET'}
       </span>
     </div>
   );

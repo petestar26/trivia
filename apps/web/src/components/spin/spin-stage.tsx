@@ -53,7 +53,7 @@ export function SpinStage({
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d6b475]/20 bg-black/15 px-5 py-4 sm:px-7">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#ecd19b]">
-              PlayQube originals
+              Salem Bet originals
             </p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Spin Win</h1>
           </div>

@@ -23,7 +23,7 @@ function PublicHeader() {
   return (
     <header className="pq-public-header">
       <Link className="pq-public-brand" to="/">
-        PLAY<span>QUBE</span>
+        SALEM<span> BET</span>
         <small>THE MEMBER LOUNGE</small>
       </Link>
       <nav aria-label="Account">
@@ -54,7 +54,7 @@ export function WelcomePage() {
       <PublicHeader />
       <main className="pq-welcome-stage">
         <div className="pq-welcome-copy">
-          <p className="pq-public-eyebrow">RUBY GRAND · PLAYQUBE</p>
+          <p className="pq-public-eyebrow">RUBY GRAND · SALEM BET</p>
           <h1>
             A world of play.
             <br />
@@ -73,7 +73,7 @@ export function WelcomePage() {
           <div className="pq-orbit pq-orbit-one" />
           <div className="pq-orbit pq-orbit-two" />
           <div className="pq-monogram">
-            Q<span>PLAYQUBE</span>
+            S<span>SALEM BET</span>
           </div>
           <div className="pq-chip pq-chip-one">PLAY</div>
           <div className="pq-chip pq-chip-two">CONNECT</div>

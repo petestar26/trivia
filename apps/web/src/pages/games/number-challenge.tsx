@@ -206,7 +206,7 @@ function NumberPractice({ userId }: { userId: string }) {
       <header className="number-header">
         <div>
           <Link to="/games">← All games</Link>
-          <p className="number-eyebrow">PLAYQUBE ORIGINAL · FREE PRACTICE</p>
+          <p className="number-eyebrow">SALEM BET ORIGINAL · FREE PRACTICE</p>
           <h1>
             Number <span>Challenge</span>
           </h1>
@@ -488,7 +488,7 @@ function NumberPractice({ userId }: { userId: string }) {
             result. Retrying a saved guess returns that same result. Scores are for this game only
             and have no cash value.
           </p>
-          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original PlayQube game, not affiliated with 1xBet.</p>
+          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original Salem Bet game, not affiliated with 1xBet.</p>
         </details>
       </section>
     </div>

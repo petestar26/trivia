@@ -56,7 +56,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         <span className="qube-brand-mark">
           <Hexagon size={25} />
         </span>
-        PlayQube<span className="qube-brand-dot">•</span>
+        Salem Bet<span className="qube-brand-dot">•</span>
       </Link>
       <nav aria-label="Member navigation" className="qube-navigation">
         {user &&

@@ -18,7 +18,7 @@ export function RulesDialog() {
       <Dialog.Portal>
         <Dialog.Overlay className="vf-overlay" />
         <Dialog.Content className="vf-dialog vf-dialog--rules" aria-describedby="vf-rules-desc">
-          <Dialog.Title>PlayQube Virtual Football 3D: rules</Dialog.Title>
+          <Dialog.Title>Salem Bet Virtual Football 3D: rules</Dialog.Title>
           <Dialog.Description id="vf-rules-desc">
             An original simulated league using free, non-redeemable practice credits. It is not
             connected to any real club, league or competition.

@@ -87,7 +87,7 @@ export function WorkspaceLayout({ kind }: { kind: 'admin' | 'agent' }) {
       </a>
       <aside className={open ? 'workspace-sidebar open' : 'workspace-sidebar'}>
         <Link className="workspace-brand" to={`/${kind}`}>
-          PlayQube<span>{kind === 'admin' ? 'ADMINISTRATION' : 'AGENT WORKSPACE'}</span>
+          Salem Bet<span>{kind === 'admin' ? 'ADMINISTRATION' : 'AGENT WORKSPACE'}</span>
         </Link>
         <nav aria-label={`${kind} navigation`}>
           {(kind === 'admin' ? adminLinks : agentLinks).map(([to, label]) => (

@@ -173,7 +173,7 @@ export function SpinWinVerifyPage() {
         </Link>
         <header>
           <p className="text-xs uppercase tracking-widest text-amber-300">
-            PlayQube · Round transparency
+            Salem Bet · Round transparency
           </p>
           <h1 className="mt-2 text-3xl font-bold">Verify a Spin Win round</h1>
           <p className="mt-3 text-slate-300">

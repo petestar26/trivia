@@ -310,7 +310,7 @@ export function ActivateAgentPage() {
   return (
     <div className="workspace-shell workspace-activation">
       <div className="workspace-heading">
-        <p>PLAYQUBE AGENT ACCESS</p>
+        <p>SALEM BET AGENT ACCESS</p>
         <h1>Set your agent password</h1>
         <span>
           Use the account issued by your administrator. Temporary credentials expire after 24 hours

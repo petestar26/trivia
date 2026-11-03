@@ -185,7 +185,7 @@ export function BroadcastCaption({
   const last = display.events.at(-1);
   return (
     <div className="vf-broadcast-caption" aria-label="Match broadcast status">
-      <span>PLAYQUBE / SIMULATED MATCH</span>
+      <span>SALEM BET / SIMULATED MATCH</span>
       <strong>
         {display.fullTime
           ? 'FULL TIME'

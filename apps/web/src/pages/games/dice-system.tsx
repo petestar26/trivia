@@ -93,7 +93,7 @@ function SystemDice({userId}:{userId:string}) {
     <nav className="system-dice-nav"><Link to="/casino">← Casino</Link><span>System table · Free practice</span></nav>
     <GameRoundSummary game="Dice" label={sum !== null ? 'Round result' : revealing ? 'Rolling' : 'Dice Seven Up'} value={sum !== null ? `Total ${sum}` : open ? 'Entries open' : 'Waiting for result'} detail={sum !== null && display?.ticket ? display.ticket.payout === null ? 'Return pending' : `${display.ticket.payout} credits returned` : 'Free practice · no cash value'} clock={`${!connected ? 'Reconnecting · ' : ''}${open ? 'Closes' : 'Next round'} ${seconds}s`} />
     <section className="system-dice-stage" aria-label="System Dice practice">
-      <header className="system-dice-header"><div><p className="system-dice-eyebrow">PLAYQUBE ORIGINALS</p><h1>Dice <span>Seven Up</span></h1><p>Two dice. One shared result. A new round every minute.</p></div>
+      <header className="system-dice-header"><div><p className="system-dice-eyebrow">SALEM BET ORIGINALS</p><h1>Dice <span>Seven Up</span></h1><p>Two dice. One shared result. A new round every minute.</p></div>
         <div className="system-dice-balances"><div><span>ACCOUNT BALANCE</span><strong>{walletLoading?'Loading…':walletError?'Unavailable':`${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="practice"><span>PRACTICE BALANCE</span><strong>{s?.balance.toLocaleString()??'—'}</strong><small>Free credits · no cash value</small></div></div>
       </header>
       <div className="system-dice-policy"><span><b>90%</b> theoretical return</span><span><b>10%</b> expected house edge</span><span><b>7–12</b> winning total</span></div>

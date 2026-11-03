@@ -101,7 +101,7 @@ function adTexture(): THREE.CanvasTexture {
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
   const brands: Array<[string, string, string]> = [
-    ['PLAYQUBE', '#10243f', '#7fd4ff'],
+    ['SALEM BET', '#10243f', '#7fd4ff'],
     ['NORTHQUAY AIR', '#f2f2f2', '#c61f2b'],
     ['EMBER BANK', '#ffb81c', '#2a1500'],
     ['HIGHCREST LABS', '#0f6b4f', '#eafff6'],

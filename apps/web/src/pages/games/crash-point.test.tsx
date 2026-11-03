@@ -664,7 +664,7 @@ it('blocks entry and draft edits when cached server data becomes stale', async (
 it('opens arena rules with keyboard access and preserves both independent drafts', async () => {
   snapshot.maxTickets = 2;
   setup();
-  await screen.findByRole('img', { name: 'PlayQube Crash Point' });
+  await screen.findByRole('img', { name: 'Salem Bet Crash Point' });
   const first = screen.getByRole('complementary', { name: 'Bet 1 controls' });
   const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
   fireEvent.change(within(first).getByLabelText('Bet amount'), { target: { value: '50' } });

@@ -82,7 +82,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         <CardDescription className="text-gray-600 dark:text-gray-400">
           {workspace
             ? `Sign in with your approved ${workspace === 'admin' ? 'administrator' : 'agent'} account`
-            : 'Sign in to your PlayQube account'}
+            : 'Sign in to your Salem Bet account'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

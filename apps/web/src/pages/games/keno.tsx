@@ -22,7 +22,7 @@ export function KenoMachine({ number, running }: { number: number | null; runnin
       <circle cx="170" cy="196" r="134" fill="#1b0b13" stroke="url(#keno-metal)" strokeWidth="12"/>
       <g className="keno-ball"><circle cx="170" cy="196" r="116" fill="url(#keno-ball)"/>
         <text x="170" y="214" textAnchor="middle" fontFamily="Arial, sans-serif" fontWeight="900" fontSize="94" fill="#27160d">{number ?? '?'}</text>
-        <text x="170" y="251" textAnchor="middle" fontSize="12" letterSpacing="5" fill="#62410f">PLAYQUBE</text>
+        <text x="170" y="251" textAnchor="middle" fontSize="12" letterSpacing="5" fill="#62410f">SALEM BET</text>
       </g>
       <circle cx="170" cy="196" r="128" fill="url(#keno-glass)"/>
       <path d="M69 176a104 104 0 0 1 56-74" fill="none" stroke="#fff" strokeWidth="7" strokeLinecap="round" opacity=".35"/>
@@ -88,7 +88,7 @@ function KenoSession({ storageKey }: { storageKey: string }) {
   return <div className="keno-page">
     <div className="keno-navigation"><Link to="/casino">← Casino</Link><span>Practice · this tab</span></div>
     <section className="keno-stage" aria-label="Turbo Keno practice">
-      <header className="keno-header"><div><p className="keno-eyebrow">PLAYQUBE ORIGINALS</p><h1>Turbo <span>Keno</span></h1><p>Every ball brings a new possibility.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading ? 'Loading…' : walletError ? 'Unavailable' : `${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{state.balance.toLocaleString()}</strong><small>credits · no cash value</small></div></div></header>
+      <header className="keno-header"><div><p className="keno-eyebrow">SALEM BET ORIGINALS</p><h1>Turbo <span>Keno</span></h1><p>Every ball brings a new possibility.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading ? 'Loading…' : walletError ? 'Unavailable' : `${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{state.balance.toLocaleString()}</strong><small>credits · no cash value</small></div></div></header>
       <div className="keno-economics"><span>{HOUSE_GAME_POLICY.targetRtpBps / 100}% theoretical return</span><span>{HOUSE_GAME_POLICY.expectedHouseEdgeBps / 100}% expected house edge</span><span>3.6× return per matching number</span></div>
       <div className="keno-practice-note">Practice only · Local demo draw · No Coins, deposits or redeemable prizes</div>
       <div className="keno-layout">

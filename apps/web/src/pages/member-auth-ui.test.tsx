@@ -126,7 +126,7 @@ describe.each(['login', 'register'] as const)('%s member form', (mode) => {
 
   it('offers public browsing and an accessible pause/resume control', () => {
     const view = mount('/' + mode);
-    expect(screen.getByRole('link', { name: 'PlayQube home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Salem Bet home' })).toHaveAttribute('href', '/');
     const browse = screen.getByRole('link', { name: 'Browse the collection' });
     expect(browse).toHaveAttribute('href', '/explore');
     fireEvent.click(screen.getByRole('button', { name: 'Pause animation' }));

@@ -660,7 +660,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         <div>
           <Link to="/games">← All games</Link>
           <h1>
-            PLAYQUBE <em>VIRTUAL FOOTBALL</em>
+            SALEM BET <em>VIRTUAL FOOTBALL</em>
             <small>CLUB FOOTBALL · 3D PRACTICE</small>
           </h1>
         </div>

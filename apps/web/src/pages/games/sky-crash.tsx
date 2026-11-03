@@ -608,7 +608,7 @@ function SkyCrash({
           <ArrowLeft size={16} />
           Casino
         </Link>
-        <span>PLAYQUBE ORIGINALS / SKY CRASH</span>
+        <span>SALEM BET ORIGINALS / SKY CRASH</span>
         <span className={connected ? 'online' : 'offline'}>
           {connected ? <Wifi size={15} /> : <WifiOff size={15} />}{' '}
           {connected ? 'Connected' : 'Connecting'}

@@ -16,8 +16,8 @@ export function MemberAuthShell({
   return (
     <div className={`qube-auth pq-auth-shell${paused ? ' is-paused' : ''}`}>
       <header className="pq-auth-header">
-        <Link className="pq-auth-brand" to="/" aria-label="PlayQube home">
-          PLAY<span>QUBE</span>
+        <Link className="pq-auth-brand" to="/" aria-label="Salem Bet home">
+          SALEM<span> BET</span>
           <small>THE MEMBER LOUNGE</small>
         </Link>
         <Link className="pq-auth-browse" to="/explore">
@@ -26,8 +26,8 @@ export function MemberAuthShell({
       </header>
 
       <main className="pq-auth-layout">
-        <aside className="pq-auth-story" aria-label="The PlayQube lounge">
-          <p className="pq-auth-eyebrow">RUBY GRAND · PLAYQUBE</p>
+        <aside className="pq-auth-story" aria-label="The Salem Bet lounge">
+          <p className="pq-auth-eyebrow">RUBY GRAND · SALEM BET</p>
           <h1>
             {joining ? 'Your next chapter.' : 'Your place to play.'}
             <em>{joining ? 'Make it your own.' : 'Your people await.'}</em>
@@ -43,7 +43,7 @@ export function MemberAuthShell({
             <div className="pq-auth-ring pq-auth-ring-two" />
             <div className="pq-auth-pass">
               <span className="pq-auth-pass-label">THE MEMBER LOUNGE</span>
-              <span className="pq-auth-pass-mark">Q</span>
+              <span className="pq-auth-pass-mark">S</span>
               <span className="pq-auth-pass-footer">PLAY · CONNECT · DISCOVER</span>
             </div>
             <div className="pq-auth-disc pq-auth-disc-one" />

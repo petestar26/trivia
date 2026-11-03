@@ -141,7 +141,7 @@ export function SpinWinWheel({
           fontSize="10"
           letterSpacing="2"
         >
-          {spinning ? 'DRAWING' : number === null ? 'PLAYQUBE' : spinColour(number).toUpperCase()}
+          {spinning ? 'DRAWING' : number === null ? 'SALEM BET' : spinColour(number).toUpperCase()}
         </text>
         <path
           d="M238 12 Q250 3 262 12 L257 38 Q250 49 243 38 Z"
