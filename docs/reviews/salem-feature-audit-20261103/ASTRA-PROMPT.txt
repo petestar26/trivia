@@ -1,0 +1,11 @@
+Independently review the Salem Bet account-test integration candidate on branch fix/salem-feature-integration in petestar26/trivia. Read REPORT.md and verify every CODE_SHA256SUMS entry at the exact supplied commit before tests.
+
+Baseline website214c084513c581472cc84620a80d6c44ce5393af; Football06dd6be831d6b61fa253c1d4bb5f25f29420158e; Derbyabc397fd09e7c9b02f036f5640a6075fe1d8ef9b. Confirm integration preserves current branding/account/dashboard and includes both visual branches without backend/shared/economy changes from those branches.
+
+Review each scoped fix: staff public loading gates with protected-route controls; practice-availability API/client consistency and visible disabled cards; actual rendered Football sphere vs contact radius with unchanged director facts; wallet USDT authority link; Rewards fetch error states; gateway basename cache matching and existing proxy/cookie/socket security. Inspect the outdated Google-export mock correction as test maintenance, not a claimed product fix.
+
+Reproduce locally using disposable fixtures. Verify final2053web tests,36gateway/PWA,299offlineAPIreview,46auth and27catalog receipts without summing overlapping runs. Preserve first-run failures and installer/config/preview failures in REPORT. No full native database or physical-device/live acceptance is implied.
+
+Audit exact deployed web commit/status separately. API catalog code is prepared but NOT DEPLOYED: API has no persistent volume and current media preservation is unresolved. Do not refresh/fix this by live credentials/SQL/SSH/file operations. Practice/financial/gift/provider gates remain unchanged; future games, password recovery/profile editing and other missing features remain missing.
+
+Return only reproducible actionable findings with exact files/lines, smallest repair and regression. Distinguish code defects from missing provisioning/identity/data/physical acceptance. No provider/database/account/game/payment operations, merging, deployment, access changes, enabling flags or PR57 operations. Do not approve the whole platform as bug-free or ready for real-money activation.

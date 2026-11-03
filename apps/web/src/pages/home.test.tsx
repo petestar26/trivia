@@ -20,6 +20,7 @@ function game(key: string, status = 'COMING_SOON', active = false): MemberGame {
     name: key,
     catalogStatus: status,
     isActive: active,
+    practiceAvailable: ['dice', 'crash_point', 'turbo_keno'].includes(key) ? true : undefined,
     description: null,
     type: key,
     mode: key === 'trivia' ? 'BONUS' : 'WAGER',
@@ -164,6 +165,26 @@ describe('dashboard favorites integration', () => {
   });
 });
 describe('Ruby Grand member dashboard', () => {
+  describe.each([
+    ['home', HomePage],
+    ['games', GamesPage],
+  ] as const)('%s disabled system practice cards', (_name, Page) => {
+    it.each(['dice', 'crash_point', 'turbo_keno'])(
+      'keeps %s visible without offering a disabled game route',
+      async (key) => {
+        get.mockImplementation(async (path: string) => ({
+          success: true,
+          data: path === '/games'
+            ? [{ ...game(key), practiceAvailable: false }]
+            : { coinsBalance: 42, gamePointsBalance: 80 },
+        }));
+        setup(Page);
+        expect(await screen.findByRole('heading', { name: key })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: new RegExp(key) })).not.toBeInTheDocument();
+        expect(screen.getByText('Coming soon')).toBeInTheDocument();
+      }
+    );
+  });
   describe.each([
     ['home', HomePage],
     ['games', GamesPage],

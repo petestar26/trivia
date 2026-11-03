@@ -46,6 +46,34 @@ it.each(['/', '/explore'])(
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
   }
 );
+it.each([
+  ['/admin/login', 'Administrator sign in'],
+  ['/admin/login/', 'Administrator sign in'],
+  ['/agent/login', 'Agent sign in'],
+  ['/agent/login/', 'Agent sign in'],
+  ['/agent/activate', 'Set your agent password'],
+  ['/agent/activate/', 'Set your agent password'],
+])('keeps the public staff entry %s available while the session probe is loading', (path, heading) => {
+  auth.isLoading = true;
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+  expect(screen.getByLabelText('Email')).toBeInTheDocument();
+});
+it.each(['/dashboard', '/admin', '/agent', '/groups'])('does not expose protected %s while the session probe is loading', (path) => {
+  auth.isLoading = true;
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>
+  );
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
+  expect(document.querySelector('.animate-spin')).toBeInTheDocument();
+});
 it('opens with a welcome scene, not a credential form, and lets guests browse', () => {
   mount();
   expect(screen.getByRole('heading', { name: /A world of play/ })).toBeInTheDocument();

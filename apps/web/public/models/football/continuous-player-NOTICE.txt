@@ -1,0 +1,67 @@
+Continuous Football review player binding milestone, and finishing, 2026-10-20
+
+continuous-body.glb derives from MakeHuman core base.obj and its native default
+rig/weights at commit a8bc2d54ff0ac92e78ff71431b1023eda42bf482. The native JSON
+files declare CC0; the core asset grant is retained as LICENSE-CC0.txt.
+Native skeleton notice: (c) 2020 Data Collection AB, Joel Palmius, Jonas Hauquier.
+Native weight notice: (c) 2021 Data Collection AB, Joel Palmius, Jonas Hauquier.
+https://github.com/makehumancommunity/makehuman/tree/a8bc2d54ff0ac92e78ff71431b1023eda42bf482
+
+continuous-jersey.glb derives from toigo_basic_tucked_t-shirt in the official
+MakeHuman shirts01 CC0 pack. Listing author: MargaretToigo. Embedded OBJ/MHCLO
+author: MRT. Both retained geometry/fitting headers declare license CC0.
+https://static.makehumancommunity.org/assets/assetpacks/shirts01.html
+https://files.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip
+
+Original source OBJ/MHCLO, native skeleton/weights and their notices are retained
+in the evidence bundle. Source garment textures/materials are retained there;
+the runtime shirt borrows the existing repository-original club kit atlas for
+its pattern and fictional PQ badge, projected from the garment bind position.
+Original garment OBJ UVs remain unchanged. The existing fictional number canvas
+is composited afterward; no additional asset is imported. The player pool owns
+the shared atlas; the shirt material borrows it without disposing it. Application
+code licensing is separate from these CC0 asset declarations.
+
+Original repository work includes the fixed production49 bind adapter, bounded
+athletic torso/pelvis refinement, source-correspondence garment transfer and
+explicit local tailoring, generated render coverage, shared expression seam,
+bounded elbow/knee cross-section correctives, continuous low-detail body/shirt/head clustering,
+24-pass connected posed-surface shirt fairing with 45mm cap,
+upper-body motion and released-frame transition memory. The final shirt is
+intentionally tailored after raw transfer: maximum positional adjustment
+17.764mm and 233 chest-anchored collar vertices. Raw zero-transfer-error reports
+from the earlier milestone do not describe this final tailored surface.
+
+New original editable continuous-kit.ts builds connected welded shorts, socks
+and boots parametrically. No external lower-kit/boot asset was imported. Boot
+forefoot/sole sections flex coherently after existing contact solving; contact
+bones/clocks stay unchanged. The legacy kick marker can cross turf, and exact
+visible sole-to-marker correspondence is not retained. A preliminary CPU probe
+recorded 83.376mm maximum visual correction; the frozen bundle records the final probe scope/results.
+This is not an exact shoe-contact or global collision certificate.
+
+Accepted review-head attachments/morphs retain review-head-provenance.json.
+Unchanged review skin, hair and brows retain review-player-provenance.json and
+review-player-source-notices.txt. The optional baseline fallback retains its
+existing player-body-provenance.json. Only the selected review actor adopts the
+new body/kit; its normal low detail uses reduced continuous geometry. Optional
+asset failure retains the complete baseline. High/mid use bounded hinge
+body hinge correctives; low skips that body hinge correction work. Shirt
+fairing retains shared seam normals and collar/cuff bounds. Rejected radial
+projection produced flaps and is retained only as iteration evidence. The
+derived 5300-triangle low head preserves 87 neck-boundary vertices and all 8 morph
+channels, with the accepted licensed hair/brows retained at low detail too.
+
+Original Python/TypeScript authoring/runtime code retains repository application
+licensing, separately from the CC0 source-asset declarations above. Editable
+OBJ/MHCLO/native rig/weights, mapping JSON and application authoring sources are
+retained. No .blend artist project, new mocap, complete football action package,
+goalkeeper long-sleeve garment or glove package is claimed. CPU structure,
+synthetic hinge and bounded contact probes do not establish console-quality
+realism, global collision clearance, physical-device acceptance or deployment.
+
+Exact consumed-source/output/exporter/runtime hashes, versions and reproduction:
+continuous-player-provenance.json
+docs/games/virtual-football-single-player-finishing.md
+docs/games/virtual-football-continuous-player-binding.md
+Mutable application hashes are recorded snapshots; the frozen bundle provides exact final results.

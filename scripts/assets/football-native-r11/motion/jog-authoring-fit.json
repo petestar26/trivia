@@ -1,0 +1,42 @@
+{
+  "format": "playqube-original-jog-retarget-fit-v1",
+  "intent": "Moderate supported jog at2.4m/s; retain source contralateral flow, reduce generic sprint lean and clenched hands",
+  "sourcePhaseOffset": -0.08,
+  "pelvisVerticalSourceScale": 0.12,
+  "globalTorsoPitchDegrees": {
+    "hips": {
+      "mean": 6,
+      "variationGain": 0.6
+    },
+    "spine": {
+      "mean": 8,
+      "variationGain": 0.6
+    },
+    "chest": {
+      "mean": 10,
+      "variationGain": 0.55
+    },
+    "neck": {
+      "mean": 7,
+      "variationGain": 0.4
+    },
+    "head": {
+      "mean": 2,
+      "variationGain": 0.4
+    }
+  },
+  "relaxedFingerLocalStrength": {
+    "thumb": 0.68,
+    "index": 0.45,
+    "middle": 0.52,
+    "ring": 0.58,
+    "pinky": 0.65
+  },
+  "fingerJointStrength": {
+    "1": 0.75,
+    "2": 1.0,
+    "3": 0.65
+  },
+  "nativeInterpolation": "Explicit periodic monotone Hermite handles on pose channels; linear phase; no root or foot target edits",
+  "upperArmLateralScale": 0.45
+}

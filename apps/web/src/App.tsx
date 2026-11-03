@@ -54,9 +54,9 @@ export function App() {
   const { isLoading } = useAuth();
   const location = useLocation();
 
-  // Offline public verification must also work while the unrelated session
-  // probe is waiting on an unavailable API.
-  if (isLoading && !/^\/(?:explore\/?|login\/?|register\/?|games\/spin-win\/verify\/?)?$/.test(location.pathname)) {
+  // Public sign-in/activation, discovery and offline verification must remain
+  // reachable while the unrelated session probe is waiting on an unavailable API.
+  if (isLoading && !/^\/(?:explore\/?|login\/?|register\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(location.pathname)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>

@@ -1,0 +1,450 @@
+{
+  "schemaVersion": 1,
+  "exportVersion": "original-football-review-player-cc0-v2-mhclo-fit",
+  "authoringScriptSHA256": "eff48de3a68af0d00f214ef9c47ebbd62b02ee0c68b6c07886c3dbd05bde31a3",
+  "software": {
+    "Pillow": "12.3.0",
+    "libwebp": "1.6.0"
+  },
+  "archive": {
+    "archive_url": "https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+    "archive_size": 280737770,
+    "etag": "\"10bbb7ea-6160e7c0d7996\"",
+    "last_modified": "Sun, 14 Apr 2024 13:28:46 GMT",
+    "zip_entry_count": 517,
+    "central_directory": {
+      "offset": 280682631,
+      "size": 55117,
+      "sha256": "95e78ccc765d5e77d270e0ca357317f543027143edff7f6435d2b8ed59a9d235"
+    },
+    "version": "Official CC0 core pack; Last-Modified 2024-04-14; pinned ETag and central directory",
+    "licenseListingURL": "https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html",
+    "wholeArchiveSHA256": null,
+    "retrieval": "Selected HTTP byte ranges; CRC and SHA256 verified per decompressed ZIP entry; whole archive not downloaded",
+    "officialListingEvidence": {
+      "url": "https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html",
+      "sha256": "8340b6b8d33fa20b6668b482990bda99d790e0220c4a8f1c6d25e2fcf9bf3a27",
+      "bytes": 168945
+    }
+  },
+  "sources": [
+    {
+      "name": "skins/young_caucasian_male/young_lightskinned_male_diffuse.png",
+      "crc": "e723c591",
+      "size": 3693828,
+      "compressed": 3690012,
+      "offset": 23394852,
+      "method": 8,
+      "sha256": "862a26e335e958b70534cb5f0d7c47ef30ab148a56c42b3e9da969cf76f12963",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "skins/young_caucasian_male/young_caucasian_male.mhmat",
+      "crc": "dc98b0ac",
+      "size": 1462,
+      "compressed": 703,
+      "offset": 27163921,
+      "method": 8,
+      "sha256": "6eda60b07ff2afbde078a2535ef3913593d84e9de92b2eb76c30f396a181fe2e",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "hair/short01/short01.obj",
+      "crc": "05e068c9",
+      "size": 194450,
+      "compressed": 67065,
+      "offset": 236196558,
+      "method": 8,
+      "sha256": "d998d8416f9b5d5591f1d756f4d292288d000a6951bc0f4d2e8e72727bbc44fa",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "hair/short01/short01.mhmat",
+      "crc": "583235b1",
+      "size": 1314,
+      "compressed": 642,
+      "offset": 236195832,
+      "method": 8,
+      "sha256": "01e2e12ce3f3d3c859225456660acadcdd27d4f4b4d888bcbd6f11998cadd975",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "hair/short01/short01.mhclo",
+      "crc": "7b56f0f1",
+      "size": 201588,
+      "compressed": 68368,
+      "offset": 236127380,
+      "method": 8,
+      "sha256": "ae1ffaa98da5753b803b3a173bede4895d2215e6bb94763f3765a71f0e984f35",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "hair/short01/short01_diffuse.png",
+      "crc": "8a56cb2e",
+      "size": 2354146,
+      "compressed": 2338834,
+      "offset": 236263705,
+      "method": 8,
+      "sha256": "f34a0957184e3d1e911ed59245f874f8d4843f61ee44ff49f43edb4be0196949",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "eyebrows/eyebrow001/eyebrow001.obj",
+      "crc": "07e9d5f6",
+      "size": 8227,
+      "compressed": 2873,
+      "offset": 271550171,
+      "method": 8,
+      "sha256": "88b13146395133f3901715e11706cdfd293e5d6087ad7c5e01efe1485a26b513",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "eyebrows/eyebrow001/eyebrow001.mhmat",
+      "crc": "63d073c4",
+      "size": 1098,
+      "compressed": 555,
+      "offset": 271781967,
+      "method": 8,
+      "sha256": "976e5f4f1d3922d7a11c6e2db233f8b4584b068d00619d5749687e81c92d61fc",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "eyebrows/eyebrow001/eyebrow001.mhclo",
+      "crc": "593a400e",
+      "size": 9141,
+      "compressed": 3038,
+      "offset": 271641277,
+      "method": 8,
+      "sha256": "54c8892c2ba577f4152d779ce1f20f7cd323beb8cbd9cb701796165c221b4f5b",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    },
+    {
+      "name": "eyebrows/eyebrow001/eyebrow001.png",
+      "crc": "d5ee806a",
+      "size": 89619,
+      "compressed": 88049,
+      "offset": 271553136,
+      "method": 8,
+      "sha256": "9940f7d0b1b223709a19b05156ba6f6e9e4dbdbced02d7574f4d51d72c58967b",
+      "license": "CC0-1.0 (official core assetpack listing and embedded asset metadata)"
+    }
+  ],
+  "baseCoordinateReference": {
+    "sha256": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+    "commit": "a8bc2d54ff0ac92e78ff71431b1023eda42bf482",
+    "transform": "[x*.12, 1.50+(y-5.89)*.12, (z-.161)*.12]",
+    "sourceVerticesAboveNeckWorldBounds": {
+      "min": [
+        -0.22554,
+        1.4748240000000001,
+        -0.085032
+      ],
+      "max": [
+        0.22554,
+        1.812804,
+        0.182364
+      ]
+    }
+  },
+  "license": {
+    "id": "CC0-1.0",
+    "retainedLicenseFile": "LICENSE-CC0.txt",
+    "licenseSHA256": "f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c",
+    "retainedSourceNotices": "review-player-source-notices.txt",
+    "basis": "Official CC0 assetpack listing plus explicit September 2020 CC0 declaration embedded in every selected OBJ/material/fitting file",
+    "sourceHolders": [
+      "Data Collection AB",
+      "Joel Palmius",
+      "Jonas Hauquier"
+    ]
+  },
+  "runtimeContract": {
+    "meshes": [
+      "review-hair",
+      "review-brows"
+    ],
+    "positions": "MHCLO neutral fitting to pinned base, then review-head world transform; raw authoring OBJ positions are not used",
+    "uv": "TEXCOORD_0 / Three uv; source [u,1-v]; texture.flipY=false",
+    "skinTexture": "2048px core body atlas; use review-head-high.glb TEXCOORD_1/uv1 channel=1, flipY=false",
+    "binding": "Geometry remains unskinned; runtime supplies head-bone indices/weights and existing rig binding",
+    "materials": "Runtime assigns hair/brow alpha textures, double-sided rendering and alpha test; placeholder GLB materials have no texture fetches"
+  },
+  "reproduce": "python3 scripts/assets/build-football-review-player.py --sources /path/to/core-assets --base /path/to/pinned/base.obj --check",
+  "exports": [
+    {
+      "file": "review-player-hair.glb",
+      "sha256": "c7c72da98f9c06dbfe679a0c52a8090ad9b67076b7bb1aae45d7e86367bce178",
+      "bytes": 131956,
+      "meshes": [
+        {
+          "mesh": "review-hair",
+          "sourceAsset": "hair/short01/short01.obj",
+          "sourceVertices": 2984,
+          "sourceTextureCoordinates": 3177,
+          "sourcePolygonSizes": {
+            "4": 1839
+          },
+          "vertices": 3177,
+          "triangles": 3678,
+          "worldBounds": {
+            "min": [
+              -0.09866171042750749,
+              1.5815822667492363,
+              -0.08000992020455697
+            ],
+            "max": [
+              0.09703772321328856,
+              1.8314646856057848,
+              0.1585512291326582
+            ]
+          },
+          "neutralFitting": {
+            "basemesh": "hm08",
+            "vertexAssignments": 2984,
+            "assignmentRows": {
+              "single": 0,
+              "barycentricTriple": 2984
+            },
+            "directives": {
+              "x_scale": {
+                "baseVertices": [
+                  5399,
+                  11998
+                ],
+                "denominator": 1.6682,
+                "ratio": 0.8871837909123607
+              },
+              "z_scale": {
+                "baseVertices": [
+                  962,
+                  5320
+                ],
+                "denominator": 2.3542,
+                "ratio": 0.8164556962025316
+              },
+              "y_scale": {
+                "baseVertices": [
+                  791,
+                  881
+                ],
+                "denominator": 2.8351,
+                "ratio": 0.8217699552044021
+              },
+              "z_depth": 50
+            },
+            "recipe": "sum(base[reference_i]*weight_i) + diagonal(axisScale)*offset; then world transform",
+            "offsetScaleRecipe": "axisScale=abs(base[a][axis]-base[b][axis])/directiveDenominator",
+            "indexConvention": "MHCLO base references are zero-based; OBJ face references are one-based",
+            "zDepthMeaning": "Render-order/masking metadata only; not an XYZ position offset",
+            "formatReference": "https://static.makehumancommunity.org/oldsite/documentation/file_formats_and_extensions.html",
+            "authoringOBJWorldBounds": {
+              "min": [
+                -0.094512,
+                1.683756,
+                -0.06252
+              ],
+              "max": [
+                0.094056,
+                1.932804,
+                0.19049999999999997
+              ]
+            },
+            "fittedWorldBounds": {
+              "min": [
+                -0.09866171042750749,
+                1.5815822667492363,
+                -0.08000992020455697
+              ],
+              "max": [
+                0.09703772321328856,
+                1.8314646856057848,
+                0.1585512291326582
+              ]
+            },
+            "maxAuthoringToFittedDisplacementMetres": 0.12435478704156984
+          },
+          "normals": "Source normals when present; otherwise area-weighted by source position index before UV splitting"
+        },
+        {
+          "mesh": "review-brows",
+          "sourceAsset": "eyebrows/eyebrow001/eyebrow001.obj",
+          "sourceVertices": 124,
+          "sourceTextureCoordinates": 126,
+          "sourcePolygonSizes": {
+            "4": 96
+          },
+          "vertices": 126,
+          "triangles": 192,
+          "worldBounds": {
+            "min": [
+              -0.07214542701220338,
+              1.6710712354760213,
+              0.12173762642432948
+            ],
+            "max": [
+              0.07214542701220338,
+              1.6861867492640852,
+              0.1602369470959222
+            ]
+          },
+          "neutralFitting": {
+            "basemesh": "hm08",
+            "vertexAssignments": 124,
+            "assignmentRows": {
+              "single": 0,
+              "barycentricTriple": 124
+            },
+            "directives": {
+              "x_scale": {
+                "baseVertices": [
+                  5399,
+                  11998
+                ],
+                "denominator": 1.416,
+                "ratio": 1.0451977401129944
+              },
+              "z_scale": {
+                "baseVertices": [
+                  962,
+                  5320
+                ],
+                "denominator": 1.9231,
+                "ratio": 0.9994800062399251
+              },
+              "y_scale": {
+                "baseVertices": [
+                  791,
+                  881
+                ],
+                "denominator": 2.3073,
+                "ratio": 1.009751657781823
+              },
+              "z_depth": 5
+            },
+            "recipe": "sum(base[reference_i]*weight_i) + diagonal(axisScale)*offset; then world transform",
+            "offsetScaleRecipe": "axisScale=abs(base[a][axis]-base[b][axis])/directiveDenominator",
+            "indexConvention": "MHCLO base references are zero-based; OBJ face references are one-based",
+            "zDepthMeaning": "Render-order/masking metadata only; not an XYZ position offset",
+            "formatReference": "https://static.makehumancommunity.org/oldsite/documentation/file_formats_and_extensions.html",
+            "authoringOBJWorldBounds": {
+              "min": [
+                -0.070344,
+                1.6984080000000001,
+                0.11810399999999999
+              ],
+              "max": [
+                0.070344,
+                1.71144,
+                0.15895199999999998
+              ]
+            },
+            "fittedWorldBounds": {
+              "min": [
+                -0.07214542701220338,
+                1.6710712354760213,
+                0.12173762642432948
+              ],
+              "max": [
+                0.07214542701220338,
+                1.6861867492640852,
+                0.1602369470959222
+              ]
+            },
+            "maxAuthoringToFittedDisplacementMetres": 0.02780243654373823
+          },
+          "normals": "Source normals when present; otherwise area-weighted by source position index before UV splitting"
+        }
+      ],
+      "triangles": 3870,
+      "validation": [
+        "GLB chunk/accessor bounds and finite values",
+        "unit smooth normals",
+        "every indexed corner exactly matches transformed MHCLO fitted position and source glTF UV",
+        "neutral hair top below1.84m and brow surface between1.67m and1.69m",
+        "named hair/brow meshes and in-range triangle indices"
+      ]
+    },
+    {
+      "sourceAsset": "skins/young_caucasian_male/young_lightskinned_male_diffuse.png",
+      "file": "review-skin-basecolor.webp",
+      "sha256": "7628814980308b9525b27f09f98a099a0144d1a29e67bc6377702b4605678c04",
+      "bytes": 541954,
+      "width": 2048,
+      "height": 2048,
+      "sourceWidth": 2048,
+      "sourceHeight": 2048,
+      "sourceMode": "RGB",
+      "mode": "RGB",
+      "encoding": {
+        "format": "WebP",
+        "quality": 95,
+        "method": 6
+      },
+      "decodedRGBRootMeanSquareError": [
+        1.6239054001000555,
+        1.3281232048471323,
+        1.6627257086333478
+      ]
+    },
+    {
+      "sourceAsset": "hair/short01/short01_diffuse.png",
+      "file": "review-hair.webp",
+      "sha256": "392c211067c0a1c26bd279cbb405159ae0cbf5ee94271fd00aa3db8442fbfb4d",
+      "bytes": 596164,
+      "width": 1024,
+      "height": 1024,
+      "sourceWidth": 2048,
+      "sourceHeight": 2048,
+      "sourceMode": "RGBA",
+      "mode": "RGBA",
+      "encoding": {
+        "format": "WebP",
+        "lossless": true,
+        "method": 6,
+        "exact": true
+      },
+      "alphaRange": [
+        0,
+        255
+      ],
+      "losslessResizedPixelComparison": "PASS"
+    },
+    {
+      "sourceAsset": "eyebrows/eyebrow001/eyebrow001.png",
+      "file": "review-brows.webp",
+      "sha256": "25ba8445a6e362cbcad8fd83fb2a45c8ae06b29cb83313abf87d22b5aeba5db6",
+      "bytes": 61814,
+      "width": 512,
+      "height": 512,
+      "sourceWidth": 512,
+      "sourceHeight": 512,
+      "sourceMode": "RGBA",
+      "mode": "RGBA",
+      "encoding": {
+        "format": "WebP",
+        "lossless": true,
+        "method": 6,
+        "exact": true
+      },
+      "alphaRange": [
+        0,
+        255
+      ],
+      "losslessResizedPixelComparison": "PASS"
+    },
+    {
+      "file": "review-player-source-notices.txt",
+      "sha256": "538aa363909728d966d57f9b48b422d34657311fb75e0fa551b4d4edc30b13a6",
+      "bytes": 3583,
+      "retainedSourceHeaders": 5
+    }
+  ],
+  "limits": [
+    "One selected neutral core hairstyle and brow asset; original roster and shipped heads are unchanged by processing.",
+    "MHCLO neutral hair top is approximately1.93cm above the pinned anatomical head; no dynamic hair simulation or collision fitting.",
+    "Hair/brows follow a single runtime head bone; no brow expression deformation is added by these assets.",
+    "Skin source material internal name says old_caucasian_male_detailed despite its young_caucasian_male folder; exact selected source identity is recorded without renaming the source.",
+    "No independent whole-archive hash is available because only selected verified ZIP ranges were downloaded.",
+    "Structural/pixel validation does not establish rendered visual, performance or physical-device acceptance."
+  ]
+}

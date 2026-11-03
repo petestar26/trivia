@@ -1429,7 +1429,7 @@ code {
   color: var(--vf-text);
 }
 /* All landscape context occupies two compact rows; action owns the first screen. */
-@media (min-width: 750px) and (max-height: 480px) and (orientation: landscape) {
+@media (min-width: 600px) and (max-height: 480px) and (orientation: landscape) {
   .vf-page > * {
     grid-column: 1 / -1;
   }
@@ -1578,5 +1578,197 @@ code {
   .vf-page > .game-round-summary .game-round-summary__outcome > small,
   .vf-page > .game-round-summary .game-round-summary__clock {
     font-size: 9px;
+  }
+}
+
+/* A single mounted status stays within the modal and its accessibility tree. */
+.vf-connection {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  margin: 0 0 8px;
+  border: 1px solid var(--vf-gold);
+  border-radius: 8px;
+  background: var(--vf-panel);
+  color: var(--vf-text);
+  font-size: 12px;
+}
+.vf-connection:empty {
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  overflow: hidden;
+}
+.vf-expanded-details {
+  display: none;
+}
+@media (orientation: portrait) {
+  .vf-arena.game-arena--expanded .game-arena__body {
+    overflow-y: auto;
+  }
+  .vf-arena.game-arena--expanded .vf-stage {
+    flex: 0 0 auto;
+  }
+  .vf-arena.game-arena--expanded .vf-stage-frame {
+    flex: 0 0 auto;
+    height: auto;
+    aspect-ratio: 4 / 3;
+    min-height: 240px;
+    max-height: 56dvh;
+  }
+  .vf-arena.game-arena--expanded .vf-expanded-details {
+    display: grid;
+    flex: 1 0 auto;
+    align-content: start;
+    gap: 12px;
+    padding: 16px;
+    min-width: 0;
+    background: var(--vf-panel);
+    border-top: 1px solid var(--vf-line);
+  }
+  .vf-expanded-details h2 {
+    font-size: 16px;
+  }
+  .vf-expanded-details ol {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding-left: 20px;
+  }
+  .vf-expanded-details li,
+  .vf-expanded-details p {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .vf-expanded-details li b {
+    color: var(--vf-accent);
+    margin-right: 8px;
+  }
+}
+
+/* The fallback already contains its released-goal list. */
+.vf-arena:has(.vf-stage-frame .vf-centre) .vf-expanded-details {
+  display: none;
+}
+
+@media (max-width: 749px) and (max-height: 480px) and (orientation: landscape) {
+  .vf-page {
+    padding: 8px;
+  }
+  .vf-header {
+    margin-bottom: 4px;
+    gap: 8px;
+    align-items: center;
+  }
+  .vf-header > div:first-child {
+    min-width: 0;
+  }
+  .vf-header h1 {
+    margin-top: 2px;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+  }
+  .vf-header h1 small {
+    font-size: 7px;
+    margin-top: 2px;
+    letter-spacing: 0.1em;
+  }
+  .vf-credit strong {
+    font-size: 16px;
+  }
+  .vf-credit p,
+  .vf-credit > span {
+    font-size: 9px;
+  }
+  .vf-page > .vf-scene-note {
+    padding: 2px 0;
+    font-size: 10px;
+  }
+  .vf-toolbar {
+    margin-bottom: 4px;
+    gap: 4px;
+  }
+  .vf-toolbar-actions {
+    font-size: 10px;
+    gap: 6px;
+  }
+  .vf-phase {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  .vf-previous-result {
+    padding: 4px 8px;
+    margin-bottom: 4px;
+    gap: 4px;
+    font-size: 10px;
+  }
+  .vf-previous-result > div {
+    gap: 2px;
+  }
+  .vf-previous-result .vf-secondary {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+  .vf-page > .game-round-summary {
+    padding: 4px 8px;
+    margin-bottom: 4px;
+  }
+  .vf-arena:not(.game-arena--expanded) .vf-stage-frame {
+    min-height: 180px;
+    height: 220px;
+    aspect-ratio: auto;
+  }
+  .vf-board-overlay .vf-board {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+/* Keep compact landscape columns within narrow viewports. */
+@media (min-width: 600px) and (max-width: 749px) and (max-height: 480px) and (orientation: landscape) {
+  .vf-page { padding: 6px; grid-template-columns: minmax(180px, 1fr) auto minmax(0, 1.4fr); }
+  .vf-toolbar { min-width: 0; flex-wrap: wrap; }
+}
+
+/* Normal phone view gives the pitch priority over history and supporting information. */
+@media (max-width: 640px) and (orientation: portrait) {
+  .vf-header > div:first-child {
+    min-width: 0;
+  }
+  .vf-header h1 {
+    font-size: 17px;
+    letter-spacing: 0.02em;
+  }
+  .vf-credit strong {
+    font-size: 18px;
+  }
+  .vf-toolbar-actions {
+    font-size: 12px;
+    gap: 4px 12px;
+  }
+  .vf-page > .game-round-summary {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+  }
+  .vf-page > .game-round-summary .game-round-summary__outcome > strong {
+    font-size: 13px;
+  }
+  .vf-arena:not(.game-arena--expanded) .vf-stage {
+    margin-bottom: 8px;
+  }
+  .vf-arena:not(.game-arena--expanded) .vf-strip {
+    margin-top: 6px;
+    padding: 4px 0 6px;
+    grid-auto-columns: minmax(168px, 46%);
+  }
+  .vf-arena:not(.game-arena--expanded) .vf-card {
+    min-height: 56px;
+    padding: 6px 8px;
+    gap: 2px 6px;
+  }
+  .vf-page > .vf-scene-note {
+    padding: 0 2px 10px;
+    font-size: 11px;
+    line-height: 1.4;
   }
 }

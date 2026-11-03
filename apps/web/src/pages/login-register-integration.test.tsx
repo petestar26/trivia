@@ -11,6 +11,7 @@ import type { ReactElement } from 'react';
 const apiGet = vi.fn();
 const apiPost = vi.fn();
 vi.mock('@/lib/api', () => ({
+  googleClientId: () => '',
   api: {
     get: (...a: unknown[]) => apiGet(...a),
     post: (...a: unknown[]) => apiPost(...a),

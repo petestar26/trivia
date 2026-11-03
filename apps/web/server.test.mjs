@@ -2,7 +2,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createWebServer, upstreamOrigin } from './server.mjs';
@@ -19,10 +19,15 @@ const listen = (server) =>
     server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`))
   );
 before(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), 'playqube-gateway-'));
+  const parent = await mkdtemp(path.join(tmpdir(), 'playqube-workbox-gateway-'));
+  directory = path.join(parent, 'public');
+  await mkdir(directory);
   await writeFile(path.join(directory, 'index.html'), '<h1>PlayQube</h1>');
   await writeFile(path.join(directory, 'app.js'), 'console.log("app")');
   await writeFile(path.join(directory, 'app-recovery.js'), '/* pre-entry recovery */');
+  for (const name of ['sw.js', 'workbox-runtime.js', 'swatches.js', 'my-workbox.js', 'workbox.js']) {
+    await writeFile(path.join(directory, name), '/* cache fixture */');
+  }
   backend = http.createServer((req, res) => {
     if (req.url === '/api/v1/auth/login') {
       res.setHeader('Set-Cookie', [
@@ -58,7 +63,7 @@ after(async () => {
   gateway.closeAllConnections();
   backend.closeAllConnections();
   await Promise.all([new Promise((r) => gateway.close(r)), new Promise((r) => backend.close(r))]);
-  await rm(directory, { recursive: true, force: true });
+  await rm(path.dirname(directory), { recursive: true, force: true });
 });
 test('preserves HttpOnly cookies and authenticates a later same-origin request', async () => {
   const login = await fetch(origin + '/api/v1/auth/login', {
@@ -109,6 +114,19 @@ test('revalidates the pre-entry recovery script while keeping ordinary assets ca
     (await fetch(origin + '/app.js')).headers.get('cache-control'),
     'public, max-age=3600'
   );
+});
+test('selects service-worker basenames independently of the parent directory', async () => {
+  assert.match(path.dirname(directory), /workbox/);
+  for (const name of ['sw.js', 'workbox-runtime.js', 'app-recovery.js', 'index.html']) {
+    const response = await fetch(origin + '/' + name);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-cache', name);
+  }
+  for (const name of ['app.js', 'swatches.js', 'my-workbox.js', 'workbox.js']) {
+    const response = await fetch(origin + '/' + name);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'public, max-age=3600', name);
+  }
 });
 test('forwards health checks and bounds unavailable upstream failures', async () => {
   assert.equal(await (await fetch(origin + '/health')).text(), 'healthy');

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "authorship": "Original PlayQube review-only material response study; artistic calibration, not measured human PBR data",
+  "skin": {
+    "roughnessMin": 0.59,
+    "roughnessMax": 0.71,
+    "lipMin": 0.48,
+    "lipMax": 0.48,
+    "eyeRoughness": 0.12,
+    "specularIntensity": 0.32,
+    "normalScale": 0.18,
+    "clearcoat": 0.006,
+    "clearcoatRoughness": 0.2,
+    "envMapIntensity": 0.32,
+    "roughnessMapScale": 0.67
+  },
+  "hair": {
+    "roughness": 0.84,
+    "envMapIntensity": 0.16,
+    "shaderModel": "standard"
+  },
+  "shirt": {
+    "roughness": 0.96,
+    "bumpScaleMetres": 0.00028,
+    "sheen": 0,
+    "sheenRoughness": 0.84,
+    "normalScale": 0.1
+  },
+  "boots": {
+    "upperRoughness": 0.46,
+    "soleRoughness": 0.72,
+    "laceRoughness": 0.87,
+    "soleTopBindMetres": 0.021
+  }
+}

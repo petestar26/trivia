@@ -38,6 +38,7 @@ const catalog = [
   {
     id: 'dice-id',
     key: 'dice',
+    practiceAvailable: true,
     name: 'Dice',
     description: 'Roll the dice.',
     mode: 'WAGER',

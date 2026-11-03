@@ -1,0 +1,167 @@
+{
+  "format": "playqube-r11-motion-v3-provenance",
+  "reviewStatus": "Bounded native hand candidate approved for final merge/capture only; general visual acceptance and runtime adoption held",
+  "sourceAssetProvenance": "motion-source-provenance.json thirdPartySource; original archive/GLB/license unchanged",
+  "originalBaselineBlendSHA256": "6a899f83bf3a8f26fa365ef1ad28acd074265fa0c5ea192ea502ea0f82a53e23",
+  "acceptedRuntimeHead": "a27874c68fee6d505d901f2a1720ecd9ec96282a",
+  "coreSHA256": "c80d0910c4496324527de5adafc3199ea9a112a4fe5311c8e4139215a0cbd81d",
+  "normativeControlsSHA256": "f5d4b6bb8911693eccd798d83fff2c0be5cdca3c74038f83902b0925736c8422",
+  "unchangedProtectedChannels": {
+    "hips": true,
+    "spine": true,
+    "chest": true,
+    "neck": true,
+    "head": true,
+    "upperLegL": true,
+    "lowerLegL": true,
+    "footL": true,
+    "toeL": true,
+    "upperLegR": true,
+    "lowerLegR": true,
+    "footR": true,
+    "toeR": true
+  },
+  "unchangedContactControls": {
+    "pelvisLocalPositionMetres": true,
+    "pelvisQuaternion": true,
+    "kneePoleRootSpace": true,
+    "footConstraintErrorMetres": true
+  },
+  "compactLocalElbowQuaternionComponentError": 2.980232238769531e-07,
+  "anatomicalHandCalibration": {
+    "L": {
+      "sourceDorsalNormalNative": [
+        0.015937862917780876,
+        -0.002868735697120428,
+        0.9998688101768494
+      ],
+      "targetDorsalNormalNative": [
+        0.9998646378517151,
+        -0.004196198657155037,
+        -0.01591377891600132
+      ],
+      "basis": "hand/index1/middle1/pinky1 actual rest positions, consistent left/right chirality; direction-projected palm normal on each hand/digit segment"
+    },
+    "R": {
+      "sourceDorsalNormalNative": [
+        -0.01593831554055214,
+        -0.0028670502360910177,
+        0.9998688101768494
+      ],
+      "targetDorsalNormalNative": [
+        -0.9998645782470703,
+        -0.004198824521154165,
+        -0.01591269113123417
+      ],
+      "basis": "hand/index1/middle1/pinky1 actual rest positions, consistent left/right chirality; direction-projected palm normal on each hand/digit segment"
+    }
+  },
+  "originalRelaxedHandFit": {
+    "source": "Original anatomical relaxed hand study, overriding the generic fixed source fists after palm-frame calibration",
+    "jointFlexDegrees": {
+      "thumb": [
+        20,
+        18,
+        10
+      ],
+      "index": [
+        14,
+        21,
+        12
+      ],
+      "middle": [
+        16,
+        24,
+        14
+      ],
+      "ring": [
+        19,
+        28,
+        16
+      ],
+      "pinky": [
+        22,
+        32,
+        18
+      ]
+    },
+    "mcpSpreadDegrees": {
+      "index": -1.5,
+      "middle": 0,
+      "ring": 0.8,
+      "pinky": 1.8
+    },
+    "thumbOppositionDegrees": 36,
+    "phaseTensionGain": 0.03
+  },
+  "sourceAuthorAndReopenCheck": "pass",
+  "remainingLimits": [
+    "Stylized hand surface/skin folds; upper-abdomen carriage.",
+    "Native leg bake approximate offgrid; runtime needs exact frozen-target IK.",
+    "Only supported2.4m/s jog; full football action/transition package unfinished.",
+    "Approximately73.156mm follow-through overlap unchanged/open.",
+    "Runtime adoption, general visual acceptance, roster expansion, browser/device/live acceptance held."
+  ],
+  "files": [
+    {
+      "path": "author-jog-v3.py",
+      "bytes": 27319,
+      "sha256": "9615bf22fd93bf65c589cb9cda89447e56cc220dc8ef5d893c134cfbdd4c82c2"
+    },
+    {
+      "path": "jog-authoring-fit-v3.json",
+      "bytes": 2589,
+      "sha256": "8c6613b5be3ce1ea6b7b3f3d1b71738c5f994ed0f5025151a6f5429015f5e3c8"
+    },
+    {
+      "path": "measure-hand-retarget.py",
+      "bytes": 4381,
+      "sha256": "8af49e387cb3753c6ad77d635f0b7b8d4a3ece6f22f4c81f209fa94d2849caf6"
+    },
+    {
+      "path": "render-hand-preview-v3.py",
+      "bytes": 4178,
+      "sha256": "4bb69262e1641adba60cf7f2ad716621eb0b51acef56843d6df85498b64a7ad5"
+    },
+    {
+      "path": "render-thumb-trials.py",
+      "bytes": 3319,
+      "sha256": "d89828ed9b3d817e1452a08db295e50360ca9ca35cae697a5797515709fbeb69"
+    },
+    {
+      "path": "v3/Player_Jog.blend",
+      "bytes": 40713620,
+      "sha256": "c80d0910c4496324527de5adafc3199ea9a112a4fe5311c8e4139215a0cbd81d"
+    },
+    {
+      "path": "v3/jog-controls.json",
+      "bytes": 3589368,
+      "sha256": "f5d4b6bb8911693eccd798d83fff2c0be5cdca3c74038f83902b0925736c8422"
+    },
+    {
+      "path": "v3/native-jog-local-poses.json",
+      "bytes": 3416482,
+      "sha256": "52044492c2fd0fbb4f4f47ea047259f857f097139ed1affd643d1ec5d2b8b62a"
+    },
+    {
+      "path": "v3/jog-authoring-report.json",
+      "bytes": 666,
+      "sha256": "d7370dd0689e2c0e6acd9d53ec3ade34f8f0e6f99cf0d12add67178279947f9d"
+    },
+    {
+      "path": "v3/source-check-report.json",
+      "bytes": 2049,
+      "sha256": "93de6719f06c8980b33ba2fd6687e45caac565afecabb39aaf5c3315cd0f0a31"
+    },
+    {
+      "path": "v3/hand-retarget-measurement.json",
+      "bytes": 29863,
+      "sha256": "e63ffdef21835157b96b94331c361fac4239d74dffdaaa6ce07359a1df9c9860"
+    },
+    {
+      "path": "MOTION_V3_HANDOFF.md",
+      "bytes": 7211,
+      "sha256": "14c136bf420da97d2ec382d43c0ae902049ff06c6f1537ac5ed2c07c2d0db9be"
+    }
+  ]
+}

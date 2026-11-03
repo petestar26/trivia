@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "stage": "Editable native source milestone; no runtime adoption or visual acceptance",
+  "continuationBase": "a27874c68fee6d505d901f2a1720ecd9ec96282a",
+  "pullRequestBase": "b899e158bd84a6975011182c939ef62a6fcdc1ad",
+  "pr": 59,
+  "draftRequired": true,
+  "originalPackage": {
+    "name": "PR59-bfd947a7113f-editable-player-source.zip",
+    "bytes": 181919450,
+    "sha256": "39940432d673f0268b77e317058a6c71fca0998d84d9c37361814e220927d99e"
+  },
+  "baseline": {
+    "path": "verified-source/native/PlayQube_ReviewPlayer_Baseline.blend",
+    "bytes": 39467844,
+    "sha256": "6a899f83bf3a8f26fa365ef1ad28acd074265fa0c5ea192ea502ea0f82a53e23"
+  },
+  "deliveredNative": {
+    "path": "geometry/v5/Player_Combined.blend",
+    "bytes": 41316859,
+    "sha256": "196402fdca7bd447459412333698100e3ed36c7a59a73a0ff0d8aee04e6e76da"
+  },
+  "geometrySource": {
+    "path": "geometry/v5/deformation-authoring-source.json",
+    "bytes": 1983715,
+    "sha256": "a789a7a9635f8bc20829e59557b2f1c37d3de8788be2facd3687202bc5e4bc32"
+  },
+  "motionSource": {
+    "path": "motion/v3/jog-controls.json",
+    "bytes": 3589368,
+    "sha256": "f5d4b6bb8911693eccd798d83fff2c0be5cdca3c74038f83902b0925736c8422"
+  },
+  "nativeMotionCore": {
+    "path": "motion/v3/Player_Jog.blend",
+    "bytes": 40713620,
+    "sha256": "c80d0910c4496324527de5adafc3199ea9a112a4fe5311c8e4139215a0cbd81d"
+  },
+  "nativeJointReferenceOnly": {
+    "path": "motion/v3/native-jog-local-poses.json",
+    "bytes": 3416482,
+    "sha256": "52044492c2fd0fbb4f4f47ea047259f857f097139ed1affd643d1ec5d2b8b62a"
+  },
+  "nativeValidation": {
+    "checks": 425,
+    "failures": 0,
+    "report": {
+      "path": "runtime-assessment/native-validation-v5-final.json",
+      "bytes": 2017842,
+      "sha256": "1459745051e14d4cd2e7ec78a3aab2201c8e0399c69f7d97d4a5113a402eb25a"
+    },
+    "validator": {
+      "path": "runtime-assessment/native-validation.py",
+      "bytes": 50311,
+      "sha256": "72101161a416fb853e507334fee2db46462c4cbe165544c3b3a16ecf89478ef6"
+    },
+    "normalAudit": {
+      "path": "runtime-assessment/native-decoded-normal-v5.json",
+      "bytes": 1975,
+      "sha256": "73e6003202050bad6fb43df7a3bc80fd368fd9e092b5b487524d12e6e9e4b92e"
+    }
+  },
+  "nativeActorBudget": {
+    "surfaces": 8,
+    "vertices": 25599,
+    "triangles": 34007,
+    "baselineVertices": 25533,
+    "baselineTriangles": 33777,
+    "newVertices": 66,
+    "newTriangles": 230,
+    "nativeAuthoredShapeKeys": 12,
+    "nativeOnlyBootReferenceKeys": 241,
+    "packedImageBlocks": 18,
+    "packedImageBytes": 14068468,
+    "actorReferencedImageBlocks": 9,
+    "previewGroundTrianglesSeparate": 2,
+    "scope": "Source mesh/image budgets; surfaces are not measured draw calls. No new browser performance evidence."
+  },
+  "protectedRuntimeTrees": {
+    "apps": "69acdefe93d3c9de01afc390c99f33d991d3494f",
+    "packages": "ca3e8098a89641f3338a63234513bcccb5df7ff4",
+    "apps/web": "357b6c38b2ec1306889d376140100a3de570f275"
+  },
+  "webValidation": {
+    "focusedTests": 413,
+    "pwaRecoveryChecks": 27,
+    "typecheck": "PASS",
+    "build": "PASS",
+    "scope": "Current a278 runtime source; unchanged apps/packages trees in this source-only continuation. Build chunk advisory and jsdom scrollTo warning retained. Exact-head CI is recorded separately in delivered handoff."
+  },
+  "assetLicenses": {
+    "body": "Retained MakeHuman core CC0-1.0; pinned upstream and source hashes in geometry provenance",
+    "shirt": "CC0-1.0 MRT/MargaretToigo preferred tucked shirt, separately verified source",
+    "jog": "CC0-1.0 Quaternius Standard; original clip plus explicit original fitting/hand controls",
+    "newWork": "Original numerical editable geometry/weights/correctives/control curves; no professional artist/mocap claim",
+    "purchases": false
+  },
+  "held": [
+    "Runtime adoption",
+    "General visual acceptance",
+    "Roster expansion",
+    "Physical-device/live-server acceptance",
+    "Merge/deployment/rollout/activation"
+  ],
+  "remaining": [
+    "Stylized anatomy, sleeve facets, skin/hair/hand/boot materials and cloth compression",
+    "One reference-speed jog; broader football action/transition package unfinished",
+    "Native baked offgrid leg interpolation is approximate; future runtime adapter must live-solve unchanged targets",
+    "73.156mm follow-through overlap remains open"
+  ],
+  "exclusions": [
+    "PR57/staging recovery",
+    "PR58",
+    "other games",
+    "shared/practice rules and outcomes",
+    "backend/APIs/workers/migrations/flags",
+    "admission/payouts/balances/receipts/Coins/payments"
+  ]
+}

@@ -1,0 +1,133 @@
+"""Generate a render-only shirt coverage bitset from retained MHCLO correspondence.
+
+Original body/garment GLBs stay unchanged. Requires the binding and mapping JSON
+produced by the continuous body/garment exporters. All boundary measurements use
+original MHCLO body-reference positions, not an assumed height rectangle.
+"""
+import argparse
+import base64
+from collections import Counter,defaultdict
+import hashlib
+import importlib.util
+import json
+import math
+from pathlib import Path
+
+ROOT=Path(__file__).resolve().parents[2]
+HELPER=ROOT/'apps/web/src/components/football/engine/continuous-player-coverage.ts'
+
+def digest(raw):return hashlib.sha256(raw).hexdigest()
+
+def fingerprint(points,indices):
+    state=2166136261
+    values=[len(points),len(indices)]+[math.floor(v*1e6+.5)for point in points for v in point]+indices
+    for value in values:
+        for shift in [0,8,16,24]:
+            state=((state^((value>>shift)&255))*16777619)&0xffffffff
+    return state
+
+
+def build(evidence):
+    b=json.loads((evidence/'continuous-body-bind.json').read_text())
+    g=json.loads((evidence/'continuous-jersey.mapping.json').read_text())
+    r=json.loads((evidence/'continuous-body-glb-report.json').read_text())
+    source=b['positions']
+    refs={i for row in g['mhcloRows']for i in row['baseVertexIds']}
+    adjacent=defaultdict(set)
+    for face in b['bodyTriangles']:
+        ids=[corner[0]for corner in face]
+        for i in ids:adjacent[i].update(ids)
+    support=refs|{j for i in refs for j in adjacent[i]}
+    edges=Counter(tuple(sorted((face[i][0],face[(i+1)%len(face)][0])))for face in g['sourcePolygons']for i in range(len(face)))
+    border=defaultdict(set)
+    for (a,c),n in edges.items():
+        if n==1:border[a].add(c);border[c].add(a)
+    loops=[]
+    while border:
+        seed=next(iter(border));ids={seed};todo=[seed]
+        while todo:
+            for j in border[todo.pop()]:
+                if j not in ids:ids.add(j);todo.append(j)
+        for i in ids:del border[i]
+        loops.append(sorted(ids))
+    def footprint(i):
+        row=g['mhcloRows'][i]
+        return [sum(c*source[j][a]for j,c in zip(row['baseVertexIds'],row['coefficients']))for a in range(3)]
+    footprints=[[footprint(i)for i in loop]for loop in loops]
+    collar=max(footprints,key=lambda loop:sum(p[1]for p in loop)/len(loop))
+    hem=min(footprints,key=lambda loop:sum(p[1]for p in loop)/len(loop))
+    sleeves=[loop for loop in footprints if loop is not collar and loop is not hem]
+    assert sorted(map(len,footprints))==[12,12,26,36]
+    cx=sum(p[0]for p in collar)/len(collar);cz=sum(p[2]for p in collar)/len(collar)
+    polar=sorted((math.atan2(p[0]-cx,p[2]-cz),math.hypot(p[0]-cx,p[2]-cz),p[1])for p in collar)
+    polar=[(polar[-1][0]-2*math.pi,*polar[-1][1:])]+polar+[(polar[0][0]+2*math.pi,*polar[0][1:])]
+    def collar_limit(p):
+        theta=math.atan2(p[0]-cx,p[2]-cz)
+        for a,c in zip(polar,polar[1:]):
+            if a[0]<=theta<=c[0]:
+                t=(theta-a[0])/(c[0]-a[0]);return ((1-t)*a[1]+t*c[1],(1-t)*a[2]+t*c[2])
+        raise ValueError('Collar interpolation failed')
+    cuff_y=min(p[1]for loop in sleeves for p in loop)
+    hem_y=min(p[1]for p in hem)
+    names=b['jointNames49']
+    def covered(blend):
+        p=[sum(source[i][a]*w for i,w in blend)for a in range(3)]
+        y=p[1]
+        if not any(i in support for i,w in blend if w>1e-8)or y<=hem_y or y>=1.515:return False
+        wts=defaultdict(float)
+        for i,w in blend:
+            for joint,weight in b['normalized49Weights'][i]:wts[names[joint]]+=weight*w
+        hand=sum(w for n,w in wts.items()if n.startswith(('hand','thumb','index','middle','ring','pinky')))
+        arm=sum(w for n,w in wts.items()if n.startswith(('upperArm','foreArm')))
+        if hand>=.1 or (arm>.5 and y<=cuff_y):return False
+        radius,height=collar_limit(p)
+        # Source collar footprint defines the neck opening. Preserve the skin
+        # inside that opening; outside it, source-topology support covers shoulders.
+        if math.hypot(p[0]-cx,p[2]-cz)<radius and y>=height-.002:return False
+        return True
+    flags=[covered(blend)for blend in r['originalVertexCorrespondence']]
+    body_raw=(ROOT/'apps/web/public/models/football/continuous-body.glb').read_bytes()
+    spec=importlib.util.spec_from_file_location('head',ROOT/'scripts/assets/build-football-review-head.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);module.SIZES['MAT4']=16
+    doc,binary=module.read_glb(body_raw);prim=doc['meshes'][0]['primitives'][0]
+    points=module.rows(doc,binary,prim['attributes']['POSITION']);indices=[v[0]for v in module.rows(doc,binary,prim['indices'])]
+    assert len(points)==len(flags)==10212
+    bits=bytearray((len(flags)+7)//8)
+    for i,flag in enumerate(flags):
+        if flag:bits[i//8]|=1<<(i%8)
+    encoded=base64.b64encode(bits).decode();checksum=fingerprint(points,indices)
+    helper=f'''// Generated by scripts/assets/build-football-continuous-coverage.py.
+// Preferred MHCLO source references + one anatomical adjacency ring; collar/cuff
+// footprint gates preserve the neck opening and exposed distal arms/hands.
+// Body SHA256: {digest(body_raw)}
+import type * as THREE from 'three';
+
+const SHIRT_COVERAGE = '{encoded}';
+export const CONTINUOUS_COVERAGE_TOPOLOGY = {{ vertices: 10212, indices: {len(indices)}, checksum: {checksum} }} as const;
+
+export function continuousShirtCoverage(geometry: THREE.BufferGeometry) {{
+  const position = geometry.getAttribute('position'), index = geometry.index;
+  let checksum = 2166136261;
+  const add = (value: number) => {{
+    for (const shift of [0, 8, 16, 24]) checksum = Math.imul(checksum ^ ((value >>> shift) & 255), 16777619) >>> 0;
+  }};
+  add(position.count); add(index?.count ?? 0);
+  for (let i = 0; i < position.count; i++) for (let k = 0; k < 3; k++) add(Math.round(position.getComponent(i, k) * 1e6));
+  if (index) for (let i = 0; i < index.count; i++) add(index.getX(i));
+  if (position.count !== CONTINUOUS_COVERAGE_TOPOLOGY.vertices || index?.count !== CONTINUOUS_COVERAGE_TOPOLOGY.indices || checksum !== CONTINUOUS_COVERAGE_TOPOLOGY.checksum)
+    throw new Error('Continuous shirt coverage topology mismatch; regenerate source correspondence mask');
+  const packed = atob(SHIRT_COVERAGE);
+  return Uint8Array.from({{ length: position.count }}, (_, i) => (packed.charCodeAt(i >>> 3) >>> (i & 7)) & 1);
+}}
+'''
+    report={'bodySHA256':digest(body_raw),'bodyFingerprint':checksum,'bodyVertices':len(points),'bodyIndices':len(indices),'sourceReferenceVertices':len(refs),'sourceReferencesPlusOneRing':len(support),'coveredExportVertices':sum(flags),'collarBoundaryVertices':len(collar),'cuffBoundaryVertices':[len(l)for l in sleeves],'hemBoundaryVertices':len(hem),'cuffMinimumBodyFootprintY':cuff_y,'hemMinimumBodyFootprintY':hem_y,'neckOpening':'Polar interpolated original MHCLO collar footprint in production bind; preserve inside opening above boundary minus2mm','method':'Original zero-based body reference IDs from every preferred-shirt MHCLO row, one native anatomical adjacency ring, exact exported source correspondence, collar/cuff/hem footprint gates; render-only mask','completeGLBUnchanged':True,'protectedSeamVertices':sum(abs(p[1]-1.53)<1e-6 and not flag for p,flag in zip(points,flags)),'coveredArmVerticesBelowCuff':sum(flag and p[1]<=cuff_y and sum(weight*w for source_id,w in blend for j,weight in b['normalized49Weights'][source_id]if names[j].startswith(('upperArm','foreArm')))>.5 for p,flag,blend in zip(points,flags,r['originalVertexCorrespondence']))}
+    return helper,report
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--evidence',type=Path,required=True);parser.add_argument('--check',action='store_true');args=parser.parse_args()
+    helper,report=build(args.evidence);report_raw=json.dumps(report,indent=2)+'\n';path=args.evidence/'continuous-shirt-coverage-report.json'
+    if args.check:assert HELPER.read_text()==helper and path.read_text()==report_raw
+    else:HELPER.write_text(helper);path.write_text(report_raw)
+    print(report_raw)
+
+if __name__=='__main__':main()

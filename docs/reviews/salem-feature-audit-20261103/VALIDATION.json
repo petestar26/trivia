@@ -1,0 +1,46 @@
+{
+  "sourceFiles": 190,
+  "codeManifestSha256": "e4a56d5b009244c233741d18909e3e0d8e048c3b4c9591606cb7d04059ac8c13",
+  "web": {
+    "numTotalTests": 2053,
+    "numPassedTests": 2053,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "success": true,
+    "rawJsonSha256": "0c7503f495481fe673582569f3e4c7f71a5b4f87dee3b641c18a2a1cbf636604"
+  },
+  "api": {},
+  "nativePostgresql": "UNRUN",
+  "physicalDevices": "UNRUN",
+  "liveAuthenticated": "BLOCKED; automation client returned403; Cloudflare1010 observed",
+  "deploymentScope": "account-web only; API catalog NOT DEPLOYED",
+  "apiReview": {
+    "numTotalTests": 299,
+    "numPassedTests": 299,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "success": true,
+    "rawJsonSha256": "62fb5a5f7e576527ceaf91f3b613bfba9199684995a98854ae35b72d8d64e346"
+  },
+  "apiAuth": {
+    "numTotalTests": 46,
+    "numPassedTests": 46,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "success": true,
+    "rawJsonSha256": "7e64e29d78994ab3a384e2e113bcff3851c11d33da707c71eb37597616c60602"
+  },
+  "catalog": {
+    "tests": 27,
+    "passed": 27,
+    "failed": 0,
+    "nativeDatabase": false
+  },
+  "gatewayAndPwa": {
+    "tests": 36,
+    "passed": 36,
+    "failed": 0,
+    "skipped": 0,
+    "rawLogSha256": "6a63001a40b324988e6afeb6d1793537c62915a6065f53247aca5161dbb80185"
+  }
+}

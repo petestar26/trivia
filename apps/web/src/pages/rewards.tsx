@@ -60,7 +60,7 @@ export function RewardsPage() {
     queryFn: async () => (await api.listTasks()).data ?? [],
   });
 
-  const { data: achievements = [], isLoading: achLoading } = useQuery<AchievementSummary[]>({
+  const { data: achievements = [], isLoading: achLoading, isError: achievementsError } = useQuery<AchievementSummary[]>({
     queryKey: ['achievements'],
     queryFn: async () => (await api.listAchievements()).data ?? [],
     // Achievement processing is asynchronous fire-and-forget backend work. The
@@ -71,12 +71,12 @@ export function RewardsPage() {
     staleTime: 0,
   });
 
-  const { data: vip, isLoading: vipLoading } = useQuery<VipStatus | undefined>({
+  const { data: vip, isLoading: vipLoading, isError: vipError } = useQuery<VipStatus | undefined>({
     queryKey: ['vip'],
     queryFn: async () => (await api.getVip()).data,
   });
 
-  const { data: progress, isLoading: progLoading } = useQuery<ProgressStatus | undefined>({
+  const { data: progress, isLoading: progLoading, isError: progressError } = useQuery<ProgressStatus | undefined>({
     queryKey: ['progress'],
     queryFn: async () => (await api.getProgress()).data,
   });
@@ -117,11 +117,13 @@ export function RewardsPage() {
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Rewards</h1>
 
       {/* XP / Level */}
-      {progress && (
+      {(progress || progressError) && (
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">Progress</CardTitle></CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4">
+            {progressError ? (
+              <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load progress.</p>
+            ) : progress && <div className="flex items-center gap-4">
               <div className="text-3xl font-bold text-primary-600 dark:text-primary-400">Lv {progress.level}</div>
               <div className="flex-1">
                 <div className="text-sm text-gray-500 dark:text-gray-400">{progress.xp} XP</div>
@@ -129,17 +131,19 @@ export function RewardsPage() {
                   <div className="h-full bg-primary-500 rounded-full" style={{ width: `${Math.min(100, (progress.xp % 100))}%` }} />
                 </div>
               </div>
-            </div>
+            </div>}
           </CardContent>
         </Card>
       )}
 
       {/* VIP */}
-      {vip && (
+      {(vip || vipError) && (
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">VIP Status</CardTitle></CardHeader>
           <CardContent>
-            {vip.isActive ? (
+            {vipError ? (
+              <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load VIP status.</p>
+            ) : vip?.isActive ? (
               <div className="flex items-center gap-3">
                 <span className="text-2xl">{vip.tier === 'PLATINUM' ? '💎' : vip.tier === 'GOLD' ? '🥇' : '🥈'}</span>
                 <div>
@@ -202,7 +206,9 @@ export function RewardsPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">Achievements</CardTitle></CardHeader>
         <CardContent>
-          {achievements.length === 0 ? (
+          {achievementsError ? (
+            <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load achievements.</p>
+          ) : achievements.length === 0 ? (
             <p className="text-sm text-gray-500 text-center py-4">No achievements unlocked yet.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">

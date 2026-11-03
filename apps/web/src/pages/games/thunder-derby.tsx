@@ -377,13 +377,15 @@ export function DerbyView({
               <div>
                 <span className="derby-eyebrow">THE EMERALD COURSE</span>
                 <h2>
-                  {open
-                    ? 'At the starting gate'
-                    : running
-                      ? 'Down the home straight'
-                      : round.order
-                        ? 'Official finish'
-                        : 'Awaiting official result'}
+                  {!fresh
+                    ? 'View paused · Reconnecting'
+                    : open
+                      ? 'At the starting gate'
+                      : running
+                        ? 'Down the home straight'
+                        : round.order
+                          ? 'Official finish'
+                          : 'Awaiting official result'}
                 </h2>
                 <p>
                   {round.field} runners · {round.id}

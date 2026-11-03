@@ -60,6 +60,31 @@ function stubSupportingQueries() {
   getProgress.mockResolvedValue({ success: true, data: { level: 1, xp: 0 } });
 }
 
+describe('RewardsPage — independent section failures', () => {
+  it.each([
+    ['achievements', 'Failed to load achievements.'],
+    ['vip', 'Failed to load VIP status.'],
+    ['progress', 'Failed to load progress.'],
+  ])('reports a %s read failure without inventing an empty state', async (section, message) => {
+    stubSupportingQueries();
+    listTasks.mockResolvedValue({ success: true, data: [COMPLETED_TASK] });
+    const read = { achievements: listAchievements, vip: getVip, progress: getProgress }[section as 'achievements' | 'vip' | 'progress'];
+    read.mockRejectedValue(new Error('Read failed'));
+
+    renderPage();
+
+    expect(await screen.findByText(message)).toHaveAttribute('role', 'status');
+    expect(screen.getByText('Daily Login')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim' })).toBeEnabled();
+    if (section === 'achievements') {
+      expect(screen.queryByText('No achievements unlocked yet.')).not.toBeInTheDocument();
+    }
+    if (section === 'vip') {
+      expect(screen.queryByText('No active VIP membership.')).not.toBeInTheDocument();
+    }
+  });
+});
+
 const COMPLETED_TASK = {
   // Real values from the task catalog (`task-service.ts`): daily_login, 10 XP,
   // 0 Coins, 5 Game Points. The claim endpoint keys off the TaskDefinition id.

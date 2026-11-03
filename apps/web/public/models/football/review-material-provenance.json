@@ -1,0 +1,44 @@
+{
+  "source": {
+    "author": "MargaretToigo / MRT",
+    "license": "CC0",
+    "listing": "https://static.makehumancommunity.org/assets/assetpacks/shirts01.html",
+    "archive": "https://files.makehumancommunity.org/asset_packs/shirts01/shirts01_cc0.zip",
+    "archiveSha256": "a5a723b0e84a109bb190fcfeac7f1de4138d875da3e30fe5b3340eac9f38bcd3",
+    "entry": "clothes/toigo_basic_tucked_t-shirt/T-shirt_basic-bump.png",
+    "entryCRC32": "cc38f708",
+    "sha256": "dfe923b14a9188857d12eb227ceb6365dcf1ec3cd97e42f30c6fe3ae2c474578",
+    "retained": "scripts/assets/sources/football-review-materials/T-shirt_basic-bump.png",
+    "dimensions": [
+      2048,
+      2048
+    ],
+    "role": "Original artist height image for ribbed cuff/collar strips; flat shirt panels"
+  },
+  "derivative": {
+    "file": "review-shirt-bump.webp",
+    "sha256": "8b66438290aad3bc009f93996fed1fd0fc5b4ab6f4856801fff0fb639b732944",
+    "bytes": 19120,
+    "dimensions": [
+      1024,
+      1024
+    ],
+    "process": "RGBA to grayscale L, Lanczos resize, lossless WebP",
+    "pillow": "11.3.0",
+    "libwebp": "1.5.0",
+    "colorSpace": "linear / Three NoColorSpace",
+    "flipY": false,
+    "uvChannel": 0,
+    "uvSource": "Original OBJ garment UVs retained through MHCLO fitting and tailoring",
+    "bumpScaleMetres": 0.00028,
+    "estimatedRgbaMipBytes": 5592404
+  },
+  "originalStudy": {
+    "file": "apps/web/src/components/football/engine/review-material-study.json",
+    "bytes": 818,
+    "sha256": "a43bc94c1688ae3a8d54e0991fd36b436938d4ea16804a015e9242291824dcd0",
+    "authorship": "Original PlayQube review-only material response study; artistic calibration, not measured human PBR data"
+  },
+  "scope": "One existing fixed review actor; no full PBR artist package, scan, cloth simulation or new groom",
+  "scriptSha256": "da8e8b32fa45be036c6937bac1d1d6368f305cc7d546ed9e21b37fe4d88b43c6"
+}

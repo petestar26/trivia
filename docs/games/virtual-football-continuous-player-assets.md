@@ -1,0 +1,34 @@
+# Single-player continuous Football character: source assessment
+
+Assessed 2026-10-19 for PR59 continuation `432edee2f506773b98f5f39f94b094befa052651`. This document supplies artist inputs, not a delivered runtime improvement. A continuous, raw-redistributable CC0 body **and matching native rig/weights exist**. A finished football kit, corrected deformation and complete cleared football motion package have not been delivered. Follow the [artist work order](virtual-football-continuous-player-artist-brief.md) and fixed [renderer contract](virtual-football-continuous-player-contract.json).
+
+## Exact retained foundation
+
+All four inputs are pinned to MakeHuman commit `a8bc2d54ff0ac92e78ff71431b1023eda42bf482`. The base OBJ declares its CC0 release; native rig and weight JSON declare CC0; the retained asset license covers graphical assets. Application code licensing is separate. Third-party garments require individual source/license checks. The [official licensing policy](https://static.makehumancommunity.org/about/license.html) distinguishes core assets from application code; [CC0](https://creativecommons.org/publicdomain/zero/1.0/) permits modification and raw redistribution.
+
+| Retained file and exact upstream bytes | Bytes | SHA-256 |
+| --- | ---: | --- |
+| [default.mhskel](https://raw.githubusercontent.com/makehumancommunity/makehuman/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default.mhskel) | 117,790 | `99f179bce0aa850b45d4191a1d0d234c5851f881c057439470ded3bddf729a24` |
+| [makehuman-core-base.obj](https://raw.githubusercontent.com/makehumancommunity/makehuman/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/3dobjs/base.obj) | 1,749,303 | `8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c` |
+| [MakeHuman-LICENSE.ASSETS.md](https://raw.githubusercontent.com/makehumancommunity/makehuman/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.ASSETS.md) | 6,962 | `f6089cba01cb570a24712b41ab8a586ccd3cc5ef53dc266ca50b95c288956d2c` |
+| [default_weights.mhw](https://raw.githubusercontent.com/makehumancommunity/makehuman/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/makehuman/data/rigs/default_weights.mhw) | 897,521 | `0f3641d651ae3d00ad6b4ccee43142edb109d3bd909d27d9e4139ef1beed8625` |
+
+The complete retained copies and machine audit are in the delivery evidence directory `outputs/football-body-20261019/source-foundation/` and `SOURCE-FOUNDATION.json`. That JSON records native joint references, body/helper groups, coverage and weight statistics; the source links above remain usable without that local evidence path. Do not replace the pinned files with latest upstream without a new audit.
+
+## Native 163 → runtime 49 is an authoring task
+
+The native rig has 163 bones and 326 joint definitions referencing 1,117 distinct original mesh vertices; the audit found no out-of-range joint references. Weights contain 139 bone groups and 19,158 weighted vertices, covering all 13,380 anatomical body vertices. Source joint cubes and clothing/eye/hair/other helper surfaces are authoring data, not visible anatomical skin. Preserve source vertex IDs until native joint centers, planes and weights are resolved, then remove helpers by group and copy weights across UV seams correctly.
+
+Raw anatomical weight sums range .954–1.063; 2,750 body vertices differ from one by more than .0001. A four-influence cap affects 2,460 anatomical vertices. Normalize after deliberate influence consolidation and record truncation loss and deformation error. Only `head` matches a runtime name exactly. Native clavicles, neck/spine chains, facial joints, metacarpals and limb/twist subdivisions cannot become a working runtime binding through aliases alone. Align rest axes, segment lengths and inverse binds; consolidate native influences onto the fixed 49-joint contact skeleton, then inspect shoulders, elbows, hips, knees, wrists and fingers under motion. Native helpers/correctives can remain editable in the DCC project; proposed runtime twist/corrective support needs a separate visual adapter review. Do not change contact authority to accommodate a mesh.
+
+The new body must join the existing MakeHuman-derived review head anatomically, preserving facial identity/morphs/UVs and avoiding duplicated neck tubes or yokes. License clearance and full weight coverage do not establish attractive deformation. No retargeted GLB, fitted jersey/shorts/boots, validated correctives or accepted browser/device presentation is delivered by this documentation revision.
+
+## Clothing and motion scope
+
+Author original fitted football jersey, shorts, socks and unbranded boots, with an original goalkeeper/glove variant for the same person. Official separate clothing pack listings contain possible CC0 editable starting garments, but no exact finished male football kit was established; every actual downloaded mesh/material/fitting input still needs a pinned license/hash audit. No clothing candidate has been imported by this assessment.
+
+Existing motion source has 14 original authored clips/control tracks and a review-only bounded posture adapter. There is no dedicated authored braking clip; the current braking appearance uses signed-acceleration posture offsets. The current original keys are usable inputs, not evidence of a completed realistic action package. [Quaternius Universal Animation Library](https://quaternius.itch.io/universal-animation-library) officially offers a free Standard CC0 archive, but the 120+ catalog includes separately paid variants: free football action coverage and retargeted contact quality were not established. It is a candidate for a separately audited locomotion source, not a verified full package. [Legacy KayKit](https://kaylousberg.itch.io/kaykit-animations) is CC0 but explicitly intended for older legless characters and is unsuitable for anatomical foot-contact work.
+
+[Adobe's Mixamo help](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html) allows royalty-free game use but does not establish raw redistribution permission. Its [Adobe-hosted community FAQ](https://community.adobe.com/questions-696/mixamo-faq-licensing-royalties-ownership-eula-and-tos-589400?lang=en) warns against raw redistribution; that community-author post is not presented as binding legal terms. The [official additional terms](https://wwwimages2.adobe.com/content/dam/cc/en/legal/servicetou/Mixamo-Addl-Terms-en_US-20210623.pdf) supply no affirmative raw-motion redistribution grant. Mixamo therefore remains excluded from this raw-redistributable delivery; no bytes were imported or transformed. No paid or proprietary football motions are used.
+
+The full assessments are retained in delivery evidence as `ASSET-ASSESSMENT.md`, `ANIMATION-ASSESSMENT.md` and `SOURCE-FOUNDATION.json`. These establish a feasible licensed foundation and precise missing artist outputs, not a claim that all assets are unavailable. GPU/visual/device evidence remains separate.

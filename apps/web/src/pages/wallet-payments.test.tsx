@@ -81,6 +81,13 @@ it('links to the dedicated USDT TRON flow without starting a payment',async()=>{
  m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],crypto:{assets}}:[]}));mount();
  await screen.findByRole('heading',{name:'USDT · TRON (TRC20)'});expect(screen.getByRole('link',{name:'Open crypto wallet →'})).toHaveAttribute('href','/wallet/crypto');expect(m.post).not.toHaveBeenCalled();
 });
+it.each(['deposit', 'withdraw'])('defers country crypto availability to its authoritative wallet on %s', async (section) => {
+ mount(section);
+ fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+ expect(screen.queryByText(/Crypto: not yet available/)).not.toBeInTheDocument();
+ expect(screen.getByRole('link', { name: 'Check USDT availability' })).toHaveAttribute('href', '/wallet/crypto');
+ expect(m.post).not.toHaveBeenCalled();
+});
 it('shows paused pricing without an endless rate loader or preview request',async()=>{
  m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[{...options.countries[0],usdPricingEnabled:true,agentPaymentEnabled:false}]}:[]}));
  mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});

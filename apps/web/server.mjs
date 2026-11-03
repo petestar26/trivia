@@ -199,14 +199,16 @@ export function createWebServer({
       }
       const bytes = await readFile(file);
       const ext = path.extname(file);
+      const basename = path.basename(file);
       res.writeHead(200, {
         'content-type': MIME[ext] || 'application/octet-stream',
         'content-length': bytes.length,
         'x-content-type-options': 'nosniff',
         'cache-control':
           ext === '.html' ||
-          path.basename(file) === 'app-recovery.js' ||
-          /(?:sw|workbox).*\.js$/.test(file)
+          basename === 'app-recovery.js' ||
+          basename === 'sw.js' ||
+          /^workbox-.+\.js$/.test(basename)
             ? 'no-cache'
             : 'public, max-age=3600',
       });

@@ -4,6 +4,7 @@ import { DERBY_HORSES } from '@socialplay/shared';
 import * as THREE from 'three';
 import { backdropSize } from './backdrop-fit';
 import { frameDerbyField } from './field-camera';
+import { createDerbyNumberLayout } from './number-layout';
 import { createRaceMotion } from './race-motion';
 import { createHorse } from './horse-model';
 import {
@@ -14,6 +15,8 @@ import {
 } from './rigged-horse';
 import { createStrideClock } from './stride-clock';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+const RUNNER_GROUND_Y = 0.035;
 
 /** Locally hosted CC0 rigs, original racecourse and server-authoritative race progress. */
 export default function RaceScene({
@@ -63,16 +66,16 @@ export default function RaceScene({
     renderer.domElement.addEventListener('webglcontextlost', lost);
     renderer.domElement.addEventListener('webglcontextrestored', restored);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#bad1dc');
-    scene.fog = new THREE.Fog('#dbe4d4', 65, 230);
+    scene.background = new THREE.Color('#c3d5dc');
+    scene.fog = new THREE.Fog('#dce3d6', 72, 245);
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 2000);
-    scene.add(new THREE.HemisphereLight('#e4eff6', '#788064', 1.45));
+    scene.add(new THREE.HemisphereLight('#e4eff6', '#788064', 1.25));
     // A broad unshadowed fill reveals the dark coats/rider silhouettes without
     // adding another shadow map, geometry or per-runner light.
-    const fill = new THREE.DirectionalLight('#e3edf5', 0.55);
+    const fill = new THREE.DirectionalLight('#e3edf5', 0.85);
     fill.position.set(-15, 18, 24);
     scene.add(fill, fill.target);
-    const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
+    const sun = new THREE.DirectionalLight('#fff0d4', 2.35);
     sun.position.set(30, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -97,8 +100,8 @@ export default function RaceScene({
       materialCache.set(key, m);
       return m;
     }
-    const turf = mat('#bac89c'),
-      sand = mat('#aaba80'),
+    const turf = mat('#bfcba7', 0.96),
+      sand = mat('#d9debd', 0.94),
       white = mat('#f5eee1'),
       dark = mat('#292d30'),
       wood = mat('#b18b54');
@@ -151,7 +154,7 @@ export default function RaceScene({
       }
       const texture = new THREE.CanvasTexture(canvas);
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(grass ? 60 : 45, grass ? 30 : 4);
+      texture.repeat.set(grass ? 90 : 45, grass ? 45 : 4);
       texture.colorSpace = THREE.SRGBColorSpace;
       textures.push(texture);
       return texture;
@@ -174,7 +177,7 @@ export default function RaceScene({
     let disposed = false;
     // The distant artwork shares the scene's atmospheric depth rather than
     // presenting a sharper, brighter surface than the nearby animated rigs.
-    const backdropMat = new THREE.MeshBasicMaterial({ color: '#e4e8df', fog: true });
+    const backdropMat = new THREE.MeshBasicMaterial({ color: '#dce3d6', fog: true });
     materials.push(backdropMat);
     const backdrop = mesh(scene, new THREE.PlaneGeometry(200, 66.67), backdropMat, 90, 16, -65);
     backdrop.castShadow = backdrop.receiveShadow = false;
@@ -240,6 +243,7 @@ export default function RaceScene({
       '#b47749',
       '#d2c6b6',
     ];
+    const numbers: THREE.Sprite[] = [];
     const horses: RaceHorse[] = Array.from({ length: round.field }, (_, i) => {
       const horse = createHorse(
         coats[i],
@@ -257,7 +261,7 @@ export default function RaceScene({
       if (ctx) {
         ctx.fillStyle = DERBY_HORSES[i].color;
         ctx.beginPath();
-        ctx.arc(64, 64, 47, 0, Math.PI * 2);
+        ctx.arc(64, 64, 54, 0, Math.PI * 2);
         ctx.fill();
         ctx.lineWidth = 5;
         ctx.strokeStyle = '#fff4da';
@@ -265,24 +269,118 @@ export default function RaceScene({
         const color = new THREE.Color(DERBY_HORSES[i].color);
         ctx.fillStyle =
           color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722 < 0.35 ? '#fff8e6' : '#111820';
-        ctx.font = 'bold 64px sans-serif';
+        ctx.font = '900 90px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(i + 1), 64, 67);
       }
       const texture = new THREE.CanvasTexture(labelCanvas);
       textures.push(texture);
-      const labelMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+      const labelMat = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: false,
+        depthWrite: false,
+      });
       materials.push(labelMat);
       const label = new THREE.Sprite(labelMat);
-      label.position.set(0, 4.2, 0);
+      label.name = `runner-number-${i + 1}`;
+      label.renderOrder = 10;
+      label.position.set(0, 3.45, 0);
       label.scale.set(1.6, 1.6, 1);
       root.add(label);
+      numbers.push(label);
       // The track box is centred at .01 with .05 height. The gait's local
       // ground datum is zero, so lift the complete runner to its .035 top.
-      root.position.set(0, 0.035, (i - (round.field - 1) / 2) * 2.15);
+      root.position.set(0, RUNNER_GROUND_Y, (i - (round.field - 1) / 2) * 2.15);
       return horse;
     });
+    // One stable dynamic buffer for all number leaders, shared in both the
+    // authored and procedural presentations. No per-frame geometry/texture work.
+    const leaderPositions = new Float32Array(round.field * 6);
+    const leaderGeometry = new THREE.BufferGeometry();
+    const leaderAttribute = new THREE.BufferAttribute(leaderPositions, 3).setUsage(
+      THREE.DynamicDrawUsage
+    );
+    leaderGeometry.setAttribute('position', leaderAttribute);
+    geometries.push(leaderGeometry);
+    const leaderMaterial = new THREE.LineBasicMaterial({
+      color: '#fff3d5',
+      transparent: true,
+      opacity: 0.7,
+      depthTest: false,
+      depthWrite: false,
+    });
+    materials.push(leaderMaterial);
+    const leaders = new THREE.LineSegments(leaderGeometry, leaderMaterial);
+    leaders.name = 'runner-number-leaders';
+    leaders.frustumCulled = false;
+    leaders.renderOrder = 9;
+    scene.add(leaders);
+    const anchors = horses.map(() => new THREE.Vector3()),
+      projections = horses.map(() => new THREE.Vector3());
+    const worldPoint = new THREE.Vector3(),
+      rootScale = new THREE.Vector3();
+    const numberLayout = createDerbyNumberLayout();
+    function placeNumbers(dt: number) {
+      const width = container.clientWidth,
+        height = container.clientHeight;
+      if (!width || !height) return;
+      const pixels = horses.map((horse, i) => {
+        anchors[i].set(0, 3.45, 0);
+        horse.root.localToWorld(anchors[i]);
+        projections[i].copy(anchors[i]).project(camera);
+        return {
+          x: ((projections[i].x + 1) * width) / 2,
+          y: ((1 - projections[i].y) * height) / 2,
+        };
+      });
+      const badges = numberLayout.update(pixels, width, height, dt);
+      let changed = false;
+      const write = (offset: number, point: THREE.Vector3) => {
+        for (let k = 0; k < 3; k++) {
+          const next = Math.fround(point.getComponent(k));
+          if (leaderPositions[offset + k] !== next) {
+            leaderPositions[offset + k] = next;
+            changed = true;
+          }
+        }
+      };
+      badges.forEach((badge, i) => {
+        const horse = horses[i],
+          label = numbers[i],
+          depth = projections[i].z;
+        const viewDepth = -worldPoint.copy(anchors[i]).applyMatrix4(camera.matrixWorldInverse).z;
+        const worldPixels =
+          (2 * viewDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / height;
+        worldPoint
+          .set((badge.x / width) * 2 - 1, 1 - (badge.y / height) * 2, depth)
+          .unproject(camera);
+        label.position.copy(horse.root.worldToLocal(worldPoint));
+        horse.root.getWorldScale(rootScale);
+        label.scale.set(
+          (badge.size * worldPixels) / rootScale.x,
+          (badge.size * worldPixels) / rootScale.y,
+          1
+        );
+        write(i * 6, anchors[i]);
+        const dx = pixels[i].x - badge.x,
+          dy = pixels[i].y - badge.y,
+          distance = Math.hypot(dx, dy);
+        if (distance <= badge.size / 2 + 2) write(i * 6 + 3, anchors[i]);
+        else {
+          const fraction = (badge.size * 0.45) / distance;
+          worldPoint
+            .set(
+              ((badge.x + dx * fraction) / width) * 2 - 1,
+              1 - ((badge.y + dy * fraction) / height) * 2,
+              depth
+            )
+            .unproject(camera);
+          write(i * 6 + 3, worldPoint);
+        }
+      });
+      if (changed) leaderAttribute.needsUpdate = true;
+    }
     let assets: HorseAssets | undefined;
     void loadHorseAssets()
       .then((loaded) => {
@@ -303,7 +401,14 @@ export default function RaceScene({
         }
         replacements.forEach((horse, i) => {
           const previous = horses[i];
-          horse.root.position.copy(previous.root.position);
+          // The procedural fallback bounces its entire root, while the authored
+          // rig carries vertical gait in its bones. Preserve displayed progress
+          // and lane only; adopting its temporary root Y would float the hooves.
+          horse.root.position.set(
+            previous.root.position.x,
+            RUNNER_GROUND_Y,
+            previous.root.position.z
+          );
           const label = previous.root.children.find((child) => child instanceof THREE.Sprite);
           if (label) horse.root.add(label);
           scene.remove(previous.root);
@@ -343,7 +448,8 @@ export default function RaceScene({
       return contact;
     });
     let frame = 0,
-      last = 0;
+      last = 0,
+      freshFraming = true;
     let displayed = round.positions.map((p) => p * 180);
     let sampleMotion = createRaceMotion(displayed);
     let renderedRound = round.id;
@@ -357,6 +463,8 @@ export default function RaceScene({
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      numberLayout.reset();
+      freshFraming = true;
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -376,6 +484,8 @@ export default function RaceScene({
           displayed = state.round.positions.map((p) => p * 180);
           sampleMotion = createRaceMotion(displayed);
           strides = horses.map(() => createStrideClock());
+          numberLayout.reset();
+          freshFraming = true;
         }
         const previous = displayed;
         displayed = sampleMotion(
@@ -391,7 +501,13 @@ export default function RaceScene({
           const phase = strides[i](displayed[i] - previous[i], moving);
           horse.animate(phase, moving && displayed[i] - previous[i] > 0.0001);
         });
-        const center = frameDerbyField(camera, displayed, round.field, state.reduced ? 0 : dt);
+        const center = frameDerbyField(
+          camera,
+          displayed,
+          round.field,
+          state.reduced || freshFraming ? 0 : dt
+        );
+        freshFraming = false;
         backdrop.position.x = center - 35;
         if (fittedDistance !== camera.position.z || fittedAspect !== camera.aspect) {
           const size = backdropSize(camera, backdrop.position);
@@ -405,6 +521,7 @@ export default function RaceScene({
         sun.target.position.set(center, 0, 0);
         fill.position.set(center - 15, 18, 24);
         fill.target.position.set(center, 1.2, 0);
+        placeNumbers(state.reduced ? 0 : dt);
         renderer.render(scene, camera);
       } catch {
         disposed = true;
@@ -421,10 +538,15 @@ export default function RaceScene({
       renderer.domElement.removeEventListener('webglcontextrestored', restored);
       horses.forEach((horse) => horse.dispose?.());
       assets?.dispose();
-      renderer.dispose();
+      // Keep renderer bookkeeping alive while its resource dispose listeners
+      // release uploaded buffers, material textures and the owned shadow target.
+      // renderer.dispose() clears WebGLProperties, making later texture events
+      // unable to find the uploaded handles that still need gl.deleteTexture.
       geometries.forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
       textures.forEach((t) => t.dispose());
+      sun.shadow.dispose();
+      renderer.dispose();
       renderer.domElement.remove();
     };
   }, [round.field, contextRevision]);

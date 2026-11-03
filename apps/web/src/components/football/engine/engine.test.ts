@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type * as ThreeModule from 'three';
-import { PITCH, GOAL_SEQUENCE, type ReleasedGoal } from './director';
+import { PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
 import { createEngine, type Engine, type MatchInput } from './engine';
+import { statusAt } from '@/lib/football/reveal';
 
-const rendererState = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn() }));
+const rosterState = vi.hoisted(() => ({ details: [] as string[] }));
+const rendererState = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), detail: vi.fn() }));
 vi.mock('three', async (original) => {
   const three = await original<typeof ThreeModule>();
   return {
@@ -26,8 +28,14 @@ vi.mock('./players', async () => {
   return {
     createPlayerPool: () => ({
       group: new Group(),
+      rigs: rosterState.details.map((detail) => {
+        const root = new Group();
+        root.userData.playerDetail = detail;
+        return { root };
+      }),
       setTeams: vi.fn(),
       apply: vi.fn(),
+      setDetail: rendererState.detail,
       dispose: vi.fn(),
     }),
   };
@@ -77,6 +85,7 @@ function setup(reduced = false, width = 1440, height = 810) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  rosterState.details = [];
   rendererState.render.mockReset();
   nextFrame = 1;
   frames.clear();
@@ -179,6 +188,49 @@ it('holds a fixed broadcast camera in reduced motion while refreshing released m
   expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
   expect(camera.quaternion.toArray()).toEqual(rotation.toArray());
 });
+
+it.each([false, true])(
+  'draws the 0.11 m contact sphere without changing released match facts (reduced=%s)',
+  (reduced) => {
+    const { engine } = setup(reduced);
+    for (const side of ['H', 'A'] as const) {
+      const input: MatchInput = { ...match, goals: [{ n: 1, side, atMs: 6000 }] };
+      engine.setMatch(input);
+      for (const elapsedMs of [1000, 5999, 6700, 6730, 8051, 10001]) {
+        const frame = engine.renderAt(elapsedMs);
+        expect(frame).toEqual(
+          directorFrame({
+            matchKey: input.matchKey,
+            elapsedMs,
+            status: statusAt(elapsedMs),
+            goals: input.goals,
+            fullTime: input.fullTime,
+          })
+        );
+        const scene = rendererState.render.mock.calls.at(-1)![0] as THREE.Scene;
+        const spheres = scene.children.filter(
+          (child): child is THREE.Mesh<THREE.SphereGeometry> =>
+            child instanceof THREE.Mesh && child.geometry instanceof THREE.SphereGeometry
+        );
+        expect(spheres).toHaveLength(1);
+        const ball = spheres[0];
+        ball.updateMatrixWorld(true);
+        const center = ball.getWorldPosition(new THREE.Vector3());
+        expect(center.toArray()).toEqual([frame.ball.x, frame.ball.y, frame.ball.z]);
+        const positions = ball.geometry.getAttribute('position');
+        let renderedRadius = 0;
+        const vertex = new THREE.Vector3();
+        for (let i = 0; i < positions.count; i++) {
+          vertex.fromBufferAttribute(positions, i).applyMatrix4(ball.matrixWorld);
+          renderedRadius = Math.max(renderedRadius, vertex.distanceTo(center));
+        }
+        // Inspect the actual world-space mesh rather than only the geometry's
+        // constructor radius: the former 1.4x display scale hid a 44 mm mismatch.
+        expect(renderedRadius).toBeCloseTo(0.11, 7);
+      }
+    }
+  }
+);
 
 const viewports = [
   { name: 'desktop', width: 1440, height: 810 },
@@ -324,4 +376,30 @@ it.each([600, 292])('gives the fixed portrait pitch readable depth at 390×%i', 
     (Math.max(...corners.map((p) => p.x)) - Math.min(...corners.map((p) => p.x))) / 2;
   expect(screenHeight).toBeGreaterThan(0.18);
   expect(screenWidth).toBeGreaterThan(0.6);
+});
+
+it('selects player detail using the established camera and CSS viewport before every draw', () => {
+  const { engine } = setup(false, 390, 293);
+  rendererState.render.mockImplementation((_scene, camera) => {
+    const call = rendererState.detail.mock.calls.at(-1)!;
+    expect(call[0]).toBe(camera);
+    expect(call[1]).toBe(293);
+    expect(camera.matrixWorldInverse.elements.every(Number.isFinite)).toBe(true);
+  });
+  engine.renderAt(8050);
+  engine.renderAt(8060);
+  expect(rendererState.detail).toHaveBeenCalledTimes(2);
+});
+
+it('reports the actually selected roster detail counts without changing renderer work statistics', () => {
+  rosterState.details = ['high', 'high', 'mid', 'low', 'low', 'unknown'];
+  const { engine } = setup();
+  expect(engine.info()).toEqual({
+    triangles: 0,
+    calls: 0,
+    geometries: 0,
+    textures: 0,
+    reviewPlayers: 0,
+    playerDetails: { high: 2, mid: 1, low: 2 },
+  });
 });

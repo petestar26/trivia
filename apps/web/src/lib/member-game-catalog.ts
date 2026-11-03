@@ -11,8 +11,16 @@ export const PRACTICE_ROUTES: Record<string, string> = {
   spin_win: '/games/spin-win',
   turbo_keno: '/games/turbo-keno',
 };
-/** Practice games that stay hidden until the server reports them available. */
-const GATED_PRACTICE = ['number_challenge', 'sky_crash', 'thunder_derby_3d', 'virtual_football_3d'];
+/** Keep their cards visible, but require server availability before offering entry. */
+const GATED_PRACTICE = [
+  'number_challenge',
+  'sky_crash',
+  'thunder_derby_3d',
+  'virtual_football_3d',
+  'crash_point',
+  'dice',
+  'turbo_keno',
+];
 const RELEASED_ROUTES: Record<string, string> = {
   trivia: '/games/trivia',
   number_challenge: '/games/number-challenge',

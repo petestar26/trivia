@@ -364,7 +364,7 @@ function Payments({ userId }: { userId: string }) {
                     <p>
                       Agent P2P:{' '}
                       {country.agentPaymentEnabled === false ? 'unavailable' : 'available'} ·
-                      Crypto: not yet available
+                      {' '}<Link to="/wallet/crypto">Check USDT availability</Link>
                     </p>
                   )}
                   {country?.usdPricingEnabled && (
