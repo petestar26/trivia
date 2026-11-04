@@ -196,7 +196,9 @@ export function GamesPage({
                       Free practice
                     </span>
                     <p className="mt-3 text-xs text-gray-500">
-                      {game.key === 'lucky_six'
+                      {game.key === 'blackjack'
+                        ? '160-second rounds'
+                        : game.key === 'lucky_six'
                         ? 'Five-minute draws'
                         : game.key === 'number_challenge'
                         ? 'Instant number reveals'

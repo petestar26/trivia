@@ -19,6 +19,7 @@ const collection = [
   ['virtual_football_3d', 'Football', '/games/virtual-football'],
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
   ['lucky_six', 'Lucky Six', '/games/lucky-six'],
+  ['blackjack', 'Blackjack', '/games/blackjack'],
   ['trivia', 'Trivia', '/games/trivia'],
 ] as const;
 const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));

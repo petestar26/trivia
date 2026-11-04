@@ -1,3 +1,4 @@
+import { setMaxListeners } from 'node:events';
 import { PracticeWorkerHealth, runPracticeWorker } from '../scheduled/practice-worker-runtime.js';
 import { workerFailure } from '../../scripts/group-worker-runtime.js';
 
@@ -96,6 +97,9 @@ export async function runPracticeGamesWorker(options: {
     if (typeof options.ticks[task] !== 'function')
       throw new Error('Enabled practice tick is missing');
   const controller = new AbortController();
+  // Each independent loop has one cancellable timer. Keep leak detection
+  // bounded while allowing every enabled game to wait on the shared signal.
+  setMaxListeners(Math.max(10, options.health.enabled.length), controller.signal);
   const stop = () => {
     options.health.stop();
     controller.abort();
