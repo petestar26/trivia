@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
+import { providerCredentials } from './credentials.js';
 
 type Environment = Record<string, string | undefined>;
 export type ProviderProbeMode = '--check' | '--catalogue' | '--launch';
@@ -55,7 +56,8 @@ export async function runProviderDemoProbe(
   if (!['--check', '--catalogue', '--launch'].includes(mode))
     throw new Error('PROVIDER_PROBE_ARGUMENTS_REFUSED');
   const entries = (value: string | undefined) => (value ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  const credentialsConfigured = !!env.SOFTAGGREGATOR_API_LOGIN?.trim() && !!env.SOFTAGGREGATOR_API_PASSWORD?.trim();
+  const { apiLogin, apiPassword } = providerCredentials(env);
+  const credentialsConfigured = !!apiLogin && !!apiPassword;
   const configuration = {
     demoEnabled: env.SOFTAGGREGATOR_DEMO_ENABLED === 'true', credentialsConfigured,
     testerCount: new Set(entries(env.SOFTAGGREGATOR_DEMO_USER_IDS)).size,
@@ -78,7 +80,7 @@ export async function runProviderDemoProbe(
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...fields, method,
-          api_login: env.SOFTAGGREGATOR_API_LOGIN, api_password: env.SOFTAGGREGATOR_API_PASSWORD }),
+          api_login: apiLogin, api_password: apiPassword }),
       });
     } catch (error) {
       throw new ProbeFailure(error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)
@@ -109,12 +111,12 @@ export async function runProviderDemoProbe(
     const requested = env.SOFTAGGREGATOR_DEMO_PROBE_GAME_ID;
     const game = requested ? demos.get(requested) : demos.values().next().value;
     if (!game) return report(requested ? 'PROBE_GAME_UNAVAILABLE' : 'NO_DEMO_GAMES', false, { catalogue });
-    const pseudonym = createHmac('sha256', env.SOFTAGGREGATOR_API_PASSWORD!)
+    const pseudonym = createHmac('sha256', apiPassword)
       .update('salem-provider-demo-probe:v1').digest('hex');
     const rawUrl = await call('getGameDemo', { gameid: game.id_hash, play_for_fun: true,
       user_username: `dp_${pseudonym.slice(0, 24)}`, user_password: pseudonym.slice(24), lang: 'en', device });
     const launchHost = publicHost(rawUrl);
-    if (!launchHost || [env.SOFTAGGREGATOR_API_LOGIN!, env.SOFTAGGREGATOR_API_PASSWORD!,
+    if (!launchHost || [apiLogin, apiPassword,
       `dp_${pseudonym.slice(0, 24)}`, pseudonym.slice(24)]
       .some(secret => launchHost.includes(secret.toLowerCase())))
       throw new ProbeFailure('PROVIDER_UNSAFE_DEMO_HOST');

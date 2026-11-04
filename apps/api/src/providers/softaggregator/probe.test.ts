@@ -11,6 +11,26 @@ const response = (data: unknown) => new Response(JSON.stringify({ error: 0, resp
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('operator-only provider demo setup probe', () => {
+  it('uses the same normalized credentials for the catalogue, demo launch and anonymous identity', async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    for (const padded of [false, true]) {
+      const env = settings();
+      if (padded) {
+        env.SOFTAGGREGATOR_API_LOGIN = ` \r\n${env.SOFTAGGREGATOR_API_LOGIN}\n`;
+        env.SOFTAGGREGATOR_API_PASSWORD = `\t${env.SOFTAGGREGATOR_API_PASSWORD}\r\n`;
+      }
+      const transport = vi.fn(async (_url, options) => {
+        const body = JSON.parse(options.body);
+        if (body.api_login !== settings().SOFTAGGREGATOR_API_LOGIN || body.api_password !== settings().SOFTAGGREGATOR_API_PASSWORD)
+          return new Response(JSON.stringify({ error: 1, message: 'Invalid credentials' }));
+        if (body.method === 'getGameList') return response([game]);
+        requests.push(body);
+        return response('https://games.provider.com/demo/session');
+      });
+      expect(await runProviderDemoProbe('--launch', env, transport)).toMatchObject({ ok: true, status: 'DEMO_SESSION_READY' });
+    }
+    expect(requests[0]).toEqual(requests[1]);
+  });
   it.each(Object.keys(PROVIDER_PROBE_TARGET))('refuses wrong target %s before outbound access', async key => {
     const transport = vi.fn();
     await expect(runProviderDemoProbe('--catalogue', { ...settings(), [key]: 'wrong' }, transport))

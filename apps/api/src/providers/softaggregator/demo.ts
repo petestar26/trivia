@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { z } from 'zod';
+import { providerCredentials } from './credentials.js';
 
 export class ProviderDemoError extends Error {
   constructor(
@@ -31,6 +32,7 @@ export function createProviderDemo(
   env: Environment = process.env,
   transport: typeof fetch = fetch
 ) {
+  const { apiLogin, apiPassword } = providerCredentials(env);
   let cached: { until: number; games: DemoGame[] } | undefined;
   let pending: Promise<DemoGame[]> | undefined;
   const testers = () =>
@@ -42,7 +44,7 @@ export function createProviderDemo(
     env.SOFTAGGREGATOR_DEMO_ENABLED === 'true' && testers().includes(userId);
   function authorize(userId: string) {
     if (!enabledFor(userId)) throw new ProviderDemoError(404, 'Provider demo is not available.');
-    if (!env.SOFTAGGREGATOR_API_LOGIN || !env.SOFTAGGREGATOR_API_PASSWORD)
+    if (!apiLogin || !apiPassword)
       throw new ProviderDemoError(503, 'Provider demo credentials have not been configured.');
   }
   async function call(method: 'getGameList' | 'getGameDemo', fields: Record<string, unknown> = {}) {
@@ -55,8 +57,8 @@ export function createProviderDemo(
         body: JSON.stringify({
           ...fields,
           method,
-          api_login: env.SOFTAGGREGATOR_API_LOGIN,
-          api_password: env.SOFTAGGREGATOR_API_PASSWORD,
+          api_login: apiLogin,
+          api_password: apiPassword,
         }),
       });
       if (!response.ok) throw new Error('Provider HTTP error');
@@ -117,7 +119,7 @@ export function createProviderDemo(
       .filter(Boolean);
     if (!hosts.length)
       throw new ProviderDemoError(503, 'Approved provider game hosts have not been configured.');
-    const pseudonym = createHmac('sha256', env.SOFTAGGREGATOR_API_PASSWORD!)
+    const pseudonym = createHmac('sha256', apiPassword)
       .update(`demo:${userId}`)
       .digest('hex');
     const raw = await call('getGameDemo', {
