@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
+import { MobileNavigation } from './mobile-navigation';
 import { Header } from './header';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 
@@ -43,6 +44,7 @@ export function Layout() {
         <main id="main-content" className="qube-main p-4 lg:p-8">
           <Outlet />
         </main>
+        <MobileNavigation />
       </div>
     </div>
   );

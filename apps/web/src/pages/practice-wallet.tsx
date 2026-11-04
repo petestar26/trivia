@@ -10,7 +10,7 @@ export function PracticeWalletPage() {
   const wallet = useQuery({ queryKey: ['gift-collection', user?.id, 'wallet'],
     queryFn: async () => unwrapData(await api.get<GiftCollectionSnapshot>('/gift-collection')),
     enabled: !!user, refetchInterval: 10000 });
-  return <main className="mx-auto max-w-3xl space-y-6 p-6">
+  return <section className="salem-surface salem-practice-wallet mx-auto max-w-3xl space-y-6 p-6">
     <header><p className="text-sm font-semibold text-violet-600">ETHIOPIAN BIRR · PRACTICE MODE</p>
       <h1 className="mt-2 text-3xl font-bold">Your practice wallet</h1>
       <p className="mt-3 text-gray-500">All amounts here are virtual ETB with no cash value. Deposits and withdrawals are unavailable in practice mode.</p></header>
@@ -26,5 +26,5 @@ export function PracticeWalletPage() {
       <p className="my-3 text-gray-500">Each practice game keeps its own tickets and balance or per-round limit. Open a game to see its practice ETB rules. Game balances and gift balances cannot be transferred between one another.</p>
       <Link to="/games" className="font-semibold text-violet-600 underline">Play our games</Link></section>
     <p className="text-sm text-gray-500">Existing Coins and Game Points have not been converted to Birr. This practice wallet is separate from those records.</p>
-  </main>;
+  </section>;
 }

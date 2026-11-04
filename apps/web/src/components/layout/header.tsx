@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Menu, Wallet } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { NotificationBell } from '@/components/notifications/notification-bell';
@@ -32,12 +33,13 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           </button>
         )}
         <div>
-          <span className="qube-header-eyebrow">MEMBER LOUNGE</span>
+          <span className="qube-header-eyebrow">SALEM BET / MEMBER LOUNGE</span>
           <p className="qube-header-title">{labels[section] || 'Welcome to Salem Bet'}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
-        <Link to="/wallet" className="qube-wallet-link">
+        {PRACTICE_ETB && <span className="salem-mode-badge">Practice <b>ETB</b></span>}
+        <Link to="/wallet" className="qube-wallet-link" aria-label="Open your wallet">
           <Wallet size={17} aria-hidden="true" />
           <span className="hidden sm:inline">My wallet</span>
         </Link>

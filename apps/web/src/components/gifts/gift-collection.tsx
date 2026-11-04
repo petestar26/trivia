@@ -51,7 +51,7 @@ export function GiftCollection({ groupId, userId, initialRecipient, fromChat = f
   const kind = attempt?.action.kind ?? choice?.kind;
   const tooExpensive = kind === 'BUY' && !!collection.data && (amounts?.purchaseTotal ?? 0) > collection.data.balance;
   const title = kind === 'CONVERT' ? 'Convert this gift?' : kind === 'SEND' ? 'Send your gift' : 'Make someone’s day';
-  return <section className="space-y-6" aria-label="Gift collection">
+  return <section className="salem-surface salem-gifts space-y-6" aria-label="Gift collection">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-violet-600 dark:text-violet-300"><Sparkles size={15}/>Little gestures, big smiles</div>
         <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">The gift collection</h1>

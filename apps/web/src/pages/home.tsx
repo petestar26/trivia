@@ -15,6 +15,8 @@ import {
   Search,
   X,
   Heart,
+  Gift,
+  Gamepad2,
 } from 'lucide-react';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { MotionShelf } from '@/components/member/motion-shelf';
@@ -129,6 +131,11 @@ export function HomePage() {
           RUBY GRAND <span>THE MEMBER LOUNGE</span>
         </span>
       </section>
+      <nav className="salem-launchpad" aria-label="Start exploring">
+        <Link to="/games"><Gamepad2 size={23}/><span><strong>Find your next game</strong><small>Browse our practice collection</small></span><ArrowUpRight size={18}/></Link>
+        <Link to="/gifts"><Gift size={23}/><span><strong>A gift worth sharing</strong><small>From 500 practice ETB · no buy fee</small></span><ArrowUpRight size={18}/></Link>
+        <Link to="/groups"><Users size={23}/><span><strong>Better together</strong><small>Find a group. Join the conversation.</small></span><ArrowUpRight size={18}/></Link>
+      </nav>
       <div className="ruby-welcome-strip">
         <div>
           <span className="ruby-status-dot" /> Your member lounge
@@ -149,11 +156,6 @@ export function HomePage() {
           </small>
         )}
       </div>
-      <DashboardHighlights
-        userId={user?.id}
-        games={games}
-        catalogState={catalog.isPending ? 'loading' : catalog.isError ? 'error' : 'ready'}
-      />
       <section aria-labelledby="lounge-games-title">
         <div className="qube-section-heading">
           <div>
@@ -352,6 +354,11 @@ export function HomePage() {
           played yet.
         </p>
       </section>
+      <DashboardHighlights
+        userId={user?.id}
+        games={games}
+        catalogState={catalog.isPending ? 'loading' : catalog.isError ? 'error' : 'ready'}
+      />
       <section aria-labelledby="lounge-groups-title">
         <div className="qube-section-heading">
           <div>
