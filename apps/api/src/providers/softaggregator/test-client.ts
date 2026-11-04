@@ -12,6 +12,7 @@ export interface TestGame {
   name: string;
   provider: string;
   category: string;
+  image?: string;
 }
 export class TestProviderFailure extends ProviderDemoError {
   constructor(
@@ -28,6 +29,7 @@ const gameSchema = z.object({
   name: z.string().min(1).max(200),
   provider_name: z.string().max(200).optional(),
   game_type: z.string().max(40).optional(),
+  image: z.unknown().optional(),
 });
 export function testLaunchHost(raw: unknown) {
   if (typeof raw !== 'string' || raw.length > 8192) return null;
@@ -135,6 +137,7 @@ export function createProviderTest(
               name: p.data.name,
               provider: p.data.provider_name ?? 'Provider',
               category: p.data.game_type ?? 'other',
+              ...(testLaunchHost(p.data.image) ? { image: p.data.image as string } : {}),
             });
         }
         const result = [...found.values()];

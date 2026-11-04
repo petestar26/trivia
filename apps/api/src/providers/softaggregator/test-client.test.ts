@@ -33,6 +33,7 @@ function fixture(overrides = {}) {
                   name: 'Real API title',
                   play_for_fun_supported: false,
                   game_type: 'slots',
+                  image: 'https://cdn.example.com/slot.webp',
                 },
               ]
             : body.method === 'getGame'
@@ -53,7 +54,15 @@ function fixture(overrides = {}) {
 }
 it('lists non-demo games and uses createPlayer/getGame with an isolated ETB identity', async () => {
   const f = fixture();
-  expect(await f.pilot.games('tester')).toHaveLength(1);
+  expect(await f.pilot.games('tester')).toEqual([
+    {
+      id: 'studio/slot',
+      name: 'Real API title',
+      provider: 'Provider',
+      category: 'slots',
+      image: 'https://cdn.example.com/slot.webp',
+    },
+  ]);
   const result = await f.pilot.launch('tester', 'studio/slot', 'LA', true);
   expect(result.mode).toBe('virtual-test');
   const bodies = f.transport.mock.calls.map(([, i]) => JSON.parse(i.body as string));
@@ -116,4 +125,19 @@ it('redacts provider errors and refuses redirect following', async () => {
   f.transport.mockResolvedValueOnce(new Response('private credential error', { status: 401 }));
   await expect(f.pilot.games('tester')).rejects.toThrow('could not complete');
   expect(f.transport.mock.calls[0]?.[1].redirect).toBe('error');
+});
+it.each([
+  'http://cdn.example.com/art.png',
+  'javascript:alert(1)',
+  'https://127.0.0.1/a',
+  'https://user:pass@cdn.example.com/a',
+  null,
+])('keeps a game available without unsafe artwork %s', async (image) => {
+  const f = fixture();
+  f.transport.mockResolvedValueOnce(
+    new Response(JSON.stringify({ error: 0, response: [{ id_hash: 'slot', name: 'Slot', image }] }))
+  );
+  expect(await f.pilot.games('tester')).toEqual([
+    { id: 'slot', name: 'Slot', provider: 'Provider', category: 'other' },
+  ]);
 });

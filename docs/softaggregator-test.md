@@ -67,8 +67,15 @@ place a bet or visit the returned session. Only the launch hostname and public g
 are logged. Run it only on the established API target, after the callback deployment is
 healthy; keep ordinary readiness commands intact and restore them after the probe.
 
-Hosted acceptance still requires a tester to select their actual location at /casino,
-open a game, place a virtual bet and confirm the debit/credit in Recent test wallet
+The member Casino lobby now serves Ethiopia: the server sends country ET on every
+member launch, independently of legacy client input. Provider country restrictions
+remain enforced upstream. The operator CLI retains its explicit actual-location setting.
+The catalogue exposes validated HTTPS artwork; missing or broken artwork has a local
+category fallback. Select a game tile to launch; search, category filters and Show more
+make the full account catalogue browsable without opening games in the background.
+
+Hosted acceptance still requires an Ethiopia-based tester to open a game at /casino,
+place a virtual bet and confirm the debit/credit in Recent test wallet
 activity. Provider iframe compatibility and a completed upstream bet/win are not
 established by a successful API launch response alone.
 
