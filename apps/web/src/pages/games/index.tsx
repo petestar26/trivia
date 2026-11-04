@@ -180,7 +180,11 @@ export function GamesPage({
               <div className="qube-catalog-copy">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{game.name}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                  {isPlayable ? game.description : memberGameUnavailableDescription(game)}
+                  {isPlayable
+                    ? isTrivia
+                      ? 'Practice questions with instant feedback. No Coins, Game Points or cash prizes.'
+                      : game.description
+                    : memberGameUnavailableDescription(game)}
                 </p>
                 {practice ? (
                   <div className="mt-5">

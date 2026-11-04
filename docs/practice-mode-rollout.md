@@ -7,7 +7,7 @@ Only the `account-api` service may run the scoped owner provisioning script.
 ## Prepared changes
 
 - Publishes the actual Dice, Keno and Crash Point practice admission flags in the catalogue.
-- Adds a separate Trivia practice API/UI using the active question bank with no reward, wallet, ledger, attempt or score writes. Existing reward-game contracts remain separate.
+- Adds a separate Trivia practice API/UI using the active question bank (or12 server-only fallback questions when empty) with no reward, wallet, ledger, attempt or score writes. Existing reward-game contracts remain separate.
 - Adds an opt-in worker for Dice, Keno, Number Challenge, Sky Crash, Crash Point, Derby, Football and Scheduled Spin, with independent loops, aggregate health, stale detection and graceful shutdown.
 - Does not run group PVP or social lifecycle jobs. It does not activate Coin wagering, provider billing or transfers. Seven future game placeholders remain unavailable.
 
@@ -38,9 +38,18 @@ The readonly probe, catalogue repair and wallet-free Trivia can be deployed inde
 
 ## Validation
 
-67 isolated API tests pass, including19 real embedded-PostgreSQL privilege tests,
-18 Trivia practice route tests,7 worker lifecycle tests,20 provider tests and
+73 isolated API tests pass, including19 real embedded-PostgreSQL privilege tests,
+24 Trivia practice route tests,7 worker lifecycle tests,20 provider tests and
 3 practice catalogue cases.83 focused UI/navigation tests and full web typecheck/
 production build pass. API typecheck and bundle pass on the targeted release.
 No practice worker activation or successful live round lifecycle is claimed
 until the restricted credentials and flags are approved and acceptance is complete.
+
+## Live read-only readiness
+
+The first API rollout succeeded at `f4e26cef2cafef19b7c8fdabbec8840f64432d35`.
+Its predeploy reported111 migrations and no pending migrations. The scoped
+readonly probe returned tablesReady=true, databaseOwner=true, canCreateRole=true,
+spinEnabled=false and coinsAccepted=false. No role, password or activation flag
+was created by this probe. The initial live active Trivia bank was empty; the
+server-only fallback avoids inserting any question/reward records.
