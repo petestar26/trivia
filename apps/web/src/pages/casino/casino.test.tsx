@@ -121,7 +121,7 @@ describe('Casino entry and catalog', () => {
     renderWithProviders(<CasinoPage />);
 
     expect(await screen.findByRole('heading', { name: 'Casino' })).toBeInTheDocument();
-    expect(screen.getByText('System tables run every minute. Try Spin, Keno and Dice with free practice credits. Find player-versus-player games inside your groups.')).toBeInTheDocument();
+    expect(screen.getByText('Explore system games and check each table’s availability. Find player-versus-player games inside your groups.')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
@@ -129,5 +129,21 @@ describe('Casino entry and catalog', () => {
     expect(screen.getAllByText('Free practice').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', {name:/Dice/})).toHaveAttribute('href','/games/dice');
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/games'));
+  });
+
+  it('does not promise running tables or offer play when the server has disabled practice', async () => {
+    apiGet.mockImplementation(async (path: string) => ({
+      success: true,
+      data: path === '/games'
+        ? catalog.filter(game => game.key === 'dice').map(game => ({ ...game, practiceAvailable: false }))
+        : { coinsBalance: 125, gamePointsBalance: 0 },
+    }));
+    renderWithProviders(<CasinoPage />);
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
+    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Dice/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/System tables run every minute/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/every minute/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bet:/)).not.toBeInTheDocument();
   });
 });

@@ -23,6 +23,7 @@ import { api, unwrapData } from '@/lib/api';
 import {
   memberGameDestination,
   memberGameLabel,
+  memberGameUnavailableDescription,
   PRACTICE_ROUTES,
   type MemberGame,
 } from '@/lib/member-game-catalog';
@@ -178,7 +179,7 @@ export function HomePage() {
                   [
                     ['all', 'All games', games.length],
                     ['ready', 'Ready to explore', readyCount],
-                    ['upcoming', 'Not yet available', games.length - readyCount],
+                    ['upcoming', 'Currently unavailable', games.length - readyCount],
                     [
                       'favorites',
                       'Favorites',
@@ -282,7 +283,7 @@ export function HomePage() {
                           ? game.mode === 'BONUS'
                             ? 'Test your knowledge. Play for free.'
                             : 'Explore the game and its published rules.'
-                          : 'A new experience is on its way.'}
+                          : memberGameUnavailableDescription(game)}
                     </p>
                     <span className="ruby-game-action">
                       {to ? (
@@ -291,7 +292,8 @@ export function HomePage() {
                         </>
                       ) : (
                         <>
-                          <LockKeyhole size={13} /> Not yet available
+                          <LockKeyhole size={13} />{' '}
+                          {memberGameLabel(game) === 'Coming soon' ? 'Not yet available' : 'Currently unavailable'}
                         </>
                       )}
                     </span>

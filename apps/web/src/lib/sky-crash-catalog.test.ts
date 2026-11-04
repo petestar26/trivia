@@ -4,10 +4,11 @@ const sky = { key: 'sky_crash', catalogStatus: 'COMING_SOON', isActive: false } 
 it('requires explicit server practice availability for the new game link', () => {
   for (const practiceAvailable of [undefined, false]) {
     expect(memberGameDestination({ ...sky, practiceAvailable })).toBeUndefined();
-    expect(memberGameLabel({ ...sky, practiceAvailable })).toBe('Coming soon');
+    expect(memberGameLabel({ ...sky, practiceAvailable })).toBe('Temporarily unavailable');
   }
   expect(memberGameDestination({ ...sky, practiceAvailable: true })).toBe('/games/sky-crash');
   expect(
     memberGameDestination({ ...sky, practiceAvailable: true, catalogStatus: 'RETIRED' })
   ).toBeUndefined();
+  expect(memberGameLabel({ ...sky, practiceAvailable: true, catalogStatus: 'RETIRED' })).toBe('Unavailable');
 });

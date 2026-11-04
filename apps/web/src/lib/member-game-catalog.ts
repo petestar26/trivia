@@ -38,9 +38,17 @@ export function memberGameDestination(game: MemberGame): string | undefined {
 }
 
 export function memberGameLabel(game: MemberGame) {
+  if (game.catalogStatus === 'RETIRED') return 'Unavailable';
   if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
-    return 'Coming soon';
+    return 'Temporarily unavailable';
   if (PRACTICE_ROUTES[game.key]) return 'Free practice';
   if (memberGameDestination(game)) return game.mode === 'BONUS' ? 'Free game' : 'Available';
   return game.catalogStatus === 'COMING_SOON' ? 'Coming soon' : 'Unavailable';
+}
+
+/** Unavailable implemented games must not be presented as future releases. */
+export function memberGameUnavailableDescription(game: MemberGame) {
+  return memberGameLabel(game) === 'Coming soon'
+    ? 'A new experience is on its way.'
+    : 'This game is currently unavailable.';
 }

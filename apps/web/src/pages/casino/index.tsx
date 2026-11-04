@@ -6,7 +6,7 @@ export function CasinoPage() {
     <GamesPage
       mode="WAGER"
       title="Casino"
-      description="System tables run every minute. Try Spin, Keno and Dice with free practice credits. Find player-versus-player games inside your groups."
+      description="Explore system games and check each table’s availability. Find player-versus-player games inside your groups."
       emptyMessage="No casino games are available right now."
     />
   );

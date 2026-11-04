@@ -11,7 +11,7 @@ const game = {
 it('does not release Number Challenge through artwork, a catalog row or its route alone', () => {
   for (const practiceAvailable of [false, undefined]) {
     expect(memberGameDestination({ ...game, practiceAvailable })).toBeUndefined();
-    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Coming soon');
+    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Temporarily unavailable');
   }
   // Even an active, AVAILABLE catalog row is not enough: the server must report practice available.
   expect(
@@ -29,4 +29,5 @@ it('does not release Number Challenge through artwork, a catalog row or its rout
   expect(
     memberGameDestination({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })
   ).toBeUndefined();
+  expect(memberGameLabel({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })).toBe('Unavailable');
 });

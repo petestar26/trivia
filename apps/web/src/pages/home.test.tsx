@@ -181,7 +181,8 @@ describe('Ruby Grand member dashboard', () => {
         setup(Page);
         expect(await screen.findByRole('heading', { name: key })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: new RegExp(key) })).not.toBeInTheDocument();
-        expect(screen.getByText('Coming soon')).toBeInTheDocument();
+        expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
+        expect(screen.getByText('This game is currently unavailable.')).toBeInTheDocument();
       }
     );
   });
@@ -353,7 +354,7 @@ describe('Ruby Grand member dashboard', () => {
       within(region).queryByRole('heading', { name: 'More to discover' })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Not yet available 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Currently unavailable 2' }));
     expect(within(region).getByRole('heading', { name: 'Sky Crash' })).toBeInTheDocument();
     expect(within(region).getByRole('heading', { name: 'Neon Hounds' })).toBeInTheDocument();
     expect(within(region).queryAllByRole('link')).toHaveLength(0);
@@ -427,5 +428,87 @@ describe('Ruby Grand member dashboard', () => {
     const balances = screen.getByRole('link', { name: /Coins.*Game Points/ });
     expect(within(balances).getAllByText('—')).toHaveLength(2);
     expect(within(balances).queryByText('0')).not.toBeInTheDocument();
+  });
+});
+
+const gatedGameRoutes = [
+  ['number_challenge', '/games/number-challenge'],
+  ['sky_crash', '/games/sky-crash'],
+  ['thunder_derby_3d', '/games/thunder-derby'],
+  ['virtual_football_3d', '/games/virtual-football'],
+  ['crash_point', '/games/crash-point'],
+  ['dice', '/games/dice'],
+  ['turbo_keno', '/games/turbo-keno'],
+] as const;
+const futureGameKeys = ['neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'];
+
+describe.each([
+  ['home', HomePage],
+  ['games', GamesPage],
+] as const)('%s truthful game availability', (_name, Page) => {
+  it.each([undefined, false])('distinguishes all implemented but unavailable games with availability %s', async (practiceAvailable) => {
+    get.mockImplementation(async (path: string) => ({
+      success: true,
+      data: path === '/games'
+        ? gatedGameRoutes.map(([key]) => ({ ...game(key), practiceAvailable }))
+        : { coinsBalance: 42, gamePointsBalance: 80 },
+    }));
+    setup(Page);
+    for (const [key] of gatedGameRoutes) {
+      const heading = await screen.findByRole('heading', { name: key });
+      const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
+      expect(within(card).getByText('Temporarily unavailable')).toBeInTheDocument();
+      expect(within(card).getByText('This game is currently unavailable.')).toBeInTheDocument();
+      expect(within(card).queryByText('Coming soon')).not.toBeInTheDocument();
+      expect(card.closest('a')).toBeNull();
+      expect(within(card).queryByText(/^Bet:/)).not.toBeInTheDocument();
+    }
+  });
+
+  it('does not turn an old API AVAILABLE Dice row with missing availability into a Coin bet or future promise', async () => {
+    get.mockImplementation(async (path: string) => ({
+      success: true,
+      data: path === '/games'
+        ? [{ ...game('dice', 'AVAILABLE', true), practiceAvailable: undefined, minBet: 5, maxBet: 1000 }]
+        : { coinsBalance: 42, gamePointsBalance: 80 },
+    }));
+    setup(Page);
+    const heading = await screen.findByRole('heading', { name: 'dice' });
+    const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
+    expect(within(card).getByText('Temporarily unavailable')).toBeInTheDocument();
+    expect(within(card).getByText('This game is currently unavailable.')).toBeInTheDocument();
+    expect(within(card).queryByText(/^Bet:/)).not.toBeInTheDocument();
+    expect(card.closest('a')).toBeNull();
+  });
+
+  it('keeps all genuine future placeholders coming soon and inaccessible', async () => {
+    get.mockImplementation(async (path: string) => ({
+      success: true,
+      data: path === '/games' ? futureGameKeys.map(key => game(key)) : { coinsBalance: 42, gamePointsBalance: 80 },
+    }));
+    setup(Page);
+    for (const key of futureGameKeys) {
+      const heading = await screen.findByRole('heading', { name: key });
+      const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
+      expect(within(card).getByText('Coming soon')).toBeInTheDocument();
+      expect(within(card).queryByText('Temporarily unavailable')).not.toBeInTheDocument();
+      expect(card.closest('a')).toBeNull();
+    }
+  });
+
+  it('preserves every explicitly available practice destination and its existing practice label', async () => {
+    get.mockImplementation(async (path: string) => ({
+      success: true,
+      data: path === '/games'
+        ? gatedGameRoutes.map(([key]) => ({ ...game(key), practiceAvailable: true }))
+        : { coinsBalance: 42, gamePointsBalance: 80 },
+    }));
+    setup(Page);
+    for (const [key, destination] of gatedGameRoutes) {
+      const heading = await screen.findByRole('heading', { name: key });
+      const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
+      expect(within(card).getByText('Free practice')).toBeInTheDocument();
+      expect(card.closest('a')).toHaveAttribute('href', destination);
+    }
   });
 });

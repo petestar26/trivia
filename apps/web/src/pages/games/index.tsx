@@ -8,6 +8,8 @@ import { useLocation } from 'react-router-dom';
 
 import {
   memberGameDestination,
+  memberGameLabel,
+  memberGameUnavailableDescription,
   PRACTICE_ROUTES,
   type MemberGame as GameCatalogItem,
 } from '@/lib/member-game-catalog';
@@ -131,7 +133,7 @@ export function GamesPage({
       {mode === 'WAGER' && (
         <nav aria-label="Play modes" className="flex flex-wrap gap-3 text-sm">
           <span className="rounded-full bg-emerald-100 px-4 py-2 font-semibold text-emerald-900">
-            System practice · every minute
+            System practice
           </span>
           <Link
             className="rounded-full border border-slate-300 px-4 py-2 dark:text-white"
@@ -150,7 +152,6 @@ export function GamesPage({
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {publicGames.map((game) => {
           const practice = memberGameDestination(game) && practiceRoutes[game.key];
-          const isComingSoon = game.catalogStatus === 'COMING_SOON';
           const destination = memberGameDestination(game);
           const isPlayable = !!destination;
           const isTrivia = game.key === 'trivia';
@@ -161,7 +162,7 @@ export function GamesPage({
               <div className="qube-catalog-copy">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{game.name}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                  {game.description}
+                  {isPlayable ? game.description : memberGameUnavailableDescription(game)}
                 </p>
                 {practice ? (
                   <div className="mt-5">
@@ -182,10 +183,10 @@ export function GamesPage({
                       Play practice →
                     </p>
                   </div>
-                ) : isComingSoon ? (
+                ) : !isPlayable ? (
                   <div className="mt-3">
                     <span className="inline-block text-xs font-medium px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                      Coming soon
+                      {memberGameLabel(game)}
                     </span>
                   </div>
                 ) : isTrivia ? (
