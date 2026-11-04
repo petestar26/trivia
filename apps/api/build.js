@@ -37,6 +37,7 @@ async function buildApi() {
       join(__dirname, 'src/scripts/group-pvp-worker.ts'),
       join(__dirname, 'src/scripts/practice-activation.ts'),
       join(__dirname, 'src/scripts/practice-games-worker.ts'),
+      join(__dirname, 'src/scripts/provider-demo-probe.ts'),
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
