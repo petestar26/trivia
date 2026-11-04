@@ -1,4 +1,4 @@
-import { parseSpin90Bets, settleSpin90Bets } from '@socialplay/shared';
+import { parseSpin90Bets, settleSpin90Bets, SCHEDULED_SPIN_MAX_TICKETS } from '@socialplay/shared';
 import type { ScheduledPracticeSnapshot, SpinBet } from '@socialplay/shared';
 import type { RoundDatabase, RoundTransaction } from './round-store.js';
 
@@ -12,6 +12,7 @@ export class PracticeError extends Error {
   }
 }
 interface TicketRow {
+  slot: number;
   bets: SpinBet[];
   accepted_at: Date;
 }
@@ -20,10 +21,14 @@ export async function submitPracticeTicket(
   db: RoundDatabase,
   userId: string,
   roundId: string,
-  input: unknown
+  input: unknown,
+  slot = 1
 ) {
   if (typeof roundId !== 'string' || !/^spin-win-practice-v1:[0-9]{1,16}$/.test(roundId)) {
     throw new PracticeError(400, 'Invalid practice round');
+  }
+  if (!Number.isInteger(slot) || slot < 1 || slot > SCHEDULED_SPIN_MAX_TICKETS) {
+    throw new PracticeError(400, 'Choose Bet 1 to Bet 10');
   }
   let bets: SpinBet[];
   try {
@@ -43,18 +48,19 @@ export async function submitPracticeTicket(
         [userId]
       );
       if (!user) throw new PracticeError(403, 'An active account is required');
-      // A player's one immutable ticket per round is its idempotency identity.
+      // Each player/round/slot is one immutable idempotency identity.
       // Retry is allowed after cutoff/pause/draw; changed selections are not.
       const [prior] = await tx.query<TicketRow>(
-        'SELECT bets,accepted_at FROM public.scheduled_practice_tickets WHERE round_id=$1 AND user_id=$2',
-        [roundId, userId]
+        'SELECT slot,bets,accepted_at FROM public.scheduled_practice_tickets WHERE round_id=$1 AND user_id=$2 AND slot=$3',
+        [roundId, userId, slot]
       );
       if (prior) {
         if (JSON.stringify(parseSpin90Bets(prior.bets)) !== JSON.stringify(bets)) {
-          throw new PracticeError(409, 'This round already has a different locked ticket');
+          throw new PracticeError(409, `Bet ${slot} already has a different locked ticket`);
         }
         return {
           roundId,
+          slot,
           bets: prior.bets,
           acceptedAt: prior.accepted_at,
           coinsAccepted: false,
@@ -73,12 +79,13 @@ export async function submitPracticeTicket(
       if (!round) throw new PracticeError(404, 'Practice round not found');
       if (!round.accepts) throw new PracticeError(409, 'This practice round is closed');
       const [ticket] = await tx.query<TicketRow>(
-        `INSERT INTO public.scheduled_practice_tickets(round_id,user_id,bets)
-      VALUES ($1,$2,$3::JSONB) RETURNING bets,accepted_at`,
-        [roundId, userId, JSON.stringify(bets)]
+        `INSERT INTO public.scheduled_practice_tickets(round_id,user_id,bets,slot)
+      VALUES ($1,$2,$3::JSONB,$4) RETURNING slot,bets,accepted_at`,
+        [roundId, userId, JSON.stringify(bets), slot]
       );
       return {
         roundId,
+        slot,
         bets: ticket.bets,
         acceptedAt: ticket.accepted_at,
         coinsAccepted: false,
@@ -109,7 +116,7 @@ interface SnapshotRow {
     endsAt: number;
     state: 'OPEN' | 'DRAWN';
     outcome: number | null;
-    ticket: { bets: SpinBet[]; acceptedAt: string } | null;
+    tickets: { slot: number; bets: SpinBet[]; acceptedAt: string }[];
   }>;
 }
 /** One SELECT snapshot. No polling call creates a round, draws, or settles money. */
@@ -125,9 +132,10 @@ export async function practiceSnapshot(
       SELECT r.sequence, pg_catalog.jsonb_build_object(
         'id',r.id,'sequence',r.sequence::TEXT,'opensAt',r.opens_ms,'closesAt',r.closes_ms,
         'revealEndsAt',r.reveal_ends_ms,'endsAt',r.ends_ms,'state',r.state,'outcome',r.outcome,
-        'ticket',CASE WHEN t.user_id IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('bets',t.bets,'acceptedAt',t.accepted_at) END
+        'tickets',COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+          'slot',t.slot,'bets',t.bets,'acceptedAt',t.accepted_at) ORDER BY t.slot)
+          FROM public.scheduled_practice_tickets t WHERE t.round_id=r.id AND t.user_id=$2),'[]'::JSONB)
       ) AS payload FROM public.scheduled_game_rounds r
-      LEFT JOIN public.scheduled_practice_tickets t ON t.round_id=r.id AND t.user_id=$2
       WHERE r.stream_id=s.id ORDER BY r.sequence DESC LIMIT 12
     ) x),'[]'::JSONB) AS rounds
     FROM public.scheduled_game_streams s WHERE s.id=$1
@@ -142,6 +150,7 @@ export async function practiceSnapshot(
     streamId: PRACTICE_STREAM,
     mode: 'PRACTICE',
     coinsAccepted: false,
+    maxTickets: SCHEDULED_SPIN_MAX_TICKETS,
     enabled: row.enabled,
     serverTime: now,
     nextOpensAt: row.enabled
@@ -151,16 +160,16 @@ export async function practiceSnapshot(
       : null,
     rounds: row.rounds.map((round) => {
       const outcome = round.state === 'DRAWN' && now >= round.closesAt ? round.outcome : null;
+      const tickets = round.tickets.map((ticket) => ({
+        ...ticket,
+        stake: ticket.bets.reduce((sum, bet) => sum + bet.amount, 0),
+        payout: outcome === null ? null : settleSpin90Bets(ticket.bets, outcome).payout,
+      }));
       return {
         ...round,
         outcome,
-        ticket: round.ticket
-          ? {
-              ...round.ticket,
-              stake: round.ticket.bets.reduce((sum, bet) => sum + bet.amount, 0),
-              payout: outcome === null ? null : settleSpin90Bets(round.ticket.bets, outcome).payout,
-            }
-          : null,
+        tickets,
+        ticket: tickets.find((ticket) => ticket.slot === 1) ?? null,
       };
     }),
   };

@@ -67,7 +67,7 @@ export function SpinStage({
             </p>
             <div className="mt-1 font-semibold text-[#ffe2a1]">
               {mode === 'scheduled'
-                ? 'Free practice credits'
+                ? 'Free practice · ETB'
                 : (balance ?? 'One server result for every player')}
             </div>
           </div>
@@ -76,7 +76,7 @@ export function SpinStage({
           {mode === 'solo'
             ? 'Practice mode · No cash is spent or won. Credits reset when you leave.'
             : mode === 'scheduled'
-              ? 'Practice only · No Coins, deposits, fees or redeemable prizes. Selections lock once per round.'
+              ? 'Practice only · No deposits, fees or redeemable prizes. Each confirmed ticket is locked to its round.'
               : 'Coin mode · Server settlement · Confirm pending rounds before entering again.'}
         </p>
         <div className="grid items-center gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_230px]">

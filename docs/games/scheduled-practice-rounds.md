@@ -22,14 +22,14 @@ The route `/games/spin-win/live` displays server rounds and practice selections.
   does not manufacture historical rounds after an outage. The ticket guard rejects absent, paused or closed rounds.
 - Authenticated `GET /games/scheduled/spin-win` is read-only, returns server time,
   the last 12 rounds and only the current player's tickets, with no-store caching.
-- `POST /games/scheduled/spin-win/tickets` accepts one immutable practice ticket per
-  active player per round. Identical retries return the stored acceptance, even
+- `POST /games/scheduled/spin-win/tickets` accepts up to ten immutable practice tickets per
+  active player per round, identified by `slot` (1–10; omitted means Bet 1). Identical retries return the stored acceptance, even
   after closing; conflicting reuse returns 409. The API and SQL trigger both check
   the database deadline under the draw worker's stream lock. Amounts are multiples
-  of 40, at most 480 total. These selections are not a redeemable balance.
+  of 40, at most 480 per ticket. These selections are not a redeemable balance.
 - The UI polls every two seconds. It disables new entry on lost/stale connectivity
   or cutoff, displays committed outcomes only, and retries an uncertain submission
-  with the same round and selections. Refresh recovers accepted tickets from the
+  with the same round, slot and selections. Refresh recovers accepted tickets from the
   server. The last-12-round display is a recent-results view, not a full history
   export. Missed or delayed rounds are never simulated locally.
 
@@ -44,6 +44,10 @@ qualified references. Row/statement guards prevent result edits and truncation.
 Migration `20260930120000_scheduled_practice_tickets` adds practice selections
 linked to the player and round, including immutable-history and deadline guards.
 Prisma models map the tables; the pending-round partial index remains SQL-only.
+
+Migration `20261105150000_spin_practice_multi_ticket` preserves existing receipts as
+Bet 1 and adds the bounded slot to the ticket primary key. See
+[Spin multi-ticket behavior and rollout](spin-multi-ticket.md).
 
 The worker requires SELECT on both tables, INSERT on rounds, and UPDATE on round
 `state`, `outcome`, `drawn_at`. It does not require signing keys or migration

@@ -18,21 +18,19 @@ export function registerPracticeRoutes(server: FastifyInstance, db: RoundDatabas
         return { success: true, data: await practiceSnapshot(db, request.user.sub) };
       } catch (error) {
         if (error instanceof PracticeError)
-          return reply
-            .code(error.statusCode)
-            .send({
-              success: false,
-              error: { code: 'PRACTICE_UNAVAILABLE', message: error.message },
-            });
+          return reply.code(error.statusCode).send({
+            success: false,
+            error: { code: 'PRACTICE_UNAVAILABLE', message: error.message },
+          });
         throw error;
       }
     }
   );
-  server.post<{ Body: { roundId: string; bets: unknown } }>(
+  server.post<{ Body: { roundId: string; bets: unknown; slot?: number } }>(
     '/scheduled/spin-win/tickets',
     {
       preHandler: [authenticate],
-      config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
       schema: {
         body: {
           type: 'object',
@@ -40,6 +38,7 @@ export function registerPracticeRoutes(server: FastifyInstance, db: RoundDatabas
           additionalProperties: false,
           properties: {
             roundId: { type: 'string', maxLength: 64 },
+            slot: { type: 'integer', minimum: 1, maximum: 10 },
             bets: {
               type: 'array',
               minItems: 1,
@@ -65,17 +64,16 @@ export function registerPracticeRoutes(server: FastifyInstance, db: RoundDatabas
           db,
           request.user.sub,
           request.body.roundId,
-          request.body.bets
+          request.body.bets,
+          request.body.slot
         );
         return reply.code(data.isReplay ? 200 : 201).send({ success: true, data });
       } catch (error) {
         if (error instanceof PracticeError)
-          return reply
-            .code(error.statusCode)
-            .send({
-              success: false,
-              error: { code: 'PRACTICE_ENTRY_REJECTED', message: error.message },
-            });
+          return reply.code(error.statusCode).send({
+            success: false,
+            error: { code: 'PRACTICE_ENTRY_REJECTED', message: error.message },
+          });
         throw error;
       }
     }
