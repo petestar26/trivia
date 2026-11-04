@@ -11,6 +11,7 @@ import { useLocation } from 'react-router-dom';
 import {
   memberGameDestination,
   memberGameLabel,
+  memberGameName,
   memberGameUnavailableDescription,
   PRACTICE_ROUTES,
   type MemberGame as GameCatalogItem,
@@ -180,7 +181,7 @@ export function GamesPage({
             <div className={`qube-catalog-card ${isPlayable ? 'is-playable' : 'is-unavailable'}`}>
               <GameArtwork kind={game.key} practiceAvailable={game.practiceAvailable} />
               <div className="qube-catalog-copy">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{game.name}</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{memberGameName(game)}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                   {isPlayable
                     ? isTrivia

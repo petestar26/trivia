@@ -13,6 +13,7 @@ vi.mock('@/lib/api', async (original) => ({
   ...(await original<typeof import('@/lib/api')>()),
   api: { get, listGroups },
 }));
+const displayTitles: Record<string, string> = { virtual_football_3d: 'Football', thunder_derby_3d: 'Derby' };
 function game(key: string, status = 'COMING_SOON', active = false): MemberGame {
   return {
     id: key,
@@ -179,8 +180,8 @@ describe('Ruby Grand member dashboard', () => {
             : { coinsBalance: 42, gamePointsBalance: 80 },
         }));
         setup(Page);
-        expect(await screen.findByRole('heading', { name: key })).toBeInTheDocument();
-        expect(screen.queryByRole('link', { name: new RegExp(key) })).not.toBeInTheDocument();
+        expect(await screen.findByRole('heading', { name: displayTitles[key] ?? key })).toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: new RegExp(displayTitles[key] ?? key) })).not.toBeInTheDocument();
         expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
         expect(screen.getByText('This game is currently unavailable.')).toBeInTheDocument();
       }
@@ -217,7 +218,7 @@ describe('Ruby Grand member dashboard', () => {
     setup();
     const region = await screen.findByRole('region', { name: 'Games' });
     for (const key of keys)
-      expect(within(region).getByRole('heading', { name: key })).toBeInTheDocument();
+      expect(within(region).getByRole('heading', { name: displayTitles[key] ?? key })).toBeInTheDocument();
     expect(within(region).getByRole('link', { name: /dice/i })).toHaveAttribute(
       'href',
       '/games/dice'
@@ -341,7 +342,7 @@ describe('Ruby Grand member dashboard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Ready to explore 1' }));
     expect(screen.getByText('Showing 1 of 4 games')).toBeInTheDocument();
-    expect(within(region).getByRole('link', { name: /Virtual Football/ })).toHaveAttribute(
+    expect(within(region).getByRole('link', { name: /Football/ })).toHaveAttribute(
       'href',
       '/games/virtual-football'
     );
@@ -453,7 +454,7 @@ describe.each([
     }));
     setup(Page);
     for (const [key] of gatedGameRoutes) {
-      const heading = await screen.findByRole('heading', { name: key });
+      const heading = await screen.findByRole('heading', { name: displayTitles[key] ?? key });
       const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
       expect(within(card).getByText('Temporarily unavailable')).toBeInTheDocument();
       expect(within(card).getByText('This game is currently unavailable.')).toBeInTheDocument();
@@ -488,7 +489,7 @@ describe.each([
     }));
     setup(Page);
     for (const key of futureGameKeys) {
-      const heading = await screen.findByRole('heading', { name: key });
+      const heading = await screen.findByRole('heading', { name: displayTitles[key] ?? key });
       const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
       expect(within(card).getByText('Coming soon')).toBeInTheDocument();
       expect(within(card).queryByText('Temporarily unavailable')).not.toBeInTheDocument();
@@ -505,7 +506,7 @@ describe.each([
     }));
     setup(Page);
     for (const [key, destination] of gatedGameRoutes) {
-      const heading = await screen.findByRole('heading', { name: key });
+      const heading = await screen.findByRole('heading', { name: displayTitles[key] ?? key });
       const card = heading.closest('.ruby-game-card, .qube-catalog-card') as HTMLElement;
       expect(within(card).getByText('Free practice')).toBeInTheDocument();
       expect(card.closest('a')).toHaveAttribute('href', destination);

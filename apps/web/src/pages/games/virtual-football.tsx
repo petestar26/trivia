@@ -591,7 +591,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     return (
       <main className="vf-page">
         <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Virtual Football 3D</h1>
+        <h1 className="vf-solo-title">Football</h1>
         <p role="status">
           {query.isError
             ? 'Practice is unavailable. Please try again later.'
@@ -607,7 +607,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     return (
       <main className="vf-page">
         <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Virtual Football 3D</h1>
+        <h1 className="vf-solo-title">Football</h1>
         <NextMatchweek endsAt={snapshot.cycle.endsAt} />
         <button type="button" className="vf-secondary" onClick={() => refetch()}>
           Refresh
@@ -661,8 +661,8 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         <div>
           <Link to="/games">← All games</Link>
           <h1>
-            SALEM BET <em>VIRTUAL FOOTBALL</em>
-            <small>CLUB FOOTBALL · 3D PRACTICE</small>
+            SALEM BET <em>FOOTBALL</em>
+            <small>CLUB FOOTBALL · FREE PRACTICE</small>
           </h1>
         </div>
         <div className="vf-credit">
@@ -683,7 +683,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             aria-pressed={text}
             onClick={() => setText((v) => !v)}
           >
-            {text ? 'Show 3D match' : 'Text match centre'}
+            {text ? 'Show match' : 'Text match centre'}
           </button>
           <button
             type="button"
@@ -746,7 +746,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
 
       {fixture && overview && (
         <GameRoundSummary
-          game="Virtual Football"
+          game="Football"
           label={overview.fullTime ? 'Full time' : 'Featured match'}
           value={
             <>
@@ -774,7 +774,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         />
       )}
       <GameArena
-        title="Virtual Football"
+        title="Football"
         className="vf-arena"
         onReturnToControls={() => {
           ticketControls.current?.scrollIntoView({
@@ -806,7 +806,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                       match={matchInput}
                       getElapsed={getElapsed}
                       reduced={reduced}
-                      label={`3D view of ${matchTitle(fixture)}`}
+                      label={`Match view of ${matchTitle(fixture)}`}
                       onGoalMoment={onGoalMoment}
                       fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
                     />

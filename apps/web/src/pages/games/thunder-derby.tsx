@@ -136,7 +136,7 @@ function DerbyConnected({ userId }: { userId: string }) {
     return (
       <main className="derby-page">
         <Link to="/games">← Games</Link>
-        <h1>Thunder Derby 3D</h1>
+        <h1>Derby</h1>
         <p role="status">
           {query.isError
             ? 'Practice is unavailable. Please try again later.'
@@ -211,7 +211,7 @@ export function DerbyView({
   if (!round)
     return (
       <main className="derby-page">
-        <h1>Thunder Derby 3D</h1>
+        <h1>Derby</h1>
         <p>Waiting for the next race.</p>
       </main>
     );
@@ -258,8 +258,8 @@ export function DerbyView({
             <span className="derby-crest" aria-hidden="true">
               ♞
             </span>{' '}
-            THUNDER <em>DERBY</em>
-            <small>3D RACING CLUB</small>
+            <em>DERBY</em>
+            <small>RACING CLUB</small>
           </h1>
         </div>
         <div className="derby-credit">
@@ -288,7 +288,7 @@ export function DerbyView({
           <Dialog.Portal>
             <Dialog.Overlay className="derby-overlay" />
             <Dialog.Content className="derby-dialog">
-              <Dialog.Title>Welcome to Thunder Derby</Dialog.Title>
+              <Dialog.Title>Welcome to Derby</Dialog.Title>
               <Dialog.Description>
                 Original simulated racing with free, non-redeemable practice ETB.
               </Dialog.Description>
@@ -324,7 +324,7 @@ export function DerbyView({
         </Dialog.Root>
       </div>
       <GameRoundSummary
-        game="Thunder Derby"
+        game="Derby"
         label={latestFinished ? 'Latest winner' : running ? 'Race running' : 'Race status'}
         value={
           latestFinished
@@ -371,7 +371,7 @@ export function DerbyView({
         </div>
       )}
       <div className="derby-layout">
-        <GameArena title="Thunder Derby" className="derby-display">
+        <GameArena title="Derby" className="derby-display">
           <section className="derby-arena" aria-label="Racecourse">
             <div className="derby-race-heading">
               <div>
@@ -408,7 +408,7 @@ export function DerbyView({
                 }
               >
                 <Suspense
-                  fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}
+                  fallback={<div className="derby-scene-fallback">Preparing racecourse…</div>}
                 >
                   <RaceScene round={round} running={running && fresh} reduced={reduced} />
                 </Suspense>

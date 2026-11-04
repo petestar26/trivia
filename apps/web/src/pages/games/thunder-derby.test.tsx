@@ -132,14 +132,14 @@ it('expands the mounted race display and keeps the ordered selection when minimi
   fireEvent.click(first);
   const scene = await screen.findByText('3D race fixture');
   const review = screen.getByRole('button', { name: /Review selection/ });
-  fireEvent.click(screen.getByRole('button', { name: 'Expand Thunder Derby view' }));
-  const expanded = screen.getByRole('dialog', { name: 'Thunder Derby expanded view' });
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Derby view' }));
+  const expanded = screen.getByRole('dialog', { name: 'Derby expanded view' });
   expect(within(expanded).getByText('3D race fixture')).toBe(scene);
   expect(choices.closest('[inert]')).not.toBeNull();
   fireEvent.click(review);
   expect(submit).not.toHaveBeenCalled();
   expect(screen.getAllByRole('dialog')).toHaveLength(1);
-  fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Thunder Derby view' }));
+  fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Derby view' }));
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.getByText('3D race fixture')).toBe(scene);
   expect(second).toHaveAttribute('aria-pressed', 'true');
@@ -258,9 +258,9 @@ it.each([6, 8] as const)(
     );
     const view = render(page(true));
     const scene = await screen.findByText('3D race fixture');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Thunder Derby view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Derby view' }));
     view.rerender(page(false));
-    const dialog = screen.getByRole('dialog', { name: 'Thunder Derby expanded view' });
+    const dialog = screen.getByRole('dialog', { name: 'Derby expanded view' });
     expect(
       within(dialog).getByRole('heading', { name: 'View paused · Reconnecting' })
     ).toBeVisible();

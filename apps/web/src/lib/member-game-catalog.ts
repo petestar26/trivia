@@ -1,6 +1,16 @@
 import type { GameCatalogEntry } from './api';
 export type MemberGame = GameCatalogEntry;
 
+const MEMBER_GAME_NAMES: Record<string, string> = {
+  virtual_football_3d: 'Football',
+  thunder_derby_3d: 'Derby',
+};
+
+/** Display names are independent of stable catalog keys and saved game records. */
+export function memberGameName(game: Pick<MemberGame, 'key' | 'name'>): string {
+  return MEMBER_GAME_NAMES[game.key] ?? game.name;
+}
+
 export const PRACTICE_ROUTES: Record<string, string> = {
   number_challenge: '/games/number-challenge',
   sky_crash: '/games/sky-crash',

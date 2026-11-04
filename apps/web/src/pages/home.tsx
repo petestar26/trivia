@@ -27,6 +27,7 @@ import { api, unwrapData } from '@/lib/api';
 import {
   memberGameDestination,
   memberGameLabel,
+  memberGameName,
   memberGameUnavailableDescription,
   PRACTICE_ROUTES,
   type MemberGame,
@@ -76,7 +77,7 @@ export function HomePage() {
     .sort(
       (a, b) =>
         Number(!!memberGameDestination(b)) - Number(!!memberGameDestination(a)) ||
-        a.name.localeCompare(b.name)
+        memberGameName(a).localeCompare(memberGameName(b))
     );
   const readyCount = games.filter((game) => !!memberGameDestination(game)).length;
   const search = gameSearch.trim().toLocaleLowerCase();
@@ -89,7 +90,7 @@ export function HomePage() {
           : gameView === 'ready'
             ? ready
             : !ready)) &&
-      `${game.name} ${game.key.replace(/_/g, ' ')}`.toLocaleLowerCase().includes(search)
+      `${memberGameName(game)} ${game.name} ${game.key.replace(/_/g, ' ')}`.toLocaleLowerCase().includes(search)
     );
   });
   const showFutureCard = gameView === 'all' && !search;
@@ -270,7 +271,7 @@ export function HomePage() {
                     <span className={`ruby-game-status ${to ? 'is-ready' : ''}`}>
                       {memberGameLabel(game)}
                     </span>
-                    <h3>{game.name}</h3>
+                    <h3>{memberGameName(game)}</h3>
                     <p>
                       {to && PRACTICE_ROUTES[game.key]
                         ? game.key === 'number_challenge'
@@ -314,7 +315,7 @@ export function HomePage() {
                     type="button"
                     className="ruby-favorite-button"
                     disabled={storageUnavailable || !user?.id}
-                    aria-label={`${favoriteIds.includes(game.id) ? 'Remove' : 'Add'} ${game.name} ${favoriteIds.includes(game.id) ? 'from' : 'to'} favorites`}
+                    aria-label={`${favoriteIds.includes(game.id) ? 'Remove' : 'Add'} ${memberGameName(game)} ${favoriteIds.includes(game.id) ? 'from' : 'to'} favorites`}
                     aria-pressed={favoriteIds.includes(game.id)}
                     onClick={() => {
                       // Removing the focused tile from the filtered view must leave focus on a stable control.

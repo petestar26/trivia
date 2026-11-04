@@ -13,8 +13,8 @@ const collection = [
   ['spin_win', 'Lucky Spin', '/games/spin-win'],
   ['turbo_keno', 'Turbo Keno', '/games/turbo-keno'],
   ['sky_crash', 'Sky Crash', '/games/sky-crash'],
-  ['thunder_derby_3d', 'Thunder Derby', '/games/thunder-derby'],
-  ['virtual_football_3d', 'Virtual Football', '/games/virtual-football'],
+  ['thunder_derby_3d', 'Derby', '/games/thunder-derby'],
+  ['virtual_football_3d', 'Football', '/games/virtual-football'],
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
   ['trivia', 'Trivia', '/games/trivia'],
 ] as const;
