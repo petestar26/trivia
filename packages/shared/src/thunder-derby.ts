@@ -89,7 +89,7 @@ export function parseDerbyEntry(field: unknown, market: unknown, picks: unknown,
   )
     throw Error('Choose distinct horses for every position');
   if (typeof stake !== 'number' || !Number.isInteger(stake) || stake < 10 || stake > 500)
-    throw Error('Enter 10–500 whole practice credits');
+    throw Error('Enter 10–500 whole practice ETB');
   return {
     field: field as DerbyField,
     market: type,
