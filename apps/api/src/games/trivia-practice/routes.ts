@@ -4,6 +4,11 @@ import { prisma } from '@socialplay/database';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/auth.js';
 import { ApiError } from '../../middleware/api-error.js';
+import {
+  BUILTIN_PRACTICE_PREFIX,
+  findBuiltInPracticeQuestion,
+  publicBuiltInPracticeQuestions,
+} from './fallback-bank.js';
 
 const choicesSchema = z.array(z.string().min(1).max(1000)).min(2).max(20);
 const answerSchema = z
@@ -48,7 +53,16 @@ export async function triviaPracticeRoutes(server: FastifyInstance) {
           },
         ];
       });
-      return { success: true, data: { questions, mode: 'practice', rewards: false } };
+      // Keep practice usable when the existing bank is empty, without seeding
+      // production data or creating normal reward-game question identities.
+      return {
+        success: true,
+        data: {
+          questions: questions.length ? questions : publicBuiltInPracticeQuestions(),
+          mode: 'practice',
+          rewards: false,
+        },
+      };
     }
   );
 
@@ -65,10 +79,12 @@ export async function triviaPracticeRoutes(server: FastifyInstance) {
       const parsed = answerSchema.safeParse(request.body);
       if (!parsed.success) throw ApiError.badRequest('Choose a question and one valid answer.');
       const { questionId, answerIndex } = parsed.data;
-      const question = await prisma.triviaQuestion.findFirst({
-        where: { id: questionId, isActive: true },
-        select: { choices: true, correctIndex: true },
-      });
+      const question = questionId.startsWith(BUILTIN_PRACTICE_PREFIX)
+        ? findBuiltInPracticeQuestion(questionId)
+        : await prisma.triviaQuestion.findFirst({
+            where: { id: questionId, isActive: true },
+            select: { choices: true, correctIndex: true },
+          });
       if (!question) throw ApiError.notFound('This practice question is unavailable.');
       const choices = choicesSchema.safeParse(question.choices);
       if (
