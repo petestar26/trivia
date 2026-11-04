@@ -418,11 +418,9 @@ it('blocks an expired withdrawal quote and allows a fresh reviewed quote', async
     fiatCurrency: 'USD',
     expiresAt: new Date(Date.now() - 1000).toISOString(),
   };
-  m.post
-    .mockResolvedValueOnce({ data: quote })
-    .mockResolvedValueOnce({
-      data: { ...quote, id: 'fresh', expiresAt: new Date(Date.now() + 300000).toISOString() },
-    });
+  m.post.mockResolvedValueOnce({ data: quote }).mockResolvedValueOnce({
+    data: { ...quote, id: 'fresh', expiresAt: new Date(Date.now() + 300000).toISOString() },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Get withdrawal quote' }));
   await screen.findByText(/This quote has expired/);
   fireEvent.click(screen.getByRole('checkbox'));
@@ -451,4 +449,64 @@ it('shows only matching request history and keeps agent setup out of the custome
   expect(screen.getByRole('heading', { name: 'Deposit requests' })).toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Withdrawal requests' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'Payment agent setup' })).toBeNull();
+});
+
+it('shows the global payout setup state and prevents a misleading withdrawal quote', async () => {
+  const oldGet = m.get.getMockImplementation()!;
+  m.get.mockImplementation((path: string) =>
+    path === '/wallet/payment-options'
+      ? Promise.resolve({ data: { ...options, withdrawalsEnabled: false } })
+      : oldGet(path)
+  );
+  mount('withdraw');
+  await screen.findByText('Withdrawals are awaiting payment setup');
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+  fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '500' } });
+  expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
+  expect(m.post).not.toHaveBeenCalled();
+});
+
+it('lets members save a payout destination while customer payments await setup', async () => {
+  m.get.mockImplementation(async (path: string) => ({
+    data:
+      path === '/wallet/payment-options'
+        ? {
+            ...options,
+            withdrawalsEnabled: false,
+            countries: [{ ...options.countries[0], agentPaymentEnabled: false }],
+          }
+        : path.includes('/payment-methods/active')
+          ? [
+              {
+                id: 'bank',
+                name: 'Bank transfer',
+                fieldSchema: { requiredFields: ['accountName', 'accountNumber'] },
+              },
+            ]
+          : [],
+  }));
+  m.post.mockResolvedValue({ data: { id: 'saved', countryId: 'country', status: 'ACTIVE' } });
+  mount('withdraw');
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.click(screen.getByText('Add a payout account'));
+  await screen.findByRole('option', { name: 'Bank transfer' });
+  fireEvent.change(screen.getByLabelText('Method'), { target: { value: 'bank' } });
+  fireEvent.change(screen.getByLabelText('Account Name'), { target: { value: 'Test recipient' } });
+  fireEvent.change(screen.getByLabelText('Account Number'), { target: { value: 'test-only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save payout account' }));
+  await waitFor(() =>
+    expect(m.post).toHaveBeenCalledWith(
+      '/withdrawals/payout-accounts',
+      {
+        countryId: 'country',
+        methodDefId: 'bank',
+        accountDetails: { accountName: 'Test recipient', accountNumber: 'test-only' },
+        displayLabel: 'Bank transfer',
+      },
+      undefined,
+      expect.any(Object)
+    )
+  );
+  expect(m.post.mock.calls.every(([path]) => path === '/withdrawals/payout-accounts')).toBe(true);
 });

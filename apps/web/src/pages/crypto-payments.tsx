@@ -37,6 +37,8 @@ type Records = {
 type Options = {
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
+  depositUnavailableReason?: string | null;
+  withdrawalUnavailableReason?: string | null;
   countries: { id: string; name: string }[];
 };
 export function timeRemaining(expiresAt: string, now: number) {
@@ -289,9 +291,10 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
           ) : (
             <>
               {!enabled && (
-                <p role="status" className="crypto-paused">
-                  New crypto {direction === 'deposit' ? 'deposits' : 'withdrawals'} are paused.
-                </p>
+                <div role="status" className="crypto-paused">
+                  <p>New crypto {direction === 'deposit' ? 'deposits' : 'withdrawals'} are paused.</p>
+                  <p>{direction === 'deposit' ? opts.data?.depositUnavailableReason : opts.data?.withdrawalUnavailableReason}</p>
+                </div>
               )}
               {!opts.data?.countries.length && (
                 <p>

@@ -1,7 +1,7 @@
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, it, expect, vi } from 'vitest';
 const { get } = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: { get }, unwrapData: (r: any) => r.data }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'member' } }) }));
@@ -9,6 +9,14 @@ import { PracticeWalletPage } from './practice-wallet';
 afterEach(() => {
   cleanup();
   get.mockReset();
+});
+beforeEach(() => {
+  get.mockImplementation(async (path) => ({
+    data:
+      path === '/gift-collection'
+        ? { balance: 9500 }
+        : { coinsBalance: 480, coinAvailability: { spendable: 384, betOnly: 96 } },
+  }));
 });
 function mount() {
   render(
@@ -21,34 +29,49 @@ function mount() {
     </QueryClientProvider>
   );
 }
-it('shows an isolated gift balance and no deposit or withdrawal action', async () => {
-  get.mockResolvedValue({ data: { balance: 9500 } });
+it('separates withdrawable payment units from noncash practice balances', async () => {
   mount();
-  expect(await screen.findByText('9,500')).toBeInTheDocument();
-  expect(get).toHaveBeenCalledWith('/gift-collection');
-  expect(screen.getByText(/Virtual ETB with no cash value/)).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: /Open gift shop/ })).toHaveAttribute('href', '/gifts');
-  expect(screen.queryByRole('button', { name: /deposit|withdraw/i })).toBeNull();
-});
-it('shows unavailable instead of inventing a zero balance and supports retry', async () => {
-  get.mockRejectedValueOnce(Error('offline')).mockResolvedValue({ data: { balance: 10000 } });
-  mount();
-  await screen.findByRole('alert');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByText('10,000')).toBeInTheDocument();
-});
-
-it('lets members inspect both payment methods without opening a real payment form', async () => {
-  get.mockResolvedValue({ data: { balance: 10000 } });
-  mount();
-  await screen.findByText('10,000');
-  fireEvent.click(screen.getAllByRole('link', { name: 'Withdraw' })[0]);
+  const money = screen.getByRole('region', { name: 'Payment balance' });
+  const gifts = screen.getByRole('region', { name: 'Gift practice balance' });
+  expect(await within(money).findByText('480')).toBeInTheDocument();
+  expect(within(money).getByText(/384 spendable Coins/)).toBeInTheDocument();
+  expect(await within(gifts).findByText('9,500')).toBeInTheDocument();
+  expect(within(gifts).getByText(/Virtual ETB with no cash value/)).toBeInTheDocument();
+  expect(within(money).queryByText('9,500')).toBeNull();
   expect(
-    await screen.findByText('Withdrawals are unavailable in practice mode')
-  ).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('link', { name: /Crypto USDT/ }));
-  expect(screen.getByText(/No crypto payment address is issued/)).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: /Crypto USDT/ })).toHaveAttribute('aria-current', 'page');
-  expect(screen.queryByRole('textbox')).toBeNull();
-  expect(get.mock.calls.every(([p]) => p === '/gift-collection')).toBe(true);
+    screen
+      .getAllByRole('link', { name: 'Deposit' })
+      .every((a) => a.getAttribute('href') === '/wallet/deposit')
+  ).toBe(true);
+  expect(
+    screen
+      .getAllByRole('link', { name: 'Withdraw' })
+      .every((a) => a.getAttribute('href') === '/wallet/withdraw')
+  ).toBe(true);
+  expect(screen.queryByText(/unavailable in practice mode/)).toBeNull();
+});
+it('keeps payment actions and gift balance available when payment balance fails', async () => {
+  get.mockImplementation(async (path) => {
+    if (path === '/wallet') throw Error('offline');
+    return { data: { balance: 9500 } };
+  });
+  mount();
+  await screen.findByText('Could not load your payment balance.');
+  expect(screen.getAllByRole('link', { name: 'Withdraw' })).toHaveLength(2);
+  expect(await screen.findByText('9,500')).toBeInTheDocument();
+  get.mockResolvedValue({ data: { coinsBalance: 480 } });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry payment balance' }));
+  expect(await screen.findByText('480')).toBeInTheDocument();
+});
+it('does not replace a missing gift balance with a misleading zero', async () => {
+  get.mockImplementation(async (path) => {
+    if (path === '/gift-collection') throw Error('offline');
+    return { data: { coinsBalance: 480 } };
+  });
+  mount();
+  await screen.findByText('Could not load your gift balance.');
+  expect(await screen.findByText('480')).toBeInTheDocument();
+  get.mockResolvedValue({ data: { balance: 10000 } });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry gift balance' }));
+  expect(await screen.findByText('10,000')).toBeInTheDocument();
 });

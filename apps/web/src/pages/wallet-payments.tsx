@@ -35,6 +35,7 @@ type Options = {
   agents: Agent[];
   isAgent: boolean;
   isAdmin: boolean;
+  withdrawalsEnabled?: boolean;
   crypto?: {
     assets: { symbol: string; name: string; network: string; available: boolean; reason: string }[];
   };
@@ -177,6 +178,7 @@ function Payments({ userId }: { userId: string }) {
       ) + 1
     : null;
   const withdrawalPricingReady =
+    options.data?.withdrawalsEnabled !== false &&
     country?.agentPaymentEnabled !== false &&
     (!country?.usdPricingEnabled ||
       (!pricing.isError &&
@@ -357,6 +359,21 @@ function Payments({ userId }: { userId: string }) {
           {(section === 'deposit' || section === 'withdraw') && (
             <section className="payment-panel">
               <h2>{section === 'deposit' ? 'Agent deposit' : 'Agent withdrawal'}</h2>
+              {section === 'withdraw' && options.data?.withdrawalsEnabled === false && (
+                <div className="wallet-mode-notice" role="status">
+                  <strong>Withdrawals are awaiting payment setup</strong>
+                  <p>
+                    You can save your payout account below. Requests open after payout services are
+                    activated.
+                  </p>
+                </div>
+              )}
+              {options.data?.isAdmin && (
+                <p>
+                  <Link to="/admin/payments">Configure payment accounts</Link> ·{' '}
+                  <Link to="/admin/pricing">Manage exchange rates</Link>
+                </p>
+              )}
               {!options.data?.countries.length ? (
                 <p>
                   No payment countries are enabled. New requests are unavailable; existing requests
@@ -381,12 +398,25 @@ function Payments({ userId }: { userId: string }) {
                   </label>
                   {country && (
                     <p>
-                      Agent P2P:{' '}
-                      {country.agentPaymentEnabled === false ? 'unavailable' : 'available'} ·{' '}
+                      Agent payments:{' '}
+                      {country.agentPaymentEnabled === false
+                        ? 'setup in progress'
+                        : 'enabled; request checks apply'}{' '}
+                      ·{' '}
                       <Link to={paymentPath(section as 'deposit' | 'withdraw', 'crypto')}>
                         Check USDT availability
                       </Link>
                     </p>
+                  )}
+                  {country?.agentPaymentEnabled === false && (
+                    <div className="wallet-mode-notice" role="status">
+                      <strong>Payment setup is incomplete for {country.name}</strong>
+                      <p>
+                        An approved agent receiving account, current exchange rate and funded
+                        payment service are needed. You can prepare your payout account while setup
+                        is completed.
+                      </p>
+                    </div>
                   )}
                   {country?.usdPricingEnabled && (
                     <div className="payment-disclosure">
@@ -616,7 +646,10 @@ function Payments({ userId }: { userId: string }) {
                           )}
                           {method?.fieldSchema.requiredFields.map((field) => (
                             <label key={field}>
-                              {field.replaceAll('_', ' ')}
+                              {field
+                                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                                .replaceAll('_', ' ')
+                                .replace(/\b\w/g, (c) => c.toUpperCase())}
                               <input
                                 autoComplete="off"
                                 value={details[field] ?? ''}

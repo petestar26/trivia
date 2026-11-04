@@ -55,8 +55,10 @@ function validateAccountDetails(fieldSchema: unknown, accountDetails: unknown): 
 async function loadAndValidateMethod(countryId: string, methodDefId: string) {
   const country = await prisma.country.findUnique({ where: { id: countryId } });
   if (!country) throw ApiError.badRequest('Invalid country');
-  if (!country.isActive || !country.agentPaymentEnabled) {
-    throw ApiError.badRequest('Payouts are not available for this country');
+  // Saving a destination does not move funds. Let members prepare their
+  // profile while payments are paused; quotes/withdrawals enforce activation.
+  if (!country.isActive) {
+    throw ApiError.badRequest('Payout account setup is not available for this country');
   }
 
   const method = await prisma.paymentMethodDefinition.findUnique({ where: { id: methodDefId } });
