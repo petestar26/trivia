@@ -26,6 +26,18 @@ export interface GameCatalogItem {
 
 const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
 
+// The catalog and the dedicated practice routes must use the same admission
+// flags. A rendered practice tile must not promise access to a disabled route.
+const PRACTICE_FLAGS: Record<string, string> = {
+  number_challenge: 'NUMBER_CHALLENGE_PRACTICE_ENABLED',
+  sky_crash: 'SKY_CRASH_PRACTICE_ENABLED',
+  thunder_derby_3d: 'THUNDER_DERBY_PRACTICE_ENABLED',
+  virtual_football_3d: 'VIRTUAL_FOOTBALL_PRACTICE_ENABLED',
+  crash_point: 'CRASH_POINT_PRACTICE_ENABLED',
+  dice: 'SYSTEM_DICE_PRACTICE_ENABLED',
+  turbo_keno: 'SYSTEM_KENO_PRACTICE_ENABLED',
+};
+
 // The compliance-approved public catalog: these approved keys, each once,
 // per the seed migration (20260918020000_casino_foundation_seed) that
 // established them. This is an ALLOWLIST, not a denylist of the retired
@@ -122,15 +134,14 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
           description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.description,
           isActive: false,
           catalogStatus: 'COMING_SOON' as const,
-          practiceAvailable:
-            (row.key === 'number_challenge'
-              ? process.env.NUMBER_CHALLENGE_PRACTICE_ENABLED
-              : row.key === 'sky_crash'
-              ? process.env.SKY_CRASH_PRACTICE_ENABLED
-              : row.key === 'virtual_football_3d'
-                ? process.env.VIRTUAL_FOOTBALL_PRACTICE_ENABLED
-                : process.env.THUNDER_DERBY_PRACTICE_ENABLED) === 'true',
+          practiceAvailable: process.env[PRACTICE_FLAGS[row.key]] === 'true',
         }
+      : row.key === 'crash_point' || row.key === 'dice' || row.key === 'turbo_keno'
+        ? {
+            ...row,
+            ...(isCoinWagerPaused(row) ? { catalogStatus: 'COMING_SOON' as const } : {}),
+            practiceAvailable: process.env[PRACTICE_FLAGS[row.key]] === 'true',
+          }
       : isCoinWagerPaused(row)
         ? { ...row, catalogStatus: 'COMING_SOON' as const }
         : row.key === 'spin_win'

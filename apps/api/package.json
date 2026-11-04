@@ -27,7 +27,8 @@
     "test:watch": "pnpm -w run build:packages && vitest",
     "clean": "rm -rf dist",
     "house:recovery": "tsx src/scripts/house-round-recovery.ts",
-    "test:provider-demo": "vitest run --config vitest.provider-demo.config.ts"
+    "test:provider-demo": "vitest run --config vitest.provider-demo.config.ts",
+    "test:practice-rollout": "vitest run --config vitest.practice-rollout.config.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^9.0.0",
