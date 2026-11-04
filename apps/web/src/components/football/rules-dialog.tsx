@@ -20,7 +20,7 @@ export function RulesDialog() {
         <Dialog.Content className="vf-dialog vf-dialog--rules" aria-describedby="vf-rules-desc">
           <Dialog.Title>Salem Bet Virtual Football 3D: rules</Dialog.Title>
           <Dialog.Description id="vf-rules-desc">
-            An original simulated league using free, non-redeemable practice credits. It is not
+            An original simulated league using free, non-redeemable practice ETB. It is not
             connected to any real club, league or competition.
           </Dialog.Description>
           <h3>The league</h3>
@@ -56,13 +56,13 @@ export function RulesDialog() {
               different matches, every one of which must win.
             </li>
             <li>
-              Stake {VF_LIMITS.minLineStake}–{VF_LIMITS.maxLineStake} credits per line, up to{' '}
+              Stake {VF_LIMITS.minLineStake}–{VF_LIMITS.maxLineStake} ETB per line, up to{' '}
               {formatCredits(VF_LIMITS.maxTicketStake)} per ticket and{' '}
               {VF_LIMITS.maxTicketsPerMatchweek} tickets per matchweek.
             </li>
             <li>
               Combined odds are capped at {formatOdds(VF_LIMITS.maxCombinedOddsCents)}×, a line
-              returns at most {formatCredits(VF_LIMITS.maxLineReturn)} credits and a ticket at most{' '}
+              returns at most {formatCredits(VF_LIMITS.maxLineReturn)} ETB and a ticket at most{' '}
               {formatCredits(VF_LIMITS.maxTicketReturn)}.
             </li>
             <li>
@@ -109,7 +109,7 @@ export function RulesDialog() {
             ))}
           </dl>
           <p className="vf-fine">
-            Rules {VF_RULES_ID} · digest {VF_RULES_DIGEST.slice(0, 16)}… Practice credits are free,
+            Rules {VF_RULES_ID} · digest {VF_RULES_DIGEST.slice(0, 16)}… Practice ETB are free,
             cannot be bought, transferred or redeemed, and have no connection to Coins or any cash
             value.
           </p>

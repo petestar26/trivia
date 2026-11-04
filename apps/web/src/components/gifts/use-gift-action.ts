@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { GIFT_COLLECTION_POLICY } from '@socialplay/shared';
+import { GIFT_COLLECTION_POLICY, PRACTICE_GIFT_POLICY } from '@socialplay/shared';
 import type { GiftAction, GiftActionReceipt } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
@@ -12,7 +12,7 @@ export function readGiftAttempt(userId: string): GiftAttempt | null {
   try {
     const value = JSON.parse(sessionStorage.getItem(receiptKey(userId)) ?? 'null');
     return value && typeof value.key === 'string' && typeof value.name === 'string' &&
-      value.action?.policyId === GIFT_COLLECTION_POLICY && ['BUY', 'SEND', 'CONVERT'].includes(value.action.kind) ? value : null;
+      [GIFT_COLLECTION_POLICY, PRACTICE_GIFT_POLICY].includes(value.action?.policyId) && ['BUY', 'SEND', 'CONVERT'].includes(value.action.kind) ? value : null;
   } catch { return null; }
 }
 function friendlyError(error: unknown) {
@@ -38,7 +38,7 @@ export function useGiftAction(userId: string, onComplete: () => void) {
     onSuccess: (result, a) => {
       if (!alive.current) return;
       clearReceipt(a.key); onComplete(); refresh();
-      setNotice(result.kind === 'CONVERT' ? `Gift converted. ${result.amount} Game Points added. Fee: ${result.fee} points.`
+      setNotice(result.kind === 'CONVERT' ? `Gift converted. ${result.amount} ${a.action.policyId === PRACTICE_GIFT_POLICY ? 'practice ETB' : 'Game Points'} added. Fee: ${result.fee} ${a.action.policyId === PRACTICE_GIFT_POLICY ? 'practice ETB' : 'points'}.`
         : result.messageId ? `Gift delivered to @${result.gift.recipientUsername}. It is now in their collection and the group chat.`
         : 'Gift added to your collection. No purchase fee.');
     },

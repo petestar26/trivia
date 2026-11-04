@@ -1,3 +1,4 @@
+import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Link } from 'react-router-dom';
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -59,10 +60,10 @@ export function HomePage() {
     refetchInterval: 60_000,
   });
   const wallet = useQuery({
-    queryKey: ['wallet', user?.id],
+    queryKey: [PRACTICE_ETB ? 'gift-collection' : 'wallet', user?.id, 'home'],
     queryFn: async () =>
-      unwrapData<{ coinsBalance: number; gamePointsBalance: number }>(
-        await api.get('/wallet'),
+      unwrapData<{ coinsBalance: number; gamePointsBalance: number; balance?: number }>(
+        await api.get(PRACTICE_ETB ? '/gift-collection' : '/wallet'),
         'Wallet response'
       ),
     enabled: !!user?.id,
@@ -135,12 +136,9 @@ export function HomePage() {
         </div>
         <Link to="/wallet">
           <Wallet size={18} />
-          <span>
-            Coins <b>{wallet.isError ? '—' : (wallet.data?.coinsBalance ?? '—')}</b>
-          </span>
-          <span>
-            Game Points <b>{wallet.isError ? '—' : (wallet.data?.gamePointsBalance ?? '—')}</b>
-          </span>
+          {PRACTICE_ETB ? <span>Gift balance <b>{wallet.isError ? '—' : (wallet.data?.balance?.toLocaleString() ?? '—')} practice ETB</b></span> : <>
+          <span>Coins <b>{wallet.isError ? '—' : (wallet.data?.coinsBalance ?? '—')}</b></span>
+          <span>Game Points <b>{wallet.isError ? '—' : (wallet.data?.gamePointsBalance ?? '—')}</b></span></>}
           <ArrowUpRight size={16} />
         </Link>
         {(wallet.isPending || wallet.isError) && (
@@ -275,10 +273,10 @@ export function HomePage() {
                         ? game.key === 'number_challenge'
                           ? 'Pick 1–100 · free practice scores, no stakes.'
                           : game.key === 'thunder_derby_3d'
-                            ? 'Six or eight horses · practice credits only.'
+                            ? 'Six or eight horses · practice ETB only.'
                             : game.key === 'virtual_football_3d'
-                              ? 'Ten matches every five minutes · practice credits only.'
-                              : 'One-minute rounds · practice credits only.'
+                              ? 'Ten matches every five minutes · practice ETB only.'
+                              : 'One-minute rounds · practice ETB only.'
                         : to
                           ? game.mode === 'BONUS'
                             ? 'Test your knowledge. Play for free.'
@@ -350,7 +348,7 @@ export function HomePage() {
           <div className="ruby-empty">The game collection is being prepared.</div>
         )}
         <p className="qube-disclosure">
-          Practice credits have no cash value. Group games use Game Points. Upcoming games cannot be
+          Practice ETB has no cash value. Each game has a separate balance. Upcoming games cannot be
           played yet.
         </p>
       </section>

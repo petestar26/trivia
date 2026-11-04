@@ -15,15 +15,15 @@ function mount(){return render(<QueryClientProvider client={new QueryClient({def
 it('uses the server countdown and confirms the explicit stake once',async()=>{
  mount();expect(await screen.findByRole('timer',{name:'Betting closes in'})).toHaveTextContent('40s');fireEvent.click(screen.getByRole('button',{name:'Number 7'}));fireEvent.change(screen.getByLabelText('Bet amount per number'),{target:{value:'10'}});
  mocks.post.mockImplementation(async()=>{s.balance=990;s.rounds[0].ticket={picks:[7],stakePerNumber:10,stake:10,payout:null};return {data:{accepted:true}};});
- fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 10 credits'}));await waitFor(()=>expect(mocks.post).toHaveBeenCalledTimes(1));
+ fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 10 ETB'}));await waitFor(()=>expect(mocks.post).toHaveBeenCalledTimes(1));
  expect(await screen.findByRole('button',{name:'Ticket confirmed'})).toBeDisabled();expect(screen.getByRole('button',{name:'Number 7'})).toBeDisabled();expect(screen.getByText('88 Coins')).toBeInTheDocument();
 });
 it('polling recovers a held confirmation, and refresh restores its persisted result',async()=>{
  mocks.post.mockImplementation(()=>{s.rounds[0].ticket={picks:[7],stakePerNumber:5,stake:5,payout:null};return new Promise(()=>{});});
- const view=mount();await screen.findByRole('timer',{name:'Betting closes in'});fireEvent.click(screen.getByRole('button',{name:'Number 7'}));fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 5 credits'}));
+ const view=mount();await screen.findByRole('timer',{name:'Betting closes in'});fireEvent.click(screen.getByRole('button',{name:'Number 7'}));fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 5 ETB'}));
  expect(await screen.findByText('Confirmed by the server. Your ticket is saved.',{},{timeout:3500})).toBeInTheDocument();view.unmount();
  s.serverTime=s.rounds[0].endsAt-2000;s.rounds[0].outcome=Array.from({length:20},(_,i)=>i+1);s.rounds[0].ticket!.payout=18;s.balance=1013;
- mount();expect(await screen.findByText('1 matches · 18 credits returned')).toBeInTheDocument();expect(screen.getByRole('timer',{name:'Next round in'})).toHaveTextContent('2s');expect(mocks.post).toHaveBeenCalledTimes(1);
+ mount();expect(await screen.findByText('1 matches · 18 ETB returned')).toBeInTheDocument();expect(screen.getByRole('timer',{name:'Next round in'})).toHaveTextContent('2s');expect(mocks.post).toHaveBeenCalledTimes(1);
 });
 it('disables entry on a failed server refresh',async()=>{
  mount();await screen.findByRole('timer',{name:'Betting closes in'});mocks.get.mockRejectedValue(new Error('offline'));

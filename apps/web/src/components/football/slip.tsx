@@ -61,7 +61,7 @@ function StakeInput({
         aria-describedby={`${id}-hint`}
       />
       <span id={`${id}-hint`} className="sr-only">
-        {VF_LIMITS.minLineStake} to {VF_LIMITS.maxLineStake} practice credits
+        {VF_LIMITS.minLineStake} to {VF_LIMITS.maxLineStake} practice ETB
       </span>
       <div className="vf-quick">
         {QUICK.map((n) => (
@@ -141,7 +141,7 @@ export function Slip({
           : overLines
             ? `A ticket holds at most ${VF_LIMITS.maxLines} lines.`
             : insufficient
-              ? 'Not enough practice credits.'
+              ? 'Not enough practice ETB.'
               : preview.error;
 
   return (
@@ -319,18 +319,18 @@ export function Slip({
         </div>
         <div>
           <dt>Total stake</dt>
-          <dd>{formatCredits(preview.totalStake)} credits</dd>
+          <dd>{formatCredits(preview.totalStake)} ETB</dd>
         </div>
         <div>
           <dt>Return if every line wins</dt>
           <dd>
             {preview.totalMaxReturn === null
               ? '—'
-              : `${formatCredits(preview.totalMaxReturn)} credits`}
+              : `${formatCredits(preview.totalMaxReturn)} ETB`}
           </dd>
         </div>
         <div>
-          <dt>Practice credits</dt>
+          <dt>Practice ETB</dt>
           <dd>{formatCredits(balance)}</dd>
         </div>
       </dl>
@@ -367,7 +367,7 @@ function LineSummary({
   return (
     <p className="vf-line-note">
       {combined ? `Combined ${formatOdds(combined)}× · ` : ''}
-      Returns {formatCredits(maxReturn)} credits if it wins
+      Returns {formatCredits(maxReturn)} ETB if it wins
     </p>
   );
 }
@@ -413,7 +413,7 @@ export function ReviewDialog({
         <Dialog.Content className="vf-dialog" aria-describedby="vf-review-desc">
           <Dialog.Title>Review your practice ticket</Dialog.Title>
           <Dialog.Description id="vf-review-desc">
-            Practice credits only: no Coins, no cash prizes. A confirmed ticket cannot be changed or
+            Practice ETB only: no Coins, no cash prizes. A confirmed ticket cannot be changed or
             cancelled.
           </Dialog.Description>
           <ol className="vf-review-lines">
@@ -424,7 +424,7 @@ export function ReviewDialog({
                 <li key={i}>
                   <div>
                     <b>{line.kind === 'SINGLE' ? 'Single' : `Multiple of ${line.legs.length}`}</b>
-                    <span>{formatCredits(line.stake)} credits</span>
+                    <span>{formatCredits(line.stake)} ETB</span>
                   </div>
                   <ul>
                     {line.legs.map((g) => (
@@ -438,7 +438,7 @@ export function ReviewDialog({
                     ))}
                   </ul>
                   <p>
-                    Returns {formatCredits(Number(payout))} credits if it wins (stake included).
+                    Returns {formatCredits(Number(payout))} ETB if it wins (stake included).
                   </p>
                 </li>
               );
@@ -447,15 +447,15 @@ export function ReviewDialog({
           <dl className="vf-totals">
             <div>
               <dt>Total stake</dt>
-              <dd>{formatCredits(totalStake)} credits</dd>
+              <dd>{formatCredits(totalStake)} ETB</dd>
             </div>
             <div>
               <dt>Return if every line wins</dt>
-              <dd>{totalReturn === null ? '—' : `${formatCredits(totalReturn)} credits`}</dd>
+              <dd>{totalReturn === null ? '—' : `${formatCredits(totalReturn)} ETB`}</dd>
             </div>
             <div>
               <dt>Balance after confirming</dt>
-              <dd>{formatCredits(balance - totalStake)} credits</dd>
+              <dd>{formatCredits(balance - totalStake)} ETB</dd>
             </div>
           </dl>
           <p className="vf-fine">

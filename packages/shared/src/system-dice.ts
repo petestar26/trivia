@@ -7,7 +7,7 @@ export const SYSTEM_DICE_RULES = Object.freeze({
 export function parseDiceStake(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < SYSTEM_DICE_RULES.minStake ||
       value > SYSTEM_DICE_RULES.maxStake || value % SYSTEM_DICE_RULES.stakeStep !== 0) {
-    throw new RangeError('Use 35–490 practice credits, in steps of 35');
+    throw new RangeError('Use 35–490 practice ETB, in steps of 35');
   }
   return value;
 }

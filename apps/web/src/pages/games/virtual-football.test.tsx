@@ -373,7 +373,7 @@ describe('Virtual Football page', () => {
     await setup();
     pressPrice(/Full time: .* win, price/);
     expect(screen.getByRole('button', { name: /Review ticket/ })).toBeDisabled();
-    expect(screen.getByText('Not enough practice credits.')).toBeInTheDocument();
+    expect(screen.getByText('Not enough practice ETB.')).toBeInTheDocument();
   });
 
   it('keeps the latest completed results visible while the next matchweek is open for selections', async () => {

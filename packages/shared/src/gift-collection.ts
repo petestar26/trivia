@@ -1,5 +1,6 @@
 /** Fixed-value Game Point gifts. No Coins, cash withdrawal or resale pricing. */
 export const GIFT_COLLECTION_POLICY = 'gift-points-buy0-convert10-v1' as const;
+export const PRACTICE_GIFT_POLICY = 'gift-practice-etb-buy500-convert10-v1' as const;
 export const GIFT_CONVERSION_PERCENT = 10;
 export function giftAmounts(faceValue: number) {
   if (!Number.isSafeInteger(faceValue) || faceValue < 10 || faceValue > 10000 || faceValue % 10 !== 0) {
@@ -16,7 +17,7 @@ export interface OwnedGift extends CollectibleGift {
   catalogId: string; version: number; acquiredAt: string;
 }
 export interface GiftCollectionSnapshot {
-  policyId: typeof GIFT_COLLECTION_POLICY; balance: number; catalog: CollectibleGift[];
+  policyId: typeof GIFT_COLLECTION_POLICY | typeof PRACTICE_GIFT_POLICY; balance: number; catalog: CollectibleGift[];
   owned: OwnedGift[]; totalOwned: number; page: number; pageSize: number;
 }
 export type GiftAction =
@@ -25,7 +26,7 @@ export type GiftAction =
   | { kind: 'CONVERT'; itemId: string; version: number; faceValue: number; policyId: string };
 export interface GiftChatCard {
   itemId: string; name: string; emoji: string; theme: GiftTheme; faceValue: number;
-  recipientId: string; recipientUsername: string;
+  recipientId: string; recipientUsername: string; currency?: 'PRACTICE_ETB';
 }
 export interface GiftActionReceipt {
   operationId: string; requestId: string; kind: GiftAction['kind']; itemId: string;

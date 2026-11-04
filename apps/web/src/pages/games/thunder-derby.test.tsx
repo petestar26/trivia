@@ -70,7 +70,7 @@ it('supports special markets without horse picks and displays the gross return',
   setup();
   fireEvent.click(screen.getByRole('button', { name: 'Even' }));
   expect(screen.getByText('Winning numbers: 2 · 4 · 6')).toBeInTheDocument();
-  expect(screen.getByText('45 credits')).toBeInTheDocument();
+  expect(screen.getByText('45 ETB')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Review selection/ })).toBeEnabled();
 });
 it.each(['stale', 'closed', 'wrong-rules', 'pending', 'confirmed'])(

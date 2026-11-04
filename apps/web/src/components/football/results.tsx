@@ -385,7 +385,7 @@ export function TicketsPanel({
     return (
       <section className="vf-panel" aria-label="My tickets">
         <p>
-          Your confirmed tickets will appear here. Practice credits only: no Coins or cash prizes.
+          Your confirmed tickets will appear here. Practice ETB only: no Coins or cash prizes.
         </p>
       </section>
     );
@@ -404,8 +404,8 @@ export function TicketsPanel({
                 </span>
               </header>
               <p>
-                Stake {formatCredits(ticket.totalStake)} credits
-                {settled ? ` · Returned ${formatCredits(ticket.totalReturn)} credits` : ''}
+                Stake {formatCredits(ticket.totalStake)} ETB
+                {settled ? ` · Returned ${formatCredits(ticket.totalReturn)} ETB` : ''}
               </p>
               <ol>
                 {ticket.lines.map((line) => (
@@ -413,7 +413,7 @@ export function TicketsPanel({
                     <div>
                       <b>{line.kind === 'SINGLE' ? 'Single' : `Multiple of ${line.legs.length}`}</b>
                       <span>
-                        {formatCredits(line.stake)} credits · {formatOdds(line.combinedOddsCents)}×
+                        {formatCredits(line.stake)} ETB · {formatOdds(line.combinedOddsCents)}×
                         {settled && line.payout !== null
                           ? ` · returned ${formatCredits(line.payout)}`
                           : ''}

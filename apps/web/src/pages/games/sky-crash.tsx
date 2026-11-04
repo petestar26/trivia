@@ -211,7 +211,7 @@ function SkyCrash({
       const data = unwrapData(result);
       setNotice(
         data.payout > 0
-          ? `Cash-out confirmed at ${(data.paidCents / 100).toFixed(2)}x · ${data.payout} credits returned.`
+          ? `Cash-out confirmed at ${(data.paidCents / 100).toFixed(2)}x · ${data.payout} ETB returned.`
           : 'The round crashed before cash-out was accepted. No return for this ticket.'
       );
       await query.refetch();
@@ -266,7 +266,7 @@ function SkyCrash({
       return;
     if (autoplay.stake > (s?.balance ?? 0)) {
       setAutoplay(null);
-      setNotice('Autoplay stopped: not enough practice credits.');
+      setNotice('Autoplay stopped: not enough practice ETB.');
       return;
     }
     autoplayRound.current = round.id;
@@ -361,8 +361,8 @@ function SkyCrash({
         <div className="sky-ticket-result" role="group" aria-label={`Bet ${slot} result`}>
           <strong>
             {result.payout === null
-              ? `${result.stake} credits in play`
-              : `${result.payout} credits returned`}
+              ? `${result.stake} ETB in play`
+              : `${result.payout} ETB returned`}
           </strong>
           <span>
             {result.payout === null
@@ -462,7 +462,7 @@ function SkyCrash({
               onChange={(e) => setStakeText(e.target.value)}
               disabled={locked}
             />
-            <span>credits</span>
+            <span>ETB</span>
             <button
               type="button"
               className="sky-amount-adjust"
@@ -519,10 +519,10 @@ function SkyCrash({
               <small>
                 {ticket
                   ? ticket.payout === null
-                    ? `${ticket.stake} credits locked`
-                    : `${ticket.payout} credits returned`
+                    ? `${ticket.stake} ETB locked`
+                    : `${ticket.payout} ETB returned`
                   : open
-                    ? `${input?.stake ?? '—'} practice credits`
+                    ? `${input?.stake ?? '—'} practice ETB`
                     : `Next entry in ${seconds}s`}
               </small>
             </button>
@@ -541,7 +541,7 @@ function SkyCrash({
       )}
       {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
         <p role="alert" className="sky-error">
-          Not enough practice credits.
+          Not enough practice ETB.
         </p>
       )}
       {storageError && (
@@ -626,8 +626,8 @@ function SkyCrash({
         <div className="sky-heading-actions">
           <div className="sky-wallet">
             <span>PRACTICE BALANCE</span>
-            <strong>{s ? `${s.balance.toLocaleString()} credits` : 'Connecting…'}</strong>
-            <small>Free credits · no cash value</small>
+            <strong>{s ? `${s.balance.toLocaleString()} ETB` : 'Connecting…'}</strong>
+            <small>Virtual ETB · no cash value</small>
           </div>
           <div className="sky-bet-navigation">
             <a
@@ -735,7 +735,7 @@ function SkyCrash({
                       key={`${shown?.id}:${t.player}:${t.payout}:${t.paidCents}`}
                     >
                       <span>{t.player}</span>
-                      <strong>{t.payout} credits returned</strong>
+                      <strong>{t.payout} ETB returned</strong>
                       <small>Confirmed · {((t.paidCents ?? 0) / 100).toFixed(2)}×</small>
                     </div>
                   ))}
@@ -753,7 +753,7 @@ function SkyCrash({
                     during the 15-second entry window.
                   </p>
                 </div>
-                <span>Practice credits</span>
+                <span>Practice ETB</span>
               </div>
               <div className="sky-dual-controls">
                 {controls}
@@ -809,7 +809,7 @@ function SkyCrash({
                 <dt>Total stake</dt>
                 <dd>
                   {shownTickets.length
-                    ? `${shownTickets.reduce((total, t) => total + t.stake, 0)} credits`
+                    ? `${shownTickets.reduce((total, t) => total + t.stake, 0)} ETB`
                     : 'No tickets'}
                 </dd>
               </dl>
@@ -822,11 +822,11 @@ function SkyCrash({
                   <h3>Bet {t.slot}</h3>
                   <dl className="sky-round-info">
                     <dt>Stake</dt>
-                    <dd>{t.stake} credits</dd>
+                    <dd>{t.stake} ETB</dd>
                     <dt>Auto cash-out</dt>
                     <dd>{t.autoCents ? `${(t.autoCents / 100).toFixed(2)}×` : 'Manual only'}</dd>
                     <dt>Return</dt>
-                    <dd>{t.payout === null ? 'Pending' : `${t.payout} credits`}</dd>
+                    <dd>{t.payout === null ? 'Pending' : `${t.payout} ETB`}</dd>
                   </dl>
                 </section>
               ))}
@@ -855,7 +855,7 @@ function SkyCrash({
               <div className="sky-ticket-table">
                 <table>
                   <caption className="sr-only">
-                    Your tickets from the latest 12 rounds, amounts in practice credits
+                    Your tickets from the latest 12 rounds, amounts in practice ETB
                   </caption>
                   <thead>
                     <tr>
@@ -915,7 +915,7 @@ function SkyCrash({
             </>
           )}
           <div className="sky-activity-foot">
-            <ShieldCheck size={17} /> Server-confirmed data · practice credits only
+            <ShieldCheck size={17} /> Server-confirmed data · practice ETB only
           </div>
         </aside>
       </div>
@@ -939,9 +939,9 @@ function SkyCrash({
       <details className="sky-rules">
         <summary>Rules, timing and round verification</summary>
         <p>
-          Practice starts with 1,000 nonredeemable credits, separate from Coins and Game Points. No
-          purchases, refills, gifts, transfers or withdrawals. Sky Crash credits are separate from
-          Crash Point credits. Confirm up to two immutable tickets per round. Auto cash-out is
+          Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game Points. No
+          purchases, refills, gifts, transfers or withdrawals. Sky Crash practice ETB are separate from
+          Crash Point practice ETB. Confirm up to two immutable tickets per round. Auto cash-out is
           handled by the server and survives disconnects. A target equal to the crash loses.
         </p>
         <p>
@@ -1068,12 +1068,12 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
                       aria-label={`Past bet ${ticket.slot} receipt`}
                     >
                       <dt>Bet {ticket.slot}</dt>
-                      <dd>{ticket.stake} credits staked</dd>
+                      <dd>{ticket.stake} ETB staked</dd>
                       <dt>Cash-out</dt>
                       <dd>{ticket.paidCents ? `${(ticket.paidCents / 100).toFixed(2)}×` : '—'}</dd>
                       <dt>Return</dt>
                       <dd>
-                        {ticket.payout === null ? 'Pending settlement' : `${ticket.payout} credits`}
+                        {ticket.payout === null ? 'Pending settlement' : `${ticket.payout} ETB`}
                       </dd>
                     </dl>
                   ))
@@ -1241,7 +1241,7 @@ function PublicActivity({
         </>
       )}
       <p className="sky-activity-caption">
-        Returns appear only after server settlement. Amounts are practice credits.
+        Returns appear only after server settlement. Amounts are practice ETB.
       </p>
     </section>
   );
@@ -1264,7 +1264,7 @@ function PublicLeaderboard({ userId }: { userId: string }) {
     <section aria-label="Public top returns">
       <h2>Top returns · last 24 hours</h2>
       <p className="sky-activity-caption">
-        Highest confirmed ticket returns · practice credits · includes stake
+        Highest confirmed ticket returns · practice ETB · includes stake
       </p>
       {feed.isError ? (
         <p role="status">Leaderboard unavailable. Reconnecting…</p>

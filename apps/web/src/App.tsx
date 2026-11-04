@@ -1,3 +1,5 @@
+import { PRACTICE_ETB } from '@/lib/practice-etb';
+import { PracticeWalletPage } from '@/pages/practice-wallet';
 import { ThunderDerbyPage } from '@/pages/games/thunder-derby';
 import { VirtualFootballPage } from '@/pages/games/virtual-football';
 import { CryptoPaymentsPage } from '@/pages/crypto-payments';
@@ -113,11 +115,11 @@ export function App() {
         <Route path="groups/:id/games" element={<GroupGamesPage />} />
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="gifts" element={<GroupGiftsPage />} />
-        <Route path="wallet" element={<WalletPage />} />
-        <Route path="wallet/agent-setup" element={<WalletAgentSetupPage />} />
+        <Route path="wallet" element={PRACTICE_ETB ? <PracticeWalletPage /> : <WalletPage />} />
+        <Route path="wallet/agent-setup" element={PRACTICE_ETB ? <PracticeWalletPage /> : <WalletAgentSetupPage />} />
         <Route path="wallet/operations" element={<WorkspaceDestination />} />
-        <Route path="wallet/crypto" element={<CryptoPaymentsPage />} />
-        <Route path="wallet/:section" element={<WalletPaymentsPage />} />
+        <Route path="wallet/crypto" element={PRACTICE_ETB ? <PracticeWalletPage /> : <CryptoPaymentsPage />} />
+        <Route path="wallet/:section" element={PRACTICE_ETB ? <PracticeWalletPage /> : <WalletPaymentsPage />} />
         <Route path="rewards" element={<RewardsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<GamesPage />} />

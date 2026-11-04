@@ -234,14 +234,14 @@ function ScheduledTable({ userId }: { userId: string }) {
             <div key={r.id} className="rounded-xl border border-white/15 p-3 text-sm">
               <p>Round {r.sequence} · Your locked ticket</p>
               <p className="mt-1 text-emerald-100/70">
-                Practice stake {r.ticket!.stake} ·{' '}
+                Practice stake {r.ticket!.stake} ETB ·{' '}
                 {r.ticket!.payout === null
                   ? 'Awaiting the published result'
-                  : `Practice return ${r.ticket!.payout}`}
+                  : `Practice return ${r.ticket!.payout} ETB`}
               </p>
             </div>
           ))}
-        <SpinStakeInput value={stakeText} onChange={setStakeText} maximum={480} disabled={locked} />
+        <SpinStakeInput currency="practice ETB" value={stakeText} onChange={setStakeText} maximum={480} disabled={locked} />
         <h2 className="font-semibold">Choose selections</h2>
         <div
           role="group"
@@ -267,7 +267,7 @@ function ScheduledTable({ userId }: { userId: string }) {
         </div>
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d6b475]/30 bg-[#07281f]/95 p-4 shadow-xl">
           <p>
-            Total: <strong>{total}</strong> practice credits
+            Total: <strong>{total}</strong> practice ETB
           </p>
           <button
             onClick={() => setDraft(null)}
@@ -305,11 +305,11 @@ function ScheduledTable({ userId }: { userId: string }) {
               server publishes the result; outages can delay rounds.
             </p>
             <p>
-              Each number 0–36 has a 1/37 chance. A 40-credit exact-number win returns 1,332; sector
+              Each number 0–36 has a 1/37 chance. A 40 ETB exact-number win returns 1,332; sector
               222; dozen 111; outside 74. Returns include stake. Zero loses outside selections.
             </p>
             <p>
-              90% theoretical return over repeated play; maximum 480 practice credits per ticket.
+              90% theoretical return over repeated play; maximum 480 practice ETB per ticket.
               This table cannot spend or earn Coins. The last 12 results survive refresh and
               reconnect.
             </p>

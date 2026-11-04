@@ -14,10 +14,10 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 function mount(){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}><MemoryRouter><SystemDicePage/></MemoryRouter></QueryClientProvider>);}
 it('shows the corrected return and explicit amount, then confirms one server ticket',async()=>{
  mount();expect(await screen.findByRole('timer',{name:'Betting closes in'})).toHaveTextContent('40s');
- expect(screen.getByText('54 credits')).toBeInTheDocument();expect(screen.getByText('88 Coins')).toBeInTheDocument();
- fireEvent.change(screen.getByLabelText('Bet amount'),{target:{value:'70'}});expect(screen.getByText('108 credits')).toBeInTheDocument();
+ expect(screen.getByText('54 ETB')).toBeInTheDocument();expect(screen.getByText('88 Coins')).toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('Bet amount'),{target:{value:'70'}});expect(screen.getByText('108 ETB')).toBeInTheDocument();
  mocks.post.mockImplementation(async()=>{s.balance=930;s.rounds[0].ticket={stake:70,payout:null};return {data:{accepted:true}};});
- fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 70 credits'}));await waitFor(()=>expect(mocks.post).toHaveBeenCalledTimes(1));
+ fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 70 ETB'}));await waitFor(()=>expect(mocks.post).toHaveBeenCalledTimes(1));
  expect(mocks.post.mock.calls[0].slice(0,2)).toEqual(['/games/system-dice/tickets',{roundId:'dice-minute-1',stake:70}]);
  expect(await screen.findByRole('button',{name:'Ticket confirmed'})).toBeDisabled();expect(screen.getByLabelText('Bet amount')).toBeDisabled();
  expect(sessionStorage.getItem(dicePendingKey('dice-tester'))).toBeNull();
@@ -29,22 +29,22 @@ it('rejects non-step, fractional and oversized amounts without truncating',async
 });
 it('persists a lost-response ticket across remount and retries only its original amount',async()=>{
  mocks.post.mockRejectedValueOnce(new TypeError('offline'));const view=mount();await screen.findByRole('timer',{name:'Betting closes in'});
- fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 credits'}));await screen.findByRole('button',{name:'Retry saved ticket · 35 credits'});
+ fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 ETB'}));await screen.findByRole('button',{name:'Retry saved ticket · 35 ETB'});
  expect(sessionStorage.getItem(dicePendingKey('dice-tester'))).toBe(JSON.stringify({roundId:'dice-minute-1',stake:35}));view.unmount();
- mount();await screen.findByRole('button',{name:'Retry saved ticket · 35 credits'});expect(mocks.post).toHaveBeenCalledTimes(1);expect(screen.getByLabelText('Bet amount')).toBeDisabled();
+ mount();await screen.findByRole('button',{name:'Retry saved ticket · 35 ETB'});expect(mocks.post).toHaveBeenCalledTimes(1);expect(screen.getByLabelText('Bet amount')).toBeDisabled();
  mocks.post.mockImplementationOnce(async()=>{s.rounds[0].ticket={stake:35,payout:null};s.balance=965;return {data:{accepted:true,isReplay:true}};});
- await waitFor(()=>expect(screen.getByRole('button',{name:'Retry saved ticket · 35 credits'})).toBeEnabled());
- fireEvent.click(screen.getByRole('button',{name:'Retry saved ticket · 35 credits'}));await screen.findByRole('button',{name:'Ticket confirmed'});
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Retry saved ticket · 35 ETB'})).toBeEnabled());
+ fireEvent.click(screen.getByRole('button',{name:'Retry saved ticket · 35 ETB'}));await screen.findByRole('button',{name:'Ticket confirmed'});
  expect(mocks.post.mock.calls[1][1]).toEqual(mocks.post.mock.calls[0][1]);expect(sessionStorage.getItem(dicePendingKey('dice-tester'))).toBeNull();
 });
 it('polling confirms a ticket whose response never arrives without resubmitting',async()=>{
  mocks.post.mockImplementation(()=>{s.rounds[0].ticket={stake:35,payout:null};s.balance=965;return new Promise(()=>{});});
- mount();await screen.findByRole('timer',{name:'Betting closes in'});fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 credits'}));
+ mount();await screen.findByRole('timer',{name:'Betting closes in'});fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 ETB'}));
  expect(await screen.findByText('Confirmed by the server. Your ticket is saved.',{},{timeout:3500})).toBeInTheDocument();expect(mocks.post).toHaveBeenCalledTimes(1);expect(sessionStorage.getItem(dicePendingKey('dice-tester'))).toBeNull();
 });
 it('restores the saved winning dice and return after refresh without another play',async()=>{
  s.serverTime=s.rounds[0].endsAt-2000;s.rounds[0].outcome=[2,6];s.rounds[0].ticket={stake:35,payout:54};s.balance=1019;
- mount();expect(await screen.findByText('54 practice credits returned')).toBeInTheDocument();expect(screen.getByRole('timer',{name:'Next round in'})).toHaveTextContent('2s');
+ mount();expect(await screen.findByText('54 practice ETB returned')).toBeInTheDocument();expect(screen.getByRole('timer',{name:'Next round in'})).toHaveTextContent('2s');
  expect(screen.getByRole('img',{name:'Die 2'})).toBeInTheDocument();expect(screen.getByRole('img',{name:'Die 6'})).toBeInTheDocument();expect(mocks.post).not.toHaveBeenCalled();
 });
 it('pauses entry on a failed snapshot and resumes from server time',async()=>{
@@ -59,10 +59,10 @@ it('a refreshed countdown follows the existing round instead of restarting',asyn
 });
 it('does not send if the pending receipt cannot be saved',async()=>{
  mount();await screen.findByRole('timer',{name:'Betting closes in'});vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw Error('full');});
- fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 credits'}));expect(await screen.findByText('Enable browser storage before confirming. No new ticket was sent.')).toBeInTheDocument();expect(mocks.post).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 35 ETB'}));expect(await screen.findByText('Enable browser storage before confirming. No new ticket was sent.')).toBeInTheDocument();expect(mocks.post).not.toHaveBeenCalled();
 });
 it('blocks an unavailable rules version and an unaffordable ticket',async()=>{
- s.balance=20;mount();await screen.findByRole('timer',{name:'Betting closes in'});expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();expect(screen.getByText('Not enough practice credits for this amount.')).toBeInTheDocument();
+ s.balance=20;mount();await screen.findByRole('timer',{name:'Betting closes in'});expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();expect(screen.getByText('Not enough practice ETB for this amount.')).toBeInTheDocument();
  cleanup();s.balance=1000;s.rulesId='unknown';mount();await screen.findByRole('timer',{name:'Next round in'});expect(screen.getByRole('button',{name:/Confirm ticket/})).toBeDisabled();
 });
 

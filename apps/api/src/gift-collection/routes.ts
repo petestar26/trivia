@@ -4,14 +4,16 @@ import type { GiftAction } from '@socialplay/shared';
 import { authenticate } from '../middleware/auth.js';
 import { ApiError } from '../middleware/api-error.js';
 import { emitToGroup, emitToUser } from '../realtime/broadcast.js';
+import { createPracticeGiftCollectionService } from './practice-service.js';
 import { createGiftCollectionService } from './service.js';
 
 export async function giftCollectionRoutes(server: FastifyInstance) {
-  const service = createGiftCollectionService(prisma);
+  const practice = process.env.PRACTICE_ETB_ENABLED === 'true';
+  const service = practice ? createPracticeGiftCollectionService(prisma) : createGiftCollectionService(prisma);
   server.addHook('preHandler', authenticate);
   server.addHook('preHandler', async (_request, reply) => {
     reply.header('Cache-Control', 'private, no-store');
-    if (process.env.GIFT_COLLECTION_ENABLED !== 'true') throw ApiError.forbidden('The gift collection is not enabled yet');
+    if (!practice && process.env.GIFT_COLLECTION_ENABLED !== 'true') throw ApiError.forbidden('The gift collection is not enabled yet');
   });
   server.get<{ Querystring: { groupId?: string; page?: number } }>('/', {
     schema: { querystring: { type: 'object', properties: {

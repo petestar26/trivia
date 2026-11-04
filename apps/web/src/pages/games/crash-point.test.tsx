@@ -114,7 +114,7 @@ it('restores a confirmed ticket and presents its server return', async () => {
   setup();
   expect(
     await within(await screen.findByRole('group', { name: 'Bet 1 result' })).findByText(
-      '30 credits returned'
+      '30 ETB returned'
     )
   ).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
@@ -165,7 +165,7 @@ it('shows personal returns and distinguishes pending receipts in the history vie
   });
   snapshot.rounds[0].ticket = { stake: 10, autoCents: null, payout: null, paidCents: null };
   setup();
-  await screen.findAllByText('10 credits');
+  await screen.findAllByText('10 ETB');
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   expect(screen.getAllByText('Pending')).toHaveLength(2);
   expect(screen.getByRole('table')).toHaveTextContent('50');
@@ -180,9 +180,9 @@ it('does not describe a settled ticket as locked', async () => {
   snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
   setup();
   expect(
-    await screen.findByRole('button', { name: /Cashed out 30 credits returned/ })
+    await screen.findByRole('button', { name: /Cashed out 30 ETB returned/ })
   ).toBeDisabled();
-  expect(screen.queryByText('25 credits locked')).toBeNull();
+  expect(screen.queryByText('25 ETB locked')).toBeNull();
 });
 
 it('switches the public feed to the previous round without submitting a ticket', async () => {
@@ -364,11 +364,11 @@ it('shows the second ticket in the shared result, summary and labelled history',
   snapshot.rounds[0].tickets = [{ slot: 2, stake: 40, autoCents: 120, payout: 48, paidCents: 120 }];
   setup();
   const resultCard = await screen.findByRole('group', { name: 'Bet 2 result' });
-  expect(within(resultCard).getByText('48 credits returned')).toBeInTheDocument();
+  expect(within(resultCard).getByText('48 ETB returned')).toBeInTheDocument();
   expect(within(resultCard).getByText('Confirmed at 1.20× · includes stake')).toBeInTheDocument();
   const receipt = screen.getByRole('region', { name: 'Bet 2 receipt' });
-  expect(within(receipt).getByText('40 credits')).toBeInTheDocument();
-  expect(within(receipt).getByText('48 credits')).toBeInTheDocument();
+  expect(within(receipt).getByText('40 ETB')).toBeInTheDocument();
+  expect(within(receipt).getByText('48 ETB')).toBeInTheDocument();
   expect(screen.queryByText('No tickets')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   const table = screen.getByRole('table');
@@ -483,8 +483,8 @@ it('opens completed round details with both receipts without changing the draft 
   fireEvent.click(history);
   const dialog = await screen.findByRole('dialog', { name: 'Round result' });
   expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
-  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 credits');
-  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 credits');
+  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 ETB');
+  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 ETB');
   fireEvent.click(within(dialog).getByText('Round verification'));
   expect(within(dialog).getByText(/Revealed seed:/)).toHaveTextContent('b'.repeat(64));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));

@@ -1,3 +1,4 @@
+import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -59,7 +60,7 @@ export function GamesPage({
     queryFn: async () => {
       return unwrapData<WalletData>(await api.get<WalletData>('/wallet'), 'Wallet response');
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !PRACTICE_ETB,
   });
 
   if (isLoading) {
@@ -130,12 +131,12 @@ export function GamesPage({
           >
             History
           </Link>
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
+          {PRACTICE_ETB ? <Link to="/wallet" className="rounded-lg border px-4 py-2 text-sm text-white">Practice ETB · no cash value</Link> :           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
             <span className="text-xs text-gray-500 dark:text-gray-400">Coins</span>
             <div className="text-lg font-bold text-primary-600 dark:text-primary-400">
               {wallet?.coinsBalance ?? '—'}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
 
