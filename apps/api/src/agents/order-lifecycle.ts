@@ -86,7 +86,7 @@ export async function assertDepositReady(
     pricingAt = order.createdAt;
   }
   const snapshot = order.pricingSnapshot as { version?: string } | null;
-  if (snapshot?.version === 'USD_V1') {
+  if (snapshot?.version === 'USD_V1' || snapshot?.version === 'ETB_V1') {
     // Price snapshots also contain derived values; pick policy keys only.
     const p = snapshot as any;
     try {
@@ -94,7 +94,7 @@ export async function assertDepositReady(
         Object.fromEntries(
           [
             'version',
-            'coinsPerUsd',
+            ...(snapshot.version === 'ETB_V1' ? ['walletCurrency'] : ['coinsPerUsd']),
             'localPerUsd',
             'minorDigits',
             'source',

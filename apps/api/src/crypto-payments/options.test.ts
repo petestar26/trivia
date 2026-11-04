@@ -9,6 +9,7 @@ vi.mock('@socialplay/database', async (original) => ({
   ...(await original<typeof import('@socialplay/database')>()),
   prisma: db,
 }));
+vi.mock('../agents/etb-rate-service.js', () => ({ etbRateView: async () => ({ available: true, localPerUsd: '182' }) }));
 import { options } from './service.js';
 const keys = [
   'CRYPTO_DEPOSIT_CREATE',

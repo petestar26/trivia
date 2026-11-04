@@ -4,6 +4,9 @@ import { ApiError } from '../middleware/api-error.js';
 export type Currency = 'COINS' | 'GAME_POINTS';
 
 export interface WalletBalanceResponse {
+  currency: 'ETB';
+  minorDigits: 2;
+  balanceMinor: number;
   userId: string;
   coinsBalance: number;
   gamePointsBalance: number;
@@ -74,7 +77,7 @@ export async function getWalletBalance(userId: string): Promise<WalletBalanceRes
       COALESCE(sum(p."reservedAmount"),0)::integer AS reserved
     FROM wallets w LEFT JOIN coin_provenance p ON p."userId"=w."userId"
     WHERE w."userId"=${userId} GROUP BY w.id`;
-  return {userId:row.userId,coinsBalance:row.coinsBalance,gamePointsBalance:row.gamePointsBalance,updatedAt:row.updatedAt,
+  return {currency:'ETB',minorDigits:2,balanceMinor:row.coinsBalance,userId:row.userId,coinsBalance:row.coinsBalance,gamePointsBalance:row.gamePointsBalance,updatedAt:row.updatedAt,
     coinAvailability:{spendable:row.spendable,betOnly:row.betOnly,pendingReview:Math.max(0,row.coinsBalance-row.spendable-row.betOnly),reserved:row.reserved}};
 }
 
@@ -94,6 +97,7 @@ export async function getWalletTransactions(
     // enum values. `.toUpperCase()` alone would turn 'gamePoints' into
     // 'GAMEPOINTS' which never matches 'GAME_POINTS'.
     const currencyMap: Record<string, string> = {
+      etb: 'COINS',
       coins: 'COINS',
       gamepoints: 'GAME_POINTS',
       game_points: 'GAME_POINTS',
@@ -124,7 +128,8 @@ export async function getWalletTransactions(
   ]);
 
   return {
-    data: transactions,
+    data: transactions.map(t => ({ ...t, currency: t.currency === 'COINS' ? 'ETB' : t.currency,
+      description: t.description.replace(/\bcoins?\b/gi, 'ETB balance') })),
     total,
     page,
     totalPages: Math.ceil(total / limit),

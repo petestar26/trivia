@@ -1853,6 +1853,8 @@ model ExchangeRateConfig {
   createdAt    DateTime @default(now())
 
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  cryptoDeposits CryptoDeposit[]
+  cryptoWithdrawals CryptoWithdrawal[]
 
   // Selection query the later service layer must use (Phase C correction D):
   //   country + fiatCurrency + isActive=true + effectiveAt <= now(),
@@ -2986,6 +2988,8 @@ model CryptoDeposit {
   amountMicro BigInt
   coinAmount Int
   pricingSnapshot Json
+  etbRateId String @default(dbgenerated()) // Filled from the immutable snapshot by the database trigger
+  etbRate ExchangeRateConfig @relation(fields: [etbRateId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   requestKey String
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   expiresAt DateTime @db.Timestamptz(6)
@@ -3036,6 +3040,8 @@ model CryptoWithdrawal {
   amountMicro BigInt
   coinAmount Int
   pricingSnapshot Json
+  etbRateId String @default(dbgenerated())
+  etbRate ExchangeRateConfig @relation(fields: [etbRateId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   requestKey String
   holdOperationId String @unique
   terminalOperationId String? @unique
@@ -3051,4 +3057,20 @@ model CryptoWithdrawal {
   terminalOperation EconomicOperation? @relation("CryptoTerminal", fields: [terminalOperationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   @@unique([userId, requestKey])
   @@map("crypto_withdrawals")
+}
+
+model WalletDenomination {
+  id Boolean @id @default(true)
+  currency String
+  minorDigits Int
+  initializedAt DateTime @default(now()) @db.Timestamptz(6)
+  @@map("wallet_denomination")
+}
+
+model EtbReferenceRefresh {
+  id Boolean @id @default(true)
+  lastAttemptAt DateTime? @db.Timestamptz(6)
+  lastSuccessAt DateTime? @db.Timestamptz(6)
+  status String @default("WAITING")
+  @@map("etb_reference_refresh")
 }

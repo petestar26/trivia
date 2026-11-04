@@ -1,10 +1,14 @@
 import { cryptoPaymentCatalog } from '../agents/crypto-catalog.js';
+import { etbRateView } from '../agents/etb-rate-service.js';
 import { prisma } from '@socialplay/database';
 import { FastifyInstance } from 'fastify';
 import { ApiError, authenticate } from '../middleware/index.js';
 import { getWalletBalance, getWalletTransactions } from '../economy/wallet-service.js';
 
 export async function walletRoutes(server: FastifyInstance): Promise<void> {
+  // Public reference data only; reads the shared cache and never calls the feed.
+  server.get('/exchange-rate', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    async () => ({ success: true, data: await etbRateView() }));
   server.addHook('onSend', async (_request, reply, payload) => {
     reply.header('Cache-Control', 'private, no-store');
     return payload;
@@ -63,7 +67,7 @@ export async function walletRoutes(server: FastifyInstance): Promise<void> {
           properties: {
             page: { type: 'integer', minimum: 1, maximum: 1000000, default: 1 },
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
-            currency: { type: 'string', enum: ['coins', 'gamePoints'] },
+            currency: { type: 'string', enum: ['etb', 'coins', 'gamePoints'] },
           },
         },
       },
