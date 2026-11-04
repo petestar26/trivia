@@ -26,3 +26,4 @@ export * from './number-challenge.js';
 export * from './number-timed.js';
 
 export * from './dog-racing.js';
+export * from './roulette-keno.js';

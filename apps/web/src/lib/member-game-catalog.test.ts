@@ -35,6 +35,7 @@ const gatedRoutes = [
   ['sky_crash', '/games/sky-crash'],
   ['thunder_derby_3d', '/games/thunder-derby'],
   ['neon_hounds_3d', '/games/dog-racing'],
+  ['roulette_keno', '/games/roulette-keno'],
   ['virtual_football_3d', '/games/virtual-football'],
   ['crash_point', '/games/crash-point'],
   ['dice', '/games/dice'],

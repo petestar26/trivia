@@ -26,6 +26,7 @@ import { SystemDicePage } from '@/pages/games/dice-system';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
 import { SystemKenoPage } from '@/pages/games/keno-system';
+import { RouletteKenoPage } from '@/pages/games/roulette-keno';
 import { SpinWinCoinsPage } from '@/pages/games/spin-win-coins';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
 import { GameComingSoonPage } from '@/pages/games/coming-soon';
@@ -138,6 +139,7 @@ export function App() {
         <Route path="games/sky-crash" element={<SkyCrashPage />} />
         <Route path="games/crash-point" element={<CasinoProvider><CrashPointPage /></CasinoProvider>} />
         <Route path="games/turbo-keno" element={<CasinoProvider><SystemKenoPage /></CasinoProvider>} />
+        <Route path="games/roulette-keno" element={<RouletteKenoPage />} />
         <Route path="games/spin-win/play" element={<CasinoProvider><SpinWinCoinsPage /></CasinoProvider>} />
         <Route
           path="games/number-challenge"

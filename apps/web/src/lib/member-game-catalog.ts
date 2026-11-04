@@ -2,6 +2,7 @@ import type { GameCatalogEntry } from './api';
 export type MemberGame = GameCatalogEntry;
 
 const MEMBER_GAME_NAMES: Record<string, string> = {
+  roulette_keno: 'Roulette Keno',
   virtual_football_3d: 'Football',
   thunder_derby_3d: 'Derby',
   neon_hounds_3d: 'Dog Racing',
@@ -13,6 +14,7 @@ export function memberGameName(game: Pick<MemberGame, 'key' | 'name'>): string {
 }
 
 export const PRACTICE_ROUTES: Record<string, string> = {
+  roulette_keno: '/games/roulette-keno',
   number_challenge: '/games/number-challenge',
   sky_crash: '/games/sky-crash',
   thunder_derby_3d: '/games/thunder-derby',
@@ -25,6 +27,7 @@ export const PRACTICE_ROUTES: Record<string, string> = {
 };
 /** Keep their cards visible, but require server availability before offering entry. */
 const GATED_PRACTICE = [
+  'roulette_keno',
   'number_challenge',
   'sky_crash',
   'thunder_derby_3d',

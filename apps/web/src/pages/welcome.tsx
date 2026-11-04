@@ -15,6 +15,7 @@ const collection = [
   ['sky_crash', 'Sky Crash', '/games/sky-crash'],
   ['thunder_derby_3d', 'Derby', '/games/thunder-derby'],
   ['neon_hounds_3d', 'Dog Racing', '/games/dog-racing'],
+  ['roulette_keno', 'Roulette Keno', '/games/roulette-keno'],
   ['virtual_football_3d', 'Football', '/games/virtual-football'],
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
   ['trivia', 'Trivia', '/games/trivia'],
