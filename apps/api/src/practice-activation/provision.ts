@@ -85,6 +85,70 @@ export async function practiceReadiness(db: ActivationDb) {
   };
 }
 
+
+/** Catalog metadata only: no relation data, function bodies, passwords or connection details. */
+export async function practiceDiagnostics(db: Pick<ActivationDb, 'query'>) {
+  const [identity] = await db.query(
+    `SELECT current_user::text AS role, pg_get_userbyid(d.datdba) AS database_owner,
+      current_user::text=pg_get_userbyid(d.datdba) AS owns_database,
+      r.rolsuper AS superuser, r.rolcreaterole AS can_create_role
+     FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`
+  );
+  const roles = await db.query(
+    `SELECT rolname AS role, rolcanlogin AS login, rolsuper AS superuser,
+      rolcreaterole AS create_role, rolcreatedb AS create_database,
+      rolreplication AS replication, rolinherit AS inherit, rolbypassrls AS bypass_rls
+     FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY rolname`
+  );
+  const memberships = await db.query(
+    `SELECT parent.rolname AS role, member.rolname AS member, m.admin_option
+     FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid
+     JOIN pg_roles member ON member.oid=m.member
+     WHERE parent.rolname !~ '^pg_' OR member.rolname !~ '^pg_'
+     ORDER BY parent.rolname,member.rolname`
+  );
+  const functions = await db.query(
+    `SELECT n.nspname AS schema, p.proname AS name,
+      pg_get_function_identity_arguments(p.oid) AS arguments,
+      pg_get_userbyid(p.proowner) AS owner,
+      (SELECT jsonb_agg(jsonb_build_object('grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+        'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.grantee,a.privilege_type)
+       FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a) AS acl
+     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema' AND p.prosecdef
+      AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)
+      AND EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+        WHERE a.grantee=0 AND a.privilege_type='EXECUTE')
+     ORDER BY n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)`
+  );
+  const relations = await db.query(
+    `SELECT n.nspname AS schema, c.relname AS name, c.relkind::text AS kind,
+      pg_get_userbyid(c.relowner) AS owner, col.attname AS column,
+      CASE WHEN n.nspname='public' AND c.relname=ANY($1::text[]) THEN true ELSE false END AS practice_table,
+      (SELECT jsonb_agg(jsonb_build_object('grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+        'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.grantee,a.privilege_type)
+       FROM aclexplode(CASE WHEN col.attnum IS NULL THEN COALESCE(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner)) ELSE col.attacl END) a) AS acl
+     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     LEFT JOIN LATERAL (SELECT NULL::smallint AS attnum,NULL::name AS attname,NULL::aclitem[] AS attacl
+       UNION ALL SELECT attnum,attname,attacl FROM pg_attribute WHERE attrelid=c.oid AND attnum>0 AND NOT attisdropped AND attacl IS NOT NULL) col ON true
+     WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema' AND c.relkind IN ('r','p','v','m','f','S')
+      AND EXISTS(SELECT 1 FROM aclexplode(CASE WHEN col.attnum IS NULL THEN COALESCE(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner)) ELSE col.attacl END) a WHERE a.grantee=0)
+     ORDER BY n.nspname,c.relname,col.attname NULLS FIRST`,
+    [[...PRACTICE_TABLES]]
+  );
+  const schemas = await db.query(
+    `SELECT n.nspname AS schema,pg_get_userbyid(n.nspowner) AS owner,
+      (SELECT jsonb_agg(jsonb_build_object('grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+        'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.grantee,a.privilege_type)
+       FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a) AS acl
+     FROM pg_namespace n WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'
+      AND EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+        WHERE a.grantee=0 AND a.privilege_type='CREATE') ORDER BY n.nspname`
+  );
+  return { identity, roles, memberships, publicSecurityDefinerFunctions: functions,
+    publicRelationPrivileges: relations, publicSchemaCreate: schemas };
+}
+
 async function provisionRole(db: ActivationDb, role: string, password: string) {
   const [existing] = await db.query<{ unsafe: boolean; marked: boolean }>(
     `SELECT (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication
