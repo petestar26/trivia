@@ -90,7 +90,7 @@ function SystemDice({userId}:{userId:string}) {
     pendingRef.current=entry;setPending(entry);mutation.mutate(entry);
   }
   return <div className="system-dice-page">
-    <nav className="system-dice-nav"><Link to="/casino">← Casino</Link><span>System table · Free practice</span></nav>
+    <nav className="system-dice-nav"><Link to="/games">← Games</Link><span>System table · Free practice</span></nav>
     <GameRoundSummary game="Dice" label={sum !== null ? 'Round result' : revealing ? 'Rolling' : 'Dice Seven Up'} value={sum !== null ? `Total ${sum}` : open ? 'Entries open' : 'Waiting for result'} detail={sum !== null && display?.ticket ? display.ticket.payout === null ? 'Return pending' : `${display.ticket.payout} credits returned` : 'Free practice · no cash value'} clock={`${!connected ? 'Reconnecting · ' : ''}${open ? 'Closes' : 'Next round'} ${seconds}s`} />
     <section className="system-dice-stage" aria-label="System Dice practice">
       <header className="system-dice-header"><div><p className="system-dice-eyebrow">SALEM BET ORIGINALS</p><h1>Dice <span>Seven Up</span></h1><p>Two dice. One shared result. A new round every minute.</p></div>

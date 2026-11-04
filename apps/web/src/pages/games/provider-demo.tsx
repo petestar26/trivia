@@ -59,14 +59,14 @@ function ProviderDemoSession({ userId }: { userId: string }) {
 
   return (
     <main className="space-y-5 text-slate-100">
-      <Link to="/casino" className="text-sm text-rose-200">
+      <Link to="/games" className="text-sm text-rose-200">
         ← Back to our games
       </Link>
       <header className="rounded-2xl border border-rose-300/20 bg-slate-900 p-6">
         <p className="text-xs uppercase tracking-widest text-rose-300">
-          Salem Bet · Provider preview
+          Provider games · Demo preview
         </p>
-        <h1 className="mt-2 text-3xl font-bold">Try something new</h1>
+        <h1 className="mt-2 text-3xl font-bold">Casino</h1>
         <p className="mt-3 text-slate-300">
           Demo games use virtual balances with no cash value. Your Salem Bet wallet is not
           connected.

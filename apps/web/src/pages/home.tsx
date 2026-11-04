@@ -167,8 +167,8 @@ export function HomePage() {
               The complete collection, including what’s coming next.
             </p>
           </div>
-          <Link to="/casino">
-            Casino <ArrowRight size={16} />
+          <Link to="/games">
+            Games <ArrowRight size={16} />
           </Link>
         </div>
         {!catalog.isPending && !catalog.isError && games.length > 0 && (

@@ -21,8 +21,8 @@ const sections = [
     title: 'Discover',
     items: [
       { name: 'Home', href: '/dashboard', icon: Home },
+      { name: 'Games', href: '/games', icon: Gamepad2 },
       { name: 'Casino', href: '/casino', icon: Dice5 },
-      { name: 'Free games', href: '/games', icon: Gamepad2 },
     ],
   },
   {
@@ -47,9 +47,7 @@ const sections = [
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
-  const casinoTable = ['/games/crash-point', '/games/dice', '/games/turbo-keno', '/games/spin-win'].some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
+  const providerDemoAlias = pathname === '/games/provider-demos';
   return (
     <aside className="qube-sidebar fixed inset-y-0 left-0 z-50 w-64 h-full">
       <Link to="/" onClick={onNavigate} className="qube-brand">
@@ -73,9 +71,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             {section.items.map(({ name, href, icon: Icon }) => {
               const active =
                 href === '/casino'
-                  ? casinoTable || pathname === '/casino'
+                  ? providerDemoAlias || pathname === '/casino' || pathname.startsWith('/casino/')
                   : href === '/games'
-                    ? !casinoTable && (pathname === '/games' || pathname.startsWith('/games/'))
+                    ? !providerDemoAlias && (pathname === '/games' || pathname.startsWith('/games/'))
                     : pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
               return (
                 <Link

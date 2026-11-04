@@ -27,7 +27,9 @@ support; wildcards are intentionally unsupported. The API endpoint is fixed to
 `https://api.softaggregator.com/api/v1`; credentials never go to a custom host or
 HTTP redirect. The API emits only generic upstream failures.
 
-Enable for a tester, then visit `/games/provider-demos` after signing in. The page
+Enable for a tester, then visit `/casino` after signing in. The older
+`/games/provider-demos` address redirects to `/casino`. Our own games, including
+solo practice and free games, remain in `/games`; group PVP stays inside groups. The page
 lists only catalogue entries explicitly supporting play-for-fun. Check desktop
 and phone launch, iframe compatibility, close/reopen, blocked non-demo titles,
 provider zero-credit behavior, and unchanged application wallet/ledger. Do not
@@ -52,3 +54,15 @@ prove account entitlement, free access, or hosted game compatibility.
 - Real browser/provider acceptance remains pending; DOM tests do not establish
   iframe compatibility or provider demo entitlement. Build runtime: Node 24.22.1;
   repository API bundle target remains Node 20.
+
+## Games and Casino navigation
+
+The Games destination shows our complete non-retired catalogue, with optional
+solo-practice and free-game filters and a link to group PVP. Casino shows only
+provider demos. Own-game return links and the dashboard catalogue shortcut point
+to Games, and the sidebar highlights the corresponding section.
+
+Navigation verification: 185 focused web tests pass (20 catalogue/navigation,
+3 actual App routing, 57 provider/Home/welcome and 105 existing game-page tests).
+Web TypeScript/production build and 11 generated PWA checks pass. Existing
+server availability gates and the provider tester gate remain in force.

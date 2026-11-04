@@ -29,11 +29,14 @@ interface GamesPageProps {
 export function GamesPage({
   mode,
   title = 'Games',
-  description = 'Play games and earn Coins.',
+  description = 'Explore our games for solo play, free practice and group PVP. Check each game’s availability.',
   emptyMessage = 'No games available right now.',
 }: GamesPageProps = {}) {
   const { user } = useAuth();
   const location = useLocation();
+  const queryMode = new URLSearchParams(location.search).get('mode');
+  const selectedMode =
+    mode ?? (queryMode === 'WAGER' || queryMode === 'BONUS' ? queryMode : undefined);
 
   const {
     data: games,
@@ -104,7 +107,7 @@ export function GamesPage({
 
   const practiceRoutes = PRACTICE_ROUTES;
   const publicGames = (games ?? [])
-    .filter((g) => g.catalogStatus !== 'RETIRED' && (!mode || g.mode === mode))
+    .filter((g) => g.catalogStatus !== 'RETIRED' && (!selectedMode || g.mode === selectedMode))
     .sort((a, b) => Number(!!practiceRoutes[b.key]) - Number(!!practiceRoutes[a.key]));
 
   return (
@@ -114,9 +117,12 @@ export function GamesPage({
           <h1 className="text-3xl font-bold tracking-tight text-white">{title}</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{description}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link to="/games/provider-demos" className="rounded-lg border border-rose-300/30 px-4 py-2 text-sm font-medium text-rose-200">
-            Provider demos
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/casino"
+            className="rounded-lg border border-rose-300/30 px-4 py-2 text-sm font-medium text-rose-200"
+          >
+            Casino · provider demos
           </Link>
           <Link
             to="/games/history"
@@ -133,25 +139,34 @@ export function GamesPage({
         </div>
       </div>
 
-      {mode === 'WAGER' && (
-        <nav aria-label="Play modes" className="flex flex-wrap gap-3 text-sm">
-          <span className="rounded-full bg-emerald-100 px-4 py-2 font-semibold text-emerald-900">
-            System practice
-          </span>
+      <nav aria-label="Play modes" className="flex flex-wrap gap-3 text-sm">
+        {(
+          [
+            ['All our games', '/games', undefined],
+            ['Solo practice', '/games?mode=WAGER', 'WAGER'],
+            ['Free games', '/games?mode=BONUS', 'BONUS'],
+          ] as const
+        ).map(([label, destination, filter]) => (
           <Link
-            className="rounded-full border border-slate-300 px-4 py-2 dark:text-white"
-            to="/groups"
+            key={destination}
+            to={destination}
+            aria-current={selectedMode === filter ? 'page' : undefined}
+            className={
+              selectedMode === filter
+                ? 'rounded-full bg-emerald-100 px-4 py-2 font-semibold text-emerald-900'
+                : 'rounded-full border border-slate-300 px-4 py-2 dark:text-white'
+            }
           >
-            Group PVP · play together →
+            {label}
           </Link>
-          <Link
-            className="rounded-full border border-slate-300 px-4 py-2 dark:text-white"
-            to="/games"
-          >
-            Free games →
-          </Link>
-        </nav>
-      )}
+        ))}
+        <Link
+          className="rounded-full border border-slate-300 px-4 py-2 dark:text-white"
+          to="/groups"
+        >
+          Group PVP · play together →
+        </Link>
+      </nav>
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {publicGames.map((game) => {
           const practice = memberGameDestination(game) && practiceRoutes[game.key];
@@ -176,10 +191,10 @@ export function GamesPage({
                       {game.key === 'number_challenge'
                         ? 'Instant number reveals'
                         : game.key === 'thunder_derby_3d'
-                        ? 'Three- or four-minute races'
-                        : game.key === 'virtual_football_3d'
-                          ? 'Five-minute matchweeks'
-                          : 'One-minute rounds'}{' '}
+                          ? 'Three- or four-minute races'
+                          : game.key === 'virtual_football_3d'
+                            ? 'Five-minute matchweeks'
+                            : 'One-minute rounds'}{' '}
                       · no Coins or cash prizes
                     </p>
                     <p className="mt-4 font-semibold text-emerald-700 dark:text-emerald-300">

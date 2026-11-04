@@ -604,9 +604,9 @@ function SkyCrash({
   return (
     <div className="sky-page sky-reference">
       <nav className="sky-nav">
-        <Link to="/casino">
+        <Link to="/games">
           <ArrowLeft size={16} />
-          Casino
+          Games
         </Link>
         <span>SALEM BET ORIGINALS / SKY CRASH</span>
         <span className={connected ? 'online' : 'offline'}>

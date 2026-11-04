@@ -590,9 +590,9 @@ function CrashPoint({
   return (
     <div className="crash-page crash-reference">
       <nav className="crash-nav">
-        <Link to="/casino">
+        <Link to="/games">
           <ArrowLeft size={16} />
-          Casino
+          Games
         </Link>
         <span>SALEM BET ORIGINALS / CRASH POINT</span>
         <span className={connected ? 'online' : 'offline'}>

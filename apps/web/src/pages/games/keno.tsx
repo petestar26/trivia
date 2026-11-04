@@ -86,7 +86,7 @@ function KenoSession({ storageKey }: { storageKey: string }) {
     catch { setNotice('Number selection unavailable. Please try again.'); }
   };
   return <div className="keno-page">
-    <div className="keno-navigation"><Link to="/casino">← Casino</Link><span>Practice · this tab</span></div>
+    <div className="keno-navigation"><Link to="/games">← Games</Link><span>Practice · this tab</span></div>
     <section className="keno-stage" aria-label="Turbo Keno practice">
       <header className="keno-header"><div><p className="keno-eyebrow">SALEM BET ORIGINALS</p><h1>Turbo <span>Keno</span></h1><p>Every ball brings a new possibility.</p></div><div className="keno-balances"><div className="keno-wallet"><span>ACCOUNT BALANCE</span><strong>{walletLoading ? 'Loading…' : walletError ? 'Unavailable' : `${coinsBalance.toLocaleString()} Coins`}</strong><small>Not used in practice</small></div><div className="keno-balance"><span>PRACTICE BALANCE</span><strong>{state.balance.toLocaleString()}</strong><small>credits · no cash value</small></div></div></header>
       <div className="keno-economics"><span>{HOUSE_GAME_POLICY.targetRtpBps / 100}% theoretical return</span><span>{HOUSE_GAME_POLICY.expectedHouseEdgeBps / 100}% expected house edge</span><span>3.6× return per matching number</span></div>

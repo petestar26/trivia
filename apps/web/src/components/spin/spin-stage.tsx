@@ -25,8 +25,8 @@ export function SpinStage({
   return (
     <section className="spin-stage mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-        <Link to="/casino" className="text-primary-600 dark:text-primary-400">
-          ← Casino
+        <Link to="/games" className="text-primary-600 dark:text-primary-400">
+          ← Games
         </Link>
         <Link to="/groups" className="text-primary-600 dark:text-primary-400">
           PVP · play in a group →
