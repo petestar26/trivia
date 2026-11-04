@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useCasino, type GamePhase } from './CasinoProvider';
@@ -104,9 +105,9 @@ export function CasinoShell({
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center justify-between">
-        <span className="text-sm text-gray-600 dark:text-gray-300">Coins</span>
+        <span className="text-sm text-gray-600 dark:text-gray-300">Birr wallet</span>
         <span className="text-lg font-bold text-primary-600 dark:text-primary-400">
-          {coinsBalance.toLocaleString()}
+          {formatEtb(coinsBalance)}
         </span>
       </div>
 

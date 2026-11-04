@@ -39,7 +39,7 @@ export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
       <p>Page {page + 1} · up to 50 cases. Staff queues show oldest reports first. Super administrators can review every assignment.</p>
       <p>
         Reports are investigated separately from deposit orders. A recorded refund means staff
-        verified a transfer back to the payer; it does not add Coins.
+        verified a transfer back to the payer; it does not add ETB.
       </p>
       {cases.isPending ? (
         <p role="status">Loading recovery cases…</p>
@@ -307,7 +307,7 @@ function SupervisionForm({item, operation, close}: {item: Case; operation: 'rele
   const action = useWalletAction(`recovery-${operation}-${item.id}`);
   return <fieldset>
     <legend>{operation === 'release' ? 'Release investigation assignment' : 'Reject recovery claim'} · {item.order.orderNumber}</legend>
-    <p>{operation === 'release' ? 'The case returns to the open queue for another reviewer. No funds move.' : 'This closes the case without a refund or Coin credit. The member can read your reason. This decision cannot be undone.'}</p>
+    <p>{operation === 'release' ? 'The case returns to the open queue for another reviewer. No funds move.' : 'This closes the case without a refund or ETB credit. The member can read your reason. This decision cannot be undone.'}</p>
     <label>Decision reason<textarea maxLength={4000} value={reason} onChange={e => setReason(e.target.value)} /></label>
     <button disabled={action.blocked || reason.trim().length < 3} onClick={() => action.run(`/late-payments/${item.id}/${operation}`, {reason})}>Confirm {operation === 'release' ? 'release' : 'rejection'}</button>
     <button disabled={action.busy} onClick={close}>Back</button>

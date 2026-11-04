@@ -16,3 +16,12 @@ it('renders transaction amounts with correct currency precision', () => {
   expect(currencyMinorDigits('JPY')).toBe(0);
   expect(currencyMinorDigits('KWD')).toBe(3);
 });
+
+it('uses exact ETB santim for displayed balances and threshold boundaries', async () => {
+  const { formatEtb, etbMinimumMinor } = await import('./payment-money');
+  expect(formatEtb(500029)).toBe('5000.29 ETB');
+  expect(formatEtb(-1)).toBe('-0.01 ETB');
+  expect(formatEtb(undefined)).toBe('—');
+  expect(etbMinimumMinor('182.16377894', 200)).toBe(36433);
+  expect(etbMinimumMinor('182.16377894', 400, true)).toBe(72866);
+});

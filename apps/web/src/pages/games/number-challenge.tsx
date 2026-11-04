@@ -406,7 +406,7 @@ function NumberPractice({ userId }: { userId: string }) {
                     : 'Place guess'}
           </button>
           <p className="number-free">
-            Free to play · no stakes, Coins or cash prizes.
+            Free to play · no stakes or cash prizes.
             <br />
             Practice scores cannot be spent or transferred.
           </p>

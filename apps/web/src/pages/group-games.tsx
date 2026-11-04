@@ -79,7 +79,7 @@ function GroupGames({groupId,userId}:{groupId:string;userId:string}) {
       <div><p className="text-xs font-bold uppercase tracking-[.25em] text-amber-600">{s.groupName}</p><h1 className="mt-1 text-3xl font-bold">Group game room</h1><p className="mt-2 text-sm text-gray-500">Play together. Confirm your entry. The owner starts the countdown.</p></div>
       <div className="rounded-2xl border bg-white px-5 py-3 dark:bg-gray-900"><span className="text-xs text-gray-500">Game Points</span><p className="text-2xl font-bold tabular-nums">{s.balance.toLocaleString()}</p></div>
     </header>
-    <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">Game Points PVP · 7% completion fee · 93% prize pool · No Coins are spent or won.</p>
+    <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">Game Points PVP · 7% completion fee · 93% prize pool · No cash is spent or won.</p>
     {!connected && <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">Reconnecting. Entries and start controls are paused until the server confirms this round.</p>}
     {terminal && own && s.enabled && <section className="rounded-2xl border bg-white p-5 dark:bg-gray-900">
       <h2 className="text-lg font-bold">Create a round</h2><div className="mt-4 flex flex-wrap items-end gap-4">

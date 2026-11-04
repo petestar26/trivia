@@ -28,13 +28,13 @@ const country = {
 };
 function policy() {
   return {
-    version: 'USD_V1',
-    coinsPerUsd: 96,
+    version: 'ETB_V1',
+    walletCurrency: 'ETB',
     localPerUsd: '150',
     minorDigits: 2,
     source: 'Disposable fixture',
     observedAt: new Date(Date.now() - 1000).toISOString(),
-    expiresAt: new Date(Date.now() + 3600000).toISOString(),
+    expiresAt: new Date(Date.now() + 1700000).toISOString(),
     p2pDepositMinUsdCents: 200,
     p2pWithdrawalAboveUsdCents: 400,
     cryptoDepositMinUsdCents: 1000,

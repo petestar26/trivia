@@ -62,7 +62,7 @@ it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
     await screen.findByText('withdrawal');
     expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
     if (status === 'HELD')
-      expect(screen.getByRole('button', { name: 'Cancel and return held Coins' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Cancel and return held ETB' })).toBeEnabled();
     else expect(screen.getByText(/payment support/i)).toBeInTheDocument();
   }
 );
@@ -106,9 +106,9 @@ it.each([false, true])(
     fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
     fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
     if (!paused) await screen.findByText(/Withdrawal must exceed USD/);
-    fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '480' } });
+    fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.00' } });
     expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '481' } });
+    fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.01' } });
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toHaveProperty(
         'disabled',
@@ -157,7 +157,7 @@ it('requires country, agent, approved method and confirmation before an idempote
 it('uses the server quote and only IDs when confirming a withdrawal', async () => {
   mount('withdraw');
   fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
-  fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '100' } });
   fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
   m.post
     .mockResolvedValueOnce({
@@ -171,7 +171,7 @@ it('uses the server quote and only IDs when confirming a withdrawal', async () =
     })
     .mockResolvedValue({ success: true });
   fireEvent.click(screen.getByRole('button', { name: 'Get withdrawal quote' }));
-  await screen.findByText('100 Coins → 0.25 USD');
+  await screen.findByText('1.00 ETB → 0.25 USD');
   fireEvent.click(screen.getByRole('checkbox'));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }));
   await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
@@ -409,7 +409,7 @@ it('blocks payment confirmation after the deposit window and preserves support g
 it('blocks an expired withdrawal quote and allows a fresh reviewed quote', async () => {
   mount('withdraw');
   fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
-  fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '100' } });
   fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
   const quote = {
     id: 'old',
@@ -438,7 +438,7 @@ it('clears deposit inputs and confirmation when moving to withdrawal', async () 
   fireEvent.change(screen.getByLabelText('Amount to pay · USD'), { target: { value: '100' } });
   fireEvent.click(screen.getByRole('checkbox'));
   fireEvent.click(screen.getByRole('link', { name: 'Withdraw' }));
-  expect(await screen.findByLabelText('Coins to withdraw')).toHaveValue('');
+  expect(await screen.findByLabelText('Amount to withdraw · ETB')).toHaveValue('');
   expect(screen.getByLabelText('Country')).toHaveValue('');
   expect(screen.queryByRole('checkbox')).toBeNull();
   expect(m.post).not.toHaveBeenCalled();
@@ -462,7 +462,7 @@ it('shows the global payout setup state and prevents a misleading withdrawal quo
   await screen.findByText('Withdrawals are awaiting payment setup');
   fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'country' } });
   fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
-  fireEvent.change(screen.getByLabelText('Coins to withdraw'), { target: { value: '500' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '500' } });
   expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
   expect(m.post).not.toHaveBeenCalled();
 });

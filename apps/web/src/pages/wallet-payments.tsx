@@ -1,5 +1,5 @@
 import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
-import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
+import { currencyMinorDigits, inputToMinor, formatMinor, formatEtb, etbMinimumMinor } from '@/lib/payment-money';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -144,19 +144,13 @@ function Payments({ userId }: { userId: string }) {
   const method = methods.data?.find((m) => m.id === methodId);
   const minorDigits = country ? currencyMinorDigits(country.currencyCode) : 2;
   const depositMinor = inputToMinor(amount, minorDigits);
-  const validAmount =
-    section === 'deposit'
-      ? depositMinor !== null
-      : /^\d+$/.test(amount) &&
-        Number.isSafeInteger(Number(amount)) &&
-        Number(amount) > 0 &&
-        Number(amount) <= 1_000_000_000;
+  const withdrawalMinor = inputToMinor(amount, 2);
+  const validAmount = depositMinor !== null && (section === 'deposit' || (withdrawalMinor !== null && withdrawalMinor <= 1_000_000_000));
   const pricing = useQuery({
     queryKey: ['payments', 'usd-preview', countryId, section, depositMinor],
     queryFn: () =>
       get<{
         policy: {
-          coinsPerUsd: number;
           localPerUsd: string;
           observedAt: string;
           expiresAt: string;
@@ -172,11 +166,7 @@ function Payments({ userId }: { userId: string }) {
     refetchInterval: 30000,
   });
   const withdrawalPolicy = pricing.data?.policy;
-  const withdrawalMinimum = withdrawalPolicy
-    ? Math.floor(
-        (withdrawalPolicy.p2pWithdrawalAboveUsdCents * withdrawalPolicy.coinsPerUsd) / 100
-      ) + 1
-    : null;
+  const withdrawalMinimum = withdrawalPolicy ? etbMinimumMinor(withdrawalPolicy.localPerUsd, withdrawalPolicy.p2pWithdrawalAboveUsdCents, true) : null;
   const withdrawalPricingReady =
     options.data?.withdrawalsEnabled !== false &&
     country?.agentPaymentEnabled !== false &&
@@ -185,21 +175,7 @@ function Payments({ userId }: { userId: string }) {
         withdrawalMinimum !== null &&
         Number.isSafeInteger(withdrawalMinimum) &&
         Date.parse(withdrawalPolicy!.expiresAt) > now &&
-        Number(amount) >= withdrawalMinimum));
-  const packages = useQuery({
-    queryKey: ['payments', 'coin-packages'],
-    queryFn: () =>
-      get<
-        Array<{
-          id: string;
-          name: string;
-          coinAmount: number;
-          usdDisplay: string;
-          featured: boolean;
-        }>
-      >('/agent-config/coin-packages'),
-    enabled: section === 'deposit' && !!country?.usdPricingEnabled,
-  });
+        (withdrawalMinor ?? 0) >= withdrawalMinimum));
   function changeCountry(value: string) {
     setCountry(value);
     setAmount('');
@@ -222,7 +198,7 @@ function Payments({ userId }: { userId: string }) {
           await boundedRequest((signal) =>
             api.post<Quote>(
               '/withdrawals/quotes',
-              { countryId, coinAmount: Number(amount) },
+              { countryId, coinAmount: withdrawalMinor },
               undefined,
               { signal }
             )
@@ -311,7 +287,7 @@ function Payments({ userId }: { userId: string }) {
           <PaymentSteps direction={section as 'deposit' | 'withdraw'} method="agent" />
         </>
       )}
-      <section className="payment-balance" aria-label="Coin balance">
+      <section className="payment-balance" aria-label="Birr balance">
         {balance.isPending ? (
           <p role="status">Loading balance…</p>
         ) : balance.isError ? (
@@ -321,16 +297,16 @@ function Payments({ userId }: { userId: string }) {
         ) : (
           <>
             <div>
-              <span>Total Coins</span>
-              <strong>{balance.data.coinsBalance?.toLocaleString() ?? '—'}</strong>
+              <span>Birr balance</span>
+              <strong>{formatEtb(balance.data.coinsBalance)}</strong>
             </div>
             <div>
-              <span>Spendable Coins · eligibility applies</span>
-              <strong>{balance.data.coinAvailability?.spendable.toLocaleString() ?? '—'}</strong>
+              <span>Available balance · eligibility applies</span>
+              <strong>{balance.data.coinAvailability ? formatEtb(balance.data.coinAvailability.spendable) : '—'}</strong>
             </div>
             <div>
               <span>Bet-only rewards</span>
-              <strong>{balance.data.coinAvailability?.betOnly.toLocaleString() ?? '—'}</strong>
+              <strong>{balance.data.coinAvailability ? formatEtb(balance.data.coinAvailability.betOnly) : '—'}</strong>
             </div>
           </>
         )}
@@ -338,7 +314,7 @@ function Payments({ userId }: { userId: string }) {
       <details className="wallet-payment-rules">
         <summary>Which balance can I use?</summary>
         <p>
-          Deposits are agent-assisted Coin purchases. Payment happens through the approved method
+          Agent deposits add Birr to your wallet. Payment happens through the approved method
           shown on your order. Game Points, bet-only rewards and practice credits cannot be
           withdrawn.
         </p>
@@ -420,7 +396,7 @@ function Payments({ userId }: { userId: string }) {
                   )}
                   {country?.usdPricingEnabled && (
                     <div className="payment-disclosure">
-                      <strong>96 Coins = USD 1</strong>
+                      <strong>Your wallet uses Birr (ETB)</strong>
                       {country.agentPaymentEnabled === false ? (
                         <p role="status">
                           Payments are paused in this country. New quotes are unavailable.
@@ -444,8 +420,7 @@ function Payments({ userId }: { userId: string }) {
                             </p>
                             {pricing.data.preview && (
                               <p>
-                                You receive {pricing.data.preview.coinAmount.toLocaleString()}{' '}
-                                Coins. Final amount is fixed when the order is created.
+                                You receive {formatEtb(pricing.data.preview.coinAmount)}. Final amount is fixed when the order is created.
                               </p>
                             )}
                             <p>
@@ -456,29 +431,14 @@ function Payments({ userId }: { userId: string }) {
                           </>
                         )
                       )}
-                      {section === 'deposit' && packages.data && (
-                        <details>
-                          <summary>Coin bundle reference prices</summary>
-                          <p>
-                            Prices are approximate USD equivalents. Enter your payment amount below;
-                            the server calculates Coins using the current rate. Route minimums
-                            apply.
-                          </p>
-                          {packages.data.map((p) => (
-                            <p key={p.id}>
-                              {p.name}: {p.coinAmount.toLocaleString()} Coins ≈ USD {p.usdDisplay}
-                            </p>
-                          ))}
-                        </details>
-                      )}
                     </div>
                   )}
                   <label>
                     {section === 'deposit'
                       ? `Amount to pay${country ? ' · ' + country.currencyCode : ''}`
-                      : 'Coins to withdraw'}
+                      : 'Amount to withdraw · ETB'}
                     <input
-                      inputMode={section === 'deposit' ? 'decimal' : 'numeric'}
+                      inputMode="decimal"
                       value={amount}
                       onChange={(e) => {
                         setAmount(e.target.value);
@@ -490,8 +450,7 @@ function Payments({ userId }: { userId: string }) {
                   </label>
                   {amount && !validAmount && (
                     <p role="alert">
-                      Enter a valid positive amount. Deposits use local currency; withdrawals use
-                      whole Coins.
+                      Enter a positive ETB amount with up to two decimal places.
                     </p>
                   )}
                   {section === 'deposit' ? (
@@ -673,15 +632,14 @@ function Payments({ userId }: { userId: string }) {
                         </details>
                       )}
                       <p>
-                        Only eligible Coins can be withdrawn. Current country limits apply and are
+                        Only eligible ETB balance can be withdrawn. Current country limits apply and are
                         checked when requesting a quote.
                       </p>
                       {country?.usdPricingEnabled &&
                         withdrawalMinimum !== null &&
                         Number.isSafeInteger(withdrawalMinimum) && (
                           <p>
-                            Minimum for the current policy: {withdrawalMinimum.toLocaleString()}{' '}
-                            Coins.
+                            Minimum for the current policy: {formatEtb(withdrawalMinimum)}.
                           </p>
                         )}
                       <button
@@ -705,7 +663,7 @@ function Payments({ userId }: { userId: string }) {
                             </p>
                           )}
                           <p>
-                            {quote.coinAmount} Coins →{' '}
+                            {formatEtb(quote.coinAmount)} →{' '}
                             {formatMinor(quote.fiatAmount, quote.fiatCurrency)}
                           </p>
                           <p>
@@ -860,7 +818,7 @@ function Payments({ userId }: { userId: string }) {
               <PaymentCard key={p.id} payment={p}>
                 {p.status === 'HELD' && (
                   <ConfirmAction
-                    label="Cancel and return held Coins"
+                    label="Cancel and return held ETB"
                     disabled={busy}
                     onConfirm={() => action.run(`/withdrawals/${p.id}/cancel`)}
                   />
@@ -988,7 +946,7 @@ export function PaymentCard({
         </span>
       </div>
       <p>
-        {p.coinAmount.toLocaleString()} Coins ·{' '}
+        Wallet {formatEtb(p.coinAmount)} · Payment{' '}
         {formatMinor(p.fiatAmount, p.fiatCurrency, p.pricingSnapshot?.minorDigits)}
       </p>
       {p.pricingSnapshot && (

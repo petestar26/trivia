@@ -385,7 +385,7 @@ export function TicketsPanel({
     return (
       <section className="vf-panel" aria-label="My tickets">
         <p>
-          Your confirmed tickets will appear here. Practice ETB only: no Coins or cash prizes.
+          Your confirmed tickets will appear here. Practice ETB only: no cash stakes or prizes.
         </p>
       </section>
     );

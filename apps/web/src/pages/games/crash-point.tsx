@@ -1087,7 +1087,7 @@ function CrashRulesContent() {
         </li>
       </ol>
       <p>
-        Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game Points.
+        Practice starts with 1,000 nonredeemable practice ETB, separate from your cash wallet and Game Points.
         No purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per
         round. Auto cash-out is handled by the server and survives disconnects.
       </p>

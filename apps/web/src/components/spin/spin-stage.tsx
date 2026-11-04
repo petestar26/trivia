@@ -74,7 +74,7 @@ export function SpinStage({
         </header>
         <p className="border-b border-[#d6b475]/15 bg-black/10 px-5 py-2.5 text-xs text-emerald-100/75 sm:px-7">
           {mode === 'solo'
-            ? 'Practice mode · No Coins are spent or won. Credits reset when you leave.'
+            ? 'Practice mode · No cash is spent or won. Credits reset when you leave.'
             : mode === 'scheduled'
               ? 'Practice only · No Coins, deposits, fees or redeemable prizes. Selections lock once per round.'
               : 'Coin mode · Server settlement · Confirm pending rounds before entering again.'}

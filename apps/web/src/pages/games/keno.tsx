@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
@@ -293,7 +294,7 @@ function KenoSession({ storageKey }: { storageKey: string }) {
                   ? 'Loading…'
                   : walletError
                     ? 'Unavailable'
-                    : `${coinsBalance.toLocaleString()} Coins`}
+                    : formatEtb(coinsBalance)}
               </strong>
               <small>Not used in practice</small>
             </div>
@@ -310,7 +311,7 @@ function KenoSession({ storageKey }: { storageKey: string }) {
           <span>3.6× return per matching number</span>
         </div>
         <div className="keno-practice-note">
-          Practice only · Local demo draw · No Coins, deposits or redeemable prizes
+          Practice only · Local demo draw · No deposits or redeemable prizes
         </div>
         <div className="keno-layout">
           <div className="keno-board-panel">
@@ -462,7 +463,7 @@ function KenoSession({ storageKey }: { storageKey: string }) {
             </p>
             <p>
               This local practice session resumes after a refresh in this tab. Shared server draws
-              and Coins play are not available here.
+              and cash play are not available here.
             </p>
             <ol>
               {state.history.map((r) => (

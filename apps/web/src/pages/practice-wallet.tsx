@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { GiftCollectionSnapshot } from '@socialplay/shared';
@@ -36,7 +37,7 @@ export function PracticeWalletPage() {
       <section className="wallet-balance-card" aria-label="Payment balance">
         <h2>Payment balance</h2>
         <p className="wallet-balance-value">
-          {payments.data ? payments.data.coinsBalance.toLocaleString() : '—'} <span>Coins</span>
+          {payments.data ? formatEtb(payments.data.coinsBalance) : '—'}
         </p>
         {payments.isPending && <p role="status">Loading payment balance…</p>}
         {payments.isError && (
@@ -47,13 +48,12 @@ export function PracticeWalletPage() {
         )}
         {payments.data?.coinAvailability && (
           <p>
-            {payments.data.coinAvailability.spendable.toLocaleString()} spendable Coins · withdrawal
+            {formatEtb(payments.data.coinAvailability.spendable)} available · withdrawal
             eligibility applies
           </p>
         )}
         <p>
-          Agent payments use your country’s currency, including Birr (ETB). Crypto uses USDT on
-          TRON. Review the conversion before confirming.
+          One wallet in Birr (ETB). Deposit through an agent or send USDT on TRON and receive ETB at the quoted rate.
         </p>
       </section>
       <WalletQuickActions />

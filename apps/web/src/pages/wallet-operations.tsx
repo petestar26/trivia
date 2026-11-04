@@ -164,7 +164,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                 <PaymentCard key={p.id} payment={p}>
                   {p.status === 'PAYMENT_SUBMITTED' && (
                     <ConfirmAction
-                      label="Payment verified · release Coins"
+                      label="Payment verified · release ETB"
                       disabled={action.blocked}
                       onConfirm={() => action.run(`/agent-orders/${p.id}/settle`)}
                     />

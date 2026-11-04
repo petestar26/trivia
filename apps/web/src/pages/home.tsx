@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Link } from 'react-router-dom';
 import { useRef, useState } from 'react';
@@ -144,7 +145,7 @@ export function HomePage() {
         <Link to="/wallet">
           <Wallet size={18} />
           {PRACTICE_ETB ? <span>Gift balance <b>{wallet.isError ? '—' : (wallet.data?.balance?.toLocaleString() ?? '—')} practice ETB</b></span> : <>
-          <span>Coins <b>{wallet.isError ? '—' : (wallet.data?.coinsBalance ?? '—')}</b></span>
+          <span>Wallet <b>{wallet.isError || !wallet.data ? '—' : formatEtb(wallet.data.coinsBalance)}</b></span>
           <span>Game Points <b>{wallet.isError ? '—' : (wallet.data?.gamePointsBalance ?? '—')}</b></span></>}
           <ArrowUpRight size={16} />
         </Link>

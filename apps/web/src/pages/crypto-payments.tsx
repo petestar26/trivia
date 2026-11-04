@@ -7,12 +7,25 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import './crypto-payments.css';
+import { formatEtb, inputToMinor } from '@/lib/payment-money';
+
+type ExchangeRate = {
+  available: boolean;
+  rateId?: string;
+  localPerUsd?: string;
+  observedAt?: string;
+  expiresAt?: string;
+  source?: string;
+  cryptoDepositMinUsdCents?: number;
+  cryptoWithdrawalAboveUsdCents?: number;
+};
 
 type Payment = {
   id: string;
   address: string;
   amount: string;
   coinAmount: number;
+  rate?: ExchangeRate;
   status: string;
   createdAt: string;
   expiresAt?: string;
@@ -35,6 +48,7 @@ type Records = {
   addresses?: { address: string; label: string; used: boolean; retired: boolean }[];
 };
 type Options = {
+  rate?: ExchangeRate;
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
   depositUnavailableReason?: string | null;
@@ -45,18 +59,25 @@ export function timeRemaining(expiresAt: string, now: number) {
   const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
-export function cryptoEstimate(value: string, withdraw = false) {
+export function cryptoEstimate(value: string, withdraw = false, localPerUsd?: string) {
   try {
+    if (!localPerUsd || !/^\d+(?:\.\d{1,8})?$/.test(localPerUsd)) return '';
+    const [rw, rf = ''] = localPerUsd.split('.');
+    const rate = BigInt(rw + rf),
+      scale = 10n ** BigInt(rf.length);
+    if (rate <= 0n) return '';
     if (withdraw) {
-      if (!/^\d{1,10}$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 1_000_000_000n)
-        return '';
-      const n = (BigInt(value) * 1_000_000n) / 96n;
+      const minor = inputToMinor(value, 2);
+      if (!minor || minor > 1_000_000_000) return '';
+      const n = (BigInt(minor) * 1_000_000n * scale) / (100n * rate);
+      if (n <= 0n) return '';
       return `${n / 1_000_000n}.${String(n % 1_000_000n).padStart(6, '0')} USDT`;
     }
     if (!/^(?:0|[1-9]\d{0,7})(\.\d{1,6})?$/.test(value)) return '';
     const [w, f = ''] = value.split('.');
-    const coins = ((BigInt(w) * 1_000_000n + BigInt(f.padEnd(6, '0'))) * 96n) / 1_000_000n;
-    return coins > 0n && coins <= 1_000_000_000n ? `${coins} Coins` : '';
+    const minor =
+      ((BigInt(w) * 1_000_000n + BigInt(f.padEnd(6, '0'))) * rate * 100n) / (1_000_000n * scale);
+    return minor > 0n && minor <= 1_000_000_000n ? formatEtb(minor.toString()) : '';
   } catch {
     return '';
   }
@@ -102,7 +123,8 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
             : payment.status.replaceAll('_', ' ')}
         </span>
       </div>
-      <p>{payment.coinAmount.toLocaleString()} Coins · TRON (TRC20)</p>
+      <p>{formatEtb(payment.coinAmount)} · TRON (TRC20)</p>
+      {payment.rate?.localPerUsd && <p>Locked rate: 1 USDT = {payment.rate.localPerUsd} ETB</p>}
       <small>Request {payment.id}</small>
       {payment.userId && <p>Member: {payment.userId}</p>}
       {payment.expiresAt && payment.status === 'WAITING' && !expired && (
@@ -114,7 +136,7 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
       {payment.expiresAt && (
         <p>
           {payment.status === 'CREDITED'
-            ? 'Your Coins have been credited. Do not send again or reuse this address.'
+            ? 'Your ETB balance has been credited. Do not send again or reuse this address.'
             : payment.status === 'REVIEW'
               ? 'This address is closed for new transfers. Your deposit needs support review.'
               : expired
@@ -165,6 +187,11 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
   const [search, setSearch] = useSearchParams();
   const direction = search.get('direction') === 'withdraw' ? 'withdrawal' : 'deposit';
   const [reviewed, setReviewed] = useState(false);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [amount, setAmount] = useState(''),
     [countryId, setCountryId] = useState(''),
     [address, setAddress] = useState(''),
@@ -197,7 +224,15 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
     queryKey: ['crypto-options', user?.id],
     queryFn: async () => unwrapData(await api.get<Options>('/crypto-payments/options')),
     enabled: !!user && !admin,
+    refetchInterval: 60_000,
   });
+  const rate = opts.data?.rate;
+  const freshRate =
+    rate?.available && !!rate.expiresAt && Date.parse(rate.expiresAt) > now ? rate : null;
+  const estimate = cryptoEstimate(amount, direction === 'withdrawal', freshRate?.localPerUsd);
+  useEffect(() => {
+    setReviewed(false);
+  }, [rate?.rateId]);
   const country = countryId || opts.data?.countries[0]?.id || '';
   const enabled =
     direction === 'deposit' ? opts.data?.depositEnabled : opts.data?.withdrawalEnabled;
@@ -292,8 +327,14 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
             <>
               {!enabled && (
                 <div role="status" className="crypto-paused">
-                  <p>New crypto {direction === 'deposit' ? 'deposits' : 'withdrawals'} are paused.</p>
-                  <p>{direction === 'deposit' ? opts.data?.depositUnavailableReason : opts.data?.withdrawalUnavailableReason}</p>
+                  <p>
+                    New crypto {direction === 'deposit' ? 'deposits' : 'withdrawals'} are paused.
+                  </p>
+                  <p>
+                    {direction === 'deposit'
+                      ? opts.data?.depositUnavailableReason
+                      : opts.data?.withdrawalUnavailableReason}
+                  </p>
                 </div>
               )}
               {!opts.data?.countries.length && (
@@ -310,12 +351,13 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                     !enabled ||
                     !country ||
                     formBlocked ||
-                    !cryptoEstimate(amount, direction === 'withdrawal') ||
+                    !estimate ||
+                    !freshRate?.rateId ||
                     (direction === 'withdrawal' &&
                       !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address.trim()))
                   )
                     return;
-                  if (direction === 'withdrawal' && !reviewed) {
+                  if (!reviewed) {
                     setReviewed(true);
                     return;
                   }
@@ -323,8 +365,13 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   await action.run(
                     `/crypto-payments/${direction === 'deposit' ? 'deposits' : 'withdrawals'}`,
                     direction === 'deposit'
-                      ? { countryId: country, amount }
-                      : { countryId: country, coinAmount: Number(amount), address: address.trim() }
+                      ? { countryId: country, amount, rateId: freshRate.rateId }
+                      : {
+                          countryId: country,
+                          coinAmount: inputToMinor(amount, 2),
+                          address: address.trim(),
+                          rateId: freshRate.rateId,
+                        }
                   );
                 }}
               >
@@ -348,26 +395,54 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   </select>
                 </label>
                 <label>
-                  {direction === 'deposit' ? 'Deposit amount (USDT)' : 'Withdraw amount (Coins)'}
+                  {direction === 'deposit' ? 'Deposit amount (USDT)' : 'Withdraw amount (ETB)'}
                   <input
-                    inputMode={direction === 'deposit' ? 'decimal' : 'numeric'}
+                    inputMode="decimal"
                     value={amount}
                     disabled={formBlocked}
                     onChange={(e) => {
                       setAmount(e.target.value);
                       setReviewed(false);
                     }}
-                    placeholder={direction === 'deposit' ? '10.000000' : '2016'}
+                    placeholder={direction === 'deposit' ? '10.000000' : '5000.00'}
                     required
-                    pattern={direction === 'deposit' ? '[0-9]+(\\.[0-9]{1,6})?' : '[0-9]+'}
+                    pattern={
+                      direction === 'deposit' ? '[0-9]+(\\.[0-9]{1,6})?' : '[0-9]+(\\.[0-9]{1,2})?'
+                    }
                   />
                 </label>
                 <div className="crypto-quote">
                   <span>
                     {direction === 'deposit' ? 'You receive' : 'You receive at your address'}
                   </span>
-                  <strong>{cryptoEstimate(amount, direction === 'withdrawal') || '—'}</strong>
-                  <small>96 Coins = 1 USDT · No platform fee · Fractions round down</small>
+                  <strong>{estimate || '—'}</strong>
+                  {freshRate ? (
+                    <>
+                      <small>1 USDT = {freshRate.localPerUsd} ETB · No platform fee</small>
+                      <small>
+                        {direction === 'deposit'
+                          ? `Minimum deposit: ${(freshRate.cryptoDepositMinUsdCents! / 100).toFixed(2)} USDT`
+                          : `Withdrawal must exceed ${(freshRate.cryptoWithdrawalAboveUsdCents! / 100).toFixed(2)} USDT at this rate.`}
+                      </small>
+                      <details>
+                        <summary>Exchange rate details</summary>
+                        <small>
+                          USD reference from{' '}
+                          <a href="https://ethioblackmarket.com/" target="_blank" rel="noreferrer">
+                            EthioBlackMarket
+                          </a>
+                          ; quoted at 1 USDT = USD 1. Amounts round down to 0.01 ETB or 0.000001
+                          USDT.
+                        </small>
+                        <small>
+                          Updated {new Date(freshRate.observedAt!).toLocaleTimeString()} · valid
+                          until {new Date(freshRate.expiresAt!).toLocaleTimeString()}
+                        </small>
+                      </details>
+                    </>
+                  ) : (
+                    <small>A fresh exchange rate is unavailable. Please try again shortly.</small>
+                  )}
                 </div>
                 {direction === 'withdrawal' && (
                   <>
@@ -388,8 +463,8 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                       />
                     </label>
                     <p>
-                      Use your own receiving address on TRON (TRC20). Only eligible Coins can be
-                      withdrawn; your requested Coins are held while the payout is processed.
+                      Use your own receiving address on TRON (TRC20). Your requested ETB balance is
+                      held while the payout is processed. Practice balances cannot be withdrawn.
                     </p>
                     <label>
                       Authenticator code (if required)
@@ -434,14 +509,30 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   <section className="crypto-quote" aria-label="Review withdrawal">
                     <h2>Check your withdrawal</h2>
                     <p>
-                      You withdraw <strong>{amount} Coins</strong> and receive{' '}
-                      <strong>{cryptoEstimate(amount, true)}</strong>.
+                      You withdraw <strong>{amount} ETB</strong> and receive{' '}
+                      <strong>{estimate}</strong>.
                     </p>
                     <p>Network: TRON (TRC20)</p>
                     <code className="crypto-review-address">{address.trim()}</code>
                     <p>
                       An administrator processes the payout. Check this receiving address before
                       submitting.
+                    </p>
+                    <button type="button" onClick={() => setReviewed(false)}>
+                      Back to editing
+                    </button>
+                  </section>
+                )}
+                {reviewed && direction === 'deposit' && (
+                  <section className="crypto-quote" aria-label="Review deposit">
+                    <h2>Check your deposit</h2>
+                    <p>
+                      Send <strong>{amount} USDT</strong> on TRON to receive{' '}
+                      <strong>{estimate}</strong>.
+                    </p>
+                    <p>
+                      The rate is locked when your deposit address is created. Send within the
+                      displayed time limit.
                     </p>
                     <button type="button" onClick={() => setReviewed(false)}>
                       Back to editing
@@ -455,13 +546,16 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                     !country ||
                     action.blocked ||
                     busy ||
-                    !cryptoEstimate(amount, direction === 'withdrawal') ||
+                    !estimate ||
+                    !freshRate?.rateId ||
                     (direction === 'withdrawal' &&
                       !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address.trim()))
                   }
                 >
                   {direction === 'deposit'
-                    ? 'Get deposit address'
+                    ? reviewed
+                      ? 'Get deposit address'
+                      : 'Review deposit'
                     : reviewed
                       ? 'Request withdrawal'
                       : 'Review withdrawal'}
@@ -578,7 +672,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
             Request {selected.id}.{' '}
             {selected.action === 'claim'
               ? 'After claiming, verify the address and amount, then transfer USDT from your external wallet. Cancellation will be unavailable.'
-              : 'Confirm only after checking the successful transfer on TRON. This action completes the held Coin withdrawal.'}
+              : 'Confirm only after checking the successful transfer on TRON. This action completes the held ETB withdrawal.'}
           </p>
           <p className="crypto-warning">
             Verify that the recipient controls the destination wallet. Never transfer a withdrawal
@@ -711,7 +805,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                           )
                         }
                       >
-                        Cancel and return Coins
+                        Cancel and return ETB
                       </button>
                     </div>
                   )}

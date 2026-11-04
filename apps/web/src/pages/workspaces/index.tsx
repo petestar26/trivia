@@ -393,7 +393,7 @@ export function AgentOverview() {
       <div className="workspace-grid">
         <Link className="workspace-panel workspace-shortcut" to="/agent/operations">
           <h2>Deposits & payouts</h2>
-          <p>Review payment evidence, release Coins and record completed transfers.</p>
+          <p>Review payment evidence, release ETB and record completed transfers.</p>
           <span>Open processing desk →</span>
         </Link>
         <Link className="workspace-panel workspace-shortcut" to="/agent/accounts">

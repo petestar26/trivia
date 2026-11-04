@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { useQuery } from '@tanstack/react-query';
@@ -132,9 +133,9 @@ export function GamesPage({
             History
           </Link>
           {PRACTICE_ETB ? <Link to="/wallet" className="rounded-lg border px-4 py-2 text-sm text-white">Practice ETB · no cash value</Link> :           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2">
-            <span className="text-xs text-gray-500 dark:text-gray-400">Coins</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Birr wallet</span>
             <div className="text-lg font-bold text-primary-600 dark:text-primary-400">
-              {wallet?.coinsBalance ?? '—'}
+              {formatEtb(wallet?.coinsBalance)}
             </div>
           </div>}
         </div>
@@ -183,7 +184,7 @@ export function GamesPage({
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                   {isPlayable
                     ? isTrivia
-                      ? 'Practice questions with instant feedback. No Coins, Game Points or cash prizes.'
+                      ? 'Practice questions with instant feedback. No cash prizes.'
                       : game.description
                     : memberGameUnavailableDescription(game)}
                 </p>
@@ -200,7 +201,7 @@ export function GamesPage({
                           : game.key === 'virtual_football_3d'
                             ? 'Five-minute matchweeks'
                             : 'One-minute rounds'}{' '}
-                      · no Coins or cash prizes
+                      · no cash stakes or prizes
                     </p>
                     <p className="mt-4 font-semibold text-emerald-700 dark:text-emerald-300">
                       Play practice →
@@ -218,7 +219,7 @@ export function GamesPage({
                   </div>
                 ) : (
                   <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                    Bet: {game.minBet} – {game.maxBet} Coins
+                    Bet: {formatEtb(game.minBet)} – {formatEtb(game.maxBet)}
                   </div>
                 )}
               </div>

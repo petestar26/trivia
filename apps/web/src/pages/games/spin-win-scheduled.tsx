@@ -310,7 +310,7 @@ function ScheduledTable({ userId }: { userId: string }) {
             </p>
             <p>
               90% theoretical return over repeated play; maximum 480 practice ETB per ticket.
-              This table cannot spend or earn Coins. The last 12 results survive refresh and
+              This table cannot spend or earn cash. The last 12 results survive refresh and
               reconnect.
             </p>
             <Link to="/games/spin-win/verify" className="text-amber-200 underline">

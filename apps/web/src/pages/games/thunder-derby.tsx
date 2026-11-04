@@ -267,7 +267,7 @@ export function DerbyView({
           <strong>
             {data.balance.toLocaleString()} <small>ETB</small>
           </strong>
-          <p>No Coins · No cash prizes</p>
+          <p>No cash stakes · No cash prizes</p>
         </div>
       </header>
       <div className="derby-toolbar">

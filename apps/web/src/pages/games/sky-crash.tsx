@@ -940,7 +940,7 @@ function SkyCrash({
       <details className="sky-rules">
         <summary>Rules, timing and round verification</summary>
         <p>
-          Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game
+          Practice starts with 1,000 nonredeemable practice ETB, separate from your cash wallet and Game
           Points. No purchases, refills, gifts, transfers or withdrawals. Sky Crash practice ETB are
           separate from Crash Point practice ETB. Confirm up to two immutable tickets per round.
           Auto cash-out is handled by the server and survives disconnects. A target equal to the

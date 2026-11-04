@@ -1,8 +1,7 @@
 import { prisma, Prisma } from '@socialplay/database';
-import { z } from 'zod';
 import { ApiError } from '../middleware/index.js';
 import { assertPlatformAdmin } from './agent-service.js';
-import { parseUsdPolicy, packageUsdDisplay } from './usd-pricing.js';
+import { parseUsdPolicy } from './usd-pricing.js';
 
 export async function selectPaymentRate(
   db: Pick<Prisma.TransactionClient, 'exchangeRateConfig'>,
@@ -22,7 +21,9 @@ export async function selectPaymentRate(
   });
   if (!rate || !rate.isActive)
     throw ApiError.badRequest('No active exchange rate is configured for this country/currency');
-  parseUsdPolicy(rate.pricingPolicy);
+  const policy = parseUsdPolicy(rate.pricingPolicy);
+  if (policy.version !== 'ETB_V1' || country.currencyCode !== 'ETB')
+    throw ApiError.badRequest('Payments require an ETB wallet quote');
   return rate;
 }
 
@@ -30,6 +31,7 @@ export async function selectPaymentRate(
 export async function publishUsdRate(adminId: string, countryId: string, body: unknown) {
   await assertPlatformAdmin(adminId);
   const policy = parseUsdPolicy(body);
+  if (policy.version !== 'ETB_V1') throw ApiError.badRequest('Only ETB wallet pricing is supported');
   return prisma.$transaction(async (tx) => {
     const [country] = await tx.$queryRaw<Array<{ currencyCode: string }>>`
       SELECT "currencyCode" FROM countries WHERE id=${countryId} FOR UPDATE`;
@@ -43,10 +45,8 @@ export async function publishUsdRate(adminId: string, countryId: string, body: u
     if (country.currencyCode === 'USD' && !new Prisma.Decimal(policy.localPerUsd).eq(1))
       throw ApiError.badRequest('USD settlement rate must equal 1');
     // Compatibility field only. Exact new arithmetic always uses pricingPolicy.
-    const compatibleRate = new Prisma.Decimal(96)
-      .div(policy.localPerUsd)
-      .div(10 ** policy.minorDigits)
-      .toDecimalPlaces(6);
+    if (country.currencyCode !== 'ETB') throw ApiError.badRequest('Wallet currency must be ETB');
+    const compatibleRate = new Prisma.Decimal(1);
     if (compatibleRate.lte(0))
       throw ApiError.badRequest('Rate is outside supported currency precision');
     const rate = await tx.exchangeRateConfig.create({
@@ -72,53 +72,9 @@ export async function publishUsdRate(adminId: string, countryId: string, body: u
   });
 }
 
-const packageSchema = z
-  .object({
-    name: z.string().trim().min(1).max(80),
-    coinAmount: z.number().int().min(1).max(1000000000),
-    isActive: z.boolean(),
-    displayOrder: z.number().int().min(0).max(10000),
-    featured: z.boolean(),
-  })
-  .strict();
-
-export async function saveCoinPackage(adminId: string, id: string | undefined, body: unknown) {
+/** Compatibility routes for clients upgrading from token bundles. */
+export async function saveCoinPackage(adminId: string, _id: string | undefined, _body: unknown) {
   await assertPlatformAdmin(adminId);
-  const parsed = packageSchema.safeParse(body);
-  if (!parsed.success)
-    throw ApiError.badRequest('Invalid Coin package; USD price is derived from 96 Coins per USD');
-  return prisma.$transaction(async (tx) => {
-    const before = id ? await tx.coinPackage.findUnique({ where: { id } }) : null;
-    if (id && !before) throw ApiError.notFound('Coin package not found');
-    const row = id
-      ? await tx.coinPackage.update({ where: { id }, data: parsed.data })
-      : await tx.coinPackage.create({ data: parsed.data });
-    await tx.auditLog.create({
-      data: {
-        userId: adminId,
-        action: 'PAYMENT_PACKAGE_SAVED',
-        entity: 'CoinPackage',
-        entityId: row.id,
-        newData: parsed.data,
-        ...(before
-          ? {
-              oldData: {
-                name: before.name,
-                coinAmount: before.coinAmount,
-                isActive: before.isActive,
-              },
-            }
-          : {}),
-      },
-    });
-    return { ...row, usdDisplay: packageUsdDisplay(row.coinAmount) };
-  });
+  throw ApiError.badRequest('This wallet uses ETB directly. Deposit an amount instead of buying a bundle.');
 }
-
-export async function listCoinPackages(includeInactive = false) {
-  const rows = await prisma.coinPackage.findMany({
-    where: includeInactive ? {} : { isActive: true },
-    orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-  });
-  return rows.map((row) => ({ ...row, usdDisplay: packageUsdDisplay(row.coinAmount) }));
-}
+export async function listCoinPackages(_includeInactive = false) { return []; }

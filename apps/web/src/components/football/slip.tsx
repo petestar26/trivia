@@ -413,7 +413,7 @@ export function ReviewDialog({
         <Dialog.Content className="vf-dialog" aria-describedby="vf-review-desc">
           <Dialog.Title>Review your practice ticket</Dialog.Title>
           <Dialog.Description id="vf-review-desc">
-            Practice ETB only: no Coins, no cash prizes. A confirmed ticket cannot be changed or
+            Practice ETB only: no cash stakes or prizes. A confirmed ticket cannot be changed or
             cancelled.
           </Dialog.Description>
           <ol className="vf-review-lines">

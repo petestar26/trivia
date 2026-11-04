@@ -110,7 +110,7 @@ export function RulesDialog() {
           </dl>
           <p className="vf-fine">
             Rules {VF_RULES_ID} · digest {VF_RULES_DIGEST.slice(0, 16)}… Practice ETB are free,
-            cannot be bought, transferred or redeemed, and have no connection to Coins or any cash
+            cannot be bought, transferred or redeemed, and have no connection to any cash
             value.
           </p>
           <Dialog.Close className="vf-secondary">Close rules</Dialog.Close>

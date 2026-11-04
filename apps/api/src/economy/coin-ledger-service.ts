@@ -306,7 +306,7 @@ export async function debitCoins(tx: EconomicTx, userId: string, amount: number,
   try {
     funding = allocateFunding(usableSpendLots(lots, new Date()).filter(lot=>args.type!=='GIFT_SPEND'||lot.lotClass==='WITHDRAWABLE'), amount);
   } catch (error) {
-    if (error instanceof RangeError) throw ApiError.badRequest(args.type==='GIFT_SPEND'?'Insufficient spendable Coins. Free reward Coins are for betting only.':'Insufficient tracked Coins');
+    if (error instanceof RangeError) throw ApiError.badRequest(args.type==='GIFT_SPEND'?'Insufficient available ETB balance. Bonus balance is for eligible bets only.':'Insufficient available ETB balance');
     throw error;
   }
   const balanceResult = await applyBalanceChanges(tx, userId, [{
@@ -355,7 +355,7 @@ export async function settleWagerCoins(tx: EconomicTx, userId: string, args: Wag
   try {
     funding = allocateFunding(usableSpendLots(lots, new Date()), args.stake);
   } catch (error) {
-    if (error instanceof RangeError) throw ApiError.badRequest('Insufficient tracked Coins');
+    if (error instanceof RangeError) throw ApiError.badRequest('Insufficient available ETB balance');
     throw error;
   }
   const payoutShares = args.payout > 0 ? splitPayout(funding, args.payout) : [];
@@ -596,7 +596,7 @@ export async function reserveWithdrawalCoins(tx: EconomicTx, userId: string, amo
     reservations.push({ lotId: lot.id, amount: draw });
     remaining -= draw;
   }
-  if (remaining > 0) throw ApiError.badRequest(`Insufficient withdrawable Coins: ${amount - remaining} eligible`);
+  if (remaining > 0) throw ApiError.badRequest(`Insufficient withdrawable ETB: ${((amount - remaining) / 100).toFixed(2)} eligible`);
   const balanceResult = await applyBalanceChanges(tx, userId, [{
     currency: 'COINS', amount, ledgerType: 'DEBIT', transactionType: 'COIN_DEBIT',
     referenceType: 'WITHDRAWAL', referenceId: args.withdrawalId, description: 'Withdrawal hold',
@@ -788,7 +788,7 @@ export async function reserveScheduledStakeCoins(
     funding = allocateFunding(usableSpendLots(lots, now), args.amount);
   } catch (error) {
     if (error instanceof RangeError)
-      throw ApiError.badRequest("Insufficient tracked Coins");
+      throw ApiError.badRequest("Insufficient available ETB balance");
     throw error;
   }
   const balance = await applyBalanceChanges(

@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
@@ -276,7 +277,7 @@ function SystemKeno({ userId }: { userId: string }) {
                     ? 'Loading…'
                     : walletError
                       ? 'Unavailable'
-                      : `${coinsBalance.toLocaleString()} Coins`}
+                      : formatEtb(coinsBalance)}
                 </strong>
                 <small>Not used in practice</small>
               </div>
@@ -294,7 +295,7 @@ function SystemKeno({ userId }: { userId: string }) {
           <span>3.6× return per matching number</span>
         </div>
         <div className="keno-practice-note">
-          Server practice · No Coins, deposits or redeemable prizes · 45 seconds to enter, 15
+          Server practice · No deposits or redeemable prizes · 45 seconds to enter, 15
           seconds for results
         </div>
         {!connected && (

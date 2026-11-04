@@ -670,7 +670,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           <strong>
             {formatCredits(shownBalance)} <small>ETB</small>
           </strong>
-          <p>No Coins · No cash prizes</p>
+          <p>No cash stakes · No cash prizes</p>
         </div>
       </header>
 

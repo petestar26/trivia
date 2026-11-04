@@ -1,3 +1,4 @@
+import { formatEtb } from '@/lib/payment-money';
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrapData } from '@/lib/api';
@@ -156,14 +157,7 @@ export function WalletSetupAdmin() {
     }
   }
   const c = setup.data?.country;
-  const parsedAmount =
-    c && fundType === 'liquidity'
-      ? inputToMinor(amount.replace(/^-/, ''), currencyMinorDigits(c.currencyCode))
-      : /^-?\d+$/.test(amount) &&
-          Number.isSafeInteger(Number(amount)) &&
-          Math.abs(Number(amount)) <= 1000000000
-        ? Math.abs(Number(amount))
-        : null;
+  const parsedAmount = inputToMinor(amount.replace(/^-/, ''), c && fundType === 'liquidity' ? currencyMinorDigits(c.currencyCode) : 2);
   const signed = parsedAmount === null ? null : parsedAmount * (amount.startsWith('-') ? -1 : 1);
   const fundsBody =
     c && signed !== null
@@ -182,7 +176,7 @@ export function WalletSetupAdmin() {
       <h1>Payment setup & oversight</h1>
       <p>
         Configure a country, verified rate and payment methods, approve agents, then record backed
-        Coin inventory and fiat liquidity. Existing account and jurisdiction checks still apply.
+        ETB deposit funding and fiat liquidity. Existing account and jurisdiction checks still apply.
       </p>
       {message && <p role="status">{message}</p>}
       {funding.message && <p role="status">{funding.message}</p>}
@@ -354,7 +348,7 @@ export function WalletSetupAdmin() {
             </button>
           </details>
           <details>
-            <summary>Agents, Coin inventory & fiat liquidity</summary>
+            <summary>Agents, ETB deposit funding & fiat liquidity</summary>
             {setup.data!.truncated && (
               <p>Showing the first 100 agents. This is not a complete funding summary.</p>
             )}
@@ -371,7 +365,7 @@ export function WalletSetupAdmin() {
                   {a.status} · User {a.user.status} · Approved active accounts:{' '}
                   {a.approvedPaymentAccounts}
                 </p>
-                <p>Available Coin inventory: {a.availableCoins}</p>
+                <p>Available deposit funding: {formatEtb(a.availableCoins)}</p>
                 {a.fiatLiquidity.map((l) => (
                   <p key={l.fiatCurrency}>
                     Available fiat: {formatMinor(l.availableBalance, l.fiatCurrency)}
@@ -454,7 +448,7 @@ export function WalletSetupAdmin() {
                   setAmount('');
                 }}
               >
-                <option value="inventory">Coin inventory</option>
+                <option value="inventory">ETB deposit funding</option>
                 <option value="liquidity">Fiat liquidity · {c.currencyCode}</option>
               </select>
             </label>
@@ -470,7 +464,7 @@ export function WalletSetupAdmin() {
               </select>
             </label>
             <label>
-              Amount ({fundType === 'inventory' ? 'whole Coins' : c.currencyCode})
+              Amount ({fundType === 'inventory' ? 'ETB' : c.currencyCode})
               <input
                 value={amount}
                 disabled={funding.blocked}
@@ -483,8 +477,8 @@ export function WalletSetupAdmin() {
               {signed === null
                 ? 'Enter a valid amount'
                 : fundType === 'inventory'
-                  ? `${signed} Coins`
-                  : `${signed} ${c.currencyCode} minor units`}
+                  ? formatEtb(signed)
+                  : formatMinor(signed, c.currencyCode)}
             </p>
             <ConfirmAction
               label="Confirm backed allocation"

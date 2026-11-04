@@ -33,8 +33,8 @@ it('separates withdrawable payment units from noncash practice balances', async 
   mount();
   const money = screen.getByRole('region', { name: 'Payment balance' });
   const gifts = screen.getByRole('region', { name: 'Gift practice balance' });
-  expect(await within(money).findByText('480')).toBeInTheDocument();
-  expect(within(money).getByText(/384 spendable Coins/)).toBeInTheDocument();
+  expect(await within(money).findByText('4.80 ETB')).toBeInTheDocument();
+  expect(within(money).getByText(/3.84 ETB available/)).toBeInTheDocument();
   expect(await within(gifts).findByText('9,500')).toBeInTheDocument();
   expect(within(gifts).getByText(/Virtual ETB with no cash value/)).toBeInTheDocument();
   expect(within(money).queryByText('9,500')).toBeNull();
@@ -61,7 +61,7 @@ it('keeps payment actions and gift balance available when payment balance fails'
   expect(await screen.findByText('9,500')).toBeInTheDocument();
   get.mockResolvedValue({ data: { coinsBalance: 480 } });
   fireEvent.click(screen.getByRole('button', { name: 'Retry payment balance' }));
-  expect(await screen.findByText('480')).toBeInTheDocument();
+  expect(await screen.findByText('4.80 ETB')).toBeInTheDocument();
 });
 it('does not replace a missing gift balance with a misleading zero', async () => {
   get.mockImplementation(async (path) => {
@@ -70,7 +70,7 @@ it('does not replace a missing gift balance with a misleading zero', async () =>
   });
   mount();
   await screen.findByText('Could not load your gift balance.');
-  expect(await screen.findByText('480')).toBeInTheDocument();
+  expect(await screen.findByText('4.80 ETB')).toBeInTheDocument();
   get.mockResolvedValue({ data: { balance: 10000 } });
   fireEvent.click(screen.getByRole('button', { name: 'Retry gift balance' }));
   expect(await screen.findByText('10,000')).toBeInTheDocument();

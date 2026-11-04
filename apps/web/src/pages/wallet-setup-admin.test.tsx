@@ -83,7 +83,7 @@ it('requires confirmation and sends fiat major amounts as exact minor-unit strin
   fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'agent-1' } });
   fireEvent.change(screen.getByLabelText('Funding balance'), { target: { value: 'liquidity' } });
   fireEvent.change(screen.getByLabelText('Amount (ETB)'), { target: { value: '123.45' } });
-  fireEvent.click(screen.getByText('Agents, Coin inventory & fiat liquidity'));
+  fireEvent.click(screen.getByText('Agents, ETB deposit funding & fiat liquidity'));
   fireEvent.click(screen.getByRole('button', { name: 'Confirm backed allocation' }));
   expect(m.post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: /^Confirm$/ }));

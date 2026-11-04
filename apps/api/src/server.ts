@@ -9,6 +9,7 @@ import { registerWebSocket } from './ws/index.js';
 import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
+import { startEtbRateRefresh } from './agents/etb-rate-service.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -133,6 +134,8 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 async function start(): Promise<void> {
   try {
     const server = await buildServer();
+    const stopRates = startEtbRateRefresh(() => server.log.warn('ETB reference refresh is unavailable'));
+    server.addHook('onClose', async () => { stopRates(); });
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     server.log.info(`📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`);

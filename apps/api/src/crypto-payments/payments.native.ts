@@ -14,6 +14,13 @@ import { bootstrapLedgerTestGates } from '../economy/ledger-test-bootstrap.js';
 import { activateTestPolicy } from '../ledger/test-policy-fixture.js';
 import { nextTestCountryCode } from '../test/financial-policy-fixtures.js';
 import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+// Synthetic 0.96 ETB/USD keeps existing ledger proof fixture magnitudes stable.
+// These are disposable test prices, never a market quote.
+function fixtureEtbPolicy() {
+  const { coinsPerUsd: _old, ...base } = fixtureUsdPolicy(1);
+  return { ...base, version: 'ETB_V1', walletCurrency: 'ETB', localPerUsd: '0.96',
+    expiresAt: new Date(Date.now() + 1700000).toISOString() };
+}
 import { runLedgerInvariantCheck } from '../economy/ledger-invariant-checker.js';
 import { verifyCryptoVerifierAccessReadOnly } from '../scripts/ledger-runtime-access.js';
 import { assertWithdrawalPolicyLimits } from '../withdrawals/withdrawal-service.js';
@@ -79,7 +86,7 @@ async function fixture(limit = 100000) {
     data: {
       code: await nextTestCountryCode(),
       name: 'Disposable crypto country',
-      currencyCode: 'USD',
+      currencyCode: 'ETB',
       isActive: true,
       usdPricingEnabled: true,
     },
@@ -123,13 +130,13 @@ async function fixture(limit = 100000) {
     },
   });
   await activateTestPolicy(policy.id, country.code, admin.id);
-  await prisma.exchangeRateConfig.create({
+  const rate = await prisma.exchangeRateConfig.create({
     data: {
       countryId: country.id,
-      fiatCurrency: 'USD',
-      coinsPerUnit: 0.96,
+      fiatCurrency: 'ETB',
+      coinsPerUnit: 1,
       setBy: admin.id,
-      pricingPolicy: { ...fixtureUsdPolicy(1), localPerUsd: '1' },
+      pricingPolicy: fixtureEtbPolicy(),
     },
   });
   const receive = address();
@@ -139,11 +146,11 @@ async function fixture(limit = 100000) {
     label: 'Synthetic fixture',
     unusedAddressConfirmed: true,
   });
-  return { user, admin, country, policy, receive };
+  return { user, admin, country, policy, receive, rate };
 }
 async function invoice(f: Awaited<ReturnType<typeof fixture>>, amount = '50') {
   return createDeposit(f.user.id, {
-    countryId: f.country.id,
+    countryId: f.country.id, rateId: f.rate.id,
     amount,
     idempotencyKey: randomUUID(),
   });
@@ -162,7 +169,7 @@ async function transfer(id: string, overrides: Record<string, unknown> = {}) {
 }
 it('serializes duplicate requests and repeated credit deliveries into one address and one credit', async () => {
   const f = await fixture(),
-    body = { countryId: f.country.id, amount: '50', idempotencyKey: randomUUID() };
+    body = { countryId: f.country.id, rateId: f.rate.id, amount: '50', idempotencyKey: randomUUID() };
   const [a, b] = await Promise.all([
     createDeposit(f.user.id, body),
     createDeposit(f.user.id, body),
@@ -212,7 +219,7 @@ it('refuses disabled gates, other members, under-minimum amounts and stale rates
   await expect(invoice(f, '9.999999')).rejects.toThrow('Minimum');
   await expect(
     createDeposit(f.admin.id, {
-      countryId: f.country.id,
+      countryId: f.country.id, rateId: f.rate.id,
       amount: '10',
       idempotencyKey: randomUUID(),
     })
@@ -229,12 +236,12 @@ it('refuses disabled gates, other members, under-minimum amounts and stale rates
   await prisma.exchangeRateConfig.create({
     data: {
       countryId: f.country.id,
-      fiatCurrency: 'USD',
-      coinsPerUnit: 0.96,
+      fiatCurrency: 'ETB',
+      coinsPerUnit: 1,
       setBy: f.admin.id,
       effectiveAt: new Date(),
       pricingPolicy: {
-        ...fixtureUsdPolicy(1),
+        ...fixtureEtbPolicy(),
         observedAt: new Date(Date.now() - 7200000).toISOString(),
         expiresAt: new Date(Date.now() - 3600000).toISOString(),
       },
@@ -247,7 +254,7 @@ it('holds eligible Coins, cancels exactly once and enforces cross-channel limits
     d = await invoice(f);
   await settleDeposit(d.id, [await transfer(d.id)]);
   const body = {
-    countryId: f.country.id,
+    countryId: f.country.id, rateId: f.rate.id,
     coinAmount: 2016,
     address: address(),
     idempotencyKey: randomUUID(),
@@ -281,7 +288,7 @@ it('requires assigned admin step-up, prevents cancellation after claim, and fina
     d = await invoice(f);
   await settleDeposit(d.id, [await transfer(d.id)]);
   const w = await createWithdrawal(f.user.id, 12345, {
-    countryId: f.country.id,
+    countryId: f.country.id, rateId: f.rate.id,
     coinAmount: 2016,
     address: address(),
     idempotencyKey: randomUUID(),
@@ -372,6 +379,8 @@ it('credits an on-time solidified transfer discovered after expiry without reusi
   const f = await fixture();
   const createdAt = new Date(Date.now() - 20 * 60_000),
     expiresAt = new Date(Date.now() - 5 * 60_000);
+  const oldPricing = { ...fixtureEtbPolicy(), observedAt: new Date(createdAt.getTime()-1000).toISOString(), expiresAt: expiresAt.toISOString() };
+  const oldRate = await prisma.exchangeRateConfig.create({ data: { countryId: f.country.id, fiatCurrency: 'ETB', coinsPerUnit: 1, setBy: f.admin.id, effectiveAt: createdAt, pricingPolicy: oldPricing } });
   const d = await prisma.cryptoDeposit.create({
     data: {
       id: randomUUID(),
@@ -380,7 +389,7 @@ it('credits an on-time solidified transfer discovered after expiry without reusi
       address: f.receive,
       amountMicro: 50_000_000n,
       coinAmount: 4800,
-      pricingSnapshot: {},
+      pricingSnapshot: { ...oldPricing, rateId: oldRate.id, usdtPerUsd: '1' },
       requestKey: randomUUID(),
       createdAt,
       expiresAt,
@@ -401,7 +410,7 @@ it('claim versus member cancellation has one winner and never both sends and ref
     d = await invoice(f);
   await settleDeposit(d.id, [await transfer(d.id)]);
   const w = await createWithdrawal(f.user.id, 12345, {
-    countryId: f.country.id,
+    countryId: f.country.id, rateId: f.rate.id,
     coinAmount: 2016,
     address: address(),
     idempotencyKey: randomUUID(),
@@ -456,7 +465,7 @@ it('refuses a suspended owner cancellation without releasing the hold, but permi
     d = await invoice(f);
   await settleDeposit(d.id, [await transfer(d.id)]);
   const w = await createWithdrawal(f.user.id, 12345, {
-    countryId: f.country.id,
+    countryId: f.country.id, rateId: f.rate.id,
     coinAmount: 2016,
     address: address(),
     idempotencyKey: randomUUID(),
@@ -489,7 +498,7 @@ it.each([false, true])(
       await prisma.$executeRaw`UPDATE crypto_addresses SET retired=true WHERE address=${f.receive}`;
     await expect(
       createWithdrawal(f.user.id, 12345, {
-        countryId: f.country.id,
+        countryId: f.country.id, rateId: f.rate.id,
         coinAmount: 2400,
         address: f.receive,
         idempotencyKey: randomUUID(),
@@ -516,7 +525,7 @@ it('serializes deposit-address registration against withdrawal admission', async
       unusedAddressConfirmed: true,
     }),
     createWithdrawal(f.user.id, 12345, {
-      countryId: f.country.id,
+      countryId: f.country.id, rateId: f.rate.id,
       coinAmount: 2400,
       address: target,
       idempotencyKey: randomUUID(),
@@ -539,7 +548,7 @@ it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
       target = address();
     await settleDeposit(d.id, [await transfer(d.id)]);
     const w = await createWithdrawal(f.user.id, 12345, {
-      countryId: f.country.id,
+      countryId: f.country.id, rateId: f.rate.id,
       coinAmount: 2400,
       address: target,
       idempotencyKey: randomUUID(),
