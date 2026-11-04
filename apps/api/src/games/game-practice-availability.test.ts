@@ -6,6 +6,7 @@ import { isCoinWagerPaused, listActiveGames } from './game-catalog.js';
 afterEach(() => { vi.unstubAllEnvs(); });
 
 it.each([
+  ['blackjack', 'BLACKJACK_PRACTICE_ENABLED'],
   ['lucky_six', 'LUCKY_SIX_PRACTICE_ENABLED'],
   ['roulette_keno', 'ROULETTE_KENO_PRACTICE_ENABLED'],
   ['dice', 'SYSTEM_DICE_PRACTICE_ENABLED'],

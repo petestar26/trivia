@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { createSystemDiceService } from '../games/group-pvp/system-dice.js';
 import { createSystemKenoService } from '../games/group-pvp/system-keno.js';
+import { createBlackjackService } from '../games/blackjack/service.js';
 import { createLuckySixService } from '../games/lucky-six/service.js';
 import { createRouletteKenoService } from '../games/roulette-keno/service.js';
 import { createNumberTimedService } from '../games/number-challenge/timed-service.js';
@@ -71,6 +72,7 @@ async function main() {
       ticks: {
         DICE: observePracticeTick(createSystemDiceService(db).tick),
         KENO: observePracticeTick(createSystemKenoService(db).tick),
+        BLACKJACK: observePracticeTick(createBlackjackService(db).tick),
         LUCKY_SIX: observePracticeTick(createLuckySixService(db).tick),
         ROULETTE_KENO: observePracticeTick(createRouletteKenoService(db).tick),
         NUMBER: async () => {
