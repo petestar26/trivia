@@ -394,37 +394,6 @@ function CrashPoint({
             />
             <span>×</span>
           </div>
-          <details className="crash-target-options">
-            <summary>Quick targets</summary>
-            <div
-              className="crash-presets crash-targets"
-              role="group"
-              aria-label="Auto cash-out targets"
-            >
-              {[1.5, 2, 3, 5].map((target) => (
-                <button
-                  key={target}
-                  disabled={locked}
-                  aria-pressed={
-                    (ticket
-                      ? ticket.autoCents
-                      : pending
-                        ? pending.autoCents
-                        : auto
-                          ? Math.round(Number(autoText) * 100)
-                          : null) ===
-                    target * 100
-                  }
-                  onClick={() => {
-                    setAuto(true);
-                    setAutoText(target.toFixed(2));
-                  }}
-                >
-                  {target.toFixed(2)}×
-                </button>
-              ))}
-            </div>
-          </details>
         </div>
         <div className="crash-stake-field">
           <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
@@ -544,18 +513,41 @@ function CrashPoint({
             : notice}
         </p>
       )}
-      {raw?.maxTickets === 2 && (
-        <div className="crash-autoplay-controls">
-          {autoplay ? (
-            <button
-              onClick={() => {
-                setAutoplay(null);
-                setNotice('Autoplay stopped. Already confirmed tickets remain active.');
-              }}
-            >
-              Stop autoplay · {autoplay.remaining} entries left
-            </button>
-          ) : (
+      <details className="crash-more-options">
+        <summary>More options</summary>
+        <details className="crash-target-options">
+          <summary>Quick targets</summary>
+          <div
+            className="crash-presets crash-targets"
+            role="group"
+            aria-label="Auto cash-out targets"
+          >
+            {[1.5, 2, 3, 5].map((target) => (
+              <button
+                key={target}
+                disabled={locked}
+                aria-pressed={
+                  (ticket
+                    ? ticket.autoCents
+                    : pending
+                      ? pending.autoCents
+                      : auto
+                        ? Math.round(Number(autoText) * 100)
+                        : null) ===
+                  target * 100
+                }
+                onClick={() => {
+                  setAuto(true);
+                  setAutoText(target.toFixed(2));
+                }}
+              >
+                {target.toFixed(2)}×
+              </button>
+            ))}
+          </div>
+        </details>
+        {raw?.maxTickets === 2 && !autoplay && (
+          <div className="crash-autoplay-controls">
             <button
               disabled={
                 !connected ||
@@ -573,15 +565,27 @@ function CrashPoint({
               }}
             >
               Start autoplay · 10 rounds
-            </button>
-          )}
-          <details className="crash-autoplay-info">
-            <summary>Rules</summary>
-            <p>
-              Up to 10 entries using this amount and target. Start before confirming a ticket. Stops
-              on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
-            </p>
-          </details>
+            </button>{' '}
+            <details className="crash-autoplay-info">
+              <summary>Rules</summary>
+              <p>
+                Up to 10 entries using this amount and target. Start before confirming a ticket.
+                Stops on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
+              </p>
+            </details>
+          </div>
+        )}
+      </details>
+      {autoplay && (
+        <div className="crash-autoplay-controls">
+          <button
+            onClick={() => {
+              setAutoplay(null);
+              setNotice('Autoplay stopped. Already confirmed tickets remain active.');
+            }}
+          >
+            Stop autoplay · {autoplay.remaining} entries left
+          </button>
         </div>
       )}
     </aside>
@@ -1082,9 +1086,9 @@ function CrashRulesContent() {
         </li>
       </ol>
       <p>
-        Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game Points. No
-        purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per round.
-        Auto cash-out is handled by the server and survives disconnects.
+        Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game Points.
+        No purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per
+        round. Auto cash-out is handled by the server and survives disconnects.
       </p>
       <p>
         Manual cash-out is accepted at server processing time, after locks are acquired. At or after

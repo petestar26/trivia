@@ -1634,3 +1634,241 @@
     display: none;
   }
 }
+
+/* Secondary settings follow the primary action instead of separating it from the graph. */
+.crash-more-options {
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.crash-more-options > summary {
+  min-height: 44px;
+  padding: 13px 0;
+  cursor: pointer;
+}
+.crash-more-options .crash-target-options summary {
+  min-height: 44px;
+}
+
+/* Phone play surface: two independent tickets remain beside each other. */
+@media (max-width: 680px) {
+  .qube-main:has(.crash-page) {
+    padding: 8px 8px 24px;
+  }
+  .crash-page > .game-round-summary,
+  .crash-kicker,
+  .crash-heading > div > p,
+  .crash-heading h1 > span,
+  .crash-bet-navigation,
+  .crash-brand-mark,
+  .crash-history-heading,
+  .crash-history > p,
+  .crash-ticket-header > div > span,
+  .crash-ticket-state,
+  .crash-ticket-result {
+    display: none;
+  }
+  .crash-nav {
+    min-height: 32px;
+    margin-bottom: 4px;
+  }
+  .crash-nav a {
+    min-height: 44px;
+  }
+  .crash-heading {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .crash-heading h1 {
+    font-size: 22px;
+  }
+  .crash-heading-actions {
+    width: auto;
+    flex: 0 1 auto;
+  }
+  .crash-wallet {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: right;
+  }
+  .crash-wallet span {
+    display: none;
+  }
+  .crash-wallet strong {
+    margin: 0;
+    font-size: 15px;
+  }
+  .crash-wallet small {
+    margin-top: 2px;
+    font-size: 9px;
+  }
+  .crash-layout {
+    padding: 6px;
+    border-radius: 14px;
+  }
+  .crash-stage-masthead {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .crash-rules-trigger {
+    margin: 0;
+    padding: 6px 8px;
+    box-shadow: none;
+  }
+  .crash-history-grid {
+    margin: 0;
+    padding: 0;
+    gap: 5px;
+  }
+  .crash-history-grid button {
+    min-width: 58px;
+    padding: 7px;
+  }
+  .crash-display:not(.game-arena--expanded) {
+    position: relative;
+  }
+  .crash-display:not(.game-arena--expanded) .game-arena__toolbar {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 3;
+    padding: 0;
+  }
+  .crash-display:not(.game-arena--expanded) .game-arena__toolbar > span {
+    display: none;
+  }
+  .crash-display:not(.game-arena--expanded) .game-arena__toggle {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+    background: #14253ad9;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-arena {
+    min-height: 0;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-arena-top {
+    padding: 8px;
+    font-size: 8px;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-graph-shell {
+    height: clamp(110px, 19svh, 170px);
+    margin: 0;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-multiplier {
+    top: 34px;
+    left: 7%;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-multiplier strong {
+    font-size: 46px;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-multiplier p {
+    display: none;
+  }
+  .crash-display:not(.game-arena--expanded) .crash-countdown-track {
+    top: 110px;
+  }
+  .crash-betting {
+    margin-top: 8px;
+  }
+  .crash-betting-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .crash-dual-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    align-items: start;
+  }
+  .crash-controls {
+    padding: 7px;
+    border-radius: 10px;
+  }
+  .crash-ticket-header {
+    margin-bottom: 5px;
+    padding-bottom: 5px;
+  }
+  .crash-ticket-header h2 {
+    font-size: 12px;
+  }
+  .crash-bet-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .crash-auto-field {
+    grid-template-columns: minmax(0, 1fr) minmax(48px, 0.8fr);
+    gap: 4px;
+  }
+  .crash-auto {
+    gap: 4px;
+    min-height: 44px;
+  }
+  .crash-controls label {
+    font-size: 10px;
+  }
+  .crash-auto input {
+    width: 17px;
+    height: 17px;
+  }
+  .crash-input {
+    padding: 0 4px;
+    gap: 2px;
+  }
+  .crash-input input {
+    min-height: 44px;
+    font-size: 16px;
+    padding: 4px 0;
+  }
+  .crash-stake-adjustment {
+    margin-top: 3px;
+    padding: 0;
+    gap: 0;
+  }
+  .crash-amount-adjust {
+    width: 40px;
+    height: 44px;
+    flex-basis: 40px;
+    border-radius: 7px;
+  }
+  .crash-stake-adjustment input {
+    font-size: 16px;
+  }
+  .crash-action {
+    min-height: 54px;
+    padding: 6px 3px;
+    font-size: 11px;
+    box-shadow: inset 0 1px #e7caff45;
+  }
+  .crash-action small {
+    font-size: 9px;
+  }
+  .crash-more-options {
+    margin-top: 2px;
+    font-size: 10px;
+  }
+  .crash-more-options > summary {
+    padding: 13px 0;
+  }
+  .crash-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crash-autoplay-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .crash-autoplay-controls > button {
+    padding: 6px;
+    font-size: 10px;
+  }
+}

@@ -179,9 +179,7 @@ it('does not describe a settled ticket as locked', async () => {
   snapshot.rounds[0].crashCents = 150;
   snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
   setup();
-  expect(
-    await screen.findByRole('button', { name: /Cashed out 30 ETB returned/ })
-  ).toBeDisabled();
+  expect(await screen.findByRole('button', { name: /Cashed out 30 ETB returned/ })).toBeDisabled();
   expect(screen.queryByText('25 ETB locked')).toBeNull();
 });
 
@@ -788,4 +786,47 @@ it('shows a concise unentered result and Done restores its history opener', asyn
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await waitFor(() => expect(history).toHaveFocus());
   expect(post).not.toHaveBeenCalled();
+});
+
+it('keeps both live cash-out actions outside collapsed options and sends independent tickets', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].tickets = [
+    { slot: 1, stake: 25, autoCents: null, payout: null, paidCents: null },
+    { slot: 2, stake: 50, autoCents: null, payout: null, paidCents: null },
+  ];
+  setup();
+  const first = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  for (const panel of [first, second]) {
+    const options = within(panel).getByText('More options').closest('details');
+    expect(options).not.toHaveAttribute('open');
+    const cashout = within(panel).getByRole('button', { name: /Cash out/ });
+    expect(cashout).toBeEnabled();
+    expect(cashout.closest('details')).toBeNull();
+    fireEvent.click(cashout);
+  }
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+  expect(post.mock.calls.map((call) => call[1])).toEqual([
+    { roundId: 'r1' },
+    { roundId: 'r1', slot: 2 },
+  ]);
+});
+
+it('keeps stop autoplay accessible outside secondary settings', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  const options = within(panel).getByText('More options').closest('details')!;
+  expect(options).not.toHaveAttribute('open');
+  fireEvent.click(within(panel).getByText('More options'));
+  expect(options).toHaveAttribute('open');
+  fireEvent.click(within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  fireEvent.click(within(panel).getByText('More options'));
+  expect(options).not.toHaveAttribute('open');
+  const stop = within(panel).getByRole('button', { name: /Stop autoplay/ });
+  expect(stop.closest('details')).toBeNull();
+  fireEvent.click(stop);
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
 });
