@@ -20,7 +20,7 @@ function game(key: string, status = 'COMING_SOON', active = false): MemberGame {
     name: key,
     catalogStatus: status,
     isActive: active,
-    practiceAvailable: ['dice', 'crash_point', 'turbo_keno'].includes(key) ? true : undefined,
+    practiceAvailable: ['dice', 'crash_point', 'spin_win', 'turbo_keno'].includes(key) ? true : undefined,
     description: null,
     type: key,
     mode: key === 'trivia' ? 'BONUS' : 'WAGER',
@@ -222,10 +222,9 @@ describe('Ruby Grand member dashboard', () => {
       'href',
       '/games/dice'
     );
-    expect(within(region).getByRole('link', { name: /trivia/i })).toHaveAttribute(
-      'href',
-      '/games/trivia'
-    );
+    expect(within(region).queryByRole('link', { name: /trivia/i })).not.toBeInTheDocument();
+    const trivia = within(region).getByRole('heading', { name: 'trivia' }).closest('.ruby-game-card') as HTMLElement;
+    expect(within(trivia).getByText('Coming soon')).toBeInTheDocument();
     expect(
       within(region).queryByRole('link', { name: /number_challenge/i })
     ).not.toBeInTheDocument();
@@ -335,26 +334,24 @@ describe('Ruby Grand member dashboard', () => {
       'aria-pressed',
       'true'
     );
-    expect(screen.getByRole('button', { name: 'Ready to explore 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ready to explore 1' })).toBeInTheDocument();
     expect(within(region).queryByRole('link', { name: /Sky Crash/ })).not.toBeInTheDocument();
     expect(within(region).queryByRole('link', { name: /Neon Hounds/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Retired game')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ready to explore 2' }));
-    expect(screen.getByText('Showing 2 of 4 games')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ready to explore 1' }));
+    expect(screen.getByText('Showing 1 of 4 games')).toBeInTheDocument();
     expect(within(region).getByRole('link', { name: /Virtual Football/ })).toHaveAttribute(
       'href',
       '/games/virtual-football'
     );
-    expect(within(region).getByRole('link', { name: /Trivia/ })).toHaveAttribute(
-      'href',
-      '/games/trivia'
-    );
+    expect(within(region).queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
     expect(
       within(region).queryByRole('heading', { name: 'More to discover' })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Currently unavailable 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Currently unavailable 3' }));
+    expect(within(region).getByRole('heading', { name: 'Trivia' })).toBeInTheDocument();
     expect(within(region).getByRole('heading', { name: 'Sky Crash' })).toBeInTheDocument();
     expect(within(region).getByRole('heading', { name: 'Neon Hounds' })).toBeInTheDocument();
     expect(within(region).queryAllByRole('link')).toHaveLength(0);
@@ -438,9 +435,10 @@ const gatedGameRoutes = [
   ['virtual_football_3d', '/games/virtual-football'],
   ['crash_point', '/games/crash-point'],
   ['dice', '/games/dice'],
+  ['spin_win', '/games/spin-win'],
   ['turbo_keno', '/games/turbo-keno'],
 ] as const;
-const futureGameKeys = ['neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'];
+const futureGameKeys = ['trivia', 'neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'];
 
 describe.each([
   ['home', HomePage],
@@ -481,10 +479,12 @@ describe.each([
     expect(card.closest('a')).toBeNull();
   });
 
-  it('keeps all genuine future placeholders coming soon and inaccessible', async () => {
+  it.each(['COMING_SOON', 'AVAILABLE'])('keeps unfinished games coming soon even when the API status is %s', async (status) => {
     get.mockImplementation(async (path: string) => ({
       success: true,
-      data: path === '/games' ? futureGameKeys.map(key => game(key)) : { coinsBalance: 42, gamePointsBalance: 80 },
+      data: path === '/games'
+        ? futureGameKeys.map(key => ({ ...game(key, status, true), practiceAvailable: true }))
+        : { coinsBalance: 42, gamePointsBalance: 80 },
     }));
     setup(Page);
     for (const key of futureGameKeys) {

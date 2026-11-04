@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WelcomePage, ExplorePage } from './welcome';
@@ -101,6 +101,13 @@ it('keeps optional Sky Crash assets gated while describing public discovery hone
     screen.getByText(/Sign in to check availability and join a game or group/)
   ).toBeInTheDocument();
   expect(screen.queryByText('Private groups')).not.toBeInTheDocument();
+});
+it.each([false, true])('keeps Trivia coming soon for public visitors with authentication %s', (isAuthenticated) => {
+  auth.isAuthenticated = isAuthenticated;
+  mount('/explore');
+  const trivia = screen.getByRole('heading', { name: 'Trivia' }).closest('article') as HTMLElement;
+  expect(within(trivia).getByText('Coming soon')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
 });
 it.each([
   ['Free practice Dice', '/games/dice'],

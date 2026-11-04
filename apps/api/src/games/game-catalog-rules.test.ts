@@ -2,24 +2,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SPIN90_RULES_ID } from '@socialplay/shared';
 import { isCoinWagerPaused, listActiveGames } from './game-catalog.js';
 
-const db = vi.hoisted(() => ({ findMany: vi.fn(), findUnique: vi.fn() }));
+const db = vi.hoisted(() => ({ findMany: vi.fn(), findUnique: vi.fn(), findStream: vi.fn() }));
 vi.mock('@socialplay/database', () => ({
   prisma: {
     gameDefinition: { findMany: db.findMany },
     gameRules: { findUnique: db.findUnique },
+    scheduledGameStream: { findUnique: db.findStream },
   },
 }));
 
 describe('Spin Win catalog rule identity', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    db.findStream.mockResolvedValue(null);
   });
 
   it('reads the pinned rule identity so the client can select its payout table', async () => {
     db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: 2 }]);
     db.findUnique.mockResolvedValue({ rules: { rulesId: SPIN90_RULES_ID } });
     expect(await listActiveGames()).toEqual([
-      { id: 'spin', key: 'spin_win', currentRulesVersion: 2, currentRulesId: SPIN90_RULES_ID },
+      { id: 'spin', key: 'spin_win', currentRulesVersion: 2, currentRulesId: SPIN90_RULES_ID, practiceAvailable: false },
     ]);
     expect(db.findUnique).toHaveBeenCalledWith({
       where: { gameId_version: { gameId: 'spin', version: 2 } },
@@ -29,7 +31,7 @@ describe('Spin Win catalog rule identity', () => {
   it('does not invent a rules identity for the disabled seeded game', async () => {
     db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: null }]);
     expect(await listActiveGames()).toEqual([
-      { id: 'spin', key: 'spin_win', currentRulesVersion: null, currentRulesId: null },
+      { id: 'spin', key: 'spin_win', currentRulesVersion: null, currentRulesId: null, practiceAvailable: false },
     ]);
     expect(db.findUnique).not.toHaveBeenCalled();
   });
@@ -38,6 +40,31 @@ describe('Spin Win catalog rule identity', () => {
     db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: 2 }]);
     db.findUnique.mockResolvedValue(null);
     expect((await listActiveGames())[0].currentRulesId).toBeNull();
+  });
+
+  it('advertises practice only for the enabled supported practice stream', async () => {
+    db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: 2 }]);
+    db.findUnique.mockResolvedValue({ rules: { rulesId: SPIN90_RULES_ID } });
+    db.findStream.mockResolvedValue({ enabled: true, mode: 'PRACTICE', gameKey: 'spin_win', rulesId: SPIN90_RULES_ID });
+    expect((await listActiveGames())[0]).toMatchObject({
+      practiceAvailable: true, currentRulesId: SPIN90_RULES_ID,
+    });
+    expect(db.findStream).toHaveBeenCalledWith({
+      where: { id: 'spin-win-practice-v1' },
+      select: { enabled: true, mode: true, gameKey: true, rulesId: true },
+    });
+  });
+
+  it.each([
+    null,
+    { enabled: false, mode: 'PRACTICE', gameKey: 'spin_win', rulesId: SPIN90_RULES_ID },
+    { enabled: true, mode: 'COINS', gameKey: 'spin_win', rulesId: SPIN90_RULES_ID },
+    { enabled: true, mode: 'PRACTICE', gameKey: 'dice', rulesId: SPIN90_RULES_ID },
+    { enabled: true, mode: 'PRACTICE', gameKey: 'spin_win', rulesId: 'unsupported-rules' },
+  ])('does not advertise a missing, disabled or unsupported stream: %j', async (stream) => {
+    db.findMany.mockResolvedValue([{ id: 'spin', key: 'spin_win', currentRulesVersion: null }]);
+    db.findStream.mockResolvedValue(stream);
+    expect((await listActiveGames())[0].practiceAvailable).toBe(false);
   });
 });
 

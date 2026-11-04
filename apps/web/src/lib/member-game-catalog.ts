@@ -19,30 +19,36 @@ const GATED_PRACTICE = [
   'virtual_football_3d',
   'crash_point',
   'dice',
+  'spin_win',
   'turbo_keno',
 ];
-const RELEASED_ROUTES: Record<string, string> = {
-  trivia: '/games/trivia',
-  number_challenge: '/games/number-challenge',
-};
+/** Unfinished games stay closed even when an older API marks them available. */
+export const COMING_SOON_GAME_KEYS = [
+  'trivia',
+  'neon_hounds_3d',
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
+] as const;
+const comingSoonGames = new Set<string>(COMING_SOON_GAME_KEYS);
 
 /** A decorative card never enables an unreleased game or bypasses server availability. */
 export function memberGameDestination(game: MemberGame): string | undefined {
+  if (game.catalogStatus === 'RETIRED' || comingSoonGames.has(game.key)) return undefined;
   if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
     return undefined;
-  if (game.catalogStatus === 'RETIRED') return undefined;
-  return (
-    PRACTICE_ROUTES[game.key] ||
-    (game.isActive && game.catalogStatus === 'AVAILABLE' ? RELEASED_ROUTES[game.key] : undefined)
-  );
+  return PRACTICE_ROUTES[game.key];
 }
 
 export function memberGameLabel(game: MemberGame) {
   if (game.catalogStatus === 'RETIRED') return 'Unavailable';
+  if (comingSoonGames.has(game.key)) return 'Coming soon';
   if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
     return 'Temporarily unavailable';
   if (PRACTICE_ROUTES[game.key]) return 'Free practice';
-  if (memberGameDestination(game)) return game.mode === 'BONUS' ? 'Free game' : 'Available';
   return game.catalogStatus === 'COMING_SOON' ? 'Coming soon' : 'Unavailable';
 }
 

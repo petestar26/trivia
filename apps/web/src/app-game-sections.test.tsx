@@ -29,6 +29,17 @@ it('routes Games to our full catalogue without a BONUS-only override', () => {
   expect(screen.getByText('Our games: all modes')).toBeInTheDocument();
   expect(screen.queryByText('Provider casino')).not.toBeInTheDocument();
 });
+it('keeps a direct Trivia visit on its coming soon page without starting practice', () => {
+  render(
+    <MemoryRouter initialEntries={['/games/trivia']}>
+      <App />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('heading', { name: 'Trivia' })).toBeInTheDocument();
+  expect(screen.getByText('Coming soon')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Back to games' })).toHaveAttribute('href', '/games');
+  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+});
 it.each(['/casino', '/games/provider-demos'])(
   'routes %s to the provider Casino destination',
   async (path) => {

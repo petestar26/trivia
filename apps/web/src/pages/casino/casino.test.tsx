@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -57,6 +57,7 @@ const catalog: Partial<ApiModule.GameCatalogEntry>[] = [
   {
     id: 'soon-id',
     key: 'spin_win',
+    practiceAvailable: true,
     name: 'Spin Win',
     description: 'Spin the wheel.',
     mode: 'WAGER',
@@ -112,7 +113,9 @@ describe('Games owns the platform catalogue', () => {
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/games/dice');
-    expect(screen.getByRole('link', { name: /Trivia/ })).toHaveAttribute('href', '/games/trivia');
+    expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
+    const trivia = screen.getByRole('heading', { name: 'Trivia' }).closest('.qube-catalog-card') as HTMLElement;
+    expect(within(trivia).getByText('Coming soon')).toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path).sort()).toEqual(['/games', '/wallet']);
   });
   it.each([

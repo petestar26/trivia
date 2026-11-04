@@ -27,3 +27,27 @@ it.each([
   expect(row).toEqual({ key, mode: 'WAGER', wagerCurrency: 'COINS', catalogStatus: 'COMING_SOON', isActive: false });
   if (key !== 'turbo_keno') expect(isCoinWagerPaused(row)).toBe(true);
 });
+
+it.each([
+  'trivia', 'neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula',
+  'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush',
+])('keeps unfinished %s Coming soon despite active catalog data', async (key) => {
+  const row = { key, mode: 'BONUS', wagerCurrency: null, catalogStatus: 'AVAILABLE', isActive: true };
+  db.findMany.mockResolvedValue([row]);
+  vi.stubEnv('SYSTEM_DICE_PRACTICE_ENABLED', 'true');
+  vi.stubEnv('TRIVIA_PRACTICE_ENABLED', 'true');
+
+  expect((await listActiveGames())[0]).toMatchObject({
+    key, catalogStatus: 'COMING_SOON', isActive: false, practiceAvailable: false,
+  });
+  expect(row).toEqual({ key, mode: 'BONUS', wagerCurrency: null, catalogStatus: 'AVAILABLE', isActive: true });
+});
+
+it('continues excluding retired and unapproved rows in the database query', async () => {
+  db.findMany.mockResolvedValue([]);
+  await listActiveGames();
+  const query = db.findMany.mock.calls.at(-1)?.[0];
+  expect(query.where.catalogStatus.in).toEqual(['AVAILABLE', 'COMING_SOON']);
+  expect(query.where.key.in).toContain('trivia');
+  expect(query.where.key.in).not.toContain('lucky_spin');
+});

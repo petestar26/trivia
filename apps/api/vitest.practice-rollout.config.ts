@@ -7,6 +7,7 @@ export default defineConfig({
       'src/games/practice-worker/runtime.test.ts',
       'src/games/trivia-practice/routes.test.ts',
       'src/games/game-practice-availability.test.ts',
+      'src/games/game-catalog-rules.test.ts',
     ],
     pool: 'forks',
     minWorkers: 1,

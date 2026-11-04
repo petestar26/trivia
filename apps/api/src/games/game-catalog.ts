@@ -1,4 +1,6 @@
 import { prisma } from '@socialplay/database';
+import { SPIN90_RULES_ID } from '@socialplay/shared';
+import { PRACTICE_STREAM } from './scheduled/practice-service.js';
 
 export type GameModeValue = 'WAGER' | 'BONUS';
 export type GameFamilyValue = 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
@@ -25,6 +27,19 @@ export interface GameCatalogItem {
 }
 
 const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
+
+// Unreleased titles stay visibly unavailable even if stale catalog data marks
+// them active. Publishing their implementation requires an explicit code change.
+const COMING_SOON_KEYS: readonly string[] = [
+  'trivia',
+  'neon_hounds_3d',
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
+];
 
 // The catalog and the dedicated practice routes must use the same admission
 // flags. A rendered practice tile must not promise access to a disabled route.
@@ -126,9 +141,20 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
   const rules = spin?.currentRulesVersion
     ? await getGameRules(spin.id, spin.currentRulesVersion)
     : null;
+  const spinPractice = spin
+    ? await prisma.scheduledGameStream.findUnique({
+        where: { id: PRACTICE_STREAM },
+        select: { enabled: true, mode: true, gameKey: true, rulesId: true },
+      })
+    : null;
+  const spinPracticeAvailable = spinPractice?.enabled === true &&
+    spinPractice.mode === 'PRACTICE' && spinPractice.gameKey === 'spin_win' &&
+    spinPractice.rulesId === SPIN90_RULES_ID;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
-    row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
+    COMING_SOON_KEYS.includes(row.key)
+      ? { ...row, isActive: false, catalogStatus: 'COMING_SOON' as const, practiceAvailable: false }
+      : row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
           description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.description,
@@ -145,7 +171,11 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
       : isCoinWagerPaused(row)
         ? { ...row, catalogStatus: 'COMING_SOON' as const }
         : row.key === 'spin_win'
-          ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
+          ? {
+              ...row,
+              currentRulesId: typeof rulesId === 'string' ? rulesId : null,
+              practiceAvailable: spinPracticeAvailable,
+            }
           : row
   );
 }

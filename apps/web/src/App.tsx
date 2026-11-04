@@ -26,7 +26,7 @@ import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
 import { SystemKenoPage } from '@/pages/games/keno-system';
 import { SpinWinCoinsPage } from '@/pages/games/spin-win-coins';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
-import { TriviaPracticePage } from '@/pages/games/trivia-practice';
+import { GameComingSoonPage } from '@/pages/games/coming-soon';
 import { GameHistoryPage } from '@/pages/games/history';
 import { ChallengesPage } from '@/pages/challenges';
 import { ChallengeDetailPage } from '@/pages/challenges/detail';
@@ -149,7 +149,7 @@ export function App() {
             </CasinoProvider>
           }
         />
-        <Route path="games/trivia" element={<TriviaPracticePage />} />
+        <Route path="games/trivia" element={<GameComingSoonPage name="Trivia" />} />
         <Route path="challenges" element={<ChallengesPage />} />
         <Route path="challenges/:id" element={<ChallengeDetailPage />} />
         <Route path="competitions" element={<CompetitionsPage />} />

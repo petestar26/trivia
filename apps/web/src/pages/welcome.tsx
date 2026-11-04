@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from '
 import { useAuth } from '@/providers/auth-provider';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { GameArtwork } from '@/components/member/game-artwork';
+import { COMING_SOON_GAME_KEYS } from '@/lib/member-game-catalog';
 import './welcome.css';
 
 const collection = [
@@ -129,23 +130,39 @@ export function ExplorePage() {
             <span>Choose your next experience.</span>
           </div>
           <div className="pq-public-games">
-            {collection.map(([key, name, destination]) => (
-              <Link
-                key={key}
-                to={isAuthenticated ? destination : '/login'}
-                state={isAuthenticated ? undefined : { from: { pathname: destination } }}
-                className="pq-public-game"
-              >
-                <GameArtwork kind={key} practiceAvailable={false} />
-                <div>
-                  <h3>{name}</h3>
-                  <span>
-                    {isAuthenticated ? 'Check availability' : 'Sign in to check availability'}{' '}
-                    <ArrowUpRight size={14} />
-                  </span>
-                </div>
-              </Link>
-            ))}
+            {collection.map(([key, name, destination]) => {
+              const comingSoon = COMING_SOON_GAME_KEYS.some((futureKey) => futureKey === key);
+              const content = (
+                <>
+                  <GameArtwork kind={key} practiceAvailable={false} />
+                  <div>
+                    <h3>{name}</h3>
+                    <span>
+                      {comingSoon
+                        ? 'Coming soon'
+                        : isAuthenticated
+                          ? 'Check availability'
+                          : 'Sign in to check availability'}
+                      {!comingSoon && <ArrowUpRight size={14} />}
+                    </span>
+                  </div>
+                </>
+              );
+              return comingSoon ? (
+                <article key={key} className="pq-public-game">
+                  {content}
+                </article>
+              ) : (
+                <Link
+                  key={key}
+                  to={isAuthenticated ? destination : '/login'}
+                  state={isAuthenticated ? undefined : { from: { pathname: destination } }}
+                  className="pq-public-game"
+                >
+                  {content}
+                </Link>
+              );
+            })}
           </div>
         </section>
         <section className="pq-public-groups" aria-labelledby="public-groups">
