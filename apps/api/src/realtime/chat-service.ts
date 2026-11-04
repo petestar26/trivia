@@ -1,3 +1,4 @@
+import { recordMediaCleanupFailure } from '../media/maintenance.js';
 import { lockSocialGroup } from '../groups/lifecycle.js';
 import { prisma } from '@socialplay/database';
 import { ApiError } from '../middleware/index.js';
@@ -211,13 +212,20 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
   );
 
   // Store the file
-  await storage.upload({
-    bucket: STORAGE_BUCKETS.VOICE_MESSAGES,
-    key: storageKey,
-    file,
-    mimeType,
-    originalName: fileName,
-  });
+  try {
+    await storage.upload({
+      bucket: STORAGE_BUCKETS.VOICE_MESSAGES,
+      key: storageKey,
+      file,
+      mimeType,
+      originalName: fileName,
+    });
+  } catch (error) {
+    // A failed write may have created partial bytes. Retain them for recovery;
+    // an API maintenance drain must not certify that uncertain side effect.
+    await recordMediaCleanupFailure();
+    throw error;
+  }
 
   let stored: { message: any };
   try {
@@ -257,6 +265,7 @@ export async function createVoiceMessage(args: CreateVoiceMessageArgs) {
         key: storageKey,
       });
     } catch {
+      await recordMediaCleanupFailure();
       // Best-effort cleanup - ignore cleanup failures here.
     }
     throw err;

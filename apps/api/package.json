@@ -19,6 +19,8 @@
     "test:economics": "vitest run --config vitest.economics.config.ts",
     "test:scheduled-practice": "vitest run --config vitest.scheduled-practice.config.ts",
     "worker:scheduled-practice": "tsx src/scripts/scheduled-practice-worker.ts",
+    "worker:system-practice": "node dist/scripts/system-practice-worker.js",
+    "test:system-practice": "vitest run --config vitest.system-practice.config.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:shared-boundary": "node scripts/check-shared-types.mjs",
     "lint": "eslint src --ext .ts",

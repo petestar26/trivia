@@ -20,6 +20,8 @@ async function buildApi() {
     entryPoints: [
       join(__dirname, 'src/server.ts'),
       join(__dirname, 'src/worker.ts'),
+      // Local-only authenticated maintenance client; no enrollment or reset.
+      join(__dirname, 'src/media/operator-client.ts'),
       join(__dirname, 'src/scripts/crypto-payment-worker.ts'),
       join(__dirname, 'src/scripts/staging-payment-worker.ts'),
       // Read-only ledger upgrade preflight, runnable where tsx is not installed.
@@ -35,6 +37,9 @@ async function buildApi() {
       // Standalone opt-in practice scheduler; never starts with the API/worker.
       join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
       join(__dirname, 'src/scripts/group-pvp-worker.ts'),
+      // Separate adapter preserves inert CLI/help/refusal before Prisma imports.
+      join(__dirname, 'src/scripts/system-practice-worker.ts'),
+      join(__dirname, 'src/scripts/system-practice-worker-services.ts'),
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
@@ -56,7 +61,7 @@ async function buildApi() {
     format: 'esm',
     target: 'node20',
     outdir: outDir,
-    external: ['@prisma/client'],
+    external: ['@prisma/client', './system-practice-worker-services.js'],
     sourcemap: true,
     packages: 'external',
   });

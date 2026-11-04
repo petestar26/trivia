@@ -1,3 +1,4 @@
+import { startLocalMediaControl } from './media/local-control.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
@@ -127,16 +128,19 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 
   registerWebSocket(server);
 
+  await startLocalMediaControl(server);
   return server;
 }
 
 async function start(): Promise<void> {
+  let server: FastifyInstance | undefined;
   try {
-    const server = await buildServer();
+    server = await buildServer();
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
     server.log.info(`📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`);
   } catch (err) {
+    await server?.close();
     console.error('Failed to start server:', err);
     process.exit(1);
   }

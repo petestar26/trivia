@@ -20,6 +20,8 @@ import { setMessageReaction } from '../realtime/reaction-service.js';
 import type { ChatReactionType } from '@socialplay/shared';
 import { lockActorMembership, lockGroupForAdmission, lockGroupMessageForDeletion } from './group-locks.js';
 
+import { mediaMutationHooks, mediaAuthentication, withMediaMutation, recordMediaCleanupFailure } from '../media/maintenance.js';
+
 type GroupMemberRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
 
 const MANAGER_ROLES: GroupMemberRole[] = ['OWNER', 'ADMIN'];
@@ -277,7 +279,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
   server.delete<{ Params: { id: string; messageId: string } }>(
     '/:id/messages/:messageId',
     {
-      preHandler: [authenticate],
+      ...mediaMutationHooks(server),
+      preHandler: [mediaAuthentication(authenticate)],
       schema: {
         params: {
           type: 'object',
@@ -289,7 +292,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request) => {
+    async (request) => withMediaMutation(request, async () => {
       const groupId = request.params.id;
       const messageId = request.params.messageId;
       const userId = request.user!.sub;
@@ -378,11 +381,12 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       // captured above, not a fresh lookup, so the only thing that can still fail
       // here is the storage call itself, and that failure must never surface as a
       // 500 for a deletion (and event) that already succeeded.
-      emitToGroup(groupId, 'message:deleted', { messageId });
+      await emitToGroup(groupId, 'message:deleted', { messageId });
       if (voiceStorageKey) {
         try {
           await storage.delete({ bucket: STORAGE_BUCKETS.VOICE_MESSAGES, key: voiceStorageKey });
         } catch {
+          await recordMediaCleanupFailure();
           // Best-effort: cleanup failing (storage outage, provider error, a
           // transient DB error on some future variant of this call) must not
           // undo a committed, already-announced deletion.
@@ -393,7 +397,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         success: true,
         data: { message: 'Message deleted' },
       };
-    }
+    })
   );
 
   // Add reaction
@@ -479,7 +483,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
   }>(
     '/:id/voice-messages',
     {
-      preHandler: [authenticate],
+      ...mediaMutationHooks(server),
+      preHandler: [mediaAuthentication(authenticate)],
       config: {rateLimit: { max: 10, timeWindow: '1 minute' }},
       schema: {
         params: {
@@ -491,7 +496,7 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         },
       },
     },
-    async (request, reply) => {
+    async (request, reply) => withMediaMutation(request, async () => {
       const groupId = request.params.id;
       const userId = request.user!.sub;
 
@@ -542,8 +547,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
       });
 
       // Server-verified activity (post-commit, best-effort).
-      safeRecordActivity(request.user!.sub, { type: 'VOICE_MESSAGE' });
-    }
+      await safeRecordActivity(request.user!.sub, { type: 'VOICE_MESSAGE' });
+    })
   );
 
   // Stream/download voice message audio
