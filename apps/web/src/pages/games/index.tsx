@@ -209,7 +209,7 @@ export function GamesPage({
                   </div>
                 ) : isTrivia ? (
                   <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                    Free · no stake · restricted bonus Coins
+                    Practice · no stake · no rewards
                   </div>
                 ) : (
                   <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
