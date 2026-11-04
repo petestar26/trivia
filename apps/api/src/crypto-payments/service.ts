@@ -202,10 +202,18 @@ export async function options(userId: string) {
     await actor(tx, userId);
     const gates = await tx.platformGate.findMany({
       where: {
-        key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_WITHDRAWAL_CREATE', 'WITHDRAWAL_CREATE'] },
+        key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_DEPOSIT_CREDIT', 'CRYPTO_WITHDRAWAL_CREATE', 'WITHDRAWAL_CREATE'] },
       },
     });
     const on = (k: string) => gates.some((g) => g.key === k && g.enabled);
+    const unusedAddress = await tx.cryptoAddress.findFirst({
+      where: { retired: false, deposit: null }, select: { address: true },
+    });
+    const depositReason = !on('CRYPTO_DEPOSIT_CREATE') || !on('CRYPTO_DEPOSIT_CREDIT')
+      ? 'Crypto deposits are awaiting payment-service activation.'
+      : !unusedAddress ? 'No receiving address is available. Please contact payment support.' : null;
+    const withdrawalReason = !on('CRYPTO_WITHDRAWAL_CREATE') || !on('WITHDRAWAL_CREATE')
+      ? 'Crypto withdrawals are awaiting payout-service activation.' : null;
     const countries = await tx.$queryRaw<
       Array<{ id: string; name: string }>
     >`SELECT c.id,c.name FROM countries c JOIN user_payout_accounts a ON a."countryId"=c.id WHERE a."userId"=${userId} AND a.status='ACTIVE' AND c."isActive"=true ORDER BY a."createdAt" DESC,a.id DESC LIMIT 1`;
@@ -214,8 +222,10 @@ export async function options(userId: string) {
       network: 'TRON (TRC20)',
       contract: USDT_CONTRACT,
       coinsPerUsdt: 96,
-      depositEnabled: on('CRYPTO_DEPOSIT_CREATE'),
-      withdrawalEnabled: on('CRYPTO_WITHDRAWAL_CREATE') && on('WITHDRAWAL_CREATE'),
+      depositEnabled: depositReason === null,
+      withdrawalEnabled: withdrawalReason === null,
+      depositUnavailableReason: depositReason,
+      withdrawalUnavailableReason: withdrawalReason,
       countries,
     };
   });
