@@ -48,7 +48,7 @@ it('requires auth and hides wallet data from non-testers', async () => {
     await s.close();
   }
 });
-it('requires country and never accepts a caller-selected wallet or host-discovery switch', async () => {
+it('sets Ethiopia on the server and never accepts a caller-selected wallet, market or host-discovery switch', async () => {
   const s = Fastify();
   await s.register(providerTestRoutes, { prefix: '/provider-test' });
   try {
@@ -61,7 +61,8 @@ it('requires country and never accepts a caller-selected wallet or host-discover
           payload: { gameId: 'slot' },
         })
       ).statusCode
-    ).toBe(400);
+    ).toBe(200);
+    expect(launch).toHaveBeenLastCalledWith('tester', 'slot', 'ET', undefined);
     const good = await s.inject({
       method: 'POST',
       url: '/provider-test/launch',
@@ -69,7 +70,7 @@ it('requires country and never accepts a caller-selected wallet or host-discover
       payload: { gameId: 'slot', country: 'LA', userId: 'customer', inspectHost: true },
     });
     expect(good.statusCode).toBe(200);
-    expect(launch).toHaveBeenLastCalledWith('tester', 'slot', 'LA', undefined);
+    expect(launch).toHaveBeenLastCalledWith('tester', 'slot', 'ET', undefined);
   } finally {
     await s.close();
   }

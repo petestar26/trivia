@@ -1,14 +1,86 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ChevronDown,
+  CircleDot,
+  Dice5,
+  Gamepad2,
+  Play,
+  Rocket,
+  Search,
+  ShieldCheck,
+  Spade,
+  Trophy,
+  Wallet,
+} from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import './provider-lobby.css';
 
 interface TestGame {
   id: string;
   name: string;
   provider: string;
   category: string;
+  image?: string;
+}
+
+const PAGE_SIZE = 36;
+const CATEGORIES = [
+  ['slots', 'Slots'],
+  ['live', 'Live casino'],
+  ['table', 'Table games'],
+  ['crash', 'Crash'],
+  ['instant', 'Instant'],
+  ['keno', 'Keno'],
+  ['bingo', 'Bingo'],
+  ['virtual', 'Virtual sports'],
+  ['sportsbook', 'Sports'],
+  ['fishing', 'Fishing'],
+  ['other', 'More games'],
+] as const;
+const categoryLabel = (category: string) =>
+  CATEGORIES.find(([key]) => key === category)?.[1] ?? 'More games';
+const categoryIcon = (category: string) =>
+  category === 'crash'
+    ? Rocket
+    : ['table', 'live'].includes(category)
+      ? Spade
+      : ['virtual', 'sportsbook'].includes(category)
+        ? Trophy
+        : ['keno', 'bingo'].includes(category)
+          ? CircleDot
+          : Dice5;
+
+function GameArtwork({ game }: { game: TestGame }) {
+  const [failed, setFailed] = useState(false);
+  const Icon = categoryIcon(game.category);
+  return (
+    <div className="casino-tile-art" data-category={game.category}>
+      {game.image && !failed ? (
+        <img
+          src={game.image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <div className="casino-tile-fallback" aria-hidden="true">
+          <span className="casino-tile-orbit" />
+          <Icon strokeWidth={1.1} />
+          <span>{categoryLabel(game.category)}</span>
+        </div>
+      )}
+      <span className="casino-tile-play" aria-hidden="true">
+        <Play fill="currentColor" size={17} />
+      </span>
+    </div>
+  );
 }
 
 export function ProviderTestPage() {
@@ -16,14 +88,14 @@ export function ProviderTestPage() {
   return user ? (
     <ProviderTestSession key={user.id} userId={user.id} />
   ) : (
-    <p>Sign in to try provider tests.</p>
+    <p>Sign in to browse the casino.</p>
   );
 }
 
 function ProviderTestSession({ userId }: { userId: string }) {
   const [search, setSearch] = useState('');
-  const [country, setCountry] = useState('');
-  const [page, setPage] = useState(0);
+  const [category, setCategory] = useState('all');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<TestGame | null>(null);
   const status = useQuery({
     queryKey: ['provider-test-status', userId],
@@ -60,7 +132,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
       const result = unwrapData(
         await api.post<{ url: string; mode: string }>('/provider-test/launch', {
           gameId: game.id,
-          country,
+          // Keep older API deployments compatible; the server enforces Ethiopia.
+          country: 'ET',
           mobile: window.matchMedia('(max-width: 767px)').matches,
         })
       );
@@ -82,116 +155,118 @@ function ProviderTestSession({ userId }: { userId: string }) {
       setSelected(null);
     }
   }, [accessGranted, resetLaunch]);
-  const games = (catalogue.data ?? []).filter((game) =>
-    `${game.name} ${game.provider}`.toLowerCase().includes(search.toLowerCase())
+  const games = useMemo(
+    () =>
+      (catalogue.data ?? []).filter(
+        (game) =>
+          (category === 'all' || game.category === category) &&
+          `${game.name} ${game.provider}`.toLowerCase().includes(search.trim().toLowerCase())
+      ),
+    [catalogue.data, category, search]
+  );
+  const categories = useMemo(
+    () => CATEGORIES.filter(([key]) => catalogue.data?.some((game) => game.category === key)),
+    [catalogue.data]
   );
   const canLaunch =
-    status.data?.launchReady === true &&
-    /^[A-Z]{2}$/.test(country) &&
-    !wallet.isError &&
-    !!wallet.data;
+    accessGranted && status.data?.launchReady === true && !wallet.isError && !!wallet.data;
   const close = () => {
     launch.reset();
     setSelected(null);
   };
+  const balance =
+    wallet.data && !wallet.isError
+      ? (wallet.data.balanceCents / 100).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : '—';
 
   return (
-    <main className="space-y-5 text-slate-100">
-      <Link to="/games" className="text-sm text-rose-200">
-        ← Back to our games
-      </Link>
-      <header className="rounded-2xl border border-rose-300/20 bg-slate-900 p-6">
-        <p className="text-xs uppercase tracking-widest text-rose-300">
-          Provider games · Integration test
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">Casino</h1>
-        <p className="mt-3 text-slate-300">
-          Test games use a separate virtual ETB balance with no cash value. Your customer wallet is
-          not connected. Provider commission uses your test credit.
-        </p>
+    <main className="casino-lobby">
+      <div className="casino-topline">
+        <Link to="/games">
+          <ArrowLeft size={15} /> Back to our games
+        </Link>
+        <span>
+          <ShieldCheck size={14} /> Virtual play
+        </span>
+      </div>
+      <header className="casino-heading">
+        <div>
+          <p className="casino-eyebrow">SALEM BET COLLECTION</p>
+          <h1>
+            Casino<span aria-hidden="true">.</span>
+          </h1>
+          <p className="casino-subtitle">Find your game. Make it your moment.</p>
+        </div>
+        {accessGranted && (
+          <section aria-label="Test wallet" className="casino-balance">
+            <Wallet size={21} aria-hidden="true" />
+            <div>
+              <span>Virtual test balance</span>
+              <strong>
+                {balance} <small>ETB</small>
+              </strong>
+            </div>
+          </section>
+        )}
       </header>
-      {status.isLoading && <p role="status">Checking test access…</p>}
+      <p className="casino-practice-note">
+        <span /> Virtual ETB · No cash value
+      </p>
+      {status.isLoading && (
+        <p className="casino-notice" role="status">
+          Checking test access…
+        </p>
+      )}
       {status.isError && (
-        <div role="alert">
-          Could not check test access.{' '}
-          <button onClick={() => void status.refetch()} className="underline">
-            Retry
-          </button>
+        <div className="casino-notice" role="alert">
+          Could not check test access. <button onClick={() => void status.refetch()}>Retry</button>
         </div>
       )}
       {status.data?.enabled === false && (
-        <p role="status">Provider testing is not enabled for your account yet.</p>
+        <p className="casino-notice" role="status">
+          Provider testing is not enabled for your account yet.
+        </p>
       )}
-      {accessGranted && catalogue.isFetching && <p role="status">Loading provider games…</p>}
-      {accessGranted && catalogue.isError && (
-        <div role="alert">
-          Provider games are temporarily unavailable.{' '}
-          <button onClick={() => void catalogue.refetch()} className="underline">
-            Retry
-          </button>
-        </div>
+      {accessGranted && wallet.isError && (
+        <p className="casino-notice" role="alert">
+          Could not check the test balance.{' '}
+          <button onClick={() => void wallet.refetch()}>Refresh balance</button>
+        </p>
       )}
-      {accessGranted && (
-        <section
-          className="rounded-xl border border-amber-200/20 bg-slate-900 p-4 space-y-3"
-          aria-label="Test wallet"
-        >
-          <p>
-            Virtual test balance:{' '}
-            <strong>
-              {wallet.data && !wallet.isError
-                ? (wallet.data.balanceCents / 100).toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                  })
-                : '—'}{' '}
-              ETB
-            </strong>
-          </p>
-          {wallet.isError && (
-            <p role="alert">
-              Could not check the test balance.{' '}
-              <button className="underline" onClick={() => void wallet.refetch()}>
-                Refresh balance
-              </button>
-            </p>
-          )}
-          <label className="block">
-            Country you are testing from
-            <select
-              value={country}
-              onChange={(e) => {
-                close();
-                setCountry(e.target.value);
-              }}
-              className="ml-3 rounded-lg bg-slate-800 p-2"
-            >
-              <option value="">Choose your location</option>
-              <option value="ET">Ethiopia</option>
-              <option value="LA">Laos</option>
-            </select>
-          </label>
-          <p className="text-sm text-slate-400">
-            Choose your actual location. Provider country restrictions apply.
-          </p>
-          {status.data?.launchReady === false && (
-            <p role="status">Test launch setup is being completed.</p>
-          )}
-        </section>
+      {accessGranted && status.data?.launchReady === false && (
+        <p className="casino-notice" role="status">
+          Test launch setup is being completed.
+        </p>
       )}
-      {accessGranted && selected && (
-        <section aria-label="Selected provider game" className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold">{selected.name} · Test</h2>
-            <button onClick={close} className="rounded-lg border px-4 py-2">
-              Close game
+
+      {accessGranted && selected ? (
+        <section aria-label="Selected provider game" className="casino-player">
+          <div className="casino-player-toolbar">
+            <button onClick={close} className="casino-back-button">
+              <ArrowLeft size={17} /> Back to casino
             </button>
+            <div>
+              <h2>{selected.name}</h2>
+              <span>{selected.provider}</span>
+            </div>
+            <span className="casino-player-mode">Virtual play</span>
           </div>
-          {launch.isPending && <p role="status">Opening test game…</p>}
+          {launch.isPending && (
+            <div className="casino-player-placeholder" role="status">
+              <span className="casino-loading-ring" />
+              Opening {selected.name}…
+            </div>
+          )}
           {launch.isError && (
-            <div role="alert">
-              This test game could not be opened.{' '}
+            <div className="casino-player-placeholder" role="alert">
+              <Gamepad2 size={36} />
+              <h3>This game could not be opened.</h3>
+              <p>Try again or choose another game.</p>
               <button
-                className="underline"
+                className="casino-primary-button"
                 disabled={!canLaunch}
                 onClick={() => launch.mutate(selected)}
               >
@@ -207,48 +282,98 @@ function ProviderTestSession({ userId }: { userId: string }) {
               sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
               allow="fullscreen"
               allowFullScreen
-              className="w-full rounded-xl border border-white/20 bg-black"
-              style={{ height: 'calc(100dvh - 180px)', minHeight: 320 }}
             />
           )}
         </section>
-      )}
-      {accessGranted && wallet.data && wallet.data.movements.length > 0 && (
-        <details className="rounded-xl border border-white/10 p-4">
-          <summary>Recent test wallet activity</summary>
-          <ul className="mt-3 space-y-2">
-            {wallet.data.movements.map((m, i) => (
-              <li key={`${m.at}-${i}`}>
-                {m.action === 'debit' ? 'Bet' : 'Win / refund'} · {(m.amountCents / 100).toFixed(2)}{' '}
-                ETB · {m.error ? 'Declined' : 'Confirmed'}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {accessGranted && catalogue.data && !selected && (
-        <>
-          <label className="block">
-            Search games or providers
-            <input
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(0);
-              }}
-              className="mt-2 block w-full rounded-lg border border-slate-600 bg-slate-900 p-3"
-              type="search"
-            />
-          </label>
-          {!games.length && <p>No provider games available{search ? ' for this search' : ''}.</p>}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {games.slice(page * 24, (page + 1) * 24).map((game) => (
-              <article key={game.id} className="rounded-xl border border-white/10 bg-slate-900 p-5">
-                <p className="text-xs uppercase text-rose-300">{game.category} · Test</p>
-                <h2 className="mt-2 text-lg font-semibold">{game.name}</h2>
-                <p className="mt-1 text-sm text-slate-400">{game.provider}</p>
+      ) : (
+        accessGranted && (
+          <section aria-label="Casino game lobby">
+            <div className="casino-browser-bar">
+              <h2>
+                <Gamepad2 size={21} /> The game collection{' '}
+                <span>{catalogue.data?.length.toLocaleString() ?? '—'}</span>
+              </h2>
+              <label className="casino-search">
+                <Search size={18} aria-hidden="true" />
+                <span className="sr-only">Search games or providers</span>
+                <input
+                  type="search"
+                  placeholder="Search games or providers"
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                />
+              </label>
+            </div>
+            <div className="casino-categories" role="group" aria-label="Game categories">
+              <button
+                aria-pressed={category === 'all'}
+                onClick={() => {
+                  setCategory('all');
+                  setVisibleCount(PAGE_SIZE);
+                }}
+              >
+                All games
+              </button>
+              {categories.map(([key, label]) => (
                 <button
-                  className="mt-4 rounded-lg bg-rose-700 px-4 py-2 font-semibold text-white disabled:opacity-40"
+                  key={key}
+                  aria-pressed={category === key}
+                  onClick={() => {
+                    setCategory(key);
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {catalogue.isLoading && (
+              <>
+                <p className="casino-notice" role="status">
+                  Loading games…
+                </p>
+                <div className="casino-game-grid" aria-hidden="true">
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div className="casino-tile-skeleton" key={i} />
+                  ))}
+                </div>
+              </>
+            )}
+            {catalogue.isError && (
+              <div className="casino-notice" role="alert">
+                Provider games are temporarily unavailable.{' '}
+                <button onClick={() => void catalogue.refetch()}>Retry</button>
+              </div>
+            )}
+            {catalogue.data && !games.length && (
+              <div className="casino-empty">
+                <Search size={30} />
+                <h3>No games found</h3>
+                <p>Try another title, provider, or category.</p>
+                {(search || category !== 'all') && (
+                  <button
+                    className="casino-primary-button"
+                    onClick={() => {
+                      setSearch('');
+                      setCategory('all');
+                      setVisibleCount(PAGE_SIZE);
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="casino-game-grid">
+              {games.slice(0, visibleCount).map((game) => (
+                <button
+                  key={game.id}
+                  type="button"
+                  className="casino-game-tile"
+                  aria-label={`Play ${game.name}`}
                   disabled={!canLaunch}
                   onClick={() => {
                     launch.reset();
@@ -256,25 +381,46 @@ function ProviderTestSession({ userId }: { userId: string }) {
                     launch.mutate(game);
                   }}
                 >
-                  Open test game
+                  <GameArtwork key={`${game.id}:${game.image ?? ''}`} game={game} />
+                  <div className="casino-tile-caption">
+                    <h3>{game.name}</h3>
+                    <p>
+                      {game.provider}
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </p>
+                  </div>
                 </button>
-              </article>
+              ))}
+            </div>
+            {games.length > 0 && (
+              <div className="casino-more">
+                <p>
+                  Showing {Math.min(visibleCount, games.length).toLocaleString()} of{' '}
+                  {games.length.toLocaleString()} games
+                </p>
+                {visibleCount < games.length && (
+                  <button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+                    Show more games <ChevronDown size={17} />
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+        )
+      )}
+      {accessGranted && wallet.data && wallet.data.movements.length > 0 && (
+        <details className="casino-activity">
+          <summary>Recent test wallet activity</summary>
+          <ul>
+            {wallet.data.movements.map((m, i) => (
+              <li key={`${m.at}-${i}`}>
+                <span>{m.action === 'debit' ? 'Bet' : 'Win / refund'}</span>
+                <strong>{(m.amountCents / 100).toFixed(2)} ETB</strong>
+                <span>{m.error ? 'Declined' : 'Confirmed'}</span>
+              </li>
             ))}
-          </div>
-          {games.length > 24 && (
-            <nav aria-label="Provider game pages" className="flex items-center gap-4">
-              <button disabled={page === 0} onClick={() => setPage(page - 1)}>
-                Previous
-              </button>
-              <span>
-                Page {page + 1} of {Math.ceil(games.length / 24)}
-              </span>
-              <button disabled={(page + 1) * 24 >= games.length} onClick={() => setPage(page + 1)}>
-                Next
-              </button>
-            </nav>
-          )}
-        </>
+          </ul>
+        </details>
       )}
     </main>
   );

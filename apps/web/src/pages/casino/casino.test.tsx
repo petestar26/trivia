@@ -190,7 +190,7 @@ describe('Casino owns provider tests', () => {
     expect(await screen.findByRole('heading', { name: 'Provider Slot' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Dice' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
-    expect(screen.getByText(/wallet is not connected/)).toBeInTheDocument();
+    expect(screen.getByText(/Virtual ETB · No cash value/)).toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path)).toEqual([
       '/provider-test/status',
       '/provider-test/games',
@@ -206,7 +206,7 @@ describe('Casino owns provider tests', () => {
     mount(<CasinoPage />);
     expect(await screen.findByText(/not enabled for your account yet/)).toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path)).toEqual(['/provider-test/status']);
-    expect(screen.queryByRole('button', { name: 'Open test game' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Play Provider Slot' })).not.toBeInTheDocument();
   });
   it('recovers provider status errors through Retry', async () => {
     apiGet.mockRejectedValue(new Error('Unavailable'));

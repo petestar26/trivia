@@ -19,20 +19,18 @@ export async function providerTestRoutes(server: FastifyInstance) {
           : err.statusCode && err.statusCode >= 400 && err.statusCode < 500
             ? err.statusCode
             : 500;
-    return reply
-      .code(status)
-      .send({
-        success: false,
-        error: {
-          code: 'PROVIDER_TEST_UNAVAILABLE',
-          message:
-            err instanceof ProviderDemoError
-              ? err.message
-              : status === 401
-                ? 'Sign in to continue.'
-                : 'Provider testing is unavailable.',
-        },
-      });
+    return reply.code(status).send({
+      success: false,
+      error: {
+        code: 'PROVIDER_TEST_UNAVAILABLE',
+        message:
+          err instanceof ProviderDemoError
+            ? err.message
+            : status === 401
+              ? 'Sign in to continue.'
+              : 'Provider testing is unavailable.',
+      },
+    });
   });
   server.get('/status', async (req) => ({
     success: true,
@@ -41,6 +39,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
       mode: 'virtual-test',
       launchReady: pilot.launchReady(),
       currency: 'ETB',
+      country: 'ET',
     },
   }));
   server.get(
@@ -57,7 +56,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
     { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (req) => ({ success: true, data: await pilot.games(req.user.sub) })
   );
-  server.post<{ Body: { gameId: string; country: string; mobile?: boolean } }>(
+  server.post<{ Body: { gameId: string; country?: string; mobile?: boolean } }>(
     '/launch',
     {
       config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
@@ -65,7 +64,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
         body: {
           type: 'object',
           additionalProperties: false,
-          required: ['gameId', 'country'],
+          required: ['gameId'],
           properties: {
             gameId: { type: 'string', minLength: 1, maxLength: 256 },
             country: { type: 'string', pattern: '^[A-Z]{2}$' },
@@ -76,7 +75,9 @@ export async function providerTestRoutes(server: FastifyInstance) {
     },
     async (req) => ({
       success: true,
-      data: await pilot.launch(req.user.sub, req.body.gameId, req.body.country, req.body.mobile),
+      // Salem currently serves Ethiopia. Accept the old client's country field
+      // during rollout, but do not let it override the platform's market.
+      data: await pilot.launch(req.user.sub, req.body.gameId, 'ET', req.body.mobile),
     })
   );
 }
