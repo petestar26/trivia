@@ -5,6 +5,9 @@ export const WORKER_ROLE = 'salem_practice_worker_20261104';
 export const NUMBER_ROLE = 'salem_number_worker_20261104';
 const ROLE_MARKER = 'salem-practice-activation-20261104';
 export const PRACTICE_TABLES = [
+  'ls_accounts',
+  'ls_rounds',
+  'ls_tickets',
   'rk_accounts',
   'rk_rounds',
   'rk_tickets',

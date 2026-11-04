@@ -43,6 +43,7 @@ const COMING_SOON_KEYS: readonly string[] = [
 // The catalog and the dedicated practice routes must use the same admission
 // flags. A rendered practice tile must not promise access to a disabled route.
 const PRACTICE_FLAGS: Record<string, string> = {
+  lucky_six: 'LUCKY_SIX_PRACTICE_ENABLED',
   roulette_keno: 'ROULETTE_KENO_PRACTICE_ENABLED',
   number_challenge: 'NUMBER_CHALLENGE_PRACTICE_ENABLED',
   sky_crash: 'SKY_CRASH_PRACTICE_ENABLED',
@@ -65,6 +66,7 @@ const PRACTICE_FLAGS: Record<string, string> = {
 // AND shipping a forward-only migration for it — never just flipping a DB
 // column.
 const APPROVED_CATALOG_KEYS: readonly string[] = [
+  'lucky_six',
   'roulette_keno',
   'sky_crash',
   'crash_point',
@@ -93,6 +95,7 @@ export function isCoinWagerPaused(game: {
 }) {
   // Sky Crash has no wallet-funded implementation, regardless of catalog edits.
   return (
+    game.key === 'lucky_six' ||
     game.key === 'roulette_keno' ||
     game.key === 'number_challenge' ||
     game.key === 'sky_crash' ||
@@ -157,7 +160,7 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
   return rows.map((row) =>
     COMING_SOON_KEYS.includes(row.key)
       ? { ...row, isActive: false, catalogStatus: 'COMING_SOON' as const, practiceAvailable: false }
-      : row.key === 'roulette_keno' || row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'neon_hounds_3d' || row.key === 'virtual_football_3d'
+      : row.key === 'lucky_six' || row.key === 'roulette_keno' || row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'neon_hounds_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
           ...(row.key === 'neon_hounds_3d' ? { name: 'Dog Racing' } : {}),
