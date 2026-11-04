@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { watchPracticeWorker } from '../scheduled/practice-worker-runtime.js';
 import {
   enabledPracticeTasks,
+  PRACTICE_TASK_FLAGS,
   observePracticeTick,
   PracticeGamesHealth,
   runPracticeGamesWorker,
@@ -133,6 +134,30 @@ it('treats a swallowed service settlement callback as an unsuccessful tick', asy
   });
   await expect(fail()).rejects.toThrow('settlement failed');
   await expect(observePracticeTick(async () => {})()).resolves.toBeUndefined();
+});
+
+it('runs every enabled game without abort-listener warnings and shuts down together', async () => {
+  const enabled = enabledPracticeTasks(
+    Object.fromEntries(Object.values(PRACTICE_TASK_FLAGS).map((flag) => [flag, 'true']))
+  );
+  expect(enabled.length).toBeGreaterThan(10);
+  const health = new PracticeGamesHealth(enabled);
+  const controller = new AbortController();
+  const ticks = Object.fromEntries(enabled.map((task) => [task, vi.fn(async () => {})]));
+  const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+  const done = runPracticeGamesWorker({ health, signal: controller.signal, ticks, report: vi.fn() });
+  try {
+    await vi.waitFor(() => {
+      for (const tick of Object.values(ticks)) expect(tick).toHaveBeenCalledTimes(2);
+    }, { timeout: 2_000, interval: 10 });
+    expect(health.snapshot().ready).toBe(true);
+    expect(warning).not.toHaveBeenCalled();
+  } finally {
+    controller.abort();
+    await done;
+    warning.mockRestore();
+  }
+  expect(health.snapshot().status).toBe('STOPPING');
 });
 
 it('refuses an enabled task without its tick before starting other tasks', async () => {
