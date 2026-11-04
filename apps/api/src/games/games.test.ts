@@ -230,7 +230,7 @@ it('public catalog returns exactly 16 entries (AVAILABLE + COMING_SOON), excludi
      const APPROVED_KEYS = new Set([
        'dice', 'number_challenge', 'trivia',
        'spin_win', 'thunder_derby_3d', 'neon_hounds_3d', 'turbo_circuit_3d',
-       'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'roulette_keno', 'crystal_trail',
+       'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'roulette_keno', 'lucky_six', 'crystal_trail',
        'heat_vault', 'strait_rush', 'crash_point', 'sky_crash', 'virtual_football_3d', // COMING_SOON
      ]);
      expect(new Set(keys).size).toBe(16);

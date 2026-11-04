@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { createSystemDiceService } from '../games/group-pvp/system-dice.js';
 import { createSystemKenoService } from '../games/group-pvp/system-keno.js';
+import { createLuckySixService } from '../games/lucky-six/service.js';
 import { createRouletteKenoService } from '../games/roulette-keno/service.js';
 import { createNumberTimedService } from '../games/number-challenge/timed-service.js';
 import { createSkyCrashService } from '../games/sky-crash/service.js';
@@ -70,6 +71,7 @@ async function main() {
       ticks: {
         DICE: observePracticeTick(createSystemDiceService(db).tick),
         KENO: observePracticeTick(createSystemKenoService(db).tick),
+        LUCKY_SIX: observePracticeTick(createLuckySixService(db).tick),
         ROULETTE_KENO: observePracticeTick(createRouletteKenoService(db).tick),
         NUMBER: async () => {
           if (!numberDb) throw new Error('Number worker is not configured');

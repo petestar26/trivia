@@ -30,9 +30,9 @@ export function GameArtwork({
   hero?: boolean;
   practiceAvailable?: boolean;
 }) {
-  if (kind === 'number_challenge' || kind === 'roulette_keno') return (
+  if (kind === 'number_challenge' || kind === 'roulette_keno' || kind === 'lucky_six') return (
     <div className={`ruby-art ${hero ? 'ruby-art--hero' : ''}`} aria-hidden="true">
-      <img src={`/art/ruby-grand/${kind === 'roulette_keno' ? 'roulette-keno' : 'number-challenge'}.svg`} alt="" loading="lazy" decoding="async" />
+      <img src={`/art/ruby-grand/${kind === 'lucky_six' ? 'lucky-six' : kind === 'roulette_keno' ? 'roulette-keno' : 'number-challenge'}.svg`} alt="" loading="lazy" decoding="async" />
     </div>
   );
   if (kind === 'sky_crash' && practiceAvailable === true)

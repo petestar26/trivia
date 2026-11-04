@@ -18,6 +18,7 @@ const collection = [
   ['roulette_keno', 'Roulette Keno', '/games/roulette-keno'],
   ['virtual_football_3d', 'Football', '/games/virtual-football'],
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
+  ['lucky_six', 'Lucky Six', '/games/lucky-six'],
   ['trivia', 'Trivia', '/games/trivia'],
 ] as const;
 const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));

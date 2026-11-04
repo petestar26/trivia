@@ -35,6 +35,7 @@ import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
 import { groupPvpRoutes } from '../games/group-pvp/routes.js';
 import { systemDiceRoutes } from '../games/group-pvp/system-dice-routes.js';
 import { systemKenoRoutes } from '../games/group-pvp/system-keno-routes.js';
+import { luckySixRoutes } from '../games/lucky-six/routes.js';
 import { rouletteKenoRoutes } from '../games/roulette-keno/routes.js';
 import { giftCollectionRoutes } from '../gift-collection/routes.js';
 import { providerDemoRoutes } from '../providers/softaggregator/routes.js';
@@ -58,6 +59,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
   await server.register(systemKenoRoutes, { prefix: '/games/system-keno' });
+  await server.register(luckySixRoutes, { prefix: '/games/lucky-six' });
   await server.register(rouletteKenoRoutes, { prefix: '/games/roulette-keno' });
   await server.register(chatRoutes, { prefix: '/groups' });
   await server.register(storageRoutes, { prefix: '/storage' });
