@@ -10,3 +10,63 @@
   .keno-layout { gap: 14px; padding: 14px; }
   .keno-header { padding: 16px; }
 }
+
+/* Glass drum, physical balls and a dedicated output cup. Decorative balls carry no results. */
+.keno-machine { max-width: 380px; }
+.keno-machine svg { max-height: 390px; }
+.keno-machine-running .keno-tumble { animation: keno-tumble 1.6s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+.keno-machine-running .keno-reveal-ball { animation: keno-reveal .35s ease-out both; transform-origin: 190px 277px; }
+@keyframes keno-tumble { from { transform: translate(-6px, -16px) rotate(-20deg); } to { transform: translate(9px, 17px) rotate(24deg); } }
+@keyframes keno-reveal { from { transform: translateY(-18px) scale(.85); opacity: .45; } to { transform: translateY(0) scale(1); opacity: 1; } }
+.keno-system .keno-stage { background: radial-gradient(ellipse at 80% 0, #5c263b66, transparent 60%), #150f18; border-color: #b78a6b55; }
+.keno-system .keno-header { padding: 18px 22px 12px; }
+.keno-system .keno-header h1 { font-size: 32px; }
+.keno-system .keno-header p:not(.keno-eyebrow) { display: none; }
+.keno-system .keno-economics { padding-bottom: 10px; }
+.keno-system .keno-practice-note { padding-block: 7px; }
+.keno-ticket-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 16px 18px 0; padding: 3px 2px 8px; }
+.keno-ticket-tabs button { flex: 0 0 auto; min-width: 86px; min-height: 52px; padding: 7px 12px; border: 1px solid #795264; border-radius: 10px; background: #261924; color: #e2c7d2; font-size: 13px; font-weight: 750; }
+.keno-ticket-tabs small { display: block; margin-top: 2px; font-size: 10px; font-weight: 500; }
+.keno-ticket-tabs button[aria-pressed='true'] { border-color: #ffdab0; background: linear-gradient(145deg,#71384e,#3d2333); color: #fff2d9; box-shadow: inset 0 0 0 1px #ffdab0; }
+.keno-ticket-tabs .keno-add-ticket { border-style: dashed; color: #f3d5ae; }
+.keno-ticket-tabs button:disabled { opacity: .45; cursor: not-allowed; }
+.keno-ticket-help { margin: 0 20px; color: #cbb4c1; font-size: 11px; }
+.keno-system .keno-machine-panel { background: radial-gradient(ellipse at center, #79505044, #10131f); border: 1px solid #e9c5a922; padding: 14px; border-radius: 18px; }
+.keno-system .keno-number { box-shadow: inset 0 1px #ffe2cd15,0 3px 0 #06030a; }
+.keno-system .keno-number.is-selected { background: linear-gradient(145deg,#98516a,#592c43); border-color:#ffe1ba; box-shadow: inset 0 0 0 1px #ffe1ba,0 3px 0 #331322; color: #fff5e9; }
+.keno-system .keno-number.is-hit { background:linear-gradient(145deg,#b3f0d2,#418d75); color:#073329; }
+.keno-saved-tickets { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 10px; margin: 0 18px 18px; }
+.keno-saved-tickets article { padding: 12px; border: 1px solid #a4806c55; border-radius: 12px; background: #241b27; }
+.keno-saved-tickets header { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.keno-saved-tickets p { color: #f4d6b6; font-size: 13px; margin-block: 8px; }
+.keno-saved-tickets small { font-size: 11px; color: #c7b5c3; }
+@media(max-width:639px) {
+ .keno-system .keno-header { flex-wrap: nowrap; padding:14px; }
+ .keno-system .keno-eyebrow { display:none; }
+ .keno-system .keno-balances { width:auto; border:0; padding:0; gap:8px; }
+ .keno-system .keno-wallet { display:none; }
+ .keno-system .keno-balance strong { font-size:20px; }
+ .keno-system .keno-economics { padding:0 14px 8px; gap:4px; }
+ .keno-system .keno-economics span { font-size:9px; padding:5px 7px; }
+ .keno-system .keno-practice-note { font-size:10px; padding:6px 14px; }
+ .keno-system .keno-layout { gap:14px; padding:12px; }
+ .keno-system .keno-machine-panel { display:grid; grid-template-columns:minmax(0,1fr) minmax(170px,1.4fr); gap:4px; padding:8px; }
+ .keno-system .keno-machine { grid-column:2; grid-row:1 / span 2; width:100%; max-width:240px; }
+ .keno-system .keno-machine svg { height:auto; max-height:215px; }
+ .keno-system .keno-machine-title { text-align:left; }
+ .keno-system .keno-machine-title span { font-size:8px; letter-spacing:1px; }
+ .keno-system .keno-machine-title strong { font-size:12px; }
+ .keno-system .keno-result { font-size:10px; padding:8px; }
+ .keno-system .keno-board { grid-template-columns:repeat(8,minmax(0,1fr)); gap:5px; }
+ .keno-system .keno-number { min-height:40px; font-size:13px; }
+ .keno-system .keno-stake-panel { flex-direction:row; gap:10px; padding:12px; margin-inline:12px; }
+ .keno-system .keno-ticket-summary { min-width:90px; border:0; padding:0; text-align:right; }
+ .keno-system .keno-ticket-summary strong { font-size:19px; }
+ .keno-system .keno-stake-row { gap:5px; flex-wrap:wrap; }
+ .keno-system .keno-stake-row input { width:90px; }
+ .keno-system .keno-controls { margin-inline:12px; padding:12px; }
+ .keno-system .keno-draw-heading h2 { font-size:14px; }
+ .keno-ticket-tabs { margin-inline:12px; }
+ .keno-ticket-help { margin-inline:14px; font-size:10px; }
+}
+@media(prefers-reduced-motion:reduce) { .keno-machine-running .keno-tumble,.keno-machine-running .keno-reveal-ball { animation:none; } }
