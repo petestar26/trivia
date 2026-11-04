@@ -20,7 +20,7 @@ These are original stylized real-time models, not scanned animals or prerecorded
 
 ## Validation and release
 
-PostgreSQL-compatible PGlite tests run the actual service and existing SQL guards, including a full 45-second settlement, exact retries, immutable picks, hidden outcomes, isolated histories/admission, suspended users and late entries. They serialize connections and do not establish native concurrent lock scheduling; the existing Derby native suite remains the concurrency coverage for the unchanged lock/receipt path. UI tests cover ordered selections, review/confirmation, stale state, result/history, field changes and expanded view.
+PostgreSQL-compatible PGlite tests run the actual service and existing SQL guards, including a full 45-second settlement, exact retries, immutable picks, hidden outcomes, isolated histories/admission, suspended users and late entries. They serialize connections and do not establish native concurrent lock scheduling; the existing Derby native suite remains the concurrency coverage for the unchanged lock/receipt path. Geometry checks include finite poses, continuous track bends, bounded static mesh counts, disposal and planted paws moving backward during stance. UI tests cover ordered selections, review/confirmation, stale state, result/history, field changes and expanded view.
 
 Browser QA checks phone/desktop control layout, numbered selections, camera controls and fallback. The managed browser reports WebGL disabled; software vector inspection of the original mesh is separate evidence and does not validate GPU lighting, physical-phone speed or heat. Physical phone GPU visual acceptance is still required. No real-money bets, deposits or withdrawals are part of validation.
 

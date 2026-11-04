@@ -143,7 +143,7 @@ export default function DogRaceScene({
         const p = positions[i] || 0,
           lane = (i - (r.field - 1) / 2) * 0.87;
         const at = trackPoint(p / 1.06, lane);
-        dogs[i].root.position.set(at.x, 0.03, at.z);
+        dogs[i].root.position.set(at.x, 0.004, at.z);
         dogs[i].root.rotation.y = at.heading;
         const travel = (Math.max(0, p - (prior[i] || 0)) * TRACK_LENGTH) / 1.06;
         prior[i] = p;

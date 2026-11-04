@@ -206,6 +206,10 @@ export function createGreyhound(index: number) {
   resources.push(tg);
   const tail = new THREE.Mesh(tg, coat);
   body.add(tail);
+  const groundInverse = new THREE.Matrix4();
+  legs.forEach((leg) => {
+    leg.paw.name = `${leg.rear ? 'rear' : 'front'}-${leg.side}-paw`;
+  });
   const up = new THREE.Vector3(0, 1, 0),
     delta = new THREE.Vector3(),
     mid = new THREE.Vector3();
@@ -222,13 +226,15 @@ export function createGreyhound(index: number) {
     body.scale.x = moving ? 1 + Math.cos(q) * 0.04 : 1;
     head.rotation.z = moving ? -0.2 + Math.cos(q) * 0.03 : Math.sin(phase * 0.22) * 0.045;
     tail.rotation.x = moving ? Math.sin(q) * 0.14 : Math.sin(phase * 0.35) * 0.06;
+    body.updateMatrix();
+    groundInverse.copy(body.matrix).invert();
     for (const leg of legs) {
       const a = q + (leg.rear ? Math.PI * 0.78 : 0) + (leg.side === 1 ? 0.5 : 0);
       const foot = new THREE.Vector3(
-        leg.hip.x + (moving ? Math.cos(a) * 0.55 : leg.rear ? -0.16 : 0.06),
+        leg.hip.x + (moving ? -Math.cos(a) * 0.55 : leg.rear ? -0.16 : 0.06),
         moving ? Math.max(0.045, Math.sin(a) * 0.32) : 0.045,
         leg.hip.z
-      );
+      ).applyMatrix4(groundInverse);
       const upperLength = leg.rear ? 0.49 : 0.43,
         lowerLength = leg.rear ? 0.49 : 0.47;
       const dx = foot.x - leg.hip.x,
@@ -247,7 +253,7 @@ export function createGreyhound(index: number) {
         leg.hip.x + Math.cos(angle) * upperLength,
         leg.hip.y + Math.sin(angle) * upperLength,
         leg.hip.z
-      );
+      ).applyMatrix4(groundInverse);
       connect(leg.upper, leg.hip, knee);
       connect(leg.lower, knee, foot);
       leg.joint.position.copy(knee);

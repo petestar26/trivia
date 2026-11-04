@@ -51,3 +51,19 @@ it('batches static stadium geometry and disposes owned meshes', () => {
   track.dispose();
   expect(spies.every((s) => s.mock.calls.length > 0)).toBe(true);
 });
+
+it('keeps planted paws on the ground and moving backward relative to the running body', () => {
+  canvas();
+  const dog = createGreyhound(0),
+    paw = dog.root.getObjectByName('front--1-paw')!;
+  dog.pose(3.6, true);
+  dog.root.updateMatrixWorld(true);
+  const first = paw.getWorldPosition(new THREE.Vector3());
+  dog.pose(4.2, true);
+  dog.root.updateMatrixWorld(true);
+  const next = paw.getWorldPosition(new THREE.Vector3());
+  expect(first.y).toBeCloseTo(0.045, 5);
+  expect(next.y).toBeCloseTo(0.045, 5);
+  expect(next.x).toBeLessThan(first.x);
+  dog.dispose();
+});
