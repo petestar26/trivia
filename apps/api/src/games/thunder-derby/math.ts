@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { DERBY_RULES, type DerbyField } from '@socialplay/shared';
-export function derbyCommitment(id: string, seed: string) {
-  return createHash('sha256').update(`${DERBY_RULES.id}:${id}:${seed}`).digest('hex');
+export function derbyCommitment(id: string, seed: string, rulesId = DERBY_RULES.id) {
+  return createHash('sha256').update(`${rulesId}:${id}:${seed}`).digest('hex');
 }
 /** Fisher-Yates with rejection sampling. Every finish permutation has equal probability. */
-export function derbyOrder(seed: string, field: DerbyField) {
+export function derbyOrder(seed: string, field: DerbyField, rulesId = DERBY_RULES.id) {
   const order = Array.from({ length: field }, (_, i) => i + 1);
   let counter = 0;
   for (let i = field - 1; i > 0; i--) {
@@ -13,7 +13,7 @@ export function derbyOrder(seed: string, field: DerbyField) {
     let value: number;
     do {
       value = createHash('sha256')
-        .update(`${DERBY_RULES.id}:${seed}:${counter++}`)
+        .update(`${rulesId}:${seed}:${counter++}`)
         .digest()
         .readUInt32BE(0);
     } while (value >= limit);

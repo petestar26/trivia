@@ -32,7 +32,6 @@ const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_
 // them active. Publishing their implementation requires an explicit code change.
 const COMING_SOON_KEYS: readonly string[] = [
   'trivia',
-  'neon_hounds_3d',
   'turbo_circuit_3d',
   'starfall_nebula',
   'jungle_dash_3d',
@@ -47,6 +46,7 @@ const PRACTICE_FLAGS: Record<string, string> = {
   number_challenge: 'NUMBER_CHALLENGE_PRACTICE_ENABLED',
   sky_crash: 'SKY_CRASH_PRACTICE_ENABLED',
   thunder_derby_3d: 'THUNDER_DERBY_PRACTICE_ENABLED',
+  neon_hounds_3d: 'DOG_RACING_PRACTICE_ENABLED',
   virtual_football_3d: 'VIRTUAL_FOOTBALL_PRACTICE_ENABLED',
   crash_point: 'CRASH_POINT_PRACTICE_ENABLED',
   dice: 'SYSTEM_DICE_PRACTICE_ENABLED',
@@ -93,7 +93,7 @@ export function isCoinWagerPaused(game: {
   return (
     game.key === 'number_challenge' ||
     game.key === 'sky_crash' ||
-    game.key === 'thunder_derby_3d' ||
+    game.key === 'thunder_derby_3d' || game.key === 'neon_hounds_3d' ||
     // Practice credits only: Coin admission is paused here regardless of catalog data or flags.
     game.key === 'virtual_football_3d' ||
     (game.mode === 'WAGER' &&
@@ -154,10 +154,11 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
   return rows.map((row) =>
     COMING_SOON_KEYS.includes(row.key)
       ? { ...row, isActive: false, catalogStatus: 'COMING_SOON' as const, practiceAvailable: false }
-      : row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
+      : row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'neon_hounds_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
-          description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.description,
+          ...(row.key === 'neon_hounds_3d' ? { name: 'Dog Racing' } : {}),
+          description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.key === 'neon_hounds_3d' ? 'Six or eight greyhounds. Choose your finish and follow the race. Free practice ETB.' : row.description,
           isActive: false,
           catalogStatus: 'COMING_SOON' as const,
           practiceAvailable: process.env[PRACTICE_FLAGS[row.key]] === 'true',

@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@socialplay/database';
 import {
   DERBY_RULES,
+  DOG_RACING_RULES,
   derbyOddsCents,
   derbyWins,
   parseDerbyEntry,
@@ -33,7 +34,11 @@ interface Ticket {
   odds_cents: number;
   payout: number | null;
 }
-export function createDerbyService(db: PrismaClient) {
+/** Both racing games share the existing non-transferable practice account.
+ * Namespace every race read/admission; no cash tables or new privileges. */
+export function createDerbyService(db: PrismaClient, game: 'derby' | 'hounds' = 'derby') {
+  const hounds = game === 'hounds';
+  const rules = hounds ? DOG_RACING_RULES : DERBY_RULES;
   const clock = async (tx: Tx) =>
     (await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`)[0].now;
   async function account(tx: Tx, userId: string) {
@@ -53,16 +58,16 @@ export function createDerbyService(db: PrismaClient) {
         const now = await clock(tx),
           cycle = field * 30000,
           opens = Math.floor(now.getTime() / cycle) * cycle;
-        const id = `derby-${field}-${opens / cycle}`,
+        const id = `${game}-${field}-${opens / cycle}`,
           seed = randomBytes(32).toString('hex');
-        await tx.$executeRaw`INSERT INTO derby_rounds(id,field,opens_at,starts_at,finishes_at,ends_at,finish_order,seed,commitment) VALUES(${id},${field},${new Date(opens)},${new Date(opens + cycle - 60000)},${new Date(opens + cycle - 15000)},${new Date(opens + cycle)},${derbyOrder(seed, field)}::integer[],${seed},${derbyCommitment(id, seed)}) ON CONFLICT DO NOTHING`;
+        await tx.$executeRaw`INSERT INTO derby_rounds(id,field,opens_at,starts_at,finishes_at,ends_at,finish_order,seed,commitment) VALUES(${id},${field},${new Date(opens)},${new Date(opens + cycle - 60000)},${new Date(opens + cycle - 15000)},${new Date(opens + cycle)},${derbyOrder(seed, field, rules.id)}::integer[],${seed},${derbyCommitment(id, seed, rules.id)}) ON CONFLICT DO NOTHING`;
       });
   }
   async function settle(roundId: string, userId: string) {
     return db.$transaction(async (tx) => {
       const [r] = await tx.$queryRaw<
         Round[]
-      >`SELECT * FROM derby_rounds WHERE id=${roundId} FOR UPDATE`;
+      >`SELECT * FROM derby_rounds WHERE id=${roundId} AND (left(id,7)='hounds-')=${hounds} FOR UPDATE`;
       if (!r || (await clock(tx)) < r.finishes_at) return;
       const [t] = await tx.$queryRaw<
         Ticket[]
@@ -81,7 +86,7 @@ export function createDerbyService(db: PrismaClient) {
     await ensureRounds();
     const rows = await db.$queryRaw<
       { round_id: string; user_id: string }[]
-    >`SELECT t.round_id,t.user_id FROM derby_tickets t JOIN derby_rounds r ON r.id=t.round_id WHERE t.payout IS NULL AND r.finishes_at<=clock_timestamp() ORDER BY r.opens_at,t.id LIMIT 300`;
+    >`SELECT t.round_id,t.user_id FROM derby_tickets t JOIN derby_rounds r ON r.id=t.round_id WHERE (left(r.id,7)='hounds-')=${hounds} AND t.payout IS NULL AND r.finishes_at<=clock_timestamp() ORDER BY r.opens_at,t.id LIMIT 300`;
     for (const t of rows)
       try {
         await settle(t.round_id, t.user_id);
@@ -95,7 +100,7 @@ export function createDerbyService(db: PrismaClient) {
     await ensureRounds();
     const pending = await db.$queryRaw<
       { round_id: string }[]
-    >`SELECT round_id FROM derby_tickets WHERE user_id=${userId} AND payout IS NULL ORDER BY round_id LIMIT 50`;
+    >`SELECT round_id FROM derby_tickets WHERE user_id=${userId} AND (left(round_id,7)='hounds-')=${hounds} AND payout IS NULL ORDER BY round_id LIMIT 50`;
     for (const t of pending) await settle(t.round_id, userId);
     return db.$transaction(async (tx) => {
       await account(tx, userId);
@@ -105,12 +110,12 @@ export function createDerbyService(db: PrismaClient) {
       const now = await clock(tx);
       const rounds = await tx.$queryRaw<
         Round[]
-      >`SELECT * FROM derby_rounds WHERE field=${field} AND opens_at<=${now} ORDER BY opens_at DESC LIMIT 12`;
+      >`SELECT * FROM derby_rounds WHERE field=${field} AND (left(id,7)='hounds-')=${hounds} AND opens_at<=${now} ORDER BY opens_at DESC LIMIT 12`;
       const tickets = await tx.$queryRaw<
         Ticket[]
       >`SELECT * FROM derby_tickets WHERE user_id=${userId} AND round_id=ANY(${rounds.map((r) => r.id)}::text[])`;
       return {
-        rulesId: DERBY_RULES.id,
+        rulesId: rules.id,
         serverTime: now.getTime(),
         balance: Number(wallet.balance),
         rounds: rounds.map((r) => {
@@ -163,7 +168,7 @@ export function createDerbyService(db: PrismaClient) {
       await account(tx, userId);
       const [r] = await tx.$queryRaw<
         Round[]
-      >`SELECT * FROM derby_rounds WHERE id=${roundId} FOR UPDATE`;
+      >`SELECT * FROM derby_rounds WHERE id=${roundId} AND (left(id,7)='hounds-')=${hounds} FOR UPDATE`;
       if (!r || r.field !== entry.field) throw ApiError.notFound('Race not found');
       const [prior] = await tx.$queryRaw<
         Ticket[]
