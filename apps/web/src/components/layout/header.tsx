@@ -9,6 +9,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { pathname } = useLocation();
   const section = pathname.split('/')[1];
   const labels: Record<string, string> = {
+    dashboard: 'Home',
     casino: 'Casino',
     games: 'Games',
     groups: 'Groups',
@@ -33,8 +34,8 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           </button>
         )}
         <div>
-          <span className="qube-header-eyebrow">SALEM BET / MEMBER LOUNGE</span>
-          <p className="qube-header-title">{labels[section] || 'Welcome to Salem Bet'}</p>
+          <span className="qube-header-eyebrow">SALEM BET</span>
+          <p className="qube-header-title">{labels[section] || 'Home'}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">

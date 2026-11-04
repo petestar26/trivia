@@ -296,7 +296,7 @@ describe('Ruby Grand member dashboard', () => {
     expect(screen.queryByText('Hidden room')).not.toBeInTheDocument();
     expect(screen.queryByText('Closed room')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'retired' })).not.toBeInTheDocument();
-    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('0.42 ETB')).toBeInTheDocument();
   });
   it('renders independent retry states rather than inventing games or groups after a failed request', async () => {
     get.mockRejectedValue(new Error('Offline'));
@@ -422,7 +422,7 @@ describe('Ruby Grand member dashboard', () => {
     expect(
       await screen.findByText('Balances unavailable. Open your wallet to retry.')
     ).toBeInTheDocument();
-    const balances = screen.getByRole('link', { name: /Coins.*Game Points/ });
+    const balances = screen.getByRole('link', { name: /Wallet.*Game Points/ });
     expect(within(balances).getAllByText('—')).toHaveLength(2);
     expect(within(balances).queryByText('0')).not.toBeInTheDocument();
   });

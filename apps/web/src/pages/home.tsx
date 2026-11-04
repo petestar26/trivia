@@ -133,9 +133,9 @@ export function HomePage() {
         </span>
       </section>
       <nav className="salem-launchpad" aria-label="Start exploring">
-        <Link to="/games"><Gamepad2 size={23}/><span><strong>Find your next game</strong><small>Browse our practice collection</small></span><ArrowUpRight size={18}/></Link>
-        <Link to="/gifts"><Gift size={23}/><span><strong>A gift worth sharing</strong><small>From 500 practice ETB · no buy fee</small></span><ArrowUpRight size={18}/></Link>
-        <Link to="/groups"><Users size={23}/><span><strong>Better together</strong><small>Find a group. Join the conversation.</small></span><ArrowUpRight size={18}/></Link>
+        <Link to="/games"><Gamepad2 size={23}/><span><strong>Games</strong><small>Explore the practice collection</small></span><ArrowUpRight size={18}/></Link>
+        <Link to="/gifts"><Gift size={23}/><span><strong>Gifts</strong><small>From 500 practice ETB</small></span><ArrowUpRight size={18}/></Link>
+        <Link to="/groups"><Users size={23}/><span><strong>Groups</strong><small>Play and connect with friends</small></span><ArrowUpRight size={18}/></Link>
       </nav>
       <div className="ruby-welcome-strip">
         <div>
