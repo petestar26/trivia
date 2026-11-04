@@ -19,6 +19,12 @@ SOFTAGGREGATOR_API_PASSWORD=<replacement password>
 SOFTAGGREGATOR_DEMO_LAUNCH_HOSTS=<exact HTTPS game hostnames confirmed by provider>
 ```
 
+The adapter and operator probe use the same credential reader. It removes only
+leading/trailing whitespace introduced when credentials are pasted into server
+settings, rejects credentials that become empty, and uses the normalized password
+for the anonymous player identity. Internal characters are preserved. Raw credentials
+and provider session URLs are never emitted by the probe.
+
 No salt key is needed: this pilot never connects the wallet. Leave the provider
 callback unconfigured. Confirm with support that demo launches are enabled on the
 account, are free, and do not require prepaid credit. Environment `prod` alone
@@ -78,7 +84,7 @@ in the frontend or source tree.
 ## Initial implementation verification (historical)
 
 These results describe the initial adapter milestone, before the current hosted
-release. The current operator probe passes 60 provider tests and API typecheck/build;
+release. The current operator probe passes 66 provider tests and API typecheck/build;
 actual provider credentials and hosted demo launches still require verification.
 
 - 18 isolated API tests and 6 demo page tests passed with mocked provider calls.

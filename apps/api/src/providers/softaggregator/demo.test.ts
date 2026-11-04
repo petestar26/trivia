@@ -15,6 +15,42 @@ afterEach(() => {
 });
 
 describe('provider demo boundary', () => {
+  it.each(['SOFTAGGREGATOR_API_LOGIN', 'SOFTAGGREGATOR_API_PASSWORD'] as const)(
+    'removes pasted boundary whitespace from %s before authenticating', async key => {
+      const settings = env();
+      settings[key] = `\r\n ${settings[key]}\t `;
+      const fetcher = vi.fn(async (_url, options) => {
+        const body = JSON.parse(options.body);
+        return body.api_login === 'test-login' && body.api_password === 'test-password'
+          ? response([game]) : new Response(JSON.stringify({ error: 1, message: 'Invalid credentials' }));
+      });
+      expect(await createProviderDemo(settings, fetcher).games('tester')).toHaveLength(1);
+      expect(settings[key]).toMatch(/^\r\n /); // Never mutate the injected environment.
+    }
+  );
+  it.each(['SOFTAGGREGATOR_API_LOGIN', 'SOFTAGGREGATOR_API_PASSWORD'] as const)(
+    'refuses whitespace-only %s before any provider call', async key => {
+      const settings = { ...env(), [key]: ' \r\n\t ' };
+      const fetcher = vi.fn();
+      await expect(createProviderDemo(settings, fetcher).games('tester')).rejects.toMatchObject({ statusCode: 503 });
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps the same anonymous player identity when credentials contain pasted whitespace', async () => {
+    const launchBodies: unknown[] = [];
+    for (const padded of [false, true]) {
+      const settings = env();
+      if (padded) settings.SOFTAGGREGATOR_API_PASSWORD = `\n${settings.SOFTAGGREGATOR_API_PASSWORD}\r\n`;
+      const fetcher = vi.fn().mockResolvedValueOnce(response([game]))
+        .mockImplementationOnce(async (_url, options) => {
+          const body = JSON.parse(options.body);
+          launchBodies.push({ username: body.user_username, password: body.user_password });
+          return response('https://games.example.com/demo/session');
+        });
+      await createProviderDemo(settings, fetcher).launch('tester', game.id_hash);
+    }
+    expect(launchBodies[0]).toEqual(launchBodies[1]);
+  });
   it('blocks disabled or unlisted users without contacting provider', async () => {
     const fetcher = vi.fn();
     const settings = env();
