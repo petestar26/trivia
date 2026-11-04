@@ -13,6 +13,7 @@ const MEMBER_GAME_ORDER = [
   'dice',
   'number_challenge',
   'lucky_six',
+  'blackjack',
 ] as const;
 const memberGameRanks = new Map<string, number>(
   MEMBER_GAME_ORDER.map((key, index) => [key, index])
@@ -27,6 +28,7 @@ export function compareMemberGameKeys(a: string, b: string): number {
 }
 
 const MEMBER_GAME_NAMES: Record<string, string> = {
+  blackjack: 'Blackjack',
   lucky_six: 'Lucky Six',
   roulette_keno: 'Roulette Keno',
   virtual_football_3d: 'Football',
@@ -40,6 +42,7 @@ export function memberGameName(game: Pick<MemberGame, 'key' | 'name'>): string {
 }
 
 export const PRACTICE_ROUTES: Record<string, string> = {
+  blackjack: '/games/blackjack',
   lucky_six: '/games/lucky-six',
   roulette_keno: '/games/roulette-keno',
   number_challenge: '/games/number-challenge',
@@ -55,6 +58,7 @@ export const PRACTICE_ROUTES: Record<string, string> = {
 /** Keep their cards visible, but require server availability before offering entry. */
 const GATED_PRACTICE = [
   'lucky_six',
+  'blackjack',
   'roulette_keno',
   'number_challenge',
   'sky_crash',

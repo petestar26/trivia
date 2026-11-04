@@ -28,3 +28,5 @@ export * from './number-timed.js';
 export * from './dog-racing.js';
 export * from './roulette-keno.js';
 export * from './lucky-six.js';
+
+export * from './blackjack.js';
