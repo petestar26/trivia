@@ -202,7 +202,7 @@ describe('Ruby Grand member dashboard', () => {
         }));
         setup(Page);
         await screen.findByRole('heading', { name: 'sky_crash' });
-        const art = document.querySelector('img[src="/images/sky-crash/aircraft.webp"]');
+        const art = document.querySelector('img[src="/images/sky-crash/jet-v1.webp"]');
         if (practiceAvailable === true) {
           expect(art).toBeInTheDocument();
           expect(art).toHaveAttribute('loading', 'lazy');

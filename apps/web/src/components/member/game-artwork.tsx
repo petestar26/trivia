@@ -46,7 +46,7 @@ export function GameArtwork({
           backgroundSize: 'cover',
         }}
       >
-        <img src="/images/sky-crash/aircraft.webp" alt="" loading="lazy" decoding="async" />
+        <img src="/images/sky-crash/jet-v1.webp" alt="" loading="lazy" decoding="async" />
       </div>
     );
   const asset = images[kind];

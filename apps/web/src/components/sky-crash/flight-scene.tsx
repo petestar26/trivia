@@ -92,22 +92,38 @@ export function FlightScene({
         >
           <g transform={`rotate(${-lift * 12})`}>
             {assetFailed ? (
-              <g data-testid="sky-aircraft-fallback">
+              <g data-testid="sky-aircraft-fallback" strokeLinejoin="round">
+                {/* Swept wings and twin rear engines retain the jet silhouette offline. */}
+                <path d="M-13-3L-39-32L-25-35L30-6Z" fill="#b8c5d0" stroke="#647788" />
+                <path d="M-49-4L-61-31L-46-28L-25-4Z" fill="#702b42" stroke="#e5bd9c" />
+                <path d="M-40-13Q-47-13-47-7L-21-4Q-14-9-21-13Z" fill="#d6dce0" stroke="#c5967a" />
                 <path
-                  d="M-53 4L-25-4L-9-31L2-32L-1-6L48-2L59 4L4 9L-21 29L-33 28L-19 8L-44 10Z"
-                  fill="#f2e5cd"
-                  stroke="#6b7274"
+                  d="M-63-3Q-30-12 34-6Q51-3 65 3Q44 11-6 9L-58 5Z"
+                  fill="#eee8dd"
+                  stroke="#758391"
+                />
+                <path d="M-53 3Q0 0 51 6" fill="none" stroke="#7b3249" strokeWidth="3" />
+                <path d="M-5 5L-36 34L-21 37L34 7Z" fill="#d0d9e0" stroke="#8d776a" />
+                <path d="M-43 3Q-51 3-51 10Q-49 16-24 15L-19 6Z" fill="#d1d8dd" stroke="#c5967a" />
+                <ellipse
+                  cx="-21"
+                  cy="10"
+                  rx="4"
+                  ry="6"
+                  fill="#213847"
+                  stroke="#e5bd9c"
                   strokeWidth="2"
                 />
-                <path d="M17 1L33 2" stroke="#365471" strokeWidth="4" />
+                <path d="M29-4L40-2L48 2L31 1Z" fill="#284659" />
+                <path d="M-12-3H19" stroke="#284659" strokeWidth="3" strokeDasharray="3 4" />
               </g>
             ) : (
               <image
-                href="/images/sky-crash/aircraft.webp"
+                href="/images/sky-crash/jet-v1.webp"
                 x="-74"
-                y="-48"
+                y="-37"
                 width="148"
-                height="96"
+                height="74"
                 onError={() => setAssetFailed(true)}
               />
             )}
