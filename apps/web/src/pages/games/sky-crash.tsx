@@ -9,6 +9,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUpRight,
+  Check,
   History,
   Minus,
   Plus,
@@ -408,37 +409,6 @@ function SkyCrash({
             />
             <span>×</span>
           </div>
-          <details className="sky-target-options">
-            <summary>Quick targets</summary>
-            <div
-              className="sky-presets sky-targets"
-              role="group"
-              aria-label="Auto cash-out targets"
-            >
-              {[1.5, 2, 3, 5].map((target) => (
-                <button
-                  key={target}
-                  disabled={locked}
-                  aria-pressed={
-                    (ticket
-                      ? ticket.autoCents
-                      : pending
-                        ? pending.autoCents
-                        : auto
-                          ? Math.round(Number(autoText) * 100)
-                          : null) ===
-                    target * 100
-                  }
-                  onClick={() => {
-                    setAuto(true);
-                    setAutoText(target.toFixed(2));
-                  }}
-                >
-                  {target.toFixed(2)}×
-                </button>
-              ))}
-            </div>
-          </details>
         </div>
         <div className="sky-stake-field">
           <label htmlFor={`sky-stake-${slot}`}>Bet amount</label>
@@ -558,18 +528,37 @@ function SkyCrash({
             : notice}
         </p>
       )}
-      {raw?.maxTickets === 2 && (
-        <div className="sky-autoplay-controls">
-          {autoplay ? (
-            <button
-              onClick={() => {
-                setAutoplay(null);
-                setNotice('Autoplay stopped. Already confirmed tickets remain active.');
-              }}
-            >
-              Stop autoplay · {autoplay.remaining} entries left
-            </button>
-          ) : (
+      <details className="sky-more-options">
+        <summary>More options</summary>
+        <details className="sky-target-options">
+          <summary>Quick targets</summary>
+          <div className="sky-presets sky-targets" role="group" aria-label="Auto cash-out targets">
+            {[1.5, 2, 3, 5].map((target) => (
+              <button
+                key={target}
+                disabled={locked}
+                aria-pressed={
+                  (ticket
+                    ? ticket.autoCents
+                    : pending
+                      ? pending.autoCents
+                      : auto
+                        ? Math.round(Number(autoText) * 100)
+                        : null) ===
+                  target * 100
+                }
+                onClick={() => {
+                  setAuto(true);
+                  setAutoText(target.toFixed(2));
+                }}
+              >
+                {target.toFixed(2)}×
+              </button>
+            ))}
+          </div>
+        </details>
+        {raw?.maxTickets === 2 && !autoplay && (
+          <div className="sky-autoplay-controls">
             <button
               disabled={
                 !connected ||
@@ -587,15 +576,27 @@ function SkyCrash({
               }}
             >
               Start autoplay · 10 rounds
-            </button>
-          )}
-          <details className="sky-autoplay-info">
-            <summary>Rules</summary>
-            <p>
-              Up to 10 entries using this amount and target. Start before confirming a ticket. Stops
-              on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
-            </p>
-          </details>
+            </button>{' '}
+            <details className="sky-autoplay-info">
+              <summary>Rules</summary>
+              <p>
+                Up to 10 entries using this amount and target. Start before confirming a ticket.
+                Stops on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
+              </p>
+            </details>
+          </div>
+        )}
+      </details>
+      {autoplay && (
+        <div className="sky-autoplay-controls">
+          <button
+            onClick={() => {
+              setAutoplay(null);
+              setNotice('Autoplay stopped. Already confirmed tickets remain active.');
+            }}
+          >
+            Stop autoplay · {autoplay.remaining} entries left
+          </button>
         </div>
       )}
     </aside>
@@ -939,10 +940,11 @@ function SkyCrash({
       <details className="sky-rules">
         <summary>Rules, timing and round verification</summary>
         <p>
-          Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game Points. No
-          purchases, refills, gifts, transfers or withdrawals. Sky Crash practice ETB are separate from
-          Crash Point practice ETB. Confirm up to two immutable tickets per round. Auto cash-out is
-          handled by the server and survives disconnects. A target equal to the crash loses.
+          Practice starts with 1,000 nonredeemable practice ETB, separate from Coins and Game
+          Points. No purchases, refills, gifts, transfers or withdrawals. Sky Crash practice ETB are
+          separate from Crash Point practice ETB. Confirm up to two immutable tickets per round.
+          Auto cash-out is handled by the server and survives disconnects. A target equal to the
+          crash loses.
         </p>
         <p>
           Manual cash-out is accepted at server processing time, after locks are acquired. At or
@@ -973,6 +975,7 @@ function SkyCrash({
 }
 function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastViewedId, setLastViewedId] = useState<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const historyHeading = useRef<HTMLHeadingElement>(null);
   const completed = rounds
@@ -1003,12 +1006,17 @@ function RoundHistory({ rounds }: { rounds: SkyCrashRound[] }) {
             aria-label={`View completed round ${r.id}: ${(r.crashCents! / 100).toFixed(2)}×`}
             title={`${new Date(r.startsAt).toLocaleString()} · View round details`}
             aria-haspopup="dialog"
+            aria-current={r.id === lastViewedId ? true : undefined}
             onClick={(event) => {
               opener.current = event.currentTarget;
               setSelectedId(r.id);
+              setLastViewedId(r.id);
             }}
           >
             <strong>{(r.crashCents! / 100).toFixed(2)}×</strong>
+            {r.id === lastViewedId && (
+              <Check className="sky-history-selected-mark" aria-hidden="true" />
+            )}
             <time dateTime={new Date(r.startsAt).toISOString()}>
               {new Date(r.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </time>

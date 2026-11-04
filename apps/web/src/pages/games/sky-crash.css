@@ -2218,3 +2218,266 @@
   border-color: #80574c;
   color: #e6c8bc;
 }
+
+/* Remember the viewed result after its dialog closes, independently of live play. */
+.sky-history-grid button[aria-current='true'] {
+  border-color: #ffe0b5;
+  background: linear-gradient(145deg, #6a3b50, #332537);
+  color: #fff4df;
+  box-shadow: inset 0 0 0 2px #ffe0b5;
+}
+.sky-history-grid button[aria-current='true'] strong {
+  display: inline-block;
+  font-weight: 900;
+  transform: translateY(-2px);
+}
+.sky-history-selected-mark {
+  position: absolute;
+  bottom: 2px;
+  left: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+  pointer-events: none;
+}
+
+/* Secondary settings follow the primary action instead of separating it from the graph. */
+.sky-more-options {
+  margin-top: 8px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.sky-more-options > summary {
+  min-height: 44px;
+  padding: 13px 0;
+  cursor: pointer;
+}
+.sky-more-options .sky-target-options summary {
+  min-height: 44px;
+}
+
+/* Compact flight deck: keep the live result and both ticket actions in view. */
+@media (max-width: 680px) {
+  .qube-main:has(.sky-page) {
+    padding: 8px 8px 24px;
+  }
+  .sky-page {
+    --sky-compact-height: clamp(160px, 25svh, 200px);
+  }
+  .sky-page > .game-round-summary,
+  .sky-kicker,
+  .sky-heading > div > p,
+  .sky-heading h1 > span,
+  .sky-bet-navigation,
+  .sky-history-heading,
+  .sky-ticket-header > div > span,
+  .sky-ticket-state,
+  .sky-ticket-result {
+    display: none;
+  }
+  .sky-nav {
+    min-height: 32px;
+    margin-bottom: 4px;
+  }
+  .sky-nav a {
+    min-height: 44px;
+  }
+  .sky-heading {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .sky-heading h1 {
+    font-size: 22px;
+  }
+  .sky-heading-actions {
+    width: auto;
+    flex: 0 1 auto;
+  }
+  .sky-wallet {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: right;
+  }
+  .sky-wallet span {
+    display: none;
+  }
+  .sky-wallet strong {
+    margin: 0;
+    font-size: 15px;
+  }
+  .sky-wallet small {
+    display: block;
+    margin-top: 2px;
+    font-size: 9px;
+  }
+  .sky-layout {
+    padding: 6px;
+    border-radius: 14px;
+  }
+  .sky-history {
+    padding-bottom: 6px;
+  }
+  .sky-history-grid {
+    margin: 0;
+    padding: 0;
+    gap: 5px;
+  }
+  .sky-history-grid button {
+    min-width: 58px;
+    padding: 7px;
+  }
+  .sky-display:not(.game-arena--expanded) {
+    position: relative;
+  }
+  .sky-display:not(.game-arena--expanded) .game-arena__toolbar {
+    position: absolute;
+    right: 8px;
+    top: calc(var(--sky-compact-height) - 52px);
+    z-index: 5;
+    padding: 0;
+  }
+  .sky-display:not(.game-arena--expanded) .game-arena__toolbar > span {
+    display: none;
+  }
+  .sky-display:not(.game-arena--expanded) .game-arena__toggle {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+    background: #14253ad9;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-arena {
+    height: var(--sky-compact-height);
+    min-height: 0;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-arena-top {
+    padding: 8px;
+    font-size: 8px;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-graph-shell {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    margin: 0;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-multiplier {
+    top: 30%;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-multiplier strong {
+    font-size: 46px;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-multiplier p {
+    display: none;
+  }
+  .sky-display:not(.game-arena--expanded) .sky-confirmed-returns {
+    right: 58px;
+    bottom: 8px;
+  }
+  .sky-betting {
+    margin-top: 8px;
+  }
+  .sky-betting-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .sky-dual-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    align-items: start;
+  }
+  .sky-controls {
+    padding: 7px;
+    border-radius: 10px;
+  }
+  .sky-ticket-header {
+    margin-bottom: 5px;
+    padding-bottom: 5px;
+  }
+  .sky-ticket-header h2 {
+    font-size: 12px;
+  }
+  .sky-bet-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .sky-auto-field {
+    grid-template-columns: minmax(0, 1fr) minmax(48px, 0.8fr);
+    gap: 4px;
+  }
+  .sky-auto {
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-height: 44px;
+  }
+  .sky-controls label {
+    font-size: 10px;
+  }
+  .sky-auto input {
+    width: 17px;
+    height: 17px;
+  }
+  .sky-input {
+    padding: 0 4px;
+    gap: 2px;
+  }
+  .sky-input input {
+    min-height: 44px;
+    font-size: 16px;
+    padding: 4px 0;
+  }
+  .sky-stake-field,
+  .sky-submit-field {
+    grid-column: 1;
+  }
+  .sky-stake-adjustment {
+    margin-top: 3px;
+    padding: 0;
+    gap: 0;
+  }
+  .sky-amount-adjust {
+    width: 40px;
+    height: 44px;
+    flex-basis: 40px;
+    border-radius: 7px;
+  }
+  .sky-stake-adjustment input {
+    font-size: 16px;
+  }
+  .sky-action {
+    min-height: 54px;
+    padding: 6px 3px;
+    font-size: 11px;
+    box-shadow: inset 0 1px #e7caff45;
+  }
+  .sky-action small {
+    font-size: 9px;
+  }
+  .sky-more-options {
+    margin-top: 2px;
+    font-size: 10px;
+  }
+  .sky-more-options > summary {
+    padding: 13px 0;
+  }
+  .sky-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sky-autoplay-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .sky-autoplay-controls > button {
+    padding: 6px;
+    font-size: 10px;
+  }
+}
