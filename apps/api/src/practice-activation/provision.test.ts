@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   activationTarget,
   NUMBER_ROLE,
@@ -8,6 +9,7 @@ import {
   PRACTICE_TABLES,
   provisionPractice,
   practiceDiagnostics,
+  restrictKnownPublicCapabilities,
   WORKER_ROLE,
   type ActivationDb,
 } from './provision.js';
@@ -22,6 +24,15 @@ const settings = () => ({
   NUMBER_WORKER_PASSWORD: 'b'.repeat(64),
 });
 let db: PGlite;
+let emptyDatabase: Blob;
+beforeAll(async () => {
+  // Reload a pristine initialized cluster to avoid PGlite's fresh-start shared
+  // catalog cache bug when testing ordinary GRANT/REVOKE ON DATABASE.
+  const seed = new PGlite();
+  await seed.waitReady;
+  emptyDatabase = await seed.dumpDataDir('gzip');
+  await seed.close();
+});
 
 function adapter(connection: Pick<PGlite, 'query' | 'exec'>): ActivationDb {
   return {
@@ -34,7 +45,7 @@ const apply = (env: Record<string, string | undefined> = settings()) =>
   db.transaction((tx) => provisionPractice(adapter(tx), env));
 
 beforeEach(async () => {
-  db = new PGlite();
+  db = new PGlite({ loadDataDir: emptyDatabase });
   await db.exec(`
     CREATE TABLE users(id text PRIMARY KEY,status text,password_hash text,role text);
     INSERT INTO users VALUES ('member','ACTIVE','private-password-hash','USER');
@@ -60,12 +71,15 @@ async function markedWorker(extra = '') {
     COMMENT ON ROLE "${WORKER_ROLE}" IS '${marker}';`);
 }
 async function asRole(role: string, sql: string) {
-  await db.exec(`SET ROLE "${role}"`);
+  await db.exec(`SET ROLE "${role.replaceAll('"', '""')}"`);
   try {
     return await db.exec(sql);
   } finally {
     await db.exec('RESET ROLE');
   }
+}
+async function unchangedWallet() {
+  expect((await db.query<{ balance: number }>('SELECT balance FROM wallets')).rows).toEqual([{ balance: 100 }]);
 }
 async function unchanged() {
   expect(
@@ -76,7 +90,165 @@ async function unchanged() {
   ]);
 }
 
+
+const signedFinancialRoutines = [
+  'public.ledger_adjustment_close(text,text,text,text,text,text,text)',
+  'public.ledger_adjustment_execute(text,text,text,text,text,text,text)',
+  'public.ledger_adjustment_first_approval(text,text,text,text,text)',
+  'public.ledger_adjustment_request(text,text,numeric,text,jsonb,text,text,text,text)',
+  'public.ledger_lock_economy_for_invariant_check()',
+  'public.ledger_review_first_approval(text,text,jsonb,text,text,text)',
+  'public.ledger_review_reopen(text,text,text,integer,text,text,text)',
+  'public.ledger_review_resolve(text,text,text,text,text,text)',
+] as const;
+const routineCall = (signature: string) => {
+  const [name, tail] = signature.split('(');
+  const argumentsList = tail.slice(0, -1);
+  const values: Record<string, string> = { text: "'test'", numeric: '0', integer: '0', jsonb: "'{}'::jsonb" };
+  return `SELECT ${name}(${argumentsList ? argumentsList.split(',').map((type) => values[type]).join(',') : ''})`;
+};
+
+async function knownPublicCapabilities() {
+  await db.exec(`
+    CREATE FUNCTION public.ledger_approval_signature_valid(text,text,text,boolean) RETURNS boolean LANGUAGE sql SECURITY DEFINER AS 'SELECT true';
+    CREATE FUNCTION public.house_round_randomness_failures() RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 0';
+    CREATE FUNCTION public.house_public_spin_proof(text) RETURNS text LANGUAGE sql SECURITY DEFINER AS 'SELECT $1';
+    ${signedFinancialRoutines.map(signature => `CREATE FUNCTION ${signature} RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN RAISE EXCEPTION 'financial routine must not run during provisioning'; END $$;`).join('\n')}
+    CREATE TABLE house_round_beacon_pins(id text);
+    CREATE TABLE house_publication_requests(id text);
+    CREATE TABLE house_publication_receipts(id text);
+    GRANT SELECT ON house_round_beacon_pins,house_publication_requests,house_publication_receipts TO PUBLIC;
+  `);
+}
+
 describe('restricted practice provisioning on real PostgreSQL semantics (PGlite)', () => {
+
+
+  it('denies the migrated SECURITY DEFINER trigger escape through temporary tables', async () => {
+    const migration = readFileSync(new URL('../../../../packages/database/prisma/migrations/20260924040000_ledger_function_search_path/migration.sql', import.meta.url), 'utf8');
+    const start = migration.indexOf('CREATE OR REPLACE FUNCTION "coin_allocations_guard"()');
+    const endMarker = '$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp;';
+    const end = migration.indexOf(endMarker, start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    await db.exec(`CREATE TABLE public.coin_provenance(id text,"userId" text,amount integer);
+      CREATE TABLE public.coin_allocations(id text,"provenanceId" text,"userId" text,"allocatedAmount" integer);
+      INSERT INTO public.coin_provenance VALUES('known-id','private-owner',853);
+      ${migration.slice(start,end+endMarker.length)}`);
+    await apply();
+    for (const role of [WORKER_ROLE, NUMBER_ROLE]) {
+      expect((await db.query<{ allowed: boolean }>("SELECT has_table_privilege($1,'coin_provenance','SELECT') AS allowed", [role])).rows).toEqual([{ allowed: false }]);
+      await expect(asRole(role, `CREATE TEMP TABLE probe(id text,"provenanceId" text,"userId" text,"allocatedAmount" integer);
+        CREATE TRIGGER exploit BEFORE INSERT ON probe FOR EACH ROW EXECUTE FUNCTION public.coin_allocations_guard();
+        INSERT INTO probe VALUES('probe','known-id','guessed-owner',1);`)).rejects.toThrow(/permission denied/i);
+      expect((await db.query<{ create: boolean; temp: boolean; connect: boolean }>(`SELECT has_database_privilege($1,current_database(),'CREATE') AS create,
+        has_database_privilege($1,current_database(),'TEMPORARY') AS temp,
+        has_database_privilege($1,current_database(),'CONNECT') AS connect`,[role])).rows).toEqual([{create:false,temp:false,connect:true}]);
+    }
+    expect((await db.query('SELECT * FROM coin_provenance')).rows).toEqual([{id:'known-id',userId:'private-owner',amount:853}]);
+    await unchangedWallet();
+  });
+
+  it.each(['CREATE','TEMPORARY'])('refuses a marked worker with explicit database %s and restores PUBLIC TEMP on rollback', async (privilege) => {
+    await markedWorker();
+    const [{ name }] = (await db.query<{name:string}>('SELECT current_database() AS name')).rows;
+    await db.exec(`GRANT ${privilege} ON DATABASE "${name.replaceAll('"','""')}" TO "${WORKER_ROLE}"`);
+    const before = await practiceDiagnostics(adapter(db));
+    await expect(apply()).rejects.toThrow('PRACTICE_WORKER_PRIVILEGES_REFUSED');
+    expect(await practiceDiagnostics(adapter(db))).toEqual(before);
+    expect((await db.query<{present:boolean}>(`SELECT EXISTS(SELECT 1 FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a
+      WHERE a.grantee=0 AND a.privilege_type='TEMPORARY') AS present FROM pg_database d WHERE datname=current_database()`)).rows).toEqual([{present:true}]);
+    expect((await db.query('SELECT 1 FROM pg_roles WHERE rolname=$1',[NUMBER_ROLE])).rows).toEqual([]);
+    await unchanged();
+  });
+
+  it('isolates known PUBLIC capabilities while preserving existing login and NOLOGIN callers', async () => {
+    await knownPublicCapabilities();
+    await db.exec(`CREATE ROLE "api""quoted" LOGIN NOINHERIT;
+      CREATE ROLE group_reader NOLOGIN; CREATE ROLE inheriting_api LOGIN INHERIT;
+      GRANT group_reader TO inheriting_api;
+      GRANT SELECT ON wallets TO group_reader;
+      CREATE FUNCTION unrelated_invoker() RETURNS integer LANGUAGE sql AS 'SELECT 7';
+      REVOKE EXECUTE ON FUNCTION unrelated_invoker() FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION unrelated_invoker() TO group_reader WITH GRANT OPTION;`);
+    expect(await apply()).toMatchObject({
+      restrictedWorkersReady: true,
+      publicCapabilities: { functionsRestricted: 11, proofTablesRestricted: 3, databaseTempRestricted: true, callersPreserved: 4 },
+    });
+    for (const role of ['api"quoted', 'group_reader', 'inheriting_api']) {
+      await asRole(role, 'CREATE TEMP TABLE retained_temp(id integer); DROP TABLE retained_temp;');
+      expect((await db.query<{allowed:boolean}>("SELECT has_database_privilege($1,current_database(),'CONNECT') AS allowed",[role])).rows).toEqual([{allowed:true}]);
+      await asRole(role, `
+        SELECT ledger_approval_signature_valid('a','b','c',false);
+        SELECT house_round_randomness_failures(); SELECT house_public_spin_proof('round');
+        SELECT * FROM house_round_beacon_pins; SELECT * FROM house_publication_requests; SELECT * FROM house_publication_receipts;`);
+      for (const signature of signedFinancialRoutines) {
+        await expect(asRole(role, routineCall(signature))).rejects.toThrow('financial routine must not run during provisioning');
+      }
+    }
+    await asRole('group_reader', 'SELECT * FROM wallets; SELECT unrelated_invoker();');
+    expect((await db.query<{ allowed: boolean }>("SELECT has_function_privilege('group_reader','unrelated_invoker()','EXECUTE WITH GRANT OPTION') AS allowed")).rows).toEqual([{ allowed: true }]);
+    for (const role of [WORKER_ROLE, NUMBER_ROLE]) {
+      for (const sql of [
+        "SELECT ledger_approval_signature_valid('a','b','c',false)",
+        'SELECT house_round_randomness_failures()', "SELECT house_public_spin_proof('round')",
+        'SELECT * FROM house_round_beacon_pins', 'SELECT * FROM house_publication_requests',
+        'SELECT * FROM house_publication_receipts', 'SELECT * FROM wallets',
+        ...signedFinancialRoutines.map(routineCall),
+      ]) await expect(asRole(role, sql)).rejects.toThrow(/permission denied/i);
+    }
+    await unchangedWallet();
+    expect(await apply()).toMatchObject({
+      restrictedWorkersReady: true,
+      publicCapabilities: { functionsRestricted: 0, proofTablesRestricted: 0, databaseTempRestricted: false, callersPreserved: 4 },
+    });
+  });
+
+  it('rolls known PUBLIC ACL changes back when an unexpected PUBLIC financial function remains', async () => {
+    await knownPublicCapabilities();
+    await db.exec(`CREATE ROLE existing_api LOGIN;
+      CREATE FUNCTION unknown_financial_escape() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
+      BEGIN UPDATE wallets SET balance=999; RETURN 999; END $$;`);
+    const before = await practiceDiagnostics(adapter(db));
+    await expect(apply()).rejects.toThrow('PRACTICE_WORKER_PRIVILEGES_REFUSED');
+    expect(await practiceDiagnostics(adapter(db))).toEqual(before);
+    expect((await db.query('SELECT 1 FROM pg_roles WHERE rolname=ANY($1::text[])', [[WORKER_ROLE, NUMBER_ROLE]])).rows).toEqual([]);
+    await unchanged();
+  });
+
+  it('refuses a changed caller role set and rolls its ACL changes back', async () => {
+    await knownPublicCapabilities();
+    const before = await practiceDiagnostics(adapter(db));
+    let inserted = false;
+    await expect(db.transaction(async (tx) => {
+      const original = adapter(tx);
+      return provisionPractice({
+        query: original.query,
+        execute: async (sql) => {
+          await original.execute(sql);
+          if (!inserted && sql.startsWith('GRANT EXECUTE')) {
+            inserted = true;
+            await tx.exec('CREATE ROLE unexpected_caller LOGIN');
+          }
+        },
+      }, settings());
+    })).rejects.toThrow('PRACTICE_CALLER_SET_CHANGED');
+    expect(inserted).toBe(true);
+    expect(await practiceDiagnostics(adapter(db))).toEqual(before);
+    await unchanged();
+  });
+
+  it('refuses known PUBLIC capability cleanup without object ownership authority', async () => {
+    await knownPublicCapabilities();
+    await db.exec('CREATE ROLE unprivileged_api LOGIN; SET ROLE unprivileged_api');
+    try {
+      await expect(restrictKnownPublicCapabilities(adapter(db))).rejects.toThrow('PRACTICE_PUBLIC_CAPABILITY_REFUSED');
+    } finally { await db.exec('RESET ROLE'); }
+    expect((await db.query<{ present: boolean }>(`SELECT EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS present
+      FROM pg_proc p WHERE p.oid='ledger_approval_signature_valid(text,text,text,boolean)'::regprocedure`)).rows).toEqual([{ present: true }]);
+    await unchanged();
+  });
+
 
   it('diagnoses PUBLIC catalog privileges without executing functions, reading data or changing grants', async () => {
     await db.exec(`CREATE ROLE diagnostic_api LOGIN; CREATE ROLE diagnostic_operator;

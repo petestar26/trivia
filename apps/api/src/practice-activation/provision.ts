@@ -91,7 +91,10 @@ export async function practiceDiagnostics(db: Pick<ActivationDb, 'query'>) {
   const [identity] = await db.query(
     `SELECT current_user::text AS role, pg_get_userbyid(d.datdba) AS database_owner,
       current_user::text=pg_get_userbyid(d.datdba) AS owns_database,
-      r.rolsuper AS superuser, r.rolcreaterole AS can_create_role
+      r.rolsuper AS superuser, r.rolcreaterole AS can_create_role,
+      (SELECT jsonb_agg(jsonb_build_object('grantee',CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+        'privilege',a.privilege_type,'grantable',a.is_grantable) ORDER BY a.grantee,a.privilege_type)
+       FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a) AS database_acl
      FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`
   );
   const roles = await db.query(
@@ -149,6 +152,96 @@ export async function practiceDiagnostics(db: Pick<ActivationDb, 'query'>) {
     publicRelationPrivileges: relations, publicSchemaCreate: schemas };
 }
 
+
+const KNOWN_PUBLIC_FUNCTIONS = [
+  'public.ledger_approval_signature_valid(text,text,text,boolean)',
+  'public.house_round_randomness_failures()',
+  'public.house_public_spin_proof(text)',
+  'public.ledger_adjustment_close(text,text,text,text,text,text,text)',
+  'public.ledger_adjustment_execute(text,text,text,text,text,text,text)',
+  'public.ledger_adjustment_first_approval(text,text,text,text,text)',
+  'public.ledger_adjustment_request(text,text,numeric,text,jsonb,text,text,text,text)',
+  'public.ledger_lock_economy_for_invariant_check()',
+  'public.ledger_review_first_approval(text,text,jsonb,text,text,text)',
+  'public.ledger_review_reopen(text,text,text,integer,text,text,text)',
+  'public.ledger_review_resolve(text,text,text,text,text,text)',
+] as const;
+const KNOWN_PUBLIC_PROOF_TABLES = [
+  'public.house_round_beacon_pins',
+  'public.house_publication_requests',
+  'public.house_publication_receipts',
+] as const;
+const quoteIdentifier = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+/** Remove only known PUBLIC capabilities, preserving all captured existing callers. */
+export async function restrictKnownPublicCapabilities(db: ActivationDb) {
+  const existingRoles = () => db.query<{ oid: string; role: string }>(
+    `SELECT oid::text AS oid,rolname AS role FROM pg_roles
+     WHERE rolname !~ '^pg_' AND rolname<>ALL($1::text[]) ORDER BY oid`,
+    [[WORKER_ROLE, NUMBER_ROLE]]
+  );
+  const roles = await existingRoles();
+  const assertCallersUnchanged = async () => {
+    if (JSON.stringify(await existingRoles()) !== JSON.stringify(roles))
+      throw Error('PRACTICE_CALLER_SET_CHANGED');
+  };
+  let functionsRestricted = 0;
+  let proofTablesRestricted = 0;
+  for (const signature of KNOWN_PUBLIC_FUNCTIONS) {
+    const [object] = await db.query<{ public_access: boolean; can_manage: boolean; expected_kind: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+        WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_access,
+       (p.proowner=r.oid OR r.rolsuper) AS can_manage,
+       (p.prokind='f' AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype,'event_trigger'::regtype)) AS expected_kind
+       FROM pg_proc p JOIN pg_roles r ON r.rolname=current_user WHERE p.oid=to_regprocedure($1)`,
+      [signature]
+    );
+    if (!object?.public_access) continue;
+    if (!object.can_manage || !object.expected_kind) throw Error('PRACTICE_PUBLIC_CAPABILITY_REFUSED');
+    for (const { role } of roles)
+      await db.execute(`GRANT EXECUTE ON FUNCTION ${signature} TO ${quoteIdentifier(role)}`);
+    await db.execute(`REVOKE EXECUTE ON FUNCTION ${signature} FROM PUBLIC`);
+    functionsRestricted++;
+  }
+  for (const table of KNOWN_PUBLIC_PROOF_TABLES) {
+    const [object] = await db.query<{ public_access: boolean; can_manage: boolean; expected_kind: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+        WHERE a.grantee=0 AND a.privilege_type='SELECT') AS public_access,
+       (c.relowner=r.oid OR r.rolsuper) AS can_manage,
+       c.relkind IN ('r','p') AS expected_kind
+       FROM pg_class c JOIN pg_roles r ON r.rolname=current_user WHERE c.oid=to_regclass($1)`,
+      [table]
+    );
+    if (!object?.public_access) continue;
+    if (!object.can_manage || !object.expected_kind) throw Error('PRACTICE_PUBLIC_CAPABILITY_REFUSED');
+    for (const { role } of roles)
+      await db.execute(`GRANT SELECT ON TABLE ${table} TO ${quoteIdentifier(role)}`);
+    await db.execute(`REVOKE SELECT ON TABLE ${table} FROM PUBLIC`);
+    proofTablesRestricted++;
+  }
+
+  // TEMP would let a worker attach a PUBLIC-executable SECURITY DEFINER trigger
+  // to its own table. Keep the trigger-function exception only without DDL access.
+  const [database] = await db.query<{ name: string; public_temp: boolean; can_manage: boolean }>(
+    `SELECT d.datname AS name,
+      EXISTS(SELECT 1 FROM aclexplode(COALESCE(d.datacl,acldefault('d',d.datdba))) a
+        WHERE a.grantee=0 AND a.privilege_type='TEMPORARY') AS public_temp,
+      (d.datdba=r.oid OR r.rolsuper) AS can_manage
+     FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`
+  );
+  if (!database) throw Error('PRACTICE_PUBLIC_CAPABILITY_REFUSED');
+  if (database.public_temp) {
+    if (!database.can_manage) throw Error('PRACTICE_PUBLIC_CAPABILITY_REFUSED');
+    for (const { role } of roles)
+      await db.execute(`GRANT TEMPORARY ON DATABASE ${quoteIdentifier(database.name)} TO ${quoteIdentifier(role)}`);
+    await db.execute(`REVOKE TEMPORARY ON DATABASE ${quoteIdentifier(database.name)} FROM PUBLIC`);
+  }
+  // Our advisory lock does not serialize unrelated administrator role DDL.
+  // Refuse a changed caller set rather than silently drop a newly observed caller.
+  await assertCallersUnchanged();
+  return { functionsRestricted, proofTablesRestricted, databaseTempRestricted: database.public_temp, callersPreserved: roles.length, assertCallersUnchanged };
+}
+
 async function provisionRole(db: ActivationDb, role: string, password: string) {
   const [existing] = await db.query<{ unsafe: boolean; marked: boolean }>(
     `SELECT (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication
@@ -174,6 +267,7 @@ export async function verifyPracticeRoles(db: ActivationDb) {
     const [row] = await db.query<{ safe: boolean }>(
       `SELECT NOT (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication
        OR EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid)
+       OR has_database_privilege(r.oid,current_database(),'CREATE,TEMPORARY')
        OR EXISTS(SELECT 1 FROM pg_namespace n WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema' AND has_schema_privilege(r.oid,n.oid,'CREATE'))
        OR EXISTS(SELECT 1 FROM pg_shdepend d WHERE d.refclassid='pg_authid'::regclass AND d.refobjid=r.oid AND d.deptype='o')
        OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -209,6 +303,7 @@ export async function provisionPractice(db: ActivationDb, env: Record<string, st
   await db.query(
     `SELECT pg_advisory_xact_lock(hashtextextended('salem-practice-activation-20261104',0))::text`
   );
+  const { assertCallersUnchanged, ...publicCapabilities } = await restrictKnownPublicCapabilities(db);
   await provisionRole(db, WORKER_ROLE, env.PRACTICE_WORKER_PASSWORD!);
   await provisionRole(db, NUMBER_ROLE, env.NUMBER_WORKER_PASSWORD!);
   await db.execute(
@@ -223,8 +318,9 @@ export async function provisionPractice(db: ActivationDb, env: Record<string, st
   await db.execute(`GRANT SELECT,INSERT ON public.number_timed_rounds TO "${NUMBER_ROLE}"`);
   await db.execute(`GRANT UPDATE(target) ON public.number_timed_rounds TO "${NUMBER_ROLE}"`);
   await verifyPracticeRoles(db);
+  await assertCallersUnchanged();
   await db.execute(
     `UPDATE public.scheduled_game_streams SET enabled=true WHERE id='spin-win-practice-v1' AND mode='PRACTICE'`
   );
-  return { ...ready, spinEnabled: true, restrictedWorkersReady: true };
+  return { ...ready, spinEnabled: true, restrictedWorkersReady: true, publicCapabilities };
 }
