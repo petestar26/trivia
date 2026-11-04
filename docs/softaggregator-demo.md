@@ -66,3 +66,16 @@ Navigation verification: 185 focused web tests pass (20 catalogue/navigation,
 3 actual App routing, 57 provider/Home/welcome and 105 existing game-page tests).
 Web TypeScript/production build and 11 generated PWA checks pass. Existing
 server availability gates and the provider tester gate remain in force.
+
+## Release review
+
+Review fixes preserve 403/429 API errors with redacted messages and remove cached
+provider titles/sessions when demo access is denied or its status request fails.
+Four regressions failed before the fixes and pass after them: 20 isolated API
+tests and 28 provider/Casino UI tests pass, as does web TypeScript.
+
+The live `salem.bet` web service used the `c9c83afe` source base. Its API used
+`17c773e2`, so the API adapter is released separately on that deployed base;
+the full web feature branch is not promoted wholesale onto the older API.
+The API release changes only provider adapter code, its registration and isolated
+test setup. No database schema or migration changes are part of this release.

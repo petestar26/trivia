@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
@@ -29,9 +29,10 @@ function ProviderDemoSession({ userId }: { userId: string }) {
     retry: false,
     queryFn: async () => unwrapData(await api.get<{ enabled: boolean }>('/provider-demo/status')),
   });
+  const accessGranted = status.data?.enabled === true && !status.isError;
   const catalogue = useQuery({
     queryKey: ['provider-demo-games', userId],
-    enabled: status.data?.enabled === true,
+    enabled: accessGranted,
     retry: false,
     queryFn: async () => unwrapData(await api.get<DemoGame[]>('/provider-demo/games')),
   });
@@ -49,6 +50,13 @@ function ProviderDemoSession({ userId }: { userId: string }) {
       return result;
     },
   });
+  const resetLaunch = launch.reset;
+  useEffect(() => {
+    if (!accessGranted) {
+      resetLaunch();
+      setSelected(null);
+    }
+  }, [accessGranted, resetLaunch]);
   const games = (catalogue.data ?? []).filter((game) =>
     `${game.name} ${game.provider}`.toLowerCase().includes(search.toLowerCase())
   );
@@ -84,8 +92,8 @@ function ProviderDemoSession({ userId }: { userId: string }) {
       {status.data?.enabled === false && (
         <p role="status">Provider demos are not enabled for your account yet.</p>
       )}
-      {catalogue.isFetching && <p role="status">Loading provider games…</p>}
-      {catalogue.isError && (
+      {accessGranted && catalogue.isFetching && <p role="status">Loading provider games…</p>}
+      {accessGranted && catalogue.isError && (
         <div role="alert">
           Provider games are temporarily unavailable.{' '}
           <button onClick={() => void catalogue.refetch()} className="underline">
@@ -93,7 +101,7 @@ function ProviderDemoSession({ userId }: { userId: string }) {
           </button>
         </div>
       )}
-      {selected && (
+      {accessGranted && selected && (
         <section aria-label="Selected provider game" className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-bold">{selected.name} · Demo</h2>
@@ -124,7 +132,7 @@ function ProviderDemoSession({ userId }: { userId: string }) {
           )}
         </section>
       )}
-      {catalogue.data && !selected && (
+      {accessGranted && catalogue.data && !selected && (
         <>
           <label className="block">
             Search games or providers

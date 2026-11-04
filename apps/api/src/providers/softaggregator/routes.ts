@@ -11,27 +11,32 @@ export async function providerDemoRoutes(server: FastifyInstance) {
   server.addHook('preHandler', authenticate);
   server.setErrorHandler((error, _request, reply) => {
     if (error instanceof ProviderDemoError)
-      return reply
-        .code(error.statusCode)
-        .send({
-          success: false,
-          error: { code: 'PROVIDER_DEMO_UNAVAILABLE', message: error.message },
-        });
+      return reply.code(error.statusCode).send({
+        success: false,
+        error: { code: 'PROVIDER_DEMO_UNAVAILABLE', message: error.message },
+      });
     if (error.validation)
       return reply
         .code(400)
         .send({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid demo request.' } });
-    // Preserve auth failures; other unexpected errors must not leak provider details.
-    return reply
-      .code(error.statusCode === 401 ? 401 : 500)
-      .send({
-        success: false,
-        error: {
-          code: 'PROVIDER_DEMO_ERROR',
-          message:
-            error.statusCode === 401 ? 'Sign in to continue.' : 'Provider demo is unavailable.',
-        },
-      });
+    // Preserve client-error semantics (including suspension and rate limits)
+    // while keeping authentication and upstream details private.
+    const status =
+      error.statusCode && error.statusCode >= 400 && error.statusCode < 500
+        ? error.statusCode
+        : 500;
+    return reply.code(status).send({
+      success: false,
+      error: {
+        code: 'PROVIDER_DEMO_ERROR',
+        message:
+          status === 401
+            ? 'Sign in to continue.'
+            : status === 429
+              ? 'Too many requests. Please try again shortly.'
+              : 'Provider demo is unavailable.',
+      },
+    });
   });
   server.get('/status', async (request) => ({
     success: true,

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -16,15 +16,13 @@ vi.mock('@/lib/api', async () => ({
 }));
 const game = { id: 'studio/slot', name: 'Demo slot', provider: 'Studio', category: 'slots' };
 const ok = (data: unknown) => ({ success: true, data });
-function mount() {
+function mount(
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+  })
+) {
   return render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
-        })
-      }
-    >
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <ProviderDemoPage />
       </MemoryRouter>
@@ -38,6 +36,38 @@ beforeEach(() => {
   );
   mocks.post.mockResolvedValue(ok({ mode: 'demo', url: 'https://games.example.com/demo' }));
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+});
+
+it('hides cached catalogue entries when access is disabled', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  client.setQueryData(['provider-demo-games', 'tester'], [game]);
+  mocks.get.mockResolvedValue(ok({ enabled: false }));
+  mount(client);
+  await screen.findByText('Provider demos are not enabled for your account yet.');
+  expect(screen.queryByRole('button', { name: 'Try demo' })).toBeNull();
+  expect(screen.queryByRole('searchbox')).toBeNull();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+
+it('removes the open iframe and clears selection when access is revoked', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+  });
+  const view = mount(client);
+  fireEvent.click(await screen.findByRole('button', { name: 'Try demo' }));
+  await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+  act(() => {
+    client.setQueryData(['provider-demo-status', 'tester'], { enabled: false });
+  });
+  await screen.findByText('Provider demos are not enabled for your account yet.');
+  expect(view.container.querySelector('iframe')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Try demo' })).toBeNull();
+  act(() => {
+    client.setQueryData(['provider-demo-status', 'tester'], { enabled: true });
+  });
+  await screen.findByRole('button', { name: 'Try demo' });
+  expect(view.container.querySelector('iframe')).toBeNull();
+  expect(mocks.post).toHaveBeenCalledTimes(1);
 });
 afterEach(() => {
   cleanup();
