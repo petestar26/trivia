@@ -72,6 +72,11 @@ function fail(res, status, message) {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify({ success: false, error: { code: 'WEB_GATEWAY', message } }));
 }
+function callbackError(res) {
+  if (res.headersSent) return res.destroy();
+  res.writeHead(200, { 'content-type':'application/json', 'cache-control':'private, no-store' });
+  res.end(JSON.stringify({error:2,balance:0}));
+}
 /** Fixed-origin gateway: no client-supplied upstream, tokens, or credentials in browser storage. */
 export function createWebServer({
   apiOrigin,
@@ -107,7 +112,8 @@ export function createWebServer({
     headers.host = upstream.host;
     return headers;
   }
-  function proxy(req, res) {
+  function proxy(req, res, providerCallback = false) {
+    if (providerCallback && req.method !== 'GET') { callbackError(res); return; }
     // Browser writes must originate from this frontend. CORS alone is not CSRF protection.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sameOrigin(req)) {
       fail(res, 403, 'This request must originate from the app.');
@@ -124,6 +130,22 @@ export function createWebServer({
         headers,
       },
       (response) => {
+        if (providerCallback) {
+          let body='';
+          response.setEncoding('utf8');
+          response.on('data',chunk=>{body+=chunk;if(body.length>16384){response.destroy();callbackError(res);}});
+          response.on('error',()=>callbackError(res));
+          response.on('end',()=>{
+            if(res.writableEnded)return;
+            try {
+              const data=JSON.parse(body);
+              if(response.statusCode!==200||![0,1,2].includes(data.error)||!Number.isSafeInteger(data.balance)||data.balance<0)throw Error('Invalid callback reply');
+              res.writeHead(200,{'content-type':'application/json','cache-control':'private, no-store'});
+              res.end(JSON.stringify({error:data.error,balance:data.balance}));
+            }catch{callbackError(res);}
+          });
+          return;
+        }
         const responseHeaders = cleanHeaders(response.headers);
         responseHeaders['cache-control'] = 'private, no-store';
         res.writeHead(response.statusCode || 502, responseHeaders);
@@ -135,9 +157,8 @@ export function createWebServer({
     request.setTimeout(req.url.startsWith('/ws') ? Math.max(timeoutMs, 45000) : timeoutMs, () =>
       request.destroy()
     );
-    request.on('error', () =>
-      fail(res, 502, 'The service is temporarily unavailable. Please retry.')
-    );
+    request.on('error', () => providerCallback ? callbackError(res) :
+      fail(res, 502, 'The service is temporarily unavailable. Please retry.'));
     req.on('aborted', () => request.destroy());
     res.on('close', () => {
       if (!res.writableEnded) request.destroy();
@@ -152,12 +173,13 @@ export function createWebServer({
     const pathname = req.url.split('?')[0];
     if (
       pathname === '/health' ||
+      pathname === '/sg/callback' ||
       pathname === '/api' ||
       pathname.startsWith('/api/') ||
       pathname === '/ws' ||
       pathname.startsWith('/ws/')
     ) {
-      proxy(req, res);
+      proxy(req, res, pathname === '/sg/callback');
       return;
     }
     if (!['GET', 'HEAD'].includes(req.method)) {

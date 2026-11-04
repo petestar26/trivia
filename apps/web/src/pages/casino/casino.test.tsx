@@ -86,8 +86,9 @@ function ownGames(data = catalog) {
 }
 function providerGames(enabled = true) {
   apiGet.mockImplementation(async (path: string) => {
-    if (path === '/provider-demo/status') return { success: true, data: { enabled } };
-    if (path === '/provider-demo/games')
+    if (path === '/provider-test/status') return { success: true, data: { enabled, launchReady: true } };
+    if (path === '/provider-test/wallet') return {success:true,data:{balanceCents:100000,created:false,movements:[]}};
+    if (path === '/provider-test/games')
       return {
         success: true,
         data: [
@@ -181,7 +182,7 @@ describe('Games owns the platform catalogue', () => {
   });
 });
 
-describe('Casino owns provider demos', () => {
+describe('Casino owns provider tests', () => {
   it('loads provider titles without querying our catalogue or wallet', async () => {
     providerGames();
     mount(<CasinoPage />);
@@ -191,8 +192,9 @@ describe('Casino owns provider demos', () => {
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
     expect(screen.getByText(/wallet is not connected/)).toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path)).toEqual([
-      '/provider-demo/status',
-      '/provider-demo/games',
+      '/provider-test/status',
+      '/provider-test/games',
+      '/provider-test/wallet',
     ]);
     expect(screen.getByRole('link', { name: /Back to our games/ })).toHaveAttribute(
       'href',
@@ -203,8 +205,8 @@ describe('Casino owns provider demos', () => {
     providerGames(false);
     mount(<CasinoPage />);
     expect(await screen.findByText(/not enabled for your account yet/)).toBeInTheDocument();
-    expect(apiGet.mock.calls.map(([path]) => path)).toEqual(['/provider-demo/status']);
-    expect(screen.queryByRole('button', { name: 'Try demo' })).not.toBeInTheDocument();
+    expect(apiGet.mock.calls.map(([path]) => path)).toEqual(['/provider-test/status']);
+    expect(screen.queryByRole('button', { name: 'Open test game' })).not.toBeInTheDocument();
   });
   it('recovers provider status errors through Retry', async () => {
     apiGet.mockRejectedValue(new Error('Unavailable'));

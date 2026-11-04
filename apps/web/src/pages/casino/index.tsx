@@ -1,6 +1,6 @@
-import { ProviderDemoPage } from '@/pages/games/provider-demo';
+import { ProviderTestPage } from '@/pages/games/provider-test';
 
 /** Provider games have their own lobby; our own catalogue lives under Games. */
 export function CasinoPage() {
-  return <ProviderDemoPage />;
+  return <ProviderTestPage />;
 }

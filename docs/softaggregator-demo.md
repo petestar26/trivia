@@ -1,5 +1,8 @@
 # SoftAggregator demo pilot
 
+> Historical play-for-fun implementation. The current tester-only virtual-wallet
+> pilot is documented in [softaggregator-test.md](softaggregator-test.md).
+
 Demo-only integration, based on the provider's public `getGameList` / `getGameDemo`
 documentation at https://softaggregator.com/docs.html (checked 2026-11-04).
 No real-money launch, player creation, wallet callback, ledger writes or migrations.

@@ -10,6 +10,7 @@ import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handl
 import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 import { startEtbRateRefresh } from './agents/etb-rate-service.js';
+import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -94,6 +95,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
   });
 
   await registerPlugins(server);
+  await server.register(providerTestCallbackRoutes);
 
   // README.md documents `GET /health` (and `/health?detailed`) as a bare,
   // unprefixed infrastructure endpoint, distinct from the versioned /api/v1
