@@ -1,0 +1,11 @@
+# Member wallet clarity
+
+The member wallet now starts with Deposit or Withdraw and a visible Agent / Crypto choice. Method links retain direction: switching from agent withdrawal opens crypto withdrawal, not deposit. The practice wallet exposes the same navigation with an explicit unavailable explanation instead of silently returning every route to the gift balance. It never fetches cash payment options or issues an address/request.
+
+Agent forms retain country, approved agent/method, amounts, consent, payout account and identity verification. Only the matching request history appears below each form; Activity retains both agent histories and recovery cases, and links to crypto history. Ordinary members no longer see an agent registration link in the payment form. Deposit instructions open automatically on created orders. Payment statuses use plain-language labels.
+
+Crypto keeps its existing USDT/TRON support. Withdrawal requires an address/amount/network review before submission, which resets on input changes. Invalid, zero and unsupported amounts are blocked locally as well as by the existing server checks. A pending request remains an exact idempotent retry even after changing direction. Agent quotes cannot be confirmed after expiry, and getting a fresh quote clears previous consent. Switching agent direction remounts the form so deposit values cannot become withdrawal values.
+
+No backend, ledger, payment policy, currency conversion, provider, runtime flag or financial activation changes are included. Practice amounts remain virtual ETB; existing cash rails still use Coins with local-currency/USDT settlement. Coins are not relabelled as Birr. Only server-configured methods and destinations are used.
+
+Validation: 86 focused wallet/UI tests, 16 crypto API/verifier/migration tests, web TypeScript and production build, and PWA/recovery checks. Browser QA used the real components with isolated local fixtures in 375px and 850px frames: overview, selected methods, agent country/method/consent, and crypto withdrawal review. This does not establish signed-in production payment completion, native database concurrency, bank receipt or on-chain settlement. No real transfers were performed.

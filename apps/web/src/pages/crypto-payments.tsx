@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { PaymentMethodChooser, PaymentSteps, paymentPath } from './wallet-navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
@@ -45,13 +46,15 @@ export function timeRemaining(expiresAt: string, now: number) {
 export function cryptoEstimate(value: string, withdraw = false) {
   try {
     if (withdraw) {
-      if (!/^\d{1,10}$/.test(value)) return '';
+      if (!/^\d{1,10}$/.test(value) || BigInt(value) <= 0n || BigInt(value) > 1_000_000_000n)
+        return '';
       const n = (BigInt(value) * 1_000_000n) / 96n;
       return `${n / 1_000_000n}.${String(n % 1_000_000n).padStart(6, '0')} USDT`;
     }
-    if (!/^\d{1,8}(\.\d{1,6})?$/.test(value)) return '';
+    if (!/^(?:0|[1-9]\d{0,7})(\.\d{1,6})?$/.test(value)) return '';
     const [w, f = ''] = value.split('.');
-    return `${((BigInt(w) * 1_000_000n + BigInt(f.padEnd(6, '0'))) * 96n) / 1_000_000n} Coins`;
+    const coins = ((BigInt(w) * 1_000_000n + BigInt(f.padEnd(6, '0'))) * 96n) / 1_000_000n;
+    return coins > 0n && coins <= 1_000_000_000n ? `${coins} Coins` : '';
   } catch {
     return '';
   }
@@ -157,7 +160,9 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
 export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
   const { user } = useAuth(),
     cache = useQueryClient();
-  const [direction, setDirection] = useState<'deposit' | 'withdrawal'>('deposit');
+  const [search, setSearch] = useSearchParams();
+  const direction = search.get('direction') === 'withdraw' ? 'withdrawal' : 'deposit';
+  const [reviewed, setReviewed] = useState(false);
   const [amount, setAmount] = useState(''),
     [countryId, setCountryId] = useState(''),
     [address, setAddress] = useState(''),
@@ -170,6 +175,15 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
     [busy, setBusy] = useState(false);
   const [page, setPage] = useState(0);
   const action = useWalletAction('crypto');
+  useEffect(() => {
+    setAmount('');
+    setAddress('');
+    setCode('');
+    setReviewed(false);
+  }, [direction]);
+  const setDirection = (value: 'deposit' | 'withdrawal') =>
+    setSearch(value === 'withdrawal' ? { direction: 'withdraw' } : { direction: 'deposit' });
+  const formBlocked = busy || action.blocked;
   const records = useQuery({
     queryKey: ['payments', 'crypto', user?.id, admin, page],
     queryFn: async () =>
@@ -212,25 +226,22 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
     }
   }
   return (
-    <main className="crypto-page">
+    <main className={`crypto-page ${admin ? '' : 'crypto-member'}`}>
       <header>
         <Link to={admin ? '/admin' : '/wallet'}>← {admin ? 'Administration' : 'Wallet'}</Link>
         <p className="crypto-eyebrow">USDT · TRON NETWORK</p>
-        <h1>{admin ? 'Crypto payments' : 'Your crypto wallet'}</h1>
+        <h1>{admin ? 'Crypto payments' : direction === 'deposit' ? 'Deposit' : 'Withdraw'}</h1>
         <p>
           {admin
             ? 'Manage receiving addresses, review deposits and complete manual withdrawals.'
-            : 'Deposit USDT for Coins, or request a manual USDT withdrawal.'}
+            : direction === 'deposit'
+              ? 'Add funds using USDT on TRON.'
+              : 'Receive USDT in your own TRON wallet.'}
         </p>
       </header>
-      <div className="crypto-notice">
-        Use USDT on TRON (TRC20) only. Other tokens and networks cannot be credited. Deposits are
-        credited after confirmed on-chain verification. Withdrawals are transferred by an
-        administrator.
-      </div>
       {!admin && (
-        <section className="crypto-panel">
-          <div className="crypto-tabs" aria-label="Payment direction">
+        <>
+          <div className="crypto-tabs" role="group" aria-label="Payment direction">
             <button
               aria-pressed={direction === 'deposit'}
               onClick={() => {
@@ -250,6 +261,25 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               Withdraw
             </button>
           </div>
+          <PaymentMethodChooser
+            direction={direction === 'deposit' ? 'deposit' : 'withdraw'}
+            method="crypto"
+          />
+          <PaymentSteps
+            direction={direction === 'deposit' ? 'deposit' : 'withdraw'}
+            method="crypto"
+          />
+        </>
+      )}
+      <div className="crypto-notice">
+        {admin
+          ? 'Use USDT on TRON (TRC20) only. Verify transfers before completing a payout.'
+          : direction === 'deposit'
+            ? 'Send USDT on TRON (TRC20) only. Your deposit is credited after the transfer is verified.'
+            : 'USDT payouts use TRON (TRC20) and are processed by an administrator.'}
+      </div>
+      {!admin && (
+        <section className="crypto-panel">
           {opts.isPending ? (
             <p>Loading payment availability…</p>
           ) : opts.isError ? (
@@ -266,17 +296,32 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               {!opts.data?.countries.length && (
                 <p>
                   Add an active payment profile in{' '}
-                  <Link to="/wallet/withdraw">Wallet settings</Link> before requesting a payment.
+                  <Link to="/wallet/withdraw">add a payout account</Link> before requesting a
+                  payment.
                 </p>
               )}
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  if (
+                    !enabled ||
+                    !country ||
+                    formBlocked ||
+                    !cryptoEstimate(amount, direction === 'withdrawal') ||
+                    (direction === 'withdrawal' &&
+                      !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address.trim()))
+                  )
+                    return;
+                  if (direction === 'withdrawal' && !reviewed) {
+                    setReviewed(true);
+                    return;
+                  }
+                  setReviewed(false);
                   await action.run(
                     `/crypto-payments/${direction === 'deposit' ? 'deposits' : 'withdrawals'}`,
                     direction === 'deposit'
                       ? { countryId: country, amount }
-                      : { countryId: country, coinAmount: Number(amount), address }
+                      : { countryId: country, coinAmount: Number(amount), address: address.trim() }
                   );
                 }}
               >
@@ -285,7 +330,11 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   <select
                     aria-label="Payment country"
                     value={country}
-                    onChange={(e) => setCountryId(e.target.value)}
+                    disabled={formBlocked}
+                    onChange={(e) => {
+                      setCountryId(e.target.value);
+                      setReviewed(false);
+                    }}
                   >
                     {!country && <option value="">Select your country</option>}
                     {opts.data?.countries.map((c) => (
@@ -300,7 +349,11 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   <input
                     inputMode={direction === 'deposit' ? 'decimal' : 'numeric'}
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    disabled={formBlocked}
+                    onChange={(e) => {
+                      setAmount(e.target.value);
+                      setReviewed(false);
+                    }}
                     placeholder={direction === 'deposit' ? '10.000000' : '2016'}
                     required
                     pattern={direction === 'deposit' ? '[0-9]+(\\.[0-9]{1,6})?' : '[0-9]+'}
@@ -319,16 +372,21 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                       Your TRON receiving address
                       <input
                         value={address}
-                        onChange={(e) => setAddress(e.target.value)}
+                        disabled={formBlocked}
+                        onChange={(e) => {
+                          setAddress(e.target.value);
+                          setReviewed(false);
+                        }}
                         autoComplete="off"
                         spellCheck={false}
                         required
                         placeholder="T…"
+                        pattern="T[1-9A-HJ-NP-Za-km-z]{33}"
                       />
                     </label>
                     <p>
-                      Check every character. Only eligible Coins can be withdrawn. Coins are held
-                      until your request is completed or cancelled.
+                      Use your own receiving address on TRON (TRC20). Only eligible Coins can be
+                      withdrawn; your requested Coins are held while the payout is processed.
                     </p>
                     <label>
                       Authenticator code (if required)
@@ -369,6 +427,24 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                     )}
                   </>
                 )}
+                {reviewed && direction === 'withdrawal' && (
+                  <section className="crypto-quote" aria-label="Review withdrawal">
+                    <h2>Check your withdrawal</h2>
+                    <p>
+                      You withdraw <strong>{amount} Coins</strong> and receive{' '}
+                      <strong>{cryptoEstimate(amount, true)}</strong>.
+                    </p>
+                    <p>Network: TRON (TRC20)</p>
+                    <code className="crypto-review-address">{address.trim()}</code>
+                    <p>
+                      An administrator processes the payout. Check this receiving address before
+                      submitting.
+                    </p>
+                    <button type="button" onClick={() => setReviewed(false)}>
+                      Back to editing
+                    </button>
+                  </section>
+                )}
                 <button
                   className="crypto-primary"
                   disabled={
@@ -376,22 +452,35 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                     !country ||
                     action.blocked ||
                     busy ||
-                    !cryptoEstimate(amount, direction === 'withdrawal')
+                    !cryptoEstimate(amount, direction === 'withdrawal') ||
+                    (direction === 'withdrawal' &&
+                      !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address.trim()))
                   }
                 >
-                  {direction === 'deposit' ? 'Get deposit address' : 'Request withdrawal'}
+                  {direction === 'deposit'
+                    ? 'Get deposit address'
+                    : reviewed
+                      ? 'Request withdrawal'
+                      : 'Review withdrawal'}
                 </button>
               </form>
             </>
           )}
           {action.message && <p role="status">{action.message}</p>}
           {action.pending && (
-            <button
-              disabled={action.busy}
-              onClick={() => action.run(action.pending!.path, action.pending!.body)}
-            >
-              Retry the same request
-            </button>
+            <div>
+              <p>
+                One earlier{' '}
+                {action.pending.path.endsWith('/withdrawals') ? 'withdrawal' : 'deposit'} still
+                needs confirmation. Retry sends exactly the saved details.
+              </p>
+              <button
+                disabled={action.busy}
+                onClick={() => action.run(action.pending!.path, action.pending!.body)}
+              >
+                Retry the same request
+              </button>
+            </div>
           )}
         </section>
       )}
@@ -545,8 +634,16 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
           </form>
         </section>
       )}
+      {!admin && (
+        <nav className="wallet-history-links" aria-label="Other payment methods">
+          <Link to={paymentPath(direction === 'deposit' ? 'deposit' : 'withdraw', 'agent')}>
+            Use an agent instead
+          </Link>
+          <Link to="/wallet/activity">Agent payment activity</Link>
+        </nav>
+      )}
       <section className="crypto-panel">
-        <h2>{admin ? 'Payment queue' : 'Your requests'}</h2>
+        <h2>{admin ? 'Payment queue' : 'Your crypto requests'}</h2>
         <p>
           Page {page + 1} · up to 50 of each request type.{' '}
           {admin ? 'Open requests appear first.' : ''}
