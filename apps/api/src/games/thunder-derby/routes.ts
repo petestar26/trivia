@@ -5,12 +5,19 @@ import { authenticate } from '../../middleware/auth.js';
 import { ApiError } from '../../middleware/api-error.js';
 import { createDerbyService } from './service.js';
 export async function derbyRoutes(server: FastifyInstance) {
-  const service = createDerbyService(prisma);
+  await racingRoutes(server, 'derby');
+}
+export async function dogRacingRoutes(server: FastifyInstance) {
+  await racingRoutes(server, 'hounds');
+}
+async function racingRoutes(server: FastifyInstance, game: 'derby' | 'hounds') {
+  const service = createDerbyService(prisma, game);
+  const flag = game === 'hounds' ? 'DOG_RACING_PRACTICE_ENABLED' : 'THUNDER_DERBY_PRACTICE_ENABLED';
   server.addHook('preHandler', authenticate);
   server.addHook('preHandler', async (_request, reply) => {
     reply.header('Cache-Control', 'private, no-store');
-    if (process.env.THUNDER_DERBY_PRACTICE_ENABLED !== 'true')
-      throw ApiError.forbidden('Thunder Derby practice is unavailable');
+    if (process.env[flag] !== 'true')
+      throw ApiError.forbidden('Racing practice is unavailable');
   });
   server.get<{ Querystring: { field: number } }>(
     '/',

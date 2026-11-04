@@ -24,3 +24,5 @@ export * from './virtual-football/index.js';
 
 export * from './number-challenge.js';
 export * from './number-timed.js';
+
+export * from './dog-racing.js';

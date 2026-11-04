@@ -1,4 +1,5 @@
 import { WalletRoutes } from '@/pages/wallet-routes';
+import { DogRacingPage } from '@/pages/games/dog-racing';
 import { ThunderDerbyPage } from '@/pages/games/thunder-derby';
 import { VirtualFootballPage } from '@/pages/games/virtual-football';
 import { CryptoPaymentsPage } from '@/pages/crypto-payments';
@@ -131,6 +132,7 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinScheduledPage />} />
+        <Route path="games/dog-racing" element={<DogRacingPage />} />
         <Route path="games/thunder-derby" element={<ThunderDerbyPage />} />
         <Route path="games/virtual-football" element={<VirtualFootballPage />} />
         <Route path="games/sky-crash" element={<SkyCrashPage />} />

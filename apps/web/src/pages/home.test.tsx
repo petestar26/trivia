@@ -13,7 +13,7 @@ vi.mock('@/lib/api', async (original) => ({
   ...(await original<typeof import('@/lib/api')>()),
   api: { get, listGroups },
 }));
-const displayTitles: Record<string, string> = { virtual_football_3d: 'Football', thunder_derby_3d: 'Derby' };
+const displayTitles: Record<string, string> = { virtual_football_3d: 'Football', thunder_derby_3d: 'Derby', neon_hounds_3d: 'Dog Racing' };
 function game(key: string, status = 'COMING_SOON', active = false): MemberGame {
   return {
     id: key,
@@ -439,7 +439,7 @@ const gatedGameRoutes = [
   ['spin_win', '/games/spin-win'],
   ['turbo_keno', '/games/turbo-keno'],
 ] as const;
-const futureGameKeys = ['trivia', 'neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'];
+const futureGameKeys = ['trivia', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'];
 
 describe.each([
   ['home', HomePage],

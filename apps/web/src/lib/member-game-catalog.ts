@@ -4,6 +4,7 @@ export type MemberGame = GameCatalogEntry;
 const MEMBER_GAME_NAMES: Record<string, string> = {
   virtual_football_3d: 'Football',
   thunder_derby_3d: 'Derby',
+  neon_hounds_3d: 'Dog Racing',
 };
 
 /** Display names are independent of stable catalog keys and saved game records. */
@@ -15,6 +16,7 @@ export const PRACTICE_ROUTES: Record<string, string> = {
   number_challenge: '/games/number-challenge',
   sky_crash: '/games/sky-crash',
   thunder_derby_3d: '/games/thunder-derby',
+  neon_hounds_3d: '/games/dog-racing',
   virtual_football_3d: '/games/virtual-football',
   crash_point: '/games/crash-point',
   dice: '/games/dice',
@@ -26,6 +28,7 @@ const GATED_PRACTICE = [
   'number_challenge',
   'sky_crash',
   'thunder_derby_3d',
+  'neon_hounds_3d',
   'virtual_football_3d',
   'crash_point',
   'dice',
@@ -35,7 +38,6 @@ const GATED_PRACTICE = [
 /** Unfinished games stay closed even when an older API marks them available. */
 export const COMING_SOON_GAME_KEYS = [
   'trivia',
-  'neon_hounds_3d',
   'turbo_circuit_3d',
   'starfall_nebula',
   'jungle_dash_3d',

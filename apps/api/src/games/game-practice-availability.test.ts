@@ -7,6 +7,7 @@ afterEach(() => { vi.unstubAllEnvs(); });
 
 it.each([
   ['dice', 'SYSTEM_DICE_PRACTICE_ENABLED'],
+  ['neon_hounds_3d', 'DOG_RACING_PRACTICE_ENABLED'],
   ['crash_point', 'CRASH_POINT_PRACTICE_ENABLED'],
   ['turbo_keno', 'SYSTEM_KENO_PRACTICE_ENABLED'],
 ])('publishes exact practice admission state for %s without activating Coin play', async (key, flag) => {
@@ -29,7 +30,7 @@ it.each([
 });
 
 it.each([
-  'trivia', 'neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula',
+  'trivia', 'turbo_circuit_3d', 'starfall_nebula',
   'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush',
 ])('keeps unfinished %s Coming soon despite active catalog data', async (key) => {
   const row = { key, mode: 'BONUS', wagerCurrency: null, catalogStatus: 'AVAILABLE', isActive: true };

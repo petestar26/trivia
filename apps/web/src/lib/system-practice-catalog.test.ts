@@ -5,6 +5,7 @@ it.each([
   ['number_challenge', '/games/number-challenge'],
   ['sky_crash', '/games/sky-crash'],
   ['thunder_derby_3d', '/games/thunder-derby'],
+  ['neon_hounds_3d', '/games/dog-racing'],
   ['virtual_football_3d', '/games/virtual-football'],
   ['dice', '/games/dice'],
   ['crash_point', '/games/crash-point'],
@@ -23,7 +24,7 @@ it.each([
   }
 });
 
-it.each(['neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'])(
+it.each(['turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'])(
   'keeps genuine future game %s coming soon without offering entry', (key) => {
     const game = { key, catalogStatus: 'COMING_SOON', isActive: false } as MemberGame;
     expect(memberGameLabel(game)).toBe('Coming soon');

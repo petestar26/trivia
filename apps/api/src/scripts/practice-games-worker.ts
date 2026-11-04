@@ -76,6 +76,7 @@ async function main() {
         SKY_CRASH: observePracticeTick(createSkyCrashService(db).tick),
         CRASH_POINT: observePracticeTick(createCrashPointService(db).tick),
         DERBY: observePracticeTick(createDerbyService(db).tick),
+        DOG_RACING: observePracticeTick(createDerbyService(db, 'hounds').tick),
         FOOTBALL: observePracticeTick(createFootballService(db).tick),
         SPIN: async () => {
           await tickPracticeStream(prismaRoundDatabase(db), 'spin-win-practice-v1');

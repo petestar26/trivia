@@ -27,13 +27,14 @@ function game(key: string, overrides: Partial<MemberGame> = {}): MemberGame {
 }
 
 const futureKeys = [
-  'trivia', 'neon_hounds_3d', 'turbo_circuit_3d', 'starfall_nebula',
+  'trivia', 'turbo_circuit_3d', 'starfall_nebula',
   'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush',
 ];
 const gatedRoutes = [
   ['number_challenge', '/games/number-challenge'],
   ['sky_crash', '/games/sky-crash'],
   ['thunder_derby_3d', '/games/thunder-derby'],
+  ['neon_hounds_3d', '/games/dog-racing'],
   ['virtual_football_3d', '/games/virtual-football'],
   ['crash_point', '/games/crash-point'],
   ['dice', '/games/dice'],
