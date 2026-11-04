@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from '
 import { useAuth } from '@/providers/auth-provider';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { GameArtwork } from '@/components/member/game-artwork';
-import { COMING_SOON_GAME_KEYS } from '@/lib/member-game-catalog';
+import { COMING_SOON_GAME_KEYS, compareMemberGameKeys } from '@/lib/member-game-catalog';
 import './welcome.css';
 
 const collection = [
@@ -20,6 +20,7 @@ const collection = [
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
   ['trivia', 'Trivia', '/games/trivia'],
 ] as const;
+const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));
 
 function PublicHeader() {
   const { isAuthenticated } = useAuth();
@@ -132,7 +133,7 @@ export function ExplorePage() {
             <span>Choose your next experience.</span>
           </div>
           <div className="pq-public-games">
-            {collection.map(([key, name, destination]) => {
+            {orderedCollection.map(([key, name, destination]) => {
               const comingSoon = COMING_SOON_GAME_KEYS.some((futureKey) => futureKey === key);
               const content = (
                 <>

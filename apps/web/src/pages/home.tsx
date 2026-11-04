@@ -25,6 +25,7 @@ import { DashboardHighlights } from '@/components/member/dashboard-highlights';
 import { useFavoriteGames } from '@/lib/use-favorite-games';
 import { api, unwrapData } from '@/lib/api';
 import {
+  compareMemberGameKeys,
   memberGameDestination,
   memberGameLabel,
   memberGameName,
@@ -74,11 +75,7 @@ export function HomePage() {
   });
   const games = (catalog.data ?? [])
     .filter((g) => g.catalogStatus !== 'RETIRED')
-    .sort(
-      (a, b) =>
-        Number(!!memberGameDestination(b)) - Number(!!memberGameDestination(a)) ||
-        memberGameName(a).localeCompare(memberGameName(b))
-    );
+    .sort((a, b) => compareMemberGameKeys(a.key, b.key));
   const readyCount = games.filter((game) => !!memberGameDestination(game)).length;
   const search = gameSearch.trim().toLocaleLowerCase();
   const visibleGames = games.filter((game) => {

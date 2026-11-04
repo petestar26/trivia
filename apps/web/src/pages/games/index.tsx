@@ -9,6 +9,7 @@ import { requestStatus } from '@/lib/request-error';
 import { useLocation } from 'react-router-dom';
 
 import {
+  compareMemberGameKeys,
   memberGameDestination,
   memberGameLabel,
   memberGameName,
@@ -111,7 +112,7 @@ export function GamesPage({
   const practiceRoutes = PRACTICE_ROUTES;
   const publicGames = (games ?? [])
     .filter((g) => g.catalogStatus !== 'RETIRED' && (!selectedMode || g.mode === selectedMode))
-    .sort((a, b) => Number(!!practiceRoutes[b.key]) - Number(!!practiceRoutes[a.key]));
+    .sort((a, b) => compareMemberGameKeys(a.key, b.key));
 
   return (
     <div className="qube-catalog space-y-6">

@@ -1,6 +1,30 @@
 import type { GameCatalogEntry } from './api';
 export type MemberGame = GameCatalogEntry;
 
+const MEMBER_GAME_ORDER = [
+  'spin_win',
+  'turbo_keno',
+  'sky_crash',
+  'thunder_derby_3d',
+  'virtual_football_3d',
+  'neon_hounds_3d',
+  'crash_point',
+  'roulette_keno',
+  'dice',
+  'number_challenge',
+] as const;
+const memberGameRanks = new Map<string, number>(
+  MEMBER_GAME_ORDER.map((key, index) => [key, index])
+);
+
+/** Keep discovery lists consistent; unlisted games follow the requested collection. */
+export function compareMemberGameKeys(a: string, b: string): number {
+  return (
+    (memberGameRanks.get(a) ?? MEMBER_GAME_ORDER.length) -
+    (memberGameRanks.get(b) ?? MEMBER_GAME_ORDER.length)
+  );
+}
+
 const MEMBER_GAME_NAMES: Record<string, string> = {
   roulette_keno: 'Roulette Keno',
   virtual_football_3d: 'Football',
