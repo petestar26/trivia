@@ -80,7 +80,7 @@ export default defineConfig({
         // Practice artwork and the 3D renderer are opt-in; never download it on unrelated page installs.
         globIgnores: ['images/sky-crash/**', 'assets/race-scene-*.js', 'assets/football-scene-*.js'],
         // Gateway and asset URLs must reach the server, including direct navigation.
-        navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
+        navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/, /^\/sg\/callback(?:[/?]|$)/],
         cleanupOutdatedCaches: true,
         clientsClaim: false,
         skipWaiting: false,

@@ -89,6 +89,8 @@ test('gateway and asset navigations reach the network instead of the app shell',
     '/assets',
     '/assets?check=1',
     '/assets/missing.js',
+    '/sg/callback',
+    '/sg/callback?action=balance',
   ]) {
     assert.equal(matches(path), false, `${path} must reach the gateway`);
   }
@@ -105,6 +107,7 @@ test('app navigation keeps its offline fallback, including similar prefixes', ()
     '/health-guide',
     '/api-help',
     '/assets-guide',
+    '/sg/callback-guide',
   ]) {
     assert.equal(matches(path), true, `${path} must retain the app fallback`);
   }
