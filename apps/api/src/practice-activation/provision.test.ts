@@ -7,6 +7,7 @@ import {
   PRACTICE_PROJECT,
   PRACTICE_TABLES,
   provisionPractice,
+  practiceDiagnostics,
   WORKER_ROLE,
   type ActivationDb,
 } from './provision.js';
@@ -76,6 +77,48 @@ async function unchanged() {
 }
 
 describe('restricted practice provisioning on real PostgreSQL semantics (PGlite)', () => {
+
+  it('diagnoses PUBLIC catalog privileges without executing functions, reading data or changing grants', async () => {
+    await db.exec(`CREATE ROLE diagnostic_api LOGIN; CREATE ROLE diagnostic_operator;
+      GRANT diagnostic_operator TO diagnostic_api;
+      GRANT SELECT ON wallets TO PUBLIC,diagnostic_operator;
+      GRANT SELECT(password_hash) ON users TO PUBLIC;
+      CREATE SEQUENCE diagnostic_sequence; GRANT USAGE ON SEQUENCE diagnostic_sequence TO PUBLIC;
+      CREATE SCHEMA diagnostic_schema; GRANT CREATE ON SCHEMA diagnostic_schema TO PUBLIC;
+      CREATE FUNCTION public.diagnostic_escape() RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
+        BEGIN UPDATE wallets SET balance=999; RETURN 999; END $$;
+      GRANT EXECUTE ON FUNCTION diagnostic_escape() TO diagnostic_operator;`);
+    const statements: string[] = [];
+    const diagnostic = await practiceDiagnostics({
+      query: async <T extends Record<string, unknown>>(sql: string, values: unknown[] = []) => {
+        statements.push(sql);
+        return (await db.query<T>(sql, values)).rows;
+      },
+    });
+    expect(statements).toHaveLength(6);
+    expect(statements.every((sql) => sql.trimStart().startsWith('SELECT'))).toBe(true);
+    expect(diagnostic.identity).toMatchObject({ owns_database: true, superuser: true });
+    expect(diagnostic.roles).toContainEqual(expect.objectContaining({ role: 'diagnostic_api', login: true }));
+    expect(diagnostic.memberships).toContainEqual(expect.objectContaining({ role: 'diagnostic_operator', member: 'diagnostic_api' }));
+    expect(diagnostic.publicSecurityDefinerFunctions).toContainEqual(expect.objectContaining({
+      schema: 'public', name: 'diagnostic_escape', arguments: '',
+      acl: expect.arrayContaining([
+        expect.objectContaining({ grantee: 'PUBLIC', privilege: 'EXECUTE' }),
+        expect.objectContaining({ grantee: 'diagnostic_operator', privilege: 'EXECUTE' }),
+      ]),
+    }));
+    expect(diagnostic.publicRelationPrivileges).toContainEqual(expect.objectContaining({
+      name: 'wallets', column: null, practice_table: false,
+      acl: expect.arrayContaining([expect.objectContaining({ grantee: 'PUBLIC', privilege: 'SELECT' })]),
+    }));
+    expect(diagnostic.publicRelationPrivileges).toContainEqual(expect.objectContaining({ name: 'users', column: 'password_hash' }));
+    expect(diagnostic.publicRelationPrivileges).toContainEqual(expect.objectContaining({ name: 'diagnostic_sequence', kind: 'S' }));
+    expect(diagnostic.publicSchemaCreate).toContainEqual(expect.objectContaining({ schema: 'diagnostic_schema' }));
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private-password-hash|UPDATE wallets|\"balance\":100|\.repeat\(64\)/);
+    await unchanged();
+    expect((await db.query('SELECT 1 FROM pg_roles WHERE rolname=$1', [WORKER_ROLE])).rows).toEqual([]);
+  });
+
   it('provisions restricted roles atomically and enables only the practice stream', async () => {
     expect(await apply()).toMatchObject({
       databaseOwner: true,
