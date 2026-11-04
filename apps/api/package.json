@@ -17,6 +17,7 @@
     "ledger:runtime-access": "tsx src/scripts/ledger-runtime-access.ts",
     "economics:preview": "tsx src/scripts/game-economics-preview.ts",
     "test:economics": "vitest run --config vitest.economics.config.ts",
+    "test:provider-demo": "vitest run --config vitest.provider-demo.config.ts",
     "test:scheduled-practice": "vitest run --config vitest.scheduled-practice.config.ts",
     "worker:scheduled-practice": "tsx src/scripts/scheduled-practice-worker.ts",
     "typecheck": "tsc --noEmit",

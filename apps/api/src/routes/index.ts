@@ -36,8 +36,10 @@ import { groupPvpRoutes } from '../games/group-pvp/routes.js';
 import { systemDiceRoutes } from '../games/group-pvp/system-dice-routes.js';
 import { systemKenoRoutes } from '../games/group-pvp/system-keno-routes.js';
 import { giftCollectionRoutes } from '../gift-collection/routes.js';
+import { providerDemoRoutes } from '../providers/softaggregator/routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
+  await server.register(providerDemoRoutes, { prefix: '/provider-demo' });
   // healthRoutes is registered directly in server.ts, outside this
   // API_PREFIX-wrapped block — see the comment there. Not registered here.
   await server.register(workspaceRoutes, { prefix: '/workspaces' });

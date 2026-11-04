@@ -115,6 +115,9 @@ export function GamesPage({
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{description}</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link to="/games/provider-demos" className="rounded-lg border border-rose-300/30 px-4 py-2 text-sm font-medium text-rose-200">
+            Provider demos
+          </Link>
           <Link
             to="/games/history"
             className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"

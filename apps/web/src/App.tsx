@@ -28,6 +28,7 @@ import { SpinWinCoinsPage } from '@/pages/games/spin-win-coins';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
 import { TriviaGamePage } from '@/pages/games/trivia';
 import { GameHistoryPage } from '@/pages/games/history';
+import { ProviderDemoPage } from '@/pages/games/provider-demo';
 import { ChallengesPage } from '@/pages/challenges';
 import { ChallengeDetailPage } from '@/pages/challenges/detail';
 import { CompetitionsPage } from '@/pages/competitions';
@@ -123,6 +124,7 @@ export function App() {
         <Route path="games" element={<GamesPage mode="BONUS" title="Free games" description="Play without a stake. Reward eligibility is shown for each game." />} />
         <Route path="casino" element={<CasinoPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
+        <Route path="games/provider-demos" element={<ProviderDemoPage />} />
         <Route
           path="games/dice"
           element={
