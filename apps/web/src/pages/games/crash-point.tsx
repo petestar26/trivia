@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUpRight,
+  Check,
   History,
   Minus,
   Plus,
@@ -1147,6 +1148,7 @@ function CrashRulesDialog() {
 }
 function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastViewedId, setLastViewedId] = useState<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const historyHeading = useRef<HTMLHeadingElement>(null);
   const completed = rounds
@@ -1177,12 +1179,17 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
             aria-label={`View completed round ${r.id}: ${(r.crashCents! / 100).toFixed(2)}×`}
             title={`${new Date(r.startsAt).toLocaleString()} · View round details`}
             aria-haspopup="dialog"
+            aria-current={r.id === lastViewedId ? true : undefined}
             onClick={(event) => {
               opener.current = event.currentTarget;
               setSelectedId(r.id);
+              setLastViewedId(r.id);
             }}
           >
             <strong>{(r.crashCents! / 100).toFixed(2)}×</strong>
+            {r.id === lastViewedId && (
+              <Check className="crash-history-selected-mark" aria-hidden="true" />
+            )}
             <time dateTime={new Date(r.startsAt).toISOString()}>
               {new Date(r.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </time>

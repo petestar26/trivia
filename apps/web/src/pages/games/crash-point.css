@@ -344,6 +344,27 @@
   background: linear-gradient(#665044, #382c40);
   color: #ffd072;
 }
+/* Remember the viewed result after its dialog closes, independently of live play. */
+.crash-history-grid button[aria-current='true'] {
+  border-color: #ffe0b5;
+  background: linear-gradient(145deg, #6a3b50, #332537);
+  color: #fff4df;
+  box-shadow: inset 0 0 0 2px #ffe0b5;
+}
+.crash-history-grid button[aria-current='true'] strong {
+  display: inline-block;
+  font-weight: 900;
+  transform: translateY(-2px);
+}
+.crash-history-selected-mark {
+  position: absolute;
+  bottom: 2px;
+  left: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+  pointer-events: none;
+}
 .crash-history-grid button:hover {
   filter: brightness(1.2);
 }

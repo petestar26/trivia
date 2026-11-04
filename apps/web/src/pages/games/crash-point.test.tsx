@@ -830,3 +830,50 @@ it('keeps stop autoplay accessible outside secondary settings', async () => {
   fireEvent.click(stop);
   expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
 });
+
+it('retains the viewed history selection by round ID after closing and refreshing results', async () => {
+  addHistoryRound();
+  snapshot.rounds.push({
+    ...snapshot.rounds[1],
+    id: 'other',
+    opensAt: snapshot.rounds[1].opensAt - 60000,
+  });
+  setup();
+  const older = await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const other = screen.getByRole('button', { name: 'View completed round other: 2.97×' });
+  expect(older).not.toHaveAttribute('aria-current');
+  fireEvent.click(older);
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Done' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(older).toHaveAttribute('aria-current', 'true');
+  expect(other).not.toHaveAttribute('aria-current');
+  await act(async () => {
+    snapshot = {
+      ...snapshot,
+      rounds: [snapshot.rounds[0], snapshot.rounds[2], snapshot.rounds[1]],
+    };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  expect(older).toHaveAttribute('aria-current', 'true');
+  fireEvent.click(other);
+  fireEvent.click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Close round details' })
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(other).toHaveAttribute('aria-current', 'true');
+  expect(older).not.toHaveAttribute('aria-current');
+  await act(async () => {
+    snapshot = { ...snapshot, rounds: snapshot.rounds.filter((round) => round.id !== 'other') };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  await waitFor(() => expect(screen.queryByRole('button', { current: true })).toBeNull());
+  expect(post).not.toHaveBeenCalled();
+});
