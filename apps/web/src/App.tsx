@@ -31,6 +31,7 @@ import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
 import { SportsPage } from '@/pages/sports';
+import { SportsLaunchPage } from '@/pages/sports-launch';
 import { SkyCrashPage } from '@/pages/games/sky-crash';
 import { CrashPointPage } from '@/pages/games/crash-point';
 import { SystemDicePage } from '@/pages/games/dice-system';
@@ -176,6 +177,7 @@ export function App() {
         <Route path="games" element={<GamesPage />} />
         <Route path="casino" element={<CasinoPage />} />
         <Route path="sports" element={<SportsPage />} />
+        <Route path="sports/open" element={<SportsLaunchPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
         <Route path="games/provider-demos" element={<Navigate to="/casino" replace />} />
         <Route

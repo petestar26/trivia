@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 const f = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -28,27 +28,21 @@ function mount(patch = {}) {
     success: true,
     data: path.endsWith('/status') ? { ...baseline, ...patch } : [],
   }));
-  f.post.mockResolvedValue({
-    success: true,
-    data: { mode: 'real-wallet', url: 'https://sports.example.com/session' },
-  });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const tree = (
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <SportsPage />
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
-  return { ...render(tree), tree, client };
+  return {
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SportsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    ),
+    client,
+  };
 }
-beforeEach(() => {
-  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
-});
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
-  vi.unstubAllGlobals();
   f.user = { id: 'member' };
 });
 it('shows zero real Birr without adding practice or reward money', async () => {
@@ -59,49 +53,15 @@ it('shows zero real Birr without adding practice or reward money', async () => {
   expect(screen.getByRole('link', { name: /Open wallet/ })).toHaveAttribute('href', '/wallet');
   expect(f.post).not.toHaveBeenCalled();
 });
-it('opens a real-wallet browsing session only after the member clicks', async () => {
+it('opens a protected launch page in a separate tab without embedding the provider', async () => {
   const { container } = mount();
-  const button = await screen.findByRole('button', { name: 'Browse sports' });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
-  await waitFor(() =>
-    expect(container.querySelector('iframe')).toHaveAttribute(
-      'src',
-      'https://sports.example.com/session'
-    )
-  );
-  expect(f.post).toHaveBeenCalledWith('/sportsbook/launch', { mobile: false });
-  expect(container.querySelector('iframe')).toHaveAttribute(
-    'sandbox',
-    'allow-scripts allow-same-origin allow-forms allow-popups'
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Back to sports' }));
+  const link = await screen.findByRole('link', { name: 'Browse sports' });
+  expect(link).toHaveAttribute('href', '/sports/open');
+  expect(link).toHaveAttribute('target', '_blank');
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(screen.getByText(/Opens in a new tab/)).toBeInTheDocument();
   expect(container.querySelector('iframe')).toBeNull();
-});
-it.each([
-  'http://sports.example.com',
-  'https://name:password@sports.example.com',
-  'javascript:alert(1)',
-])('rejects unsafe launch URL %s', async (url) => {
-  const { container } = mount();
-  f.post.mockResolvedValue({ success: true, data: { mode: 'real-wallet', url } });
-  const button = await screen.findByRole('button', { name: 'Browse sports' });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
-  expect(await screen.findByRole('alert')).toHaveTextContent('Sports could not be opened');
-  expect(container.querySelector('iframe')).toBeNull();
-});
-it('rejects a practice-wallet response', async () => {
-  const { container } = mount();
-  f.post.mockResolvedValue({
-    success: true,
-    data: { mode: 'virtual-test', url: 'https://sports.example.com' },
-  });
-  const button = await screen.findByRole('button', { name: 'Browse sports' });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
-  await screen.findByRole('alert');
-  expect(container.querySelector('iframe')).toBeNull();
+  expect(f.post).not.toHaveBeenCalled();
 });
 it('shows the funded balance and betting readiness only from the server', async () => {
   mount({ balanceMinor: 12345, liveEnabled: true, canBet: true, reason: null });
@@ -111,15 +71,16 @@ it('shows the funded balance and betting readiness only from the server', async 
 it('keeps an empty wallet browseable after live launch but explains funding', async () => {
   mount({ liveEnabled: true, reason: 'empty-wallet' });
   expect(await screen.findByText(/Your real wallet is empty/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Browse sports' })).toBeEnabled();
+  expect(screen.getByRole('link', { name: 'Browse sports' })).toBeInTheDocument();
 });
-it('does not present a failed balance read as zero', async () => {
+it('does not present a failed balance read as zero or leave a launch link', async () => {
   mount();
   await screen.findByText('0.00 ETB');
   f.get.mockRejectedValue(Error('offline'));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh sports balance' }));
   expect(await screen.findByText('Unavailable')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Browse sports' })).toBeDisabled();
+  expect(screen.queryByRole('link', { name: 'Browse sports' })).toBeNull();
 });
 it('does not open sessions before provider configuration is ready', async () => {
   mount({ browseReady: false });
@@ -127,12 +88,10 @@ it('does not open sessions before provider configuration is ready', async () => 
   expect(screen.getByRole('button', { name: 'Browse sports' })).toBeDisabled();
   expect(f.post).not.toHaveBeenCalled();
 });
-it('removes the embedded session when the signed-in account changes', async () => {
-  const view = mount();
-  const button = await screen.findByRole('button', { name: 'Browse sports' });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
-  await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+it('removes the old balance and launch link when the signed-in account changes', async () => {
+  const view = mount({ balanceMinor: 12345 });
+  await screen.findByText('123.45 ETB');
+  f.get.mockImplementation(() => new Promise(() => {}));
   f.user = { id: 'different-member' };
   view.rerender(
     <QueryClientProvider client={view.client}>
@@ -141,5 +100,6 @@ it('removes the embedded session when the signed-in account changes', async () =
       </MemoryRouter>
     </QueryClientProvider>
   );
-  expect(view.container.querySelector('iframe')).toBeNull();
+  expect(screen.queryByText('123.45 ETB')).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Browse sports' })).toBeNull();
 });

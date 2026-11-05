@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -38,7 +37,6 @@ export function SportsPage() {
   return user ? <SportsSession key={user.id} userId={user.id} /> : <p>Sign in to browse sports.</p>;
 }
 function SportsSession({ userId }: { userId: string }) {
-  const [frameLoaded, setFrameLoaded] = useState(false);
   const status = useQuery({
     queryKey: ['sports-status', userId],
     retry: false,
@@ -51,28 +49,8 @@ function SportsSession({ userId }: { userId: string }) {
     refetchInterval: 15000,
     queryFn: async () => unwrapData(await api.get<Movement[]>('/sportsbook/activity')),
   });
-  const launch = useMutation({
-    mutationFn: async () => {
-      const data = unwrapData(
-        await api.post<{ url: string; mode: string }>('/sportsbook/launch', {
-          mobile: window.matchMedia('(max-width: 767px)').matches,
-        })
-      );
-      const url = new URL(data.url);
-      if (data.mode !== 'real-wallet' || url.protocol !== 'https:' || url.username || url.password)
-        throw Error('Sports could not be opened safely.');
-      return data;
-    },
-  });
-  const resetLaunch = launch.reset;
   const ready =
     status.data?.browseReady === true && !status.isError && status.data.mode === 'real-wallet';
-  useEffect(() => {
-    if (!ready) {
-      resetLaunch();
-      setFrameLoaded(false);
-    }
-  }, [ready, resetLaunch]);
   const s = status.data;
   const notice = !s
     ? ''
@@ -141,84 +119,50 @@ function SportsSession({ userId }: { userId: string }) {
           </div>
         )
       )}
-      {launch.data && ready ? (
-        <section className="sports-player" aria-label="Sportsbook">
-          <div className="sports-player-toolbar">
-            <strong>
-              <Trophy size={18} /> Sportsbook
-            </strong>
-            <button
-              onClick={() => {
-                launch.reset();
-                setFrameLoaded(false);
-                refresh();
-              }}
+      <section className="sports-feature" aria-labelledby="sports-browse-title">
+        <div className="sports-feature-copy">
+          <span className="sports-provider">
+            <Trophy size={17} /> NOCTURN SPORT
+          </span>
+          <h2 id="sports-browse-title">
+            The game starts
+            <br />
+            with the fixtures.
+          </h2>
+          <p>Explore the sportsbook and choose your markets. Your wallet stays with Salem Bet.</p>
+          {ready ? (
+            <Link
+              className="sports-open"
+              to="/sports/open"
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              Back to sports
+              Browse sports <ArrowUpRight size={19} />
+            </Link>
+          ) : (
+            <button className="sports-open" disabled>
+              Browse sports <ArrowUpRight size={19} />
             </button>
-          </div>
-          {!frameLoaded && (
-            <p className="sports-frame-loading" role="status">
-              Opening the sportsbook…
+          )}
+          <p className="sports-open-hint">Opens in a new tab. Your wallet stays here.</p>
+          {!status.isPending && !status.isError && !ready && (
+            <p className="sports-availability">
+              Sports is getting ready. Please check back shortly.
             </p>
           )}
-          <iframe
-            src={launch.data.url}
-            title="Salem Bet sportsbook"
-            onLoad={() => setFrameLoaded(true)}
-            referrerPolicy="no-referrer"
-            allow="fullscreen"
-            allowFullScreen
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          />
-        </section>
-      ) : (
-        <section className="sports-feature" aria-labelledby="sports-browse-title">
-          <div className="sports-feature-copy">
-            <span className="sports-provider">
-              <Trophy size={17} /> NOCTURN SPORT
-            </span>
-            <h2 id="sports-browse-title">
-              The game starts
-              <br />
-              with the fixtures.
-            </h2>
-            <p>Explore the sportsbook and choose your markets. Your wallet stays with Salem Bet.</p>
-            <button
-              className="sports-open"
-              disabled={!ready || launch.isPending}
-              onClick={() => {
-                setFrameLoaded(false);
-                launch.mutate();
-              }}
-            >
-              {launch.isPending ? 'Opening sports…' : 'Browse sports'}
-              <ArrowUpRight size={19} />
-            </button>
-            {!status.isPending && !status.isError && !ready && (
-              <p className="sports-availability">
-                Sports is getting ready. Please check back shortly.
-              </p>
-            )}
-            {launch.isError && (
-              <p className="sports-launch-error" role="alert">
-                Sports could not be opened. Please try again.
-              </p>
-            )}
+        </div>
+        <div className="sports-pitch" aria-hidden="true">
+          <div className="sports-pitch-lines">
+            <i />
+            <b />
+            <span />
           </div>
-          <div className="sports-pitch" aria-hidden="true">
-            <div className="sports-pitch-lines">
-              <i />
-              <b />
-              <span />
-            </div>
-            <div className="sports-ball">
-              <CircleDot strokeWidth={1} />
-            </div>
-            <p>ONE WALLET. A WORLD OF SPORT.</p>
+          <div className="sports-ball">
+            <CircleDot strokeWidth={1} />
           </div>
-        </section>
-      )}
+          <p>ONE WALLET. A WORLD OF SPORT.</p>
+        </div>
+      </section>
       <section className="sports-history" aria-labelledby="sports-history-title">
         <div>
           <h2 id="sports-history-title">Wallet activity</h2>

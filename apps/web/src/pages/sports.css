@@ -167,6 +167,11 @@
   font-weight: 650;
   font-size: 14px;
   transition: background 0.15s;
+  text-decoration: none;
+}
+.sports-feature-copy > .sports-open-hint {
+  margin-top: 10px;
+  font-size: 12px;
 }
 .sports-open:hover {
   background: #ecd2b4;
@@ -263,45 +268,29 @@
 .sports-launch-error {
   margin-top: 14px !important;
 }
-.sports-launch-error {
-  color: #f3b0b7 !important;
+.sports-launch-page {
+  padding-top: 30px;
 }
-.sports-player {
-  border: 1px solid #59484f;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #17191c;
+.sports-launch-page > svg {
+  color: #ddbd98;
+  margin: 50px 0 22px;
 }
-.sports-player-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  gap: 12px;
-  border-bottom: 1px solid #50434a;
-}
-.sports-player-toolbar strong {
+.sports-return {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-}
-.sports-player-toolbar button {
+  width: fit-content;
   min-height: 44px;
-  font-size: 13px;
-  text-decoration: underline;
 }
-.sports-player iframe {
-  display: block;
-  width: 100%;
-  height: max(580px, calc(100dvh - 160px));
-  border: 0;
-  background: #161b26;
+.sports-launch-page h1 {
+  font-size: clamp(28px, 5vw, 48px);
+  line-height: 1.2;
+  margin: 16px 0;
 }
-.sports-frame-loading {
-  padding: 14px;
-  margin: 0;
-  font-size: 13px;
+.sports-launch-page > p[role] {
+  max-width: 550px;
+  line-height: 1.7;
+  color: #cbbcb7;
 }
 .sports-history {
   padding: 30px 0 10px;
@@ -398,10 +387,6 @@
   }
   .sports-notice {
     padding: 12px;
-  }
-  .sports-player iframe {
-    height: calc(100dvh - 150px);
-    min-height: 450px;
   }
   .sports-history > div {
     align-items: flex-start;
