@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -8,6 +8,7 @@ import {
   CircleDot,
   Dice5,
   Gamepad2,
+  Pause,
   Play,
   Rocket,
   Search,
@@ -26,6 +27,7 @@ interface TestGame {
   provider: string;
   category: string;
   image?: string;
+  imageFallback?: string;
 }
 
 const PAGE_SIZE = 36;
@@ -55,19 +57,47 @@ const categoryIcon = (category: string) =>
           ? CircleDot
           : Dice5;
 
-function GameArtwork({ game }: { game: TestGame }) {
-  const [failed, setFailed] = useState(false);
+function GameArtwork({ game, motion }: { game: TestGame; motion: boolean }) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const sources = [...new Set([game.image, game.imageFallback].filter(Boolean))];
+  const image = sources[imageIndex];
+  const [loaded, setLoaded] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const art = useRef<HTMLDivElement>(null);
   const Icon = categoryIcon(game.category);
+  useEffect(() => {
+    if (!art.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), {
+      threshold: 0.1,
+    });
+    observer.observe(art.current);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="casino-tile-art" data-category={game.category}>
-      {game.image && !failed ? (
+    <div
+      ref={art}
+      className="casino-tile-art"
+      data-category={game.category}
+      data-motion={motion && visible && loaded}
+      data-loaded={loaded}
+    >
+      {image ? (
         <img
-          src={game.image}
+          key={image}
+          src={image}
           alt=""
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setLoaded(false);
+            setImageIndex((index) => index + 1);
+          }}
         />
       ) : (
         <div className="casino-tile-fallback" aria-hidden="true">
@@ -93,6 +123,25 @@ export function ProviderTestPage() {
 }
 
 function ProviderTestSession({ userId }: { userId: string }) {
+  const [motionEnabled, setMotionEnabled] = useState(
+    () =>
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
+  );
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onPreference = () => {
+      if (preference.matches) setMotionEnabled(false);
+    };
+    const onVisibility = () => setPageVisible(!document.hidden);
+    preference.addEventListener?.('change', onPreference);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      preference.removeEventListener?.('change', onPreference);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -293,19 +342,31 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 <Gamepad2 size={21} /> The game collection{' '}
                 <span>{catalogue.data?.length.toLocaleString() ?? '—'}</span>
               </h2>
-              <label className="casino-search">
-                <Search size={18} aria-hidden="true" />
-                <span className="sr-only">Search games or providers</span>
-                <input
-                  type="search"
-                  placeholder="Search games or providers"
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value);
-                    setVisibleCount(PAGE_SIZE);
-                  }}
-                />
-              </label>
+              <div className="casino-browser-controls">
+                <button
+                  type="button"
+                  className="casino-motion-toggle"
+                  aria-label={motionEnabled ? 'Pause previews' : 'Animate previews'}
+                  aria-pressed={motionEnabled}
+                  onClick={() => setMotionEnabled((enabled) => !enabled)}
+                >
+                  {motionEnabled ? <Pause size={15} /> : <Play size={15} />}
+                  <span>{motionEnabled ? 'Pause previews' : 'Animate previews'}</span>
+                </button>
+                <label className="casino-search">
+                  <Search size={18} aria-hidden="true" />
+                  <span className="sr-only">Search games or providers</span>
+                  <input
+                    type="search"
+                    placeholder="Search games or providers"
+                    value={search}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setVisibleCount(PAGE_SIZE);
+                    }}
+                  />
+                </label>
+              </div>
             </div>
             <div className="casino-categories" role="group" aria-label="Game categories">
               <button
@@ -381,7 +442,11 @@ function ProviderTestSession({ userId }: { userId: string }) {
                     launch.mutate(game);
                   }}
                 >
-                  <GameArtwork key={`${game.id}:${game.image ?? ''}`} game={game} />
+                  <GameArtwork
+                    key={`${game.id}:${game.image ?? ''}:${game.imageFallback ?? ''}`}
+                    game={game}
+                    motion={motionEnabled && pageVisible}
+                  />
                   <div className="casino-tile-caption">
                     <h3>{game.name}</h3>
                     <p>

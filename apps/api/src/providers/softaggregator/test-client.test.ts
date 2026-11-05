@@ -141,3 +141,76 @@ it.each([
     { id: 'slot', name: 'Slot', provider: 'Provider', category: 'other' },
   ]);
 });
+it('prefers portrait artwork and keeps a separate provider image for recovery', async () => {
+  const f = fixture();
+  f.transport.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        error: 0,
+        response: [
+          {
+            id_hash: 'slot',
+            name: 'Slot',
+            image: 'https://cdn.example.com/wide.jpg',
+            image_portrait: 'https://cdn.example.com/portrait.jpg',
+            image_square: 'https://cdn.example.com/square.jpg',
+          },
+        ],
+      })
+    )
+  );
+  expect(await f.pilot.games('tester')).toEqual([
+    {
+      id: 'slot',
+      name: 'Slot',
+      provider: 'Provider',
+      category: 'other',
+      image: 'https://cdn.example.com/portrait.jpg',
+      imageFallback: 'https://cdn.example.com/wide.jpg',
+    },
+  ]);
+  expect(f.transport).toHaveBeenCalledTimes(1);
+  expect(f.transaction).not.toHaveBeenCalled();
+});
+it('validates every artwork variant and deduplicates fallback URLs', async () => {
+  const f = fixture();
+  f.transport.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        error: 0,
+        response: [
+          {
+            id_hash: 'square-only',
+            name: 'Square',
+            image: null,
+            image_portrait: 'https://127.0.0.1/private',
+            image_square: 'https://cdn.example.com/square.jpg',
+          },
+          {
+            id_hash: 'duplicate',
+            name: 'Duplicate',
+            image: 'https://cdn.example.com/same.jpg',
+            image_portrait: 'https://cdn.example.com/same.jpg',
+            image_square: 'javascript:alert(1)',
+          },
+        ],
+      })
+    )
+  );
+  expect(await f.pilot.games('tester')).toEqual([
+    {
+      id: 'square-only',
+      name: 'Square',
+      provider: 'Provider',
+      category: 'other',
+      image: 'https://cdn.example.com/square.jpg',
+    },
+    {
+      id: 'duplicate',
+      name: 'Duplicate',
+      provider: 'Provider',
+      category: 'other',
+      image: 'https://cdn.example.com/same.jpg',
+    },
+  ]);
+});

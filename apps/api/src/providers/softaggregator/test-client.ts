@@ -13,6 +13,7 @@ export interface TestGame {
   provider: string;
   category: string;
   image?: string;
+  imageFallback?: string;
 }
 export class TestProviderFailure extends ProviderDemoError {
   constructor(
@@ -30,6 +31,8 @@ const gameSchema = z.object({
   provider_name: z.string().max(200).optional(),
   game_type: z.string().max(40).optional(),
   image: z.unknown().optional(),
+  image_portrait: z.unknown().optional(),
+  image_square: z.unknown().optional(),
 });
 export function testLaunchHost(raw: unknown) {
   if (typeof raw !== 'string' || raw.length > 8192) return null;
@@ -131,14 +134,25 @@ export function createProviderTest(
         const found = new Map<string, TestGame>();
         for (const row of rows) {
           const p = gameSchema.safeParse(row);
-          if (p.success && !found.has(p.data.id_hash))
+          if (p.success && !found.has(p.data.id_hash)) {
+            // Portrait assets preserve the game title in the lobby's tall cards.
+            // Keep one independent provider asset to recover from a failed thumbnail.
+            const artwork = [
+              ...new Set(
+                [p.data.image_portrait, p.data.image, p.data.image_square].filter(
+                  (value): value is string => !!testLaunchHost(value)
+                )
+              ),
+            ];
             found.set(p.data.id_hash, {
               id: p.data.id_hash,
               name: p.data.name,
               provider: p.data.provider_name ?? 'Provider',
               category: p.data.game_type ?? 'other',
-              ...(testLaunchHost(p.data.image) ? { image: p.data.image as string } : {}),
+              ...(artwork[0] ? { image: artwork[0] } : {}),
+              ...(artwork[1] ? { imageFallback: artwork[1] } : {}),
             });
+          }
         }
         const result = [...found.values()];
         cache = { until: Date.now() + 60_000, games: result };

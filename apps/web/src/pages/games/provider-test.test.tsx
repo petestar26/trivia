@@ -138,6 +138,92 @@ it('shows provider artwork and retains a playable card if an image fails', async
   expect(button).toBeEnabled();
   expect(screen.queryByText('Open test game')).not.toBeInTheDocument();
 });
+it('pauses off-screen artwork and lets users stop previews without launching a game', async () => {
+  const observers: IntersectionObserverCallback[] = [];
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(callback: IntersectionObserverCallback) {
+        observers.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const get = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation((path: string) =>
+    path.endsWith('/games')
+      ? Promise.resolve(ok([{ ...game, image: 'https://cdn.example.com/slot.webp' }]))
+      : get(path)
+  );
+  const v = mount();
+  await screen.findByRole('button', { name: 'Play Test Slot' });
+  const art = v.container.querySelector('.casino-tile-art')!;
+  fireEvent.load(art.querySelector('img')!);
+  expect(art).toHaveAttribute('data-motion', 'false');
+  act(() =>
+    observers[0](
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      {} as IntersectionObserver
+    )
+  );
+  expect(art).toHaveAttribute('data-motion', 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Pause previews' }));
+  expect(art).toHaveAttribute('data-motion', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Animate previews' }));
+  expect(art).toHaveAttribute('data-motion', 'true');
+  act(() =>
+    observers[0](
+      [{ isIntersecting: false } as IntersectionObserverEntry],
+      {} as IntersectionObserver
+    )
+  );
+  expect(art).toHaveAttribute('data-motion', 'false');
+  expect(mocks.post).not.toHaveBeenCalled();
+  expect(v.container.querySelector('iframe')).toBeNull();
+});
+it('starts with still artwork for reduced-motion users', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({ matches: query.includes('reduced-motion') }))
+  );
+  mount();
+  await screen.findByRole('button', { name: 'Play Test Slot' });
+  expect(screen.getByRole('button', { name: 'Animate previews' })).toHaveAttribute(
+    'aria-pressed',
+    'false'
+  );
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+it('recovers from a broken portrait using the provider fallback before showing a placeholder', async () => {
+  const get = mocks.get.getMockImplementation()!;
+  mocks.get.mockImplementation((path: string) =>
+    path.endsWith('/games')
+      ? Promise.resolve(
+          ok([
+            {
+              ...game,
+              image: 'https://cdn.example.com/portrait.jpg',
+              imageFallback: 'https://cdn.example.com/wide.jpg',
+            },
+          ])
+        )
+      : get(path)
+  );
+  const v = mount();
+  await screen.findByRole('button', { name: 'Play Test Slot' });
+  fireEvent.error(v.container.querySelector('img')!);
+  expect(v.container.querySelector('img')).toHaveAttribute(
+    'src',
+    'https://cdn.example.com/wide.jpg'
+  );
+  fireEvent.load(v.container.querySelector('img')!);
+  expect(v.container.querySelector('.casino-tile-art')).toHaveAttribute('data-loaded', 'true');
+  fireEvent.error(v.container.querySelector('img')!);
+  expect(v.container.querySelector('img')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Play Test Slot' })).toBeEnabled();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
 it('browses the full catalogue in batches and combines category and provider search', async () => {
   const get = mocks.get.getMockImplementation()!;
   const games = Array.from({ length: 40 }, (_, i) => ({

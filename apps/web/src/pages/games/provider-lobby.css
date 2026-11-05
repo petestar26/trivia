@@ -157,6 +157,29 @@
 .casino-search input::placeholder {
   color: #ad9aa2;
 }
+.casino-browser-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.casino-motion-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid #b29a9c35;
+  border-radius: 9px;
+  color: #dcc3b2;
+  background: #211b22;
+  font-size: 11px;
+}
+.casino-motion-toggle:hover {
+  background: #392731;
+}
 .casino-categories {
   display: flex;
   gap: 7px;
@@ -222,7 +245,7 @@
 }
 .casino-tile-art {
   position: relative;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 3 / 4;
   overflow: hidden;
   isolation: isolate;
   background: #30242e;
@@ -232,10 +255,31 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.35s;
+  opacity: 0;
+  transition: opacity 0.3s;
+  animation: casino-art-drift 12s ease-in-out infinite alternate;
+  animation-play-state: paused;
 }
-.casino-game-tile:not(:disabled):hover .casino-tile-art > img {
-  transform: scale(1.045);
+.casino-tile-art[data-loaded='true'] > img {
+  opacity: 1;
+}
+.casino-tile-art[data-motion='true'] > img {
+  animation-play-state: running;
+}
+.casino-game-tile:nth-child(3n + 2) .casino-tile-art > img {
+  animation-delay: -4s;
+  animation-direction: alternate-reverse;
+}
+.casino-game-tile:nth-child(3n) .casino-tile-art > img {
+  animation-delay: -8s;
+}
+@keyframes casino-art-drift {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.04) translate3d(0.2%, -0.3%, 0);
+  }
 }
 .casino-tile-art::after {
   content: '';
@@ -599,6 +643,18 @@
   }
 }
 @media (max-width: 480px) {
+  .casino-browser-controls {
+    width: 100%;
+  }
+  .casino-motion-toggle span {
+    display: none;
+  }
+  .casino-motion-toggle {
+    min-width: 42px;
+  }
+  .casino-browser-controls .casino-search {
+    flex: 1;
+  }
   .casino-game-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -636,7 +692,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .casino-lobby *,
+  .casino-lobby *:not(img),
   .casino-lobby *::before,
   .casino-lobby *::after {
     transition: none !important;
