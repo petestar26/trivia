@@ -268,7 +268,7 @@ html.qube-member .pq-auth-shell .pq-auth-ring { opacity: .4; }
 
 .salem-mobile-nav {
   position: fixed; z-index: 40; bottom: 0; left: 0; right: 0;
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
   background: #18181bf5; border-top: 1px solid #454045; backdrop-filter: blur(12px);
 }

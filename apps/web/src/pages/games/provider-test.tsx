@@ -40,7 +40,6 @@ const CATEGORIES = [
   ['keno', 'Keno'],
   ['bingo', 'Bingo'],
   ['virtual', 'Virtual sports'],
-  ['sportsbook', 'Sports'],
   ['fishing', 'Fishing'],
   ['other', 'More games'],
 ] as const;
@@ -216,7 +215,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     () =>
       (catalogue.data ?? []).filter(
         (game) =>
-          (category === 'all' || game.category === category) &&
+          game.category !== 'sportsbook' && (category === 'all' || game.category === category) &&
           `${game.name} ${game.provider}`.toLowerCase().includes(search.trim().toLowerCase())
       ),
     [catalogue.data, category, search]
@@ -282,6 +281,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
         <Link to="/games">
           <ArrowLeft size={15} /> Back to our games
         </Link>
+        <Link to="/sports"><Trophy size={15} /> Sports · Real wallet</Link>
         <span>
           <ShieldCheck size={14} /> Virtual play
         </span>

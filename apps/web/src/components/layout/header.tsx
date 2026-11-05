@@ -14,6 +14,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const labels: Record<string, string> = {
     dashboard: 'Home',
     casino: 'Casino',
+    sports: 'Sports',
     games: 'Games',
     groups: 'Groups',
     messages: 'Messages',
@@ -43,7 +44,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
-        {PRACTICE_ETB && (
+        {PRACTICE_ETB && section !== 'sports' && (
           <span className="salem-mode-badge">
             Practice <b>ETB</b>
           </span>

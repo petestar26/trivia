@@ -1,10 +1,11 @@
 import { useLanguage } from '@/providers/language-provider';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Gamepad2, Dice5, Users, Wallet } from 'lucide-react';
+import { Home, Gamepad2, Dice5, Users, Wallet, Trophy } from 'lucide-react';
 const destinations = [
   { to: '/dashboard', label: 'Home', icon: Home },
   { to: '/games', label: 'Games', icon: Gamepad2 },
   { to: '/casino', label: 'Casino', icon: Dice5 },
+  { to: '/sports', label: 'Sports', icon: Trophy },
   { to: '/groups', label: 'Groups', icon: Users },
   { to: '/wallet', label: 'Wallet', icon: Wallet },
 ];

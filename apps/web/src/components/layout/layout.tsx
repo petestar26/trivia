@@ -22,6 +22,7 @@ export function Layout() {
     !pathname.startsWith('/support') &&
     !pathname.startsWith('/games/') &&
     !pathname.startsWith('/casino') &&
+    !pathname.startsWith('/sports') &&
     !/^\/groups\/[^/]+/.test(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);

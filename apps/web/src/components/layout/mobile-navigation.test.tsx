@@ -3,13 +3,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, it, expect } from 'vitest';
 import { MobileNavigation } from './mobile-navigation';
 afterEach(cleanup);
-it('provides five real destinations and marks the current section', () => {
+it('provides six real destinations including sports and marks the current section', () => {
   render(
     <MemoryRouter initialEntries={['/casino']}>
       <MobileNavigation />
     </MemoryRouter>
   );
-  expect(screen.getAllByRole('link')).toHaveLength(5);
+  expect(screen.getAllByRole('link')).toHaveLength(6);
+  expect(screen.getByRole('link', { name: 'Sports' })).toHaveAttribute('href', '/sports');
   expect(screen.getByRole('link', { name: 'Casino' })).toHaveAttribute('aria-current', 'page');
   expect(screen.getByRole('link', { name: 'Wallet' })).toHaveAttribute('href', '/wallet');
 });

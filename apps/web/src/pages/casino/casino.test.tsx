@@ -197,7 +197,7 @@ describe('Casino owns provider tests', () => {
   it('keeps disabled provider access gated without replacing it with own games', async () => {
     providerGames(false);
     mount(<CasinoPage />);
-    expect(await screen.findByText(/not enabled for your account yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/not available for this account/)).toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path)).toEqual(['/provider-test/status']);
     expect(screen.queryByRole('button', { name: 'Play Provider Slot' })).not.toBeInTheDocument();
   });
