@@ -26,6 +26,7 @@ export function generateTokens(
     ...(email ? { email } : {}),
     username,
     roles,
+    tokenVersion,
     iss: config.JWT_ISSUER,
     aud: config.JWT_AUDIENCE,
   };

@@ -13,6 +13,8 @@ export interface RewardGrant {
   xpReward: number;
   coinReward: number;
   gamePointReward: number;
+  // Monetary promotions must remain pending when grants are unavailable.
+  requireCoinReward?: boolean;
 }
 
 export interface GrantResult {
@@ -81,6 +83,9 @@ export async function grantReward(
     `;
     if (!users[0]) throw ApiError.notFound('Reward recipient not found');
     const policy = coinReward > 0 ? await tryActiveBonusGrantPolicy(tx, userId) : null;
+    if (reward.requireCoinReward && (!policy || coinReward <= 0)) {
+      throw ApiError.conflict('Reward wallet is not available for this account yet. Your earned reward remains pending.');
+    }
     const creditedCoins = policy ? coinReward : 0;
     const requirementAmount = policy ? Math.ceil(coinReward * policy.playthroughMultiplier) : 0;
     if (policy && (!Number.isSafeInteger(requirementAmount) || requirementAmount <= 0 ||

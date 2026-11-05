@@ -1,13 +1,19 @@
 import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
-import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
+import { currencyMinorDigits, inputToMinor, formatMinor, formatEtb, etbMinimumMinor } from '@/lib/payment-money';
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { boundedRequest } from '@/lib/bounded-request';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import './wallet-payments.css';
+import {
+  PaymentNavigation,
+  PaymentMethodChooser,
+  PaymentSteps,
+  paymentPath,
+} from './wallet-navigation';
 
 type Country = {
   id: string;
@@ -24,7 +30,16 @@ type Agent = {
   maxOrderAmount: number | null;
   paymentAccounts: { id: string; methodDef: { name: string } }[];
 };
-type Options = { countries: Country[]; agents: Agent[]; isAgent: boolean; isAdmin: boolean; crypto?: { assets: { symbol: string; name: string; network: string; available: boolean; reason: string }[] } };
+type Options = {
+  countries: Country[];
+  agents: Agent[];
+  isAgent: boolean;
+  isAdmin: boolean;
+  withdrawalsEnabled?: boolean;
+  crypto?: {
+    assets: { symbol: string; name: string; network: string; available: boolean; reason: string }[];
+  };
+};
 type Payment = {
   id: string;
   orderNumber?: string;
@@ -64,25 +79,11 @@ type Quote = {
   expiresAt: string;
 };
 const get = async <T,>(path: string) => unwrapData(await api.get<T>(path));
-export function PaymentNavigation() {
-  return (
-    <nav aria-label="Wallet sections" className="payment-tabs">
-      {[
-        ['/wallet', 'Overview'],
-        ['/wallet/deposit', 'Deposit'],
-        ['/wallet/withdraw', 'Withdraw'],
-        ['/wallet/activity', 'Requests'],
-      ].map(([to, label]) => (
-        <NavLink key={to} to={to} end>
-          {label}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
+export { PaymentNavigation } from './wallet-navigation';
 export function WalletPaymentsPage() {
   const { user } = useAuth();
-  return user ? <Payments key={user.id} userId={user.id} /> : null;
+  const { section } = useParams();
+  return user ? <Payments key={`${user.id}:${section}`} userId={user.id} /> : null;
 }
 function Payments({ userId }: { userId: string }) {
   const { section = 'activity' } = useParams();
@@ -143,19 +144,13 @@ function Payments({ userId }: { userId: string }) {
   const method = methods.data?.find((m) => m.id === methodId);
   const minorDigits = country ? currencyMinorDigits(country.currencyCode) : 2;
   const depositMinor = inputToMinor(amount, minorDigits);
-  const validAmount =
-    section === 'deposit'
-      ? depositMinor !== null
-      : /^\d+$/.test(amount) &&
-        Number.isSafeInteger(Number(amount)) &&
-        Number(amount) > 0 &&
-        Number(amount) <= 1_000_000_000;
+  const withdrawalMinor = inputToMinor(amount, 2);
+  const validAmount = depositMinor !== null && (section === 'deposit' || (withdrawalMinor !== null && withdrawalMinor <= 1_000_000_000));
   const pricing = useQuery({
     queryKey: ['payments', 'usd-preview', countryId, section, depositMinor],
     queryFn: () =>
       get<{
         policy: {
-          coinsPerUsd: number;
           localPerUsd: string;
           observedAt: string;
           expiresAt: string;
@@ -171,27 +166,16 @@ function Payments({ userId }: { userId: string }) {
     refetchInterval: 30000,
   });
   const withdrawalPolicy = pricing.data?.policy;
-  const withdrawalMinimum = withdrawalPolicy
-    ? Math.floor(withdrawalPolicy.p2pWithdrawalAboveUsdCents * withdrawalPolicy.coinsPerUsd / 100) + 1
-    : null;
-  const withdrawalPricingReady = country?.agentPaymentEnabled !== false &&
-    (!country?.usdPricingEnabled || (!pricing.isError && withdrawalMinimum !== null &&
-      Number.isSafeInteger(withdrawalMinimum) &&
-      Date.parse(withdrawalPolicy!.expiresAt) > now && Number(amount) >= withdrawalMinimum));
-  const packages = useQuery({
-    queryKey: ['payments', 'coin-packages'],
-    queryFn: () =>
-      get<
-        Array<{
-          id: string;
-          name: string;
-          coinAmount: number;
-          usdDisplay: string;
-          featured: boolean;
-        }>
-      >('/agent-config/coin-packages'),
-    enabled: section === 'deposit' && !!country?.usdPricingEnabled,
-  });
+  const withdrawalMinimum = withdrawalPolicy ? etbMinimumMinor(withdrawalPolicy.localPerUsd, withdrawalPolicy.p2pWithdrawalAboveUsdCents, true) : null;
+  const withdrawalPricingReady =
+    options.data?.withdrawalsEnabled !== false &&
+    country?.agentPaymentEnabled !== false &&
+    (!country?.usdPricingEnabled ||
+      (!pricing.isError &&
+        withdrawalMinimum !== null &&
+        Number.isSafeInteger(withdrawalMinimum) &&
+        Date.parse(withdrawalPolicy!.expiresAt) > now &&
+        (withdrawalMinor ?? 0) >= withdrawalMinimum));
   function changeCountry(value: string) {
     setCountry(value);
     setAmount('');
@@ -204,6 +188,7 @@ function Payments({ userId }: { userId: string }) {
     setConfirm(false);
   }
   async function prepare() {
+    setConfirm(false);
     setPreparing(true);
     setError('');
     setQuote(null);
@@ -213,7 +198,7 @@ function Payments({ userId }: { userId: string }) {
           await boundedRequest((signal) =>
             api.post<Quote>(
               '/withdrawals/quotes',
-              { countryId, coinAmount: Number(amount) },
+              { countryId, coinAmount: withdrawalMinor },
               undefined,
               { signal }
             )
@@ -279,14 +264,30 @@ function Payments({ userId }: { userId: string }) {
   if (!['deposit', 'withdraw', 'activity'].includes(section))
     return <Navigate to="/wallet" replace />;
   return (
-    <div className="payments-page">
+    <div className="payments-page wallet-member">
       <header>
         <p className="payment-eyebrow">YOUR MONEY, CLEARLY TRACKED</p>
-        <h1>Wallet</h1>
-        <p>Manage Coin requests and follow every step of processing.</p>
+        <h1>
+          {section === 'deposit'
+            ? 'Deposit'
+            : section === 'withdraw'
+              ? 'Withdraw'
+              : 'Payment activity'}
+        </h1>
+        <p>
+          {section === 'activity'
+            ? 'Track your requests and see what happens next.'
+            : 'Choose your method, enter the details, then review your request.'}
+        </p>
       </header>
       <PaymentNavigation />
-      <section className="payment-balance" aria-label="Coin balance">
+      {section !== 'activity' && (
+        <>
+          <PaymentMethodChooser direction={section as 'deposit' | 'withdraw'} method="agent" />
+          <PaymentSteps direction={section as 'deposit' | 'withdraw'} method="agent" />
+        </>
+      )}
+      <section className="payment-balance" aria-label="Birr balance">
         {balance.isPending ? (
           <p role="status">Loading balance…</p>
         ) : balance.isError ? (
@@ -296,24 +297,28 @@ function Payments({ userId }: { userId: string }) {
         ) : (
           <>
             <div>
-              <span>Total Coins</span>
-              <strong>{balance.data.coinsBalance?.toLocaleString() ?? '—'}</strong>
+              <span>Birr balance</span>
+              <strong>{formatEtb(balance.data.coinsBalance)}</strong>
             </div>
             <div>
-              <span>Spendable Coins · eligibility applies</span>
-              <strong>{balance.data.coinAvailability?.spendable.toLocaleString() ?? '—'}</strong>
+              <span>Available balance · eligibility applies</span>
+              <strong>{balance.data.coinAvailability ? formatEtb(balance.data.coinAvailability.spendable) : '—'}</strong>
             </div>
             <div>
               <span>Bet-only rewards</span>
-              <strong>{balance.data.coinAvailability?.betOnly.toLocaleString() ?? '—'}</strong>
+              <strong>{balance.data.coinAvailability ? formatEtb(balance.data.coinAvailability.betOnly) : '—'}</strong>
             </div>
           </>
         )}
       </section>
-      <div className="payment-disclosure">
-        Deposits are agent-assisted Coin purchases. Payment happens through the approved method
-        shown on your order. Game Points, bet-only rewards and practice credits cannot be withdrawn.
-      </div>
+      <details className="wallet-payment-rules">
+        <summary>Which balance can I use?</summary>
+        <p>
+          Agent deposits add Birr to your wallet. Payment happens through the approved method
+          shown on your order. Game Points, bet-only rewards and practice credits cannot be
+          withdrawn.
+        </p>
+      </details>
       {options.isPending ? (
         <p role="status">Loading payment options…</p>
       ) : options.isError ? (
@@ -322,22 +327,29 @@ function Payments({ userId }: { userId: string }) {
         </div>
       ) : (
         <>
-          <Link className="payment-link" to="/wallet/agent-setup">Payment agent setup</Link>
           {(options.data?.isAgent || options.data?.isAdmin) && (
             <Link className="payment-link" to={options.data?.isAdmin ? '/admin' : '/agent'}>
               {options.data?.isAdmin ? 'Administration dashboard →' : 'Agent workspace →'}
             </Link>
           )}
           {(section === 'deposit' || section === 'withdraw') && (
-            <section className="payment-panel" aria-label="Crypto deposit options">
-              <h2>USDT · TRON (TRC20)</h2>
-              <p>Deposit USDT for automatic verification, or request a manual withdrawal to your TRON address. Availability depends on payment approval for your country.</p>
-              <Link className="payment-link" to="/wallet/crypto">Open crypto wallet →</Link>
-            </section>
-          )}
-          {(section === 'deposit' || section === 'withdraw') && (
             <section className="payment-panel">
-              <h2>{section === 'deposit' ? 'Deposit · buy Coins' : 'Withdraw Coins'}</h2>
+              <h2>{section === 'deposit' ? 'Agent deposit' : 'Agent withdrawal'}</h2>
+              {section === 'withdraw' && options.data?.withdrawalsEnabled === false && (
+                <div className="wallet-mode-notice" role="status">
+                  <strong>Withdrawals are awaiting payment setup</strong>
+                  <p>
+                    You can save your payout account below. Requests open after payout services are
+                    activated.
+                  </p>
+                </div>
+              )}
+              {options.data?.isAdmin && (
+                <p>
+                  <Link to="/admin/payments">Configure payment accounts</Link> ·{' '}
+                  <Link to="/admin/pricing">Manage exchange rates</Link>
+                </p>
+              )}
               {!options.data?.countries.length ? (
                 <p>
                   No payment countries are enabled. New requests are unavailable; existing requests
@@ -362,16 +374,33 @@ function Payments({ userId }: { userId: string }) {
                   </label>
                   {country && (
                     <p>
-                      Agent P2P:{' '}
-                      {country.agentPaymentEnabled === false ? 'unavailable' : 'available'} ·
-                      {' '}<Link to="/wallet/crypto">Check USDT availability</Link>
+                      Agent payments:{' '}
+                      {country.agentPaymentEnabled === false
+                        ? 'setup in progress'
+                        : 'enabled; request checks apply'}{' '}
+                      ·{' '}
+                      <Link to={paymentPath(section as 'deposit' | 'withdraw', 'crypto')}>
+                        Check USDT availability
+                      </Link>
                     </p>
+                  )}
+                  {country?.agentPaymentEnabled === false && (
+                    <div className="wallet-mode-notice" role="status">
+                      <strong>Payment setup is incomplete for {country.name}</strong>
+                      <p>
+                        An approved agent receiving account, current exchange rate and funded
+                        payment service are needed. You can prepare your payout account while setup
+                        is completed.
+                      </p>
+                    </div>
                   )}
                   {country?.usdPricingEnabled && (
                     <div className="payment-disclosure">
-                      <strong>96 Coins = USD 1</strong>
+                      <strong>Your wallet uses Birr (ETB)</strong>
                       {country.agentPaymentEnabled === false ? (
-                        <p role="status">Payments are paused in this country. New quotes are unavailable.</p>
+                        <p role="status">
+                          Payments are paused in this country. New quotes are unavailable.
+                        </p>
                       ) : pricing.isPending ? (
                         <p>Loading current rate…</p>
                       ) : pricing.isError ? (
@@ -391,8 +420,7 @@ function Payments({ userId }: { userId: string }) {
                             </p>
                             {pricing.data.preview && (
                               <p>
-                                You receive {pricing.data.preview.coinAmount.toLocaleString()}{' '}
-                                Coins. Final amount is fixed when the order is created.
+                                You receive {formatEtb(pricing.data.preview.coinAmount)}. Final amount is fixed when the order is created.
                               </p>
                             )}
                             <p>
@@ -403,29 +431,14 @@ function Payments({ userId }: { userId: string }) {
                           </>
                         )
                       )}
-                      {section === 'deposit' && packages.data && (
-                        <details>
-                          <summary>Coin bundle reference prices</summary>
-                          <p>
-                            Prices are approximate USD equivalents. Enter your payment amount below;
-                            the server calculates Coins using the current rate. Route minimums
-                            apply.
-                          </p>
-                          {packages.data.map((p) => (
-                            <p key={p.id}>
-                              {p.name}: {p.coinAmount.toLocaleString()} Coins ≈ USD {p.usdDisplay}
-                            </p>
-                          ))}
-                        </details>
-                      )}
                     </div>
                   )}
                   <label>
                     {section === 'deposit'
                       ? `Amount to pay${country ? ' · ' + country.currencyCode : ''}`
-                      : 'Coins to withdraw'}
+                      : 'Amount to withdraw · ETB'}
                     <input
-                      inputMode={section === 'deposit' ? 'decimal' : 'numeric'}
+                      inputMode="decimal"
                       value={amount}
                       onChange={(e) => {
                         setAmount(e.target.value);
@@ -437,8 +450,7 @@ function Payments({ userId }: { userId: string }) {
                   </label>
                   {amount && !validAmount && (
                     <p role="alert">
-                      Enter a valid positive amount. Deposits use local currency; withdrawals use
-                      whole Coins.
+                      Enter a positive ETB amount with up to two decimal places.
                     </p>
                   )}
                   {section === 'deposit' ? (
@@ -497,8 +509,8 @@ function Payments({ userId }: { userId: string }) {
                         </>
                       )}
                       <p>
-                        The server fixes the exchange rate and Coin amount when the order is
-                        created. Review its exact payment instructions before sending funds.
+                        Your order shows the exact amount and payment details. Create the request
+                        first, then follow its instructions.
                       </p>
                       <label className="payment-check">
                         <input
@@ -519,7 +531,8 @@ function Payments({ userId }: { userId: string }) {
                           !paymentAccountId ||
                           !confirm ||
                           country?.agentPaymentEnabled === false ||
-                          (!!country?.usdPricingEnabled && (pricing.isError || !pricing.data?.preview))
+                          (!!country?.usdPricingEnabled &&
+                            (pricing.isError || !pricing.data?.preview))
                         }
                         onClick={() => {
                           setConfirm(false);
@@ -592,7 +605,10 @@ function Payments({ userId }: { userId: string }) {
                           )}
                           {method?.fieldSchema.requiredFields.map((field) => (
                             <label key={field}>
-                              {field.replaceAll('_', ' ')}
+                              {field
+                                .replace(/([a-z])([A-Z])/g, '$1 $2')
+                                .replaceAll('_', ' ')
+                                .replace(/\b\w/g, (c) => c.toUpperCase())}
                               <input
                                 autoComplete="off"
                                 value={details[field] ?? ''}
@@ -615,13 +631,24 @@ function Payments({ userId }: { userId: string }) {
                           </button>
                         </details>
                       )}
-                      <p>Only eligible Coins can be withdrawn. Current country limits apply and are checked when requesting a quote.</p>
-                      {country?.usdPricingEnabled && withdrawalMinimum !== null && Number.isSafeInteger(withdrawalMinimum) && (
-                        <p>Minimum for the current policy: {withdrawalMinimum.toLocaleString()} Coins.</p>
-                      )}
+                      <p>
+                        Only eligible ETB balance can be withdrawn. Current country limits apply and are
+                        checked when requesting a quote.
+                      </p>
+                      {country?.usdPricingEnabled &&
+                        withdrawalMinimum !== null &&
+                        Number.isSafeInteger(withdrawalMinimum) && (
+                          <p>
+                            Minimum for the current policy: {formatEtb(withdrawalMinimum)}.
+                          </p>
+                        )}
                       <button
                         disabled={
-                          busy || !validAmount || !withdrawalPricingReady || !countryId || !accountId
+                          busy ||
+                          !validAmount ||
+                          !withdrawalPricingReady ||
+                          !countryId ||
+                          !accountId
                         }
                         onClick={prepare}
                       >
@@ -630,13 +657,18 @@ function Payments({ userId }: { userId: string }) {
                       {quote && (
                         <div className="payment-quote">
                           <h3>Review your withdrawal</h3>
+                          {Date.parse(quote.expiresAt) <= now && (
+                            <p role="alert">
+                              This quote has expired. Get a new withdrawal quote to continue.
+                            </p>
+                          )}
                           <p>
-                            {quote.coinAmount} Coins →{' '}
+                            {formatEtb(quote.coinAmount)} →{' '}
                             {formatMinor(quote.fiatAmount, quote.fiatCurrency)}
                           </p>
                           <p>
-                            Quote expires {new Date(quote.expiresAt).toLocaleTimeString()}. The
-                            server rechecks your balance, eligibility, limits and agent liquidity.
+                            Quote valid until {new Date(quote.expiresAt).toLocaleTimeString()}.
+                            Review the amount and receiving account before confirming.
                           </p>
                           <label className="payment-check">
                             <input
@@ -649,7 +681,12 @@ function Payments({ userId }: { userId: string }) {
                           </label>
                           <details>
                             <summary>Account requires two-step verification?</summary>
-                            <p><Link to="/profile#security">Set up your authenticator in Profile</Link> if you haven’t enabled one yet.</p>
+                            <p>
+                              <Link to="/profile#security">
+                                Set up your authenticator in Profile
+                              </Link>{' '}
+                              if you haven’t enabled one yet.
+                            </p>
                             <label>
                               Authenticator code
                               <input
@@ -670,8 +707,9 @@ function Payments({ userId }: { userId: string }) {
                           {verificationMessage && <p role="status">{verificationMessage}</p>}
                           <button
                             className="payment-primary"
-                            disabled={busy || !confirm}
+                            disabled={busy || !confirm || Date.parse(quote.expiresAt) <= now}
                             onClick={() => {
+                              if (Date.parse(quote.expiresAt) <= Date.now()) return;
                               setConfirm(false);
                               void action.run('/withdrawals', {
                                 quoteId: quote.id,
@@ -710,97 +748,114 @@ function Payments({ userId }: { userId: string }) {
           Retry saved request
         </button>
       )}
-      <section className="payment-panel">
-        <h2>Deposit requests</h2>
-        {orders.isPending ? (
-          <p>Loading requests…</p>
-        ) : orders.isError ? (
-          <p role="alert">
-            Could not load deposit requests. <button onClick={() => orders.refetch()}>Retry</button>
-          </p>
-        ) : !orders.data?.length ? (
-          <p>No deposit requests yet.</p>
-        ) : (
-          orders.data.map((p) => (
-            <PaymentCard key={p.id} payment={p}>
-              {p.status === 'CREATED' && (
-                <>
-                  <p role="status">
-                    {depositDeadline(p) > now
-                      ? `Payment window closes at ${new Date(depositDeadline(p)).toLocaleTimeString()}. Send only while this window is open.`
-                      : 'Payment window expired. Do not send money. If you already paid, contact payment support with this order number and your transfer receipt.'}
-                  </p>
+      <nav className="wallet-history-links" aria-label="More payment activity">
+        <Link to="/wallet/activity">All agent requests</Link>
+        <Link to={paymentPath(section === 'withdraw' ? 'withdraw' : 'deposit', 'crypto')}>
+          Crypto requests
+        </Link>
+      </nav>
+      {section !== 'withdraw' && (
+        <section className="payment-panel">
+          <h2>Deposit requests</h2>
+          {orders.isPending ? (
+            <p>Loading requests…</p>
+          ) : orders.isError ? (
+            <p role="alert">
+              Could not load deposit requests.{' '}
+              <button onClick={() => orders.refetch()}>Retry</button>
+            </p>
+          ) : !orders.data?.length ? (
+            <p>No deposit requests yet.</p>
+          ) : (
+            orders.data.map((p) => (
+              <PaymentCard key={p.id} payment={p}>
+                {p.status === 'CREATED' && (
+                  <>
+                    <p role="status">
+                      {depositDeadline(p) > now
+                        ? `Payment window closes at ${new Date(depositDeadline(p)).toLocaleTimeString()}. Send only while this window is open.`
+                        : 'Payment window expired. Do not send money. If you already paid, contact payment support with this order number and your transfer receipt.'}
+                    </p>
+                    <ConfirmAction
+                      label="I have sent the payment"
+                      disabled={busy || depositDeadline(p) <= now}
+                      onConfirm={() => action.run(`/agent-orders/${p.id}/submit-payment`)}
+                    />
+                    <ConfirmAction
+                      label="Cancel unpaid order"
+                      disabled={busy}
+                      onConfirm={() => action.run(`/agent-orders/${p.id}/cancel`)}
+                    />
+                  </>
+                )}
+                {['EXPIRED', 'CANCELLED'].includes(p.status) && (
+                  <LatePaymentReport orderId={p.id} currency={p.fiatCurrency} />
+                )}
+                {p.status === 'PAYMENT_SUBMITTED' && (
+                  <button disabled={busy} onClick={() => setDispute({ id: p.id, kind: 'deposit' })}>
+                    Report a problem
+                  </button>
+                )}
+              </PaymentCard>
+            ))
+          )}
+        </section>
+      )}
+      {section !== 'deposit' && (
+        <section className="payment-panel">
+          <h2>Withdrawal requests</h2>
+          {withdrawals.isPending ? (
+            <p>Loading requests…</p>
+          ) : withdrawals.isError ? (
+            <p role="alert">
+              Could not load withdrawal requests.{' '}
+              <button onClick={() => withdrawals.refetch()}>Retry</button>
+            </p>
+          ) : !withdrawals.data?.length ? (
+            <p>No withdrawal requests yet.</p>
+          ) : (
+            withdrawals.data.map((p) => (
+              <PaymentCard key={p.id} payment={p}>
+                {p.status === 'HELD' && (
                   <ConfirmAction
-                    label="I have sent the payment"
-                    disabled={busy || depositDeadline(p) <= now}
-                    onConfirm={() => action.run(`/agent-orders/${p.id}/submit-payment`)}
-                  />
-                  <ConfirmAction
-                    label="Cancel unpaid order"
+                    label="Cancel and return held ETB"
                     disabled={busy}
-                    onConfirm={() => action.run(`/agent-orders/${p.id}/cancel`)}
+                    onConfirm={() => action.run(`/withdrawals/${p.id}/cancel`)}
                   />
-                </>
-              )}
-              {['EXPIRED', 'CANCELLED'].includes(p.status) && (
-                <LatePaymentReport orderId={p.id} currency={p.fiatCurrency} />
-              )}
-              {p.status === 'PAYMENT_SUBMITTED' && (
-                <button disabled={busy} onClick={() => setDispute({ id: p.id, kind: 'deposit' })}>
-                  Report a problem
-                </button>
-              )}
-            </PaymentCard>
-          ))
-        )}
-      </section>
-      <section className="payment-panel">
-        <h2>Withdrawal requests</h2>
-        {withdrawals.isPending ? (
-          <p>Loading requests…</p>
-        ) : withdrawals.isError ? (
-          <p role="alert">
-            Could not load withdrawal requests.{' '}
-            <button onClick={() => withdrawals.refetch()}>Retry</button>
-          </p>
-        ) : !withdrawals.data?.length ? (
-          <p>No withdrawal requests yet.</p>
-        ) : (
-          withdrawals.data.map((p) => (
-            <PaymentCard key={p.id} payment={p}>
-              {p.status === 'HELD' && (
-                <ConfirmAction
-                  label="Cancel and return held Coins"
-                  disabled={busy}
-                  onConfirm={() => action.run(`/withdrawals/${p.id}/cancel`)}
-                />
-              )}
-              {p.status === 'EXPIRED' && (
-                <p>Unpaid order expired. If you already paid, contact payment support with this order number and your transfer receipt.</p>
-              )}
-              {p.status === 'PAYMENT_SUBMITTED' && (
-                <ConfirmAction
-                  label="Confirm money received"
-                  disabled={busy}
-                  onConfirm={() => action.run(`/withdrawals/${p.id}/confirm-receipt`)}
-                />
-              )}
-              {p.status === 'PAYOUT_IN_PROGRESS' && (
-                <p>The agent is processing your payout. If it is delayed, contact payment support with this request number.</p>
-              )}
-              {p.status === 'PAYMENT_SUBMITTED' && (
-                <button
-                  disabled={busy}
-                  onClick={() => setDispute({ id: p.id, kind: 'withdrawal' })}
-                >
-                  Report a problem
-                </button>
-              )}
-            </PaymentCard>
-          ))
-        )}
-      </section>
-      <LatePaymentCases />
+                )}
+                {p.status === 'EXPIRED' && (
+                  <p>
+                    Unpaid order expired. If you already paid, contact payment support with this
+                    order number and your transfer receipt.
+                  </p>
+                )}
+                {p.status === 'PAYMENT_SUBMITTED' && (
+                  <ConfirmAction
+                    label="Confirm money received"
+                    disabled={busy}
+                    onConfirm={() => action.run(`/withdrawals/${p.id}/confirm-receipt`)}
+                  />
+                )}
+                {p.status === 'PAYOUT_IN_PROGRESS' && (
+                  <p>
+                    The agent is processing your payout. If it is delayed, contact payment support
+                    with this request number.
+                  </p>
+                )}
+                {p.status === 'PAYMENT_SUBMITTED' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => setDispute({ id: p.id, kind: 'withdrawal' })}
+                  >
+                    Report a problem
+                  </button>
+                )}
+              </PaymentCard>
+            ))
+          )}
+        </section>
+      )}
+      {section === 'activity' && <LatePaymentCases />}
       {dispute && (
         <section className="payment-panel">
           <h2>Report a payment problem</h2>
@@ -875,10 +930,23 @@ export function PaymentCard({
     <article className="payment-record">
       <div>
         <strong>{p.orderNumber ?? p.id}</strong>
-        <span className="payment-status">{p.status.replaceAll('_', ' ')}</span>
+        <span className="payment-status">
+          {(
+            {
+              CREATED: 'Awaiting payment',
+              HELD: 'Awaiting payout',
+              PAYOUT_IN_PROGRESS: 'Payout in progress',
+              PAYMENT_SUBMITTED: 'Awaiting confirmation',
+              COMPLETED: 'Completed',
+              CANCELLED: 'Cancelled',
+              EXPIRED: 'Expired',
+              DISPUTED: 'Under review',
+            } as Record<string, string>
+          )[p.status] ?? p.status.replaceAll('_', ' ')}
+        </span>
       </div>
       <p>
-        {p.coinAmount.toLocaleString()} Coins ·{' '}
+        Wallet {formatEtb(p.coinAmount)} · Payment{' '}
         {formatMinor(p.fiatAmount, p.fiatCurrency, p.pricingSnapshot?.minorDigits)}
       </p>
       {p.pricingSnapshot && (
@@ -890,7 +958,7 @@ export function PaymentCard({
       )}
       <time>{new Date(p.createdAt).toLocaleString()}</time>
       {p.paymentSnapshot && (
-        <details>
+        <details open={p.status === 'CREATED'}>
           <summary>Payment details</summary>
           <dl>
             {Object.entries(p.paymentSnapshot).map(([key, value]) => (

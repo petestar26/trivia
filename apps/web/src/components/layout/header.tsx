@@ -1,20 +1,27 @@
+import { useLanguage } from '@/providers/language-provider';
+import { LanguageSelect } from './language-select';
 import { Link, useLocation } from 'react-router-dom';
+import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Menu, Wallet } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { NotificationBell } from '@/components/notifications/notification-bell';
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const { pathname } = useLocation();
   const section = pathname.split('/')[1];
   const labels: Record<string, string> = {
+    dashboard: 'Home',
     casino: 'Casino',
+    sports: 'Sports',
     games: 'Games',
     groups: 'Groups',
     messages: 'Messages',
     wallet: 'Wallet',
     gifts: 'Gifts',
     profile: 'Profile',
+    support: 'Support',
     rewards: 'Rewards',
     challenges: 'Challenges',
     competitions: 'Competitions',
@@ -32,15 +39,21 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           </button>
         )}
         <div>
-          <span className="qube-header-eyebrow">MEMBER LOUNGE</span>
-          <p className="qube-header-title">{labels[section] || 'Welcome to Salem Bet'}</p>
+          <span className="qube-header-eyebrow">SALEM BET</span>
+          <p className="qube-header-title">{t(labels[section] || 'Home')}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
-        <Link to="/wallet" className="qube-wallet-link">
+        {PRACTICE_ETB && section !== 'sports' && (
+          <span className="salem-mode-badge">
+            Practice <b>ETB</b>
+          </span>
+        )}
+        <Link to="/wallet" className="qube-wallet-link" aria-label="Open your wallet">
           <Wallet size={17} aria-hidden="true" />
-          <span className="hidden sm:inline">My wallet</span>
+          <span className="hidden sm:inline">{t('Wallet')}</span>
         </Link>
+        <LanguageSelect />
         <NotificationBell />
         <Link to="/profile" aria-label="Your profile" className="qube-avatar">
           {(user?.displayName || user?.username || 'U')[0].toUpperCase()}

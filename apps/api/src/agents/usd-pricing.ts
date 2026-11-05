@@ -4,7 +4,7 @@ import { ApiError } from '../middleware/api-error.js';
 // Decimal strings are converted to scaled integers before any arithmetic.
 // Never divide through IEEE-754 or round a USD display price back into Coins.
 const decimal = z.string().regex(/^(?:0|[1-9]\d{0,8})(?:\.\d{1,8})?$/);
-export const usdPolicySchema = z
+const policyFields = z
   .object({
     version: z.literal('USD_V1'),
     coinsPerUsd: z.literal(96),
@@ -20,6 +20,13 @@ export const usdPolicySchema = z
     feeMinor: z.literal(0),
   })
   .strict();
+export const usdPolicySchema = z.union([
+  policyFields,
+  policyFields.omit({ version: true, coinsPerUsd: true, minorDigits: true }).extend({
+    version: z.literal('ETB_V1'), walletCurrency: z.literal('ETB'), minorDigits: z.literal(2),
+    localPerUsd: decimal.refine(v => Number(v) > 0 && Number(v) <= 100_000),
+  }).strict(),
+]);
 export type UsdPolicy = z.infer<typeof usdPolicySchema>;
 
 export function parseUsdPolicy(value: unknown, now = new Date()): UsdPolicy {
@@ -32,7 +39,7 @@ export function parseUsdPolicy(value: unknown, now = new Date()): UsdPolicy {
     observed > now.getTime() ||
     expires <= now.getTime() ||
     expires <= observed ||
-    expires - observed > 86400000
+    expires - observed > (policy.version === 'ETB_V1' ? 30 * 60_000 : 86400000)
   ) {
     throw ApiError.badRequest(
       'Exchange rate is stale or has an invalid observation window; request a fresh rate'
@@ -41,7 +48,7 @@ export function parseUsdPolicy(value: unknown, now = new Date()): UsdPolicy {
   return policy;
 }
 
-function rateFraction(p: UsdPolicy) {
+export function rateFraction(p: Pick<UsdPolicy, 'localPerUsd'>) {
   const [whole, fraction = ''] = p.localPerUsd.split('.');
   return { numerator: BigInt(whole + fraction), denominator: 10n ** BigInt(fraction.length) };
 }
@@ -68,17 +75,17 @@ export function priceUsdPayment(
         `Minimum P2P deposit is USD ${(policy.p2pDepositMinUsdCents / 100).toFixed(2)}`
       );
     }
-    coins = (usdNumerator * BigInt(policy.coinsPerUsd)) / usdDenominator;
+    coins = policy.version === 'ETB_V1' ? fiatMinor : (usdNumerator * BigInt(policy.coinsPerUsd)) / usdDenominator;
   } else {
     coins = whole(amount, 1000000000);
-    usdNumerator = coins;
-    usdDenominator = BigInt(policy.coinsPerUsd);
+    usdNumerator = policy.version === 'ETB_V1' ? coins * rate.denominator : coins;
+    usdDenominator = policy.version === 'ETB_V1' ? minorScale * rate.numerator : BigInt(policy.coinsPerUsd);
     if (usdNumerator * 100n <= BigInt(policy.p2pWithdrawalAboveUsdCents) * usdDenominator) {
       throw ApiError.badRequest(
         `P2P withdrawal must exceed USD ${(policy.p2pWithdrawalAboveUsdCents / 100).toFixed(2)}`
       );
     }
-    fiatMinor =
+    fiatMinor = policy.version === 'ETB_V1' ? coins :
       (coins * rate.numerator * minorScale) / (BigInt(policy.coinsPerUsd) * rate.denominator);
   }
   if (coins <= 0n || coins > 1000000000n || fiatMinor <= 0n || fiatMinor > 9223372036854775807n) {
@@ -97,6 +104,24 @@ export function priceUsdPayment(
       rounding: 'FLOOR',
     },
   };
+}
+
+/** The integer ledger stores santim: 100 units = 1 ETB. USDT is quoted at USD 1. */
+export function priceEtbCrypto(policy: UsdPolicy, direction: 'deposit', amount: bigint): number;
+export function priceEtbCrypto(policy: UsdPolicy, direction: 'withdrawal', amount: number): bigint;
+export function priceEtbCrypto(policy: UsdPolicy, direction: 'deposit' | 'withdrawal', amount: bigint | number) {
+  if (policy.version !== 'ETB_V1') throw ApiError.badRequest('An ETB exchange quote is required');
+  const rate = rateFraction(policy);
+  if (direction === 'deposit') {
+    const micro = BigInt(amount);
+    const minor = micro * rate.numerator * 100n / (1_000_000n * rate.denominator);
+    if (micro <= 0 || minor <= 0 || minor > 1_000_000_000n) throw ApiError.badRequest('ETB amount is outside supported limits');
+    return Number(minor);
+  }
+  const minor = whole(Number(amount), 1_000_000_000);
+  const micro = minor * 1_000_000n * rate.denominator / (100n * rate.numerator);
+  if (micro <= 0 || micro > 9_223_372_036_854_775_807n) throw ApiError.badRequest('USDT amount is outside supported limits');
+  return micro;
 }
 
 export function packageUsdDisplay(coins: number): string {

@@ -6,6 +6,7 @@ import { applyBalanceChanges, getOrCreateWallet } from './wallet-service.js';
 import type { BalanceChange } from './wallet-service.js';
 import { debitCoins, lockEconomicWallet, lockUserEconomicScope } from './coin-ledger-service.js';
 import { requireActiveGiftPolicy } from './jurisdiction-service.js';
+import { deliverPendingRewards, lockRewardConfig, recordPaidGiftRewards } from '../member-rewards/service.js';
 
 export interface GiftCatalogItem {
   id: string;
@@ -108,7 +109,11 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
     throw ApiError.badRequest('Gift idempotency key is required');
   }
   const giftTransactionId = randomUUID();
-  return prisma.$transaction(async (tx) => {
+  let completedGiftId: string = giftTransactionId;
+  const result = await prisma.$transaction(async (tx) => {
+    const rewardConfig = await lockRewardConfig(tx);
+    // Serializes the per-sender daily cap and first qualifying referral purchase.
+    await lockUserEconomicScope(tx, `member-gift:${senderId}`);
     await lockUserEconomicScope(tx, `gift:${senderId}:${idempotencyKey}`);
     const previous = await tx.idempotencyRecord.findUnique({
       where: { userId_key: { userId: senderId, key: idempotencyKey } },
@@ -121,6 +126,7 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       if (!prior || prior.giftId !== giftId || prior.recipientId !== recipientId || prior.quantity !== quantity) {
         throw ApiError.conflict('This idempotency key was used for another gift');
       }
+      completedGiftId = prior.id;
       // Exact replay returns the immutable snapshot taken at send time. It
       // must never read the (mutable) gift catalog: a renamed or deleted
       // catalog row must not change what a past response looked like.
@@ -258,12 +264,21 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       body: `You received ${quantity}x ${gift.name}`,
       data: { giftId, giftName: gift.name, senderId, quantity, totalGamePoints },
     } });
+    await recordPaidGiftRewards(tx, rewardConfig, giftTransaction.id);
     await tx.idempotencyRecord.create({ data: {
       userId: senderId, key: idempotencyKey, operation: 'gift_send',
       status: 'SUCCEEDED', responseKey: giftTransaction.id,
     } });
     return { ...snapshot, createdAt: giftTransaction.createdAt, isReplay: false };
   });
+  // Only after the purchase commits, credit both buyer and inviter. A failed
+  // delivery is recovered by the durable queue, never reported as a failed gift.
+  try {
+    await deliverPendingRewards({ giftId: completedGiftId });
+  } catch {
+    // The API delivery loop retries committed entitlements after restarts too.
+  }
+  return result;
 }
 
 // ─── Get Gift Transactions ─────────────────────────────────────

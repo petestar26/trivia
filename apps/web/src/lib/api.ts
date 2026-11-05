@@ -143,8 +143,8 @@ class ApiClient {
   }
 
   private async request<T, M = Record<string, unknown>>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T, M>> {
-    if (['/auth/login', '/auth/register', '/auth/logout', '/auth/google'].includes(endpoint)) {
-      return credentialRequest(endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
+    if (['/auth/login', '/auth/register', '/auth/logout', '/auth/google', '/auth/password-reset'].includes(endpoint)) {
+      return credentialRequest(endpoint === '/auth/password-reset' ? '/auth/logout' : endpoint, (signal) => this.performRequest<T, M>(endpoint, { ...options, signal }));
     }
     assertSessionReadable();
     return this.performRequest<T, M>(endpoint, options);

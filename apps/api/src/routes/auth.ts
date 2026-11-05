@@ -10,6 +10,8 @@ import { ApiError, authenticate } from '../middleware/index.js';
 import { ErrorCode } from '@socialplay/shared';
 import { generateTokens, hashPassword, verifyPassword } from '../utils/auth.js';
 import { safeRecordActivity } from '../rewards/activity-service.js';
+import { completePasswordReset } from '../auth/password-reset.js';
+import { changeOwnPassword } from '../auth/change-password.js';
 import {
   canonicalizeReferralCode,
   isValidReferralCode,
@@ -24,6 +26,21 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     reply.header('Cache-Control', 'private, no-store');
     reply.header('Pragma', 'no-cache');
     return payload;
+  });
+  server.post('/password-reset', {
+    config: { rateLimit: { keyGenerator: request => anonymousRateLimitKey(request, config.WEB_GATEWAY_SECRET), max: 5, timeWindow: '15 minutes' } },
+  }, async (request, reply) => {
+    const result = await completePasswordReset(request.body);
+    clearAuthCookies(reply);
+    return reply.send({ success: true, data: result });
+  });
+  server.post('/change-password', {
+    preHandler: [authenticate], bodyLimit: 8192,
+    config: { rateLimit: { hook: 'preHandler', max: 5, timeWindow: '15 minutes', keyGenerator: request => `password-change:${request.user!.sub}` } },
+  }, async (request, reply) => {
+    const data = await changeOwnPassword(request.user!.sub, request.body);
+    clearAuthCookies(reply);
+    return reply.send({ success: true, data });
   });
   server.post<{ Body: z.infer<typeof registerSchema> }>(
     '/register',

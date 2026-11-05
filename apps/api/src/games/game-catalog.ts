@@ -1,4 +1,6 @@
 import { prisma } from '@socialplay/database';
+import { SPIN90_RULES_ID } from '@socialplay/shared';
+import { PRACTICE_STREAM } from './scheduled/practice-service.js';
 
 export type GameModeValue = 'WAGER' | 'BONUS';
 export type GameFamilyValue = 'INSTANT' | 'SCHEDULED_DRAW' | 'SCHEDULED_RACE';
@@ -26,12 +28,28 @@ export interface GameCatalogItem {
 
 const PUBLIC_CATALOG_STATUSES: GameCatalogStatusValue[] = ['AVAILABLE', 'COMING_SOON'];
 
+// Unreleased titles stay visibly unavailable even if stale catalog data marks
+// them active. Publishing their implementation requires an explicit code change.
+const COMING_SOON_KEYS: readonly string[] = [
+  'trivia',
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
+];
+
 // The catalog and the dedicated practice routes must use the same admission
 // flags. A rendered practice tile must not promise access to a disabled route.
 const PRACTICE_FLAGS: Record<string, string> = {
+  blackjack: 'BLACKJACK_PRACTICE_ENABLED',
+  lucky_six: 'LUCKY_SIX_PRACTICE_ENABLED',
+  roulette_keno: 'ROULETTE_KENO_PRACTICE_ENABLED',
   number_challenge: 'NUMBER_CHALLENGE_PRACTICE_ENABLED',
   sky_crash: 'SKY_CRASH_PRACTICE_ENABLED',
   thunder_derby_3d: 'THUNDER_DERBY_PRACTICE_ENABLED',
+  neon_hounds_3d: 'DOG_RACING_PRACTICE_ENABLED',
   virtual_football_3d: 'VIRTUAL_FOOTBALL_PRACTICE_ENABLED',
   crash_point: 'CRASH_POINT_PRACTICE_ENABLED',
   dice: 'SYSTEM_DICE_PRACTICE_ENABLED',
@@ -49,6 +67,9 @@ const PRACTICE_FLAGS: Record<string, string> = {
 // AND shipping a forward-only migration for it — never just flipping a DB
 // column.
 const APPROVED_CATALOG_KEYS: readonly string[] = [
+  'blackjack',
+  'lucky_six',
+  'roulette_keno',
   'sky_crash',
   'crash_point',
   'dice',
@@ -76,9 +97,12 @@ export function isCoinWagerPaused(game: {
 }) {
   // Sky Crash has no wallet-funded implementation, regardless of catalog edits.
   return (
+    game.key === 'blackjack' ||
+    game.key === 'lucky_six' ||
+    game.key === 'roulette_keno' ||
     game.key === 'number_challenge' ||
     game.key === 'sky_crash' ||
-    game.key === 'thunder_derby_3d' ||
+    game.key === 'thunder_derby_3d' || game.key === 'neon_hounds_3d' ||
     // Practice credits only: Coin admission is paused here regardless of catalog data or flags.
     game.key === 'virtual_football_3d' ||
     (game.mode === 'WAGER' &&
@@ -126,12 +150,24 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
   const rules = spin?.currentRulesVersion
     ? await getGameRules(spin.id, spin.currentRulesVersion)
     : null;
+  const spinPractice = spin
+    ? await prisma.scheduledGameStream.findUnique({
+        where: { id: PRACTICE_STREAM },
+        select: { enabled: true, mode: true, gameKey: true, rulesId: true },
+      })
+    : null;
+  const spinPracticeAvailable = spinPractice?.enabled === true &&
+    spinPractice.mode === 'PRACTICE' && spinPractice.gameKey === 'spin_win' &&
+    spinPractice.rulesId === SPIN90_RULES_ID;
   const rulesId = (rules?.rules as Record<string, unknown> | undefined)?.rulesId;
   return rows.map((row) =>
-    row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'virtual_football_3d'
+    COMING_SOON_KEYS.includes(row.key)
+      ? { ...row, isActive: false, catalogStatus: 'COMING_SOON' as const, practiceAvailable: false }
+      : row.key === 'blackjack' || row.key === 'lucky_six' || row.key === 'roulette_keno' || row.key === 'number_challenge' || row.key === 'sky_crash' || row.key === 'thunder_derby_3d' || row.key === 'neon_hounds_3d' || row.key === 'virtual_football_3d'
       ? {
           ...row,
-          description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.description,
+          ...(row.key === 'neon_hounds_3d' ? { name: 'Dog Racing' } : {}),
+          description: row.key === 'number_challenge' ? 'One-minute rounds. Pick 1–100 before the 30-second countdown ends. The closer your guess, the higher your practice score.' : row.key === 'neon_hounds_3d' ? 'Six or eight greyhounds. Choose your finish and follow the race. Free practice ETB.' : row.description,
           isActive: false,
           catalogStatus: 'COMING_SOON' as const,
           practiceAvailable: process.env[PRACTICE_FLAGS[row.key]] === 'true',
@@ -145,7 +181,11 @@ export async function listActiveGames(): Promise<GameCatalogItem[]> {
       : isCoinWagerPaused(row)
         ? { ...row, catalogStatus: 'COMING_SOON' as const }
         : row.key === 'spin_win'
-          ? { ...row, currentRulesId: typeof rulesId === 'string' ? rulesId : null }
+          ? {
+              ...row,
+              currentRulesId: typeof rulesId === 'string' ? rulesId : null,
+              practiceAvailable: spinPracticeAvailable,
+            }
           : row
   );
 }

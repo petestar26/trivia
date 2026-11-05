@@ -444,6 +444,11 @@ function suffixCarriesInviteLink(rawSuffix: string): boolean {
  */
 export function redactUrl(url: string): string {
   if (typeof url !== 'string' || url.length === 0) return url;
+  // Provider wallet callbacks carry signatures and player identifiers in their
+  // query. Strip the entire query, then still run invite-path redaction below.
+  const signatureQueryAt = url.indexOf('?');
+  if (signatureQueryAt !== -1 && [...new URLSearchParams(url.slice(signatureQueryAt + 1)).keys()]
+    .some(name => /^(key|timestamp|call_id|api_login|api_password|salt_key)$/i.test(name))) url=url.slice(0,signatureQueryAt);
 
   // Cheap exit for the overwhelming majority of requests: with no escape, no
   // backslash and no "invites" anywhere, there is nothing to find.

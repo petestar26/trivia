@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUpRight,
+  Check,
   History,
   Minus,
   Plus,
@@ -207,7 +208,7 @@ function CrashPoint({
       const data = unwrapData(result);
       setNotice(
         data.payout > 0
-          ? `Cash-out confirmed at ${(data.paidCents / 100).toFixed(2)}x · ${data.payout} credits returned.`
+          ? `Cash-out confirmed at ${(data.paidCents / 100).toFixed(2)}x · ${data.payout} ETB returned.`
           : 'The round crashed before cash-out was accepted. No return for this ticket.'
       );
       await query.refetch();
@@ -262,7 +263,7 @@ function CrashPoint({
       return;
     if (autoplay.stake > (s?.balance ?? 0)) {
       setAutoplay(null);
-      setNotice('Autoplay stopped: not enough practice credits.');
+      setNotice('Autoplay stopped: not enough practice ETB.');
       return;
     }
     autoplayRound.current = round.id;
@@ -347,8 +348,8 @@ function CrashPoint({
         <div className="crash-ticket-result" role="group" aria-label={`Bet ${slot} result`}>
           <strong>
             {result.payout === null
-              ? `${result.stake} credits in play`
-              : `${result.payout} credits returned`}
+              ? `${result.stake} ETB in play`
+              : `${result.payout} ETB returned`}
           </strong>
           <span>
             {result.payout === null
@@ -394,37 +395,6 @@ function CrashPoint({
             />
             <span>×</span>
           </div>
-          <details className="crash-target-options">
-            <summary>Quick targets</summary>
-            <div
-              className="crash-presets crash-targets"
-              role="group"
-              aria-label="Auto cash-out targets"
-            >
-              {[1.5, 2, 3, 5].map((target) => (
-                <button
-                  key={target}
-                  disabled={locked}
-                  aria-pressed={
-                    (ticket
-                      ? ticket.autoCents
-                      : pending
-                        ? pending.autoCents
-                        : auto
-                          ? Math.round(Number(autoText) * 100)
-                          : null) ===
-                    target * 100
-                  }
-                  onClick={() => {
-                    setAuto(true);
-                    setAutoText(target.toFixed(2));
-                  }}
-                >
-                  {target.toFixed(2)}×
-                </button>
-              ))}
-            </div>
-          </details>
         </div>
         <div className="crash-stake-field">
           <label htmlFor={`crash-stake-${slot}`}>Bet amount</label>
@@ -448,7 +418,7 @@ function CrashPoint({
               onChange={(e) => setStakeText(e.target.value)}
               disabled={locked}
             />
-            <span>credits</span>
+            <span>ETB</span>
             <button
               type="button"
               className="crash-amount-adjust"
@@ -505,10 +475,10 @@ function CrashPoint({
               <small>
                 {ticket
                   ? ticket.payout === null
-                    ? `${ticket.stake} credits locked`
-                    : `${ticket.payout} credits returned`
+                    ? `${ticket.stake} ETB locked`
+                    : `${ticket.payout} ETB returned`
                   : open
-                    ? `${input?.stake ?? '—'} practice credits`
+                    ? `${input?.stake ?? '—'} practice ETB`
                     : `Next entry in ${seconds}s`}
               </small>
             </button>
@@ -527,7 +497,7 @@ function CrashPoint({
       )}
       {input && input.stake > (s?.balance ?? Infinity) && !ticket && (
         <p role="alert" className="crash-error">
-          Not enough practice credits.
+          Not enough practice ETB.
         </p>
       )}
       {storageError && (
@@ -544,18 +514,41 @@ function CrashPoint({
             : notice}
         </p>
       )}
-      {raw?.maxTickets === 2 && (
-        <div className="crash-autoplay-controls">
-          {autoplay ? (
-            <button
-              onClick={() => {
-                setAutoplay(null);
-                setNotice('Autoplay stopped. Already confirmed tickets remain active.');
-              }}
-            >
-              Stop autoplay · {autoplay.remaining} entries left
-            </button>
-          ) : (
+      <details className="crash-more-options">
+        <summary>More options</summary>
+        <details className="crash-target-options">
+          <summary>Quick targets</summary>
+          <div
+            className="crash-presets crash-targets"
+            role="group"
+            aria-label="Auto cash-out targets"
+          >
+            {[1.5, 2, 3, 5].map((target) => (
+              <button
+                key={target}
+                disabled={locked}
+                aria-pressed={
+                  (ticket
+                    ? ticket.autoCents
+                    : pending
+                      ? pending.autoCents
+                      : auto
+                        ? Math.round(Number(autoText) * 100)
+                        : null) ===
+                  target * 100
+                }
+                onClick={() => {
+                  setAuto(true);
+                  setAutoText(target.toFixed(2));
+                }}
+              >
+                {target.toFixed(2)}×
+              </button>
+            ))}
+          </div>
+        </details>
+        {raw?.maxTickets === 2 && !autoplay && (
+          <div className="crash-autoplay-controls">
             <button
               disabled={
                 !connected ||
@@ -573,15 +566,27 @@ function CrashPoint({
               }}
             >
               Start autoplay · 10 rounds
-            </button>
-          )}
-          <details className="crash-autoplay-info">
-            <summary>Rules</summary>
-            <p>
-              Up to 10 entries using this amount and target. Start before confirming a ticket. Stops
-              on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
-            </p>
-          </details>
+            </button>{' '}
+            <details className="crash-autoplay-info">
+              <summary>Rules</summary>
+              <p>
+                Up to 10 entries using this amount and target. Start before confirming a ticket.
+                Stops on error, disconnection, hidden tab or refresh. Confirmed tickets stay active.
+              </p>
+            </details>
+          </div>
+        )}
+      </details>
+      {autoplay && (
+        <div className="crash-autoplay-controls">
+          <button
+            onClick={() => {
+              setAutoplay(null);
+              setNotice('Autoplay stopped. Already confirmed tickets remain active.');
+            }}
+          >
+            Stop autoplay · {autoplay.remaining} entries left
+          </button>
         </div>
       )}
     </aside>
@@ -590,9 +595,9 @@ function CrashPoint({
   return (
     <div className="crash-page crash-reference">
       <nav className="crash-nav">
-        <Link to="/casino">
+        <Link to="/games">
           <ArrowLeft size={16} />
-          Casino
+          Games
         </Link>
         <span>SALEM BET ORIGINALS / CRASH POINT</span>
         <span className={connected ? 'online' : 'offline'}>
@@ -612,8 +617,8 @@ function CrashPoint({
         <div className="crash-heading-actions">
           <div className="crash-wallet">
             <span>PRACTICE BALANCE</span>
-            <strong>{s ? `${s.balance.toLocaleString()} credits` : 'Connecting…'}</strong>
-            <small>Free credits · no cash value</small>
+            <strong>{s ? `${s.balance.toLocaleString()} ETB` : 'Connecting…'}</strong>
+            <small>Virtual ETB · no cash value</small>
           </div>
           <div className="crash-bet-navigation">
             <a
@@ -791,7 +796,7 @@ function CrashPoint({
                   during the 15-second entry window.
                 </p>
               </div>
-              <span>Practice credits</span>
+              <span>Practice ETB</span>
             </div>
             <div className="crash-dual-controls">
               {controls}
@@ -846,7 +851,7 @@ function CrashPoint({
                 <dt>Total stake</dt>
                 <dd>
                   {shownTickets.length
-                    ? `${shownTickets.reduce((total, t) => total + t.stake, 0)} credits`
+                    ? `${shownTickets.reduce((total, t) => total + t.stake, 0)} ETB`
                     : 'No tickets'}
                 </dd>
               </dl>
@@ -859,11 +864,11 @@ function CrashPoint({
                   <h3>Bet {t.slot}</h3>
                   <dl className="crash-round-info">
                     <dt>Stake</dt>
-                    <dd>{t.stake} credits</dd>
+                    <dd>{t.stake} ETB</dd>
                     <dt>Auto cash-out</dt>
                     <dd>{t.autoCents ? `${(t.autoCents / 100).toFixed(2)}×` : 'Manual only'}</dd>
                     <dt>Return</dt>
-                    <dd>{t.payout === null ? 'Pending' : `${t.payout} credits`}</dd>
+                    <dd>{t.payout === null ? 'Pending' : `${t.payout} ETB`}</dd>
                   </dl>
                 </section>
               ))}
@@ -892,7 +897,7 @@ function CrashPoint({
               <div className="crash-ticket-table">
                 <table>
                   <caption className="sr-only">
-                    Your tickets from the latest 12 rounds, amounts in practice credits
+                    Your tickets from the latest 12 rounds, amounts in practice ETB
                   </caption>
                   <thead>
                     <tr>
@@ -952,7 +957,7 @@ function CrashPoint({
             </>
           )}
           <div className="crash-activity-foot">
-            <ShieldCheck size={17} /> Server-confirmed data · practice credits only
+            <ShieldCheck size={17} /> Server-confirmed data · practice ETB only
           </div>
         </aside>
       </div>
@@ -1058,7 +1063,7 @@ function CrashRulesContent() {
           <strong>
             {rules.minStake}–{rules.maxStake}
           </strong>{' '}
-          credits per ticket
+          ETB per ticket
         </span>
         <span>
           <strong>{rules.bettingMs / 1000} seconds</strong> to confirm your entry
@@ -1082,9 +1087,9 @@ function CrashRulesContent() {
         </li>
       </ol>
       <p>
-        Practice starts with 1,000 nonredeemable credits, separate from Coins and Game Points. No
-        purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per round.
-        Auto cash-out is handled by the server and survives disconnects.
+        Practice starts with 1,000 nonredeemable practice ETB, separate from your cash wallet and Game Points.
+        No purchases, gifts, transfers or withdrawals. Confirm up to two immutable tickets per
+        round. Auto cash-out is handled by the server and survives disconnects.
       </p>
       <p>
         Manual cash-out is accepted at server processing time, after locks are acquired. At or after
@@ -1143,6 +1148,7 @@ function CrashRulesDialog() {
 }
 function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastViewedId, setLastViewedId] = useState<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const historyHeading = useRef<HTMLHeadingElement>(null);
   const completed = rounds
@@ -1173,12 +1179,17 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
             aria-label={`View completed round ${r.id}: ${(r.crashCents! / 100).toFixed(2)}×`}
             title={`${new Date(r.startsAt).toLocaleString()} · View round details`}
             aria-haspopup="dialog"
+            aria-current={r.id === lastViewedId ? true : undefined}
             onClick={(event) => {
               opener.current = event.currentTarget;
               setSelectedId(r.id);
+              setLastViewedId(r.id);
             }}
           >
             <strong>{(r.crashCents! / 100).toFixed(2)}×</strong>
+            {r.id === lastViewedId && (
+              <Check className="crash-history-selected-mark" aria-hidden="true" />
+            )}
             <time dateTime={new Date(r.startsAt).toISOString()}>
               {new Date(r.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </time>
@@ -1238,12 +1249,12 @@ function RoundHistory({ rounds }: { rounds: CrashPointRound[] }) {
                       aria-label={`Past bet ${ticket.slot} receipt`}
                     >
                       <dt>Bet {ticket.slot}</dt>
-                      <dd>{ticket.stake} credits staked</dd>
+                      <dd>{ticket.stake} ETB staked</dd>
                       <dt>Cash-out</dt>
                       <dd>{ticket.paidCents ? `${(ticket.paidCents / 100).toFixed(2)}×` : '—'}</dd>
                       <dt>Return</dt>
                       <dd>
-                        {ticket.payout === null ? 'Pending settlement' : `${ticket.payout} credits`}
+                        {ticket.payout === null ? 'Pending settlement' : `${ticket.payout} ETB`}
                       </dd>
                     </dl>
                   ))
@@ -1411,7 +1422,7 @@ function PublicActivity({
         </>
       )}
       <p className="crash-activity-caption">
-        Returns appear only after server settlement. Amounts are practice credits.
+        Returns appear only after server settlement. Amounts are practice ETB.
       </p>
     </section>
   );
@@ -1435,7 +1446,7 @@ function PublicLeaderboard({ userId }: { userId: string }) {
     <section aria-label="Public top returns">
       <h2>Top returns · last 24 hours</h2>
       <p className="crash-activity-caption">
-        Highest confirmed ticket returns · practice credits · includes stake
+        Highest confirmed ticket returns · practice ETB · includes stake
       </p>
       {feed.isError ? (
         <p role="status">Leaderboard unavailable. Reconnecting…</p>

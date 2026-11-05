@@ -13,14 +13,13 @@ import {
 } from '../economy/coin-ledger-service.js';
 import { requireStepUp } from '../security/step-up-service.js';
 import { selectPaymentRate } from '../agents/usd-config-service.js';
-import { parseUsdPolicy } from '../agents/usd-pricing.js';
+import { parseUsdPolicy, priceEtbCrypto } from '../agents/usd-pricing.js';
+import { etbRateView } from '../agents/etb-rate-service.js';
 import { assertWithdrawalPolicyLimits } from '../withdrawals/withdrawal-service.js';
 import {
   validAddress,
   parseUsdt,
   formatUsdt,
-  depositCoins,
-  withdrawalUsdt,
   USDT_CONTRACT,
   type Transfer,
 } from './tron.js';
@@ -63,12 +62,13 @@ const key = z.string().uuid(),
   country = z.string().uuid();
 const destination = z.string().trim().refine(validAddress, 'Enter a valid TRON wallet address');
 export const depositSchema = z
-  .object({ countryId: country, amount: z.string().max(20), idempotencyKey: key })
+  .object({ countryId: country, amount: z.string().max(20), idempotencyKey: key, rateId: key })
   .strict();
 export const withdrawalSchema = z
   .object({
     countryId: country,
     coinAmount: z.number().int().positive().max(1_000_000_000),
+    rateId: key,
     address: destination,
     idempotencyKey: key,
   })
@@ -128,6 +128,9 @@ export function paymentView(row: Deposit | Withdrawal) {
     address: row.address,
     amount: formatUsdt(row.amountMicro),
     coinAmount: row.coinAmount,
+    currency: 'ETB',
+    minorDigits: 2,
+    rate: row.pricingSnapshot,
     status: row.status,
     createdAt: row.createdAt,
     ...('expiresAt' in row
@@ -144,13 +147,15 @@ async function context(
   tx: Tx,
   userId: string,
   countryId: string,
-  direction: 'deposit' | 'withdrawal'
+  direction: 'deposit' | 'withdrawal',
+  expectedRateId: string
 ) {
   await requirePlatformGate(
     tx,
     direction === 'deposit' ? 'CRYPTO_DEPOSIT_CREATE' : 'CRYPTO_WITHDRAWAL_CREATE'
   );
   if (direction === 'withdrawal') await requirePlatformGate(tx, 'WITHDRAWAL_CREATE');
+  else await requirePlatformGate(tx, 'CRYPTO_DEPOSIT_CREDIT');
   const [account] = await tx.$queryRaw<
     Array<{ countryId: string }>
   >`SELECT "countryId" FROM user_payout_accounts WHERE "userId"=${userId} AND status='ACTIVE' ORDER BY "createdAt" DESC,id DESC LIMIT 1 FOR SHARE`;
@@ -182,6 +187,7 @@ async function context(
     throw ApiError.forbidden('Verified identity tier is insufficient');
   const rate = await selectPaymentRate(tx, c),
     pricing = parseUsdPolicy(rate.pricingPolicy);
+  if (rate.id !== expectedRateId) throw ApiError.conflict('The exchange rate changed. Review the new ETB amount before continuing.');
   return {
     policy,
     pricing,
@@ -198,14 +204,23 @@ async function context(
   };
 }
 export async function options(userId: string) {
+  const rate = await etbRateView();
   return prisma.$transaction(async (tx) => {
     await actor(tx, userId);
     const gates = await tx.platformGate.findMany({
       where: {
-        key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_WITHDRAWAL_CREATE', 'WITHDRAWAL_CREATE'] },
+        key: { in: ['CRYPTO_DEPOSIT_CREATE', 'CRYPTO_DEPOSIT_CREDIT', 'CRYPTO_WITHDRAWAL_CREATE', 'WITHDRAWAL_CREATE'] },
       },
     });
     const on = (k: string) => gates.some((g) => g.key === k && g.enabled);
+    const unusedAddress = await tx.cryptoAddress.findFirst({
+      where: { retired: false, deposit: null }, select: { address: true },
+    });
+    const depositReason = !on('CRYPTO_DEPOSIT_CREATE') || !on('CRYPTO_DEPOSIT_CREDIT')
+      ? 'Crypto deposits are awaiting payment-service activation.'
+      : !unusedAddress ? 'No receiving address is available. Please contact payment support.' : null;
+    const withdrawalReason = !on('CRYPTO_WITHDRAWAL_CREATE') || !on('WITHDRAWAL_CREATE')
+      ? 'Crypto withdrawals are awaiting payout-service activation.' : null;
     const countries = await tx.$queryRaw<
       Array<{ id: string; name: string }>
     >`SELECT c.id,c.name FROM countries c JOIN user_payout_accounts a ON a."countryId"=c.id WHERE a."userId"=${userId} AND a.status='ACTIVE' AND c."isActive"=true ORDER BY a."createdAt" DESC,a.id DESC LIMIT 1`;
@@ -213,9 +228,11 @@ export async function options(userId: string) {
       asset: 'USDT',
       network: 'TRON (TRC20)',
       contract: USDT_CONTRACT,
-      coinsPerUsdt: 96,
-      depositEnabled: on('CRYPTO_DEPOSIT_CREATE'),
-      withdrawalEnabled: on('CRYPTO_WITHDRAWAL_CREATE') && on('WITHDRAWAL_CREATE'),
+      currency: 'ETB', minorDigits: 2, rate,
+      depositEnabled: depositReason === null && rate.available,
+      withdrawalEnabled: withdrawalReason === null && rate.available,
+      depositUnavailableReason: depositReason ?? (!rate.available ? rate.reason : null),
+      withdrawalUnavailableReason: withdrawalReason ?? (!rate.available ? rate.reason : null),
       countries,
     };
   });
@@ -312,10 +329,9 @@ export async function retireAddress(adminId: string, address: string) {
 }
 export async function createDeposit(userId: string, body: unknown) {
   const b = parse(depositSchema, body);
-  let amount: bigint, coins: number;
+  let amount: bigint;
   try {
     amount = parseUsdt(b.amount);
-    coins = depositCoins(amount);
   } catch (e) {
     throw ApiError.badRequest((e as Error).message);
   }
@@ -326,11 +342,13 @@ export async function createDeposit(userId: string, body: unknown) {
       Deposit[]
     >`SELECT * FROM crypto_deposits WHERE "userId"=${userId} AND "requestKey"=${b.idempotencyKey}`;
     if (old) {
-      if (old.amountMicro !== amount || old.countryId !== b.countryId)
+      if (old.amountMicro !== amount || old.countryId !== b.countryId ||
+          (old.pricingSnapshot as { rateId?: string }).rateId !== b.rateId)
         throw ApiError.conflict('Idempotency key has different payment details');
       return paymentView(old);
     }
-    const { pricing, snapshot } = await context(tx, userId, b.countryId, 'deposit');
+    const { pricing, snapshot } = await context(tx, userId, b.countryId, 'deposit', b.rateId);
+    const coins = priceEtbCrypto(pricing, 'deposit', amount);
     if (amount < BigInt(pricing.cryptoDepositMinUsdCents) * 10_000n)
       throw ApiError.badRequest(
         `Minimum deposit is ${formatUsdt(BigInt(pricing.cryptoDepositMinUsdCents) * 10_000n)} USDT`
@@ -360,8 +378,7 @@ export async function createDeposit(userId: string, body: unknown) {
   });
 }
 export async function createWithdrawal(userId: string, tokenIat: number, body: unknown) {
-  const b = parse(withdrawalSchema, body),
-    amount = withdrawalUsdt(b.coinAmount);
+  const b = parse(withdrawalSchema, body);
   return prisma.$transaction(async (tx) => {
     await lockUserEconomicScope(tx, `crypto:${userId}`);
     await actor(tx, userId);
@@ -371,6 +388,7 @@ export async function createWithdrawal(userId: string, tokenIat: number, body: u
     if (old) {
       if (
         old.coinAmount !== b.coinAmount ||
+        (old.pricingSnapshot as { rateId?: string }).rateId !== b.rateId ||
         old.countryId !== b.countryId ||
         old.address !== b.address
       )
@@ -378,7 +396,8 @@ export async function createWithdrawal(userId: string, tokenIat: number, body: u
       return paymentView(old);
     }
     await requireExternalDestination(tx, b.address);
-    const { pricing, policy, snapshot } = await context(tx, userId, b.countryId, 'withdrawal');
+    const { pricing, policy, snapshot } = await context(tx, userId, b.countryId, 'withdrawal', b.rateId);
+    const amount = priceEtbCrypto(pricing, 'withdrawal', b.coinAmount);
     if (amount <= BigInt(pricing.cryptoWithdrawalAboveUsdCents) * 10_000n)
       throw ApiError.badRequest(
         `Withdrawal must exceed ${formatUsdt(BigInt(pricing.cryptoWithdrawalAboveUsdCents) * 10_000n)} USDT`

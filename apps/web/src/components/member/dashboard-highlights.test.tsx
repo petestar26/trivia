@@ -116,7 +116,7 @@ describe('dashboard confirmed practice-return board', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Practice credits · no cash value. Returns include stake. Aliases identify tickets, not unique players./
+        /Practice ETB · no cash value. Returns include stake. Aliases identify tickets, not unique players./
       )
     ).toBeInTheDocument();
     expect(screen.getByText(/Last received:/)).toHaveTextContent('(device time)');

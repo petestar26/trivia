@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   pending: vi.fn(),
   reissue: vi.fn(),
   activate: vi.fn(),
+  existing: vi.fn(),
 }));
 vi.mock('@socialplay/database', () => ({ prisma: { user: { findUnique: m.findUnique } } }));
 vi.mock('./admin-account-service.js', () => ({
@@ -14,6 +15,7 @@ vi.mock('./admin-account-service.js', () => ({
   listPendingAgentAccounts: m.pending,
   reissueAgentPassword: m.reissue,
   activateAdminAgent: m.activate,
+  approveExistingMemberAgent: m.existing,
 }));
 vi.mock('../middleware/index.js', async (original) => {
   const actual = await original<any>();
@@ -44,6 +46,7 @@ beforeEach(async () => {
 afterEach(() => app.close());
 it.each([
   { method: 'POST' as const, url: '/agents/admin/accounts' },
+  { method: 'POST' as const, url: '/agents/admin/accounts/existing' },
   { method: 'GET' as const, url: '/agents/admin/accounts/pending' },
   { method: 'POST' as const, url: '/agents/admin/accounts/id/reissue' },
 ])('rejects anonymous, demoted and suspended administrators on $url', async (route) => {
@@ -59,6 +62,15 @@ it.each([
   expect(m.create).not.toHaveBeenCalled();
   expect(m.pending).not.toHaveBeenCalled();
   expect(m.reissue).not.toHaveBeenCalled();
+  expect(m.existing).not.toHaveBeenCalled();
+});
+it('approves an existing member only as the authenticated administrator and keeps the response private', async () => {
+  m.existing.mockResolvedValue({ status: 'READY_TO_SIGN_IN' });
+  const input = { email: 'member@fixture.invalid', displayName: 'Member', countryId: 'country' };
+  const response = await app.inject({ method: 'POST', url: '/agents/admin/accounts/existing', headers: { authorization: 'fixture' }, payload: input });
+  expect(response.statusCode).toBe(201);
+  expect(response.headers['cache-control']).toBe('private, no-store');
+  expect(m.existing).toHaveBeenCalledWith('actor', input);
 });
 it('keeps activation responses private and rate limits anonymous credential attempts', async () => {
   for (let i = 0; i < 5; i++) {

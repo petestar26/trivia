@@ -1,5 +1,6 @@
 import { useLayoutEffect } from 'react';
 import '@/styles/member.css';
+import '@/styles/member-refinement.css';
 
 /** Include portaled dialogs, and restore the prior theme for staff workspaces. */
 export function useMemberTheme(enabled = true) {

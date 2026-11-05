@@ -1,0 +1,636 @@
+/* Dog Racing shares the platform's typography, with a quiet broadcast presentation. */
+.hounds-page {
+  --hounds-line: #45423b;
+  max-width: 1440px;
+  margin: auto;
+  color: #f6f1e7;
+}
+.hounds-page .derby-header {
+  margin-bottom: 16px;
+  align-items: center;
+}
+.hounds-page .derby-header h1 {
+  font-family: Georgia, serif;
+  font-size: clamp(24px, 3vw, 40px);
+  letter-spacing: -0.04em;
+}
+.hounds-page .derby-header h1 em {
+  font-style: normal;
+  color: #f0dfc3;
+}
+.hounds-page .derby-header h1 small {
+  font: 10px system-ui;
+  letter-spacing: 0.23em;
+  margin-top: 8px;
+  color: #b6ac9c;
+}
+.hounds-page .derby-crest {
+  display: none;
+}
+.hounds-page .derby-credit {
+  background: #1c2521;
+  border: 1px solid #405347;
+  border-radius: 14px;
+  padding: 10px 16px;
+}
+.hounds-page .derby-credit strong {
+  font-size: 24px;
+}
+.hounds-page .derby-credit p {
+  font-size: 10px;
+}
+.hounds-page .derby-toolbar {
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.hounds-page .derby-toolbar button,
+.hounds-page .derby-markets button {
+  border-radius: 8px;
+  background: #25272a;
+  border: 1px solid #434444;
+  color: #dedbd3;
+  min-height: 42px;
+}
+.hounds-page .derby-toolbar button[aria-pressed='true'],
+.hounds-page .derby-markets button[aria-pressed='true'] {
+  background: #e4c69d;
+  color: #211d16;
+  border-color: #f7e6c9;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px #e4c69d;
+}
+.hounds-page .derby-layout {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+.hounds-page .derby-display,
+.hounds-page .derby-arena,
+.hounds-page .derby-slip {
+  border: 1px solid var(--hounds-line);
+  background: #1b1e1c;
+  border-radius: 14px;
+  box-shadow: none;
+  min-width: 0;
+}
+.hounds-page .derby-arena {
+  border: 0;
+  overflow: hidden;
+}
+.hounds-page .derby-display > .game-arena__toolbar {
+  display: none;
+}
+.hounds-page .derby-race-heading {
+  padding: 14px 16px;
+  align-items: center;
+}
+.hounds-page .derby-race-heading h2 {
+  font-size: 21px;
+  color: #f2e8d8;
+  margin: 3px 0;
+}
+.hounds-page .derby-race-heading p {
+  font-size: 10px;
+  color: #a8b3a9;
+}
+.hounds-page .derby-eyebrow {
+  color: #b4c4b6;
+  font-size: 9px;
+  letter-spacing: 0.15em;
+}
+.hounds-page .derby-countdown strong {
+  font:
+    600 27px ui-monospace,
+    monospace;
+  color: #f0d6af;
+}
+.hounds-page .derby-countdown span {
+  font-size: 10px;
+}
+.hounds-page .derby-scene-shell {
+  position: relative;
+  border-radius: 0;
+  overflow: hidden;
+  margin: 0;
+}
+.hounds-scene {
+  height: clamp(280px, 32vw, 460px);
+  width: 100%;
+  position: relative;
+  background: #a6b8ba;
+}
+.hounds-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hounds-scene-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  background: #23392b;
+  color: #fff;
+  padding: 30px;
+  text-align: center;
+}
+.hounds-page .derby-broadcast-label {
+  padding: 9px 12px;
+  background: linear-gradient(transparent, #14231dc9);
+  font-size: 9px;
+  pointer-events: none;
+}
+.hounds-page .derby-broadcast-label strong {
+  font-size: 8px;
+}
+.hounds-cameras {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #171d19;
+}
+.hounds-cameras button {
+  padding: 8px 13px;
+  border: 1px solid #455349;
+  border-radius: 7px;
+  font-size: 11px;
+  min-height: 36px;
+  color: #cad5cc;
+}
+.hounds-cameras button[aria-pressed='true'] {
+  background: #d6e2d4;
+  color: #1c2b20;
+  font-weight: 700;
+  border-color: #d6e2d4;
+}
+.hounds-page .derby-race-footer {
+  padding: 8px 12px;
+  font-size: 10px;
+  color: #b5c6b8;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hounds-page .derby-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px 12px;
+  gap: 8px;
+}
+.hounds-page .derby-progress > div {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 3px 6px;
+  align-items: center;
+  font-size: 10px;
+}
+.hounds-page .derby-progress b {
+  grid-row: span 2;
+  border-radius: 4px;
+  width: 22px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+}
+.hounds-page .derby-progress meter {
+  width: 100%;
+  height: 4px;
+  grid-column: 2;
+  accent-color: #d5c39f;
+}
+.hounds-page .derby-slip {
+  padding: 16px;
+}
+.hounds-page .derby-slip h2 {
+  font-family: Georgia, serif;
+  font-size: 24px;
+  margin: 4px 0 12px;
+  color: #f4e8d5;
+}
+.hounds-page .derby-markets {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.hounds-page .derby-markets button {
+  font-size: 11px;
+  padding: 5px;
+}
+.hounds-page .derby-instruction {
+  font-size: 11px;
+  min-height: 30px;
+  line-height: 1.45;
+  color: #c1c7bf;
+  margin: 9px 0;
+}
+.hounds-page .derby-runners {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.hounds-page .derby-runners button {
+  min-height: 45px;
+  position: relative;
+  border: 1px solid #485146;
+  background: #252c26;
+  border-radius: 8px;
+  gap: 6px;
+  padding: 6px;
+  color: #e2e6dd;
+}
+.hounds-page .derby-runners button > b {
+  width: 26px;
+  height: 29px;
+  border-radius: 5px;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.hounds-page .derby-runners button > span {
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 650;
+}
+.hounds-page .derby-runners button[aria-pressed='true'] {
+  border: 2px solid #f1d3a4;
+  background: #514634;
+  padding: 5px;
+  box-shadow: 0 0 0 1px #d9b57c;
+}
+.hounds-page .derby-runners small {
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  border-radius: 8px;
+  background: #edd3ac;
+  color: #251f16;
+  font-size: 9px;
+  padding: 1px 4px;
+  font-weight: 800;
+}
+.hounds-page .derby-stake {
+  margin-top: 12px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hounds-page .derby-stake input {
+  width: 116px;
+  min-height: 40px;
+  border: 1px solid #7f806b;
+  background: #111a14;
+  color: #fff3dd;
+  font-size: 19px;
+  border-radius: 7px;
+  text-align: center;
+}
+.hounds-page .derby-quote {
+  margin: 10px 0 4px;
+  padding-top: 10px;
+  border-top: 1px solid #3e483f;
+  font-size: 11px;
+}
+.hounds-page .derby-quote dd {
+  color: #e7cc9c;
+  font-weight: 750;
+}
+.hounds-page .derby-fine {
+  font-size: 10px;
+  color: #aeb8ad;
+}
+.hounds-page .derby-primary {
+  background: #e7c89e;
+  color: #251e13;
+  border: 1px solid #e7c89e;
+  border-radius: 9px;
+  min-height: 46px;
+  font-size: 14px;
+  font-weight: 800;
+  margin-top: 10px;
+}
+.hounds-page .derby-primary span {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: inherit;
+}
+.hounds-page .derby-primary:disabled {
+  background: #333a33;
+  color: #9ca797;
+  border-color: #4c564a;
+  opacity: 1;
+}
+.hounds-page .derby-history {
+  padding: 7px 0;
+  gap: 6px;
+  margin: 6px 0 12px;
+  min-height: 36px;
+}
+.hounds-page .derby-history > span {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.hounds-page .derby-history button {
+  background: #242923;
+  border: 1px solid #475141;
+  border-radius: 7px;
+  padding: 5px;
+}
+.hounds-page .derby-results {
+  margin-top: 16px;
+  border: 1px solid #495244;
+  border-radius: 12px;
+  background: #20281f;
+  padding: 12px;
+}
+.hounds-page .derby-finish-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hounds-page .derby-finish-order li {
+  flex: 1;
+  min-width: 100px;
+  background: #171e18;
+  border-radius: 7px;
+  padding: 7px;
+}
+.hounds-page .derby-receipt {
+  border: 1px solid #637251;
+  background: #283523;
+  border-radius: 9px;
+  padding: 10px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #e6e7ce;
+}
+.hounds-page .derby-disclaimer {
+  font-size: 10px;
+  color: #b3b4aa;
+  line-height: 1.6;
+}
+.hounds-page button:focus-visible {
+  outline: 3px solid #f5d8a8;
+  outline-offset: 3px;
+}
+@media (max-width: 1000px) {
+  .hounds-page .derby-layout {
+    grid-template-columns: 1fr;
+  }
+  .hounds-page .derby-slip {
+    padding: 12px;
+  }
+  .hounds-page .derby-runners {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .hounds-page .derby-markets {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .hounds-page .derby-markets button {
+    flex: 1;
+    min-width: 68px;
+  }
+  .hounds-page .derby-progress {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .hounds-page .derby-slip h2 {
+    font-size: 19px;
+  }
+  .hounds-page .derby-instruction {
+    min-height: 0;
+  }
+  .hounds-scene {
+    height: 330px;
+  }
+}
+@media (max-width: 600px) {
+  .hounds-page {
+    padding: 10px !important;
+  }
+  .hounds-page .derby-header {
+    margin-bottom: 10px;
+    gap: 8px;
+  }
+  .hounds-page .derby-header h1 {
+    font-size: 23px;
+    margin: 4px 0;
+  }
+  .hounds-page .derby-header > div > a {
+    font-size: 11px;
+  }
+  .hounds-page .derby-credit {
+    padding: 7px 9px;
+  }
+  .hounds-page .derby-credit strong {
+    font-size: 18px;
+  }
+  .hounds-page .derby-credit > span {
+    font-size: 9px;
+  }
+  .hounds-page .derby-credit p {
+    font-size: 8px;
+    margin: 0;
+  }
+  .hounds-page .derby-toolbar {
+    margin-bottom: 6px;
+  }
+  .hounds-page .derby-toolbar button {
+    font-size: 11px;
+    padding: 7px 10px;
+  }
+  .hounds-page .derby-toolbar button small {
+    font-size: 8px;
+  }
+  .hounds-page .derby-help {
+    font-size: 10px;
+  }
+  .hounds-page .game-round-summary {
+    display: none;
+  }
+  .hounds-page .derby-history {
+    margin-bottom: 6px;
+  }
+  .hounds-page .derby-race-heading {
+    padding: 10px;
+  }
+  .hounds-page .derby-race-heading h2 {
+    font-size: 18px;
+  }
+  .hounds-page .derby-race-heading p {
+    display: none;
+  }
+  .hounds-page .derby-countdown strong {
+    font-size: 24px;
+  }
+  .hounds-scene {
+    height: 255px;
+  }
+  .hounds-page .derby-layout {
+    gap: 10px;
+  }
+  .hounds-page .derby-runners button {
+    flex-direction: column;
+    justify-content: center;
+    padding: 6px 2px;
+    gap: 4px;
+    min-height: 67px;
+  }
+  .hounds-page .derby-runners button[aria-pressed='true'] {
+    padding: 5px 1px;
+  }
+  .hounds-page .derby-runners button > span {
+    font-size: 9px;
+  }
+  .hounds-page .derby-race-footer > span:last-child {
+    display: none;
+  }
+  .hounds-cameras {
+    padding: 7px 10px;
+  }
+  .hounds-cameras button {
+    padding: 6px 10px;
+    min-height: 33px;
+  }
+  .hounds-page .derby-markets button {
+    font-size: 10px;
+    min-width: 58px;
+    min-height: 36px;
+  }
+  .hounds-page .derby-slip > .derby-eyebrow {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hounds-page * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
+
+.hounds-page .derby-toolbar button[aria-pressed='true'] small {
+  color: #4b3c27;
+}
+.hounds-page .game-round-summary {
+  background: #1a251f;
+  border-color: #405747;
+}
+.hounds-page .derby-header h1 {
+  text-shadow: none;
+}
+
+.hounds-page .derby-arena .derby-race-heading {
+  border-bottom: 1px solid #374739;
+}
+.hounds-page .derby-scene-fallback {
+  background: #23392b;
+  color: #fff;
+}
+
+.hounds-scene-fallback {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.hounds-scene-fallback svg {
+  width: 100%;
+  height: calc(100% - 32px);
+}
+.hounds-scene-fallback p {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #d6dfd5;
+  margin: 4px 0 18px;
+}
+.hounds-page .game-arena__toolbar {
+  display: flex !important;
+  padding: 6px 10px;
+  min-height: 36px;
+}
+.hounds-page .game-arena__toolbar > span {
+  font-size: 10px;
+  color: #c6d0c3;
+}
+.hounds-page .game-arena__toggle {
+  min-height: 32px;
+  font-size: 10px;
+  padding: 6px 8px;
+  background: #273628;
+  border: 1px solid #485846;
+}
+.hounds-page .game-arena--expanded .hounds-scene {
+  height: 60vh;
+  min-height: 280px;
+}
+/* Keep the broadcast and choices close on a phone, including no-WebGL mode. */
+.hounds-page .derby-scene-shell {
+  min-height: 0 !important;
+}
+.hounds-page .derby-broadcast-label {
+  left: 8px;
+  bottom: 7px;
+  padding: 4px 7px;
+}
+@media (max-width: 600px) {
+  .hounds-page .derby-header h1 small {
+    display: none;
+  }
+  .hounds-page .derby-history {
+    min-height: 24px;
+    padding: 3px 0;
+  }
+  .hounds-page .derby-race-heading {
+    padding: 7px 10px;
+  }
+  .hounds-page .derby-race-heading .derby-eyebrow {
+    display: none;
+  }
+  .hounds-scene {
+    height: 215px;
+  }
+  .hounds-page .derby-progress {
+    gap: 4px;
+    padding: 5px 10px;
+  }
+  .hounds-page .derby-progress > div {
+    grid-template-columns: 20px 1fr;
+    grid-template-rows: 24px;
+    gap: 4px;
+  }
+  .hounds-page .derby-progress b {
+    grid-row: 1;
+    height: 22px;
+  }
+  .hounds-page .derby-progress meter {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .hounds-page .derby-race-footer {
+    padding: 5px 10px;
+  }
+  .hounds-page .hounds-cameras {
+    padding: 5px 10px;
+  }
+}
+
+.hounds-page .derby-runners button[aria-pressed='true']:disabled {
+  opacity: 1;
+}
+.hounds-page .derby-runners button:disabled {
+  opacity: 0.65;
+}
+@media (max-width: 600px) {
+  .hounds-page .derby-markets {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .hounds-page .derby-markets button {
+    min-width: 0;
+  }
+  .hounds-page[data-field='6'] .derby-runners {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

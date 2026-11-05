@@ -15,11 +15,12 @@ export default defineConfig({
       injectRegister: false,
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
       manifest: {
+        id: '/',
         name: 'Salem Bet',
         short_name: 'Salem Bet',
-        description: 'Web-first social platform',
-        theme_color: '#21131b',
-        background_color: '#21131b',
+        description: 'Games, groups, and your Salem Bet account, one tap away.',
+        theme_color: '#111214',
+        background_color: '#111214',
         display: 'standalone',
         orientation: 'portrait-primary',
         scope: '/',
@@ -78,9 +79,16 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Practice artwork and the 3D renderer are opt-in; never download it on unrelated page installs.
-        globIgnores: ['images/sky-crash/**', 'assets/race-scene-*.js', 'assets/football-scene-*.js'],
+        globIgnores: [
+          'images/sky-crash/**',
+          'assets/race-scene-*.js',
+          'assets/football-scene-*.js',
+        ],
         // Gateway and asset URLs must reach the server, including direct navigation.
-        navigateFallbackDenylist: [/^\/(?:api|health|ws|assets)(?:[/?]|$)/],
+        navigateFallbackDenylist: [
+          /^\/(?:api|health|ws|assets)(?:[/?]|$)/,
+          /^\/sg\/callback(?:[/?]|$)/,
+        ],
         cleanupOutdatedCaches: true,
         clientsClaim: false,
         skipWaiting: false,

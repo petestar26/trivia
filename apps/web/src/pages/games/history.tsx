@@ -1,3 +1,4 @@
+import { memberGameName } from '@/lib/member-game-catalog';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -31,7 +32,7 @@ const GAME_ICONS: Record<string, string> = {
   dice: '🎲',
   number_challenge: '🔢',
   trivia: '🧠',
-  thunder_derby_3d: '⚡',
+  thunder_derby_3d: '🏇',
   virtual_football_3d: '⚽',
   neon_hounds_3d: '🐕',
   turbo_circuit_3d: '🏎️',
@@ -141,7 +142,7 @@ export function GameHistoryPage() {
               <div className="text-3xl">{GAME_ICONS[s.game.key] ?? '🎮'}</div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-gray-900 dark:text-white">
-                  {s.game.name}
+                  {memberGameName(s.game)}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {formatDate(s.completedAt ?? s.createdAt)}

@@ -18,7 +18,7 @@ describe('Spin Win practice', () => {
   it('shows a complete number wheel, markets and practice-only terms', () => {
     mount();
     expect(screen.getByRole('img', { name: /0 to 36/ })).toBeInTheDocument();
-    expect(screen.getByText(/No Coins are spent or won/)).toBeInTheDocument();
+    expect(screen.getByText(/No cash is spent or won/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Spin' })).toBeDisabled();
     expect(screen.getAllByRole('button', { name: /Bet on/ })).toHaveLength(52);
   });

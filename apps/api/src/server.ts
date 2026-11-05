@@ -1,3 +1,6 @@
+import { prisma } from '@socialplay/database';
+import { createGroupPvpService } from './games/group-pvp/service.js';
+import { startGroupPvpRuntime } from './games/group-pvp/runtime.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +12,9 @@ import { registerWebSocket } from './ws/index.js';
 import { errorHandler, sendMalformedUrlResponse } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
+import { startEtbRateRefresh } from './agents/etb-rate-service.js';
+import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
+import { startRewardDelivery } from './member-rewards/service.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -93,6 +99,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
   });
 
   await registerPlugins(server);
+  await server.register(providerTestCallbackRoutes);
 
   // README.md documents `GET /health` (and `/health?detailed`) as a bare,
   // unprefixed infrastructure endpoint, distinct from the versioned /api/v1
@@ -133,9 +140,31 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 async function start(): Promise<void> {
   try {
     const server = await buildServer();
+    const stopRewards = startRewardDelivery(() =>
+      server.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')
+    );
+    server.addHook('onClose', async () => {
+      stopRewards();
+    });
+    const stopGroupPvp = startGroupPvpRuntime({
+      enabled: process.env.GROUP_PVP_GAME_POINTS_ENABLED === 'true',
+      tick: createGroupPvpService(prisma).tick,
+      report: () => server.log.warn('Group game processing is unavailable; new entries are paused'),
+    });
+    server.addHook('onClose', async () => {
+      stopGroupPvp();
+    });
+    const stopRates = startEtbRateRefresh(() =>
+      server.log.warn('ETB reference refresh is unavailable')
+    );
+    server.addHook('onClose', async () => {
+      stopRates();
+    });
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
-    server.log.info(`📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`);
+    server.log.info(
+      `📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`
+    );
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);

@@ -6,11 +6,14 @@ import { Input } from '@/components/ui/input';
 
 interface GoogleSignInButtonProps {
   onSuccess?: () => void;
+  referralCode?: string;
 }
 
-export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButtonProps) {
   const clientId = googleClientId();
   const { googleAuthenticate } = useAuth();
+  const referralRef = useRef(referralCode);
+  referralRef.current = referralCode;
   const buttonRef = useRef<HTMLDivElement>(null);
   // Credential held ONLY in React memory — never localStorage/sessionStorage
   const credentialRef = useRef<string | null>(null);
@@ -86,7 +89,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
             setLoading(true);
             setError(null);
             try {
-              await googleAuthenticate({ credential: response.credential });
+              await googleAuthenticate({ credential: response.credential, ...(referralRef.current ? { referralCode: referralRef.current } : {}) });
               onSuccess?.();
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : 'Google sign-in failed';
@@ -138,7 +141,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     setLoading(true);
     setUsernameError(null);
     try {
-      await googleAuthenticate({ credential: credentialRef.current, username: username.trim() });
+      await googleAuthenticate({ credential: credentialRef.current, username: username.trim(), ...(referralRef.current ? { referralCode: referralRef.current } : {}) });
       credentialRef.current = null;
       setNeedsUsername(false);
       onSuccess?.();

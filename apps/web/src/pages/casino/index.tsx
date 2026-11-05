@@ -1,13 +1,6 @@
-import { GamesPage } from '@/pages/games';
+import { ProviderTestPage } from '@/pages/games/provider-test';
 
-/** The casino catalog contains COINS-wager games only; BONUS games stay in Games. */
+/** Provider games have their own lobby; our own catalogue lives under Games. */
 export function CasinoPage() {
-  return (
-    <GamesPage
-      mode="WAGER"
-      title="Casino"
-      description="Explore system games and check each table’s availability. Find player-versus-player games inside your groups."
-      emptyMessage="No casino games are available right now."
-    />
-  );
+  return <ProviderTestPage />;
 }

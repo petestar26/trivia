@@ -24,6 +24,8 @@ beforeAll(async () => {
   for (const migration of [
     '20260930110000_scheduled_practice_rounds',
     '20260930120000_scheduled_practice_tickets',
+    '20261003020000_practice_admission_read_scope',
+    '20261105150000_spin_practice_multi_ticket',
   ]) {
     await pg.exec(
       await readFile(

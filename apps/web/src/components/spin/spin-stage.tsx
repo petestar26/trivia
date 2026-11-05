@@ -25,8 +25,8 @@ export function SpinStage({
   return (
     <section className="spin-stage mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-        <Link to="/casino" className="text-primary-600 dark:text-primary-400">
-          ← Casino
+        <Link to="/games" className="text-primary-600 dark:text-primary-400">
+          ← Games
         </Link>
         <Link to="/groups" className="text-primary-600 dark:text-primary-400">
           PVP · play in a group →
@@ -67,16 +67,16 @@ export function SpinStage({
             </p>
             <div className="mt-1 font-semibold text-[#ffe2a1]">
               {mode === 'scheduled'
-                ? 'Free practice credits'
+                ? 'Free practice · ETB'
                 : (balance ?? 'One server result for every player')}
             </div>
           </div>
         </header>
         <p className="border-b border-[#d6b475]/15 bg-black/10 px-5 py-2.5 text-xs text-emerald-100/75 sm:px-7">
           {mode === 'solo'
-            ? 'Practice mode · No Coins are spent or won. Credits reset when you leave.'
+            ? 'Practice mode · No cash is spent or won. Credits reset when you leave.'
             : mode === 'scheduled'
-              ? 'Practice only · No Coins, deposits, fees or redeemable prizes. Selections lock once per round.'
+              ? 'Practice only · No deposits, fees or redeemable prizes. Each confirmed ticket is locked to its round.'
               : 'Coin mode · Server settlement · Confirm pending rounds before entering again.'}
         </p>
         <div className="grid items-center gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_230px]">

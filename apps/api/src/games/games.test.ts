@@ -228,9 +228,9 @@ it('public catalog returns exactly 16 entries (AVAILABLE + COMING_SOON), excludi
      const keys = games.map((g) => g.key);
      // Exact approved public key set — order-independent compare.
      const APPROVED_KEYS = new Set([
-       'dice', 'number_challenge', 'trivia', // AVAILABLE
+       'dice', 'number_challenge', 'trivia',
        'spin_win', 'thunder_derby_3d', 'neon_hounds_3d', 'turbo_circuit_3d',
-       'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'crystal_trail',
+       'starfall_nebula', 'jungle_dash_3d', 'turbo_keno', 'roulette_keno', 'lucky_six', 'crystal_trail',
        'heat_vault', 'strait_rush', 'crash_point', 'sky_crash', 'virtual_football_3d', // COMING_SOON
      ]);
      expect(new Set(keys).size).toBe(16);
@@ -238,11 +238,9 @@ it('public catalog returns exactly 16 entries (AVAILABLE + COMING_SOON), excludi
      expect([...APPROVED_KEYS].every((k) => keys.includes(k))).toBe(true);
      expect(keys).not.toContain('lucky_spin');
      expect(keys).not.toContain('coming_');
-     // Only Trivia is available for rewards; financial models remain paused.
-     expect(games.filter((g) => g.catalogStatus === 'AVAILABLE').map((g) => g.key).sort()).toEqual(
-       ['trivia']
-     );
-     expect(games.filter((g) => g.catalogStatus === 'COMING_SOON').length).toBe(15);
+     // Trivia remains Coming soon; implemented practice has a separate admission flag.
+     expect(games.filter((g) => g.catalogStatus === 'AVAILABLE')).toEqual([]);
+     expect(games.filter((g) => g.catalogStatus === 'COMING_SOON').length).toBe(16);
      expect(keys.filter((k) => k.startsWith('coming_')).length).toBe(0);
    });
 

@@ -18,9 +18,9 @@ export function RulesDialog() {
       <Dialog.Portal>
         <Dialog.Overlay className="vf-overlay" />
         <Dialog.Content className="vf-dialog vf-dialog--rules" aria-describedby="vf-rules-desc">
-          <Dialog.Title>Salem Bet Virtual Football 3D: rules</Dialog.Title>
+          <Dialog.Title>Salem Bet Football: rules</Dialog.Title>
           <Dialog.Description id="vf-rules-desc">
-            An original simulated league using free, non-redeemable practice credits. It is not
+            An original simulated league using free, non-redeemable practice ETB. It is not
             connected to any real club, league or competition.
           </Dialog.Description>
           <h3>The league</h3>
@@ -56,13 +56,13 @@ export function RulesDialog() {
               different matches, every one of which must win.
             </li>
             <li>
-              Stake {VF_LIMITS.minLineStake}–{VF_LIMITS.maxLineStake} credits per line, up to{' '}
+              Stake {VF_LIMITS.minLineStake}–{VF_LIMITS.maxLineStake} ETB per line, up to{' '}
               {formatCredits(VF_LIMITS.maxTicketStake)} per ticket and{' '}
               {VF_LIMITS.maxTicketsPerMatchweek} tickets per matchweek.
             </li>
             <li>
               Combined odds are capped at {formatOdds(VF_LIMITS.maxCombinedOddsCents)}×, a line
-              returns at most {formatCredits(VF_LIMITS.maxLineReturn)} credits and a ticket at most{' '}
+              returns at most {formatCredits(VF_LIMITS.maxLineReturn)} ETB and a ticket at most{' '}
               {formatCredits(VF_LIMITS.maxTicketReturn)}.
             </li>
             <li>
@@ -95,7 +95,7 @@ export function RulesDialog() {
             but results are random: form and previous matches do not predict the next one.
           </p>
           <p>
-            The 3D match is a decorative replay of goals the server has already released.
+            The match animation is a decorative replay of goals the server has already released.
             Players&apos; movement between goals is illustrative and never affects any result or
             price.
           </p>
@@ -109,8 +109,8 @@ export function RulesDialog() {
             ))}
           </dl>
           <p className="vf-fine">
-            Rules {VF_RULES_ID} · digest {VF_RULES_DIGEST.slice(0, 16)}… Practice credits are free,
-            cannot be bought, transferred or redeemed, and have no connection to Coins or any cash
+            Rules {VF_RULES_ID} · digest {VF_RULES_DIGEST.slice(0, 16)}… Practice ETB are free,
+            cannot be bought, transferred or redeemed, and have no connection to any cash
             value.
           </p>
           <Dialog.Close className="vf-secondary">Close rules</Dialog.Close>

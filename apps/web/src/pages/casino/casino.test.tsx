@@ -1,44 +1,41 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type * as ApiModule from '@/lib/api';
 
-const apiGet = vi.fn();
+const apiGet = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof ApiModule>('@/lib/api');
   return { ...actual, api: { ...actual.api, get: (...args: unknown[]) => apiGet(...args) } };
 });
-
 vi.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({ user: { id: 'user-1', username: 'player', displayName: 'Player' } }),
 }));
-
 import { Sidebar } from '@/components/layout/sidebar';
+import { GamesPage } from '@/pages/games';
 import { CasinoPage } from './index';
 
 afterEach(() => {
   cleanup();
   apiGet.mockReset();
 });
-
-function renderWithProviders(ui: ReactNode, initialEntry = '/casino') {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+function mount(ui: ReactNode, initialEntry = '/casino') {
   return render(
-    <QueryClientProvider client={client}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
+    >
       <MemoryRouter initialEntries={[initialEntry]}>{ui}</MemoryRouter>
     </QueryClientProvider>
   );
 }
-
-const catalog = [
+const catalog: Partial<ApiModule.GameCatalogEntry>[] = [
   {
     id: 'dice-id',
     key: 'dice',
     practiceAvailable: true,
+    isActive: true,
     name: 'Dice',
     description: 'Roll the dice.',
     mode: 'WAGER',
@@ -49,6 +46,7 @@ const catalog = [
   {
     id: 'trivia-id',
     key: 'trivia',
+    isActive: true,
     name: 'Trivia',
     description: 'Answer questions.',
     mode: 'BONUS',
@@ -59,6 +57,7 @@ const catalog = [
   {
     id: 'soon-id',
     key: 'spin_win',
+    practiceAvailable: true,
     name: 'Spin Win',
     description: 'Spin the wheel.',
     mode: 'WAGER',
@@ -77,73 +76,159 @@ const catalog = [
     maxBet: 500,
   },
 ];
+function ownGames(data = catalog) {
+  apiGet.mockImplementation(async (path: string) => {
+    if (path === '/games') return { success: true, data };
+    if (path === '/wallet')
+      return { success: true, data: { coinsBalance: 125, gamePointsBalance: 0 } };
+    throw new Error(`Unexpected GET ${path}`);
+  });
+}
+function providerGames(enabled = true) {
+  apiGet.mockImplementation(async (path: string) => {
+    if (path === '/provider-test/status')
+      return { success: true, data: { enabled, launchReady: true } };
+    if (path === '/provider-test/wallet')
+      return { success: true, data: { balanceCents: 100000, created: false, movements: [] } };
+    if (path === '/provider-test/games')
+      return {
+        success: true,
+        data: [
+          {
+            id: 'studio/slot',
+            name: 'Provider Slot',
+            provider: 'External Studio',
+            category: 'slots',
+          },
+        ],
+      };
+    throw new Error(`Unexpected GET ${path}`);
+  });
+}
 
-describe('Casino entry and catalog', () => {
-  it('shows session recovery rather than an empty catalog after a 401', async () => {
+describe('Games owns the platform catalogue', () => {
+  it('lists implemented games, excludes unfinished and retired titles and preserves destinations', async () => {
+    ownGames();
+    mount(<GamesPage />, '/games');
+    expect(await screen.findByRole('heading', { name: 'Our games' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/games/dice');
+    expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
+    expect(apiGet.mock.calls.map(([path]) => path).sort()).toEqual(['/games']);
+  });
+  it.each([['WAGER', 'Dice', 'Trivia']])(
+    'allows %s filtering inside Games',
+    async (mode, shown, hidden) => {
+      ownGames();
+      mount(<GamesPage />, `/games?mode=${mode}`);
+      expect(await screen.findByRole('heading', { name: shown })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: hidden })).not.toBeInTheDocument();
+    }
+  );
+  it('treats unknown filters as the full own-game catalogue', async () => {
+    ownGames();
+    mount(<GamesPage />, '/games?mode=provider');
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
+  });
+  it('provides simple own-game, group and Casino navigation', async () => {
+    ownGames();
+    mount(<GamesPage />, '/games');
+    await screen.findByRole('heading', { name: 'Dice' });
+    expect(screen.getByRole('link', { name: 'Our games' })).toHaveAttribute('href', '/games');
+    expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute('href', '/groups');
+    expect(screen.getByRole('link', { name: /Casino/ })).toHaveAttribute('href', '/casino');
+  });
+  it('preserves disabled practice gates', async () => {
+    ownGames(
+      catalog
+        .filter((game) => game.key === 'dice')
+        .map((game) => ({ ...game, practiceAvailable: false }))
+    );
+    mount(<GamesPage />, '/games');
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
+    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Dice/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bet:/)).not.toBeInTheDocument();
+  });
+  it('preserves sign-in recovery for an unavailable session', async () => {
     apiGet.mockRejectedValue(new Error(JSON.stringify({ status: 401, message: 'Invalid token' })));
-    renderWithProviders(<CasinoPage />);
+    mount(<GamesPage />, '/games');
     expect(await screen.findByRole('link', { name: 'Sign in again' })).toHaveAttribute(
       'href',
       '/login'
     );
     expect(screen.getByRole('alert')).toHaveTextContent('Your session is unavailable');
-    expect(screen.queryByText('No casino games available right now.')).not.toBeInTheDocument();
   });
-  it('recovers a failed catalog request through Retry', async () => {
-    apiGet.mockImplementation(async (path: string) => {
-      if (path === '/wallet') return { success: true, data: { coinsBalance: 125 } };
-      throw new Error(JSON.stringify({ status: 503 }));
-    });
-    renderWithProviders(<CasinoPage />);
+  it('recovers own-game catalogue failures through Retry', async () => {
+    apiGet.mockRejectedValue(new Error(JSON.stringify({ status: 503 })));
+    mount(<GamesPage />, '/games');
     const retry = await screen.findByRole('button', { name: 'Retry' });
-    apiGet.mockResolvedValue({ success: true, data: catalog });
+    ownGames();
     fireEvent.click(retry);
-    expect(await screen.findByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
-  it('shows a dedicated Casino navigation link that is active at /casino', () => {
-    renderWithProviders(<Sidebar />);
+});
 
-    const casinoLink = screen.getByRole('link', { name: 'Casino' });
-    expect(casinoLink).toHaveAttribute('href', '/casino');
-    expect(casinoLink).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Free games' })).not.toHaveAttribute('aria-current', 'page');
-  });
-
-  it('shows only non-retired WAGER games and keeps bonus Trivia under Games', async () => {
-    apiGet.mockImplementation(async (path: string) => {
-      if (path === '/games') return { success: true, data: catalog };
-      if (path === '/wallet')
-        return { success: true, data: { coinsBalance: 125, gamePointsBalance: 0 } };
-      throw new Error(`Unexpected GET ${path}`);
-    });
-
-    renderWithProviders(<CasinoPage />);
-
+describe('Casino owns provider tests', () => {
+  it('loads provider titles without querying our catalogue or wallet', async () => {
+    providerGames();
+    mount(<CasinoPage />);
     expect(await screen.findByRole('heading', { name: 'Casino' })).toBeInTheDocument();
-    expect(screen.getByText('Explore system games and check each table’s availability. Find player-versus-player games inside your groups.')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Provider Slot' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Dice' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
-    expect(screen.getAllByText('Free practice').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', {name:/Dice/})).toHaveAttribute('href','/games/dice');
-    await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/games'));
+    expect(screen.getByText(/Virtual ETB · No cash value/)).toBeInTheDocument();
+    expect(apiGet.mock.calls.map(([path]) => path)).toEqual([
+      '/provider-test/status',
+      '/provider-test/games',
+      '/provider-test/wallet',
+    ]);
+    expect(screen.getByRole('link', { name: /Back to our games/ })).toHaveAttribute(
+      'href',
+      '/games'
+    );
   });
+  it('keeps disabled provider access gated without replacing it with own games', async () => {
+    providerGames(false);
+    mount(<CasinoPage />);
+    expect(await screen.findByText(/not available for this account/)).toBeInTheDocument();
+    expect(apiGet.mock.calls.map(([path]) => path)).toEqual(['/provider-test/status']);
+    expect(screen.queryByRole('button', { name: 'Play Provider Slot' })).not.toBeInTheDocument();
+  });
+  it('recovers provider status errors through Retry', async () => {
+    apiGet.mockRejectedValue(new Error('Unavailable'));
+    mount(<CasinoPage />);
+    const retry = await screen.findByRole('button', { name: 'Retry' });
+    providerGames();
+    fireEvent.click(retry);
+    expect(await screen.findByRole('heading', { name: 'Provider Slot' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
 
-  it('does not promise running tables or offer play when the server has disabled practice', async () => {
-    apiGet.mockImplementation(async (path: string) => ({
-      success: true,
-      data: path === '/games'
-        ? catalog.filter(game => game.key === 'dice').map(game => ({ ...game, practiceAvailable: false }))
-        : { coinsBalance: 125, gamePointsBalance: 0 },
-    }));
-    renderWithProviders(<CasinoPage />);
-    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
-    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Dice/ })).not.toBeInTheDocument();
-    expect(screen.queryByText(/System tables run every minute/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/every minute/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Bet:/)).not.toBeInTheDocument();
+describe('member navigation distinguishes own and provider games', () => {
+  it.each([
+    ['/games', 'Games'],
+    ['/games/dice', 'Games'],
+    ['/games/crash-point', 'Games'],
+    ['/games/turbo-keno', 'Games'],
+    ['/games/spin-win/play', 'Games'],
+    ['/games/trivia', 'Games'],
+    ['/games/history', 'Games'],
+    ['/casino', 'Casino'],
+    ['/games/provider-demos', 'Casino'],
+  ])('marks %s as belonging only to %s', (path, active) => {
+    mount(<Sidebar />, path);
+    expect(screen.getByRole('link', { name: active })).toHaveAttribute('aria-current', 'page');
+    const other = active === 'Games' ? 'Casino' : 'Games';
+    expect(screen.getByRole('link', { name: other })).not.toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Games' })).toHaveAttribute('href', '/games');
+    expect(screen.getByRole('link', { name: 'Casino' })).toHaveAttribute('href', '/casino');
   });
 });

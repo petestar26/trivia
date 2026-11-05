@@ -1,3 +1,4 @@
+import { useLanguage } from '@/providers/language-provider';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Home,
@@ -6,13 +7,12 @@ import {
   Wallet,
   Gamepad2,
   Dice5,
-  Gift,
-  User,
-  LogOut,
-  Swords,
   Trophy,
+  Gift,
+  LogOut,
   Hexagon,
   Sparkles,
+  Headphones,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -21,8 +21,9 @@ const sections = [
     title: 'Discover',
     items: [
       { name: 'Home', href: '/dashboard', icon: Home },
+      { name: 'Games', href: '/games', icon: Gamepad2 },
       { name: 'Casino', href: '/casino', icon: Dice5 },
-      { name: 'Free games', href: '/games', icon: Gamepad2 },
+      { name: 'Sports', href: '/sports', icon: Trophy },
     ],
   },
   {
@@ -30,8 +31,6 @@ const sections = [
     items: [
       { name: 'Groups', href: '/groups', icon: Users },
       { name: 'Messages', href: '/messages', icon: MessageCircle },
-      { name: 'Challenges', href: '/challenges', icon: Swords },
-      { name: 'Competitions', href: '/competitions', icon: Trophy },
     ],
   },
   {
@@ -40,16 +39,15 @@ const sections = [
       { name: 'Wallet', href: '/wallet', icon: Wallet },
       { name: 'Gifts', href: '/gifts', icon: Gift },
       { name: 'Rewards', href: '/rewards', icon: Sparkles },
-      { name: 'Profile', href: '/profile', icon: User },
+      { name: 'Support', href: '/support', icon: Headphones },
     ],
   },
 ];
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const { pathname } = useLocation();
-  const casinoTable = ['/games/crash-point', '/games/dice', '/games/turbo-keno', '/games/spin-win'].some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`)
-  );
+  const providerDemoAlias = pathname === '/games/provider-demos';
   return (
     <aside className="qube-sidebar fixed inset-y-0 left-0 z-50 w-64 h-full">
       <Link to="/" onClick={onNavigate} className="qube-brand">
@@ -73,9 +71,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             {section.items.map(({ name, href, icon: Icon }) => {
               const active =
                 href === '/casino'
-                  ? casinoTable || pathname === '/casino'
+                  ? providerDemoAlias || pathname === '/casino' || pathname.startsWith('/casino/')
                   : href === '/games'
-                    ? !casinoTable && (pathname === '/games' || pathname.startsWith('/games/'))
+                    ? !providerDemoAlias &&
+                      (pathname === '/games' || pathname.startsWith('/games/'))
                     : pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
               return (
                 <Link
@@ -86,12 +85,24 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                   className={`qube-nav-link ${active ? 'is-active' : ''}`}
                 >
                   <Icon size={19} aria-hidden="true" />
-                  {name}
+                  {t(name)}
                 </Link>
               );
             })}
           </div>
         ))}
+        <details className="salem-nav-more">
+          <summary>{t('More')}</summary>
+          <Link to="/challenges" onClick={onNavigate}>
+            Challenges
+          </Link>
+          <Link to="/competitions" onClick={onNavigate}>
+            Competitions
+          </Link>
+          <Link to="/profile" onClick={onNavigate}>
+            {t('Profile')}
+          </Link>
+        </details>
       </nav>
       <div className="qube-account">
         <Link to="/profile" onClick={onNavigate} className="qube-account-profile">
@@ -105,7 +116,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         </Link>
         <button onClick={() => logout()} className="qube-signout">
           <LogOut size={17} aria-hidden="true" />
-          Sign out
+          {t('Sign out')}
         </button>
       </div>
     </aside>

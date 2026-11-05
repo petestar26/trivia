@@ -77,15 +77,15 @@ describe('AuthProvider + page integration — current failures do NOT navigate a
     renderAuthFlow('/register', <RegisterPage />);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('johndoe'), 'smoketester');
+    await user.type(screen.getByPlaceholderText('dawit_bekele'), 'smoketester');
     await user.type(screen.getByPlaceholderText('you@example.com'), 'someone@example.com');
-    await user.type(screen.getByPlaceholderText('John Doe'), 'Smoke Tester');
+    await user.type(screen.getByPlaceholderText('Dawit Bekele'), 'Smoke Tester');
     await user.type(screen.getByPlaceholderText('••••••••'), 'Password123!');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(await screen.findByText('Email already registered')).toBeInTheDocument();
     expect(screen.queryByText('HOME_LANDING')).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText('johndoe')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('dawit_bekele')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: /create account/i })).toBeEnabled());
   });
 });

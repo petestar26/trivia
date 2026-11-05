@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowLeft, ArrowUpRight, Pause, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 import './member-auth-shell.css';
 
 export function MemberAuthShell({
@@ -20,9 +21,12 @@ export function MemberAuthShell({
           SALEM<span> BET</span>
           <small>THE MEMBER LOUNGE</small>
         </Link>
-        <Link className="pq-auth-browse" to="/explore">
-          <ArrowLeft size={14} aria-hidden="true" /> Browse the collection
-        </Link>
+        <div className="pq-auth-header-actions">
+          <Link className="pq-auth-browse" to="/explore">
+            <ArrowLeft size={14} aria-hidden="true" /> Browse the collection
+          </Link>
+          <InstallAppButton />
+        </div>
       </header>
 
       <main className="pq-auth-layout">
@@ -68,6 +72,7 @@ export function MemberAuthShell({
         </aside>
 
         <section className="pq-auth-form-panel" aria-label={joining ? 'Create account' : 'Sign in'}>
+          <InstallAppCard />
           <div className="pq-auth-form-eyebrow">
             <span /> {joining ? 'MAKE YOUR ENTRANCE' : 'BACK TO YOUR LOUNGE'}
           </div>

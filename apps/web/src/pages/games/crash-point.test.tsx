@@ -114,7 +114,7 @@ it('restores a confirmed ticket and presents its server return', async () => {
   setup();
   expect(
     await within(await screen.findByRole('group', { name: 'Bet 1 result' })).findByText(
-      '30 credits returned'
+      '30 ETB returned'
     )
   ).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Cash out/ })).toBeNull();
@@ -165,7 +165,7 @@ it('shows personal returns and distinguishes pending receipts in the history vie
   });
   snapshot.rounds[0].ticket = { stake: 10, autoCents: null, payout: null, paidCents: null };
   setup();
-  await screen.findAllByText('10 credits');
+  await screen.findAllByText('10 ETB');
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   expect(screen.getAllByText('Pending')).toHaveLength(2);
   expect(screen.getByRole('table')).toHaveTextContent('50');
@@ -179,10 +179,8 @@ it('does not describe a settled ticket as locked', async () => {
   snapshot.rounds[0].crashCents = 150;
   snapshot.rounds[0].ticket = { stake: 25, autoCents: 120, payout: 30, paidCents: 120 };
   setup();
-  expect(
-    await screen.findByRole('button', { name: /Cashed out 30 credits returned/ })
-  ).toBeDisabled();
-  expect(screen.queryByText('25 credits locked')).toBeNull();
+  expect(await screen.findByRole('button', { name: /Cashed out 30 ETB returned/ })).toBeDisabled();
+  expect(screen.queryByText('25 ETB locked')).toBeNull();
 });
 
 it('switches the public feed to the previous round without submitting a ticket', async () => {
@@ -364,11 +362,11 @@ it('shows the second ticket in the shared result, summary and labelled history',
   snapshot.rounds[0].tickets = [{ slot: 2, stake: 40, autoCents: 120, payout: 48, paidCents: 120 }];
   setup();
   const resultCard = await screen.findByRole('group', { name: 'Bet 2 result' });
-  expect(within(resultCard).getByText('48 credits returned')).toBeInTheDocument();
+  expect(within(resultCard).getByText('48 ETB returned')).toBeInTheDocument();
   expect(within(resultCard).getByText('Confirmed at 1.20× · includes stake')).toBeInTheDocument();
   const receipt = screen.getByRole('region', { name: 'Bet 2 receipt' });
-  expect(within(receipt).getByText('40 credits')).toBeInTheDocument();
-  expect(within(receipt).getByText('48 credits')).toBeInTheDocument();
+  expect(within(receipt).getByText('40 ETB')).toBeInTheDocument();
+  expect(within(receipt).getByText('48 ETB')).toBeInTheDocument();
   expect(screen.queryByText('No tickets')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'My bets' }));
   const table = screen.getByRole('table');
@@ -483,8 +481,8 @@ it('opens completed round details with both receipts without changing the draft 
   fireEvent.click(history);
   const dialog = await screen.findByRole('dialog', { name: 'Round result' });
   expect(within(dialog).getByText('2.97×')).toBeInTheDocument();
-  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 credits');
-  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 credits');
+  expect(within(dialog).getByLabelText('Past bet 1 receipt')).toHaveTextContent('50 ETB');
+  expect(within(dialog).getByLabelText('Past bet 2 receipt')).toHaveTextContent('0 ETB');
   fireEvent.click(within(dialog).getByText('Round verification'));
   expect(within(dialog).getByText(/Revealed seed:/)).toHaveTextContent('b'.repeat(64));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close round details' }));
@@ -787,5 +785,95 @@ it('shows a concise unentered result and Done restores its history opener', asyn
   fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   await waitFor(() => expect(history).toHaveFocus());
+  expect(post).not.toHaveBeenCalled();
+});
+
+it('keeps both live cash-out actions outside collapsed options and sends independent tickets', async () => {
+  snapshot.maxTickets = 2;
+  snapshot.rounds[0].startsAt = snapshot.serverTime - 1000;
+  snapshot.rounds[0].tickets = [
+    { slot: 1, stake: 25, autoCents: null, payout: null, paidCents: null },
+    { slot: 2, stake: 50, autoCents: null, payout: null, paidCents: null },
+  ];
+  setup();
+  const first = await screen.findByRole('complementary', { name: 'Bet 1 controls' });
+  const second = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  for (const panel of [first, second]) {
+    const options = within(panel).getByText('More options').closest('details');
+    expect(options).not.toHaveAttribute('open');
+    const cashout = within(panel).getByRole('button', { name: /Cash out/ });
+    expect(cashout).toBeEnabled();
+    expect(cashout.closest('details')).toBeNull();
+    fireEvent.click(cashout);
+  }
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+  expect(post.mock.calls.map((call) => call[1])).toEqual([
+    { roundId: 'r1' },
+    { roundId: 'r1', slot: 2 },
+  ]);
+});
+
+it('keeps stop autoplay accessible outside secondary settings', async () => {
+  snapshot.maxTickets = 2;
+  setup();
+  const panel = await screen.findByRole('complementary', { name: 'Bet 2 controls' });
+  const options = within(panel).getByText('More options').closest('details')!;
+  expect(options).not.toHaveAttribute('open');
+  fireEvent.click(within(panel).getByText('More options'));
+  expect(options).toHaveAttribute('open');
+  fireEvent.click(within(panel).getByRole('button', { name: 'Start autoplay · 10 rounds' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  fireEvent.click(within(panel).getByText('More options'));
+  expect(options).not.toHaveAttribute('open');
+  const stop = within(panel).getByRole('button', { name: /Stop autoplay/ });
+  expect(stop.closest('details')).toBeNull();
+  fireEvent.click(stop);
+  expect(within(panel).queryByRole('button', { name: /Stop autoplay/ })).toBeNull();
+});
+
+it('retains the viewed history selection by round ID after closing and refreshing results', async () => {
+  addHistoryRound();
+  snapshot.rounds.push({
+    ...snapshot.rounds[1],
+    id: 'other',
+    opensAt: snapshot.rounds[1].opensAt - 60000,
+  });
+  setup();
+  const older = await screen.findByRole('button', { name: 'View completed round older: 2.97×' });
+  const other = screen.getByRole('button', { name: 'View completed round other: 2.97×' });
+  expect(older).not.toHaveAttribute('aria-current');
+  fireEvent.click(older);
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Done' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(older).toHaveAttribute('aria-current', 'true');
+  expect(other).not.toHaveAttribute('aria-current');
+  await act(async () => {
+    snapshot = {
+      ...snapshot,
+      rounds: [snapshot.rounds[0], snapshot.rounds[2], snapshot.rounds[1]],
+    };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  expect(older).toHaveAttribute('aria-current', 'true');
+  fireEvent.click(other);
+  fireEvent.click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Close round details' })
+  );
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(other).toHaveAttribute('aria-current', 'true');
+  expect(older).not.toHaveAttribute('aria-current');
+  await act(async () => {
+    snapshot = { ...snapshot, rounds: snapshot.rounds.filter((round) => round.id !== 'other') };
+    client.setQueryData(['crash-point', 'u1'], {
+      snapshot,
+      sent: performance.now(),
+      received: performance.now(),
+    });
+  });
+  await waitFor(() => expect(screen.queryByRole('button', { current: true })).toBeNull());
   expect(post).not.toHaveBeenCalled();
 });

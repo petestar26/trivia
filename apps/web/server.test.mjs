@@ -183,3 +183,28 @@ test('proxies Socket.IO upgrades and rejects a cross-origin socket', async () =>
   assert.match(await exchange(origin), /echo-check/);
   assert.match(await exchange('https://attacker.example'), /403/);
 });
+
+test('provider callback uses HTTP 200 JSON errors instead of the app shell or upstream errors', async () => {
+  for (const method of ['GET','POST']) {
+    const r=await fetch(origin+'/sg/callback?key=private',{method});
+    assert.equal(r.status,200);assert.deepEqual(await r.json(),{error:2,balance:0});
+    assert.match(r.headers.get('cache-control'),/no-store/);
+  }
+});
+test('provider callback preserves signature/query and attests Railway source IP', async () => {
+  const {createHmac}=await import('node:crypto');
+  const secret='fixture-gateway-secret-at-least-32-characters';
+  let seen;
+  const api=http.createServer((req,res)=>{seen={url:req.url,headers:req.headers};res.end(JSON.stringify({error:0,balance:12345}));});
+  const apiUrl=await listen(api);
+  const web=createWebServer({apiOrigin:apiUrl,staticRoot:directory,gatewaySecret:secret,clientIpSource:'railway'});
+  const webUrl=await listen(web);
+  try {
+    const p='/sg/callback?username=st_fixture&amount=50&key=private';
+    const r=await fetch(webUrl+p,{headers:{'x-real-ip':'85.122.129.59','x-signature':'provider-signature','x-playqube-client-signature':'spoofed'}});
+    assert.equal(r.status,200);assert.deepEqual(await r.json(),{error:0,balance:12345});
+    assert.equal(seen.url,p);assert.equal(seen.headers['x-signature'],'provider-signature');
+    assert.equal(seen.headers['x-playqube-client-ip'],'85.122.129.59');
+    assert.equal(seen.headers['x-playqube-client-signature'],createHmac('sha256',secret).update(JSON.stringify([seen.headers['x-playqube-client-time'],'GET',p,'85.122.129.59'])).digest('hex'));
+  } finally {web.closeAllConnections();api.closeAllConnections();await Promise.all([new Promise(r=>web.close(r)),new Promise(r=>api.close(r))]);}
+});

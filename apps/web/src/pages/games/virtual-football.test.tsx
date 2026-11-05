@@ -117,14 +117,14 @@ const pressPrice = (name: RegExp) => fireEvent.click(screen.getAllByRole('button
 const cards = () =>
   within(screen.getByRole('group', { name: 'Matches this week' })).getAllByRole('button');
 
-describe('Virtual Football page', () => {
+describe('Football page', () => {
   it('shows ten fixtures, the first fixture’s markets and a lazy 3D scene', async () => {
     await setup();
     expect(cards()).toHaveLength(10);
     expect(screen.getByRole('heading', { level: 2, name: /Quartz|v / })).toBeInTheDocument();
     expect(await screen.findByTestId('scene')).toBeInTheDocument();
     expect(screen.getByText('Free practice')).toBeInTheDocument();
-    expect(screen.getByText('No Coins · No cash prizes')).toBeInTheDocument();
+    expect(screen.getByText('No cash stakes · No cash prizes')).toBeInTheDocument();
     expect(screen.getAllByRole('group', { name: /selections$/ }).length).toBeGreaterThan(1);
   });
 
@@ -373,7 +373,7 @@ describe('Virtual Football page', () => {
     await setup();
     pressPrice(/Full time: .* win, price/);
     expect(screen.getByRole('button', { name: /Review ticket/ })).toBeDisabled();
-    expect(screen.getByText('Not enough practice credits.')).toBeInTheDocument();
+    expect(screen.getByText('Not enough practice ETB.')).toBeInTheDocument();
   });
 
   it('keeps the latest completed results visible while the next matchweek is open for selections', async () => {
@@ -503,14 +503,14 @@ describe('Virtual Football page', () => {
     fireEvent.change(stake, { target: { value: '25' } });
     const review = screen.getByRole('button', { name: /Review ticket/ });
     const scene = await screen.findByTestId('scene');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
-    const expanded = screen.getByRole('dialog', { name: 'Virtual Football expanded view' });
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Football view' }));
+    const expanded = screen.getByRole('dialog', { name: 'Football expanded view' });
     expect(within(expanded).getByTestId('scene')).toBe(scene);
     expect(review.closest('[inert]')).not.toBeNull();
     fireEvent.click(review);
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
     fireEvent.click(
-      within(expanded).getByRole('button', { name: 'Minimize Virtual Football view' })
+      within(expanded).getByRole('button', { name: 'Minimize Football view' })
     );
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByTestId('scene')).toBe(scene);
@@ -526,12 +526,12 @@ describe('Virtual Football page', () => {
       const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
       await setup();
       const scene = await screen.findByTestId('scene');
-      fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Expand Football view' }));
       mocks.get.mockRejectedValue(new Error('offline'));
       await act(async () => {
         await client.refetchQueries({ queryKey: ['vf3d'] });
       });
-      const dialog = screen.getByRole('dialog', { name: 'Virtual Football expanded view' });
+      const dialog = screen.getByRole('dialog', { name: 'Football expanded view' });
       const status = await within(dialog).findByRole('status');
       expect(status).toHaveTextContent('Connection interrupted.');
       expect(status).toHaveAttribute('aria-live', 'polite');
@@ -555,7 +555,7 @@ describe('Virtual Football page', () => {
     const minute = before.current!.fixtures[0].live.events[0].minute;
     serve(before);
     await setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Football view' }));
     const details = screen.getByRole('region', { name: 'Released match details' });
     expect(within(details).queryByText(`${minute}′`)).toBeNull();
     serve(snapshotAt({ serverTime: cycle.kickoffAt + goal.atMs + GOAL_REVEAL_MS + 500 }));
@@ -572,7 +572,7 @@ describe('Virtual Football page', () => {
     const stake = screen.getByRole('spinbutton', { name: /Single 1 stake/ });
     fireEvent.change(stake, { target: { value: '25' } });
     const scene = await screen.findByTestId('scene');
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Virtual Football view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Football view' }));
     fireEvent.click(screen.getByRole('button', { name: 'Bet controls' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('region', { name: 'Your ticket controls' })).toHaveFocus();

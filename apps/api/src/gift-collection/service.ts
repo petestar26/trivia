@@ -155,5 +155,10 @@ export async function giftCardsForMessages(db: PrismaClient, messageIds: string[
   if (!messageIds.length) return new Map<string, GiftChatCard>();
   const rows = await db.$queryRaw<{ messageId: string; gift: GiftChatCard }[]>`
     SELECT message_id AS "messageId",response->'gift' AS gift FROM collectible_gift_operations WHERE message_id=ANY(${messageIds}::text[])`;
+  if (process.env.PRACTICE_ETB_ENABLED === 'true') {
+    const practice = await db.$queryRaw<{ messageId: string; gift: GiftChatCard }[]>`
+      SELECT message_id AS "messageId",response->'gift' AS gift FROM practice_etb_gift_operations WHERE message_id=ANY(${messageIds}::text[])`;
+    rows.push(...practice);
+  }
   return new Map(rows.map(row => [row.messageId, row.gift]));
 }

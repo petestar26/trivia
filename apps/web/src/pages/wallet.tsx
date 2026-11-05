@@ -1,5 +1,6 @@
+import { formatEtb } from '@/lib/payment-money';
 import { useState } from 'react';
-import { PaymentNavigation } from './wallet-payments';
+import { PaymentNavigation, WalletQuickActions } from './wallet-navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -62,12 +63,13 @@ export function WalletPage() {
     <div className="max-w-3xl mx-auto p-4 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Wallet</h1>
       <PaymentNavigation />
+      <WalletQuickActions />
 
       {/* Balance cards */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-500 dark:text-gray-400">Coins</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{coins}</p></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-500 dark:text-gray-400">Birr (ETB)</CardTitle></CardHeader>
+          <CardContent><p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{formatEtb(coins)}</p></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-500 dark:text-gray-400">Game Points</CardTitle></CardHeader>
@@ -76,15 +78,15 @@ export function WalletPage() {
       </div>
 
       <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40">
-        <h2 className="font-semibold">Know your Coin balance</h2>
-        {wallet?.coinAvailability&&<dl className="mt-4 grid gap-3 sm:grid-cols-3">{[['Spendable Coins',wallet.coinAvailability.spendable],['Bet-only rewards',wallet.coinAvailability.betOnly],['Pending review / expiry',wallet.coinAvailability.pendingReview]].map(([label,amount])=><div key={label}><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-1 text-xl font-bold">{Number(amount).toLocaleString()}</dd></div>)}</dl>}
-        <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">Free reward Coins can fund eligible bets. They cannot buy gifts, be transferred, or be cashed out. Under the new reward rule, only your net winnings become spendable; the returned free stake stays bet-only. Earlier grants retain their original terms.</p>
-        <p className="mt-2 text-xs text-gray-500">Withdrawals still require account and country eligibility. Game Points and free practice credits are separate from Coins.</p>
+        <h2 className="font-semibold">Know your Birr balance</h2>
+        {wallet?.coinAvailability&&<dl className="mt-4 grid gap-3 sm:grid-cols-3">{[['Available balance',wallet.coinAvailability.spendable],['Bet-only rewards',wallet.coinAvailability.betOnly],['Pending review / expiry',wallet.coinAvailability.pendingReview]].map(([label,amount])=><div key={label}><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-1 text-xl font-bold">{formatEtb(Number(amount))}</dd></div>)}</dl>}
+        <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">Bonus balance can fund eligible bets. They cannot buy gifts, be transferred, or be cashed out. Under the new reward rule, only your net winnings become spendable; the returned free stake stays bet-only. Earlier grants retain their original terms.</p>
+        <p className="mt-2 text-xs text-gray-500">Withdrawals still require account and country eligibility. Game Points and free practice credits are separate from your Birr balance.</p>
       </section>
 
       <label className="block text-sm font-medium">Transaction currency
         <select className="ml-3 rounded-lg border p-2 dark:bg-gray-800" value={currency ?? ''} onChange={e => { setCurrency((e.target.value || undefined) as 'coins' | 'gamePoints' | undefined); setPage(1); }}>
-          <option value="">All currencies</option><option value="coins">Coins</option><option value="gamePoints">Game Points</option>
+          <option value="">All currencies</option><option value="coins">Birr (ETB)</option><option value="gamePoints">Game Points</option>
         </select>
       </label>
       {/* Transaction history */}
@@ -120,10 +122,10 @@ export function WalletPage() {
                         : 'text-gray-600 dark:text-gray-400';
                     return (
                       <tr key={tx.id} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-2 pr-4 font-medium">{tx.type}</td>
+                        <td className="py-2 pr-4 font-medium">{tx.type.replace('COIN_CREDIT', 'Credit').replace('COIN_DEBIT', 'Debit')}</td>
                         <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">{tx.currency}</td>
                         <td className={`py-2 pr-4 text-right font-semibold ${amountClass}`}>
-                          {sign}{tx.amount}
+                          {sign}{tx.currency === 'ETB' || tx.currency === 'COINS' ? formatEtb(tx.amount) : tx.amount}
                         </td>
                         <td className="py-2 text-right text-gray-500 text-xs">{new Date(tx.createdAt).toLocaleDateString()}</td>
                       </tr>

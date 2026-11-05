@@ -14,7 +14,7 @@ it.each([undefined, false])(
 );
 it('only emits compact art on opt-in and removes it when disabled', () => {
   const { container, rerender } = render(<GameArtwork kind="sky_crash" practiceAvailable />);
-  expect(container.querySelector('img')).toHaveAttribute('src', '/images/sky-crash/aircraft.webp');
+  expect(container.querySelector('img')).toHaveAttribute('src', '/images/sky-crash/jet-v1.webp');
   expect(container.querySelector('img')).toHaveAttribute('loading', 'lazy');
   expect((container.firstElementChild as HTMLElement).style.backgroundImage).toContain(
     '/images/sky-crash/alpine-dawn.webp'

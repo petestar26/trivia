@@ -38,6 +38,11 @@ import {
 function requestContext(request: FastifyRequest) {
   return { ip: request.ip, userAgent: request.headers['user-agent'] };
 }
+function statusContext(request: FastifyRequest) {
+  const parsed = z.object({ reason: z.string().trim().min(1).max(500).optional(), expectedUpdatedAt: z.string().datetime({ precision: 3 }).optional() }).strict().safeParse(request.body ?? {});
+  if (!parsed.success) throw ApiError.badRequest('Use a reason of up to 500 characters and a valid displayed agent version.');
+  return { ...requestContext(request), ...parsed.data };
+}
 
 export async function agentRoutes(server: FastifyInstance): Promise<void> {
   const auth = [authenticate];
@@ -157,7 +162,7 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
         request.user!.sub,
         request.params.id,
         request.body?.reason,
-        requestContext(request)
+        statusContext(request)
       );
       return reply.send({ success: true, data: result });
     }
@@ -167,7 +172,7 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
     '/:id/reactivate',
     { preHandler: admin },
     async (request, reply) => {
-      const result = await reactivateAgent(request.user!.sub, request.params.id, requestContext(request));
+      const result = await reactivateAgent(request.user!.sub, request.params.id, statusContext(request));
       return reply.send({ success: true, data: result });
     }
   );
@@ -180,7 +185,7 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
         request.user!.sub,
         request.params.id,
         request.body?.reason,
-        requestContext(request)
+        statusContext(request)
       );
       return reply.send({ success: true, data: result });
     }
@@ -194,7 +199,7 @@ export async function agentRoutes(server: FastifyInstance): Promise<void> {
         request.user!.sub,
         request.params.id,
         request.body?.reason,
-        requestContext(request)
+        statusContext(request)
       );
       return reply.send({ success: true, data: result });
     }

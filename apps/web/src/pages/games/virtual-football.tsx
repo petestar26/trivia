@@ -483,7 +483,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           kind: 'ok',
           text: admission.isReplay
             ? 'Your earlier confirmation was found and is on your tickets. You were not charged twice.'
-            : `Ticket confirmed: ${formatCredits(admission.ticket.totalStake)} practice credits staked. Good luck!`,
+            : `Ticket confirmed: ${formatCredits(admission.ticket.totalStake)} practice ETB staked. Good luck!`,
         });
       } catch (e) {
         const failure = parseFootballError(e);
@@ -591,7 +591,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     return (
       <main className="vf-page">
         <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Virtual Football 3D</h1>
+        <h1 className="vf-solo-title">Football</h1>
         <p role="status">
           {query.isError
             ? 'Practice is unavailable. Please try again later.'
@@ -607,7 +607,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     return (
       <main className="vf-page">
         <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Virtual Football 3D</h1>
+        <h1 className="vf-solo-title">Football</h1>
         <NextMatchweek endsAt={snapshot.cycle.endsAt} />
         <button type="button" className="vf-secondary" onClick={() => refetch()}>
           Refresh
@@ -661,16 +661,16 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         <div>
           <Link to="/games">← All games</Link>
           <h1>
-            SALEM BET <em>VIRTUAL FOOTBALL</em>
-            <small>CLUB FOOTBALL · 3D PRACTICE</small>
+            SALEM BET <em>FOOTBALL</em>
+            <small>CLUB FOOTBALL · FREE PRACTICE</small>
           </h1>
         </div>
         <div className="vf-credit">
           <span>Free practice</span>
           <strong>
-            {formatCredits(shownBalance)} <small>credits</small>
+            {formatCredits(shownBalance)} <small>ETB</small>
           </strong>
-          <p>No Coins · No cash prizes</p>
+          <p>No cash stakes · No cash prizes</p>
         </div>
       </header>
 
@@ -683,7 +683,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             aria-pressed={text}
             onClick={() => setText((v) => !v)}
           >
-            {text ? 'Show 3D match' : 'Text match centre'}
+            {text ? 'Show match' : 'Text match centre'}
           </button>
           <button
             type="button"
@@ -730,7 +730,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           <p>
             A ticket confirmation is unresolved ({pending.lines.length} line
             {pending.lines.length === 1 ? '' : 's'},{' '}
-            {formatCredits(pending.lines.reduce((n, l) => n + l.stake, 0))} credits). Checking it
+            {formatCredits(pending.lines.reduce((n, l) => n + l.stake, 0))} ETB). Checking it
             again cannot charge you twice.
           </p>
           <button
@@ -746,7 +746,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
 
       {fixture && overview && (
         <GameRoundSummary
-          game="Virtual Football"
+          game="Football"
           label={overview.fullTime ? 'Full time' : 'Featured match'}
           value={
             <>
@@ -774,7 +774,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         />
       )}
       <GameArena
-        title="Virtual Football"
+        title="Football"
         className="vf-arena"
         onReturnToControls={() => {
           ticketControls.current?.scrollIntoView({
@@ -806,7 +806,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                       match={matchInput}
                       getElapsed={getElapsed}
                       reduced={reduced}
-                      label={`3D view of ${matchTitle(fixture)}`}
+                      label={`Match view of ${matchTitle(fixture)}`}
                       onGoalMoment={onGoalMoment}
                       fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
                     />
@@ -968,7 +968,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
 
       <p className="vf-disclaimer">
         Club names are a visual theme for simulated matches, not real fixtures or player likenesses.
-        Results are random and previous matches do not predict the next. Practice credits have no
+        Results are random and previous matches do not predict the next. Practice ETB have no
         monetary value.
       </p>
 
@@ -1006,7 +1006,7 @@ function MobileTray({ count, stake }: { count: number; stake: number }) {
         <span>
           Ticket · {count} selection{count === 1 ? '' : 's'}
         </span>
-        <b>{formatCredits(stake)} credits</b>
+        <b>{formatCredits(stake)} ETB</b>
       </button>
     </div>
   );

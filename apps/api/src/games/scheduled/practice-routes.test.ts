@@ -96,4 +96,28 @@ describe('scheduled practice HTTP boundary', () => {
     expect(response.statusCode).toBe(400);
     expect(calls).toHaveLength(0);
   });
+  it.each([0, 11, 1.5])('rejects invalid ticket slot %s before storage', async (slot) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduled/spin-win/tickets',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { roundId: 'spin-win-practice-v1:0', slot, bets: [{ marketId: 'red', amount: 40 }] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+  it.each([undefined, 2, 10])('scopes slot %s to the authenticated player', async (slot) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/scheduled/spin-win/tickets',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { roundId: 'spin-win-practice-v1:0', slot, bets: [{ marketId: 'red', amount: 40 }] },
+    });
+    expect(response.statusCode).toBe(404); // No open round in this boundary fixture.
+    expect(calls.find((c) => c.sql.startsWith('SELECT slot,bets,accepted_at'))?.values).toEqual([
+      'spin-win-practice-v1:0',
+      'alice',
+      slot ?? 1,
+    ]);
+  });
 });

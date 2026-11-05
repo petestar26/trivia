@@ -54,6 +54,25 @@ const matches = (path, mode = 'navigate') =>
     })
   );
 
+test('the release is installable with a stable identity and real home-screen icons', async () => {
+  const manifest = JSON.parse(await readFile(new URL('./dist/manifest.webmanifest', import.meta.url), 'utf8'));
+  assert.equal(manifest.name, 'Salem Bet');
+  assert.equal(manifest.id, '/');
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.scope, '/');
+  assert.equal(manifest.display, 'standalone');
+  for (const size of [192, 512]) {
+    const icon = manifest.icons.find(icon => icon.sizes === `${size}x${size}` && icon.type === 'image/png');
+    assert.ok(icon, `Missing ${size}px install icon`);
+    assert.match(icon.src, /^\/icons\/[^/]+\.png$/);
+    const bytes = await readFile(new URL(`./dist${icon.src}`, import.meta.url));
+    assert.equal(bytes.subarray(1, 4).toString(), 'PNG');
+    assert.equal(bytes.readUInt32BE(16), size);
+    assert.equal(bytes.readUInt32BE(20), size);
+  }
+  assert.ok((await stat(new URL('./dist/apple-touch-icon.png', import.meta.url))).size > 0);
+});
+
 test('updates wait for explicit activation instead of taking over during a page load', () => {
   assert.equal(skips, 0);
   assert.equal(claims, 0);
@@ -89,6 +108,8 @@ test('gateway and asset navigations reach the network instead of the app shell',
     '/assets',
     '/assets?check=1',
     '/assets/missing.js',
+    '/sg/callback',
+    '/sg/callback?action=balance',
   ]) {
     assert.equal(matches(path), false, `${path} must reach the gateway`);
   }
@@ -105,6 +126,7 @@ test('app navigation keeps its offline fallback, including similar prefixes', ()
     '/health-guide',
     '/api-help',
     '/assets-guide',
+    '/sg/callback-guide',
   ]) {
     assert.equal(matches(path), true, `${path} must retain the app fallback`);
   }

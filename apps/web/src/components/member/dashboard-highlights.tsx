@@ -193,7 +193,7 @@ export function DashboardHighlights({ userId, games, catalogState }: DashboardHi
         )}
         <div className="ruby-return-footer">
           <p>
-            Practice credits · no cash value. Returns include stake. Aliases identify tickets, not
+            Practice ETB · no cash value. Returns include stake. Aliases identify tickets, not
             unique players.
           </p>
           {results.dataUpdatedAt > 0 && !results.isError && online && selected && (

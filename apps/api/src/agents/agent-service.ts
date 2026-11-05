@@ -2,6 +2,7 @@ import { prisma, type AgentStatus, type NotificationType } from '@socialplay/dat
 import { ApiError } from '../middleware/index.js';
 
 const PLATFORM_ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN'];
+type AgentStatusContext = { ip?: string; userAgent?: string; expectedUpdatedAt?: string; reason?: string };
 
 /**
  * Verifies the caller holds a platform admin role, checked against the
@@ -415,13 +416,18 @@ async function changeAgentStatus(
   notificationType: NotificationType | null,
   notificationBody: string | null,
   reason: string | undefined,
-  context?: { ip?: string; userAgent?: string }
+  context?: AgentStatusContext
 ) {
   await assertPlatformAdmin(adminId);
 
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM users WHERE id=${adminId} FOR SHARE`;
+    const actor = await tx.user.findUnique({ where: { id: adminId }, select: { role: true, status: true } });
+    if (!actor || actor.status !== 'ACTIVE' || !PLATFORM_ADMIN_ROLES.includes(actor.role)) throw ApiError.forbidden('Admin privileges required');
     const before = await tx.agent.findUnique({ where: { id: agentId } });
     if (!before) throw ApiError.notFound('Agent not found');
+    if (context?.expectedUpdatedAt && before.updatedAt.toISOString() !== context.expectedUpdatedAt)
+      throw ApiError.conflict('This agent has changed. Refresh the agent details before continuing.');
     if (before.userId === adminId) {
       throw ApiError.forbidden('You cannot change the status of your own agent account');
     }
@@ -436,15 +442,15 @@ async function changeAgentStatus(
     }
 
     const claim = await tx.agent.updateMany({
-      where: { id: agentId, status: { in: legalFrom } },
-      data:
+      where: { id: agentId, status: before.status, updatedAt: before.updatedAt },
+      data: { updatedAt: new Date(Math.max(Date.now(), before.updatedAt.getTime() + 1)), ...(
         targetStatus === 'TEMPORARILY_SUSPENDED'
           ? { status: targetStatus, suspendedAt: new Date(), suspendedReason: reason ?? null }
           : targetStatus === 'DISABLED'
             ? { status: targetStatus, disabledAt: new Date() }
             : targetStatus === 'ACTIVE'
               ? { status: targetStatus, suspendedAt: null, suspendedReason: null }
-              : { status: targetStatus },
+              : { status: targetStatus }) },
     });
 
     if (claim.count === 0) {
@@ -489,9 +495,9 @@ export async function suspendAgent(
   adminId: string,
   agentId: string,
   reason: string,
-  context?: { ip?: string; userAgent?: string }
+  context?: AgentStatusContext
 ) {
-  if (!reason || reason.trim().length === 0) {
+  if (typeof reason !== 'string' || reason.trim().length === 0 || reason.length > 500) {
     throw ApiError.badRequest('A suspension reason is required');
   }
   return changeAgentStatus(
@@ -509,7 +515,7 @@ export async function suspendAgent(
 export async function reactivateAgent(
   adminId: string,
   agentId: string,
-  context?: { ip?: string; userAgent?: string }
+  context?: AgentStatusContext
 ) {
   return changeAgentStatus(
     adminId,
@@ -518,7 +524,7 @@ export async function reactivateAgent(
     'AGENT_REACTIVATED',
     null, // no dedicated notification type was specified for reactivation in Phase D's list
     null,
-    undefined,
+    context?.reason,
     context
   );
 }
@@ -527,8 +533,9 @@ export async function markAgentUnderReview(
   adminId: string,
   agentId: string,
   reason: string | undefined,
-  context?: { ip?: string; userAgent?: string }
+  context?: AgentStatusContext
 ) {
+  if (reason !== undefined && (typeof reason !== 'string' || !reason.trim() || reason.length > 500)) throw ApiError.badRequest('Use a review reason of up to 500 characters.');
   return changeAgentStatus(
     adminId,
     agentId,
@@ -545,8 +552,9 @@ export async function disableAgent(
   adminId: string,
   agentId: string,
   reason: string | undefined,
-  context?: { ip?: string; userAgent?: string }
+  context?: AgentStatusContext
 ) {
+  if (reason !== undefined && (typeof reason !== 'string' || !reason.trim() || reason.length > 500)) throw ApiError.badRequest('Use a disabling reason of up to 500 characters.');
   return changeAgentStatus(
     adminId,
     agentId,

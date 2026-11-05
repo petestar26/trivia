@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { WelcomePage, ExplorePage } from './welcome';
@@ -53,27 +53,33 @@ it.each([
   ['/agent/login/', 'Agent sign in'],
   ['/agent/activate', 'Set your agent password'],
   ['/agent/activate/', 'Set your agent password'],
-])('keeps the public staff entry %s available while the session probe is loading', (path, heading) => {
-  auth.isLoading = true;
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>
-  );
-  expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
-  expect(screen.getByLabelText('Email')).toBeInTheDocument();
-});
-it.each(['/dashboard', '/admin', '/agent', '/groups'])('does not expose protected %s while the session probe is loading', (path) => {
-  auth.isLoading = true;
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>
-  );
-  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-  expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
-  expect(document.querySelector('.animate-spin')).toBeInTheDocument();
-});
+])(
+  'keeps the public staff entry %s available while the session probe is loading',
+  (path, heading) => {
+    auth.isLoading = true;
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+  }
+);
+it.each(['/dashboard', '/admin', '/agent', '/groups'])(
+  'does not expose protected %s while the session probe is loading',
+  (path) => {
+    auth.isLoading = true;
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument();
+  }
+);
 it('opens with a welcome scene, not a credential form, and lets guests browse', () => {
   mount();
   expect(screen.getByRole('heading', { name: /A world of play/ })).toBeInTheDocument();
@@ -102,6 +108,16 @@ it('keeps optional Sky Crash assets gated while describing public discovery hone
   ).toBeInTheDocument();
   expect(screen.queryByText('Private groups')).not.toBeInTheDocument();
 });
+it.each([false, true])(
+  'hides unfinished Trivia for public visitors with authentication %s',
+  (isAuthenticated) => {
+    auth.isAuthenticated = isAuthenticated;
+    mount('/explore');
+    expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
+  }
+);
 it.each([
   ['Free practice Dice', '/games/dice'],
   ['Find a group', '/groups'],
@@ -127,14 +143,8 @@ it('keeps the member Home destination and current-page state aligned', () => {
       <Sidebar />
     </MemoryRouter>
   );
-  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute(
-    'href',
-    '/dashboard'
-  );
-  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute(
-    'aria-current',
-    'page'
-  );
+  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/dashboard');
+  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
 });
 it('offers the member lounge instead of signup prompts when an authenticated member browses', () => {
   auth.isAuthenticated = true;

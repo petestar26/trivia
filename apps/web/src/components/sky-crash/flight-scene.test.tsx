@@ -19,7 +19,7 @@ it('keeps departure tied to server reveal, freezes decorative loops offline and 
   expect(screen.queryByTestId('sky-crash-impact')).toBeNull();
   expect(view.container.firstChild).toHaveAttribute('data-climb', 'runway');
 });
-it('retains an original vector aircraft when the bitmap cannot load', () => {
+it('retains a vector jet when the bitmap cannot load', () => {
   const view = render(<FlightScene elapsed={0} flying={false} connected departed={false} />);
   fireEvent.error(view.container.querySelector('image')!);
   expect(screen.getByTestId('sky-aircraft-fallback')).toBeInTheDocument();

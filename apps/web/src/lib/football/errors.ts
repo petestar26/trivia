@@ -68,7 +68,7 @@ export function refusalMessage(error: FootballError): string {
     case 'CLOSED':
       return 'Selections for this matchweek have closed. Nothing was charged.';
     case 'INSUFFICIENT_CREDITS':
-      return 'Not enough practice credits for this ticket. Nothing was charged.';
+      return 'Not enough practice ETB for this ticket. Nothing was charged.';
     case 'PRICE_CHANGED':
     case 'RULES_STALE':
     case 'RULES_MISMATCH':

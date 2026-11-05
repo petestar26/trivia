@@ -138,6 +138,14 @@ describe('GoogleSignInButton', () => {
     expect(mockInitialize).not.toHaveBeenCalled();
   });
 
+  it('carries an invitation code through Google registration', async () => {
+    mockGoogleAuthenticate.mockResolvedValue(undefined);
+    render(<GoogleSignInButton referralCode="ABCD2345" />);
+    await waitFor(() => expect(capturedCallback).toBeTruthy());
+    triggerCallback({ credential: 'google-jwt' });
+    await waitFor(() => expect(mockGoogleAuthenticate).toHaveBeenCalledWith({ credential: 'google-jwt', referralCode: 'ABCD2345' }));
+  });
+
   it('handles the normal credential callback via googleAuthenticate', async () => {
     mockGoogleAuthenticate.mockResolvedValue(undefined);
     const onSuccess = vi.fn();

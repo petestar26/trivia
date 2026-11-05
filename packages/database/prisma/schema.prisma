@@ -10,6 +10,8 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  supportTickets SupportTicket[]
+  supportMessages SupportMessage[]
   cryptoDepositAddresses CryptoAddress[]
   cryptoDeposits CryptoDeposit[]
   cryptoWithdrawals CryptoWithdrawal[] @relation("CryptoWithdrawalOwner")
@@ -1853,6 +1855,8 @@ model ExchangeRateConfig {
   createdAt    DateTime @default(now())
 
   country Country @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  cryptoDeposits CryptoDeposit[]
+  cryptoWithdrawals CryptoWithdrawal[]
 
   // Selection query the later service layer must use (Phase C correction D):
   //   country + fiatCurrency + isActive=true + effectiveAt <= now(),
@@ -2758,12 +2762,13 @@ model ScheduledGameRound {
 model ScheduledPracticeTicket {
   roundId    String @map("round_id")
   userId     String @map("user_id")
+  slot       Int @default(1)
   bets       Json
   acceptedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("accepted_at") @db.Timestamptz(6)
   round      ScheduledGameRound @relation(fields: [roundId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   user       User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
-  @@id([roundId, userId])
+  @@id([roundId, userId, slot])
   @@index([userId, acceptedAt(sort: Desc)], map: "scheduled_practice_tickets_user")
   @@map("scheduled_practice_tickets")
 }
@@ -2986,6 +2991,8 @@ model CryptoDeposit {
   amountMicro BigInt
   coinAmount Int
   pricingSnapshot Json
+  etbRateId String @default(dbgenerated()) // Filled from the immutable snapshot by the database trigger
+  etbRate ExchangeRateConfig @relation(fields: [etbRateId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   requestKey String
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   expiresAt DateTime @db.Timestamptz(6)
@@ -3036,6 +3043,8 @@ model CryptoWithdrawal {
   amountMicro BigInt
   coinAmount Int
   pricingSnapshot Json
+  etbRateId String @default(dbgenerated())
+  etbRate ExchangeRateConfig @relation(fields: [etbRateId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   requestKey String
   holdOperationId String @unique
   terminalOperationId String? @unique
@@ -3051,4 +3060,53 @@ model CryptoWithdrawal {
   terminalOperation EconomicOperation? @relation("CryptoTerminal", fields: [terminalOperationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   @@unique([userId, requestKey])
   @@map("crypto_withdrawals")
+}
+
+model WalletDenomination {
+  id Boolean @id @default(true)
+  currency String
+  minorDigits Int
+  initializedAt DateTime @default(now()) @db.Timestamptz(6)
+  @@map("wallet_denomination")
+}
+
+model EtbReferenceRefresh {
+  id Boolean @id @default(true)
+  lastAttemptAt DateTime? @db.Timestamptz(6)
+  lastSuccessAt DateTime? @db.Timestamptz(6)
+  status String @default("WAITING")
+  @@map("etb_reference_refresh")
+}
+
+// Customer support. Staff authority is rechecked from users on every request.
+model SupportTicket {
+ id String @id
+ userId String @map("user_id")
+ requestId String @map("request_id")
+ subject String
+ category String
+ status String @default("OPEN")
+ lastSender String @default("USER") @map("last_sender")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+ messages SupportMessage[]
+ user User @relation(fields:[userId],references:[id])
+ @@unique([userId,requestId])
+ @@index([userId,updatedAt(sort: Desc),id],map:"support_tickets_owner_updated")
+ @@index([status,updatedAt(sort: Desc),id],map:"support_tickets_status_updated")
+ @@map("support_tickets")
+}
+model SupportMessage {
+ id String @id
+ ticketId String @map("ticket_id")
+ senderId String @map("sender_id")
+ staff Boolean
+ body String @db.Text
+ requestId String @map("request_id")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+ ticket SupportTicket @relation(fields:[ticketId],references:[id])
+ sender User @relation(fields:[senderId],references:[id])
+ @@unique([ticketId,senderId,requestId])
+ @@index([ticketId,createdAt,id],map:"support_messages_thread_created")
+ @@map("support_messages")
 }

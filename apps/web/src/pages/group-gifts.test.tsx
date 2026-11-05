@@ -72,3 +72,12 @@ it('keeps owned gifts convertible after room closure while blocking new group gi
   expect(screen.getByRole('button',{name:/^Send$/})).toBeDisabled();
   expect(screen.getByRole('button',{name:/^Convert$/})).toBeEnabled();
 });
+
+it('uses practice ETB policy and minimum purchase in the gift confirmation',async()=>{
+ const {PRACTICE_GIFT_POLICY}=await import('@socialplay/shared');
+ mocks.get.mockResolvedValue({data:{...snapshot(),policyId:PRACTICE_GIFT_POLICY,balance:10000,catalog:[{...heart,faceValue:500}]}});
+ await select();expect(screen.getByText(/Gifts start at 500 practice ETB/)).toBeInTheDocument();
+ expect(screen.getByText(/convert this gift for 450 practice ETB/)).toBeInTheDocument();
+ mocks.send.mockResolvedValue(success);fireEvent.click(screen.getByRole('button',{name:'Confirm purchase · 500 practice ETB'}));
+ await waitFor(()=>expect(mocks.send).toHaveBeenCalled());expect(mocks.send.mock.calls[0][2]).toMatchObject({faceValue:500,policyId:PRACTICE_GIFT_POLICY});
+});

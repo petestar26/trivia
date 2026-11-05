@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { formatEtb } from '@/lib/payment-money';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { invalidateProgressionQueries } from '@/lib/progression-cache';
@@ -114,7 +115,7 @@ export function RewardsPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Rewards</h1>
+      <h2 className="text-xl font-bold text-gray-900 dark:text-white">Activity & achievements</h2>
 
       {/* XP / Level */}
       {(progress || progressError) && (
@@ -179,7 +180,7 @@ export function RewardsPage() {
                     </div>
                     {(task.coinReward > 0 || task.gamePointReward > 0) && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Reward: {[task.coinReward > 0 ? `${task.coinReward} coins` : null, task.gamePointReward > 0 ? `${task.gamePointReward} GP` : null].filter(Boolean).join(' + ')}
+                        Reward: {[task.coinReward > 0 ? `${formatEtb(task.coinReward)} bonus` : null, task.gamePointReward > 0 ? `${task.gamePointReward} GP` : null].filter(Boolean).join(' + ')}
                       </p>
                     )}
                   </div>

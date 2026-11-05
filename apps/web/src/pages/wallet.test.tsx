@@ -55,7 +55,7 @@ const GP_CREDIT = {
 const COIN_DEBIT = {
   id: 'tx-coin-debit',
   type: 'COIN_DEBIT',
-  currency: 'COINS',
+  currency: 'ETB',
   amount: 100,
   balanceBefore: 200,
   balanceAfter: 100,
@@ -66,14 +66,14 @@ const COIN_DEBIT = {
 };
 
 describe('WalletPage — balance cards', () => {
-  it('renders Coins and Game Points balances from the API response', async () => {
+  it('renders ETB and Game Points balances from the API response', async () => {
     getWallet.mockResolvedValue({ success: true, data: { coinsBalance: 120, gamePointsBalance: 75 } });
     getWalletTransactions.mockResolvedValue({ success: true, data: [], meta: { page: 1, total: 0, totalPages: 0 } });
 
     renderPage();
 
     // Both balances appear on screen.
-    expect(await screen.findByText('120')).toBeInTheDocument();
+    expect(await screen.findByText('1.20 ETB')).toBeInTheDocument();
     expect(screen.getByText('75')).toBeInTheDocument();
   });
 });
@@ -93,11 +93,11 @@ describe('WalletPage — transaction history', () => {
 
     renderPage();
 
-    // Real enum labels are shown verbatim.
+    // Currency and debit labels are readable while Game Points stay separate.
     expect(await screen.findByText('GAME_POINT_CREDIT')).toBeInTheDocument();
     expect(screen.getByText('GAME_POINTS')).toBeInTheDocument();
-    expect(screen.getByText('COIN_DEBIT')).toBeInTheDocument();
-    expect(screen.getByText('COINS')).toBeInTheDocument();
+    expect(screen.getByText('Debit')).toBeInTheDocument();
+    expect(screen.getByText('ETB')).toBeInTheDocument();
     expect(screen.queryByText('No transactions yet.')).not.toBeInTheDocument();
   });
 
@@ -116,7 +116,7 @@ describe('WalletPage — transaction history', () => {
     expect(amount).toHaveClass('text-green-600 dark:text-green-400');
   });
 
-  it('renders a Coin debit as a negative, debit-styled amount', async () => {
+  it('renders an ETB debit as a negative, debit-styled amount', async () => {
     getWallet.mockResolvedValue({ success: true, data: { coinsBalance: 0, gamePointsBalance: 0 } });
     getWalletTransactions.mockResolvedValue({
       success: true,
@@ -126,7 +126,7 @@ describe('WalletPage — transaction history', () => {
 
     renderPage();
 
-    const amount = await screen.findByText('−100');
+    const amount = await screen.findByText('−1.00 ETB');
     // balanceAfter (100) < balanceBefore (200) => debit presentation.
     expect(amount).toHaveClass('text-red-600 dark:text-red-400');
   });

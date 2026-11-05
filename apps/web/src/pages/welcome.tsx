@@ -1,9 +1,11 @@
+import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { GameArtwork } from '@/components/member/game-artwork';
+import { compareMemberGameKeys } from '@/lib/member-game-catalog';
 import './welcome.css';
 
 const collection = [
@@ -12,11 +14,15 @@ const collection = [
   ['spin_win', 'Lucky Spin', '/games/spin-win'],
   ['turbo_keno', 'Turbo Keno', '/games/turbo-keno'],
   ['sky_crash', 'Sky Crash', '/games/sky-crash'],
-  ['thunder_derby_3d', 'Thunder Derby', '/games/thunder-derby'],
-  ['virtual_football_3d', 'Virtual Football', '/games/virtual-football'],
+  ['thunder_derby_3d', 'Derby', '/games/thunder-derby'],
+  ['neon_hounds_3d', 'Dog Racing', '/games/dog-racing'],
+  ['roulette_keno', 'Roulette Keno', '/games/roulette-keno'],
+  ['virtual_football_3d', 'Football', '/games/virtual-football'],
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
-  ['trivia', 'Trivia', '/games/trivia'],
+  ['lucky_six', 'Lucky Six', '/games/lucky-six'],
+  ['blackjack', 'Blackjack', '/games/blackjack'],
 ] as const;
+const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));
 
 function PublicHeader() {
   const { isAuthenticated } = useAuth();
@@ -27,6 +33,7 @@ function PublicHeader() {
         <small>THE MEMBER LOUNGE</small>
       </Link>
       <nav aria-label="Account">
+        <InstallAppButton />
         {isAuthenticated ? (
           <Link className="pq-public-account" to="/dashboard">
             Open your lounge <ArrowUpRight size={15} />
@@ -68,6 +75,7 @@ export function WelcomePage() {
             Enter the lounge <ArrowRight size={19} />
           </Link>
           <small>Browse first. Sign in when you're ready to join.</small>
+          <InstallAppCard />
         </div>
         <div className="pq-welcome-sculpture" aria-hidden="true">
           <div className="pq-orbit pq-orbit-one" />
@@ -129,23 +137,30 @@ export function ExplorePage() {
             <span>Choose your next experience.</span>
           </div>
           <div className="pq-public-games">
-            {collection.map(([key, name, destination]) => (
-              <Link
-                key={key}
-                to={isAuthenticated ? destination : '/login'}
-                state={isAuthenticated ? undefined : { from: { pathname: destination } }}
-                className="pq-public-game"
-              >
-                <GameArtwork kind={key} practiceAvailable={false} />
-                <div>
-                  <h3>{name}</h3>
-                  <span>
-                    {isAuthenticated ? 'Check availability' : 'Sign in to check availability'}{' '}
-                    <ArrowUpRight size={14} />
-                  </span>
-                </div>
-              </Link>
-            ))}
+            {orderedCollection.map(([key, name, destination]) => {
+              const content = (
+                <>
+                  <GameArtwork kind={key} practiceAvailable={false} />
+                  <div>
+                    <h3>{name}</h3>
+                    <span>
+                      {isAuthenticated ? 'Check availability' : 'Sign in to check availability'}
+                      <ArrowUpRight size={14} />
+                    </span>
+                  </div>
+                </>
+              );
+              return (
+                <Link
+                  key={key}
+                  to={isAuthenticated ? destination : '/login'}
+                  state={isAuthenticated ? undefined : { from: { pathname: destination } }}
+                  className="pq-public-game"
+                >
+                  {content}
+                </Link>
+              );
+            })}
           </div>
         </section>
         <section className="pq-public-groups" aria-labelledby="public-groups">

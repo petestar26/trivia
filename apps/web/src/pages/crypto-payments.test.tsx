@@ -10,12 +10,13 @@ const options = {
   depositEnabled: true,
   withdrawalEnabled: true,
   countries: [{ id: 'country', name: 'Test country' }],
+  rate: { available: true, rateId: '11111111-1111-4111-8111-111111111111', localPerUsd: '182.16377894', observedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1800000).toISOString(), cryptoDepositMinUsdCents: 1000, cryptoWithdrawalAboveUsdCents: 2000 },
 };
 const row = {
   id: 'invoice',
   address: 'TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7',
   amount: '10.000000',
-  coinAmount: 960,
+  coinAmount: 182163,
   status: 'WAITING',
   createdAt: new Date().toISOString(),
   expiresAt: new Date(Date.now() + 600000).toISOString(),
@@ -29,12 +30,12 @@ beforeEach(() => {
   }));
 });
 afterEach(cleanup);
-function mount(admin = false) {
+function mount(admin = false, path = '/wallet/crypto') {
   return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
     >
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <CryptoPaymentsPage admin={admin} />
       </MemoryRouter>
     </QueryClientProvider>
@@ -49,7 +50,7 @@ it('keeps payment controls disabled when server gates are paused', async () => {
   mount();
   await screen.findByText('New crypto deposits are paused.');
   fireEvent.change(screen.getByLabelText('Deposit amount (USDT)'), { target: { value: '10' } });
-  expect(screen.getByRole('button', { name: 'Get deposit address' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Review deposit' })).toBeDisabled();
   expect(m.post).not.toHaveBeenCalled();
 });
 it('retains the same deposit request across an uncertain response and retry', async () => {
@@ -61,6 +62,8 @@ it('retains the same deposit request across an uncertain response and retry', as
   fireEvent.change(screen.getByLabelText('Deposit amount (USDT)'), {
     target: { value: '10.000001' },
   });
+  fireEvent.click(screen.getByRole('button', { name: 'Review deposit' }));
+  expect(m.post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Get deposit address' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Retry the same request' }));
   await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
@@ -82,19 +85,21 @@ it('shows the address, deadline and delayed verification without inviting a seco
   expect(screen.getByText(/Transfer within/)).toBeInTheDocument();
   expect(screen.getByText(/Do not send again/)).toBeInTheDocument();
 });
-it('withdrawal request includes the member destination and exact Coin amount', async () => {
+it('withdrawal request includes the member destination and exact ETB minor amount', async () => {
   m.post.mockResolvedValue({ success: true });
   mount();
   await screen.findByLabelText('Deposit amount (USDT)');
   fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
-  fireEvent.change(screen.getByLabelText('Withdraw amount (Coins)'), { target: { value: '2017' } });
+  fireEvent.change(screen.getByLabelText('Withdraw amount (ETB)'), { target: { value: '5000.29' } });
   fireEvent.change(screen.getByLabelText('Your TRON receiving address'), {
     target: { value: row.address },
   });
-  expect(screen.getByText('21.010416 USDT')).toBeInTheDocument();
+  expect(screen.getByText('27.449419 USDT')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+  expect(m.post).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Request withdrawal' }));
   await waitFor(() => expect(m.post).toHaveBeenCalled());
-  expect(m.post.mock.calls[0][1]).toMatchObject({ address: row.address, coinAmount: 2017 });
+  expect(m.post.mock.calls[0][1]).toMatchObject({ address: row.address, coinAmount: 500029 });
 });
 it('admin sees member addresses and must verify transfer evidence before confirmation', async () => {
   m.get.mockResolvedValue({
@@ -119,12 +124,12 @@ it('admin sees member addresses and must verify transfer evidence before confirm
   expect(screen.getByText(/Never transfer a withdrawal/)).toHaveTextContent(
     'including a retired address'
   );
-  expect(screen.queryByRole('button', { name: 'Cancel and return Coins' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cancel and return ETB' })).toBeNull();
   expect(m.post).not.toHaveBeenCalled();
 });
 it('formats exact decimal previews and a nonnegative countdown', () => {
-  expect(cryptoEstimate('10.010416')).toBe('960 Coins');
-  expect(cryptoEstimate('2017', true)).toBe('21.010416 USDT');
+  expect(cryptoEstimate('10.010416', false, '182.16377894')).toBe('1823.53 ETB');
+  expect(cryptoEstimate('5000.29', true, '182.16377894')).toBe('27.449419 USDT');
   expect(cryptoEstimate('1e9')).toBe('');
   expect(timeRemaining(new Date(0).toISOString(), 100)).toBe('0:00');
 });
@@ -152,10 +157,82 @@ it('never invites another transfer after credit and links the verified receipt',
         },
   }));
   mount();
-  await screen.findByText(/Your Coins have been credited/);
+  await screen.findByText(/Your ETB balance has been credited/);
   expect(screen.queryByText(/Send the exact amount/)).toBeNull();
   expect(screen.getByRole('link', { name: 'View deposit transfer' })).toHaveAttribute(
     'href',
     `https://tronscan.org/#/transaction/${'ab'.repeat(32)}`
   );
+});
+
+it('opens crypto withdrawal directly and preserves direction when switching to an agent', async () => {
+  mount(false, '/wallet/crypto?direction=withdraw');
+  await screen.findByLabelText('Withdraw amount (ETB)');
+  expect(screen.queryByLabelText('Deposit amount (USDT)')).toBeNull();
+  expect(screen.getByRole('link', { name: /Agent Bank or mobile money/ })).toHaveAttribute(
+    'href',
+    '/wallet/withdraw'
+  );
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('requires a fresh review when the withdrawal amount or address changes', async () => {
+  mount(false, '/wallet/crypto?direction=withdraw');
+  fireEvent.change(await screen.findByLabelText('Withdraw amount (ETB)'), {
+    target: { value: '5000.29' },
+  });
+  fireEvent.change(screen.getByLabelText('Your TRON receiving address'), {
+    target: { value: row.address },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+  expect(screen.getByRole('region', { name: 'Review withdrawal' })).toHaveTextContent(row.address);
+  expect(m.post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Withdraw amount (ETB)'), { target: { value: '2500' } });
+  expect(screen.queryByRole('button', { name: 'Request withdrawal' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Review withdrawal' }));
+  fireEvent.change(screen.getByLabelText('Your TRON receiving address'), {
+    target: { value: 'wrong-network' },
+  });
+  expect(screen.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('rejects zero, unrepresentable and unsupported amount inputs before sending', async () => {
+  mount();
+  const field = await screen.findByLabelText('Deposit amount (USDT)');
+  for (const value of ['0', '0.000001', '01.00', '99999999', '1e3', '-10']) {
+    fireEvent.change(field, { target: { value } });
+    expect(screen.getByRole('button', { name: 'Review deposit' })).toBeDisabled();
+  }
+  expect(cryptoEstimate('1000000001', true)).toBe('');
+  expect(cryptoEstimate('0', true)).toBe('');
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('retry preserves the original deposit even after opening withdrawal', async () => {
+  m.post
+    .mockRejectedValueOnce(new Error('Network timeout'))
+    .mockResolvedValueOnce({ success: true });
+  mount();
+  fireEvent.change(await screen.findByLabelText('Deposit amount (USDT)'), {
+    target: { value: '10' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review deposit' }));
+  expect(m.post).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Get deposit address' }));
+  await screen.findByRole('button', { name: 'Retry the same request' });
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+  expect(screen.getByText(/earlier deposit still needs confirmation/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry the same request' }));
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
+  expect(m.post.mock.calls[1][0]).toBe('/crypto-payments/deposits');
+  expect(m.post.mock.calls[1][1]).toEqual(m.post.mock.calls[0][1]);
+});
+
+it('does not offer a stale exchange quote even if payment services are enabled', async () => {
+  m.get.mockImplementation(async p => ({ data: p.includes('options')
+    ? { ...options, rate: { ...options.rate, expiresAt: new Date(0).toISOString() } }
+    : { deposits: [], withdrawals: [] } }));
+  mount();
+  fireEvent.change(await screen.findByLabelText('Deposit amount (USDT)'), { target: { value: '10' } });
+  expect(screen.getByRole('button', { name: 'Review deposit' })).toBeDisabled();
+  expect(screen.getByText(/fresh exchange rate is unavailable/)).toBeInTheDocument();
+  expect(m.post).not.toHaveBeenCalled();
 });

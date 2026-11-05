@@ -8,7 +8,7 @@ const __dirname = join(__filename, '..');
 
 async function buildApi() {
   const outDir = join(__dirname, 'dist');
-  
+
   // Clean dist
   if (existsSync(outDir)) {
     rmSync(outDir, { recursive: true });
@@ -35,6 +35,14 @@ async function buildApi() {
       // Standalone opt-in practice scheduler; never starts with the API/worker.
       join(__dirname, 'src/scripts/scheduled-practice-worker.ts'),
       join(__dirname, 'src/scripts/group-pvp-worker.ts'),
+      join(__dirname, 'src/scripts/practice-activation.ts'),
+      join(__dirname, 'src/scripts/practice-games-worker.ts'),
+      join(__dirname, 'src/scripts/provider-demo-probe.ts'),
+      join(__dirname, 'src/scripts/provider-test-probe.ts'),
+      join(__dirname, 'src/scripts/practice-gifts-check.ts'),
+      join(__dirname, 'src/scripts/payment-readiness.ts'),
+      join(__dirname, 'src/scripts/member-experience-check.ts'),
+      join(__dirname, 'src/scripts/payment-setup.ts'),
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
       join(__dirname, 'src/scripts/staging-usd-payment-upgrade.ts'),
@@ -44,6 +52,8 @@ async function buildApi() {
       join(__dirname, 'src/scripts/staging-football-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-number-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-payment-admin.ts'),
+      join(__dirname, 'src/scripts/owner-password-reset.ts'),
+      join(__dirname, 'src/scripts/owner-agent-approval.ts'),
       join(__dirname, 'src/scripts/staging-recovery-fixture.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),
@@ -62,11 +72,8 @@ async function buildApi() {
   });
 
   // Copy package.json for node_modules resolution
-  copyFileSync(
-    join(__dirname, 'package.json'),
-    join(outDir, 'package.json')
-  );
-  
+  copyFileSync(join(__dirname, 'package.json'), join(outDir, 'package.json'));
+
   console.log('Build completed!');
 }
 

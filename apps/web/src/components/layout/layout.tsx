@@ -1,12 +1,29 @@
-import { Outlet } from 'react-router-dom';
+import { Headphones } from 'lucide-react';
+import { useLanguage } from '@/providers/language-provider';
+import '@/pages/lounge.css';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
+import { MobileNavigation } from './mobile-navigation';
 import { Header } from './header';
 import { useMemberTheme } from '@/components/member/use-member-theme';
+import { useAutomaticRewards } from '@/lib/use-automatic-rewards';
+import { useAuth } from '@/providers/auth-provider';
+import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 
 export function Layout() {
   useMemberTheme();
+  const { user } = useAuth();
+  useAutomaticRewards(user?.id);
+  const { t } = useLanguage();
+  const { pathname } = useLocation();
+  const showSupportShortcut =
+    !pathname.startsWith('/support') &&
+    !pathname.startsWith('/games/') &&
+    !pathname.startsWith('/casino') &&
+    !pathname.startsWith('/sports') &&
+    !/^\/groups\/[^/]+/.test(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   return (
@@ -41,8 +58,20 @@ export function Layout() {
       <div className="lg:pl-64">
         <Header onMenuClick={() => setMobileNavOpen(true)} />
         <main id="main-content" className="qube-main p-4 lg:p-8">
+          {pathname === '/dashboard' ? <InstallAppCard /> : null}
+          {['/dashboard', '/games', '/profile', '/support'].includes(pathname) && (
+            <div className="salem-member-install">
+              <InstallAppButton whenReminderHidden={pathname === '/dashboard'} />
+            </div>
+          )}
           <Outlet />
         </main>
+        {showSupportShortcut && (
+          <Link to="/support" className="salem-support-float" aria-label={t('Contact support')}>
+            <Headphones size={20} />
+          </Link>
+        )}
+        <MobileNavigation />
       </div>
     </div>
   );

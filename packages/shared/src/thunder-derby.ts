@@ -78,7 +78,7 @@ export function derbyOddsCents(field: DerbyField, market: DerbyMarket) {
   }
 }
 export function parseDerbyEntry(field: unknown, market: unknown, picks: unknown, stake: unknown) {
-  if (field !== 6 && field !== 8) throw Error('Choose a six- or eight-horse race');
+  if (field !== 6 && field !== 8) throw Error('Choose a six- or eight-runner race');
   if (!DERBY_MARKETS.includes(market as DerbyMarket)) throw Error('Choose a valid selection type');
   const type = market as DerbyMarket;
   if (
@@ -87,9 +87,9 @@ export function parseDerbyEntry(field: unknown, market: unknown, picks: unknown,
     picks.some((p) => !Number.isInteger(p) || p < 1 || p > field) ||
     new Set(picks).size !== picks.length
   )
-    throw Error('Choose distinct horses for every position');
+    throw Error('Choose distinct runners for every position');
   if (typeof stake !== 'number' || !Number.isInteger(stake) || stake < 10 || stake > 500)
-    throw Error('Enter 10–500 whole practice credits');
+    throw Error('Enter 10–500 whole practice ETB');
   return {
     field: field as DerbyField,
     market: type,

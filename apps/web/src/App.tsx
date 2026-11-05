@@ -1,8 +1,20 @@
+import { SupportPage } from '@/pages/support';
+import { WalletRoutes } from '@/pages/wallet-routes';
+import { DogRacingPage } from '@/pages/games/dog-racing';
 import { ThunderDerbyPage } from '@/pages/games/thunder-derby';
 import { VirtualFootballPage } from '@/pages/games/virtual-football';
 import { CryptoPaymentsPage } from '@/pages/crypto-payments';
 import { CreateAgentPage, ActivateAgentPage } from '@/pages/workspaces/create-agent';
-import { WorkspaceDestination, WorkspaceGate, WorkspaceLayout, AdminOverview, AdminAccounts, AdminRecords, AgentOverview, WorkspaceProcessing } from '@/pages/workspaces';
+import {
+  WorkspaceDestination,
+  WorkspaceGate,
+  WorkspaceLayout,
+  AdminOverview,
+  AdminAccounts,
+  AdminRecords,
+  AgentOverview,
+  WorkspaceProcessing,
+} from '@/pages/workspaces';
 import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
 import { WalletPricingAdmin } from '@/pages/wallet-pricing-admin';
 import { WalletAgentSetupPage } from '@/pages/wallet-agent-setup';
@@ -18,15 +30,20 @@ import { ProtectedRoute } from '@/components/auth/protected-route';
 import { CasinoProvider } from '@/components/casino/CasinoProvider';
 import { GamesPage } from '@/pages/games';
 import { CasinoPage } from '@/pages/casino';
+import { SportsPage } from '@/pages/sports';
+import { SportsLaunchPage } from '@/pages/sports-launch';
 import { SkyCrashPage } from '@/pages/games/sky-crash';
 import { CrashPointPage } from '@/pages/games/crash-point';
 import { SystemDicePage } from '@/pages/games/dice-system';
 import { LuckySpinPage } from '@/pages/games/lucky-spin';
 import { SpinWinScheduledPage } from '@/pages/games/spin-win-scheduled';
 import { SystemKenoPage } from '@/pages/games/keno-system';
+import { BlackjackPage } from '@/pages/games/blackjack';
+import { LuckySixPage } from '@/pages/games/lucky-six';
+import { RouletteKenoPage } from '@/pages/games/roulette-keno';
 import { SpinWinCoinsPage } from '@/pages/games/spin-win-coins';
 import { NumberChallengePage } from '@/pages/games/number-challenge';
-import { TriviaGamePage } from '@/pages/games/trivia';
+import { GameComingSoonPage } from '@/pages/games/coming-soon';
 import { GameHistoryPage } from '@/pages/games/history';
 import { ChallengesPage } from '@/pages/challenges';
 import { ChallengeDetailPage } from '@/pages/challenges/detail';
@@ -39,10 +56,13 @@ import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
 import { GroupGamesPage } from '@/pages/group-games';
 import { GroupGiftsPage } from '@/pages/group-gifts';
-import { WalletPaymentsPage } from '@/pages/wallet-payments';
-import { WalletPage } from '@/pages/wallet';
-import { RewardsPage } from '@/pages/rewards';
+import { MemberRewardsPage } from '@/pages/member-rewards';
+import { RewardControlPage } from '@/pages/workspaces/reward-control';
 import { ProfilePage } from '@/pages/profile';
+
+import { PasswordResetPage } from '@/pages/password-reset';
+import { AdminAgents } from '@/pages/workspaces/agents';
+import { AdminAccountDetail } from '@/pages/workspaces/account-detail';
 
 // Keep pairing-verification code out of the normal casino entry bundle.
 const SpinWinVerifyPage = lazy(async () => {
@@ -56,7 +76,12 @@ export function App() {
 
   // Public sign-in/activation, discovery and offline verification must remain
   // reachable while the unrelated session probe is waiting on an unavailable API.
-  if (isLoading && !/^\/(?:explore\/?|login\/?|register\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(location.pathname)) {
+  if (
+    isLoading &&
+    !/^\/(?:explore\/?|login\/?|register\/?|reset-password\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
+      location.pathname
+    )
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
@@ -68,30 +93,61 @@ export function App() {
     <Routes>
       <Route path="/" element={<WelcomePage />} />
       <Route path="/explore" element={<ExplorePage />} />
-      <Route path="/games/spin-win/verify" element={
-        <Suspense fallback={<main className="min-h-screen bg-slate-950 p-8 text-slate-100">Loading round verifier…</main>}>
-          <SpinWinVerifyPage />
-        </Suspense>
-      } />
+      <Route
+        path="/games/spin-win/verify"
+        element={
+          <Suspense
+            fallback={
+              <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
+                Loading round verifier…
+              </main>
+            }
+          >
+            <SpinWinVerifyPage />
+          </Suspense>
+        }
+      />
       <Route path="/admin/login" element={<LoginPage workspace="admin" />} />
+      <Route path="/reset-password" element={<PasswordResetPage />} />
       <Route path="/agent/activate" element={<ActivateAgentPage />} />
       <Route path="/agent/login" element={<LoginPage workspace="agent" />} />
-      <Route path="/admin" element={<WorkspaceGate kind="admin"><WorkspaceLayout kind="admin" /></WorkspaceGate>}>
+      <Route
+        path="/admin"
+        element={
+          <WorkspaceGate kind="admin">
+            <WorkspaceLayout kind="admin" />
+          </WorkspaceGate>
+        }
+      >
         <Route index element={<AdminOverview />} />
+        <Route path="support" element={<SupportPage admin />} />
+        <Route path="rewards" element={<RewardControlPage />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
         <Route path="agents/new" element={<CreateAgentPage />} />
+        <Route path="agents" element={<AdminAgents />} />
         <Route path="crypto" element={<CryptoPaymentsPage admin />} />
         <Route path="pricing" element={<WalletPricingAdmin />} />
         <Route path="disputes" element={<WorkspaceProcessing kind="admin" />} />
         <Route path="accounts" element={<AdminAccounts />} />
+        <Route path="accounts/:id" element={<AdminAccountDetail />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<AdminRecords kind="games" />} />
         <Route path="activity" element={<AdminRecords kind="audit" />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Route>
-      <Route path="/agent" element={<WorkspaceGate kind="agent"><WorkspaceLayout kind="agent" /></WorkspaceGate>}>
+      <Route
+        path="/agent"
+        element={
+          <WorkspaceGate kind="agent">
+            <WorkspaceLayout kind="agent" />
+          </WorkspaceGate>
+        }
+      >
         <Route index element={<AgentOverview />} />
         <Route path="operations" element={<WorkspaceProcessing kind="agent" />} />
         <Route path="accounts" element={<WalletAgentSetupPage workspace />} />
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="support" element={<SupportPage />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />
@@ -113,16 +169,17 @@ export function App() {
         <Route path="groups/:id/games" element={<GroupGamesPage />} />
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="gifts" element={<GroupGiftsPage />} />
-        <Route path="wallet" element={<WalletPage />} />
-        <Route path="wallet/agent-setup" element={<WalletAgentSetupPage />} />
         <Route path="wallet/operations" element={<WorkspaceDestination />} />
-        <Route path="wallet/crypto" element={<CryptoPaymentsPage />} />
-        <Route path="wallet/:section" element={<WalletPaymentsPage />} />
-        <Route path="rewards" element={<RewardsPage />} />
+        <Route path="wallet/*" element={<WalletRoutes />} />
+        <Route path="rewards" element={<MemberRewardsPage />} />
+        <Route path="support" element={<SupportPage />} />
         <Route path="profile" element={<ProfilePage />} />
-        <Route path="games" element={<GamesPage mode="BONUS" title="Free games" description="Play without a stake. Reward eligibility is shown for each game." />} />
+        <Route path="games" element={<GamesPage />} />
         <Route path="casino" element={<CasinoPage />} />
+        <Route path="sports" element={<SportsPage />} />
+        <Route path="sports/open" element={<SportsLaunchPage />} />
         <Route path="games/history" element={<GameHistoryPage />} />
+        <Route path="games/provider-demos" element={<Navigate to="/casino" replace />} />
         <Route
           path="games/dice"
           element={
@@ -134,12 +191,37 @@ export function App() {
         <Route path="games/lucky-spin" element={<LuckySpinPage />} />
         <Route path="games/spin-win/live" element={<SpinWinScheduledPage />} />
         <Route path="games/spin-win" element={<SpinWinScheduledPage />} />
+        <Route path="games/dog-racing" element={<DogRacingPage />} />
         <Route path="games/thunder-derby" element={<ThunderDerbyPage />} />
         <Route path="games/virtual-football" element={<VirtualFootballPage />} />
         <Route path="games/sky-crash" element={<SkyCrashPage />} />
-        <Route path="games/crash-point" element={<CasinoProvider><CrashPointPage /></CasinoProvider>} />
-        <Route path="games/turbo-keno" element={<CasinoProvider><SystemKenoPage /></CasinoProvider>} />
-        <Route path="games/spin-win/play" element={<CasinoProvider><SpinWinCoinsPage /></CasinoProvider>} />
+        <Route
+          path="games/crash-point"
+          element={
+            <CasinoProvider>
+              <CrashPointPage />
+            </CasinoProvider>
+          }
+        />
+        <Route
+          path="games/turbo-keno"
+          element={
+            <CasinoProvider>
+              <SystemKenoPage />
+            </CasinoProvider>
+          }
+        />
+        <Route path="games/blackjack" element={<BlackjackPage />} />
+        <Route path="games/lucky-six" element={<LuckySixPage />} />
+        <Route path="games/roulette-keno" element={<RouletteKenoPage />} />
+        <Route
+          path="games/spin-win/play"
+          element={
+            <CasinoProvider>
+              <SpinWinCoinsPage />
+            </CasinoProvider>
+          }
+        />
         <Route
           path="games/number-challenge"
           element={
@@ -148,14 +230,7 @@ export function App() {
             </CasinoProvider>
           }
         />
-        <Route
-          path="games/trivia"
-          element={
-            <CasinoProvider>
-              <TriviaGamePage />
-            </CasinoProvider>
-          }
-        />
+        <Route path="games/trivia" element={<GameComingSoonPage name="Trivia" />} />
         <Route path="challenges" element={<ChallengesPage />} />
         <Route path="challenges/:id" element={<ChallengeDetailPage />} />
         <Route path="competitions" element={<CompetitionsPage />} />

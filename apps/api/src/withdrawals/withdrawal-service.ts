@@ -278,7 +278,7 @@ export async function createWithdrawal(
         }
 
         if (!countries[0].usdPricingEnabled ||
-            (quotePreview.pricingSnapshot as { version?: string } | null)?.version !== 'USD_V1') {
+            !['USD_V1', 'ETB_V1'].includes((quotePreview.pricingSnapshot as { version?: string } | null)?.version ?? '')) {
           throw ApiError.badRequest('Request a new withdrawal quote using USD pricing');
         }
 

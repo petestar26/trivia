@@ -6,7 +6,8 @@ const images: Record<string, string> = {
   dice: 'dice',
   crash_point: 'crash-point',
   thunder_derby_3d: 'thunder-derby',
-  virtual_football_3d: 'virtual-football',
+  neon_hounds_3d: 'dog-racing',
+  virtual_football_3d: 'football-stadium',
 };
 const symbols: Record<string, typeof Brain> = {
   trivia: Brain,
@@ -29,9 +30,9 @@ export function GameArtwork({
   hero?: boolean;
   practiceAvailable?: boolean;
 }) {
-  if (kind === 'number_challenge') return (
+  if (kind === 'blackjack' || kind === 'number_challenge' || kind === 'roulette_keno' || kind === 'lucky_six') return (
     <div className={`ruby-art ${hero ? 'ruby-art--hero' : ''}`} aria-hidden="true">
-      <img src="/art/ruby-grand/number-challenge.svg" alt="" loading="lazy" decoding="async" />
+      <img src={`/art/ruby-grand/${kind === 'blackjack' ? 'blackjack' : kind === 'lucky_six' ? 'lucky-six' : kind === 'roulette_keno' ? 'roulette-keno' : 'number-challenge'}.svg`} alt="" loading="lazy" decoding="async" />
     </div>
   );
   if (kind === 'sky_crash' && practiceAvailable === true)
@@ -46,7 +47,7 @@ export function GameArtwork({
           backgroundSize: 'cover',
         }}
       >
-        <img src="/images/sky-crash/aircraft.webp" alt="" loading="lazy" decoding="async" />
+        <img src="/images/sky-crash/jet-v1.webp" alt="" loading="lazy" decoding="async" />
       </div>
     );
   const asset = images[kind];

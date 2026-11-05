@@ -136,7 +136,7 @@ function DerbyConnected({ userId }: { userId: string }) {
     return (
       <main className="derby-page">
         <Link to="/games">← Games</Link>
-        <h1>Thunder Derby 3D</h1>
+        <h1>Derby</h1>
         <p role="status">
           {query.isError
             ? 'Practice is unavailable. Please try again later.'
@@ -211,7 +211,7 @@ export function DerbyView({
   if (!round)
     return (
       <main className="derby-page">
-        <h1>Thunder Derby 3D</h1>
+        <h1>Derby</h1>
         <p>Waiting for the next race.</p>
       </main>
     );
@@ -258,16 +258,16 @@ export function DerbyView({
             <span className="derby-crest" aria-hidden="true">
               ♞
             </span>{' '}
-            THUNDER <em>DERBY</em>
-            <small>3D RACING CLUB</small>
+            <em>DERBY</em>
+            <small>RACING CLUB</small>
           </h1>
         </div>
         <div className="derby-credit">
           <span>Free practice</span>
           <strong>
-            {data.balance.toLocaleString()} <small>credits</small>
+            {data.balance.toLocaleString()} <small>ETB</small>
           </strong>
-          <p>No Coins · No cash prizes</p>
+          <p>No cash stakes · No cash prizes</p>
         </div>
       </header>
       <div className="derby-toolbar">
@@ -288,13 +288,13 @@ export function DerbyView({
           <Dialog.Portal>
             <Dialog.Overlay className="derby-overlay" />
             <Dialog.Content className="derby-dialog">
-              <Dialog.Title>Welcome to Thunder Derby</Dialog.Title>
+              <Dialog.Title>Welcome to Derby</Dialog.Title>
               <Dialog.Description>
-                Original simulated racing with free, non-redeemable practice credits.
+                Original simulated racing with free, non-redeemable practice ETB.
               </Dialog.Description>
               <ol>
                 <li>Choose a six- or eight-horse race, then a selection type.</li>
-                <li>Pick numbered horses in the required order. Choose 10–500 credits.</li>
+                <li>Pick numbered horses in the required order. Choose 10–500 ETB.</li>
                 <li>
                   Review the total return and confirm before the race starts. One selection per
                   race; confirmed choices cannot be changed.
@@ -312,7 +312,7 @@ export function DerbyView({
               <p>
                 Every finishing order is equally likely. Horse appearance and previous results do
                 not predict the winner. Fixed odds target a 90% average gross return before rounding
-                down to whole credits. There is no jackpot, bonus round, cash-out or autoplay.
+                down to whole ETB. There is no jackpot, bonus round, cash-out or autoplay.
               </p>
               <p>
                 Connection lost? Your confirmed selection still settles on the server. Reconnect to
@@ -324,7 +324,7 @@ export function DerbyView({
         </Dialog.Root>
       </div>
       <GameRoundSummary
-        game="Thunder Derby"
+        game="Derby"
         label={latestFinished ? 'Latest winner' : running ? 'Race running' : 'Race status'}
         value={
           latestFinished
@@ -364,14 +364,14 @@ export function DerbyView({
       )}
       {pending && (
         <div className="derby-alert">
-          Unresolved selection: {DERBY_LABELS[pending.market]} · {pending.stake} credits.{' '}
+          Unresolved selection: {DERBY_LABELS[pending.market]} · {pending.stake} ETB.{' '}
           <button disabled={busy} onClick={() => onSubmit(pending)}>
             Check saved confirmation
           </button>
         </div>
       )}
       <div className="derby-layout">
-        <GameArena title="Thunder Derby" className="derby-display">
+        <GameArena title="Derby" className="derby-display">
           <section className="derby-arena" aria-label="Racecourse">
             <div className="derby-race-heading">
               <div>
@@ -408,7 +408,7 @@ export function DerbyView({
                 }
               >
                 <Suspense
-                  fallback={<div className="derby-scene-fallback">Preparing 3D racecourse…</div>}
+                  fallback={<div className="derby-scene-fallback">Preparing racecourse…</div>}
                 >
                   <RaceScene round={round} running={running && fresh} reduced={reduced} />
                 </Suspense>
@@ -513,7 +513,7 @@ export function DerbyView({
             </div>
           )}
           <label className="derby-stake">
-            Practice credits
+            Practice ETB
             <input
               type="number"
               inputMode="numeric"
@@ -533,7 +533,7 @@ export function DerbyView({
             <div>
               <dt>Total return if successful</dt>
               <dd>
-                {valid ? Math.floor((Number(stake) * odds) / 100).toLocaleString() : '—'} credits
+                {valid ? Math.floor((Number(stake) * odds) / 100).toLocaleString() : '—'} ETB
               </dd>
             </div>
           </dl>
@@ -564,12 +564,12 @@ export function DerbyView({
                   .join(round.ticket.market === 'QUINELLA' ? ' & ' : ' → ')}
               </strong>
               <p>
-                {round.ticket.stake} credits · {(round.ticket.oddsCents / 100).toFixed(2)}×
+                {round.ticket.stake} ETB · {(round.ticket.oddsCents / 100).toFixed(2)}×
               </p>
               <p>
                 {round.ticket.payout === null
                   ? 'Awaiting race result'
-                  : `Returned ${round.ticket.payout} practice credits`}
+                  : `Returned ${round.ticket.payout} practice ETB`}
               </p>
             </div>
           )}
@@ -577,7 +577,7 @@ export function DerbyView({
       </div>
       <p className="derby-disclaimer">
         A simulated race with equal-chance runners. Previous results do not predict the next finish.
-        Practice credits have no monetary value.
+        Practice ETB have no monetary value.
       </p>
       <Dialog.Root
         open={!!confirm}
@@ -601,11 +601,11 @@ export function DerbyView({
                     .join(confirm.market === 'QUINELLA' ? ' & ' : ' → ')}
                 </p>
                 <p>
-                  {confirm.stake} credits · total successful return{' '}
+                  {confirm.stake} ETB · total successful return{' '}
                   {Math.floor(
                     (confirm.stake * derbyOddsCents(confirm.field, confirm.market)) / 100
                   )}{' '}
-                  credits
+                  ETB
                 </p>
                 <button
                   className="derby-primary"
@@ -636,7 +636,7 @@ export function DerbyView({
             <Dialog.Description>{details?.id}</Dialog.Description>
             {details && <FinishOrder round={details} />}
             {details?.ticket && (
-              <p>Your selection returned {details.ticket.payout ?? 'pending'} credits.</p>
+              <p>Your selection returned {details.ticket.payout ?? 'pending'} ETB.</p>
             )}
             <details>
               <summary>Result verification</summary>

@@ -1,127 +1,512 @@
-import {cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {MemoryRouter,Route,Routes} from 'react-router-dom';
-import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
-vi.mock('@/lib/api',()=>({api:m,unwrapData:(r:{data:unknown})=>r.data}));
-vi.mock('@/providers/auth-provider',()=>({useAuth:()=>({user:{id:'customer'}})}));
-import {WalletPaymentsPage} from './wallet-payments';
-import {WalletOperationsPage} from './wallet-operations';
-const options={countries:[{id:'country',name:'Test country',currencyCode:'USD'}],agents:[{id:'agent',countryId:'country',displayName:'Approved agent',minOrderAmount:1,maxOrderAmount:1000,paymentAccounts:[{id:'account',methodDef:{name:'Bank transfer'}}]}],isAgent:false,isAdmin:false};
-beforeEach(()=>{sessionStorage.clear();m.post.mockReset();m.get.mockReset();m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?options:path==='/withdrawals/payout-accounts'?[{id:'payout',countryId:'country',status:'ACTIVE',displayLabel:'My account',accountDetails:{number:'****1234'}}]:[]}));});
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: m, unwrapData: (r: { data: unknown }) => r.data }));
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'customer' } }) }));
+import { WalletPaymentsPage } from './wallet-payments';
+import { WalletOperationsPage } from './wallet-operations';
+const options = {
+  countries: [{ id: 'country', name: 'Test country', currencyCode: 'USD' }],
+  agents: [
+    {
+      id: 'agent',
+      countryId: 'country',
+      displayName: 'Approved agent',
+      minOrderAmount: 1,
+      maxOrderAmount: 1000,
+      paymentAccounts: [{ id: 'account', methodDef: { name: 'Bank transfer' } }],
+    },
+  ],
+  isAgent: false,
+  isAdmin: false,
+};
+beforeEach(() => {
+  sessionStorage.clear();
+  m.post.mockReset();
+  m.get.mockReset();
+  m.get.mockImplementation(async (path: string) => ({
+    data:
+      path === '/wallet/payment-options'
+        ? options
+        : path === '/withdrawals/payout-accounts'
+          ? [
+              {
+                id: 'payout',
+                countryId: 'country',
+                status: 'ACTIVE',
+                displayLabel: 'My account',
+                accountDetails: { number: '****1234' },
+              },
+            ]
+          : [],
+  }));
+});
 afterEach(cleanup);
-it.each(['HELD', 'PAYOUT_IN_PROGRESS'])('does not offer an unsupported member dispute in %s', async (status) => {
- const row = {id:'withdrawal',status,coinAmount:500,fiatAmount:500,fiatCurrency:'USD',createdAt:new Date().toISOString()};
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?options:path==='/withdrawals/me'?[row]:[]}));
- mount('activity');
- await screen.findByText('withdrawal');
- expect(screen.queryByRole('button',{name:'Report a problem'})).toBeNull();
- if(status==='HELD') expect(screen.getByRole('button',{name:'Cancel and return held Coins'})).toBeEnabled();
- else expect(screen.getByText(/payment support/i)).toBeInTheDocument();
+it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
+  'does not offer an unsupported member dispute in %s',
+  async (status) => {
+    const row = {
+      id: 'withdrawal',
+      status,
+      coinAmount: 500,
+      fiatAmount: 500,
+      fiatCurrency: 'USD',
+      createdAt: new Date().toISOString(),
+    };
+    m.get.mockImplementation(async (path: string) => ({
+      data: path === '/wallet/payment-options' ? options : path === '/withdrawals/me' ? [row] : [],
+    }));
+    mount('activity');
+    await screen.findByText('withdrawal');
+    expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
+    if (status === 'HELD')
+      expect(screen.getByRole('button', { name: 'Cancel and return held ETB' })).toBeEnabled();
+    else expect(screen.getByText(/payment support/i)).toBeInTheDocument();
+  }
+);
+it.each([false, true])(
+  'uses the current USD withdrawal floor and paused-country state (paused=%s)',
+  async (paused) => {
+    m.get.mockImplementation(async (path: string) => ({
+      data:
+        path === '/wallet/payment-options'
+          ? {
+              ...options,
+              countries: [
+                { ...options.countries[0], usdPricingEnabled: true, agentPaymentEnabled: !paused },
+              ],
+            }
+          : path.includes('deposit-preview')
+            ? {
+                policy: {
+                  coinsPerUsd: 96,
+                  p2pWithdrawalAboveUsdCents: 500,
+                  p2pDepositMinUsdCents: 200,
+                  localPerUsd: '1',
+                  observedAt: new Date().toISOString(),
+                  expiresAt: new Date(Date.now() + 60000).toISOString(),
+                },
+                preview: null,
+              }
+            : path === '/withdrawals/payout-accounts'
+              ? [
+                  {
+                    id: 'payout',
+                    countryId: 'country',
+                    status: 'ACTIVE',
+                    displayLabel: 'My account',
+                    accountDetails: {},
+                  },
+                ]
+              : [],
+    }));
+    mount('withdraw');
+    fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+    fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+    if (!paused) await screen.findByText(/Withdrawal must exceed USD/);
+    fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.00' } });
+    expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '5.01' } });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toHaveProperty(
+        'disabled',
+        paused
+      )
+    );
+    expect(m.post).not.toHaveBeenCalled();
+  }
+);
+function mount(section = 'deposit') {
+  return render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}
+    >
+      <MemoryRouter initialEntries={['/wallet/' + section]}>
+        <Routes>
+          <Route path="/wallet/operations" element={<WalletOperationsPage />} />
+          <Route path="/wallet/:section" element={<WalletPaymentsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+it('requires country, agent, approved method and confirmation before an idempotent deposit', async () => {
+  mount();
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Amount to pay · USD'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'agent' } });
+  fireEvent.change(screen.getByLabelText('Payment method'), { target: { value: 'account' } });
+  const button = screen.getByRole('button', { name: 'Create deposit request' });
+  expect(button).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox'));
+  m.post.mockResolvedValue({ success: true, data: { id: 'order' } });
+  fireEvent.click(button);
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(1));
+  expect(m.post.mock.calls[0][0]).toBe('/agent-orders');
+  expect(m.post.mock.calls[0][1]).toMatchObject({
+    agentId: 'agent',
+    countryId: 'country',
+    paymentAccountId: 'account',
+    fiatAmount: 10000,
+    idempotencyKey: expect.any(String),
+  });
+  await waitFor(() => expect(button).toBeDisabled());
 });
-it.each([false,true])('uses the current USD withdrawal floor and paused-country state (paused=%s)',async(paused)=>{
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[{...options.countries[0],usdPricingEnabled:true,agentPaymentEnabled:!paused}]}:path.includes('deposit-preview')?{policy:{coinsPerUsd:96,p2pWithdrawalAboveUsdCents:500,p2pDepositMinUsdCents:200,localPerUsd:'1',observedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()},preview:null}:path==='/withdrawals/payout-accounts'?[{id:'payout',countryId:'country',status:'ACTIVE',displayLabel:'My account',accountDetails:{}}]:[]}));
- mount('withdraw');fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
- fireEvent.change(screen.getByLabelText('Payout account'),{target:{value:'payout'}});
- if(!paused) await screen.findByText(/Withdrawal must exceed USD/);
- fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'480'}});
- expect(screen.getByRole('button',{name:'Get withdrawal quote'})).toBeDisabled();
- fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'481'}});
- await waitFor(()=>expect(screen.getByRole('button',{name:'Get withdrawal quote'})).toHaveProperty('disabled',paused));
- expect(m.post).not.toHaveBeenCalled();
+it('uses the server quote and only IDs when confirming a withdrawal', async () => {
+  mount('withdraw');
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+  m.post
+    .mockResolvedValueOnce({
+      data: {
+        id: 'quote',
+        coinAmount: 100,
+        fiatAmount: '25',
+        fiatCurrency: 'USD',
+        expiresAt: new Date(Date.now() + 300000).toISOString(),
+      },
+    })
+    .mockResolvedValue({ success: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Get withdrawal quote' }));
+  await screen.findByText('1.00 ETB → 0.25 USD');
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }));
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2));
+  expect(m.post.mock.calls[1][1]).toEqual({
+    quoteId: 'quote',
+    payoutAccountId: 'payout',
+    idempotencyKey: expect.any(String),
+  });
 });
-function mount(section='deposit'){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}><MemoryRouter initialEntries={['/wallet/'+section]}><Routes><Route path="/wallet/operations" element={<WalletOperationsPage/>}/><Route path="/wallet/:section" element={<WalletPaymentsPage/>}/></Routes></MemoryRouter></QueryClientProvider>);}
-it('requires country, agent, approved method and confirmation before an idempotent deposit',async()=>{
- mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
- fireEvent.change(screen.getByLabelText('Amount to pay · USD'),{target:{value:'100'}});
- fireEvent.change(screen.getByLabelText('Agent'),{target:{value:'agent'}});
- fireEvent.change(screen.getByLabelText('Payment method'),{target:{value:'account'}});
- const button=screen.getByRole('button',{name:'Create deposit request'});expect(button).toBeDisabled();
- fireEvent.click(screen.getByRole('checkbox'));m.post.mockResolvedValue({success:true,data:{id:'order'}});fireEvent.click(button);
- await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));expect(m.post.mock.calls[0][0]).toBe('/agent-orders');
- expect(m.post.mock.calls[0][1]).toMatchObject({agentId:'agent',countryId:'country',paymentAccountId:'account',fiatAmount:10000,idempotencyKey:expect.any(String)});
- await waitFor(()=>expect(button).toBeDisabled());
+it('shows disabled-country empty state without inventing payment availability', async () => {
+  m.get.mockImplementation(async (path: string) => ({
+    data: path === '/wallet/payment-options' ? { ...options, countries: [], agents: [] } : [],
+  }));
+  mount();
+  expect(await screen.findByText(/No payment countries are enabled/)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Create deposit request' })).not.toBeInTheDocument();
 });
-it('uses the server quote and only IDs when confirming a withdrawal',async()=>{
- mount('withdraw');fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
- fireEvent.change(screen.getByLabelText('Coins to withdraw'),{target:{value:'100'}});
- fireEvent.change(screen.getByLabelText('Payout account'),{target:{value:'payout'}});
- m.post.mockResolvedValueOnce({data:{id:'quote',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',expiresAt:new Date(Date.now()+300000).toISOString()}}).mockResolvedValue({success:true});
- fireEvent.click(screen.getByRole('button',{name:'Get withdrawal quote'}));await screen.findByText('100 Coins → 0.25 USD');
- fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Confirm withdrawal'}));
- await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(2));expect(m.post.mock.calls[1][1]).toEqual({quoteId:'quote',payoutAccountId:'payout',idempotencyKey:expect.any(String)});
+it('does not load privileged queues for an ordinary customer', async () => {
+  mount('operations');
+  await screen.findByText('Processing access required');
+  expect(m.get.mock.calls.every(([p]) => p === '/wallet/payment-options')).toBe(true);
 });
-it('shows disabled-country empty state without inventing payment availability',async()=>{
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],agents:[]}:[]}));mount();
- expect(await screen.findByText(/No payment countries are enabled/)).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Create deposit request'})).not.toBeInTheDocument();
+it('loads the assigned payout details and requires evidence before recording a transfer', async () => {
+  const row = {
+    id: 'withdrawal-one',
+    status: 'PAYOUT_IN_PROGRESS',
+    coinAmount: 100,
+    fiatAmount: '25',
+    fiatCurrency: 'USD',
+    createdAt: new Date().toISOString(),
+    paymentSnapshot: { bank: 'Test bank' },
+  };
+  m.get.mockImplementation(async (path: string) => {
+    if (path === '/withdrawals/withdrawal-one')
+      throw Object.assign(new Error('Forbidden owner-only route'), { status: 403 });
+    return {
+      data:
+        path === '/wallet/payment-options'
+          ? { ...options, isAgent: true }
+          : path === '/withdrawals/agent/assigned'
+            ? [row]
+            : path === '/withdrawals/agent/assigned/withdrawal-one'
+              ? row
+              : [],
+    };
+  });
+  m.post.mockResolvedValue({ success: true });
+  mount('operations');
+  fireEvent.click(await screen.findByRole('button', { name: 'Record completed transfer' }));
+  await waitFor(() =>
+    expect(m.get).toHaveBeenCalledWith('/withdrawals/agent/assigned/withdrawal-one')
+  );
+  const button = screen.getByRole('button', { name: 'Confirm action' });
+  expect(button).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Transfer reference'), {
+    target: { value: 'bank-ref-123' },
+  });
+  fireEvent.change(screen.getByLabelText('Evidence and decision notes'), {
+    target: { value: 'Transfer checked against bank receipt' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  await waitFor(() => expect(m.post).toHaveBeenCalledTimes(1));
+  expect(m.post.mock.calls[0][0]).toBe('/withdrawals/withdrawal-one/submit-payment');
+  expect(m.post.mock.calls[0][1]).toMatchObject({
+    referenceNumber: 'bank-ref-123',
+    note: 'Transfer checked against bank receipt',
+    idempotencyKey: expect.any(String),
+  });
 });
-it('does not load privileged queues for an ordinary customer',async()=>{
- mount('operations');await screen.findByText('Processing access required');expect(m.get.mock.calls.every(([p])=>p==='/wallet/payment-options')).toBe(true);
+it('keeps resolution disabled when the underlying financial request cannot be loaded', async () => {
+  m.get.mockImplementation(async (path: string) => {
+    if (path === '/withdrawals/admin/disputes/dispute-one') throw new Error('Offline');
+    return {
+      data:
+        path === '/wallet/payment-options'
+          ? { ...options, isAdmin: true }
+          : path === '/withdrawals/admin/disputes'
+            ? [
+                {
+                  id: 'dispute-one',
+                  status: 'ASSIGNED',
+                  reason: 'OTHER',
+                  description: 'Investigate',
+                  withdrawalId: 'withdrawal-one',
+                },
+              ]
+            : [],
+    };
+  });
+  mount('operations');
+  fireEvent.click(await screen.findByRole('button', { name: 'Review resolution' }));
+  await screen.findByText(/Request details could not load/);
+  fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'CANCELLED' } });
+  fireEvent.change(screen.getByLabelText('Evidence and decision notes'), {
+    target: { value: 'Review note' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(screen.getByRole('button', { name: 'Confirm action' })).toBeDisabled();
+  expect(m.post).not.toHaveBeenCalled();
 });
-it('loads the assigned payout details and requires evidence before recording a transfer',async()=>{
- const row={id:'withdrawal-one',status:'PAYOUT_IN_PROGRESS',coinAmount:100,fiatAmount:'25',fiatCurrency:'USD',createdAt:new Date().toISOString(),paymentSnapshot:{bank:'Test bank'}};
- m.get.mockImplementation(async(path:string)=>{if(path==='/withdrawals/withdrawal-one') throw Object.assign(new Error('Forbidden owner-only route'),{status:403});return ({data:path==='/wallet/payment-options'?{...options,isAgent:true}:path==='/withdrawals/agent/assigned'?[row]:path==='/withdrawals/agent/assigned/withdrawal-one'?row:[]});});
- m.post.mockResolvedValue({success:true});mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Record completed transfer'}));
- await waitFor(()=>expect(m.get).toHaveBeenCalledWith('/withdrawals/agent/assigned/withdrawal-one'));
- const button=screen.getByRole('button',{name:'Confirm action'});expect(button).toBeDisabled();
- fireEvent.change(screen.getByLabelText('Transfer reference'),{target:{value:'bank-ref-123'}});
- fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Transfer checked against bank receipt'}});
- fireEvent.click(screen.getByRole('checkbox'));await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);
- await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));expect(m.post.mock.calls[0][0]).toBe('/withdrawals/withdrawal-one/submit-payment');expect(m.post.mock.calls[0][1]).toMatchObject({referenceNumber:'bank-ref-123',note:'Transfer checked against bank receipt',idempotencyKey:expect.any(String)});
+it('links to the dedicated USDT TRON flow without starting a payment', async () => {
+  const assets = ['USDT', 'USDC', 'BTC', 'ETH', 'SOL'].map((symbol) => ({
+    symbol,
+    name: symbol,
+    network: 'Network pending',
+    available: false,
+    reason: 'Provider integration pending',
+  }));
+  m.get.mockImplementation(async (path: string) => ({
+    data:
+      path === '/wallet/payment-options' ? { ...options, countries: [], crypto: { assets } } : [],
+  }));
+  mount();
+  await screen.findByRole('heading', { name: 'Choose how to deposit' });
+  expect(screen.getByRole('link', { name: /Crypto USDT/ })).toHaveAttribute(
+    'href',
+    '/wallet/crypto?direction=deposit'
+  );
+  expect(m.post).not.toHaveBeenCalled();
 });
-it('keeps resolution disabled when the underlying financial request cannot be loaded',async()=>{
- m.get.mockImplementation(async(path:string)=>{
-  if(path==='/withdrawals/admin/disputes/dispute-one')throw new Error('Offline');
-  return {data:path==='/wallet/payment-options'?{...options,isAdmin:true}:path==='/withdrawals/admin/disputes'?[{id:'dispute-one',status:'ASSIGNED',reason:'OTHER',description:'Investigate',withdrawalId:'withdrawal-one'}]:[]};
- });mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Review resolution'}));await screen.findByText(/Request details could not load/);
- fireEvent.change(screen.getByLabelText('Outcome'),{target:{value:'CANCELLED'}});fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Review note'}});fireEvent.click(screen.getByRole('checkbox'));expect(screen.getByRole('button',{name:'Confirm action'})).toBeDisabled();expect(m.post).not.toHaveBeenCalled();
+it.each(['deposit', 'withdraw'])(
+  'defers country crypto availability to its authoritative wallet on %s',
+  async (section) => {
+    mount(section);
+    fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+    expect(screen.queryByText(/Crypto: not yet available/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Check USDT availability' })).toHaveAttribute(
+      'href',
+      '/wallet/crypto?direction=' + section
+    );
+    expect(m.post).not.toHaveBeenCalled();
+  }
+);
+it('shows paused pricing without an endless rate loader or preview request', async () => {
+  m.get.mockImplementation(async (path: string) => ({
+    data:
+      path === '/wallet/payment-options'
+        ? {
+            ...options,
+            countries: [
+              { ...options.countries[0], usdPricingEnabled: true, agentPaymentEnabled: false },
+            ],
+          }
+        : [],
+  }));
+  mount();
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  expect(screen.getByText(/Payments are paused in this country/)).toBeInTheDocument();
+  expect(screen.queryByText('Loading current rate…')).toBeNull();
+  expect(m.get.mock.calls.some((c) => c[0].includes('deposit-preview'))).toBe(false);
+  expect(m.post).not.toHaveBeenCalled();
 });
-it('links to the dedicated USDT TRON flow without starting a payment',async()=>{
- const assets=['USDT','USDC','BTC','ETH','SOL'].map(symbol=>({symbol,name:symbol,network:'Network pending',available:false,reason:'Provider integration pending'}));
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[],crypto:{assets}}:[]}));mount();
- await screen.findByRole('heading',{name:'USDT · TRON (TRC20)'});expect(screen.getByRole('link',{name:'Open crypto wallet →'})).toHaveAttribute('href','/wallet/crypto');expect(m.post).not.toHaveBeenCalled();
-});
-it.each(['deposit', 'withdraw'])('defers country crypto availability to its authoritative wallet on %s', async (section) => {
- mount(section);
- fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
- expect(screen.queryByText(/Crypto: not yet available/)).not.toBeInTheDocument();
- expect(screen.getByRole('link', { name: 'Check USDT availability' })).toHaveAttribute('href', '/wallet/crypto');
- expect(m.post).not.toHaveBeenCalled();
-});
-it('shows paused pricing without an endless rate loader or preview request',async()=>{
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,countries:[{...options.countries[0],usdPricingEnabled:true,agentPaymentEnabled:false}]}:[]}));
- mount();fireEvent.change(await screen.findByLabelText('Country'),{target:{value:'country'}});
- expect(screen.getByText(/Payments are paused in this country/)).toBeInTheDocument();
- expect(screen.queryByText('Loading current rate…')).toBeNull();
- expect(m.get.mock.calls.some(c=>c[0].includes('deposit-preview'))).toBe(false);
- expect(m.post).not.toHaveBeenCalled();
-});
-it.each(['PAYOUT_IN_PROGRESS','PAYMENT_SUBMITTED'])('requires verified evidence only for escalated %s disputes',async(openedFromStatus)=>{
- const row={id:'withdrawal-one',status:'DISPUTED',coinAmount:500,fiatAmount:'500',fiatCurrency:'USD',createdAt:'2026-01-01T00:00:00Z'};
- m.get.mockImplementation(async(path:string)=>({data:path==='/wallet/payment-options'?{...options,isAdmin:true}:path==='/withdrawals/admin/disputes'?[{id:'dispute-one',status:'ASSIGNED',reason:'OTHER',description:'Investigate',withdrawalId:row.id}]:path==='/withdrawals/admin/disputes/dispute-one'?{withdrawal:row,dispute:{openedFromStatus}}:[]}));
- mount('operations');fireEvent.click(await screen.findByRole('button',{name:'Review resolution'}));
- await waitFor(()=>expect(screen.queryByText('Loading request details…')).toBeNull());
- fireEvent.change(screen.getByLabelText('Outcome'),{target:{value:'COMPLETED'}});
- fireEvent.change(screen.getByLabelText('Evidence and decision notes'),{target:{value:'Bank receipt verified'}});
- fireEvent.click(screen.getByRole('checkbox'));
- const button=screen.getByRole('button',{name:'Confirm action'});
- if(openedFromStatus==='PAYOUT_IN_PROGRESS'){
-   expect(button).toBeDisabled();
-   fireEvent.change(screen.getByLabelText('Verified transfer reference'),{target:{value:'verified-bank-ref'}});
-   fireEvent.change(screen.getByLabelText('Payment occurred at (your local time)'),{target:{value:'2026-01-02T12:00'}});
- } else expect(screen.queryByLabelText('Verified transfer reference')).toBeNull();
- expect(button).toBeEnabled();m.post.mockResolvedValue({data:{}});fireEvent.click(button);
- await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));
- if(openedFromStatus==='PAYOUT_IN_PROGRESS') expect(m.post.mock.calls[0][1].adminVerifiedPayment).toMatchObject({referenceNumber:'verified-bank-ref',paymentOccurredAt:new Date('2026-01-02T12:00').toISOString()});
- else expect(m.post.mock.calls[0][1]).not.toHaveProperty('adminVerifiedPayment');
-});
+it.each(['PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED'])(
+  'requires verified evidence only for escalated %s disputes',
+  async (openedFromStatus) => {
+    const row = {
+      id: 'withdrawal-one',
+      status: 'DISPUTED',
+      coinAmount: 500,
+      fiatAmount: '500',
+      fiatCurrency: 'USD',
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    m.get.mockImplementation(async (path: string) => ({
+      data:
+        path === '/wallet/payment-options'
+          ? { ...options, isAdmin: true }
+          : path === '/withdrawals/admin/disputes'
+            ? [
+                {
+                  id: 'dispute-one',
+                  status: 'ASSIGNED',
+                  reason: 'OTHER',
+                  description: 'Investigate',
+                  withdrawalId: row.id,
+                },
+              ]
+            : path === '/withdrawals/admin/disputes/dispute-one'
+              ? { withdrawal: row, dispute: { openedFromStatus } }
+              : [],
+    }));
+    mount('operations');
+    fireEvent.click(await screen.findByRole('button', { name: 'Review resolution' }));
+    await waitFor(() => expect(screen.queryByText('Loading request details…')).toBeNull());
+    fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'COMPLETED' } });
+    fireEvent.change(screen.getByLabelText('Evidence and decision notes'), {
+      target: { value: 'Bank receipt verified' },
+    });
+    fireEvent.click(screen.getByRole('checkbox'));
+    const button = screen.getByRole('button', { name: 'Confirm action' });
+    if (openedFromStatus === 'PAYOUT_IN_PROGRESS') {
+      expect(button).toBeDisabled();
+      fireEvent.change(screen.getByLabelText('Verified transfer reference'), {
+        target: { value: 'verified-bank-ref' },
+      });
+      fireEvent.change(screen.getByLabelText('Payment occurred at (your local time)'), {
+        target: { value: '2026-01-02T12:00' },
+      });
+    } else expect(screen.queryByLabelText('Verified transfer reference')).toBeNull();
+    expect(button).toBeEnabled();
+    m.post.mockResolvedValue({ data: {} });
+    fireEvent.click(button);
+    await waitFor(() => expect(m.post).toHaveBeenCalledTimes(1));
+    if (openedFromStatus === 'PAYOUT_IN_PROGRESS')
+      expect(m.post.mock.calls[0][1].adminVerifiedPayment).toMatchObject({
+        referenceNumber: 'verified-bank-ref',
+        paymentOccurredAt: new Date('2026-01-02T12:00').toISOString(),
+      });
+    else expect(m.post.mock.calls[0][1]).not.toHaveProperty('adminVerifiedPayment');
+  }
+);
 
 it('blocks payment confirmation after the deposit window and preserves support guidance', async () => {
- const row = { id: 'expired-order', orderNumber: 'AG-EXPIRED', status: 'CREATED', coinAmount: 500, fiatAmount: 500, fiatCurrency: 'USD', createdAt: new Date(Date.now()-16*60000).toISOString() };
- m.get.mockImplementation(async (path: string) => ({ data: path === '/wallet/payment-options' ? options : path === '/agent-orders/me' ? [row] : [] }));
- mount('activity');
- expect(await screen.findByText(/Payment window expired. Do not send money/)).toBeInTheDocument();
- expect(screen.getByRole('button', { name: 'I have sent the payment' })).toBeDisabled();
- expect(screen.getByRole('button', { name: 'Cancel unpaid order' })).toBeEnabled();
- expect(m.post).not.toHaveBeenCalled();
+  const row = {
+    id: 'expired-order',
+    orderNumber: 'AG-EXPIRED',
+    status: 'CREATED',
+    coinAmount: 500,
+    fiatAmount: 500,
+    fiatCurrency: 'USD',
+    createdAt: new Date(Date.now() - 16 * 60000).toISOString(),
+  };
+  m.get.mockImplementation(async (path: string) => ({
+    data: path === '/wallet/payment-options' ? options : path === '/agent-orders/me' ? [row] : [],
+  }));
+  mount('activity');
+  expect(await screen.findByText(/Payment window expired. Do not send money/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'I have sent the payment' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Cancel unpaid order' })).toBeEnabled();
+  expect(m.post).not.toHaveBeenCalled();
+});
+
+it('blocks an expired withdrawal quote and allows a fresh reviewed quote', async () => {
+  mount('withdraw');
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '100' } });
+  fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+  const quote = {
+    id: 'old',
+    coinAmount: 100,
+    fiatAmount: '2500',
+    fiatCurrency: 'USD',
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+  };
+  m.post.mockResolvedValueOnce({ data: quote }).mockResolvedValueOnce({
+    data: { ...quote, id: 'fresh', expiresAt: new Date(Date.now() + 300000).toISOString() },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Get withdrawal quote' }));
+  await screen.findByText(/This quote has expired/);
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(screen.getByRole('button', { name: 'Confirm withdrawal' })).toBeDisabled();
+  expect(m.post).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Get withdrawal quote' }));
+  await waitFor(() => expect(screen.queryByText(/This quote has expired/)).toBeNull());
+  expect(screen.getByRole('button', { name: 'Confirm withdrawal' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(screen.getByRole('button', { name: 'Confirm withdrawal' })).toBeEnabled();
+});
+it('clears deposit inputs and confirmation when moving to withdrawal', async () => {
+  mount();
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Amount to pay · USD'), { target: { value: '100' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('link', { name: 'Withdraw' }));
+  expect(await screen.findByLabelText('Amount to withdraw · ETB')).toHaveValue('');
+  expect(screen.getByLabelText('Country')).toHaveValue('');
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('shows only matching request history and keeps agent setup out of the customer form', async () => {
+  mount();
+  await screen.findByLabelText('Country');
+  expect(screen.getByRole('heading', { name: 'Deposit requests' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Withdrawal requests' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Payment agent setup' })).toBeNull();
+});
+
+it('shows the global payout setup state and prevents a misleading withdrawal quote', async () => {
+  const oldGet = m.get.getMockImplementation()!;
+  m.get.mockImplementation((path: string) =>
+    path === '/wallet/payment-options'
+      ? Promise.resolve({ data: { ...options, withdrawalsEnabled: false } })
+      : oldGet(path)
+  );
+  mount('withdraw');
+  await screen.findByText('Withdrawals are awaiting payment setup');
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.change(screen.getByLabelText('Payout account'), { target: { value: 'payout' } });
+  fireEvent.change(screen.getByLabelText('Amount to withdraw · ETB'), { target: { value: '500' } });
+  expect(screen.getByRole('button', { name: 'Get withdrawal quote' })).toBeDisabled();
+  expect(m.post).not.toHaveBeenCalled();
+});
+
+it('lets members save a payout destination while customer payments await setup', async () => {
+  m.get.mockImplementation(async (path: string) => ({
+    data:
+      path === '/wallet/payment-options'
+        ? {
+            ...options,
+            withdrawalsEnabled: false,
+            countries: [{ ...options.countries[0], agentPaymentEnabled: false }],
+          }
+        : path.includes('/payment-methods/active')
+          ? [
+              {
+                id: 'bank',
+                name: 'Bank transfer',
+                fieldSchema: { requiredFields: ['accountName', 'accountNumber'] },
+              },
+            ]
+          : [],
+  }));
+  m.post.mockResolvedValue({ data: { id: 'saved', countryId: 'country', status: 'ACTIVE' } });
+  mount('withdraw');
+  fireEvent.change(await screen.findByLabelText('Country'), { target: { value: 'country' } });
+  fireEvent.click(screen.getByText('Add a payout account'));
+  await screen.findByRole('option', { name: 'Bank transfer' });
+  fireEvent.change(screen.getByLabelText('Method'), { target: { value: 'bank' } });
+  fireEvent.change(screen.getByLabelText('Account Name'), { target: { value: 'Test recipient' } });
+  fireEvent.change(screen.getByLabelText('Account Number'), { target: { value: 'test-only' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save payout account' }));
+  await waitFor(() =>
+    expect(m.post).toHaveBeenCalledWith(
+      '/withdrawals/payout-accounts',
+      {
+        countryId: 'country',
+        methodDefId: 'bank',
+        accountDetails: { accountName: 'Test recipient', accountNumber: 'test-only' },
+        displayLabel: 'Bank transfer',
+      },
+      undefined,
+      expect.any(Object)
+    )
+  );
+  expect(m.post.mock.calls.every(([path]) => path === '/withdrawals/payout-accounts')).toBe(true);
 });

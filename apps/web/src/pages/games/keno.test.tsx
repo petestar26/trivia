@@ -58,8 +58,8 @@ it('keeps next-ticket selection visible on a previous hit and a drawn number',()
   }
 });
 
-it('shows account funds separately and quotes a typed stake without spending Coins',()=>{
-  mount(); expect(screen.getByText('2,500 Coins')).toBeInTheDocument();
+it('shows account funds separately and quotes a typed stake without spending account ETB',()=>{
+  mount(); expect(screen.getByText('25.00 ETB')).toBeInTheDocument();
   const input=screen.getByRole('textbox',{name:'Bet amount per number'});
   fireEvent.change(input,{target:{value:'20'}});
   fireEvent.click(screen.getByRole('button',{name:'Number 1'}));
@@ -69,7 +69,7 @@ it('shows account funds separately and quotes a typed stake without spending Coi
   expect(input).toBeDisabled();
   const state=JSON.parse(sessionStorage.getItem('playqube.keno.practice.v1.keno-a')!);
   expect(state.balance).toBe(960); expect(state.active.stakePerNumber).toBe(20);
-  expect(screen.getByText('2,500 Coins')).toBeInTheDocument();
+  expect(screen.getByText('25.00 ETB')).toBeInTheDocument();
 });
 it.each(['','0','-5','6','5.5','500','1e2'])('blocks invalid stake %s',value=>{
   mount(); fireEvent.click(screen.getByRole('button',{name:'Number 1'}));
@@ -82,6 +82,6 @@ it('blocks an aggregate stake above the ticket limit',()=>{
   expect(screen.getByRole('button',{name:'Start draw · 500 credits'})).toBeDisabled();
 });
 it.each(['walletLoading','walletError'] as const)('does not show a fabricated wallet balance during %s',key=>{
-  wallet[key]=true;mount();expect(screen.queryByText('2,500 Coins')).not.toBeInTheDocument();
+  wallet[key]=true;mount();expect(screen.queryByText('25.00 ETB')).not.toBeInTheDocument();
   expect(screen.getByText(key==='walletLoading'?'Loading…':'Unavailable')).toBeInTheDocument();
 });

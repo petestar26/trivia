@@ -1,5 +1,7 @@
+import { supportRoutes } from '../support/routes.js';
+import { memberRewardRoutes, memberProfileRoutes } from '../member-rewards/routes.js';
 import { numberPracticeRoutes } from '../games/number-challenge/routes.js';
-import { derbyRoutes } from '../games/thunder-derby/routes.js';
+import { derbyRoutes, dogRacingRoutes } from '../games/thunder-derby/routes.js';
 import { footballRoutes } from '../games/virtual-football/routes.js';
 import { skyCrashRoutes } from '../games/sky-crash/routes.js';
 import { cryptoPaymentRoutes } from '../crypto-payments/routes.js';
@@ -35,23 +37,39 @@ import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
 import { groupPvpRoutes } from '../games/group-pvp/routes.js';
 import { systemDiceRoutes } from '../games/group-pvp/system-dice-routes.js';
 import { systemKenoRoutes } from '../games/group-pvp/system-keno-routes.js';
+import { blackjackRoutes } from '../games/blackjack/routes.js';
+import { luckySixRoutes } from '../games/lucky-six/routes.js';
+import { rouletteKenoRoutes } from '../games/roulette-keno/routes.js';
 import { giftCollectionRoutes } from '../gift-collection/routes.js';
+import { providerDemoRoutes } from '../providers/softaggregator/routes.js';
+import { providerTestRoutes } from '../providers/softaggregator/test-routes.js';
+import { triviaPracticeRoutes } from '../games/trivia-practice/routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
+  await server.register(providerDemoRoutes, { prefix: '/provider-demo' });
+  await server.register(providerTestRoutes, { prefix: '/provider-test' });
+  await server.register(triviaPracticeRoutes, { prefix: '/games/trivia-practice' });
   // healthRoutes is registered directly in server.ts, outside this
   // API_PREFIX-wrapped block — see the comment there. Not registered here.
+  await server.register(supportRoutes, { prefix: '/support' });
+  await server.register(memberRewardRoutes, { prefix: '/member-rewards' });
+  await server.register(memberProfileRoutes, { prefix: '/member-profile' });
   await server.register(workspaceRoutes, { prefix: '/workspaces' });
   await server.register(authRoutes, { prefix: '/auth' });
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
   await server.register(derbyRoutes, { prefix: '/games/thunder-derby' });
+  await server.register(dogRacingRoutes, { prefix: '/games/dog-racing' });
   await server.register(numberPracticeRoutes, { prefix: '/games/number-challenge-practice' });
   await server.register(footballRoutes, { prefix: '/games/virtual-football' });
   await server.register(skyCrashRoutes, { prefix: '/games/sky-crash' });
   await server.register(crashPointRoutes, { prefix: '/games/crash-point' });
   await server.register(systemDiceRoutes, { prefix: '/games/system-dice' });
   await server.register(systemKenoRoutes, { prefix: '/games/system-keno' });
+  await server.register(blackjackRoutes, { prefix: '/games/blackjack' });
+  await server.register(luckySixRoutes, { prefix: '/games/lucky-six' });
+  await server.register(rouletteKenoRoutes, { prefix: '/games/roulette-keno' });
   await server.register(chatRoutes, { prefix: '/groups' });
   await server.register(storageRoutes, { prefix: '/storage' });
   await server.register(cryptoPaymentRoutes, { prefix: '/crypto-payments' });
