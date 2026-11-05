@@ -41,7 +41,10 @@ describe('scheduled practice HTTP boundary', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(403);
-    expect(actorLookup).toHaveBeenCalledWith({ where: { id: 'alice' }, select: { status: true } });
+    expect(actorLookup).toHaveBeenCalledWith({
+      where: { id: 'alice' },
+      select: { status: true, tokenVersion: true },
+    });
     expect(calls).toHaveLength(0);
   });
   it('rejects unauthenticated reads and writes before reaching storage', async () => {

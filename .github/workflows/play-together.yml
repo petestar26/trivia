@@ -10,6 +10,9 @@ on:
       - 'apps/api/src/games/economics/**'
       - 'apps/api/src/economy/**'
       - 'apps/api/src/middleware/**'
+      - 'apps/api/src/workspaces/**'
+      - 'apps/api/src/member-rewards/**'
+      - 'apps/api/src/auth/**'
       - 'apps/api/src/providers/softaggregator/**'
       - 'apps/api/src/server.ts'
       - 'apps/api/src/routes/index.ts'
@@ -77,11 +80,17 @@ jobs:
         run: |
           pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts
           pnpm --filter api exec vitest run --config vitest.sports-native.config.ts
+      - name: Current Birr, administrator, agent and reward contracts
+        run: |
+          pnpm --filter api exec vitest run --config vitest.etb.config.ts
+          pnpm --filter api exec vitest run --config vitest.staff-native.config.ts
+          pnpm --filter api exec vitest run --config vitest.member-rewards.config.ts src/economy/reward-coins.native.ts
       - name: Rules, consent, proof and access checks
         if: matrix.postgres == 16
         run: |
           pnpm --filter @socialplay/shared exec vitest run src/play-together.test.ts src/group-pvp.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
           pnpm --filter api exec vitest run --config vitest.together.config.ts
+          pnpm --filter api test:scheduled-practice
           pnpm --filter web exec vitest run src/lib/together-proof.test.ts src/pages/play-together.test.tsx src/lib/member-game-catalog.test.ts src/pages/home.test.tsx src/app-game-sections.test.tsx src/pages/group-games.test.tsx --minWorkers=1 --maxWorkers=1
           pnpm --filter web exec vitest run src/lib/sky-crash-catalog.test.ts src/lib/football-catalog.test.ts src/lib/derby-catalog.test.ts src/lib/system-practice-catalog.test.ts src/lib/number-challenge-catalog.test.ts src/components/member/dashboard-highlights.test.tsx src/components/layout/mobile-navigation.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Production builds

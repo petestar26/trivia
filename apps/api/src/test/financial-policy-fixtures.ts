@@ -7,6 +7,7 @@ import { runLedgerInvariantCheck } from '../economy/ledger-invariant-checker.js'
 export async function nextTestCountryCode(): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt++) {
     const code = Math.floor(Math.random() * 36 ** 3).toString(36).padStart(3, '0').toUpperCase();
+    if (code === 'ZLP') continue;
     if (!await prisma.country.findUnique({ where: { code }, select: { id: true } })) return code;
   }
   throw new Error('Could not allocate an unused test jurisdiction code');
@@ -56,9 +57,11 @@ export async function activateTestWithdrawalPolicy(countryId: string, configured
  * witness and wallet reference as production. The DB guard has no test bypass. */
 export async function mintTestPurchasedCoins(userId: string, amount: number, scopeId: string = randomUUID()) {
   const tag = randomUUID().replaceAll('-', '');
+  // ZZ belongs to the inert recovery fixture. Sharing that code made the
+  // recovery and funded-wallet suites depend on their execution order.
   const country = await prisma.country.upsert({
-    where: { code: 'ZZ' }, update: {},
-    create: { code: 'ZZ', name: 'Ledger purchase test jurisdiction',
+    where: { code: 'ZLP' }, update: {},
+    create: { code: 'ZLP', name: 'Ledger purchase test jurisdiction',
       currencyCode: 'USD', isActive: true, agentPaymentEnabled: true },
   });
   return prisma.$transaction(async (tx) => {
