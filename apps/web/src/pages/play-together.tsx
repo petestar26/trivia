@@ -1000,7 +1000,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               )}
             </div>
           )}
-          {confirmed && (
+          {confirmed && !paid && (
             <div className="together-confirm">
               <p>
                 <ShieldCheck size={17} /> Your entry is accepted. It will settle automatically, even
