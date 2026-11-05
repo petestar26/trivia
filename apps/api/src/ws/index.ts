@@ -73,8 +73,9 @@ export function registerWebSocket(server: FastifyInstance): void {
       });
 
       if (!Number.isFinite(decoded.exp) || decoded.exp! * 1000 <= Date.now()) throw new Error('UNAUTHORIZED');
-      const currentUser = await prisma.user.findUnique({ where: { id: decoded.sub }, select: { status: true } });
-      if (currentUser?.status !== 'ACTIVE') throw new Error('UNAUTHORIZED');
+      const currentUser = await prisma.user.findUnique({ where: { id: decoded.sub }, select: { status: true, tokenVersion: true } });
+      if (currentUser?.status !== 'ACTIVE' || (currentUser.tokenVersion ?? 0) !== (decoded.tokenVersion ?? 0)) throw new Error('UNAUTHORIZED');
+      socket.data.tokenVersion = decoded.tokenVersion ?? 0;
       socket.data.expiresAt = decoded.exp! * 1000;
       socket.data.user = {
         id: decoded.sub,
@@ -91,9 +92,12 @@ export function registerWebSocket(server: FastifyInstance): void {
     const user = socket.data.user as SocketUser;
     const expiryTimer = setTimeout(() => socket.disconnect(true), Math.min(2147483647, Math.max(0, socket.data.expiresAt - Date.now())));
     expiryTimer.unref();
-    socket.use((_packet, next) => {
-      if (socket.data.expiresAt <= Date.now()) { socket.disconnect(true); next(new Error('UNAUTHORIZED')); }
-      else next();
+    socket.use(async (_packet, next) => {
+      try {
+        const actor = await prisma.user.findUnique({ where: { id: user.id }, select: { status: true, tokenVersion: true } });
+        if (socket.data.expiresAt <= Date.now() || actor?.status !== 'ACTIVE' || (actor.tokenVersion ?? 0) !== socket.data.tokenVersion) throw new Error('UNAUTHORIZED');
+        next();
+      } catch { socket.disconnect(true); next(new Error('UNAUTHORIZED')); }
     });
 
     // Join user-specific room for private events (e.g. gift:received)

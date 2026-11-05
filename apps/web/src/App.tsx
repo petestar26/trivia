@@ -58,6 +58,8 @@ import { MemberRewardsPage } from '@/pages/member-rewards';
 import { RewardControlPage } from '@/pages/workspaces/reward-control';
 import { ProfilePage } from '@/pages/profile';
 
+import { PasswordResetPage } from '@/pages/password-reset';
+
 // Keep pairing-verification code out of the normal casino entry bundle.
 const SpinWinVerifyPage = lazy(async () => {
   const page = await import('@/pages/games/spin-win-verify');
@@ -72,7 +74,7 @@ export function App() {
   // reachable while the unrelated session probe is waiting on an unavailable API.
   if (
     isLoading &&
-    !/^\/(?:explore\/?|login\/?|register\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
+    !/^\/(?:explore\/?|login\/?|register\/?|reset-password\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
       location.pathname
     )
   ) {
@@ -102,6 +104,7 @@ export function App() {
         }
       />
       <Route path="/admin/login" element={<LoginPage workspace="admin" />} />
+      <Route path="/reset-password" element={<PasswordResetPage />} />
       <Route path="/agent/activate" element={<ActivateAgentPage />} />
       <Route path="/agent/login" element={<LoginPage workspace="agent" />} />
       <Route
