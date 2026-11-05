@@ -10,6 +10,7 @@ import {
   quicknetTargetForCutoff,
   deriveTogetherOutcome,
   rankTogether,
+  togetherRevealTimeline,
   type TogetherTerms,
   type TogetherCurrency,
   type TogetherGame,
@@ -286,6 +287,131 @@ it('requires the owner to publish terms and every member to authorize their own 
   expect(other.round.entries[0].selection).toBeNull();
   expect(JSON.stringify(other)).not.toContain(f.proof.seed);
   expect(other.round.entries[0].walletTransactionId).toBe('');
+});
+it('lets every current group member watch the same round without entering or exposing sealed choices', async () => {
+  const f = await fixture('GAME_POINTS', true, 0, 'number_challenge', 4000);
+  const outsider = await prisma.user.create({
+    data: { username: 'together_outsider_' + randomUUID() },
+  });
+  await expect(service.activity(outsider.id, f.groupId)).rejects.toThrow('Join this group');
+  await expect(service.snapshot(outsider.id, f.roundId)).rejects.toThrow('Join this group');
+  await f.confirm(0);
+  await f.confirm(1);
+  await prisma.groupMember.update({
+    where: { groupId_userId: { groupId: f.groupId, userId: f.users[2] } },
+    data: { status: 'MUTED' },
+  });
+  const ownerActivity = await service.activity(f.users[0], f.groupId);
+  const watcherActivity = await service.activity(f.users[2], f.groupId);
+  expect(watcherActivity.activeRound).toEqual(ownerActivity.activeRound);
+  expect(watcherActivity.activeRound).toEqual({
+    id: f.roundId,
+    game: 'number_challenge',
+    currency: 'GAME_POINTS',
+    entryAmount: 1000,
+    state: 'OPEN',
+    closesAt: f.snapshot.round.closesAt,
+    participants: 2,
+    groupName: 'Disposable group',
+  });
+  expect(watcherActivity.latestResult).toBeNull();
+  expect(Object.keys(watcherActivity).sort()).toEqual([
+    'activeRound',
+    'latestResult',
+    'serverTime',
+  ]);
+  expect(watcherActivity.serverTime).toBeGreaterThanOrEqual(ownerActivity.serverTime);
+  const watcher = await service.snapshot(f.users[2], f.roundId);
+  expect(watcher.round.entries.every((entry) => entry.selection === null)).toBe(true);
+  expect(
+    watcher.round.entries.every(
+      (entry) => entry.walletTransactionId === '' && entry.requestId === null
+    )
+  ).toBe(true);
+  expect(watcher.round.outcome).toBeNull();
+  expect(watcher.round.proof).toBeNull();
+  expect(watcher.balances.pointsReserved).toBe(0);
+  expect(watcher.balances.pointsAvailable).toBe(10000);
+
+  await close(f);
+  await service.recover(f.roundId);
+  const paidViews = await Promise.all(f.users.map((id) => service.snapshot(id, f.roundId)));
+  for (const view of paidViews) {
+    expect(view.round.paidAt).toBe(paidViews[0].round.paidAt);
+    expect(view.round.outcome).toEqual(paidViews[0].round.outcome);
+    expect(view.round.ranking).toEqual(paidViews[0].round.ranking);
+    expect(view.round.settlement).toEqual(paidViews[0].round.settlement);
+    expect(view.round.entries.map((entry) => entry.selection)).toEqual(
+      paidViews[0].round.entries.map((entry) => entry.selection)
+    );
+    expect(togetherRevealTimeline(view.round, paidViews[0].round.paidAt! + 9000).progress).toBe(
+      0.5
+    );
+  }
+  expect(paidViews[2].balances.pointsAvailable).toBe(10000);
+  const finished = await service.activity(f.users[2], f.groupId);
+  expect(finished.activeRound).toBeNull();
+  expect(finished.latestResult?.id).toBe(f.roundId);
+  expect(finished.latestResult?.participants).toBe(2);
+  await prisma.groupMember.update({
+    where: { groupId_userId: { groupId: f.groupId, userId: f.users[2] } },
+    data: { status: 'LEFT' },
+  });
+  await expect(service.activity(f.users[2], f.groupId)).rejects.toThrow('Join this group');
+  await expect(service.snapshot(f.users[2], f.roundId)).rejects.toThrow('Join this group');
+});
+
+it('keeps older active rounds discoverable ahead of newer results and labels their group', async () => {
+  const f = await fixture('GAME_POINTS', false, 0);
+  const second = await prisma.group.create({
+    data: {
+      ownerId: f.users[0],
+      name: 'Another watched group',
+      isPrivate: true,
+      members: { create: { userId: f.users[0], role: 'OWNER' } },
+    },
+  });
+  const newer = await service.create(f.users[0], {
+    groupId: second.id,
+    game: 'dice',
+    currency: 'GAME_POINTS',
+    entryAmount: 1000,
+    minPlayers: 2,
+    maxPlayers: 20,
+    lobbySeconds: 120,
+    requestId: randomUUID(),
+  });
+  await service.cancel(f.users[0], newer);
+  const lobby = await service.lobby(f.users[0]);
+  const currentIndex = lobby.rounds.findIndex((value) => value.id === f.roundId);
+  const resultIndex = lobby.rounds.findIndex((value) => value.id === newer);
+  expect(currentIndex).toBeGreaterThanOrEqual(0);
+  expect(resultIndex).toBeGreaterThan(currentIndex);
+  expect(lobby.rounds[currentIndex].groupName).toBe('Disposable group');
+  expect(lobby.rounds[resultIndex].groupName).toBe('Another watched group');
+  const next = await service.create(f.users[0], {
+    groupId: second.id,
+    game: 'dice',
+    currency: 'GAME_POINTS',
+    entryAmount: 1000,
+    minPlayers: 2,
+    maxPlayers: 20,
+    lobbySeconds: 120,
+    requestId: randomUUID(),
+  });
+  const banner = await service.activity(f.users[0], second.id);
+  expect(banner.activeRound?.id).toBe(next);
+  expect(banner.latestResult?.id).toBe(newer);
+  expect(banner.activeRound?.participants).toBe(0);
+  expect(banner.latestResult?.participants).toBe(0);
+  expect((await wallet(f.users[0])).gamePointsBalance).toBe(10000);
+  // A longer/older round can finish after a newer round. Latest results must
+  // follow settlement time, not publication time.
+  await service.cancel(f.users[0], f.roundId);
+  const after = await service.lobby(f.users[0]);
+  expect(after.rounds[0].id).toBe(next);
+  const results = after.rounds.filter((value) => ['PAID', 'REFUNDED'].includes(value.state));
+  expect(results.map((value) => value.id)).toEqual([f.roundId, newer]);
 });
 it('reserves only once across double taps, persists the receipt and rejects conflicting retries', async () => {
   const f = await fixture(),

@@ -41,6 +41,41 @@
   align-items: center;
   gap: 8px;
 }
+.tg-result-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tg-result-shared-status {
+  border: 1px solid var(--tg-line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 12px 0 22px;
+  background: var(--tg-bg);
+}
+.tg-result .tg-result-shared-status p {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+.tg-result-shared-status [role='progressbar'] {
+  height: 5px;
+  border-radius: 6px;
+  background: var(--tg-line);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.tg-result-shared-status [role='progressbar'] > span {
+  display: block;
+  height: 100%;
+  background: var(--tg-accent);
+}
+.tg-result-wheel {
+  display: block !important;
+  width: min(100%, 260px);
+  height: auto;
+  margin: 0 auto 16px;
+}
 .tg-result .tg-result-footnote {
   max-width: 78ch;
   font-size: 0.84rem;
@@ -456,7 +491,7 @@
 .tg-result-exits > li > span:last-child {
   color: var(--tg-muted);
 }
-.tg-result-replaying .tg-result-race li:not(.is-concealed) .tg-result-runner {
+.tg-result-revealing .tg-result-race li:not(.is-concealed) .tg-result-runner {
   animation: tg-result-finish 0.45s ease-out both;
 }
 @keyframes tg-result-finish {

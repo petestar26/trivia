@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, ShieldCheck, Clock3, Trophy, ArrowRight, Wallet, Download } from 'lucide-react';
 import {
@@ -12,6 +12,8 @@ import {
   type TogetherCurrency,
   type TogetherSettings,
   type TogetherSnapshot,
+  type TogetherActivityRound,
+  togetherRevealTimeline,
 } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
@@ -45,17 +47,11 @@ type Lobby = {
   groups: Group[];
   balances: TogetherSnapshot['balances'];
   legacyPending: boolean;
-  rounds: {
-    id: string;
+  rounds: (Omit<TogetherActivityRound, 'groupName'> & {
     groupId: string | null;
-    game: TogetherGame;
-    currency: TogetherCurrency;
-    entryAmount: number;
-    state: string;
-    closesAt: number;
-    participants: number;
+    groupName: string | null;
     feeBps: number;
-  }[];
+  })[];
 };
 type PendingEntry = { requestId: string; termsHash: string; selection: number[] };
 function readPending(key: string): PendingEntry | null {
@@ -191,6 +187,8 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
   const active = s.rounds.find(
     (r) => r.groupId === groupId && ['OPEN', 'LOCKED', 'DRAWN'].includes(r.state)
   );
+  const recentResult = s.rounds.find((r) => ['PAID', 'REFUNDED'].includes(r.state));
+  const liveRounds = s.rounds.filter((r) => ['OPEN', 'LOCKED', 'DRAWN'].includes(r.state));
   const scale = currency === 'ETB' ? 100 : 1;
   const create = () => {
     const entry = Number(amount) * scale;
@@ -216,7 +214,7 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
   };
   return (
     <div className="together-page">
-      {groupId && <GroupSocialNav groupId={groupId} />}
+      {groupId && <GroupSocialNav groupId={groupId} showRoundActivity={false} />}
       <header className="together-hero">
         <div>
           <p className="together-eyebrow">
@@ -236,6 +234,59 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
           </div>
         </div>
       </header>
+      <ol className="together-journey" aria-label="How group play works">
+        <li>
+          <b>1</b>
+          <span>
+            <strong>Choose together</strong>
+            <small>The owner publishes. Each player confirms their own entry.</small>
+          </span>
+        </li>
+        <li>
+          <b>2</b>
+          <span>
+            <strong>Watch together</strong>
+            <small>Every member can watch the same round for free.</small>
+          </span>
+        </li>
+        <li>
+          <b>3</b>
+          <span>
+            <strong>See the result</strong>
+            <small>Results are saved and payouts arrive automatically.</small>
+          </span>
+        </li>
+      </ol>
+      {(liveRounds.length > 0 || recentResult) && (
+        <section className="together-panel together-room-doorway" aria-label="Your group rounds">
+          <h2>{groupId ? 'Your group’s shared screen' : 'Happening in your groups'}</h2>
+          <p>Open a round to watch. Only your own confirmation places an entry.</p>
+          <div className="together-history">
+            {liveRounds.map((r) => (
+              <Link key={r.id} to={'/play-together/rounds/' + r.id}>
+                <span>
+                  <strong>{togetherGame(r.game).name}</strong>
+                  <small>
+                    {r.groupName ?? 'Shared room'} · {r.participants} confirmed ·{' '}
+                    {money(r.entryAmount, r.currency)} per entry
+                  </small>
+                </span>
+                <span>{r.state === 'OPEN' ? 'Watch or join round' : 'Watch round'} →</span>
+              </Link>
+            ))}
+            {recentResult && (
+              <Link to={'/play-together/rounds/' + recentResult.id + '#group-results'}>
+                <span>
+                  <strong>{togetherGame(recentResult.game).name}</strong>
+                  <small>{recentResult.groupName ?? 'Shared room'} · Latest completed round</small>
+                </span>
+                <span>View group result →</span>
+              </Link>
+            )}
+          </div>
+          <a href="#round-history">All rounds and results ↓</a>
+        </section>
+      )}
       <div className="together-mode" role="group" aria-label="Choose balance">
         <button
           aria-pressed={currency === 'GAME_POINTS'}
@@ -313,61 +364,53 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
           a new one.
         </p>
       )}
-      <section aria-labelledby="together-games-title">
-        <h2 id="together-games-title">Find your group’s game</h2>
-        <div className="together-game-grid">
-          {TOGETHER_GAMES.map((g) => {
-            const enabled = s.settings.enabledGames.includes(g.key);
-            return (
-              <button
-                key={g.key}
-                className={'together-game ' + (game === g.key ? 'selected' : '')}
-                disabled={!enabled || busy}
-                aria-pressed={game === g.key}
-                onClick={() => setGame(g.key)}
-              >
-                <div className="together-art">
-                  <GameArtwork kind={g.key} practiceAvailable={enabled} />
-                </div>
-                <strong>{g.name}</strong>
-                <span>{enabled ? 'View group rules' : 'Group mode preparing'}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-      <section className="together-panel">
-        <p className="together-eyebrow">The rules, before you enter</p>
-        <h2>{togetherGame(game).name}</h2>
-        <p>{togetherGame(game).rules}</p>
-        <p>{togetherGameGuide(game).choiceNote}</p>
-        <ul>
-          {togetherGameGuide(game).mechanics.map((line) => (
-            <li key={line}>{line}</li>
+      <details className="together-catalogue" open={!groupId || (own && !active)}>
+        <summary>Choose a game and read the rules</summary>
+        <section aria-labelledby="together-games-title">
+          <h2 id="together-games-title">Find your group’s game</h2>
+          <div className="together-game-grid">
+            {TOGETHER_GAMES.map((g) => {
+              const enabled = s.settings.enabledGames.includes(g.key);
+              return (
+                <button
+                  key={g.key}
+                  className={'together-game ' + (game === g.key ? 'selected' : '')}
+                  disabled={!enabled || busy}
+                  aria-pressed={game === g.key}
+                  onClick={() => setGame(g.key)}
+                >
+                  <div className="together-art">
+                    <GameArtwork kind={g.key} practiceAvailable={enabled} />
+                  </div>
+                  <strong>{g.name}</strong>
+                  <span>{enabled ? 'View group rules' : 'Group mode preparing'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+        <section className="together-panel">
+          <p className="together-eyebrow">The rules, before you enter</p>
+          <h2>{togetherGame(game).name}</h2>
+          <p>{togetherGame(game).rules}</p>
+          <p>{togetherGameGuide(game).choiceNote}</p>
+          <ul>
+            {togetherGameGuide(game).mechanics.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {togetherGameGuide(game).fixtureNotes?.map((note) => (
+            <p key={note}>{note}</p>
           ))}
-        </ul>
-        {togetherGameGuide(game).fixtureNotes?.map((note) => (
-          <p key={note}>{note}</p>
-        ))}
-        <p>{togetherGameGuide(game).tieRule}</p>
-        <p>
-          <ShieldCheck size={16} /> The fee is {s.settings.feeBps / 100}% of winning profit before
-          fees. No additional entry or winner fee.
-        </p>
-      </section>
+          <p>{togetherGameGuide(game).tieRule}</p>
+          <p>
+            <ShieldCheck size={16} /> The fee is {s.settings.feeBps / 100}% of winning profit before
+            fees. No additional entry or winner fee.
+          </p>
+        </section>
+      </details>
       {groupId ? (
-        active ? (
-          <section className="together-panel">
-            <h2>Your group’s current round</h2>
-            <p>
-              {togetherGame(active.game).name} · {money(active.entryAmount, active.currency)} entry
-              · {active.participants} confirmed
-            </p>
-            <Link className="together-primary" to={'/play-together/rounds/' + active.id}>
-              Open round <ArrowRight size={17} />
-            </Link>
-          </section>
-        ) : own ? (
+        active ? null : own ? (
           <section className="together-panel">
             <h2>Create a round</h2>
             <p>
@@ -491,20 +534,21 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
         </section>
       )}
       {s.rounds.length > 0 && (
-        <section className="together-panel">
-          <h2>Rounds and receipts</h2>
+        <section className="together-panel" id="round-history">
+          <h2>Rounds and results</h2>
           <div className="together-history">
             {s.rounds.map((r) => (
               <Link key={r.id} to={'/play-together/rounds/' + r.id}>
                 <span>
                   <strong>{togetherGame(r.game).name}</strong>
                   <small>
+                    {r.groupName ? r.groupName + ' · ' : ''}
                     {money(r.entryAmount, r.currency)} entry · {r.participants} players
                   </small>
                 </span>
                 <span>
                   {r.state === 'PAID'
-                    ? 'Paid'
+                    ? 'View result'
                     : r.state === 'REFUNDED'
                       ? 'Refunded'
                       : r.state === 'OPEN'
@@ -525,12 +569,14 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
 }
 
 function TogetherRound({ userId, roundId }: { userId: string; roundId: string }) {
+  const location = useLocation();
   const cache = useQueryClient(),
     [clock, setClock] = useState(performance.now()),
     [picks, setPicks] = useState<number[]>([]);
   const [crashText, setCrashText] = useState(''),
     [notice, setNotice] = useState(''),
-    [checking, setChecking] = useState(false);
+    [checking, setChecking] = useState(false),
+    [shareNotice, setShareNotice] = useState('');
   const key = 'together-entry:' + userId + ':' + roundId,
     termsKey = 'together-terms:' + userId + ':' + roundId;
   const [pending, setPending] = useState<PendingEntry | null>(() => readPending(key));
@@ -561,6 +607,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
     void cache.invalidateQueries({ queryKey: ['together-round', userId, roundId] });
     void cache.invalidateQueries({ queryKey: ['together-lobby', userId] });
     void cache.invalidateQueries({ queryKey: ['wallet', userId] });
+    void cache.invalidateQueries({ queryKey: ['together-group-activity', userId] });
   };
   const mutation = useMutation({
     mutationFn: async (action: {
@@ -614,6 +661,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
   });
   const s = query.data?.snapshot,
     r = s?.round;
+  useEffect(() => {
+    if (r?.id && location.hash === '#group-results') {
+      document.getElementById('group-results')?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [r?.id, location.hash]);
   const age = query.data ? Math.max(clock, performance.now()) - query.data.sent : Infinity;
   const connected =
     !!query.data &&
@@ -621,7 +673,15 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
     !query.isPaused &&
     age < 5000 &&
     query.data.received - query.data.sent < 2000;
+  // Entry deadlines stay conservative. Presentation uses a separate midpoint
+  // estimate so network round trips do not advance the shared reveal by a full RTT.
   const now = s ? s.serverTime + age : 0;
+  const visualNow =
+    s && query.data && connected
+      ? s.serverTime +
+        (query.data.received - query.data.sent) / 2 +
+        Math.max(0, Math.max(clock, performance.now()) - query.data.received)
+      : null;
   const ownEntries =
     r?.entries.filter((e) => e.userId === userId).sort((a, b) => b.createdAt - a.createdAt) ?? [];
   const mine = ownEntries.find((e) => e.state !== 'REFUNDED') ?? ownEntries[0];
@@ -734,6 +794,24 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
       setChecking(false);
     }
   };
+  const copyLink = async () => {
+    const url = new URL('/play-together/rounds/' + roundId, window.location.origin).href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareNotice(
+        'Round link copied. Group members can open it to watch or confirm their own entry.'
+      );
+    } catch {
+      setShareNotice('Copy this round link: ' + url);
+    }
+  };
+  const reveal = togetherRevealTimeline(r, visualNow);
+  const roundStep =
+    paid && (reveal.phase === 'complete' || !r.outcome)
+      ? 3
+      : r.state === 'OPEN' && seconds > 0
+        ? 1
+        : 2;
   const download = () => {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' })
@@ -747,7 +825,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
   return (
     <div className="together-page">
       {r.groupId ? (
-        <GroupSocialNav groupId={r.groupId} />
+        <GroupSocialNav groupId={r.groupId} showRoundActivity={false} roundOpen />
       ) : (
         <Link to="/play-together">← Shared rooms</Link>
       )}
@@ -776,6 +854,25 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </div>
         </div>
       </header>
+      <div className="together-watch-tools">
+        <p>
+          <strong>One round for the whole group.</strong> Watching is free. Choices stay private
+          until betting closes.
+        </p>
+        <div>
+          <button onClick={() => void copyLink()}>Copy round link</button>
+          <a href="#group-results">Participants &amp; results ↓</a>
+        </div>
+        {shareNotice && <p role="status">{shareNotice}</p>}
+      </div>
+      <ol className="together-journey" aria-label="Round progress">
+        {['Confirm entries', 'Watch together', 'Results & payouts'].map((label, i) => (
+          <li key={label} aria-current={roundStep === i + 1 ? 'step' : undefined}>
+            <b>{i + 1}</b>
+            <strong>{label}</strong>
+          </li>
+        ))}
+      </ol>
       <div className="together-status">
         <span role="timer">
           <Clock3 size={17} />
@@ -837,18 +934,43 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </button>
         </div>
       )}
-      <TogetherGameResult round={r} userId={userId} />
+      {!r.outcome && !paid && (
+        <section className="together-panel together-waiting" aria-label="Shared game screen">
+          <p className="together-eyebrow">Your group’s shared screen</p>
+          <h2>
+            {r.state === 'OPEN' && seconds > 0
+              ? 'Everyone gets ready here'
+              : 'Getting the shared result ready'}
+          </h2>
+          <p>
+            {r.state === 'OPEN' && seconds > 0
+              ? 'Choose and confirm your own entry below, or stay here to watch for free. The shared reveal starts automatically after entries close and the result is saved.'
+              : 'Entries are closed. Keep this screen open; the saved result will appear automatically for every member.'}
+          </p>
+          <small>
+            Return to this round at any time. Reconnecting catches up to the shared view, and
+            completed results stay available.
+          </small>
+        </section>
+      )}
+      <TogetherGameResult round={r} userId={userId} serverNow={visualNow} />
       <div className="together-columns">
         <section className="together-panel">
           <p className="together-eyebrow">Your choice</p>
           <h2>
-            {paid ? 'Round complete' : confirmed ? 'Your confirmed entry' : 'Choose your entry'}
+            {paid
+              ? 'Round complete'
+              : confirmed
+                ? 'Your confirmed entry'
+                : r.state === 'OPEN' && seconds > 0
+                  ? 'Choose your entry or watch'
+                  : 'You’re watching'}
           </h2>
           <p>
             {money(r.entryAmount, r.currency)} per player. {r.feeBps / 100}% fee on winning profit
             before fees.
           </p>
-          {!paid && (
+          {!paid && (open || confirmed) && (
             <TogetherSelection
               game={r.game}
               selected={selected}
@@ -858,7 +980,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               onCrashText={setCrashText}
             />
           )}
-          {!confirmed && !paid && (
+          {!confirmed && !paid && r.state === 'OPEN' && seconds > 0 && (
             <div className="together-confirm">
               <dl>
                 <div>
@@ -914,6 +1036,14 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               )}
             </div>
           )}
+          {!confirmed && !mine && (
+            <p className="together-notice">
+              You’re watching. No entry has been charged.{' '}
+              {paid
+                ? 'You can see the group’s result and payouts below.'
+                : 'Only clicking the confirmation button enters you in this round.'}
+            </p>
+          )}
           {paid && mine && (
             <div className="together-personal-result">
               <Trophy size={27} />
@@ -940,9 +1070,13 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
             </button>
           )}
         </section>
-        <section className="together-panel">
+        <section
+          className="together-panel"
+          id="group-results"
+          aria-label="Group participants and results"
+        >
           <p className="together-eyebrow">Everyone sees the same round</p>
-          <h2>Confirmed participants</h2>
+          <h2>{paid ? 'Group result and payouts' : 'Confirmed participants'}</h2>
           <div className="together-pool">
             <span>Funded pool</span>
             <strong>{money(r.settlement?.funded ?? funded * r.entryAmount, r.currency)}</strong>

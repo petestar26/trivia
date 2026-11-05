@@ -249,7 +249,7 @@ try {
         ...fixture.round,
         ...fixture.derived,
         state: 'PAID',
-        paidAt: Date.now(),
+        paidAt: Date.now() - 60000,
         rosterHash: togetherRosterHash(fixture.tickets),
         entries: fixture.entries.map((entry) => ({
           ...entry,
@@ -262,13 +262,16 @@ try {
       assert.equal(await page.getByText('Result display unavailable', { exact: true }).count(), 0);
       assert.equal(await page.getByText(/It will settle automatically/).count(), 0);
       await capture(game.key, 'paid');
-      const replay = page.getByRole('button', { name: 'Replay reveal', exact: true });
+      const replay = page.getByRole('button', { name: 'Replay for me', exact: true });
       if (await replay.count()) {
         await replay.click();
         await page
-          .getByText('Replaying the saved result. Your entry and wallet are unchanged.', {
-            exact: true,
-          })
+          .getByText(
+            'Your personal replay. The group’s result and everyone’s wallet are unchanged.',
+            {
+              exact: true,
+            }
+          )
           .waitFor();
         await page.getByRole('button', { name: 'Show final result', exact: true }).click();
         assert.equal(writes.length, 1, 'Replay must not submit a financial action');
@@ -296,7 +299,7 @@ try {
     };
     await page.goto(origin + '/play-together/rounds/' + fixture.round.id);
     await page.getByRole('heading', { name: 'Entries returned', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Replay reveal', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Replay for me', exact: true }).count(), 0);
     await capture('roulette_keno', 'refund');
     fixture = roundFixture('sky_crash', width, 'worker-paused');
     workerReady = false;

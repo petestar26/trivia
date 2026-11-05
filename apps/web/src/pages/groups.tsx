@@ -177,7 +177,7 @@ export function GroupsPage() {
           </label>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
             <strong>Chat, gifts and PVP games</strong>
-            <p className="mt-1">Public and private groups have a game room. Members join and confirm their entry, then the owner starts a 30-second countdown.</p>
+            <p className="mt-1">The owner publishes a round with a 2-, 5- or 10-minute entry window. Each member confirms their own entry. Betting closes automatically, and group members can watch for free.</p>
           </div>
 
           {formError && (

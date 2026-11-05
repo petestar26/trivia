@@ -7,6 +7,7 @@ import { togetherRoutes } from './routes.js';
 const m = vi.hoisted(() => ({
   actor: vi.fn(),
   lobby: vi.fn(),
+  activity: vi.fn(),
   snapshot: vi.fn(),
   enter: vi.fn(),
   withdraw: vi.fn(),
@@ -45,6 +46,50 @@ it('requires current authentication and makes every response non-cacheable', asy
   expect(r.statusCode).toBe(401);
   expect(r.headers['cache-control']).toBe('private, no-store');
   expect(m.lobby).not.toHaveBeenCalled();
+});
+it('requires authentication before reading a group activity banner', async () => {
+  const response = await app.inject('/play-together/groups/' + randomUUID() + '/activity');
+  expect(response.statusCode).toBe(401);
+  expect(response.headers['cache-control']).toBe('private, no-store');
+  expect(m.activity).not.toHaveBeenCalled();
+});
+it('reads group activity as the authenticated member and rejects an invalid group ID', async () => {
+  const groupId = randomUUID();
+  m.activity.mockResolvedValue({ serverTime: 12345, activeRound: null, latestResult: null });
+  const response = await app.inject({
+    url: '/play-together/groups/' + groupId + '/activity',
+    headers: { authorization },
+  });
+  expect(response.statusCode).toBe(200);
+  expect(m.activity).toHaveBeenCalledWith('actor', groupId);
+  expect(response.json().data).toEqual({
+    serverTime: 12345,
+    activeRound: null,
+    latestResult: null,
+  });
+  expect(response.headers['cache-control']).toBe('private, no-store');
+  m.activity.mockClear();
+  expect(
+    (
+      await app.inject({
+        url: '/play-together/groups/not-a-group-id/activity',
+        headers: { authorization },
+      })
+    ).statusCode
+  ).toBe(400);
+  expect(m.activity).not.toHaveBeenCalled();
+});
+it('rejects suspended accounts before reading group activity', async () => {
+  m.actor.mockResolvedValue({ status: 'SUSPENDED', role: 'USER', tokenVersion: 0 });
+  expect(
+    (
+      await app.inject({
+        url: '/play-together/groups/' + randomUUID() + '/activity',
+        headers: { authorization },
+      })
+    ).statusCode
+  ).toBe(403);
+  expect(m.activity).not.toHaveBeenCalled();
 });
 it('accepts only the authenticated member as the entry owner', async () => {
   const body = { requestId: randomUUID(), termsHash: 'a'.repeat(64), selection: [] };

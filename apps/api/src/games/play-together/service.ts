@@ -22,6 +22,8 @@ import {
   type TogetherSettings,
   type TogetherSnapshot,
   type TogetherTerms,
+  type TogetherActivityRound,
+  type TogetherGroupActivity,
 } from '@socialplay/shared';
 import { ApiError } from '../../middleware/api-error.js';
 import { applyBalanceChanges, getOrCreateWallet } from '../../economy/wallet-service.js';
@@ -723,6 +725,7 @@ export function createTogetherService(
       const list = await rows<{
         id: string;
         groupId: string | null;
+        groupName: string | null;
         game: TogetherGame;
         currency: TogetherCurrency;
         entryAmount: number;
@@ -733,11 +736,11 @@ export function createTogetherService(
         createdAt: Date;
       }>(
         tx,
-        'SELECT r.id,r.group_id AS "groupId",r.game,r.currency,r.entry_amount AS "entryAmount",r.fee_bps AS "feeBps",r.state,r.closes_at AS "closesAt",r.created_at AS "createdAt",' +
+        'SELECT r.id,r.group_id AS "groupId",g.name AS "groupName",r.game,r.currency,r.entry_amount AS "entryAmount",r.fee_bps AS "feeBps",r.state,r.closes_at AS "closesAt",r.created_at AS "createdAt",' +
           "(SELECT count(*)::int FROM play_together_entries e WHERE e.round_id=r.id AND (e.state<>'REFUNDED' OR e.id=ANY(r.locked_entry_ids))) AS participants " +
-          'FROM play_together_rounds r WHERE ($2::text IS NULL OR r.group_id=$2) AND ' +
+          'FROM play_together_rounds r LEFT JOIN groups g ON g.id=r.group_id WHERE ($2::text IS NULL OR r.group_id=$2) AND ' +
           "((r.group_id IS NULL AND r.state IN ('OPEN','LOCKED','DRAWN')) OR EXISTS(SELECT 1 FROM group_members m WHERE m.\"groupId\"=r.group_id AND m.\"userId\"=$1 AND m.status IN ('ACTIVE','MUTED')) OR EXISTS(SELECT 1 FROM play_together_entries e WHERE e.round_id=r.id AND e.user_id=$1)) " +
-          'ORDER BY r.created_at DESC,r.id DESC LIMIT 50',
+          "ORDER BY CASE WHEN r.state IN ('OPEN','LOCKED','DRAWN') THEN 0 ELSE 1 END,r.paid_at DESC NULLS FIRST,r.created_at DESC,r.id DESC LIMIT 50",
         userId,
         groupId ?? null
       );
@@ -765,6 +768,33 @@ export function createTogetherService(
           createdAt: r.createdAt.getTime(),
         })),
         legacyPending,
+      };
+    });
+  }
+  async function activity(userId: string, groupId: string): Promise<TogetherGroupActivity> {
+    return transaction(async (tx) => {
+      const group = await context(tx, userId, groupId, { read: true });
+      if (!group) throw ApiError.notFound('Group not found');
+      const list = await rows<
+        Omit<TogetherActivityRound, 'closesAt' | 'groupName'> & { closesAt: Date }
+      >(
+        tx,
+        "SELECT DISTINCT ON ((r.state IN ('OPEN','LOCKED','DRAWN'))) " +
+          'r.id,r.game,r.currency,r.entry_amount AS "entryAmount",r.state,r.closes_at AS "closesAt",' +
+          '(SELECT count(*)::int FROM play_together_entries e WHERE e.round_id=r.id AND ' +
+          "(e.state<>'REFUNDED' OR e.id=ANY(r.locked_entry_ids))) AS participants " +
+          'FROM play_together_rounds r WHERE r.group_id=$1 ' +
+          "ORDER BY (r.state IN ('OPEN','LOCKED','DRAWN')) DESC,r.paid_at DESC NULLS FIRST,r.created_at DESC,r.id DESC",
+        groupId
+      );
+      const summarize = (value: (typeof list)[number] | undefined): TogetherActivityRound | null =>
+        value ? { ...value, closesAt: value.closesAt.getTime(), groupName: group.name } : null;
+      return {
+        serverTime: (await dbTime(tx)).getTime(),
+        activeRound: summarize(
+          list.find((value) => ['OPEN', 'LOCKED', 'DRAWN'].includes(value.state))
+        ),
+        latestResult: summarize(list.find((value) => ['PAID', 'REFUNDED'].includes(value.state))),
       };
     });
   }
@@ -911,6 +941,7 @@ export function createTogetherService(
     recover,
     snapshot,
     lobby,
+    activity,
     settings,
     operations,
     refillPractice,

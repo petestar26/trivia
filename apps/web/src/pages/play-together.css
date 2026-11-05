@@ -625,3 +625,105 @@
 .together-rule-note li {
   margin: 6px 0;
 }
+
+.together-journey {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 20px 0;
+  padding: 0;
+}
+.together-journey li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--tg-line);
+  border-radius: 14px;
+  padding: 14px;
+  font-size: 0.85rem;
+}
+.together-journey li[aria-current='step'] {
+  border-color: var(--tg-accent);
+  background: var(--tg-soft);
+}
+.together-journey b {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--tg-soft);
+  color: var(--tg-accent);
+}
+.together-journey strong {
+  display: block;
+}
+.together-room-doorway > a {
+  display: inline-block;
+  margin-top: 14px;
+}
+.together-watch-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.together-watch-tools > p {
+  flex: 1 1 320px;
+  margin: 0;
+}
+.together-watch-tools > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.together-watch-tools > p[role='status'] {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.together-waiting {
+  margin: 20px 0;
+  text-align: center;
+}
+.together-waiting .together-eyebrow {
+  justify-content: center;
+}
+.together-catalogue {
+  border: 1px solid var(--tg-line);
+  border-radius: 18px;
+  padding: 18px;
+}
+.together-catalogue > section {
+  margin-top: 24px;
+}
+#group-results,
+#round-history {
+  scroll-margin-top: 90px;
+}
+@media (max-width: 560px) {
+  .together-journey {
+    gap: 6px;
+  }
+  .together-journey li {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px;
+    font-size: 0.75rem;
+  }
+  .together-journey small {
+    font-size: 0.7rem;
+  }
+  .together-room-doorway .together-history > a {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+}
+
+.together-page a.group-nav-active {
+  color: #fff;
+}

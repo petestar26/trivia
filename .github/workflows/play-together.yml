@@ -20,6 +20,9 @@ on:
       - 'apps/api/vitest.together*.ts'
       - 'apps/web/src/pages/play-together*'
       - 'apps/web/src/components/together/**'
+      - 'apps/web/src/components/groups/group-round-activity*'
+      - 'apps/web/src/components/groups/group-social-nav.tsx'
+      - 'apps/web/src/pages/groups.tsx'
       - 'apps/web/src/pages/workspaces/group-play-control*'
       - 'apps/web/src/lib/together-proof*'
       - 'apps/web/src/lib/member-game-catalog*'
@@ -92,10 +95,10 @@ jobs:
       - name: Rules, consent, proof and access checks
         if: matrix.postgres == 16
         run: |
-          pnpm --filter @socialplay/shared exec vitest run src/play-together.test.ts src/together-game-guide.test.ts src/group-pvp.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
+          pnpm --filter @socialplay/shared exec vitest run src/play-together.test.ts src/together-game-guide.test.ts src/together-presentation.test.ts src/group-pvp.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
           pnpm --filter api exec vitest run --config vitest.together.config.ts
           pnpm --filter api test:scheduled-practice
-          pnpm --filter web exec vitest run src/lib/together-proof.test.ts src/pages/play-together.test.tsx src/pages/play-together-selection.test.tsx src/components/together/together-game-result.test.tsx src/lib/member-game-catalog.test.ts src/pages/home.test.tsx src/app-game-sections.test.tsx src/pages/group-games.test.tsx --minWorkers=1 --maxWorkers=1
+          pnpm --filter web exec vitest run src/lib/together-proof.test.ts src/pages/play-together.test.tsx src/pages/play-together-selection.test.tsx src/components/together/together-game-result.test.tsx src/components/groups/group-round-activity.test.tsx src/lib/member-game-catalog.test.ts src/pages/home.test.tsx src/app-game-sections.test.tsx src/pages/group-games.test.tsx --minWorkers=1 --maxWorkers=1
           pnpm --filter web exec vitest run src/lib/sky-crash-catalog.test.ts src/lib/football-catalog.test.ts src/lib/derby-catalog.test.ts src/lib/system-practice-catalog.test.ts src/lib/number-challenge-catalog.test.ts src/components/member/dashboard-highlights.test.tsx src/components/layout/mobile-navigation.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Production builds
         if: matrix.postgres == 16

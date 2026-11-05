@@ -78,6 +78,19 @@ export async function togetherRoutes(server: FastifyInstance) {
       data: { roundId: await service.create(request.user.sub, request.body) },
     })
   );
+  server.get<{ Params: { groupId: string } }>(
+    '/groups/:groupId/activity',
+    {
+      schema: {
+        params: { type: 'object', required: ['groupId'], properties: { groupId: id } },
+      },
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    },
+    async (request) => ({
+      success: true,
+      data: await service.activity(request.user.sub, request.params.groupId),
+    })
+  );
   server.post<{ Body: { game: TogetherGame; currency: TogetherCurrency } }>(
     '/public',
     {

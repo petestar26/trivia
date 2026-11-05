@@ -4,6 +4,8 @@ import {
   bjCard,
   bjResult,
   bjTotal,
+  togetherRevealTimeline,
+  TOGETHER_REVEAL_DURATION_MS,
   type TogetherEntryView,
   type TogetherRoundView,
 } from '@socialplay/shared';
@@ -111,21 +113,40 @@ function currentEntries(round: TogetherRoundView) {
   return round.entries.filter((e) => e.state !== 'REFUNDED');
 }
 
-/** Uses only the recorded server result. Replays never affect entries or wallets. */
+/** Uses only the recorded server result. Viewing and replay never change wallets. */
 export function TogetherGameResult({
   round,
   userId,
+  serverNow,
 }: {
   round: TogetherRoundView;
   userId: string;
+  serverNow: number | null;
 }) {
   if (!supported.has(round.game) || round.state === 'OPEN' || round.state === 'LOCKED') return null;
-  return <RecordedResult key={round.id + ':' + round.termsHash} round={round} userId={userId} />;
+  return (
+    <RecordedResult
+      key={round.id + ':' + round.termsHash}
+      round={round}
+      userId={userId}
+      serverNow={serverNow}
+    />
+  );
 }
 
-function RecordedResult({ round, userId }: { round: TogetherRoundView; userId: string }) {
+function RecordedResult({
+  round,
+  userId,
+  serverNow,
+}: {
+  round: TogetherRoundView;
+  userId: string;
+  serverNow: number | null;
+}) {
   const headingId = useId();
-  const [shown, setShown] = useState<number | null>(null);
+  const [showFinal, setShowFinal] = useState(false);
+  const [personalStart, setPersonalStart] = useState<number | null>(null);
+  const [personalNow, setPersonalNow] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(
     () =>
       typeof window.matchMedia === 'function' &&
@@ -136,42 +157,63 @@ function RecordedResult({ round, userId }: { round: TogetherRoundView; userId: s
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     const change = () => {
       setReducedMotion(media.matches);
-      if (media.matches) setShown(null);
+      if (media.matches) setPersonalStart(null);
     };
     media.addEventListener?.('change', change);
     return () => media.removeEventListener?.('change', change);
   }, []);
-  const race = round.game === 'thunder_derby_3d' || round.game === 'neon_hounds_3d';
-  const keno =
-    round.game === 'roulette_keno' || round.game === 'lucky_six' || round.game === 'turbo_keno';
-  const total = race
-    ? 8
-    : keno
-      ? round.game === 'lucky_six'
-        ? 35
-        : round.game === 'turbo_keno'
-          ? 20
-          : 18
-      : round.game === 'blackjack'
-        ? 7
-        : 3;
-  const replayable =
-    keno || race || round.game === 'blackjack' || round.game === 'virtual_football_3d';
-  const valid = displayable(round);
+  const timeline = togetherRevealTimeline(round, serverNow);
+  const hasClock = typeof serverNow === 'number' && Number.isFinite(serverNow) && serverNow > 0;
+  const activeShared = timeline.phase === 'scheduled' || timeline.phase === 'revealing';
+  const canReplay =
+    hasClock && timeline.phase === 'complete' && round.paidAt !== null && !reducedMotion;
+  const personal = personalStart !== null && canReplay;
   useEffect(() => {
-    if (shown === null || reducedMotion || !valid) return;
-    const timer = window.setTimeout(
-      () => setShown(shown + 1 >= total ? null : shown + 1),
-      keno ? 180 : 650
-    );
-    return () => window.clearTimeout(timer);
-  }, [shown, reducedMotion, valid, total, keno]);
+    if (personalStart === null) return;
+    if (!canReplay) {
+      setPersonalStart(null);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      setPersonalNow(now);
+      if (now - personalStart >= TOGETHER_REVEAL_DURATION_MS) setPersonalStart(null);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [personalStart, canReplay]);
+  const shared = activeShared && !showFinal && !reducedMotion;
+  const progress = personal
+    ? Math.max(0, Math.min(1, (personalNow - personalStart!) / TOGETHER_REVEAL_DURATION_MS))
+    : shared
+      ? timeline.progress
+      : 1;
+  const mode = personal ? 'personal' : shared ? 'shared' : 'final';
+  const race = round.game === 'thunder_derby_3d' || round.game === 'neon_hounds_3d';
+  const keno = ['roulette_keno', 'lucky_six', 'turbo_keno'].includes(round.game);
   const entries = currentEntries(round);
   const mine = entries.find((e) => e.userId === userId);
-  const visible = shown ?? total;
+  const total = keno
+    ? (round.outcome?.numbers.length ?? 0)
+    : race
+      ? 8
+      : round.game === 'blackjack'
+        ? 7
+        : round.game === 'virtual_football_3d'
+          ? 3
+          : round.game === 'dice'
+            ? entries.length
+            : 1;
+  const visible = Math.floor(total * progress);
+  const valid = displayable(round);
   if (!round.outcome && round.state === 'REFUNDED')
     return (
-      <section className="tg-result tg-result-refund" aria-labelledby={headingId}>
+      <section
+        className="tg-result tg-result-refund"
+        aria-labelledby={headingId}
+        data-reveal-phase="complete"
+        data-reveal-mode="final"
+        data-reveal-progress="1"
+      >
         <h2 id={headingId}>Entries returned</h2>
         <p>
           This round ended without a draw. Every confirmed entry was returned in full, with no fee.
@@ -190,13 +232,17 @@ function RecordedResult({ round, userId }: { round: TogetherRoundView; userId: s
     );
   return (
     <section
-      className={'tg-result' + (shown !== null ? ' tg-result-replaying' : '')}
+      className={'tg-result' + (progress < 1 ? ' tg-result-revealing' : '')}
       aria-labelledby={headingId}
+      data-reveal-phase={timeline.phase}
+      data-reveal-mode={mode}
+      data-reveal-progress={progress}
     >
       <div className="tg-result-header">
         <div>
           <p className="tg-result-kicker">
-            <Flag size={15} /> Recorded result
+            <Flag size={15} />
+            {shared ? 'Shared reveal' : personal ? 'Your replay' : 'Recorded result'}
           </p>
           <h2 id={headingId}>
             {race
@@ -216,16 +262,82 @@ function RecordedResult({ round, userId }: { round: TogetherRoundView; userId: s
                           : 'The crash result'}
           </h2>
         </div>
-        {replayable && !reducedMotion && (
-          <button type="button" onClick={() => setShown(shown === null ? 0 : null)}>
-            {shown === null ? <RotateCcw size={16} /> : <SkipForward size={16} />}
-            {shown === null ? 'Replay reveal' : 'Show final result'}
-          </button>
-        )}
+        <div className="tg-result-controls">
+          {shared || personal ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowFinal(true);
+                setPersonalStart(null);
+              }}
+            >
+              <SkipForward size={16} />
+              Show final result
+            </button>
+          ) : activeShared && !reducedMotion ? (
+            <button type="button" onClick={() => setShowFinal(false)}>
+              Rejoin shared reveal
+            </button>
+          ) : canReplay ? (
+            <button
+              type="button"
+              onClick={() => {
+                const now = performance.now();
+                setPersonalNow(now);
+                setPersonalStart(now);
+                setShowFinal(false);
+              }}
+            >
+              <RotateCcw size={16} />
+              Replay for me
+            </button>
+          ) : null}
+        </div>
       </div>
-      {shown !== null && (
+      {shared && (
+        <div className="tg-result-shared-status">
+          <p role="status">
+            {timeline.phase === 'scheduled'
+              ? 'The group reveal starts in ' +
+                Math.max(0, Math.ceil((timeline.startsAt! - serverNow!) / 1000)) +
+                ' seconds.'
+              : 'Watching together. The group follows one shared reveal.'}
+          </p>
+          <div
+            role="progressbar"
+            aria-label="Shared reveal progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.floor(timeline.progress * 100)}
+          >
+            <span style={{ width: timeline.progress * 100 + '%' }} />
+          </div>
+          <small>You can view the final result at any time. Your payout is shown below.</small>
+        </div>
+      )}
+      {personal && (
         <p className="tg-result-replay-note" role="status">
-          Replaying the saved result. Your entry and wallet are unchanged.
+          Your personal replay. The group’s result and everyone’s wallet are unchanged.
+        </p>
+      )}
+      {!hasClock && (
+        <p className="tg-result-replay-note" role="status">
+          Showing the saved final result while the shared clock reconnects.
+        </p>
+      )}
+      {hasClock && reducedMotion && activeShared && (
+        <p className="tg-result-replay-note">
+          Showing the final result with reduced motion. The group’s reveal continues.
+        </p>
+      )}
+      {hasClock && !reducedMotion && showFinal && activeShared && (
+        <p className="tg-result-replay-note">
+          You’re viewing the final result. The group’s reveal continues.
+        </p>
+      )}
+      {timeline.phase === 'awaiting' && hasClock && (
+        <p className="tg-result-replay-note">
+          Result recorded. The group reveal will start when settlement completes.
         </p>
       )}
       {round.settlement?.refunds && (
@@ -247,12 +359,18 @@ function RecordedResult({ round, userId }: { round: TogetherRoundView; userId: s
         <BlackjackResult round={round} mine={mine} visible={visible} />
       )}
       {(round.game === 'sky_crash' || round.game === 'crash_point') && (
-        <CrashResult round={round} entries={entries} mine={mine} />
+        <CrashResult round={round} entries={entries} mine={mine} progress={progress} />
       )}
       {(round.game === 'spin_win' ||
         round.game === 'dice' ||
         round.game === 'number_challenge') && (
-        <OriginalResult round={round} entries={entries} mine={mine} />
+        <OriginalResult
+          round={round}
+          entries={entries}
+          mine={mine}
+          visible={visible}
+          progress={progress}
+        />
       )}
     </section>
   );
@@ -262,24 +380,36 @@ function OriginalResult({
   round,
   entries,
   mine,
+  visible,
+  progress,
 }: {
   round: TogetherRoundView;
   entries: TogetherEntryView[];
   mine?: TogetherEntryView;
+  visible: number;
+  progress: number;
 }) {
   const numbers = round.outcome!.numbers;
   const ordered = [...entries].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   if (round.game === 'spin_win')
     return (
       <div className="tg-result-simple">
-        <Trophy size={32} />
-        <p>
-          Winning segment <strong>{numbers[0] + 1}</strong>
+        <SharedWheel entries={ordered} winner={numbers[0]} progress={progress} />
+        <p data-revealed={visible > 0}>
+          {visible > 0 ? (
+            <>
+              Winning segment <strong>{numbers[0] + 1}</strong>
+            </>
+          ) : (
+            'The shared wheel is spinning…'
+          )}
         </p>
-        <h3>
-          {ordered[numbers[0]]?.username}
-          {ordered[numbers[0]]?.id === mine?.id ? ' (you)' : ''}
-        </h3>
+        {visible > 0 && (
+          <h3>
+            {ordered[numbers[0]]?.username}
+            {ordered[numbers[0]]?.id === mine?.id ? ' (you)' : ''}
+          </h3>
+        )}
         <p className="tg-result-footnote">
           Every confirmed entry has one equal segment on the shared wheel.
         </p>
@@ -290,20 +420,27 @@ function OriginalResult({
       <>
         <div className="tg-result-simple">
           <p>Shared target</p>
-          <strong>{numbers[0]}</strong>
+          <strong data-revealed={visible > 0}>{visible > 0 ? numbers[0] : '…'}</strong>
+          {visible === 0 && <p>Revealing the shared target…</p>}
         </div>
         <ul className="tg-result-exits" aria-label="Guesses and distance from the target">
           {ordered.map((entry) => (
-            <li key={entry.id} className={entry.id === mine?.id ? 'is-mine' : ''}>
+            <li
+              key={entry.id}
+              data-revealed={visible > 0}
+              className={entry.id === mine?.id ? 'is-mine' : ''}
+            >
               <span>
                 {entry.username}
                 {entry.id === mine?.id ? ' (you)' : ''}
               </span>
               <strong>{entry.selection?.[0] ?? 'Unavailable'}</strong>
               <span>
-                {entry.selection?.[0] === undefined
-                  ? 'Selection unavailable'
-                  : 'Distance ' + Math.abs(entry.selection[0] - numbers[0])}
+                {visible === 0
+                  ? 'Awaiting target'
+                  : entry.selection?.[0] === undefined
+                    ? 'Selection unavailable'
+                    : 'Distance ' + Math.abs(entry.selection[0] - numbers[0])}
               </span>
             </li>
           ))}
@@ -313,18 +450,79 @@ function OriginalResult({
   return (
     <ul className="tg-result-exits" aria-label="Recorded dice rolls">
       {ordered.map((entry, i) => (
-        <li key={entry.id} className={entry.id === mine?.id ? 'is-mine' : ''}>
+        <li
+          key={entry.id}
+          data-revealed={i < visible}
+          className={entry.id === mine?.id ? 'is-mine' : ''}
+        >
           <span>
             {entry.username}
             {entry.id === mine?.id ? ' (you)' : ''}
           </span>
-          <strong>
-            {numbers[i * 2]} + {numbers[i * 2 + 1]}
-          </strong>
-          <span>Total {numbers[i * 2] + numbers[i * 2 + 1]}</span>
+          <strong>{i < visible ? numbers[i * 2] + ' + ' + numbers[i * 2 + 1] : '— + —'}</strong>
+          <span>
+            {i < visible ? 'Total ' + (numbers[i * 2] + numbers[i * 2 + 1]) : 'Revealing dice…'}
+          </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+function SharedWheel({
+  entries,
+  winner,
+  progress,
+}: {
+  entries: TogetherEntryView[];
+  winner: number;
+  progress: number;
+}) {
+  const segment = 360 / entries.length;
+  const rotation = (1440 - (winner + 0.5) * segment) * (1 - (1 - progress) ** 3);
+  const point = (angle: number, radius: number) => [
+    120 + radius * Math.sin((angle * Math.PI) / 180),
+    120 - radius * Math.cos((angle * Math.PI) / 180),
+  ];
+  return (
+    <svg
+      className="tg-result-wheel"
+      viewBox="0 0 240 240"
+      role="img"
+      aria-label={
+        progress === 1 ? 'Shared wheel, winning segment ' + (winner + 1) : 'Shared wheel reveal'
+      }
+    >
+      <g transform={'rotate(' + rotation + ' 120 120)'}>
+        {entries.map((entry, i) => {
+          const from = point(i * segment, 100),
+            to = point((i + 1) * segment, 100),
+            label = point((i + 0.5) * segment, 76);
+          return (
+            <g key={entry.id}>
+              <path
+                d={`M120 120 L${from.join(' ')} A100 100 0 ${segment > 180 ? 1 : 0} 1 ${to.join(' ')} Z`}
+                fill={i % 2 ? 'var(--tg-soft)' : 'var(--tg-bg)'}
+                stroke="var(--tg-line)"
+              />
+              <text
+                x={label[0]}
+                y={label[1]}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="var(--tg-ink)"
+                fontSize="13"
+                fontWeight="700"
+              >
+                {i + 1}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+      <circle cx="120" cy="120" r="24" fill="var(--tg-panel)" stroke="var(--tg-line)" />
+      <path d="M110 9 L130 9 L120 30 Z" fill="var(--tg-accent)" />
+    </svg>
   );
 }
 
@@ -339,12 +537,16 @@ function KenoResult({
 }) {
   const drawn = round.outcome!.numbers;
   const picks = mine?.selection ?? [];
-  const hits = picks.filter((n) => drawn.includes(n));
+  const hits = picks.filter((n) => drawn.slice(0, visible).includes(n));
   const completion = hits.length === 6 ? Math.max(...picks.map((n) => drawn.indexOf(n))) + 1 : null;
   return (
     <>
       <div className="tg-result-summary">
-        <strong>{drawn.length} balls drawn</strong>
+        <strong>
+          {visible < drawn.length
+            ? visible + ' of ' + drawn.length + ' balls revealed'
+            : drawn.length + ' balls drawn'}
+        </strong>
         {picks.length > 0 && (
           <span>
             Your ticket: <b>{hits.length} matches</b>
@@ -358,12 +560,14 @@ function KenoResult({
         {drawn.map((n, i) => (
           <li
             key={n}
+            data-revealed={i < visible}
             className={
-              (picks.includes(n) ? 'is-match ' : '') + (i >= visible ? 'is-concealed' : '')
+              (i < visible && picks.includes(n) ? 'is-match ' : '') +
+              (i >= visible ? 'is-concealed' : '')
             }
             aria-label={
               i >= visible
-                ? 'Ball ' + (i + 1) + ': waiting for replay'
+                ? 'Ball ' + (i + 1) + ': awaiting reveal'
                 : 'Ball ' + (i + 1) + ': ' + n + (picks.includes(n) ? ', matched your ticket' : '')
             }
           >
@@ -416,7 +620,7 @@ function RaceResult({
         The best finishing {label.toLowerCase()} selected by your group wins. Members who chose the
         same leading pick share the prize.
       </p>
-      {leadingPick !== undefined && (
+      {leadingPick !== undefined && order.indexOf(leadingPick) < visible && (
         <p className="tg-result-group-winner">
           <strong>
             {contestLabel}: {label} {leadingPick}
@@ -430,7 +634,13 @@ function RaceResult({
             Your pick: {label} {selected}
           </strong>
           <span>
-            Finished <b>#{order.indexOf(selected) + 1}</b>
+            {order.indexOf(selected) < visible ? (
+              <>
+                Finished <b>#{order.indexOf(selected) + 1}</b>
+              </>
+            ) : (
+              'Awaiting finish'
+            )}
           </span>
         </div>
       )}
@@ -438,7 +648,11 @@ function RaceResult({
         {order.map((n, i) => (
           <li
             key={n}
-            className={(selected === n ? 'is-mine ' : '') + (i >= visible ? 'is-concealed' : '')}
+            data-revealed={i < visible}
+            className={
+              (i < visible && selected === n ? 'is-mine ' : '') +
+              (i >= visible ? 'is-concealed' : '')
+            }
           >
             <span className="tg-result-place">
               {i === 0 ? <Trophy size={18} aria-label="First place" /> : i + 1}
@@ -457,7 +671,7 @@ function RaceResult({
                 )}
               </span>
             </div>
-            {selected === n && <span className="tg-result-you">Your pick</span>}
+            {i < visible && selected === n && <span className="tg-result-you">Your pick</span>}
           </li>
         ))}
       </ol>
@@ -485,6 +699,7 @@ function FootballResult({
           return (
             <article
               key={i}
+              data-revealed={i < visible}
               className={'tg-result-match' + (i >= visible ? ' is-concealed' : '')}
               aria-label={'Simulated match ' + (i + 1)}
             >
@@ -570,6 +785,7 @@ function BlackjackResult({
           return (
             <article
               key={i}
+              data-revealed={i < visible}
               className={'tg-result-hand' + (i === 0 ? ' tg-result-dealer' : '')}
               aria-label={i === 0 ? 'Dealer hand' : 'Hand ' + i}
             >
@@ -609,29 +825,41 @@ function CrashResult({
   round,
   entries,
   mine,
+  progress,
 }: {
   round: TogetherRoundView;
   entries: TogetherEntryView[];
   mine?: TogetherEntryView;
+  progress: number;
 }) {
   const crash = round.outcome!.numbers[0];
   const pick = mine?.selection?.[0];
+  const finished = progress >= 1;
   const position = (n: number) =>
     Math.max(0, Math.min(100, (Math.log(n / 100) / Math.log(20.01)) * 100));
   return (
     <>
       <div className="tg-result-crash-hero">
-        <span>Shared crash</span>
-        <strong>{target(crash)}</strong>
-        <p>Targets must be strictly below this point to qualify.</p>
+        <span>{finished ? 'Shared crash' : 'Shared reveal'}</span>
+        <strong data-revealed={finished}>{finished ? target(crash) : '…'}</strong>
+        <p>
+          {finished
+            ? 'Targets must be strictly below this point to qualify.'
+            : 'Revealing the saved crash point together…'}
+        </p>
       </div>
       <div
         className="tg-result-crash-scale"
-        aria-label={'Crash point ' + target(crash) + (pick ? ', your target ' + target(pick) : '')}
+        aria-label={
+          (finished ? 'Crash point ' + target(crash) : 'Crash point reveal in progress') +
+          (pick ? ', your target ' + target(pick) : '')
+        }
       >
         <div className="tg-result-crash-track">
-          <div style={{ width: position(crash) + '%' }} />
-          <span className="tg-result-crash-marker" style={{ left: position(crash) + '%' }} />
+          <div style={{ width: position(crash) * progress + '%' }} />
+          {finished && (
+            <span className="tg-result-crash-marker" style={{ left: position(crash) + '%' }} />
+          )}
           {pick !== undefined && (
             <span className="tg-result-target-marker" style={{ left: position(pick) + '%' }} />
           )}
@@ -662,18 +890,24 @@ function CrashResult({
           .map((entry) => {
             const choice = entry.selection?.[0];
             return (
-              <li key={entry.id} className={entry.id === mine?.id ? 'is-mine' : ''}>
+              <li
+                key={entry.id}
+                data-revealed={finished}
+                className={entry.id === mine?.id ? 'is-mine' : ''}
+              >
                 <span>
                   {entry.username}
                   {entry.id === mine?.id ? ' (you)' : ''}
                 </span>
                 <strong>{choice === undefined ? 'Unavailable' : target(choice)}</strong>
                 <span>
-                  {choice === undefined
-                    ? 'Selection unavailable'
-                    : choice < crash
-                      ? 'Qualified'
-                      : 'Crashed'}
+                  {!finished
+                    ? 'Awaiting crash point'
+                    : choice === undefined
+                      ? 'Selection unavailable'
+                      : choice < crash
+                        ? 'Qualified'
+                        : 'Crashed'}
                 </span>
               </li>
             );

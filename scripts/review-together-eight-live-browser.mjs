@@ -298,16 +298,19 @@ try {
           action: 'Actual signed result and payouts verified in browser',
         });
       }
-      const replay = page.getByRole('button', { name: 'Replay reveal', exact: true });
+      const replay = page.getByRole('button', { name: 'Replay for me', exact: true });
       if (await replay.count()) {
         await replay.click();
         await page
-          .getByText('Replaying the saved result. Your entry and wallet are unchanged.', {
-            exact: true,
-          })
+          .getByText(
+            'Your personal replay. The group’s result and everyone’s wallet are unchanged.',
+            {
+              exact: true,
+            }
+          )
           .waitFor();
         await page.getByRole('button', { name: 'Show final result', exact: true }).click();
-        assert.equal(await page.getByText(/Replaying the saved result/).count(), 0);
+        assert.equal(await page.getByText(/Your personal replay/).count(), 0);
         report.checks.push({ game, width, action: 'Saved reveal replay returns to final result' });
       }
       await page.evaluate(() => document.fonts.ready);

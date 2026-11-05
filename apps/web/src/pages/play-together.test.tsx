@@ -147,3 +147,87 @@ it('pauses entry controls on lost server connection without discarding accepted 
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Reconnecting');
 });
+
+it('offers free watching and copies the canonical shared link without confirming an entry', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  mount();
+  await screen.findByRole('button', { name: 'Copy round link' });
+  expect(screen.getByText(/You’re watching. No entry has been charged/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy round link' }));
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith(window.location.origin + '/play-together/rounds/round-1')
+  );
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('shows a completed group result to a spectator without offering a late entry', async () => {
+  data.round.state = 'REFUNDED';
+  data.round.paidAt = Date.now() - 20000;
+  data.round.voidReason = 'NOT_ENOUGH_PLAYERS';
+  mount();
+  expect(await screen.findByRole('heading', { name: 'Group result and payouts' })).toBeVisible();
+  expect(screen.getByText(/You’re watching. No entry has been charged/)).toBeVisible();
+  expect(screen.queryByRole('button', { name: /Confirm .* entry/ })).not.toBeInTheDocument();
+  expect(m.post).not.toHaveBeenCalled();
+});
+it('puts the current round and saved result before the game catalogue for group members', async () => {
+  m.get.mockResolvedValue({
+    success: true,
+    data: {
+      ...data,
+      group: { id: 'group-1', name: 'Friends', ownerId: 'owner', status: 'ACTIVE' },
+      groups: [],
+      legacyPending: false,
+      rounds: [
+        {
+          id: 'current',
+          groupId: 'group-1',
+          groupName: 'Friends',
+          game: 'spin_win',
+          currency: 'GAME_POINTS',
+          entryAmount: 1000,
+          participants: 2,
+          state: 'OPEN',
+          closesAt: Date.now() + 120000,
+          feeBps: 700,
+        },
+        {
+          id: 'previous',
+          groupId: 'group-1',
+          groupName: 'Friends',
+          game: 'spin_win',
+          currency: 'GAME_POINTS',
+          entryAmount: 1000,
+          participants: 2,
+          state: 'PAID',
+          closesAt: Date.now() - 120000,
+          feeBps: 700,
+        },
+      ],
+    },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/groups/group-1/games']}>
+        <Routes>
+          <Route path="/groups/:id/games" element={<PlayTogetherPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  const doorway = await screen.findByRole('region', { name: 'Your group rounds' });
+  expect(screen.getByRole('link', { name: /Watch or join round/ })).toHaveAttribute(
+    'href',
+    '/play-together/rounds/current'
+  );
+  expect(screen.getByRole('link', { name: /View group result/ })).toHaveAttribute(
+    'href',
+    '/play-together/rounds/previous#group-results'
+  );
+  const catalogue = screen.getByText('Choose a game and read the rules').closest('details')!;
+  expect(
+    doorway.compareDocumentPosition(catalogue) & Node.DOCUMENT_POSITION_FOLLOWING
+  ).toBeTruthy();
+  expect(catalogue).not.toHaveAttribute('open');
+  expect(m.post).not.toHaveBeenCalled();
+});

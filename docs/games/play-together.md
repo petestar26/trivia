@@ -259,3 +259,29 @@ This candidate was developed in an isolated checkout combining the current web
 baseline e91317c and API baseline 39eb0f3; integration baseline 8451ff8 preserves
 the recent rewards, account, agent and sportsbook work. No live accounts,
 balances, provider credentials or production settings were changed.
+
+## Shared viewing and saved results
+
+Every current group member can watch the same round, including members who have
+not paid an entry. The owner publishes; each player independently confirms their
+own choice and stake. Viewing a link, opening the group or replaying a result
+never places an entry. Other players' choices remain sealed until betting closes.
+
+Chat, Members and Gifts show the group's active round and latest saved result.
+The Games page puts these links before the game catalogue. A member can copy the
+round link for other group members; the link does not bypass membership checks.
+Finished rounds remain accessible in Rounds and results. Each member can see the
+common outcome, confirmed participants and payouts, plus their own receipt.
+
+The presentation follows one server-time schedule: the immutable settlement time
+plus a three-second lead-in, then a twelve-second reveal. A late or reconnecting
+viewer joins the current progress. This is a presentation of the saved result;
+it does not postpone a wallet payment or produce another outcome. Network delay
+can cause small display differences. Disconnected screens show the saved final
+result and pause new entry controls until the server confirms the round again.
+Reduced-motion users see static results. Any viewer can choose Show final result
+and rejoin the shared reveal; after it ends, Replay for me affects only that viewer.
+
+The activity endpoint is a read-only member summary with no balances, choices or
+wallet receipt identifiers. Accepted financial rules, proofs, fees and settlement
+are unchanged. This release does not enable real-money group play.
