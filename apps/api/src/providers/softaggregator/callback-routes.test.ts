@@ -7,6 +7,8 @@ import { requestLogger } from '../../middleware/request-logger.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { providerTestCallbackRoutes } from './callback-routes.js';
 const apply = vi.hoisted(() => vi.fn());
+const sportsApply = vi.hoisted(() => vi.fn());
+vi.mock('./sports-wallet.js', () => ({ createSportsWallet: () => ({ apply: sportsApply }) }));
 vi.mock('@socialplay/database', () => ({ prisma: {} }));
 vi.mock('./test-wallet.js', async () => ({
   ...(await vi.importActual<typeof import('./test-wallet.js')>('./test-wallet.js')),
@@ -18,10 +20,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetAllMocks();
 });
-function request(ip = '85.122.129.59') {
+function request(ip = '85.122.129.59', realm = 'st') {
   const timestamp = String(Math.floor(Date.now() / 1000));
   const q = {
-    username: 'st_' + 'b'.repeat(32),
+    username: realm + '_' + 'b'.repeat(32),
     currency: 'ETB',
     action: 'credit',
     call_id: 'bonus-123',
@@ -62,6 +64,15 @@ async function server() {
   await s.register(providerTestCallbackRoutes);
   return s;
 }
+it('routes a signed sports callback only to the real wallet and never to practice', async () => {
+  const s = await server(); vi.stubEnv('SOFTAGGREGATOR_SPORTS_CALLBACK_ENABLED', 'true');
+  sportsApply.mockResolvedValue({ error: 0, balance: 0 });
+  try {
+    const r = await s.inject(request('85.122.129.59', 'sr'));
+    expect(r.statusCode).toBe(200); expect(r.json()).toEqual({ error: 0, balance: 0 });
+    expect(sportsApply).toHaveBeenCalledOnce(); expect(apply).not.toHaveBeenCalled();
+  } finally { await s.close(); }
+});
 it('accepts authenticated provider GETs repeatedly with HTTP 200 and cents', async () => {
   const s = await server();
   apply.mockResolvedValue({ error: 0, balance: 100450 });

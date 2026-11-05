@@ -65,6 +65,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'rk_guard', 'rk_balance_check', 'ls_guard', 'ls_balance_check',
   'bj_total', 'bj_category', 'bj_guard', 'bj_balance_check',
   'sg_test_guard', 'sg_test_reconcile',
+  'sg_sports_identity_guard', 'sg_sports_receipt_proof', 'ledger_apply_runtime_grants_pre_sports',
   'crypto_withdrawal_namespace_guard', 'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
   'ledger_apply_runtime_grants_pre_crypto', 'purchase_settlement_proof_guard',
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
@@ -154,6 +155,11 @@ const checks: ReadonlyArray<[string, string]> = [
       ('withdrawal_quotes','withdrawal_quote_usd_snapshot'),
       ('withdrawals','withdrawal_usd_snapshot'),
       ('economic_operations','economic_operations_append_only'),
+      ('sg_sports_players','sg_sports_identity_guard'),
+      ('sg_sports_movements','sg_sports_receipt_append_only'),
+      ('sg_sports_movements','sg_sports_receipt_proof'),
+      ('economic_operations','sg_sports_operation_proof'),
+      ('coin_lot_entries','sg_sports_entry_proof'),
       ('coin_lot_entries','coin_lot_entries_append_only'),
       ('coin_lot_entries','purchase_settlement_proof_guard'),
       ('crypto_deposits','crypto_deposit_proof'), ('crypto_deposit_settlements','crypto_settlement_proof'),
@@ -333,6 +339,11 @@ const checks: ReadonlyArray<[string, string]> = [
               AND (SELECT count(*) FROM public.coin_lot_entries x WHERE x."operationId"=o.id AND x."entryType"='MINT')=1
           )) OR
           (o."type"='BONUS_CONVERSION' AND e."entryType"='CONVERT_IN') OR
+          (o."type"='SPORTS_CREDIT' AND e."entryType"='MINT' AND EXISTS (
+            SELECT 1 FROM sg_sports_movements m JOIN sg_sports_players p ON p.username=m.username
+            WHERE m.operation_id=o.id AND m.error=0 AND m.action='credit' AND m.amount_minor=e."availableDelta"
+              AND p.user_id=o."userId" AND p.live_started_at IS NOT NULL AND m.game_id=p.game_id
+          )) OR
           (o."type" IN ('PAYOUT','SCHEDULED_STAKE_SETTLE') AND e."entryType"='RETURN') OR
           (o."type"='WITHDRAWAL_RELEASE' AND e."entryType"='RELEASE') OR
           (o."type"='COMPETITION_RELEASE' AND e."entryType"='RELEASE') OR

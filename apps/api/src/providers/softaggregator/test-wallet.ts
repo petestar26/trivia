@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import { isSportsGame } from './sports-config.js';
 
 type Env = Record<string, string | undefined>;
 export type WalletReply = { error: 0 | 1 | 2; balance: number };
@@ -42,7 +43,8 @@ export function verifyTestCallback(
   rawUrl: string,
   signature: string | undefined,
   salt: string,
-  now = Date.now()
+  now = Date.now(),
+  realm: 'test' | 'sports' | 'either' = 'test'
 ): TestMovement | null {
   if (salt.length < 16 || rawUrl.length > 8192) return null;
   const raw = rawUrl.split('?')[1] ?? '';
@@ -78,7 +80,7 @@ export function verifyTestCallback(
     .join('&');
   if (!matches(signature, createHmac('sha256', salt).update(canonical).digest(), 64)) return null;
   if (
-    !/^st_[a-f0-9]{32}$/.test(q.username ?? '') ||
+    !(realm === 'test' ? /^st_[a-f0-9]{32}$/ : realm === 'sports' ? /^sr_[a-f0-9]{32}$/ : /^(st|sr)_[a-f0-9]{32}$/).test(q.username ?? '') ||
     q.currency !== 'ETB' ||
     !['balance', 'debit', 'credit'].includes(q.action) ||
     !q.call_id ||
@@ -174,7 +176,7 @@ export function createTestWallet(db: PrismaClient, env: Env = process.env) {
         if (previous[0]) return replay(previous[0]);
         let error: WalletReply['error'] = 0;
         let after = balance;
-        if (m.action === 'debit' && (!testAccess(env, p.user_id) || p.status !== 'ACTIVE'))
+        if (m.action === 'debit' && (!testAccess(env, p.user_id) || p.status !== 'ACTIVE' || isSportsGame(m.gameId, env)))
           error = 2;
         else if (m.action === 'debit' && m.amount > balance) error = 1;
         else after += m.action === 'debit' ? -m.amount : m.amount;

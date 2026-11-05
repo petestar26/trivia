@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { beforeAll, afterAll, expect, it } from 'vitest';
 import { createTestWallet, verifyTestCallback, type TestMovement } from './test-wallet.js';
 import { redactUrl } from '../../middleware/log-redaction.js';
+import { SPORTS_GAME_ID } from './sports-config.js';
 
 const salt = 'isolated-fixture-salt-key',
   now = Date.now();
@@ -208,6 +209,18 @@ it('rejects insufficient funds without moving balance and preserves retry outcom
   expect(await wallet.apply(m)).toEqual({ error: 1, balance: 100000 });
   expect(await wallet.apply(m)).toEqual({ error: 1, balance: 100000 });
   expect((await wallet.snapshot(p.id)).balanceCents).toBe(100000);
+});
+it('blocks sportsbook debits from existing practice sessions without discarding late refunds', async () => {
+  const p = await player();
+  expect(await wallet.apply(movement(p, { gameId: SPORTS_GAME_ID }))).toEqual({ error: 2, balance: 100000 });
+  expect(await wallet.apply(movement(p, { gameId: SPORTS_GAME_ID, action: 'credit', amount: 25 }))).toEqual({ error: 0, balance: 100025 });
+});
+it('authenticates sports and practice player namespaces independently', () => {
+  const s = signed({ username: 'sr_' + 'c'.repeat(32) });
+  expect(verifyTestCallback(s.url, s.signature, salt, now)).toBeNull();
+  expect(verifyTestCallback(s.url, s.signature, salt, now, 'sports')?.username).toMatch(/^sr_/);
+  const t = signed();
+  expect(verifyTestCallback(t.url, t.signature, salt, now, 'sports')).toBeNull();
 });
 it('rejects call-id reuse with changed financial fields or another player', async () => {
   const a = await player(),
