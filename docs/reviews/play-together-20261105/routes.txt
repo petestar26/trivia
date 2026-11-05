@@ -1,0 +1,8 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/api
+
+ ✓ src/games/play-together/routes.test.ts  (7 tests) 291ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  18:24:04
+   Duration  1.21s (transform 222ms, setup 0ms, collect 651ms, tests 291ms, environment 0ms, prepare 78ms)

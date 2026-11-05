@@ -1,0 +1,8 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/api
+
+ ✓ src/games/group-pvp/group-pvp.native.ts  (17 tests) 5455ms
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  18:25:08
+   Duration  7.76s (transform 406ms, setup 0ms, collect 1.65s, tests 5.46s, environment 0ms, prepare 236ms)

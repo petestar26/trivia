@@ -1,0 +1,27 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/api
+
+stdout | src/providers/softaggregator/sports-wallet.native.ts > refuses unwitnessed money writes and immutable receipt changes at the database boundary
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Sports movement lacks immutable receipt`
+
+stdout | src/providers/softaggregator/sports-wallet.native.ts > refuses unwitnessed money writes and immutable receipt changes at the database boundary
+prisma:error
+Invalid `prisma.$executeRaw()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: sg_sports_movements is append-only; record a linked reversal`
+prisma:error
+Invalid `prisma.$executeRaw()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: sg_sports_movements is append-only; record a linked reversal`
+
+ ✓ src/providers/softaggregator/sports-wallet.native.ts  (12 tests) 729ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  18:25:16
+   Duration  1.46s (transform 222ms, setup 0ms, collect 520ms, tests 729ms, environment 0ms, prepare 58ms)

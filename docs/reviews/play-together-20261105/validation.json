@@ -1,0 +1,56 @@
+{
+  "scope": "Local candidate; not deployed; real-money activation off.",
+  "database": "Disposable PostgreSQL 16 on loopback",
+  "total_tests": 291,
+  "suites": {
+    "shared": {
+      "passed": 57,
+      "log": "shared.txt"
+    },
+    "routes": {
+      "passed": 7,
+      "log": "routes.txt"
+    },
+    "web": {
+      "passed": 114,
+      "log": "web.txt"
+    },
+    "catalog": {
+      "passed": 46,
+      "log": "catalog.txt"
+    },
+    "group_database": {
+      "passed": 38,
+      "log": "group_database.txt"
+    },
+    "legacy_database": {
+      "passed": 17,
+      "log": "legacy_database.txt"
+    },
+    "sports_database": {
+      "passed": 12,
+      "log": "sports_database.txt"
+    }
+  },
+  "browser": {
+    "checks": 15,
+    "kind": "Synthetic Chromium; APIs and authentication mocked",
+    "widths": [
+      1440,
+      390,
+      320
+    ]
+  },
+  "builds": [
+    "Production API",
+    "Production web and PWA"
+  ],
+  "public_randomness": "Actual backend adapter fetched and verified historical quicknet round 1.",
+  "ci": "Configured for PostgreSQL 13,16,18; not run remotely.",
+  "limitations": [
+    "No staging or production acceptance",
+    "No physical-device or Safari acceptance",
+    "Cash launch needs wallet overflow handling, load acceptance and independent financial review",
+    "Eight additional group adapters disabled pending product/presentation review"
+  ]
+}

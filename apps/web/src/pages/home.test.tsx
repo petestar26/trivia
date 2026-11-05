@@ -88,19 +88,19 @@ describe.each([
       expect(within(grid as HTMLElement).queryByRole('heading', { name: key })).toBeNull();
     expect(screen.queryByText('Coming soon')).toBeNull();
     expect(screen.queryByText('More to discover')).toBeNull();
-    for (const [key, to] of Object.entries(PRACTICE_ROUTES))
+    for (const key of Object.keys(PRACTICE_ROUTES))
       expect(
         within(grid as HTMLElement).getByRole('link', { name: `Play ${memberGameName(game(key))}` })
-      ).toHaveAttribute('href', to);
+      ).toHaveAttribute('href', '/play-together?game=' + key);
   });
-  it('keeps implemented games in maintenance visible without a playable link', async () => {
+  it('routes old solo maintenance cards to group rules without placing a bet', async () => {
     get.mockImplementation(async (path) =>
       ok(path === '/games' ? [game('sky_crash', false)] : { enabled: false })
     );
     setup(Page);
-    const heading = await screen.findByRole('heading', { name: 'sky_crash' });
-    expect(heading.closest('a')).toBeNull();
-    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'Play sky_crash' });
+    expect(link).toHaveAttribute('href', '/play-together?game=sky_crash');
+    expect(screen.getByText('Group play')).toBeInTheDocument();
   });
   it('searches case insensitively and restores focus when clearing empty results', async () => {
     setup(Page);

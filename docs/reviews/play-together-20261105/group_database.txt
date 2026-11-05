@@ -1,0 +1,50 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/api
+
+stdout | src/games/play-together/service.native.ts > starts with confirmed players and ignores spectators, then locks selections and refunds
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Accepted entry terms and completed payments are immutable`
+
+stdout | src/games/play-together/service.native.ts > starts with confirmed players and ignores spectators, then locks selections and refunds
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Published round terms cannot change`
+
+stdout | src/games/play-together/service.native.ts > recovers a saved outcome and pays exactly once under competing workers
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Settled rounds are immutable`
+
+stdout | src/games/play-together/service.native.ts > cannot create a cash hold without an accepted entry witness
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Group operation has no accepted entry witness`
+
+stdout | src/games/play-together/service.native.ts > cannot attach an unwitnessed cash operation to an existing practice entry with null cash references
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `P0001`. Message: `ERROR: Group operation has no accepted entry witness`
+
+stdout | src/games/play-together/service.native.ts > confirms and settles using restricted runtime privileges without permission to rewrite terms
+prisma:error
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `42501`. Message: `ERROR: permission denied for table play_together_rounds`
+
+ ✓ src/games/play-together/service.native.ts  (38 tests) 59155ms
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  18:24:05
+   Duration  60.73s (transform 465ms, setup 0ms, collect 1.26s, tests 59.16s, environment 0ms, prepare 82ms)

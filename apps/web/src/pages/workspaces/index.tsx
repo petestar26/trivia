@@ -63,6 +63,7 @@ export function WorkspaceGate({
   return <>{children}</>;
 }
 const adminLinks = [
+  ['/admin/group-play', 'Group play controls'],
   ['/admin', 'Overview'],
   ['/admin/support', 'Support inbox'],
   ['/admin/rewards', 'Reward control'],

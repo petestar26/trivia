@@ -1,0 +1,575 @@
+.together-page {
+  --tg-bg: #fffaf6;
+  --tg-panel: #fff;
+  --tg-ink: #272024;
+  --tg-muted: #73676c;
+  --tg-line: #e4d9dc;
+  --tg-accent: #a63c60;
+  --tg-soft: #f9edf0;
+  max-width: 1260px;
+  margin: 0 auto;
+  padding: 28px;
+  color: var(--tg-ink);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.dark .together-page {
+  --tg-bg: #151416;
+  --tg-panel: #1e1c20;
+  --tg-ink: #f5edee;
+  --tg-muted: #c3b3ba;
+  --tg-line: #43353d;
+  --tg-accent: #e890ad;
+  --tg-soft: #34212a;
+}
+.together-page * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.together-page h1,
+.together-page h2,
+.together-page h3 {
+  line-height: 1.16;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+.together-page h1 {
+  font-size: clamp(2.15rem, 4.8vw, 4.2rem);
+  margin: 10px 0 18px;
+}
+.together-page h1 > span {
+  color: var(--tg-accent);
+}
+.together-page h2 {
+  font-size: 1.4rem;
+  margin: 0 0 16px;
+}
+.together-page h3 {
+  font-size: 1.1rem;
+  margin: 12px 0;
+}
+.together-page p {
+  margin: 10px 0 16px;
+}
+.together-page small {
+  display: block;
+  color: var(--tg-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.together-page a {
+  color: var(--tg-accent);
+  text-decoration: none;
+}
+.together-page a:hover {
+  text-decoration: underline;
+}
+.together-page svg {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.together-page button {
+  border: 1px solid var(--tg-line);
+  border-radius: 12px;
+  padding: 11px 16px;
+  font-weight: 650;
+  background: var(--tg-panel);
+  color: var(--tg-ink);
+  cursor: pointer;
+  line-height: 1.3;
+}
+.together-page button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.together-page button:focus-visible,
+.together-page a:focus-visible,
+.together-page input:focus-visible,
+.together-page select:focus-visible {
+  outline: 3px solid var(--tg-accent);
+  outline-offset: 3px;
+}
+.together-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin: 24px 0 30px;
+}
+.together-hero > div:first-child {
+  max-width: 760px;
+}
+.together-hero p:last-child {
+  color: var(--tg-muted);
+  max-width: 650px;
+}
+.together-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 0.7rem;
+  font-weight: 750;
+  color: var(--tg-accent);
+}
+.together-wallet {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border: 1px solid var(--tg-line);
+  border-radius: 20px;
+  background: var(--tg-panel);
+  padding: 20px;
+  min-width: 215px;
+}
+.together-wallet span {
+  display: block;
+  color: var(--tg-muted);
+  font-size: 0.75rem;
+}
+.together-wallet strong {
+  display: block;
+  font-size: 1.35rem;
+  margin: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+.together-mode {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px;
+  background: var(--tg-soft);
+  border-radius: 16px;
+  margin-bottom: 16px;
+}
+.together-mode button[aria-pressed='true'] {
+  background: var(--tg-ink);
+  color: var(--tg-panel);
+  border-color: var(--tg-ink);
+}
+.together-mode > span {
+  margin-left: auto;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
+.together-notice {
+  border: 1px solid var(--tg-line);
+  background: var(--tg-soft);
+  border-radius: 14px;
+  padding: 15px 18px;
+  margin: 15px 0;
+  color: var(--tg-ink);
+}
+.together-notice p {
+  margin: 0 0 12px;
+}
+.together-notice small {
+  margin-top: 8px;
+}
+.together-page > section {
+  margin-top: 30px;
+}
+.together-game-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.together-page .together-game {
+  padding: 0 0 16px;
+  overflow: hidden;
+  text-align: left;
+  border-radius: 18px;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
+}
+.together-game.selected {
+  border-color: var(--tg-accent);
+  box-shadow: 0 0 0 1px var(--tg-accent);
+}
+.together-game:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+.together-game > strong,
+.together-game > span {
+  display: block;
+  margin: 0 14px;
+}
+.together-game > span {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--tg-muted);
+  margin-top: 5px;
+}
+.together-art {
+  height: 112px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  background: var(--tg-soft);
+}
+.together-art > div,
+.together-art img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+}
+.together-panel {
+  border: 1px solid var(--tg-line);
+  background: var(--tg-panel);
+  border-radius: 22px;
+  padding: 25px;
+}
+.together-panel > p {
+  color: var(--tg-muted);
+}
+.together-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  margin: 24px 0;
+}
+.together-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.together-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+.together-page input,
+.together-page select {
+  padding: 12px;
+  border: 1px solid var(--tg-line);
+  border-radius: 10px;
+  background: var(--tg-bg);
+  color: var(--tg-ink);
+  width: 100%;
+  font-size: 1rem;
+}
+.together-page .together-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #8c3052;
+  border: 1px solid #8c3052;
+  color: white;
+  padding: 13px 18px;
+  border-radius: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.together-primary:disabled {
+  background: #8c3052;
+  opacity: 0.45;
+}
+.together-group-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--tg-line);
+}
+.together-history > a {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--tg-line);
+  color: var(--tg-ink);
+}
+.together-history > a:last-child {
+  border: 0;
+}
+.together-history strong {
+  display: block;
+}
+.together-history > a > span:last-child {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.together-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-block: 1px solid var(--tg-line);
+  padding: 16px 0;
+  font-weight: 650;
+  font-size: 0.9rem;
+}
+.together-status svg {
+  margin-right: 8px;
+}
+.together-status > span:last-child {
+  color: var(--tg-muted);
+  font-weight: 450;
+}
+.together-choice-note {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: var(--tg-soft);
+  padding: 20px;
+  border-radius: 16px;
+  margin: 20px 0;
+}
+.together-choice-note p {
+  margin: 0;
+}
+.together-number-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  margin: 20px 0;
+}
+.together-page .together-number-grid button {
+  padding: 10px 0;
+  border-radius: 9px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  min-height: 40px;
+}
+.together-number-grid button[aria-pressed='true'] {
+  background: #8c3052;
+  color: white;
+  border-color: #8c3052;
+}
+.together-field {
+  margin: 20px 0;
+}
+.together-predictions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.together-confirm {
+  border-top: 1px solid var(--tg-line);
+  margin-top: 22px;
+  padding-top: 20px;
+}
+.together-confirm dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 12px 0;
+  font-size: 0.85rem;
+}
+.together-confirm dt {
+  color: var(--tg-muted);
+}
+.together-confirm dd {
+  text-align: right;
+  font-weight: 750;
+  white-space: normal;
+  flex: 0 1 52%;
+  overflow-wrap: anywhere;
+}
+.together-confirm > button {
+  margin-top: 20px;
+  width: 100%;
+}
+.together-pool {
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--tg-soft);
+  margin-bottom: 20px;
+}
+.together-pool > span {
+  color: var(--tg-muted);
+  font-size: 0.8rem;
+}
+.together-pool > strong {
+  font-size: 2rem;
+  display: block;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.together-participants > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--tg-line);
+}
+.together-participants strong {
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+.together-avatar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--tg-soft);
+  color: var(--tg-accent);
+  font-weight: 750;
+}
+.together-member-amount {
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.together-member-amount small {
+  font-weight: 450;
+}
+.together-personal-result {
+  background: var(--tg-soft);
+  border-radius: 16px;
+  padding: 22px;
+  margin: 20px 0;
+}
+.together-personal-result > strong {
+  font-size: 2rem;
+}
+.together-personal-result small {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+.together-result {
+  margin-top: 24px;
+}
+.together-balls {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.together-balls > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tg-soft);
+  border: 1px solid var(--tg-line);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.together-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.together-result-actions button {
+  font-size: 0.8rem;
+}
+.together-page .together-cancel {
+  margin-top: 26px;
+  font-size: 0.8rem;
+  color: var(--tg-muted);
+}
+.together-page details {
+  margin: 24px 0;
+}
+.together-page summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.together-page details small {
+  overflow-wrap: anywhere;
+}
+.together-settings-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.together-page .together-settings-checks label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.together-settings-checks input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+@media (max-width: 850px) {
+  .together-page {
+    padding: 20px;
+  }
+  .together-game-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .together-hero {
+    align-items: flex-start;
+  }
+  .together-columns {
+    grid-template-columns: 1fr;
+  }
+  .together-wallet {
+    min-width: 180px;
+    padding: 15px;
+  }
+}
+@media (max-width: 560px) {
+  .together-page {
+    padding: 16px;
+  }
+  .together-hero {
+    display: block;
+    margin: 16px 0 22px;
+  }
+  .together-wallet {
+    margin-top: 20px;
+    width: 100%;
+  }
+  .together-game-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .together-art {
+    height: 96px;
+  }
+  .together-game > strong {
+    font-size: 0.88rem;
+  }
+  .together-panel {
+    padding: 18px;
+    border-radius: 16px;
+  }
+  .together-mode > span {
+    width: 100%;
+    margin: 0;
+  }
+  .together-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .together-form > label:first-child,
+  .together-form > label:nth-child(4),
+  .together-form > .together-primary {
+    grid-column: 1/-1;
+  }
+  .together-confirm dl > div {
+    gap: 10px;
+    font-size: 0.8rem;
+  }
+  .together-settings-checks {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .together-page .together-game {
+    transition: none;
+  }
+  .together-game:not(:disabled):hover {
+    transform: none;
+  }
+}

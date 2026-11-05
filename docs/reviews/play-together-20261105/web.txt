@@ -1,0 +1,32 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/web
+
+stderr | src/pages/home.test.tsx > home discovery > shows all 12 implemented games in order without future cards, even when an old catalogue says coming soon
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/home.test.tsx  (10 tests) 788ms
+stderr | src/pages/group-games.test.tsx > shows the fee before confirmation and blocks owner start until everyone is ready
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/group-games.test.tsx  (8 tests) 1433ms
+stderr | src/pages/play-together.test.tsx > opening a round never charges anyone and shows consent and loss before confirming
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/play-together.test.tsx  (5 tests) 180ms
+ ✓ src/lib/together-proof.test.ts  (10 tests) 339ms
+stderr | src/lib/together-proof.test.ts > rejects tampered beacon
+randomness did not match the signature
+
+ ✓ src/lib/member-game-catalog.test.ts  (77 tests) 8ms
+stderr | src/app-game-sections.test.tsx > routes Games to shared group play
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/app-game-sections.test.tsx  (4 tests) 91ms
+
+ Test Files  6 passed (6)
+      Tests  114 passed (114)
+   Start at  06:24:06
+   Duration  10.94s (transform 1.75s, setup 724ms, collect 3.42s, tests 2.84s, environment 2.37s, prepare 388ms)

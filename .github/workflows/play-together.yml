@@ -1,0 +1,90 @@
+name: Play Together contracts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/play-together.yml'
+      - 'apps/api/src/games/play-together/**'
+      - 'apps/api/src/games/group-pvp/**'
+      - 'apps/api/src/games/economics/**'
+      - 'apps/api/src/economy/**'
+      - 'apps/api/src/middleware/**'
+      - 'apps/api/src/providers/softaggregator/**'
+      - 'apps/api/src/server.ts'
+      - 'apps/api/src/routes/index.ts'
+      - 'apps/api/vitest.together*.ts'
+      - 'apps/web/src/pages/play-together*'
+      - 'apps/web/src/pages/workspaces/group-play-control*'
+      - 'apps/web/src/lib/together-proof*'
+      - 'apps/web/src/lib/member-game-catalog*'
+      - 'apps/web/src/App.tsx'
+      - 'packages/shared/**'
+      - 'packages/database/**'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [13, 16, 18]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-together-test-password
+          POSTGRES_DB: playqube_scheduled_throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:isolated-together-test-password@127.0.0.1:5432/playqube_scheduled_throwaway
+      SCHEDULED_NATIVE_DB_ACK: throwaway
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      JWT_ACCESS_SECRET: isolated-together-ci-access-secret
+      JWT_REFRESH_SECRET: isolated-together-ci-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install locked dependencies and build shared packages
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm build:packages
+      - name: Apply migrations and verify replay
+        run: |
+          pnpm --filter @socialplay/database db:migrate:deploy
+          pnpm --filter @socialplay/database db:migrate:deploy
+      - name: Group financial contracts and restricted runtime permissions
+        run: pnpm --filter api exec vitest run --config vitest.together-native.config.ts
+      - name: Existing group and sportsbook regressions
+        run: |
+          pnpm --filter api exec vitest run --config vitest.scheduled-native.config.ts src/games/group-pvp/group-pvp.native.ts
+          pnpm --filter api exec vitest run --config vitest.sports-native.config.ts
+      - name: Rules, consent, proof and access checks
+        if: matrix.postgres == 16
+        run: |
+          pnpm --filter @socialplay/shared exec vitest run src/play-together.test.ts src/group-pvp.test.ts src/pvp-entry.test.ts --minWorkers=1 --maxWorkers=1
+          pnpm --filter api exec vitest run --config vitest.together.config.ts
+          pnpm --filter web exec vitest run src/lib/together-proof.test.ts src/pages/play-together.test.tsx src/lib/member-game-catalog.test.ts src/pages/home.test.tsx src/app-game-sections.test.tsx src/pages/group-games.test.tsx --minWorkers=1 --maxWorkers=1
+          pnpm --filter web exec vitest run src/lib/sky-crash-catalog.test.ts src/lib/football-catalog.test.ts src/lib/derby-catalog.test.ts src/lib/system-practice-catalog.test.ts src/lib/number-challenge-catalog.test.ts src/components/member/dashboard-highlights.test.tsx src/components/layout/mobile-navigation.test.tsx --minWorkers=1 --maxWorkers=1
+      - name: Production builds
+        if: matrix.postgres == 16
+        run: |
+          pnpm build:api
+          pnpm build:web

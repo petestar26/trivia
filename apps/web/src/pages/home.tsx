@@ -119,7 +119,7 @@ export function HomePage() {
           ))}
         </div>
         <p className="salem-footnote">
-          Group games use noncash Game Points. Open an active group to check availability.
+          Start with free practice points. Each player confirms their own entry; accepted rounds settle automatically.
         </p>
         {groups.isError ? (
           <p role="status">

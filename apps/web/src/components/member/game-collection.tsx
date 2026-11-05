@@ -88,7 +88,7 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
                 <div className="salem-own-caption">
                   <h3>{name}</h3>
                   <span>
-                    {to ? t('Play') : 'Temporarily unavailable'}
+                    {to ? t('Group play') : 'Temporarily unavailable'}
                     {to && <ArrowUpRight size={15} />}
                   </span>
                 </div>

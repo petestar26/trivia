@@ -21,7 +21,7 @@ const sections = [
     title: 'Discover',
     items: [
       { name: 'Home', href: '/dashboard', icon: Home },
-      { name: 'Games', href: '/games', icon: Gamepad2 },
+      { name: 'Play together', href: '/play-together', icon: Gamepad2 },
       { name: 'Casino', href: '/casino', icon: Dice5 },
       { name: 'Sports', href: '/sports', icon: Trophy },
     ],

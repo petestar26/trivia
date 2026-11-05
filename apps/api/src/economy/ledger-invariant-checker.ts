@@ -66,6 +66,8 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'bj_total', 'bj_category', 'bj_guard', 'bj_balance_check',
   'sg_test_guard', 'sg_test_reconcile',
   'sg_sports_identity_guard', 'sg_sports_receipt_proof', 'ledger_apply_runtime_grants_pre_sports',
+  'play_together_round_guard', 'play_together_entry_guard', 'play_together_funding_proof',
+  'play_together_pool_proof', 'ledger_apply_runtime_grants_pre_together',
   'crypto_withdrawal_namespace_guard', 'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
   'ledger_apply_runtime_grants_pre_crypto', 'purchase_settlement_proof_guard',
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',
@@ -160,6 +162,15 @@ const checks: ReadonlyArray<[string, string]> = [
       ('sg_sports_movements','sg_sports_receipt_proof'),
       ('economic_operations','sg_sports_operation_proof'),
       ('coin_lot_entries','sg_sports_entry_proof'),
+      ('play_together_rounds','play_together_round_guard'),
+      ('play_together_rounds','play_together_round_pool_proof'),
+      ('play_together_entries','play_together_entry_guard'),
+      ('play_together_entries','play_together_entry_proof'),
+      ('play_together_entries','play_together_entry_pool_proof'),
+      ('play_together_requests','play_together_request_immutable'),
+      ('play_together_policies','play_together_policy_immutable'),
+      ('economic_operations','play_together_operation_proof'),
+      ('coin_lot_entries','play_together_lot_proof'),
       ('coin_lot_entries','coin_lot_entries_append_only'),
       ('coin_lot_entries','purchase_settlement_proof_guard'),
       ('crypto_deposits','crypto_deposit_proof'), ('crypto_deposit_settlements','crypto_settlement_proof'),
@@ -339,6 +350,15 @@ const checks: ReadonlyArray<[string, string]> = [
               AND (SELECT count(*) FROM public.coin_lot_entries x WHERE x."operationId"=o.id AND x."entryType"='MINT')=1
           )) OR
           (o."type"='BONUS_CONVERSION' AND e."entryType"='CONVERT_IN') OR
+          (o."type"='TOGETHER_PRIZE' AND e."entryType"='MINT' AND EXISTS (
+            SELECT 1 FROM play_together_entries t JOIN play_together_rounds r ON r.id=t.round_id
+            WHERE t.prize_operation_id=o.id AND t.user_id=o."userId" AND t.state='SETTLED'
+              AND t.payout=e."availableDelta" AND r.state='PAID' AND r.currency='ETB'
+          )) OR
+          (o."type"='TOGETHER_REFUND' AND e."entryType"='RELEASE' AND EXISTS (
+            SELECT 1 FROM play_together_entries t WHERE t.close_operation_id=o.id
+              AND t.user_id=o."userId" AND t.state='REFUNDED'
+          )) OR
           (o."type"='SPORTS_CREDIT' AND e."entryType"='MINT' AND EXISTS (
             SELECT 1 FROM sg_sports_movements m JOIN sg_sports_players p ON p.username=m.username
             WHERE m.operation_id=o.id AND m.error=0 AND m.action='credit' AND m.amount_minor=e."availableDelta"

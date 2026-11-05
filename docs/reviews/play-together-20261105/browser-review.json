@@ -1,0 +1,95 @@
+{
+  "kind": "Synthetic Chromium UI checks; database and authentication are mocked.",
+  "results": [
+    {
+      "screen": "lobby",
+      "width": 1440,
+      "scroll": 1440,
+      "errors": []
+    },
+    {
+      "screen": "owner",
+      "width": 1440,
+      "scroll": 1440,
+      "errors": []
+    },
+    {
+      "screen": "confirmation",
+      "width": 1440,
+      "scroll": 1440,
+      "errors": []
+    },
+    {
+      "screen": "confirmed",
+      "width": 1440,
+      "scroll": 1440,
+      "errors": []
+    },
+    {
+      "screen": "admin",
+      "width": 1440,
+      "scroll": 1440,
+      "errors": []
+    },
+    {
+      "screen": "lobby",
+      "width": 390,
+      "scroll": 390,
+      "errors": []
+    },
+    {
+      "screen": "owner",
+      "width": 390,
+      "scroll": 390,
+      "errors": []
+    },
+    {
+      "screen": "confirmation",
+      "width": 390,
+      "scroll": 390,
+      "errors": []
+    },
+    {
+      "screen": "confirmed",
+      "width": 390,
+      "scroll": 390,
+      "errors": []
+    },
+    {
+      "screen": "admin",
+      "width": 390,
+      "scroll": 390,
+      "errors": []
+    },
+    {
+      "screen": "lobby",
+      "width": 320,
+      "scroll": 320,
+      "errors": []
+    },
+    {
+      "screen": "owner",
+      "width": 320,
+      "scroll": 320,
+      "errors": []
+    },
+    {
+      "screen": "confirmation",
+      "width": 320,
+      "scroll": 320,
+      "errors": []
+    },
+    {
+      "screen": "confirmed",
+      "width": 320,
+      "scroll": 320,
+      "errors": []
+    },
+    {
+      "screen": "admin",
+      "width": 320,
+      "scroll": 320,
+      "errors": []
+    }
+  ]
+}

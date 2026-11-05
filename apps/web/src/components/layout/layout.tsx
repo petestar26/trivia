@@ -21,6 +21,7 @@ export function Layout() {
   const showSupportShortcut =
     !pathname.startsWith('/support') &&
     !pathname.startsWith('/games/') &&
+    !pathname.startsWith('/play-together/rounds/') &&
     !pathname.startsWith('/casino') &&
     !pathname.startsWith('/sports') &&
     !/^\/groups\/[^/]+/.test(pathname);
@@ -59,7 +60,7 @@ export function Layout() {
         <Header onMenuClick={() => setMobileNavOpen(true)} />
         <main id="main-content" className="qube-main p-4 lg:p-8">
           {pathname === '/dashboard' ? <InstallAppCard /> : null}
-          {['/dashboard', '/games', '/profile', '/support'].includes(pathname) && (
+          {['/dashboard', '/games', '/play-together', '/profile', '/support'].includes(pathname) && (
             <div className="salem-member-install">
               <InstallAppButton whenReminderHidden={pathname === '/dashboard'} />
             </div>

@@ -14,7 +14,7 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { parseDashboardReturns, topDashboardReturns } from '@/lib/dashboard-returns';
-import { memberGameDestination, type MemberGame } from '@/lib/member-game-catalog';
+import type { MemberGame } from '@/lib/member-game-catalog';
 
 const feeds = [
   { key: 'sky_crash', name: 'Sky Crash', endpoint: '/games/sky-crash/leaderboard' },
@@ -49,7 +49,7 @@ export function DashboardHighlights({ userId, games, catalogState }: DashboardHi
   );
   const online = connection.endsWith(':true');
   const available = feeds.filter((feed) =>
-    games.some((game) => game.key === feed.key && !!memberGameDestination(game))
+    games.some((game) => game.key === feed.key && game.practiceAvailable === true && game.catalogStatus !== 'RETIRED')
   );
   const selected = available.find((feed) => feed.key === selectedGame) ?? available[0];
   const results = useQuery({
