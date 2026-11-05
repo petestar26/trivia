@@ -1,3 +1,4 @@
+import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from 'lucide-react';
@@ -32,6 +33,7 @@ function PublicHeader() {
         <small>THE MEMBER LOUNGE</small>
       </Link>
       <nav aria-label="Account">
+        <InstallAppButton />
         {isAuthenticated ? (
           <Link className="pq-public-account" to="/dashboard">
             Open your lounge <ArrowUpRight size={15} />
@@ -73,6 +75,7 @@ export function WelcomePage() {
             Enter the lounge <ArrowRight size={19} />
           </Link>
           <small>Browse first. Sign in when you're ready to join.</small>
+          <InstallAppCard />
         </div>
         <div className="pq-welcome-sculpture" aria-hidden="true">
           <div className="pq-orbit pq-orbit-one" />

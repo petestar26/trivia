@@ -10,6 +10,7 @@ import { Header } from './header';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useAutomaticRewards } from '@/lib/use-automatic-rewards';
 import { useAuth } from '@/providers/auth-provider';
+import { InstallAppButton, InstallAppCard } from '@/components/app-install';
 
 export function Layout() {
   useMemberTheme();
@@ -56,6 +57,12 @@ export function Layout() {
       <div className="lg:pl-64">
         <Header onMenuClick={() => setMobileNavOpen(true)} />
         <main id="main-content" className="qube-main p-4 lg:p-8">
+          {pathname === '/dashboard' ? <InstallAppCard /> : null}
+          {['/dashboard', '/games', '/profile', '/support'].includes(pathname) && (
+            <div className="salem-member-install">
+              <InstallAppButton whenReminderHidden={pathname === '/dashboard'} />
+            </div>
+          )}
           <Outlet />
         </main>
         {showSupportShortcut && (

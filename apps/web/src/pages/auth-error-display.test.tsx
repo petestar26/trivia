@@ -61,7 +61,7 @@ describe('LoginPage error display', () => {
 
 async function submitRegister() {
   const user = userEvent.setup();
-  await user.type(screen.getByPlaceholderText('johndoe'), 'smoketester');
+  await user.type(screen.getByPlaceholderText('dawit_bekele'), 'smoketester');
   await user.type(screen.getByPlaceholderText('you@example.com'), 'someone@example.com');
   // Display Name must be filled for the form to submit at all: its schema is
   // `.min(1).optional()`, and `.optional()` only permits `undefined` — an
@@ -69,7 +69,7 @@ async function submitRegister() {
   // submission entirely (and renders no message, since this field has no error
   // element). That is a separate defect from the error-display fix under test
   // here; filling it keeps this test focused on error presentation.
-  await user.type(screen.getByPlaceholderText('John Doe'), 'Smoke Tester');
+  await user.type(screen.getByPlaceholderText('Dawit Bekele'), 'Smoke Tester');
   await user.type(screen.getByPlaceholderText('••••••••'), 'Password123!');
   await user.click(screen.getByRole('button', { name: /create account/i }));
 }

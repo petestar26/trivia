@@ -26,7 +26,7 @@ function renderRegister() {
 
 /** Fills only the three genuinely required fields. Display Name is left untouched. */
 async function fillRequiredOnly(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByPlaceholderText('johndoe'), 'smoketester');
+  await user.type(screen.getByPlaceholderText('dawit_bekele'), 'smoketester');
   await user.type(screen.getByPlaceholderText('you@example.com'), 'someone@example.com');
   await user.type(screen.getByPlaceholderText('••••••••'), 'Password123!');
 }
@@ -76,7 +76,7 @@ describe('RegisterPage — Display Name is genuinely optional', () => {
     renderRegister();
 
     await fillRequiredOnly(user);
-    await user.type(screen.getByPlaceholderText('John Doe'), 'x'.repeat(101));
+    await user.type(screen.getByPlaceholderText('Dawit Bekele'), 'x'.repeat(101));
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
     expect(await screen.findByText('Display name must be at most 100 characters')).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe('RegisterPage — Display Name is genuinely optional', () => {
     renderRegister();
 
     await fillRequiredOnly(user);
-    await user.type(screen.getByPlaceholderText('John Doe'), 'Smoke Tester');
+    await user.type(screen.getByPlaceholderText('Dawit Bekele'), 'Smoke Tester');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => expect(registerUser).toHaveBeenCalledTimes(1));
@@ -105,7 +105,7 @@ describe('RegisterPage — Display Name is genuinely optional', () => {
     // Email is deliberately valid: it is a `type="email"` input, so a malformed
     // value trips native constraint validation and the submit event never
     // reaches react-hook-form — which would prove nothing about the schema.
-    await user.type(screen.getByPlaceholderText('johndoe'), 'ab'); // too short
+    await user.type(screen.getByPlaceholderText('dawit_bekele'), 'ab'); // too short
     await user.type(screen.getByPlaceholderText('you@example.com'), 'someone@example.com');
     await user.type(screen.getByPlaceholderText('••••••••'), 'weak'); // too short
     await user.click(screen.getByRole('button', { name: /create account/i }));

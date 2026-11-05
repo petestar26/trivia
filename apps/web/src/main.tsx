@@ -9,6 +9,7 @@ import { App } from './App';
 import { AuthProvider } from '@/providers/auth-provider';
 import { SocketProvider } from '@/providers/socket-provider';
 import { AppUpdateNotice } from '@/components/app-update-notice';
+import { AppInstallProvider } from '@/components/app-install';
 import './styles/index.css';
 
 const queryClient = new QueryClient({
@@ -26,15 +27,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AuthProvider>
-            <SocketProvider>
-              <LanguageProvider>
-                <App />
-              </LanguageProvider>
-              <AppUpdateNotice />
-              <Toaster />
-            </SocketProvider>
-          </AuthProvider>
+          <AppInstallProvider>
+            <AuthProvider>
+              <SocketProvider>
+                <LanguageProvider>
+                  <App />
+                </LanguageProvider>
+                <AppUpdateNotice />
+                <Toaster />
+              </SocketProvider>
+            </AuthProvider>
+          </AppInstallProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </AppErrorBoundary>

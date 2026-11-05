@@ -130,7 +130,7 @@ export function RegisterPage() {
                 id="username"
                 type="text"
                 autoComplete="username"
-                placeholder="johndoe"
+                placeholder="dawit_bekele"
                 {...register('username')}
                 disabled={isLoading}
                 aria-invalid={!!errors.username}
@@ -184,7 +184,7 @@ export function RegisterPage() {
                 id="displayName"
                 type="text"
                 autoComplete="nickname"
-                placeholder="John Doe"
+                placeholder="Dawit Bekele"
                 {...register('displayName')}
                 disabled={isLoading}
                 aria-invalid={!!errors.displayName}
