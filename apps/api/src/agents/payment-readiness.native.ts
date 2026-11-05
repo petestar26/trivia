@@ -6,7 +6,7 @@ import { setCountryFlags } from './config-service.js';
 import { publishUsdRate } from './usd-config-service.js';
 import { createAgentOrder, submitOrderPayment, settleAgentOrder, cancelAgentOrder } from './order-service.js';
 import { createWithdrawalQuote } from '../withdrawals/quote-service.js';
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { createAgentPaymentAccount } from './payment-account-service.js';
 import { fixtureIds, recoveryFixture } from '../scripts/staging-recovery-fixture.js';
 const url = new URL(process.env.DATABASE_URL ?? 'http://invalid');
@@ -80,9 +80,9 @@ async function fixture() {
 }
 it('rejects legacy activation and under-floor payments without writing orders, quotes or reservations', async () => {
   const f = await fixture();
-  await prisma.exchangeRateConfig.create({
+  await expect(prisma.exchangeRateConfig.create({
     data: { countryId: f.country.id, fiatCurrency: 'ETB', coinsPerUnit: 0.0096, setBy: f.admin.id },
-  });
+  })).rejects.toThrow(/Native ETB wallet requires ETB pricing terms/);
   await expect(
     setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: true })
   ).rejects.toThrow(/USD pricing/);
@@ -102,7 +102,7 @@ it('rejects legacy activation and under-floor payments without writing orders, q
   expect(await prisma.agentOrder.count({ where: { userId: f.buyer.id } })).toBe(0);
   expect(await prisma.withdrawalQuote.count({ where: { userId: f.buyer.id } })).toBe(0);
   expect(await prisma.agentReservation.count({ where: { agentId: f.agent.id } })).toBe(0);
-  await publishUsdRate(f.admin.id, f.country.id, { ...fixtureUsdPolicy(1), localPerUsd: '100' });
+  await publishUsdRate(f.admin.id, f.country.id, { ...fixtureEtbPolicy(), localPerUsd: '100' });
   await expect(createAgentOrder(f.buyer.id, args)).rejects.toThrow(/Minimum P2P deposit/);
   await expect(
     createWithdrawalQuote(f.buyer.id, { countryId: f.country.id, coinAmount: 384 })
@@ -110,7 +110,7 @@ it('rejects legacy activation and under-floor payments without writing orders, q
 });
 it('requires a current rate and usable destination, and audits only successful activation', async () => {
   const f = await fixture();
-  const rate = await publishUsdRate(f.admin.id, f.country.id, fixtureUsdPolicy(1));
+  const rate = await publishUsdRate(f.admin.id, f.country.id, fixtureEtbPolicy());
   await prisma.agentPaymentAccount.update({
     where: { id: f.account.id },
     data: { status: 'REJECTED' },
@@ -169,7 +169,7 @@ it('rejects cross-country receiving accounts and suspended users', async () => {
 
 async function fundedFixture() {
   const f = await fixture();
-  const rate = await publishUsdRate(f.admin.id, f.country.id, fixtureUsdPolicy(1));
+  const rate = await publishUsdRate(f.admin.id, f.country.id, fixtureEtbPolicy());
   await setCountryFlags(f.admin.id, f.country.id, { agentPaymentEnabled: true });
   await fundAgentInventory(f.admin.id, f.agent.id, 100000, randomUUID());
   const args = { agentId: f.agent.id, countryId: f.country.id, paymentAccountId: f.account.id, fiatAmount: 500, idempotencyKey: randomUUID() };
@@ -254,12 +254,12 @@ it('late payment recovery serializes reports/refunds, binds step-up, and leaves 
 
 it('settles on-time payment after rate expiry without repricing and rejects late submission', async () => {
   const f = await fundedFixture();
-  await publishUsdRate(f.admin.id, f.country.id, {...fixtureUsdPolicy(1), expiresAt: new Date(Date.now() + 6000).toISOString()});
+  await publishUsdRate(f.admin.id, f.country.id, {...fixtureEtbPolicy(), expiresAt: new Date(Date.now() + 6000).toISOString()});
   const {order: paid} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
   const {order: late} = await createAgentOrder(f.buyer.id, {...f.args, idempotencyKey: randomUUID()});
   await submitOrderPayment(f.buyer.id, paid.id);
   await prisma.$queryRaw`SELECT 1 AS waited FROM pg_sleep(6)`;
-  await publishUsdRate(f.admin.id, f.country.id, {...fixtureUsdPolicy(1), localPerUsd: '2'});
+  await publishUsdRate(f.admin.id, f.country.id, {...fixtureEtbPolicy(), localPerUsd: '2'});
   await expect(submitOrderPayment(f.buyer.id, late.id)).rejects.toMatchObject({statusCode: 409});
   const outcomes = await Promise.allSettled([
     settleAgentOrder(f.agentUser.id, paid.id), settleAgentOrder(f.agentUser.id, paid.id),

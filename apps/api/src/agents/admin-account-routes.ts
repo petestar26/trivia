@@ -7,12 +7,18 @@ import {
   createAdminAgent,
   listPendingAgentAccounts,
   reissueAgentPassword,
+  approveExistingMemberAgent,
 } from './admin-account-service.js';
 export async function adminAgentAccountRoutes(server: FastifyInstance) {
   server.addHook('onSend', async (_request, reply, payload) => {
     reply.header('Cache-Control', 'private, no-store');
     return payload;
   });
+  server.post('/admin/accounts/existing', {
+    preHandler: [authenticate, requirePermission('agent:create')],
+    bodyLimit: 8192,
+    config: { rateLimit: { hook: 'preHandler', max: 20, timeWindow: '1 minute', keyGenerator: request => `agent-existing:${request.user!.sub}` } },
+  }, async (request, reply) => reply.status(201).send({ success: true, data: await approveExistingMemberAgent(request.user!.sub, request.body) }));
   server.post(
     '/admin/accounts',
     {

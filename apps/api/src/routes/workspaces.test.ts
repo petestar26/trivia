@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   agentPaymentAccount: { count: vi.fn() },
   country: { count: vi.fn() },
   auditLog: { findMany: vi.fn() },
+  $queryRaw: vi.fn(),
 }));
 vi.mock('@socialplay/database', () => ({ prisma: m }));
 vi.mock('../middleware/index.js', async (importOriginal) => {
@@ -27,9 +28,10 @@ beforeEach(async () => {
   vi.resetAllMocks();
   m.user.findUnique.mockResolvedValue({ role: 'ADMIN', status: 'ACTIVE' });
   m.agent.findUnique.mockResolvedValue(null);
+  m.$queryRaw.mockResolvedValue([{ count: 0 }]);
   for (const model of Object.values(m)) {
-    if ('count' in model) model.count.mockResolvedValue(0);
-    if ('findMany' in model) model.findMany.mockResolvedValue([]);
+    if (typeof model === 'object' && 'count' in model) model.count.mockResolvedValue(0);
+    if (typeof model === 'object' && 'findMany' in model) model.findMany.mockResolvedValue([]);
   }
   app = Fastify();
   app.setErrorHandler((e: FastifyError, _req: FastifyRequest, reply: FastifyReply) =>
@@ -40,7 +42,7 @@ beforeEach(async () => {
 afterEach(() => app.close());
 const read = (path: string) =>
   app.inject({ url: `/workspaces/${path}`, headers: { authorization: 'fixture' } });
-it.each(['overview', 'accounts', 'games', 'audit'])(
+it.each(['overview', 'accounts', 'agents', 'accounts/11111111-1111-4111-8111-111111111111', 'games', 'audit'])(
   'denies signed-out, demoted and suspended admins on %s',
   async (path) => {
     expect((await app.inject({ url: `/workspaces/admin/${path}` })).statusCode).toBe(401);
@@ -52,6 +54,18 @@ it.each(['overview', 'accounts', 'games', 'audit'])(
     expect(m.auditLog.findMany).not.toHaveBeenCalled();
   }
 );
+it('denies anonymous, demoted and suspended actors before member moderation', async () => {
+  const route = { method: 'POST' as const, url: '/workspaces/admin/accounts/11111111-1111-4111-8111-111111111111/status', payload: { status: 'SUSPENDED' } };
+  expect((await app.inject(route)).statusCode).toBe(401);
+  for (const actor of [{ role: 'USER', status: 'ACTIVE' }, { role: 'ADMIN', status: 'SUSPENDED' }]) {
+    m.user.findUnique.mockResolvedValue(actor);
+    expect((await app.inject({ ...route, headers: { authorization: 'fixture' } })).statusCode).toBe(403);
+  }
+});
+it('requires authentication and an active assigned agent for the overview', async () => {
+  expect((await app.inject({ url: '/workspaces/agent/overview' })).statusCode).toBe(401);
+  expect((await read('agent/overview')).statusCode).toBe(403);
+});
 it('requires approved agent status; admin is not automatically an agent', async () => {
   expect((await read('access')).json().data).toMatchObject({ admin: true, agent: false });
   m.user.findUnique.mockResolvedValue({ role: 'USER', status: 'ACTIVE' });

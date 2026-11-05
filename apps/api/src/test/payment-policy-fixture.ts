@@ -1,4 +1,15 @@
 import { Prisma } from '@socialplay/database';
+/** Native ETB wallet fixture. Never a live market rate. */
+export function fixtureEtbPolicy() {
+  return {
+    version: 'ETB_V1', walletCurrency: 'ETB', minorDigits: 2, localPerUsd: '0.96',
+    source: 'Disposable lifecycle fixture, not a market rate',
+    observedAt: new Date(Date.now() - 1000).toISOString(),
+    expiresAt: new Date(Date.now() + 29 * 60_000).toISOString(),
+    p2pDepositMinUsdCents: 200, p2pWithdrawalAboveUsdCents: 400,
+    cryptoDepositMinUsdCents: 1000, cryptoWithdrawalAboveUsdCents: 2000, feeMinor: 0,
+  };
+}
 /** Synthetic ETB quotes preserve the lifecycle fixtures' original Coin/minor-unit ratio.
  * They carry the real USD minimums, expiry and snapshot rules. Never use as live FX data.
  */

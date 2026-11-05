@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '@socialplay/database';
 import { authenticate, requireRole, ApiError } from '../middleware/index.js';
+import { z } from 'zod';
+import { adminAgents, adminAccountDetails, agentOverview, setMemberAccountStatus } from '../workspaces/service.js';
 
 export async function workspaceRoutes(server: FastifyInstance) {
   server.addHook('onSend', async (_req, reply, payload) => {
@@ -29,6 +31,19 @@ export async function workspaceRoutes(server: FastifyInstance) {
     };
   });
   const admin = [authenticate, requireRole('ADMIN', 'SUPER_ADMIN')];
+  server.get('/admin/agents', { preHandler: admin }, async request => ({ success: true, data: await adminAgents(request.user!.sub, request.query) }));
+  server.get<{ Params: { id: string } }>('/admin/accounts/:id', { preHandler: admin }, async request => {
+    if (!z.string().uuid().safeParse(request.params.id).success) throw ApiError.badRequest('Invalid account reference.');
+    return { success: true, data: await adminAccountDetails(request.user!.sub, request.params.id) };
+  });
+  server.get('/agent/overview', { preHandler: [authenticate] }, async request => ({ success: true, data: await agentOverview(request.user!.sub) }));
+  server.post<{ Params: { id: string } }>('/admin/accounts/:id/status', {
+    preHandler: admin, bodyLimit: 8192,
+    config: { rateLimit: { hook: 'preHandler', max: 20, timeWindow: '1 minute', keyGenerator: request => `member-status:${request.user!.sub}` } },
+  }, async request => {
+    if (!z.string().uuid().safeParse(request.params.id).success) throw ApiError.badRequest('Invalid account reference.');
+    return { success: true, data: await setMemberAccountStatus(request.user!.sub, request.params.id, request.body) };
+  });
   server.get('/admin/overview', { preHandler: admin }, async () => {
     const [members, agents, groups, games, applications, accounts, countries, support] =
       await Promise.all([
