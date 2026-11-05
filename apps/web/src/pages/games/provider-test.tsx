@@ -156,7 +156,11 @@ function ProviderTestSession({ userId }: { userId: string }) {
     retry: false,
     queryFn: async () =>
       unwrapData(
-        await api.get<{ enabled: boolean; launchReady: boolean }>('/provider-test/status')
+        await api.get<{
+          enabled: boolean;
+          launchReady: boolean;
+          unavailableReason?: 'paused' | 'restricted' | 'setup-required' | null;
+        }>('/provider-test/status')
       ),
   });
   const accessGranted = status.data?.enabled === true && !status.isError;
@@ -312,17 +316,23 @@ function ProviderTestSession({ userId }: { userId: string }) {
       )}
       {status.isLoading && (
         <p className="casino-notice" role="status">
-          Checking test access…
+          Checking casino access…
         </p>
       )}
       {status.isError && (
         <div className="casino-notice" role="alert">
-          Could not check test access. <button onClick={() => void status.refetch()}>Retry</button>
+          Could not check casino availability.{' '}
+          <button onClick={() => void status.refetch()}>Retry</button>
         </div>
       )}
-      {status.data?.enabled === false && (
+      {!status.isError && status.data?.enabled === false && (
         <p className="casino-notice" role="status">
-          Provider testing is not enabled for your account yet.
+          {status.data.unavailableReason === 'paused'
+            ? 'Casino practice is temporarily paused. Please try again later.'
+            : status.data.unavailableReason === 'setup-required'
+              ? 'Casino practice is temporarily unavailable. Please try again shortly.'
+              : 'Casino practice is not available for this account.'}{' '}
+          <button onClick={() => void status.refetch()}>Check again</button>
         </p>
       )}
       {accessGranted && wallet.isError && (
@@ -333,7 +343,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
       )}
       {accessGranted && status.data?.launchReady === false && (
         <p className="casino-notice" role="status">
-          Test launch setup is being completed.
+          Games are temporarily unavailable. Please try again shortly.
         </p>
       )}
 

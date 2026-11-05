@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { providerCredentials } from './credentials.js';
 import { ProviderDemoError } from './demo.js';
-import { callbackSalt, createTestWallet, testAccess } from './test-wallet.js';
+import { callbackSalt, createTestWallet, testAccess, testAccessMode } from './test-wallet.js';
 
 type Env = Record<string, string | undefined>;
 export interface TestGame {
@@ -15,6 +15,7 @@ export interface TestGame {
   image?: string;
   imageFallback?: string;
 }
+export type TestUnavailableReason = 'paused' | 'restricted' | 'setup-required' | null;
 export class TestProviderFailure extends ProviderDemoError {
   constructor(
     readonly method: string,
@@ -74,7 +75,13 @@ export function createProviderTest(
     !!apiPassword &&
     callbackSalt(env).length >= 16 &&
     env.SOFTAGGREGATOR_TEST_CALLBACK_ENABLED === 'true';
-  const enabledFor = (id: string) => testAccess(env, id) && configured();
+  const unavailableReasonFor = (id: string): TestUnavailableReason => {
+    if (env.SOFTAGGREGATOR_TEST_ENABLED !== 'true') return 'paused';
+    if (testAccessMode(env) === 'invalid') return 'setup-required';
+    if (!testAccess(env, id)) return 'restricted';
+    return configured() ? null : 'setup-required';
+  };
+  const enabledFor = (id: string) => unavailableReasonFor(id) === null;
   const hosts = () =>
     (env.SOFTAGGREGATOR_TEST_LAUNCH_HOSTS ?? '')
       .split(',')
@@ -210,5 +217,12 @@ export function createProviderTest(
     if (inspectHost) return { host, mode: 'virtual-test' as const, url: '' };
     return { url: new URL(raw as string).href, mode: 'virtual-test' as const, host };
   }
-  return { enabledFor, games, launch, wallet, launchReady: () => hosts().length > 0 };
+  return {
+    enabledFor,
+    unavailableReasonFor,
+    games,
+    launch,
+    wallet,
+    launchReady: () => hosts().length > 0,
+  };
 }

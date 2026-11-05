@@ -15,14 +15,23 @@ export type TestMovement = {
 };
 export const TEST_OPENING_CENTS = 100_000;
 const MAX_CENTS = 1_000_000_000;
+export function testAccessMode(env: Env): 'allowlist' | 'all-active' | 'invalid' {
+  const mode = env.SOFTAGGREGATOR_TEST_ACCESS_MODE?.trim() ?? 'allowlist';
+  return mode === 'allowlist' || mode === 'all-active' ? mode : 'invalid';
+}
 export const testIds = (env: Env) =>
   (env.SOFTAGGREGATOR_TEST_USER_IDS ?? env.SOFTAGGREGATOR_DEMO_USER_IDS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
 export const callbackSalt = (env: Env) => (env.SOFTAGGREGATOR_SALT_KEY ?? '').trim();
-export const testAccess = (env: Env, id: string) =>
-  env.SOFTAGGREGATOR_TEST_ENABLED === 'true' && testIds(env).includes(id);
+// This is the audience policy, not authentication. Member routes authenticate an
+// ACTIVE account on every request; provisioning and debit callbacks recheck it.
+export const testAccess = (env: Env, id: string) => {
+  if (env.SOFTAGGREGATOR_TEST_ENABLED !== 'true' || !id.trim()) return false;
+  const mode = testAccessMode(env);
+  return mode === 'all-active' || (mode === 'allowlist' && testIds(env).includes(id));
+};
 const matches = (actual: string | undefined, expected: Buffer, size: number) =>
   typeof actual === 'string' &&
   new RegExp(`^[a-fA-F0-9]{${size}}$`).test(actual) &&

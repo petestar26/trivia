@@ -140,6 +140,50 @@ it('creates the same isolated test player once and never provisions non-testers'
   expect((await wallet.snapshot(p.id)).balanceCents).toBe(100000);
   await expect(wallet.ensurePlayer('customer')).rejects.toThrow('TEST_ACCESS_REFUSED');
 });
+it('automatically provisions a future active member once while preserving suspension and pause rules', async () => {
+  const settings = {
+    SOFTAGGREGATOR_TEST_ENABLED: 'true',
+    SOFTAGGREGATOR_TEST_CALLBACK_ENABLED: 'true',
+    SOFTAGGREGATOR_TEST_ACCESS_MODE: 'all-active',
+  };
+  const automaticWallet = createTestWallet(
+    { ...adapter(db), $transaction: (f: any) => db.transaction((tx) => f(adapter(tx))) } as any,
+    settings
+  );
+  const id = randomUUID();
+  await db.query("INSERT INTO users VALUES($1,'ACTIVE')", [id]);
+  const p = await automaticWallet.ensurePlayer(id);
+  expect((await automaticWallet.ensurePlayer(id)).username).toBe(p.username);
+  expect((await automaticWallet.snapshot(id)).balanceCents).toBe(100000);
+  const debit = movement(p);
+  expect(await automaticWallet.apply(debit)).toEqual({ error: 0, balance: 99875 });
+  await db.query("UPDATE users SET status='SUSPENDED' WHERE id=$1", [id]);
+  await expect(automaticWallet.ensurePlayer(id)).rejects.toThrow('TEST_ACCESS_REFUSED');
+  expect((await automaticWallet.apply(movement(p))).error).toBe(2);
+  expect(await automaticWallet.apply(debit)).toEqual({ error: 0, balance: 99875 });
+  expect(
+    (await automaticWallet.apply(movement(p, { action: 'credit', amount: 125 }))).balance
+  ).toBe(100000);
+  await db.query("UPDATE users SET status='ACTIVE' WHERE id=$1", [id]);
+  settings.SOFTAGGREGATOR_TEST_ENABLED = 'false';
+  expect((await automaticWallet.apply(movement(p))).error).toBe(2);
+  await expect(automaticWallet.ensurePlayer(randomUUID())).rejects.toThrow('TEST_ACCESS_REFUSED');
+});
+it.each(['SUSPENDED', 'INACTIVE', 'PENDING_VERIFICATION'])(
+  'never provisions an %s account in automatic mode',
+  async (status) => {
+    const automaticWallet = createTestWallet(
+      { ...adapter(db), $transaction: (f: any) => db.transaction((tx) => f(adapter(tx))) } as any,
+      { SOFTAGGREGATOR_TEST_ENABLED: 'true', SOFTAGGREGATOR_TEST_ACCESS_MODE: 'all-active' }
+    );
+    const id = randomUUID();
+    await db.query('INSERT INTO users VALUES($1,$2)', [id, status]);
+    await expect(automaticWallet.ensurePlayer(id)).rejects.toThrow('TEST_ACCESS_REFUSED');
+    expect(
+      (await db.query('SELECT user_id FROM sg_test_players WHERE user_id=$1', [id])).rows
+    ).toEqual([]);
+  }
+);
 it('debits cents exactly once and replays the original receipt after later credits', async () => {
   const p = await player(),
     m = movement(p);

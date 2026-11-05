@@ -15,6 +15,7 @@ vi.mock('../../middleware/auth.js', () => ({
 vi.mock('./test-client.js', () => ({
   createProviderTest: () => ({
     enabledFor: (id: string) => id === 'tester',
+    unavailableReasonFor: (id: string) => (id === 'tester' ? null : 'restricted'),
     launchReady: () => true,
     games: async (id: string) => {
       if (id !== 'tester') throw Object.assign(Error('Forbidden'), { statusCode: 404 });

@@ -4,7 +4,7 @@ import {
   createProviderTest,
   TestProviderFailure,
 } from '../providers/softaggregator/test-client.js';
-import { testIds, callbackSalt } from '../providers/softaggregator/test-wallet.js';
+import { testIds, testAccessMode, callbackSalt } from '../providers/softaggregator/test-wallet.js';
 
 async function main() {
   assertProviderProbeTarget(process.env);
@@ -13,9 +13,17 @@ async function main() {
   const db = new PrismaClient({ log: [] });
   try {
     const pilot = createProviderTest(db),
-      ids = testIds(process.env);
+      ids = testIds(process.env),
+      accessMode = testAccessMode(process.env);
     const actor = await db.user.findFirst({
-      where: { id: { in: ids }, status: 'ACTIVE' },
+      // A read-only readiness check may use any active member. The operator's
+      // launch probe still targets an explicitly selected tester, not a customer.
+      where: {
+        ...(accessMode === 'all-active' && process.argv[2] === '--check'
+          ? {}
+          : { id: { in: ids } }),
+        status: 'ACTIVE',
+      },
       select: { id: true },
     });
     if (process.argv[2] === '--check') {
@@ -23,6 +31,8 @@ async function main() {
         JSON.stringify({
           event: 'PROVIDER_TEST_PROBE',
           status: actor && pilot.enabledFor(actor.id) ? 'TEST_CONFIGURED' : 'TEST_NOT_CONFIGURED',
+          accessMode,
+          unavailableReason: actor ? pilot.unavailableReasonFor(actor.id) : 'no-active-account',
           testerResolved: !!actor,
           saltConfigured: callbackSalt(process.env).length >= 16,
           launchReady: pilot.launchReady(),

@@ -102,10 +102,34 @@ it('removes an open frame and cached titles when test access is revoked', async 
   act(() =>
     v.client.setQueryData(['provider-test-status', 'tester'], { enabled: false, launchReady: true })
   );
-  await screen.findByText('Provider testing is not enabled for your account yet.');
+  await screen.findByText('Casino practice is not available for this account.');
   expect(v.container.querySelector('iframe')).toBeNull();
   expect(screen.queryByRole('searchbox')).toBeNull();
 });
+it.each([
+  ['paused', 'Casino practice is temporarily paused. Please try again later.'],
+  ['setup-required', 'Casino practice is temporarily unavailable. Please try again shortly.'],
+  ['restricted', 'Casino practice is not available for this account.'],
+])(
+  'explains %s without misreporting an account restriction and recovers on retry',
+  async (reason, message) => {
+    const get = mocks.get.getMockImplementation()!;
+    let available = false;
+    mocks.get.mockImplementation((path: string) =>
+      path.endsWith('/status') && !available
+        ? Promise.resolve(ok({ enabled: false, launchReady: true, unavailableReason: reason }))
+        : get(path)
+    );
+    mount();
+    await screen.findByText(message);
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(screen.queryByText('Provider testing is not enabled for your account yet.')).toBeNull();
+    available = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByRole('button', { name: 'Play Test Slot' })).toBeEnabled();
+    expect(screen.queryByText(message)).toBeNull();
+  }
+);
 it('keeps launch disabled when its address is not configured', async () => {
   mocks.get.mockImplementation(async (path: string) =>
     ok(
