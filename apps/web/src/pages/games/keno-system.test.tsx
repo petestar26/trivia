@@ -59,7 +59,7 @@ it('uses the server countdown and confirms the explicit stake once', async () =>
   await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
   expect(await screen.findByRole('button', { name: 'Ticket confirmed' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Number 7' })).toBeDisabled();
-  expect(screen.getByText('88 Coins')).toBeInTheDocument();
+  expect(screen.getByText('0.88 ETB')).toBeInTheDocument();
 });
 it('polling recovers a held confirmation, and refresh restores its persisted result', async () => {
   mocks.post.mockImplementation(() => {

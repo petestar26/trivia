@@ -14,7 +14,7 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 function mount(){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}})}><MemoryRouter><SystemDicePage/></MemoryRouter></QueryClientProvider>);}
 it('shows the corrected return and explicit amount, then confirms one server ticket',async()=>{
  mount();expect(await screen.findByRole('timer',{name:'Betting closes in'})).toHaveTextContent('40s');
- expect(screen.getByText('54 ETB')).toBeInTheDocument();expect(screen.getByText('88 Coins')).toBeInTheDocument();
+ expect(screen.getByText('54 ETB')).toBeInTheDocument();expect(screen.getByText('0.88 ETB')).toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('Bet amount'),{target:{value:'70'}});expect(screen.getByText('108 ETB')).toBeInTheDocument();
  mocks.post.mockImplementation(async()=>{s.balance=930;s.rounds[0].ticket={stake:70,payout:null};return {data:{accepted:true}};});
  fireEvent.click(screen.getByRole('button',{name:'Confirm ticket · 70 ETB'}));await waitFor(()=>expect(mocks.post).toHaveBeenCalledTimes(1));
