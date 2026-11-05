@@ -8,7 +8,7 @@ const __dirname = join(__filename, '..');
 
 async function buildApi() {
   const outDir = join(__dirname, 'dist');
-  
+
   // Clean dist
   if (existsSync(outDir)) {
     rmSync(outDir, { recursive: true });
@@ -41,6 +41,7 @@ async function buildApi() {
       join(__dirname, 'src/scripts/provider-test-probe.ts'),
       join(__dirname, 'src/scripts/practice-gifts-check.ts'),
       join(__dirname, 'src/scripts/payment-readiness.ts'),
+      join(__dirname, 'src/scripts/member-experience-check.ts'),
       join(__dirname, 'src/scripts/payment-setup.ts'),
       // Owner-only controls restricted to the disposable staging rehearsal DB.
       join(__dirname, 'src/scripts/staging-practice-owner.ts'),
@@ -69,11 +70,8 @@ async function buildApi() {
   });
 
   // Copy package.json for node_modules resolution
-  copyFileSync(
-    join(__dirname, 'package.json'),
-    join(outDir, 'package.json')
-  );
-  
+  copyFileSync(join(__dirname, 'package.json'), join(outDir, 'package.json'));
+
   console.log('Build completed!');
 }
 

@@ -30,15 +30,19 @@ export async function workspaceRoutes(server: FastifyInstance) {
   });
   const admin = [authenticate, requireRole('ADMIN', 'SUPER_ADMIN')];
   server.get('/admin/overview', { preHandler: admin }, async () => {
-    const [members, agents, groups, games, applications, accounts, countries] = await Promise.all([
-      prisma.user.count({ where: { role: 'USER' } }),
-      prisma.agent.count({ where: { status: 'ACTIVE', user: { status: 'ACTIVE' } } }),
-      prisma.group.count({ where: { status: 'ACTIVE', expiresAt: { gt: new Date() } } }),
-      prisma.gameDefinition.count(),
-      prisma.agentApplication.count({ where: { status: 'SUBMITTED' } }),
-      prisma.agentPaymentAccount.count({ where: { status: 'PENDING_APPROVAL' } }),
-      prisma.country.count({ where: { isActive: true, agentPaymentEnabled: true } }),
-    ]);
+    const [members, agents, groups, games, applications, accounts, countries, support] =
+      await Promise.all([
+        prisma.user.count({ where: { role: 'USER' } }),
+        prisma.agent.count({ where: { status: 'ACTIVE', user: { status: 'ACTIVE' } } }),
+        prisma.group.count({ where: { status: 'ACTIVE', expiresAt: { gt: new Date() } } }),
+        prisma.gameDefinition.count(),
+        prisma.agentApplication.count({ where: { status: 'SUBMITTED' } }),
+        prisma.agentPaymentAccount.count({ where: { status: 'PENDING_APPROVAL' } }),
+        prisma.country.count({ where: { isActive: true, agentPaymentEnabled: true } }),
+        prisma.$queryRaw<
+          { count: number }[]
+        >`SELECT count(*)::int AS count FROM support_tickets WHERE status='OPEN' AND last_sender='USER'`,
+      ]);
     return {
       success: true,
       data: {
@@ -49,6 +53,7 @@ export async function workspaceRoutes(server: FastifyInstance) {
         applications,
         accounts,
         countries,
+        support: support[0].count,
         asOf: new Date().toISOString(),
       },
     };
