@@ -220,7 +220,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
               AI assistant:{' '}
               {help.data?.aiEnabled
                 ? 'configured'
-                : 'not configured. Set OPENAI_API_KEY and SUPPORT_AI_MODEL privately on the API service to enable it.'}
+                : 'not configured. Set the provider, model, and matching API key privately on the API service to enable it.'}
             </p>
           )}
           <div className={`salem-support-workspace ${selected || creating ? 'has-thread' : ''}`}>
@@ -595,7 +595,7 @@ function Assistant({ language }: { language: string }) {
         />
       </label>
       <p className="salem-footnote">
-        AI-generated answers may be inaccurate. Your question is sent to OpenAI. Do not include
+        AI-generated answers may be inaccurate. Your question is sent to our AI provider. Do not include
         passwords or payment secrets.
       </p>
       <button className="salem-button" disabled={!question.trim() || answer.isPending}>
