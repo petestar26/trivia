@@ -30,14 +30,46 @@ account-scoped, current account status and staff roles are checked server-side,
 and mutations use request IDs. Unknown network failures preserve the exact request
 for a safe retry. No email or Telegram message is sent by this feature.
 
-AI assistance is optional. Configure OPENAI_API_KEY and SUPPORT_AI_MODEL privately
-on the API service and redeploy. The model must be available to that OpenAI account.
-The backend calls the Responses API with store=false, a 20-second timeout, a bounded
-output and curated platform facts. Only the member's question and selected language
-are sent; account records, balances and tickets are not added to the request.
-The assistant cannot change accounts, payments or games. When configuration is
-absent or the upstream fails, the UI directs users to guides and the support team.
-An actual model response has not been validated without configured credentials.
+AI assistance is optional. Set these variables privately on **account-api**, then
+deploy. `SUPPORT_AI_MODEL` is a model identifier, not a key. Choose one provider:
+
+| SUPPORT_AI_PROVIDER     | Secret variable    | Example SUPPORT_AI_MODEL            |
+| ----------------------- | ------------------ | ----------------------------------- |
+| groq                    | GROQ_API_KEY       | openai/gpt-oss-20b                  |
+| openrouter              | OPENROUTER_API_KEY | openrouter/free                     |
+| openai (legacy default) | OPENAI_API_KEY     | An available OpenAI Responses model |
+
+Create a Groq key at https://console.groq.com/keys or an OpenRouter key at
+https://openrouter.ai/settings/keys. Use a Groq Free plan to avoid paid usage;
+the same Groq model can be billed on a paid account. OpenRouter accepts only
+`openrouter/free` or an explicit `provider/model:free` variant here. Requests also
+cap prompt, completion and per-request prices at zero. The free router selects
+from available free models; a specific free variant gives more consistent behavior.
+Free capacity and models can change. There are no automatic application retries
+or cross-provider fallbacks, including to paid OpenAI.
+
+Groq and OpenRouter use Chat Completions; legacy OpenAI uses Responses with
+`store=false`. All requests use a 20-second timeout, bounded output and curated
+platform facts. GPT-OSS on Groq uses low reasoning effort and omits reasoning from
+the response. Only final assistant text is returned. OpenRouter excludes providers
+that collect data (`data_collection=deny`); if no eligible free endpoint is available,
+the request fails safely rather than relaxing the cost or data policy.
+
+Only the member's question and selected language are sent with the curated facts;
+account records, balances and tickets are not added. Provider data policies still
+apply to text the member enters. The assistant cannot change accounts, payments or
+games. Missing/invalid configuration, quota exhaustion, incomplete responses and
+upstream errors direct members to guides and the support team. Mocked contract
+tests cover all three adapters; a live answer still requires a configured key and
+model. Native-speaker review is needed before relying on Ethiopian-language answers.
+
+Provider references (checked 2026-11-05):
+
+- https://console.groq.com/docs/quickstart
+- https://console.groq.com/docs/reasoning
+- https://console.groq.com/docs/rate-limits
+- https://openrouter.ai/collections/free-models
+- https://openrouter.ai/docs/guides/routing/provider-selection
 
 ## Languages
 
