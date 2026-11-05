@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import { passwordSchema } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { requestStatus } from '@/lib/request-error';
+import { clearPasswordResetLink, readPasswordResetLink } from '@/lib/password-reset-link';
 import { PasswordInput } from '@/components/member/password-input';
 import { Button } from '@/components/ui/button';
 
 export function PasswordResetPage() {
-  const [token, setToken] = useState(
-    () => new URLSearchParams(window.location.hash.slice(1)).get('token') || ''
-  );
+  const [token, setToken] = useState(readPasswordResetLink);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -17,7 +17,7 @@ export function PasswordResetPage() {
   const [done, setDone] = useState(false);
   useEffect(() => {
     // Fragments never enter HTTP/referrer logs. Remove the credential from the
-    // address bar/history immediately; keep it only in this page's memory.
+    // address bar/history immediately; retain it only in this tab until expiry.
     if (window.location.hash)
       window.history.replaceState(
         window.history.state,
@@ -44,11 +44,13 @@ export function PasswordResetPage() {
     setBusy(true);
     try {
       unwrapData(await api.post('/auth/password-reset', { token, password }));
+      clearPasswordResetLink();
       setDone(true);
       setToken('');
       setPassword('');
       setConfirm('');
     } catch (err) {
+      if (requestStatus(err) === 401) clearPasswordResetLink();
       setError(
         getErrorMessage(
           err,

@@ -2,10 +2,13 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PasswordResetPage } from './password-reset';
+import { clearPasswordResetLink } from '@/lib/password-reset-link';
 const post = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', () => ({ api: { post }, unwrapData: (r: { data: unknown }) => r.data }));
 afterEach(() => {
   cleanup();
+  clearPasswordResetLink();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   window.history.replaceState(null, '', '/');
 });
@@ -26,6 +29,43 @@ it('keeps the reset credential out of the address bar and visible page', () => {
 it('requires a recovery link and matching strong passwords', () => {
   show('');
   expect(screen.getByRole('alert')).toHaveTextContent('Open your current recovery link');
+  expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+});
+it('keeps the recovery form after an authentication remount without retaining entered passwords', () => {
+  const page = show();
+  fireEvent.change(screen.getByLabelText('New password'), {
+    target: { value: 'Private-Never-Store-44!' },
+  });
+  page.unmount();
+  show('');
+  expect(screen.getByLabelText('New password')).toHaveValue('');
+  expect(window.location.hash).toBe('');
+  expect(JSON.stringify(sessionStorage)).not.toContain('Private-Never-Store-44!');
+});
+it('does not restore an expired link after a remount', () => {
+  const now = Date.now();
+  const page = show();
+  page.unmount();
+  vi.spyOn(Date, 'now').mockReturnValue(now + 16 * 60_000);
+  show('');
+  expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
+});
+it('accepts a new link after a previous link and does not reuse a link after success', async () => {
+  post.mockResolvedValue({ data: { reset: true } });
+  const first = show('first-link');
+  first.unmount();
+  const second = show('new-link');
+  for (const label of ['New password', 'Confirm new password'])
+    fireEvent.change(screen.getByLabelText(label), {
+      target: { value: 'New-Private-Password-44!' },
+    });
+  fireEvent.click(screen.getByRole('button', { name: 'Save new password' }));
+  await screen.findByRole('heading', { name: 'Your password is ready' });
+  expect(post).toHaveBeenCalledWith('/auth/password-reset', {
+    token: 'new-link', password: 'New-Private-Password-44!',
+  });
+  second.unmount();
+  show('');
   expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
 });
 it('resets once through the server and offers sign in without retaining the password', async () => {
