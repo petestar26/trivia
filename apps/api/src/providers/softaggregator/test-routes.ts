@@ -28,7 +28,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
             ? err.message
             : status === 401
               ? 'Sign in to continue.'
-              : 'Provider testing is unavailable.',
+              : 'Casino practice is temporarily unavailable.',
       },
     });
   });
@@ -36,6 +36,7 @@ export async function providerTestRoutes(server: FastifyInstance) {
     success: true,
     data: {
       enabled: pilot.enabledFor(req.user.sub),
+      unavailableReason: pilot.unavailableReasonFor(req.user.sub),
       mode: 'virtual-test',
       launchReady: pilot.launchReady(),
       currency: 'ETB',

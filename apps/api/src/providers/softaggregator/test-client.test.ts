@@ -94,6 +94,36 @@ it('denies customers and disables unconfigured tests before creating a player', 
   await expect(f.pilot.games('customer')).rejects.toThrow();
   expect(f.transport).not.toHaveBeenCalled();
 });
+it('opens the catalogue to new accounts when automatic access is enabled', async () => {
+  const f = fixture({
+    SOFTAGGREGATOR_TEST_ACCESS_MODE: 'all-active',
+    SOFTAGGREGATOR_TEST_USER_IDS: '',
+  });
+  expect(f.pilot.unavailableReasonFor('future-member')).toBeNull();
+  expect(f.pilot.enabledFor('future-member')).toBe(true);
+  expect(await f.pilot.games('future-member')).toHaveLength(1);
+  expect(f.transaction).not.toHaveBeenCalled();
+});
+it.each([
+  [{ SOFTAGGREGATOR_TEST_ENABLED: 'false' }, 'paused'],
+  [{}, 'restricted'],
+  [{ SOFTAGGREGATOR_TEST_ACCESS_MODE: 'typo' }, 'setup-required'],
+  [
+    { SOFTAGGREGATOR_TEST_ACCESS_MODE: 'all-active', SOFTAGGREGATOR_SALT_KEY: '' },
+    'setup-required',
+  ],
+  [
+    {
+      SOFTAGGREGATOR_TEST_ACCESS_MODE: 'all-active',
+      SOFTAGGREGATOR_TEST_CALLBACK_ENABLED: 'false',
+    },
+    'setup-required',
+  ],
+])('distinguishes account restrictions from platform availability: %j', (overrides, reason) => {
+  const f = fixture(overrides);
+  expect(f.pilot.unavailableReasonFor('new-member')).toBe(reason);
+  expect(f.pilot.enabledFor('new-member')).toBe(false);
+});
 it('requires a configured host, listed game and actual-country input', async () => {
   const f = fixture({ SOFTAGGREGATOR_TEST_LAUNCH_HOSTS: '' });
   await expect(f.pilot.launch('tester', 'studio/slot', 'LA')).rejects.toThrow('configuration');
