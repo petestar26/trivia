@@ -14,6 +14,7 @@ import { requestLogger } from './middleware/request-logger.js';
 import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction.js';
 import { startEtbRateRefresh } from './agents/etb-rate-service.js';
 import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
+import { startRewardDelivery } from './member-rewards/service.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -139,6 +140,12 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 async function start(): Promise<void> {
   try {
     const server = await buildServer();
+    const stopRewards = startRewardDelivery(() =>
+      server.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')
+    );
+    server.addHook('onClose', async () => {
+      stopRewards();
+    });
     const stopGroupPvp = startGroupPvpRuntime({
       enabled: process.env.GROUP_PVP_GAME_POINTS_ENABLED === 'true',
       tick: createGroupPvpService(prisma).tick,

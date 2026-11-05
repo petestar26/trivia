@@ -25,7 +25,6 @@ vi.mock('@/providers/auth-provider', () => ({
 vi.mock('@/components/security/authenticator-setup', () => ({
   AuthenticatorSetup: () => <div>Authenticator settings</div>,
 }));
-vi.mock('./rewards', () => ({ RewardsPage: () => <div>Activity and achievements</div> }));
 vi.mock('@/lib/practice-etb', () => ({ PRACTICE_ETB: true }));
 const config = {
   version: 1,
@@ -121,21 +120,36 @@ it('separates bonus and cash, explains practice exclusion, and shares a referral
   expect(screen.getByLabelText(/Your code/)).toHaveValue(
     'http://localhost:3000/register?ref=ABCD2345'
   );
-  expect(screen.getByRole('button', { name: 'Pending' })).toBeDisabled();
+  expect(screen.getByText('Processing automatically')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /claim|check in/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Daily Tasks' })).not.toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/\bGP\b|waiting.*admin|awaiting.*admin/i);
 });
-it('earns a daily entitlement without losing it when the reward wallet is unavailable', async () => {
+it('explains automatic delivery while the reward wallet is unavailable', async () => {
   show(<MemberRewardsPage />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Check in & earn' }));
-  await screen.findByText(/Checked in. Your reward is earned/);
-  expect(mocks.post).toHaveBeenCalledTimes(1);
-  expect(mocks.post).toHaveBeenCalledWith('/member-rewards/daily', {});
+  expect(
+    await screen.findByText(
+      /They will be credited automatically when your reward wallet is available/
+    )
+  ).toBeInTheDocument();
+  expect(mocks.post).not.toHaveBeenCalled();
 });
-it('claims daily bonus through the server and never sends an amount', async () => {
+it('shows automatic credit status and neutral unavailable rates without admin wording', async () => {
   rewards.eligibility.canClaim = true;
+  rewards.today = { id: 'reward-1', claimed_at: '2026-11-05T00:00:00Z' };
+  rewards.history[0].claimed_at = rewards.today.claimed_at;
+  rewards.config = {
+    ...config,
+    daily_enabled: false,
+    gift_enabled: false,
+    referral_enabled: false,
+  };
   show(<MemberRewardsPage />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Check in & earn' }));
-  await screen.findByText('Your daily reward is now in your bonus balance.');
-  expect(mocks.post).toHaveBeenNthCalledWith(2, '/member-rewards/new-reward/claim', {});
+  expect(await screen.findByText('Today’s reward credited')).toBeInTheDocument();
+  expect(screen.getByText('Credited')).toBeInTheDocument();
+  expect(screen.getAllByText('Currently unavailable')).toHaveLength(3);
+  expect(document.body.textContent).not.toMatch(/\badmin\b|\bGP\b|claim/i);
+  expect(mocks.post).not.toHaveBeenCalled();
 });
 it('shows phone-only account information accurately and saves only editable profile fields', async () => {
   show(<ProfilePage />);
@@ -155,6 +169,7 @@ it('shows phone-only account information accurately and saves only editable prof
 it('admin controls save exact Birr cents and include the current settings version', async () => {
   show(<RewardControlPage />);
   const amount = await screen.findByLabelText('Daily reward (Birr)');
+  expect(screen.getByText(/Set these rates once for the whole platform/)).toBeInTheDocument();
   fireEvent.change(amount, { target: { value: '12.34' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save reward settings' }));
   await waitFor(() =>

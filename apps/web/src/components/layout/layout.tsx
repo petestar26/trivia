@@ -8,9 +8,13 @@ import { Sidebar } from './sidebar';
 import { MobileNavigation } from './mobile-navigation';
 import { Header } from './header';
 import { useMemberTheme } from '@/components/member/use-member-theme';
+import { useAutomaticRewards } from '@/lib/use-automatic-rewards';
+import { useAuth } from '@/providers/auth-provider';
 
 export function Layout() {
   useMemberTheme();
+  const { user } = useAuth();
+  useAutomaticRewards(user?.id);
   const { t } = useLanguage();
   const { pathname } = useLocation();
   const showSupportShortcut =

@@ -67,7 +67,7 @@ export function RewardControlPage() {
         <div>
           <span className="salem-eyebrow">MEMBER PROGRAMS</span>
           <h1>Reward control</h1>
-          <p>Set Birr amounts and availability for daily, gift, and referral rewards.</p>
+          <p>Set platform-wide Birr rewards for daily activity, gift purchases, and referrals.</p>
         </div>
         <div className="member-actions">
           <span className="member-pill">Settings version {d.config.version}</span>
@@ -78,9 +78,12 @@ export function RewardControlPage() {
       </header>
       <div className="member-notice">
         <p>
-          All rewards are bonus Birr for eligible bets. Principal, returned stakes, and refunds are
-          non-withdrawable; verified net winnings may be withdrawn. Only real-Birr gift purchases
-          qualify. Settings affect future activity and never change rewards already earned.
+          Set these rates once for the whole platform. Eligible members receive rewards
+          automatically, without individual approvals or manual payouts. You can increase or reduce
+          the rates here at any time. All rewards are bonus Birr for eligible bets. Principal,
+          returned stakes, and refunds are non-withdrawable; verified net winnings may be withdrawn.
+          Only real-Birr gift purchases qualify. Settings affect future activity and never change
+          rewards already earned.
         </p>
       </div>
       <section className="member-panel">
@@ -103,7 +106,8 @@ export function RewardControlPage() {
         </div>
         <p className="member-muted" style={{ marginTop: 16 }}>
           These settings do not activate payment or gaming services. If a member’s reward wallet is
-          unavailable, earned rewards remain pending.
+          unavailable, earned rewards are saved and automatically retried until they can be
+          credited.
         </p>
       </section>
       <RewardForm
@@ -211,7 +215,10 @@ function RewardForm({ config, onSaved }: { config: RewardConfig; onSaved: () => 
         <section className="member-panel member-edit">
           {toggle('daily_enabled', 'Enable daily rewards')}
           {field('daily_amount')}
-          <small>One reward per member per day. The day resets at midnight in Addis Ababa.</small>
+          <small>
+            Automatically credited once per active member per day. The day resets at midnight in
+            Addis Ababa.
+          </small>
         </section>
         <section className="member-panel member-edit">
           {toggle('gift_enabled', 'Enable gift rewards')}

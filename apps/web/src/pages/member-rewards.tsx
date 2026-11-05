@@ -8,7 +8,6 @@ import { formatEtb } from '@/lib/payment-money';
 import { getErrorMessage } from '@/lib/error-message';
 import { memberGet, memberDate, rewardLabels, type RewardSummary } from '@/lib/member-rewards';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
-import { RewardsPage } from './rewards';
 import './lounge.css';
 import './member-account.css';
 
@@ -25,17 +24,12 @@ function RewardsSession({ userId }: { userId: string }) {
     queryFn: () => memberGet<RewardSummary>(`/member-rewards?page=${page}`),
     staleTime: 0,
     retry: false,
+    refetchInterval: 30_000,
   });
   const action = useMutation({
-    mutationFn: async ({ path, claimDaily = false }: { path: string; claimDaily?: boolean }) => {
-      const result = unwrapData(await api.post<{ id?: string }>(path, {}));
-      if (claimDaily && result.id && query.data?.eligibility.canClaim) {
-        unwrapData(await api.post(`/member-rewards/${result.id}/claim`, {}));
-        return 'Your daily reward is now in your bonus balance.';
-      }
-      return claimDaily
-        ? 'Checked in. Your reward is earned and remains pending until your reward wallet is available.'
-        : 'Saved successfully.';
+    mutationFn: async () => {
+      unwrapData(await api.post('/member-rewards/referral-code', {}));
+      return 'Your referral link is ready.';
     },
     onSuccess: (message) => setNotice(message),
     onError: (error) =>
@@ -69,7 +63,7 @@ function RewardsSession({ userId }: { userId: string }) {
     : '';
   const status = (enabled: boolean) => (
     <span className={`member-pill ${enabled ? 'active' : ''}`}>
-      {enabled ? 'Available' : 'Not enabled'}
+      {enabled ? 'Automatic' : 'Unavailable'}
     </span>
   );
   async function copyLink() {
@@ -86,7 +80,7 @@ function RewardsSession({ userId }: { userId: string }) {
         <div>
           <span className="salem-eyebrow">YOUR MEMBERSHIP</span>
           <h1>Rewards, made for you.</h1>
-          <p>Every earned Birr, every invitation, all in one place.</p>
+          <p>Earn Birr automatically through daily activity, gifts, and invitations.</p>
         </div>
         <Link className="salem-button secondary" to="/profile">
           My profile <ArrowUpRight size={16} />
@@ -104,17 +98,17 @@ function RewardsSession({ userId }: { userId: string }) {
           <small>Withdrawals follow your account eligibility.</small>
         </div>
         <div>
-          <span>Earned, awaiting claim</span>
+          <span>Rewards processing</span>
           <strong>{formatEtb(d.pendingMinor)}</strong>
           <small>All-time promotion rewards: {formatEtb(d.earnedMinor)}</small>
         </div>
       </section>
-      {!d.eligibility.canClaim && (
+      {!d.eligibility.canClaim && d.pendingMinor > 0 && (
         <div className="member-notice">
           <ShieldCheck size={20} aria-hidden="true" />
           <p>
-            Your reward wallet is not available yet. Earned rewards stay pending. An active payment
-            country and enabled reward service are required to claim them.
+            Your earned rewards are saved. They will be credited automatically when your reward
+            wallet is available.
           </p>
         </div>
       )}
@@ -129,21 +123,25 @@ function RewardsSession({ userId }: { userId: string }) {
             <CalendarCheck aria-hidden="true" />
             {status(c.daily_enabled)}
           </div>
-          <h2>Daily check-in</h2>
+          <h2>Daily activity</h2>
           <strong className="member-reward-amount">
-            {c.daily_amount ? formatEtb(c.daily_amount) : 'Awaiting admin amount'}
+            {c.daily_enabled ? formatEtb(c.daily_amount) : 'Currently unavailable'}
           </strong>
           <p>
-            Log in or check in while you are active, once each day. Resets at midnight in Addis
-            Ababa (UTC+3).
+            Log in or use Salem Bet each day. Your daily reward is added automatically, once per
+            day. Resets at midnight in Addis Ababa (UTC+3).
           </p>
-          <button
-            className="salem-button"
-            disabled={!c.daily_enabled || !!d.today || action.isPending}
-            onClick={() => action.mutate({ path: '/member-rewards/daily', claimDaily: true })}
-          >
-            {d.today ? 'Checked in today' : action.isPending ? 'Please wait…' : 'Check in & earn'}
-          </button>
+          <div className="member-rule">
+            <strong>
+              {d.today?.claimed_at
+                ? 'Today’s reward credited'
+                : d.today
+                  ? 'Today’s reward is processing'
+                  : c.daily_enabled
+                    ? 'Your daily activity is recorded automatically'
+                    : 'Daily rewards are currently unavailable'}
+            </strong>
+          </div>
           <small>Next reset: {new Date(d.nextCheckInAt).toLocaleString()}</small>
         </article>
         <article className="member-panel member-reward-card">
@@ -153,14 +151,17 @@ function RewardsSession({ userId }: { userId: string }) {
           </div>
           <h2>Gift purchase</h2>
           <strong className="member-reward-amount">
-            {c.gift_amount ? formatEtb(c.gift_amount) : 'Awaiting admin amount'}
+            {c.gift_enabled ? formatEtb(c.gift_amount) : 'Currently unavailable'}
           </strong>
           <p>
-            Earn for each completed real-Birr gift purchase of at least {formatEtb(c.gift_minimum)}.
+            Earn automatically after each qualifying real-Birr gift purchase.
+            {c.gift_minimum > 0 && ` Minimum purchase: ${formatEtb(c.gift_minimum)}.`}
           </p>
-          <div className="member-rule">
-            Daily gift reward limit <strong>{formatEtb(c.gift_daily_limit)}</strong>
-          </div>
+          {c.gift_enabled && (
+            <div className="member-rule">
+              Daily gift reward limit <strong>{formatEtb(c.gift_daily_limit)}</strong>
+            </div>
+          )}
           <small>
             {PRACTICE_ETB
               ? 'The current gift shop uses practice ETB. Those purchases do not qualify.'
@@ -174,10 +175,10 @@ function RewardsSession({ userId }: { userId: string }) {
           </div>
           <h2>Invite a friend</h2>
           <strong className="member-reward-amount">
-            {c.referral_amount ? formatEtb(c.referral_amount) : 'Awaiting admin amount'}
+            {c.referral_enabled ? formatEtb(c.referral_amount) : 'Currently unavailable'}
           </strong>
           <p>
-            Earn once for each friend who signs up with your code and completes their first
+            Earn automatically for each friend who signs up with your code and completes their first
             qualifying real-Birr gift purchase.
           </p>
           <div className="member-rule">
@@ -185,8 +186,8 @@ function RewardsSession({ userId }: { userId: string }) {
             <strong>{d.qualifiedReferrals} qualified</strong>
           </div>
           <small>
-            Minimum purchase: {formatEtb(c.gift_minimum)}. Referral rewards must be enabled when the
-            qualifying purchase is made.
+            {c.gift_minimum > 0 && `Minimum purchase: ${formatEtb(c.gift_minimum)}. `}
+            One reward per invited friend while this offer is available.
           </small>
         </article>
       </section>
@@ -222,7 +223,7 @@ function RewardsSession({ userId }: { userId: string }) {
             <button
               className="salem-button"
               disabled={action.isPending}
-              onClick={() => action.mutate({ path: '/member-rewards/referral-code' })}
+              onClick={() => action.mutate()}
             >
               Create my referral link
             </button>
@@ -238,7 +239,7 @@ function RewardsSession({ userId }: { userId: string }) {
           <div className="member-empty">
             <Gift size={28} aria-hidden="true" />
             <h3>Your rewards will appear here</h3>
-            <p>Check in or complete an eligible activity when its reward is enabled.</p>
+            <p>Rewards are added automatically when you complete an eligible activity.</p>
           </div>
         ) : (
           <ul className="member-history">
@@ -249,17 +250,9 @@ function RewardsSession({ userId }: { userId: string }) {
                   <small>{memberDate(row.created_at)}</small>
                 </div>
                 <strong>{formatEtb(row.amount)}</strong>
-                {row.claimed_at ? (
-                  <span className="member-pill active">Claimed</span>
-                ) : (
-                  <button
-                    className="salem-button secondary"
-                    disabled={action.isPending || !d.eligibility.canClaim}
-                    onClick={() => action.mutate({ path: `/member-rewards/${row.id}/claim` })}
-                  >
-                    {d.eligibility.canClaim ? 'Claim reward' : 'Pending'}
-                  </button>
-                )}
+                <span className={`member-pill ${row.claimed_at ? 'active' : ''}`}>
+                  {row.claimed_at ? 'Credited' : 'Processing automatically'}
+                </span>
               </li>
             ))}
           </ul>
@@ -296,18 +289,14 @@ function RewardsSession({ userId }: { userId: string }) {
           </p>
           <p>
             {d.eligibility.expiryHours !== null
-              ? `Claimed bonus Birr expires after ${d.eligibility.expiryHours} hours under your current account rules.`
+              ? `Credited bonus Birr expires after ${d.eligibility.expiryHours} hours under your current account rules.`
               : d.eligibility.canClaim
                 ? 'Your current reward wallet has no bonus expiry.'
                 : 'Any expiry terms are shown when your reward wallet becomes available.'}{' '}
-            Admin changes apply to future earning activity; already-earned amounts stay the same.
+            Reward rates apply to future activity; already-earned amounts stay the same.
           </p>
         </div>
       </section>
-      <details className="member-panel member-activity">
-        <summary>Activity, achievements & membership level</summary>
-        <RewardsPage />
-      </details>
     </div>
   );
 }

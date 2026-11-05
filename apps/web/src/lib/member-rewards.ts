@@ -40,7 +40,7 @@ export type RewardSummary = {
   hasMore: boolean;
 };
 export const rewardLabels = {
-  DAILY: 'Daily check-in',
+  DAILY: 'Daily activity',
   GIFT: 'Gift purchase',
   REFERRAL: 'Referral reward',
 };
