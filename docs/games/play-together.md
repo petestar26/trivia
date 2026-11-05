@@ -1,7 +1,8 @@
 # Play Together
 
-Implementation candidate for Salem Bet, 5 November 2026. This change has not
-been deployed or used to activate real-money play.
+Salem Bet group play, 5 November 2026. The initial four-game practice rollout
+is deployed. The twelve-game expansion is in release verification; its actual
+deployment evidence is recorded in the release review. Real-money play is off.
 
 ## Player journey
 
@@ -42,20 +43,24 @@ All use equal entries and the same winning-profit fee calculation.
 | Turbo Keno            | Pick 5 of 80; draw 20; most matches wins                                               | Tied leaders share; zero matches for everyone refunds                | Enabled for practice |
 | Dice Duel             | Two independent fair dice per player; highest sum wins                                 | Tied leaders share; everyone tied refunds                            | Enabled for practice |
 | Number Challenge      | Pick 1–100; closest to the uniform shared target wins                                  | Equal distances share; everyone tied refunds                         | Enabled for practice |
-| Roulette Keno         | Pick 5 of 72; draw 18; most matches wins                                               | Same Keno tie/refund rules                                           | Off                  |
-| Lucky Six             | Pick 6 of 48; up to 35 draws; earliest completion wins, otherwise most matches         | Tied leaders share; no matches or everyone tied refunds              | Off                  |
-| Derby                 | Pick one of 8 equally likely runners; best finish among the selected runners wins      | Players selecting the same best runner share; everyone tied refunds  | Off                  |
-| Dog Racing            | Same contest with 8 dogs                                                               | Same race rules                                                      | Off                  |
-| Football Predictions  | Predict home/draw/away for three simulated matches; most correct wins                  | Tied leaders share; nobody correct or everyone tied refunds          | Off                  |
-| Blackjack Predictions | Predict win/draw/loss for six automated hands against a dealer; most correct wins      | Tied leaders share; nobody correct or everyone tied refunds          | Off                  |
-| Sky Crash Challenge   | Preselect an exit score from 1.01× to 20×; highest score strictly below the crash wins | Equal leading scores share; nobody survives or everyone ties refunds | Off                  |
-| Crash Point Challenge | Same sealed target contest                                                             | Same crash rules                                                     | Off                  |
+| Roulette Keno         | Pick 5 of 72; draw 18; most matches wins                                               | Same Keno tie/refund rules                                           | Practice expansion   |
+| Lucky Six             | Pick 6 of 48; up to 35 draws; earliest completion wins, otherwise most matches         | Tied leaders share; no matches or everyone tied refunds              | Practice expansion   |
+| Derby                 | Pick one of 8 equally likely runners; best finish among the selected runners wins      | Players selecting the same best runner share; everyone tied refunds  | Practice expansion   |
+| Dog Racing            | Same contest with 8 dogs                                                               | Same race rules                                                      | Practice expansion   |
+| Football Predictions  | Predict home/draw/away for three simulated matches; most correct wins                  | Tied leaders share; nobody correct or everyone tied refunds          | Practice expansion   |
+| Blackjack Predictions | Predict win/draw/loss for six automated hands against a dealer; most correct wins      | Tied leaders share; nobody correct or everyone tied refunds          | Practice expansion   |
+| Sky Crash Challenge   | Preselect an exit score from 1.01× to 20×; highest score strictly below the crash wins | Equal leading scores share; nobody survives or everyone ties refunds | Practice expansion   |
+| Crash Point Challenge | Same sealed target contest                                                             | Same crash rules                                                     | Practice expansion   |
 
-All twelve adapters are implemented and exercised through the local cash
-ledger tests. The eight initially disabled modes still need product balancing
-and presentation review before a public launch. They currently use the shared
-result display, not the existing solo 3D scenes. The first four are the initial
-practice rollout.
+All twelve adapters are implemented. The eight expansion games now have
+game-specific selection guidance, recorded-result presentations and practice
+settlement tests. The presentations replay saved outcomes; they do not reuse
+the solo 3D scenes or determine results in the browser. Football probabilities
+and exact crash-target survival probabilities are shown before confirmation.
+See `../reviews/play-together-20261105/eight-game-balance.md` for the reproducible
+balance review and remaining limitations. The expansion migration appends a
+practice-only policy when the original four-game policy is still current; it
+does not override a later administrator policy or change existing round terms.
 
 Football uses the versioned shared simulator and three fixed published
 strength configurations in TOGETHER_FOOTBALL_FIXTURES. Blackjack uses a six-deck
@@ -161,7 +166,7 @@ Defaults:
 | Control                    | Default / requirement                                                                   |
 | -------------------------- | --------------------------------------------------------------------------------------- |
 | PLAY_TOGETHER_ENABLED      | Admission enabled unless exactly false                                                  |
-| Practice policy            | On; first four games above                                                              |
+| Practice policy            | On; twelve reviewed games after expansion of the original policy                        |
 | Public room policy         | Off                                                                                     |
 | Cash policy                | Off                                                                                     |
 | PLAY_TOGETHER_CASH_ENABLED | Off unless exactly true                                                                 |
@@ -194,7 +199,10 @@ then deploy the web build. Older web clients keep their existing legacy APIs.
 Rollback by disabling admissions while retaining the recovery worker and
 forward-compatible schema; never delete financial rows or remove enum values.
 
-## Validation and evidence
+## Original implementation evidence
+
+The following records the pre-deployment implementation checks. Later CI and
+live results are recorded in `../reviews/play-together-20261105/release-review.md`.
 
 Local evidence, separate from production readiness:
 

@@ -118,7 +118,8 @@ async function fixture(
   currency: TogetherCurrency = 'ETB',
   short = false,
   cash = 10000,
-  game: TogetherGame = 'number_challenge'
+  game: TogetherGame = 'number_challenge',
+  deadlineMs = 1500
 ) {
   const users: string[] = [];
   for (let i = 0; i < 3; i++) {
@@ -171,7 +172,7 @@ async function fixture(
     const s = await service.settings(adminId),
       id = randomUUID(),
       seed = randomBytes(32).toString('hex');
-    const closesAt = Date.now() + 1500;
+    const closesAt = Date.now() + deadlineMs;
     const t: TogetherTerms = {
       id,
       groupId: group.id,
@@ -568,6 +569,183 @@ it.each(TOGETHER_GAMES)(
         (await wallet(f.users[1])).coinsBalance +
         s.round.settlement!.platformFee
     ).toBe(20000);
+  }
+);
+
+const remainingGames = TOGETHER_GAMES.filter((game) =>
+  [
+    'roulette_keno',
+    'lucky_six',
+    'thunder_derby_3d',
+    'neon_hounds_3d',
+    'virtual_football_3d',
+    'blackjack',
+    'sky_crash',
+    'crash_point',
+  ].includes(game.key)
+);
+
+it.each(remainingGames)(
+  'protects separate practice confirmations and completes the full draw path for $name',
+  async (game) => {
+    // Leave enough real database-clock time for all consent/privacy checks.
+    // Unlike close(), this test never writes a DRAWN result itself.
+    const f = await fixture('GAME_POINTS', true, 0, game.key, 4000);
+    const fetchBeacon = vi.fn(async (cutoff: number) => beacon(cutoff));
+    const practice = createTogetherService(prisma, {
+      env: { PLAY_TOGETHER_CASH_ENABLED: 'false' },
+      workerReady: () => true,
+      fetchBeacon,
+    });
+    const selections = [0, 1].map((player) =>
+      Array.from({ length: game.picks }, (_, position) =>
+        game.key === 'blackjack' || game.key === 'virtual_football_3d'
+          ? (position + player) % 3
+          : game.min + position + player
+      )
+    );
+    const requestIds = [randomUUID(), randomUUID()];
+
+    expect(f.snapshot.round.entries).toEqual([]);
+    expect(f.snapshot.balances).toEqual({
+      cashAvailable: 0,
+      cashReserved: 0,
+      pointsAvailable: 10000,
+      pointsReserved: 0,
+    });
+    const first = await f.confirm(0, selections[0], requestIds[0]);
+    expect(first.accepted).toBe(true);
+    expect((await wallet(f.users[1])).gamePointsBalance).toBe(10000);
+    expect((await wallet(f.users[2])).gamePointsBalance).toBe(10000);
+
+    const replayed = await Promise.all([
+      f.confirm(0, selections[0], requestIds[0]),
+      f.confirm(0, selections[0], requestIds[0]),
+    ]);
+    expect(replayed).toEqual([first, first]);
+    expect((await wallet(f.users[0])).gamePointsBalance).toBe(9000);
+    const waiting = await practice.snapshot(f.users[1], f.roundId);
+    expect(waiting.round.entries).toHaveLength(1);
+    expect(waiting.round.entries[0].selection).toBeNull();
+    expect(waiting.round.outcome).toBeNull();
+    expect(waiting.round.proof).toBeNull();
+    expect(JSON.stringify(waiting)).not.toContain(f.proof.seed);
+
+    const second = await f.confirm(1, selections[1], requestIds[1]);
+    expect(second.accepted).toBe(true);
+    const owner = await practice.snapshot(f.users[0], f.roundId);
+    expect(owner.balances.pointsReserved).toBe(1000);
+    expect(owner.round.entries.find((e) => e.userId === f.users[0])?.selection).toEqual(
+      selections[0]
+    );
+    expect(owner.round.entries.find((e) => e.userId === f.users[1])?.selection).toBeNull();
+    const spectator = await practice.snapshot(f.users[2], f.roundId);
+    expect(spectator.round.entries.every((e) => e.selection === null)).toBe(true);
+    expect(spectator.balances.pointsReserved).toBe(0);
+
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.max(
+          0,
+          quicknetTargetForCutoff(f.snapshot.round.closesAt).beaconTimeMs - Date.now() + 25
+        )
+      )
+    );
+    await Promise.all([practice.recover(f.roundId), practice.recover(f.roundId)]);
+    expect(fetchBeacon).toHaveBeenCalledWith(f.snapshot.round.closesAt);
+    const done = await practice.snapshot(f.users[0], f.roundId);
+    expect(['PAID', 'REFUNDED']).toContain(done.round.state);
+    expect(done.round.entries).toHaveLength(2);
+    expect(done.round.proof).toEqual(f.proof);
+    expect(done.round.outcome).toEqual(
+      deriveTogetherOutcome(
+        done.round,
+        done.round.entries.map((e) => ({ id: e.id, userId: e.userId, selection: e.selection! })),
+        f.proof
+      )
+    );
+    expect(done.round.settlement?.funded).toBe(2000);
+    expect(done.round.settlement!.payouts.reduce((sum, payout) => sum + payout.amount, 0)).toBe(
+      2000 - done.round.settlement!.platformFee
+    );
+    for (let index = 0; index < 2; index++) {
+      const entry = done.round.entries.find((e) => e.userId === f.users[index])!;
+      expect(entry.selection).toEqual(selections[index]);
+      expect(entry.payout).toBe(
+        done.round.settlement!.payouts.find((payout) => payout.entryId === entry.id)!.amount
+      );
+      expect((await wallet(f.users[index])).gamePointsBalance).toBe(9000 + entry.payout!);
+      expect((await practice.snapshot(f.users[index], f.roundId)).balances).toMatchObject({
+        cashAvailable: 0,
+        cashReserved: 0,
+        pointsReserved: 0,
+      });
+    }
+    expect((await wallet(f.users[2])).gamePointsBalance).toBe(10000);
+    const beforeReplay = await prisma.walletTransaction.count({
+      where: { userId: { in: f.users } },
+    });
+    await Promise.all([practice.recover(f.roundId), practice.recover(f.roundId)]);
+    expect(await f.confirm(0, selections[0], requestIds[0])).toEqual(first);
+    const lateRequest = randomUUID();
+    const late = await f.confirm(2, selections[0], lateRequest);
+    expect(late.accepted).toBe(false);
+    expect(await f.confirm(2, selections[0], lateRequest)).toEqual(late);
+    expect(await prisma.walletTransaction.count({ where: { userId: { in: f.users } } })).toBe(
+      beforeReplay
+    );
+    expect((await practice.snapshot(f.users[0], f.roundId)).round).toEqual(done.round);
+    expect(await prisma.economicOperation.count({ where: { userId: { in: f.users } } })).toBe(0);
+    expect(
+      (await prisma.wallet.findMany({ where: { userId: { in: f.users } } })).every(
+        (w) => w.coinsBalance === 0
+      )
+    ).toBe(true);
+  }
+);
+
+it.each(remainingGames)(
+  'returns every practice entry without a fee when all $name selections are identical',
+  async (game) => {
+    const f = await fixture('GAME_POINTS', true, 0, game.key);
+    const selection = Array.from({ length: game.picks }, (_, position) =>
+      game.key === 'blackjack' || game.key === 'virtual_football_3d'
+        ? position % 3
+        : game.min + position
+    );
+    for (let index = 0; index < 3; index++) {
+      expect((await f.confirm(index, selection)).accepted).toBe(true);
+    }
+    await close(f);
+    await Promise.all([service.recover(f.roundId), service.recover(f.roundId)]);
+    const done = await service.snapshot(f.users[0], f.roundId);
+    expect(done.round.state).toBe('REFUNDED');
+    expect(done.round.settlement).toMatchObject({
+      funded: 3000,
+      platformFee: 0,
+      winnerCount: 0,
+      refunds: true,
+    });
+    expect(['ALL_TIED', 'NO_WINNERS']).toContain(done.round.settlement!.reason);
+    expect(done.round.entries.every((e) => e.state === 'REFUNDED' && e.payout === 1000)).toBe(true);
+    for (const userId of f.users) {
+      const balance = (await service.snapshot(userId, f.roundId)).balances;
+      expect(balance).toEqual({
+        cashAvailable: 0,
+        cashReserved: 0,
+        pointsAvailable: 10000,
+        pointsReserved: 0,
+      });
+    }
+    const transactions = await prisma.walletTransaction.count({
+      where: { userId: { in: f.users } },
+    });
+    await service.recover(f.roundId);
+    expect(await prisma.walletTransaction.count({ where: { userId: { in: f.users } } })).toBe(
+      transactions
+    );
+    expect(await prisma.economicOperation.count({ where: { userId: { in: f.users } } })).toBe(0);
   }
 );
 it('pins fees to existing rounds and rejects stale or unauthorized configuration edits', async () => {

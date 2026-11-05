@@ -31,3 +31,5 @@ export * from './roulette-keno.js';
 export * from './lucky-six.js';
 
 export * from './blackjack.js';
+
+export * from './together-game-guide.js';

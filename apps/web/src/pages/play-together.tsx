@@ -5,6 +5,7 @@ import { Users, ShieldCheck, Clock3, Trophy, ArrowRight, Wallet, Download } from
 import {
   TOGETHER_GAMES,
   togetherGame,
+  togetherGameGuide,
   togetherSelection,
   togetherPayoutEstimate,
   type TogetherGame,
@@ -20,6 +21,8 @@ import { verifyTogetherRound } from '@/lib/together-proof';
 import { useAuth } from '@/providers/auth-provider';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { GameArtwork } from '@/components/member/game-artwork';
+import { TogetherSelection } from './play-together-selection';
+import { TogetherGameResult } from '@/components/together/together-game-result';
 import './play-together.css';
 
 const money = (n: number, currency: TogetherCurrency) =>
@@ -337,10 +340,13 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
         <p className="together-eyebrow">The rules, before you enter</p>
         <h2>{togetherGame(game).name}</h2>
         <p>{togetherGame(game).rules}</p>
-        <p>
-          Tied leaders share. If everyone ties or nobody qualifies, everyone receives their entry
-          back with no fee.
-        </p>
+        <p>{togetherGameGuide(game).choiceNote}</p>
+        <ul>
+          {togetherGameGuide(game).mechanics.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <p>{togetherGameGuide(game).tieRule}</p>
         <p>
           <ShieldCheck size={16} /> The fee is {s.settings.feeBps / 100}% of winning profit before
           fees. No additional entry or winner fee.
@@ -711,18 +717,6 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
     actionRef.current = true;
     mutation.mutate({ kind, entryId: mine?.id });
   };
-  const numberPick = (number: number) => {
-    if (!open || busy || confirmed) return;
-    setPicks((current) =>
-      game.picks === 1
-        ? [number]
-        : current.includes(number)
-          ? current.filter((n) => n !== number)
-          : current.length < game.picks
-            ? [...current, number]
-            : current
-    );
-  };
   const verify = async () => {
     setChecking(true);
     try {
@@ -840,122 +834,26 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </button>
         </div>
       )}
+      <TogetherGameResult round={r} userId={userId} />
       <div className="together-columns">
         <section className="together-panel">
           <p className="together-eyebrow">Your choice</p>
           <h2>
-            {confirmed ? 'Your confirmed entry' : paid ? 'Round complete' : 'Choose your entry'}
+            {paid ? 'Round complete' : confirmed ? 'Your confirmed entry' : 'Choose your entry'}
           </h2>
           <p>
             {money(r.entryAmount, r.currency)} per player. {r.feeBps / 100}% fee on winning profit
             before fees.
           </p>
-          {!paid && game.picks === 0 && (
-            <div className="together-choice-note">
-              <ShieldCheck size={26} />
-              <p>
-                {game.rules}
-                <br />
-                Every member authorizes one entry.
-              </p>
-            </div>
-          )}
-          {game.picks > 0 &&
-            ![
-              'blackjack',
-              'virtual_football_3d',
-              'sky_crash',
-              'crash_point',
-              'number_challenge',
-            ].includes(r.game) && (
-              <>
-                <p>
-                  {selected.length} of {game.picks} selected
-                </p>
-                <div className="together-number-grid">
-                  {Array.from({ length: game.max - game.min + 1 }, (_, i) => i + game.min).map(
-                    (n) => (
-                      <button
-                        key={n}
-                        aria-label={'Choose ' + n}
-                        aria-pressed={selected.includes(n)}
-                        disabled={!open || busy || confirmed}
-                        onClick={() => numberPick(n)}
-                      >
-                        {n}
-                      </button>
-                    )
-                  )}
-                </div>
-              </>
-            )}
-          {r.game === 'number_challenge' && (
-            <label className="together-field">
-              Your number (1–100)
-              <input
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                disabled={!open || busy || confirmed}
-                value={selected[0] ?? ''}
-                onChange={(e) => setPicks(e.target.value === '' ? [] : [Number(e.target.value)])}
-              />
-            </label>
-          )}
-          {['sky_crash', 'crash_point'].includes(r.game) && (
-            <label className="together-field">
-              Automatic exit target (1.01×–20×)
-              <input
-                inputMode="decimal"
-                placeholder="2.00"
-                disabled={!open || busy || confirmed}
-                value={confirmed ? (selected[0] / 100).toFixed(2) : crashText}
-                onChange={(e) => {
-                  setCrashText(e.target.value);
-                  const m = /^(\d{1,2})(?:\.(\d{0,2}))?$/.exec(e.target.value);
-                  setPicks(m ? [Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'))] : []);
-                }}
-              />
-              <small>
-                This is a contest target, not a payout multiplier. Reaching the crash exactly counts
-                as a loss.
-              </small>
-            </label>
-          )}
-          {['blackjack', 'virtual_football_3d'].includes(r.game) && (
-            <div className="together-predictions">
-              {Array.from({ length: game.picks }, (_, i) => (
-                <label key={i}>
-                  {r.game === 'blackjack'
-                    ? 'Hand ' + (i + 1) + ' vs dealer'
-                    : 'Simulated match ' + (i + 1)}
-                  <select
-                    disabled={!open || busy || confirmed}
-                    value={selected[i] ?? ''}
-                    onChange={(e) =>
-                      setPicks((current) => {
-                        const next = Array.from({ length: game.picks }, (_, j) => current[j] ?? -1);
-                        next[i] = Number(e.target.value);
-                        return next;
-                      })
-                    }
-                  >
-                    <option value="" disabled>
-                      Choose a prediction
-                    </option>
-                    {(r.game === 'blackjack'
-                      ? ['Win', 'Draw', 'Lose']
-                      : ['Home win', 'Draw', 'Away win']
-                    ).map((label, n) => (
-                      <option value={n} key={n}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-            </div>
+          {!paid && (
+            <TogetherSelection
+              game={r.game}
+              selected={selected}
+              disabled={!open || busy || confirmed}
+              onChange={setPicks}
+              crashText={crashText}
+              onCrashText={setCrashText}
+            />
           )}
           {!confirmed && !paid && (
             <div className="together-confirm">
@@ -1099,40 +997,6 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               );
             })}
           </div>
-          {r.outcome && (
-            <div className="together-result">
-              <h3>Official result</h3>
-              {r.game === 'spin_win' ? (
-                <p>Winning segment: {r.outcome.numbers[0] + 1}</p>
-              ) : r.outcome.football ? (
-                <div>
-                  {r.outcome.football.map((score, i) => (
-                    <p key={i}>
-                      Match {i + 1}: Home {score.home} – {score.away} Away
-                    </p>
-                  ))}
-                </div>
-              ) : r.outcome.hands ? (
-                <div>
-                  {r.outcome.numbers.map((v, i) => (
-                    <p key={i}>
-                      Hand {i + 1}: {['Win', 'Draw', 'Lose'][v]}
-                    </p>
-                  ))}
-                </div>
-              ) : ['sky_crash', 'crash_point'].includes(r.game) ? (
-                <p>Crash: {(r.outcome.numbers[0] / 100).toFixed(2)}×</p>
-              ) : r.game === 'dice' ? (
-                <p>Each player’s dice and total are shown above.</p>
-              ) : (
-                <div className="together-balls">
-                  {r.outcome.numbers.map((n, i) => (
-                    <span key={i}>{n}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           {r.state === 'REFUNDED' && (
             <p className="together-notice">
               {(
