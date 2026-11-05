@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -21,7 +21,7 @@ import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import './provider-lobby.css';
 
-interface TestGame {
+export interface TestGame {
   id: string;
   name: string;
   provider: string;
@@ -57,7 +57,7 @@ const categoryIcon = (category: string) =>
           ? CircleDot
           : Dice5;
 
-function GameArtwork({ game, motion }: { game: TestGame; motion: boolean }) {
+export function GameArtwork({ game, motion }: { game: TestGame; motion: boolean }) {
   const [imageIndex, setImageIndex] = useState(0);
   const sources = [...new Set([game.image, game.imageFallback].filter(Boolean))];
   const image = sources[imageIndex];
@@ -123,6 +123,10 @@ export function ProviderTestPage() {
 }
 
 function ProviderTestSession({ userId }: { userId: string }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedGame = searchParams.get('game');
+  const attemptedGame = useRef<string | null>(null);
+  const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>
       !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
@@ -219,6 +223,43 @@ function ProviderTestSession({ userId }: { userId: string }) {
   );
   const canLaunch =
     accessGranted && status.data?.launchReady === true && !wallet.isError && !!wallet.data;
+  const launchGame = launch.mutate;
+  useEffect(() => {
+    if (
+      !requestedGame ||
+      !canLaunch ||
+      !catalogue.data ||
+      catalogue.isError ||
+      attemptedGame.current === requestedGame
+    )
+      return;
+    attemptedGame.current = requestedGame;
+    const game = catalogue.data.find((item) => item.id === requestedGame);
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete('game');
+        return next;
+      },
+      { replace: true }
+    );
+    if (!game) {
+      setSelectionError(true);
+      return;
+    }
+    setSelectionError(false);
+    setSelected(game);
+    resetLaunch();
+    launchGame(game);
+  }, [
+    requestedGame,
+    canLaunch,
+    catalogue.data,
+    catalogue.isError,
+    setSearchParams,
+    resetLaunch,
+    launchGame,
+  ]);
   const close = () => {
     launch.reset();
     setSelected(null);
@@ -264,6 +305,11 @@ function ProviderTestSession({ userId }: { userId: string }) {
       <p className="casino-practice-note">
         <span /> Virtual ETB · No cash value
       </p>
+      {selectionError && (
+        <p className="casino-notice" role="status">
+          That game is no longer in the collection. Choose another game below.
+        </p>
+      )}
       {status.isLoading && (
         <p className="casino-notice" role="status">
           Checking test access…

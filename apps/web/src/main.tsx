@@ -1,3 +1,4 @@
+import { LanguageProvider } from '@/providers/language-provider';
 import { AppErrorBoundary } from '@/components/app-error-boundary';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -27,7 +28,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <AuthProvider>
             <SocketProvider>
-              <App />
+              <LanguageProvider>
+                <App />
+              </LanguageProvider>
               <AppUpdateNotice />
               <Toaster />
             </SocketProvider>

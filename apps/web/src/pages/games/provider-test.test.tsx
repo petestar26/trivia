@@ -18,13 +18,14 @@ const ok = (data: unknown) => ({ success: true, data });
 function mount(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
-  })
+  }),
+  entry = '/casino'
 ) {
   return {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[entry]}>
           <ProviderTestPage />
         </MemoryRouter>
       </QueryClientProvider>
@@ -259,5 +260,19 @@ it('browses the full catalogue in batches and combines category and provider sea
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Card Studio' } });
   expect(screen.getByRole('button', { name: 'Play Blackjack' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Play Slot 0' })).not.toBeInTheDocument();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+
+it('opens a selected Home game once after access and wallet checks', async () => {
+  const v = mount(undefined, '/casino?game=studio%2Fslot');
+  await waitFor(() => expect(v.container.querySelector('iframe')).not.toBeNull());
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Back to casino' }));
+  await screen.findByRole('button', { name: 'Play Test Slot' });
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+});
+it('rejects an unknown Home game id without a launch', async () => {
+  mount(undefined, '/casino?game=unknown');
+  await screen.findByText(/no longer in the collection/);
   expect(mocks.post).not.toHaveBeenCalled();
 });

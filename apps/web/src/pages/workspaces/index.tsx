@@ -63,6 +63,7 @@ export function WorkspaceGate({
 }
 const adminLinks = [
   ['/admin', 'Overview'],
+  ['/admin/support', 'Support inbox'],
   ['/admin/payments', 'Payment configuration'],
   ['/admin/pricing', 'Rates & packages'],
   ['/admin/crypto', 'Crypto payments'],
@@ -174,6 +175,10 @@ export function AdminOverview() {
         <section className="workspace-panel">
           <h2>Needs attention</h2>
           <div className="workspace-tasks">
+            <Link to="/admin/support">
+              <strong>{query.data?.support ?? '—'}</strong>
+              <span>Support requests awaiting reply</span>
+            </Link>
             <Link to="/admin/payments">
               <strong>{query.data?.applications}</strong>
               <span>Agent applications</span>

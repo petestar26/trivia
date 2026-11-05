@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from '
 import { useAuth } from '@/providers/auth-provider';
 import { useMemberTheme } from '@/components/member/use-member-theme';
 import { GameArtwork } from '@/components/member/game-artwork';
-import { COMING_SOON_GAME_KEYS, compareMemberGameKeys } from '@/lib/member-game-catalog';
+import { compareMemberGameKeys } from '@/lib/member-game-catalog';
 import './welcome.css';
 
 const collection = [
@@ -20,7 +20,6 @@ const collection = [
   ['number_challenge', 'Number Challenge', '/games/number-challenge'],
   ['lucky_six', 'Lucky Six', '/games/lucky-six'],
   ['blackjack', 'Blackjack', '/games/blackjack'],
-  ['trivia', 'Trivia', '/games/trivia'],
 ] as const;
 const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));
 
@@ -136,28 +135,19 @@ export function ExplorePage() {
           </div>
           <div className="pq-public-games">
             {orderedCollection.map(([key, name, destination]) => {
-              const comingSoon = COMING_SOON_GAME_KEYS.some((futureKey) => futureKey === key);
               const content = (
                 <>
                   <GameArtwork kind={key} practiceAvailable={false} />
                   <div>
                     <h3>{name}</h3>
                     <span>
-                      {comingSoon
-                        ? 'Coming soon'
-                        : isAuthenticated
-                          ? 'Check availability'
-                          : 'Sign in to check availability'}
-                      {!comingSoon && <ArrowUpRight size={14} />}
+                      {isAuthenticated ? 'Check availability' : 'Sign in to check availability'}
+                      <ArrowUpRight size={14} />
                     </span>
                   </div>
                 </>
               );
-              return comingSoon ? (
-                <article key={key} className="pq-public-game">
-                  {content}
-                </article>
-              ) : (
+              return (
                 <Link
                   key={key}
                   to={isAuthenticated ? destination : '/login'}

@@ -85,8 +85,7 @@ const comingSoonGames = new Set<string>(COMING_SOON_GAME_KEYS);
 /** A decorative card never enables an unreleased game or bypasses server availability. */
 export function memberGameDestination(game: MemberGame): string | undefined {
   if (game.catalogStatus === 'RETIRED' || comingSoonGames.has(game.key)) return undefined;
-  if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true)
-    return undefined;
+  if (GATED_PRACTICE.includes(game.key) && game.practiceAvailable !== true) return undefined;
   return PRACTICE_ROUTES[game.key];
 }
 
@@ -104,4 +103,13 @@ export function memberGameUnavailableDescription(game: MemberGame) {
   return memberGameLabel(game) === 'Coming soon'
     ? 'A new experience is on its way.'
     : 'This game is currently unavailable.';
+}
+
+/** Only implemented releases belong in member discovery; maintenance remains visible. */
+export function memberGameVisible(game: MemberGame): boolean {
+  return (
+    game.catalogStatus !== 'RETIRED' &&
+    !comingSoonGames.has(game.key) &&
+    !!PRACTICE_ROUTES[game.key]
+  );
 }

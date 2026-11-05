@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -86,8 +86,10 @@ function ownGames(data = catalog) {
 }
 function providerGames(enabled = true) {
   apiGet.mockImplementation(async (path: string) => {
-    if (path === '/provider-test/status') return { success: true, data: { enabled, launchReady: true } };
-    if (path === '/provider-test/wallet') return {success:true,data:{balanceCents:100000,created:false,movements:[]}};
+    if (path === '/provider-test/status')
+      return { success: true, data: { enabled, launchReady: true } };
+    if (path === '/provider-test/wallet')
+      return { success: true, data: { balanceCents: 100000, created: false, movements: [] } };
     if (path === '/provider-test/games')
       return {
         success: true,
@@ -105,49 +107,40 @@ function providerGames(enabled = true) {
 }
 
 describe('Games owns the platform catalogue', () => {
-  it('lists WAGER and BONUS games, excludes retired titles and preserves destinations', async () => {
+  it('lists implemented games, excludes unfinished and retired titles and preserves destinations', async () => {
     ownGames();
     mount(<GamesPage />, '/games');
-    expect(await screen.findByRole('heading', { name: 'Games' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Dice' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Trivia' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Our games' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/games/dice');
     expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
-    const trivia = screen.getByRole('heading', { name: 'Trivia' }).closest('.qube-catalog-card') as HTMLElement;
-    expect(within(trivia).getByText('Coming soon')).toBeInTheDocument();
-    expect(apiGet.mock.calls.map(([path]) => path).sort()).toEqual(['/games', '/wallet']);
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
+    expect(apiGet.mock.calls.map(([path]) => path).sort()).toEqual(['/games']);
   });
-  it.each([
-    ['WAGER', 'Dice', 'Trivia'],
-    ['BONUS', 'Trivia', 'Dice'],
-  ])('allows %s filtering inside Games', async (mode, shown, hidden) => {
-    ownGames();
-    mount(<GamesPage />, `/games?mode=${mode}`);
-    expect(await screen.findByRole('heading', { name: shown })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: hidden })).not.toBeInTheDocument();
-  });
+  it.each([['WAGER', 'Dice', 'Trivia']])(
+    'allows %s filtering inside Games',
+    async (mode, shown, hidden) => {
+      ownGames();
+      mount(<GamesPage />, `/games?mode=${mode}`);
+      expect(await screen.findByRole('heading', { name: shown })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: hidden })).not.toBeInTheDocument();
+    }
+  );
   it('treats unknown filters as the full own-game catalogue', async () => {
     ownGames();
     mount(<GamesPage />, '/games?mode=provider');
     expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Trivia' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
   });
-  it('keeps solo, free and group navigation under Games with a separate Casino link', async () => {
+  it('provides simple own-game, group and Casino navigation', async () => {
     ownGames();
     mount(<GamesPage />, '/games');
     await screen.findByRole('heading', { name: 'Dice' });
-    expect(screen.getByRole('link', { name: 'All our games' })).toHaveAttribute('href', '/games');
-    expect(screen.getByRole('link', { name: 'Solo practice' })).toHaveAttribute(
-      'href',
-      '/games?mode=WAGER'
-    );
-    expect(screen.getByRole('link', { name: 'Free games' })).toHaveAttribute(
-      'href',
-      '/games?mode=BONUS'
-    );
-    expect(screen.getByRole('link', { name: /Group PVP/ })).toHaveAttribute('href', '/groups');
+    expect(screen.getByRole('link', { name: 'Our games' })).toHaveAttribute('href', '/games');
+    expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute('href', '/groups');
     expect(screen.getByRole('link', { name: /Casino/ })).toHaveAttribute('href', '/casino');
   });
   it('preserves disabled practice gates', async () => {

@@ -1,4 +1,7 @@
-import { Outlet } from 'react-router-dom';
+import { Headphones } from 'lucide-react';
+import { useLanguage } from '@/providers/language-provider';
+import '@/pages/lounge.css';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
@@ -8,6 +11,13 @@ import { useMemberTheme } from '@/components/member/use-member-theme';
 
 export function Layout() {
   useMemberTheme();
+  const { t } = useLanguage();
+  const { pathname } = useLocation();
+  const showSupportShortcut =
+    !pathname.startsWith('/support') &&
+    !pathname.startsWith('/games/') &&
+    !pathname.startsWith('/casino') &&
+    !/^\/groups\/[^/]+/.test(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   return (
@@ -44,6 +54,11 @@ export function Layout() {
         <main id="main-content" className="qube-main p-4 lg:p-8">
           <Outlet />
         </main>
+        {showSupportShortcut && (
+          <Link to="/support" className="salem-support-float" aria-label={t('Contact support')}>
+            <Headphones size={20} />
+          </Link>
+        )}
         <MobileNavigation />
       </div>
     </div>

@@ -1,3 +1,6 @@
+import { prisma } from '@socialplay/database';
+import { createGroupPvpService } from './games/group-pvp/service.js';
+import { startGroupPvpRuntime } from './games/group-pvp/runtime.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
@@ -136,11 +139,25 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 async function start(): Promise<void> {
   try {
     const server = await buildServer();
-    const stopRates = startEtbRateRefresh(() => server.log.warn('ETB reference refresh is unavailable'));
-    server.addHook('onClose', async () => { stopRates(); });
+    const stopGroupPvp = startGroupPvpRuntime({
+      enabled: process.env.GROUP_PVP_GAME_POINTS_ENABLED === 'true',
+      tick: createGroupPvpService(prisma).tick,
+      report: () => server.log.warn('Group game processing is unavailable; new entries are paused'),
+    });
+    server.addHook('onClose', async () => {
+      stopGroupPvp();
+    });
+    const stopRates = startEtbRateRefresh(() =>
+      server.log.warn('ETB reference refresh is unavailable')
+    );
+    server.addHook('onClose', async () => {
+      stopRates();
+    });
     await server.listen({ port: config.PORT, host: config.HOST });
     server.log.info(`🚀 Server running at http://${config.HOST}:${config.PORT}`);
-    server.log.info(`📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`);
+    server.log.info(
+      `📚 API docs available at http://${config.HOST}:${config.PORT}${config.API_PREFIX}/docs`
+    );
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);

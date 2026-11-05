@@ -1,3 +1,5 @@
+import { useLanguage } from '@/providers/language-provider';
+import { LanguageSelect } from './language-select';
 import { Link, useLocation } from 'react-router-dom';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Menu, Wallet } from 'lucide-react';
@@ -6,6 +8,7 @@ import { NotificationBell } from '@/components/notifications/notification-bell';
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const { pathname } = useLocation();
   const section = pathname.split('/')[1];
   const labels: Record<string, string> = {
@@ -17,6 +20,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     wallet: 'Wallet',
     gifts: 'Gifts',
     profile: 'Profile',
+    support: 'Support',
     rewards: 'Rewards',
     challenges: 'Challenges',
     competitions: 'Competitions',
@@ -35,15 +39,20 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         )}
         <div>
           <span className="qube-header-eyebrow">SALEM BET</span>
-          <p className="qube-header-title">{labels[section] || 'Home'}</p>
+          <p className="qube-header-title">{t(labels[section] || 'Home')}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-4">
-        {PRACTICE_ETB && <span className="salem-mode-badge">Practice <b>ETB</b></span>}
+        {PRACTICE_ETB && (
+          <span className="salem-mode-badge">
+            Practice <b>ETB</b>
+          </span>
+        )}
         <Link to="/wallet" className="qube-wallet-link" aria-label="Open your wallet">
           <Wallet size={17} aria-hidden="true" />
-          <span className="hidden sm:inline">My wallet</span>
+          <span className="hidden sm:inline">{t('Wallet')}</span>
         </Link>
+        <LanguageSelect />
         <NotificationBell />
         <Link to="/profile" aria-label="Your profile" className="qube-avatar">
           {(user?.displayName || user?.username || 'U')[0].toUpperCase()}

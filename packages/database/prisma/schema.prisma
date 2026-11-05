@@ -10,6 +10,8 @@ datasource db {
 // ─── User & Auth ────────────────────────────────────────────────
 
 model User {
+  supportTickets SupportTicket[]
+  supportMessages SupportMessage[]
   cryptoDepositAddresses CryptoAddress[]
   cryptoDeposits CryptoDeposit[]
   cryptoWithdrawals CryptoWithdrawal[] @relation("CryptoWithdrawalOwner")
@@ -3074,4 +3076,37 @@ model EtbReferenceRefresh {
   lastSuccessAt DateTime? @db.Timestamptz(6)
   status String @default("WAITING")
   @@map("etb_reference_refresh")
+}
+
+// Customer support. Staff authority is rechecked from users on every request.
+model SupportTicket {
+ id String @id
+ userId String @map("user_id")
+ requestId String @map("request_id")
+ subject String
+ category String
+ status String @default("OPEN")
+ lastSender String @default("USER") @map("last_sender")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+ messages SupportMessage[]
+ user User @relation(fields:[userId],references:[id])
+ @@unique([userId,requestId])
+ @@index([userId,updatedAt(sort: Desc),id],map:"support_tickets_owner_updated")
+ @@index([status,updatedAt(sort: Desc),id],map:"support_tickets_status_updated")
+ @@map("support_tickets")
+}
+model SupportMessage {
+ id String @id
+ ticketId String @map("ticket_id")
+ senderId String @map("sender_id")
+ staff Boolean
+ body String @db.Text
+ requestId String @map("request_id")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+ ticket SupportTicket @relation(fields:[ticketId],references:[id])
+ sender User @relation(fields:[senderId],references:[id])
+ @@unique([ticketId,senderId,requestId])
+ @@index([ticketId,createdAt,id],map:"support_messages_thread_created")
+ @@map("support_messages")
 }
