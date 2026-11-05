@@ -1,6 +1,9 @@
 // Read-only browser acceptance of one existing QA practice round. Start this
 // immediately after review-together-shared-live.mjs setup, while entries are open.
-// Normal QA sign-in/session refresh are the only allowed application writes.
+// Normal QA sign-in, session refresh and the standard activity heartbeat are
+// allowed. Wagering, publication and administrator writes are always blocked.
+// --completed checks this same round after settlement without claiming a new
+// observation of its shared reveal or creating any replacement round.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -8,7 +11,8 @@ import { resolve } from 'node:path';
 
 const site = 'https://salem.bet';
 const statePath = '/private/tmp/salem-shared-live-state.json';
-const output = '/private/tmp/salem-shared-live-browser';
+const completedMode = process.argv[2] === '--completed';
+const output = '/private/tmp/salem-shared-live-browser' + (completedMode ? '/completed' : '');
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const labels = ['owner', 'member', 'spectator'];
 const report = {
@@ -16,10 +20,13 @@ const report = {
   actualAuthentication: true,
   mockedResponses: false,
   practiceOnly: true,
+  mode: completedMode ? 'completed-results' : 'live-shared-reveal',
+  sharedRevealObservedThisRun: false,
   checks: [],
   errors: [],
   serverErrors: [],
   blockedMutations: [],
+  allowedActivityRequests: [],
 };
 let state, browser;
 const clients = [];
@@ -218,6 +225,10 @@ try {
     'practice-release',
     'Explicit practice-release acknowledgement required'
   );
+  assert(
+    process.argv.length === 2 || (process.argv.length === 3 && completedMode),
+    'Use no flag for the live reveal, or --completed for the same finished round'
+  );
   state = await loadState();
   validateState();
   await mkdir(output, { recursive: true, mode: 0o700 });
@@ -227,23 +238,31 @@ try {
     state.users.map((_, i) => read(i, '/play-together/rounds/' + state.round.id))
   );
   initial.forEach(validateSnapshot);
-  assert.equal(
-    initial[0].round.state,
-    'OPEN',
-    'Start the shared browser check immediately after live setup, while the round is open. Do not silently publish a replacement.'
-  );
+  if (completedMode)
+    assert(
+      initial.every((s) => ['PAID', 'REFUNDED'].includes(s.round.state)),
+      'Completed mode requires the existing round to be settled'
+    );
+  else
+    assert.equal(
+      initial[0].round.state,
+      'OPEN',
+      'Start the shared browser check immediately after live setup, while the round is open. Do not silently publish a replacement.'
+    );
   const spectatorBefore = (await read(2, '/play-together/')).balances;
   const activity = await Promise.all(
     state.users.map((_, i) => read(i, '/play-together/groups/' + state.groups[0].id + '/activity'))
   );
   for (const item of activity)
     assert.equal(
-      item.activeRound?.id,
+      (completedMode ? item.latestResult : item.activeRound)?.id,
       state.round.id,
-      'Every group member must discover the same active round'
+      'Every group member must discover the same QA round'
     );
   report.checks.push({
-    action: 'Owner, member and spectator discover the same active round; spectator has no entry',
+    action: completedMode
+      ? 'Owner, member and spectator discover the same saved result; spectator has no entry'
+      : 'Owner, member and spectator discover the same active round; spectator has no entry',
   });
   const require = createRequire(import.meta.url);
   const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
@@ -288,7 +307,11 @@ try {
       if (url.origin !== site) return route.abort();
       const readOnly = ['GET', 'HEAD', 'OPTIONS'].includes(request.method());
       const sessionRefresh = request.method() === 'POST' && url.pathname === '/api/v1/auth/refresh';
-      if (url.pathname.startsWith('/api/') && !readOnly && !sessionRefresh) {
+      const activityHeartbeat =
+        request.method() === 'POST' && url.pathname === '/api/v1/member-rewards/activity';
+      if (activityHeartbeat)
+        report.allowedActivityRequests.push({ viewer: client.label, path: url.pathname });
+      if (url.pathname.startsWith('/api/') && !readOnly && !sessionRefresh && !activityHeartbeat) {
         report.blockedMutations.push({
           viewer: client.label,
           method: request.method(),
@@ -306,81 +329,95 @@ try {
         waitUntil: 'domcontentloaded',
       });
       const link = client.page
-        .getByRole('link', { name: 'Watch or join round', exact: false })
+        .getByRole('link', {
+          name: completedMode ? 'View group result' : 'Watch or join round',
+          exact: false,
+        })
         .first();
       await link.waitFor();
-      assert.equal(await link.getAttribute('href'), '/play-together/rounds/' + state.round.id);
+      assert.equal(
+        await link.getAttribute('href'),
+        '/play-together/rounds/' + state.round.id + (completedMode ? '#group-results' : '')
+      );
       await link.click();
       await client.page.locator('.together-hero h1').waitFor();
       assert.equal(new URL(client.page.url()).pathname, '/play-together/rounds/' + state.round.id);
-      await screenshot(client, 'open');
+      await screenshot(client, completedMode ? 'completed-entry' : 'open');
     })
   );
   assert.equal(
     await clients[2].page.getByText(/You’re watching\. No entry has been charged\./).count(),
     1
   );
-  let lastHeartbeat = 0,
-    common;
-  const timeoutAt =
-    Date.now() + Math.max(60000, initial[0].round.closesAt - initial[0].serverTime + 60000);
-  while (Date.now() < timeoutAt) {
-    const views = await revealViews();
-    if (views.every((v) => v.phase === 'revealing' && v.mode === 'shared')) {
-      const spread =
-        Math.max(...views.map((v) => v.progress)) - Math.min(...views.map((v) => v.progress));
-      assert(
-        spread <= 0.2,
-        'Shared reveal progress differs by more than network/polling tolerance'
-      );
-      common = { views, spread };
-      break;
-    }
-    if (views.every((v) => v.phase === 'complete')) {
-      // An unavailable visual clock deliberately shows the saved final. Verify
-      // the actual server timeline before treating that fallback as a missed
-      // reveal; a fresh response may still restore the common presentation.
-      const current = await read(0, '/play-together/rounds/' + state.round.id);
-      const ended =
-        current.round.paidAt !== null && current.serverTime >= current.round.paidAt + 15000;
-      assert(
-        !ended,
-        'The reveal ended before all viewers overlapped; retain evidence and investigate instead of creating another bet'
-      );
-    }
-    if (Date.now() - lastHeartbeat >= 15000) {
-      lastHeartbeat = Date.now();
-      console.log('WAIT shared reveal: ' + views.map((v) => v.label + '=' + v.phase).join(', '));
-    }
-    await sleep(250);
-  }
-  assert(common, 'The shared reveal did not arrive within the expected settlement window');
-  report.checks.push({
-    action: 'Three live viewers overlap on the canonical shared reveal',
-    ...common,
-  });
-  console.log('PASS three live viewers share the same reveal');
-  await Promise.all(clients.map((client) => screenshot(client, 'shared-reveal')));
-  // A normal reload reconnects the spectator. It must catch the common progress,
-  // or the common final if navigation happens to cross the end of the reveal.
-  await clients[2].page.reload({ waitUntil: 'domcontentloaded' });
-  await clients[2].page.getByRole('heading', { name: 'The shared draw', exact: true }).waitFor();
-  const caughtUp = await eventually(
-    async () => {
+  if (!completedMode) {
+    let lastHeartbeat = 0,
+      common;
+    const timeoutAt =
+      Date.now() + Math.max(60000, initial[0].round.closesAt - initial[0].serverTime + 60000);
+    while (Date.now() < timeoutAt) {
       const views = await revealViews();
-      assert(views.every((v) => v.phase === 'revealing' || v.phase === 'complete'));
-      const spread =
-        Math.max(...views.map((v) => v.progress)) - Math.min(...views.map((v) => v.progress));
-      assert(spread <= 0.2);
-      return { views, spread };
-    },
-    12000,
-    'Reloaded spectator did not catch up'
-  );
-  report.checks.push({
-    action: 'Spectator reload catches up without restarting the group',
-    ...caughtUp,
-  });
+      if (views.every((v) => v.phase === 'revealing' && v.mode === 'shared')) {
+        const spread =
+          Math.max(...views.map((v) => v.progress)) - Math.min(...views.map((v) => v.progress));
+        assert(
+          spread <= 0.2,
+          'Shared reveal progress differs by more than network/polling tolerance'
+        );
+        common = { views, spread };
+        break;
+      }
+      if (views.every((v) => v.phase === 'complete')) {
+        // An unavailable visual clock deliberately shows the saved final. Verify
+        // the actual server timeline before treating that fallback as a missed
+        // reveal; a fresh response may still restore the common presentation.
+        const current = await read(0, '/play-together/rounds/' + state.round.id);
+        const ended =
+          current.round.paidAt !== null && current.serverTime >= current.round.paidAt + 15000;
+        assert(
+          !ended,
+          'The reveal ended before all viewers overlapped; retain evidence and investigate instead of creating another bet'
+        );
+      }
+      if (Date.now() - lastHeartbeat >= 15000) {
+        lastHeartbeat = Date.now();
+        console.log('WAIT shared reveal: ' + views.map((v) => v.label + '=' + v.phase).join(', '));
+      }
+      await sleep(250);
+    }
+    assert(common, 'The shared reveal did not arrive within the expected settlement window');
+    report.checks.push({
+      action: 'Three live viewers overlap on the canonical shared reveal',
+      ...common,
+    });
+    console.log('PASS three live viewers share the same reveal');
+    await Promise.all(clients.map((client) => screenshot(client, 'shared-reveal')));
+    // A normal reload reconnects the spectator. It must catch the common progress,
+    // or the common final if navigation happens to cross the end of the reveal.
+    await clients[2].page.reload({ waitUntil: 'domcontentloaded' });
+    await clients[2].page.getByRole('heading', { name: 'The shared draw', exact: true }).waitFor();
+    const caughtUp = await eventually(
+      async () => {
+        const views = await revealViews();
+        assert(views.every((v) => v.phase === 'revealing' || v.phase === 'complete'));
+        const spread =
+          Math.max(...views.map((v) => v.progress)) - Math.min(...views.map((v) => v.progress));
+        assert(spread <= 0.2);
+        return { views, spread };
+      },
+      12000,
+      'Reloaded spectator did not catch up'
+    );
+    report.checks.push({
+      action: 'Spectator reload catches up without restarting the group',
+      ...caughtUp,
+    });
+    report.sharedRevealObservedThisRun = true;
+  } else {
+    report.checks.push({
+      action:
+        'Existing completed round reopened; shared reveal timing is not re-tested in this mode',
+    });
+  }
   await eventually(
     async () => {
       const views = await revealViews();
@@ -456,7 +493,9 @@ try {
     'Viewing/reloading/replaying changed spectator balances'
   );
   report.checks.push({
-    action: 'Spectator balances unchanged across viewing, live reveal and result reload',
+    action: completedMode
+      ? 'Spectator balances unchanged across viewing, replay and saved result reload'
+      : 'Spectator balances unchanged across viewing, live reveal and result reload',
     balancesUnchanged: true,
   });
   assert.deepEqual(report.errors, [], 'JavaScript errors occurred');
