@@ -59,6 +59,8 @@ import { RewardControlPage } from '@/pages/workspaces/reward-control';
 import { ProfilePage } from '@/pages/profile';
 
 import { PasswordResetPage } from '@/pages/password-reset';
+import { AdminAgents } from '@/pages/workspaces/agents';
+import { AdminAccountDetail } from '@/pages/workspaces/account-detail';
 
 // Keep pairing-verification code out of the normal casino entry bundle.
 const SpinWinVerifyPage = lazy(async () => {
@@ -120,10 +122,13 @@ export function App() {
         <Route path="rewards" element={<RewardControlPage />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
         <Route path="agents/new" element={<CreateAgentPage />} />
+        <Route path="agents" element={<AdminAgents />} />
         <Route path="crypto" element={<CryptoPaymentsPage admin />} />
         <Route path="pricing" element={<WalletPricingAdmin />} />
         <Route path="disputes" element={<WorkspaceProcessing kind="admin" />} />
         <Route path="accounts" element={<AdminAccounts />} />
+        <Route path="accounts/:id" element={<AdminAccountDetail />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<AdminRecords kind="games" />} />
         <Route path="activity" element={<AdminRecords kind="audit" />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
@@ -139,6 +144,8 @@ export function App() {
         <Route index element={<AgentOverview />} />
         <Route path="operations" element={<WorkspaceProcessing kind="agent" />} />
         <Route path="accounts" element={<WalletAgentSetupPage workspace />} />
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="support" element={<SupportPage />} />
         <Route path="*" element={<Navigate to="/agent" replace />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />

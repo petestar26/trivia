@@ -22,6 +22,11 @@ export const activateAgentSchema = z
     newPassword: safePassword,
   })
   .strict();
+const existingAgentSchema = z.object({
+  email: emailSchema,
+  displayName: z.string().trim().min(1).max(100),
+  countryId: z.string().uuid(),
+}).strict();
 const DUMMY_HASH = '$2a$12$W2Ji.cO4XXOUNGX56WvLlOWP0oAGdNZ0UDeFj5TCLuWWV2oUo/Q9W';
 function sanitize(error: unknown): never {
   if (error instanceof ApiError) throw error;
@@ -36,10 +41,17 @@ function sanitize(error: unknown): never {
 }
 export async function createAdminAgent(adminId: string, input: unknown) {
   const parsed = adminAgentSchema.safeParse(input);
-  if (!parsed.success)
-    throw ApiError.badRequest(
-      'Valid username, email, country, display name and a strong temporary password of at most 72 UTF-8 bytes are required'
-    );
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0];
+    const messages: Record<string, string> = {
+      username: 'Username must contain 3–30 letters, numbers or underscores.',
+      email: 'Enter a valid email address.',
+      countryId: 'Choose an active country.',
+      displayName: 'Enter a display name of 1–100 characters.',
+      temporaryPassword: 'Temporary password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.',
+    };
+    throw ApiError.badRequest(messages[String(field)] ?? 'Check the account details and try again.');
+  }
   const args = parsed.data;
   await assertPlatformAdmin(adminId);
   try {
@@ -125,6 +137,41 @@ export async function createAdminAgent(adminId: string, input: unknown) {
   } catch (error) {
     sanitize(error);
   }
+}
+
+/** Approve a registered member without replacing their password or wallet. */
+export async function approveExistingMemberAgent(adminId: string, input: unknown, expectedUserId?: string) {
+  const parsed = existingAgentSchema.safeParse(input);
+  if (!parsed.success) throw ApiError.badRequest('A valid member email, display name and country are required.');
+  const args = parsed.data;
+  await assertPlatformAdmin(adminId);
+  try {
+    return await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM public.users WHERE id=${adminId} FOR SHARE`;
+      const admin = await tx.user.findUnique({ where: { id: adminId }, select: { role: true, status: true } });
+      if (!admin || admin.status !== 'ACTIVE' || !['ADMIN', 'SUPER_ADMIN'].includes(admin.role))
+        throw ApiError.forbidden('Admin privileges required');
+      const matches = await tx.user.findMany({ where: { email: { equals: args.email, mode: 'insensitive' } }, take: 2, select: { id: true } });
+      if (!matches.length) throw ApiError.notFound('No member uses this email. Create a new agent account instead.');
+      if (matches.length !== 1) throw ApiError.conflict('This email matches more than one account. Resolve the duplicate accounts first.');
+      const userId = matches[0].id;
+      if (expectedUserId && userId !== expectedUserId) throw ApiError.conflict('The selected member account changed.');
+      if (userId === adminId) throw ApiError.forbidden('Use a separate member account for the agent.');
+      await tx.$queryRaw`SELECT id FROM public.users WHERE id=${userId} FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, username: true, email: true, role: true, status: true, agentProfile: { select: { id: true } } } });
+      if (!user || user.role !== 'USER' || user.status !== 'ACTIVE')
+        throw ApiError.badRequest('Only an active member account can be approved as an agent.');
+      if (user.email?.toLowerCase() !== args.email.toLowerCase()) throw ApiError.conflict('The member email changed. Refresh before continuing.');
+      if (user.agentProfile) throw ApiError.conflict('This member already has an agent profile. Manage it from Agents.');
+      await tx.$queryRaw`SELECT id FROM public.countries WHERE id=${args.countryId} FOR SHARE`;
+      const country = await tx.country.findUnique({ where: { id: args.countryId }, select: { isActive: true } });
+      if (!country?.isActive) throw ApiError.badRequest('Choose an active country.');
+      const agent = await tx.agent.create({ data: { userId, countryId: args.countryId, displayName: args.displayName, contactEmail: user.email!, status: 'ACTIVE' }, select: { id: true } });
+      await tx.agentApplication.create({ data: { agentId: agent.id, status: 'APPROVED', reviewedBy: adminId, reviewedAt: new Date(), reviewNote: 'Existing member approved by administrator; receiving accounts require separate review.', submittedData: { source: 'ADMIN_APPROVED_EXISTING_MEMBER', countryId: args.countryId, displayName: args.displayName } } });
+      await tx.auditLog.create({ data: { userId: adminId, action: 'ADMIN_EXISTING_MEMBER_AGENT_APPROVED', entity: 'Agent', entityId: agent.id, newData: { accountId: userId, countryId: args.countryId } } });
+      return { userId, agentId: agent.id, username: user.username, email: user.email, status: 'READY_TO_SIGN_IN' };
+    });
+  } catch (error) { sanitize(error); }
 }
 export async function activateAdminAgent(input: unknown) {
   const parsed = activateAgentSchema.safeParse(input);

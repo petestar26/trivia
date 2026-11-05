@@ -5,6 +5,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { api, unwrapData } from '@/lib/api';
 import { WalletOperationsPage } from '../wallet-operations';
 import './workspaces.css';
+export { AgentOverview } from './agent-overview';
 
 type Access = { role: string; admin: boolean; agent: boolean; agentStatus: string | null };
 const get = async <T,>(path: string) => unwrapData(await api.get<T>(path));
@@ -70,14 +71,18 @@ const adminLinks = [
   ['/admin/crypto', 'Crypto payments'],
   ['/admin/disputes', 'Disputes'],
   ['/admin/accounts', 'Accounts'],
+  ['/admin/agents', 'Agents'],
   ['/admin/agents/new', 'Create agent'],
   ['/admin/games', 'Game catalog'],
   ['/admin/activity', 'Audit history'],
+  ['/admin/profile', 'My account & security'],
 ];
 const agentLinks = [
   ['/agent', 'Overview'],
   ['/agent/operations', 'Deposits & payouts'],
   ['/agent/accounts', 'Receiving accounts'],
+  ['/agent/profile', 'My account & security'],
+  ['/agent/support', 'Support'],
 ];
 export function WorkspaceLayout({ kind }: { kind: 'admin' | 'agent' }) {
   const { user, logout } = useAuth();
@@ -218,8 +223,8 @@ export function AdminOverview() {
         <h2>Permission boundaries</h2>
         <p>
           Administrators manage configuration and operational reviews. Financial adjustments remain
-          restricted to super administrators. Game rules and account roles are not editable in this
-          dashboard.
+          restricted to super administrators. Member activity and agent access can be managed from
+          their account pages. Account roles and game rules remain protected.
         </p>
       </section>
     </>
@@ -288,7 +293,7 @@ export function AdminAccounts() {
               {query.data?.rows.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <strong>{r.username}</strong>
+                    <Link to={`/admin/accounts/${r.id}`}><strong>{r.username}</strong></Link>
                     <small>{r.email ?? 'No email'}</small>
                   </td>
                   <td>{r.role}</td>
@@ -384,37 +389,6 @@ export function AdminRecords({ kind }: { kind: 'games' | 'audit' }) {
           {!query.data?.length && <p>No records to display.</p>}
         </div>
       </QueryState>
-    </>
-  );
-}
-export function AgentOverview() {
-  const { user } = useAuth();
-  return (
-    <>
-      <div className="workspace-heading">
-        <p>YOUR AGENT WORKSPACE</p>
-        <h1>Welcome, {user?.displayName || user?.username}</h1>
-        <span>Process your assigned payments and maintain your receiving accounts.</span>
-      </div>
-      <div className="workspace-grid">
-        <Link className="workspace-panel workspace-shortcut" to="/agent/operations">
-          <h2>Deposits & payouts</h2>
-          <p>Review payment evidence, release ETB and record completed transfers.</p>
-          <span>Open processing desk →</span>
-        </Link>
-        <Link className="workspace-panel workspace-shortcut" to="/agent/accounts">
-          <h2>Receiving accounts</h2>
-          <p>Submit payment destinations for administrator approval.</p>
-          <span>Manage your accounts →</span>
-        </Link>
-      </div>
-      <section className="workspace-panel">
-        <h2>Your operating scope</h2>
-        <p>
-          You can process requests assigned to your agent account. Platform configuration, other
-          agents’ accounts and administrator decisions remain restricted.
-        </p>
-      </section>
     </>
   );
 }

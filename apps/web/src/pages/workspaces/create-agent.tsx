@@ -4,6 +4,9 @@ import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
+import { passwordSchema } from '@socialplay/shared';
+import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
+import { ExistingMemberAgentForm } from './existing-member-agent';
 
 const requirements =
   '8–72 characters, with uppercase, lowercase, a number and a symbol. Maximum 72 UTF-8 bytes.';
@@ -31,6 +34,7 @@ function usePendingAgentAccounts(userId?: string) {
 export function CreateAgentPage() {
   const { user } = useAuth();
   const cache = useQueryClient();
+  const [existingMember, setExistingMember] = useState(false);
   const pending = usePendingAgentAccounts(user?.id);
   const countries = useQuery({
     queryKey: ['payments', 'admin-countries'],
@@ -79,6 +83,10 @@ export function CreateAgentPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (active.current || refreshRequired || checkingPending) return;
+    if (!passwordSchema.safeParse(form.temporaryPassword).success || new TextEncoder().encode(form.temporaryPassword).length > 72) {
+      setError('Temporary password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.');
+      return;
+    }
     active.current = true;
     setBusy(true);
     setError('');
@@ -109,7 +117,13 @@ export function CreateAgentPage() {
       void cache.invalidateQueries({ queryKey: ['admin-accounts', user?.id] });
       void cache.invalidateQueries({ queryKey: ['admin-overview', user?.id] });
       void cache.invalidateQueries({ queryKey: ['payments'] });
-    } catch {
+    } catch (error) {
+      const status = getErrorStatus(error);
+      if (status && status >= 400 && status < 500) {
+        setRefreshRequired(false);
+        setError(getErrorMessage(error, 'Check the account details and try again.'));
+        return;
+      }
       setRefreshRequired(true);
       setError(
         'Could not confirm account creation. The account may already exist. Checking pending accounts before another submission…'
@@ -130,6 +144,11 @@ export function CreateAgentPage() {
           password.
         </span>
       </div>
+      <div className="workspace-tabs" role="group" aria-label="Agent account type">
+        <button type="button" aria-pressed={!existingMember} disabled={busy} onClick={() => setExistingMember(false)}>New account</button>
+        <button type="button" aria-pressed={existingMember} disabled={busy} onClick={() => { setExistingMember(true); setForm(current => ({ ...current, temporaryPassword: '' })); }}>Existing member</button>
+      </div>
+      {existingMember ? <ExistingMemberAgentForm countries={countries.data ?? []} countriesUnavailable={countries.isPending || countries.isError} /> : <>
       {result && (
         <section className="workspace-panel" role="status">
           <h2>Agent account created</h2>
@@ -255,6 +274,7 @@ export function CreateAgentPage() {
               : 'Create agent account'}
         </button>
       </form>
+      </>}
       <PendingAgentAccounts pending={pending} />
     </>
   );
@@ -281,6 +301,10 @@ export function ActivateAgentPage() {
       setMessage('Choose a different password from your temporary password.');
       return;
     }
+    if (!passwordSchema.safeParse(form.newPassword).success || new TextEncoder().encode(form.newPassword).length > 72) {
+      setMessage('New password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.');
+      return;
+    }
     active.current = true;
     setBusy(true);
     setMessage('');
@@ -298,7 +322,12 @@ export function ActivateAgentPage() {
         )
       );
       setDone(true);
-    } catch {
+    } catch (error) {
+      const status = getErrorStatus(error);
+      if (status && status >= 400 && status < 500) {
+        setMessage(getErrorMessage(error, 'Check the activation details and try again.'));
+        return;
+      }
       setMessage(
         'Activation could not be confirmed. Your password may already have been set even if the response was lost. Try signing in with your new password before submitting again; otherwise contact your administrator. Temporary credentials may be invalid, expired or already used.'
       );

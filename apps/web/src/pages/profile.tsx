@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, UserRound, ShieldCheck, Pencil, LogOut } from 'lucide-react';
 import { AuthenticatorSetup } from '@/components/security/authenticator-setup';
+import { ChangePassword } from '@/components/security/change-password';
 import { useAuth } from '@/providers/auth-provider';
 import { api, unwrapData } from '@/lib/api';
 import { memberGet, memberDate, type RewardSummary } from '@/lib/member-rewards';
@@ -275,6 +276,7 @@ function ProfileSession({ userId }: { userId: string }) {
         <p className="member-muted">Protect sensitive account actions with an authenticator app.</p>
         <AuthenticatorSetup key={userId} />
       </section>
+      <ChangePassword />
       <footer className="member-profile-footer">
         <div>
           <h2>Need help with your details?</h2>

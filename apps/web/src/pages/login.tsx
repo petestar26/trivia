@@ -86,6 +86,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {(location.state as { passwordChanged?: boolean } | null)?.passwordChanged && <p role="status" className="text-sm text-center">Your password was changed. Sign in with your new password.</p>}
         {!workspace && <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />}
         {!workspace && <div role="group" aria-label="Sign-in method" className="flex gap-2">
           {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}

@@ -124,17 +124,18 @@
   margin-bottom: 24px;
 }
 .workspace-metrics article,
+.workspace-metrics > a,
 .workspace-panel {
   background: #fff;
   border: 1px solid var(--ws-line);
   border-radius: 14px;
   padding: 24px;
 }
-.workspace-metrics article span {
+.workspace-metrics > :is(article, a) span {
   font-size: 13px;
   color: #70656a;
 }
-.workspace-metrics article strong {
+.workspace-metrics > :is(article, a) strong {
   display: block;
   font-size: 34px;
   margin-top: 14px;
@@ -232,6 +233,23 @@
   background: white;
   color: #292429;
 }
+.workspace-search select { border: 1px solid #c5b7b9; border-radius: 8px; padding: 10px; background: white; color: #292429; max-width: 100%; }
+.workspace-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+.workspace-tabs button { padding: 10px 18px; border: 1px solid #c5b7b9; border-radius: 9px; background: white; }
+.workspace-tabs button[aria-pressed="true"] { background: #783c50; border-color: #783c50; color: white; }
+.workspace-table td > button { display: block; padding: 7px 0; color: #783c50; font-weight: 600; text-align: left; }
+.workspace-facts { display: grid; gap: 14px; margin: 18px 0; }
+.workspace-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding-bottom: 10px; border-bottom: 1px solid var(--ws-line); }
+.workspace-facts dt { color: #70656a; font-size: 13px; }
+.workspace-facts dd { text-align: right; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.workspace-facts small { display: block; color: #70656a; font-size: 11px; }
+.workspace-checks, .workspace-history { display: grid; gap: 12px; list-style: none; padding: 0; margin: 18px 0; }
+.workspace-checks li, .workspace-history li { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; border-bottom: 1px solid var(--ws-line); padding-bottom: 10px; }
+.workspace-history time { color: #70656a; text-align: right; }
+.workspace-checks .is-ready { color: #28634c; }
+.workspace-checks .needs-setup { color: #85531b; }
+.workspace-account-form .workspace-confirm { display: flex; align-items: flex-start; gap: 12px; line-height: 1.6; }
+.workspace-account-form .workspace-confirm input { width: auto; margin-top: 5px; }
 .workspace-search button,
 .workspace-pagination button,
 .workspace-panel button,
