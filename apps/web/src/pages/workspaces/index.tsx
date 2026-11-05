@@ -64,6 +64,7 @@ export function WorkspaceGate({
 const adminLinks = [
   ['/admin', 'Overview'],
   ['/admin/support', 'Support inbox'],
+  ['/admin/rewards', 'Reward control'],
   ['/admin/payments', 'Payment configuration'],
   ['/admin/pricing', 'Rates & packages'],
   ['/admin/crypto', 'Crypto payments'],

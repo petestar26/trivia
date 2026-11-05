@@ -59,6 +59,12 @@ export const PRIVILEGED_APPROVAL_FUNCTIONS: readonly string[] = [
 // New scheduled functions also use only explicitly qualified objects. Require
 // their stronger pin rather than the legacy public-first default.
 const STRICT_SCHEDULED_FUNCTIONS = [
+  // These later ETB/practice migrations also qualify every application object.
+  // Requiring their existing stronger pin avoids a false failure of bonus readiness.
+  'etb_rate_terms_guard', 'etb_crypto_amount_valid', 'etb_link_payment_rate',
+  'rk_guard', 'rk_balance_check', 'ls_guard', 'ls_balance_check',
+  'bj_total', 'bj_category', 'bj_guard', 'bj_balance_check',
+  'sg_test_guard', 'sg_test_reconcile',
   'crypto_withdrawal_namespace_guard', 'crypto_immutable_terms', 'crypto_payment_proof_guard', 'crypto_apply_verifier_grants',
   'ledger_apply_runtime_grants_pre_crypto', 'purchase_settlement_proof_guard',
   'coin_lot_entry_validate', 'scheduled_stream_guard', 'scheduled_round_guard',

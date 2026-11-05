@@ -54,7 +54,8 @@ import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
 import { GroupGamesPage } from '@/pages/group-games';
 import { GroupGiftsPage } from '@/pages/group-gifts';
-import { RewardsPage } from '@/pages/rewards';
+import { MemberRewardsPage } from '@/pages/member-rewards';
+import { RewardControlPage } from '@/pages/workspaces/reward-control';
 import { ProfilePage } from '@/pages/profile';
 
 // Keep pairing-verification code out of the normal casino entry bundle.
@@ -113,6 +114,7 @@ export function App() {
       >
         <Route index element={<AdminOverview />} />
         <Route path="support" element={<SupportPage admin />} />
+        <Route path="rewards" element={<RewardControlPage />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
         <Route path="agents/new" element={<CreateAgentPage />} />
         <Route path="crypto" element={<CryptoPaymentsPage admin />} />
@@ -157,7 +159,7 @@ export function App() {
         <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet/operations" element={<WorkspaceDestination />} />
         <Route path="wallet/*" element={<WalletRoutes />} />
-        <Route path="rewards" element={<RewardsPage />} />
+        <Route path="rewards" element={<MemberRewardsPage />} />
         <Route path="support" element={<SupportPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="games" element={<GamesPage />} />

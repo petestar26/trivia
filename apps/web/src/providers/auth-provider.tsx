@@ -17,8 +17,9 @@ interface AuthContextType {
     phone?: string;
     password: string;
     displayName?: string;
+    referralCode?: string;
   }) => Promise<void>;
-  googleAuthenticate: (data: { credential: string; username?: string }) => Promise<void>;
+  googleAuthenticate: (data: { credential: string; username?: string; referralCode?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -180,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     phone?: string;
     password: string;
     displayName?: string;
+    referralCode?: string;
   }) => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
@@ -199,7 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const googleAuthenticate = async (data: { credential: string; username?: string }) => {
+  const googleAuthenticate = async (data: { credential: string; username?: string; referralCode?: string }) => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
     try {

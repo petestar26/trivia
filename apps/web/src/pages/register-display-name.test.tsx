@@ -115,3 +115,13 @@ describe('RegisterPage — Display Name is genuinely optional', () => {
     expect(registerUser).not.toHaveBeenCalled();
   });
 });
+
+it('carries an invitation code from the registration link into sign-up', async () => {
+  registerUser.mockResolvedValue(undefined);
+  const user = userEvent.setup();
+  render(<MemoryRouter initialEntries={['/register?ref=ABCD2345']}><RegisterPage /></MemoryRouter>);
+  expect(screen.getByLabelText('Referral code (optional)')).toHaveValue('ABCD2345');
+  await fillRequiredOnly(user);
+  await user.click(screen.getByRole('button', { name: /create account/i }));
+  await waitFor(() => expect(registerUser).toHaveBeenCalledWith(expect.objectContaining({ referralCode: 'ABCD2345' })));
+});

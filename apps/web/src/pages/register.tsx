@@ -54,6 +54,7 @@ export function RegisterPage() {
   const { register: registerUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState(() => (new URLSearchParams(location.search).get('ref') || '').trim().toUpperCase().slice(0, 8));
   const [method, setMethod] = useState<'email' | 'phone'>('email');
 
   const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
@@ -73,6 +74,7 @@ export function RegisterPage() {
     try {
       await registerUser({
         username: data.username,
+        ...(referralCode.trim() ? { referralCode: referralCode.trim().toUpperCase() } : {}),
         ...(method === 'phone' ? { phone: data.email } : { email: data.email }),
         password: data.password,
         // Omit a blank display name rather than sending '': the API declares
@@ -100,7 +102,8 @@ export function RegisterPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-        <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />
+        <GoogleSignInButton referralCode={referralCode.trim().toUpperCase() || undefined} onSuccess={() => navigate(returnTo, { replace: true })} />
+          <label className="block text-sm">Referral code (optional)<Input aria-label="Referral code (optional)" autoComplete="off" maxLength={8} value={referralCode} onChange={e => setReferralCode(e.target.value.toUpperCase())} /></label>
           <div role="group" aria-label="Registration method" className="flex gap-2">
             {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
               aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>

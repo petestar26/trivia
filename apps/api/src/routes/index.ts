@@ -1,4 +1,5 @@
 import { supportRoutes } from '../support/routes.js';
+import { memberRewardRoutes, memberProfileRoutes } from '../member-rewards/routes.js';
 import { numberPracticeRoutes } from '../games/number-challenge/routes.js';
 import { derbyRoutes, dogRacingRoutes } from '../games/thunder-derby/routes.js';
 import { footballRoutes } from '../games/virtual-football/routes.js';
@@ -51,6 +52,8 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // healthRoutes is registered directly in server.ts, outside this
   // API_PREFIX-wrapped block — see the comment there. Not registered here.
   await server.register(supportRoutes, { prefix: '/support' });
+  await server.register(memberRewardRoutes, { prefix: '/member-rewards' });
+  await server.register(memberProfileRoutes, { prefix: '/member-profile' });
   await server.register(workspaceRoutes, { prefix: '/workspaces' });
   await server.register(authRoutes, { prefix: '/auth' });
   await server.register(socialGroupRoutes, { prefix: '/groups' });
