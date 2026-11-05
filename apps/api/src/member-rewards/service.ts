@@ -171,7 +171,7 @@ export async function recordPaidGiftRewards(tx: Tx, config: RewardConfig, giftId
   }
 }
 
-export async function checkIn(userId: string) {
+async function earnDailyReward(userId: string) {
   return prisma.$transaction(async (tx) => {
     const config = await lockRewardConfig(tx);
     await lockUserEconomicScope(tx, `member-daily:${userId}`);
@@ -184,8 +184,7 @@ export async function checkIn(userId: string) {
     const [existing] = await tx.$queryRaw<Entitlement[]>`SELECT * FROM member_reward_entitlements
       WHERE user_id=${userId} AND kind='DAILY' AND source_key=${day}`;
     if (existing) return { id: existing.id, alreadyEarned: true };
-    if (!config.daily_enabled)
-      throw ApiError.conflict('Daily rewards have not been enabled by an administrator');
+    if (!config.daily_enabled) return null;
     await insertEntitlement(tx, {
       userId,
       kind: 'DAILY',
@@ -198,6 +197,13 @@ export async function checkIn(userId: string) {
       WHERE user_id=${userId} AND kind='DAILY' AND source_key=${day}`;
     return { id: earned.id, alreadyEarned: false };
   });
+}
+
+// Kept for existing callers. Member activity no longer requires a claim action.
+export async function checkIn(userId: string) {
+  const earned = await earnDailyReward(userId);
+  if (!earned) throw ApiError.conflict('Daily rewards are currently unavailable');
+  return earned;
 }
 
 export async function claimEntitlement(userId: string, id: string) {
@@ -232,6 +238,61 @@ export async function claimEntitlement(userId: string, id: string) {
     await tx.$executeRaw`UPDATE member_reward_entitlements SET claimed_at=clock_timestamp(), claim_id=${claim.id} WHERE id=${id}`;
     return { alreadyClaimed: false };
   });
+}
+
+/** Durable entitlements are the delivery queue. Attempts never change the
+ * earned amount, and an unavailable wallet cannot consume or lose a reward. */
+export async function deliverPendingRewards(scope: { userId?: string; giftId?: string } = {}) {
+  const rows = await prisma.$queryRaw<{ id: string; user_id: string }[]>`
+    SELECT id,user_id FROM member_reward_entitlements
+    WHERE claim_id IS NULL AND next_attempt_at <= clock_timestamp()
+      AND (${scope.userId ?? null}::text IS NULL OR user_id=${scope.userId ?? null})
+      AND (${scope.giftId ?? null}::text IS NULL OR gift_transaction_id=${scope.giftId ?? null})
+    ORDER BY next_attempt_at,created_at,id LIMIT 50`;
+  let credited = 0;
+  for (const row of rows) {
+    try {
+      const result = await claimEntitlement(row.user_id, row.id);
+      if (!result.alreadyClaimed) credited++;
+    } catch {
+      // Move unavailable wallets behind other work. The conditional update is
+      // safe if a concurrent login, purchase replay or API instance paid it.
+      await prisma.$executeRaw`UPDATE member_reward_entitlements
+        SET next_attempt_at=clock_timestamp()+interval '5 minutes'
+        WHERE id=${row.id} AND claim_id IS NULL`;
+    }
+  }
+  return { credited };
+}
+
+export async function processMemberActivity(userId: string) {
+  const daily = await earnDailyReward(userId);
+  const delivery = await deliverPendingRewards({ userId });
+  return { id: daily?.id, earned: !!daily && !daily.alreadyEarned, ...delivery };
+}
+
+// Runs in the API process, whose database role owns monetary reward delivery.
+// The restricted practice worker must never be used for real-Birr credits.
+export function startRewardDelivery(report: () => void) {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const tick = async () => {
+    try {
+      await deliverPendingRewards();
+    } catch {
+      report();
+    } finally {
+      if (!stopped) {
+        timer = setTimeout(() => void tick(), 30_000);
+        timer.unref();
+      }
+    }
+  };
+  void tick();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
 }
 
 export async function ensureReferralCode(userId: string) {

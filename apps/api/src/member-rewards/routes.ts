@@ -8,6 +8,8 @@ import {
   saveConfig,
   rewardSummary,
   checkIn,
+  deliverPendingRewards,
+  processMemberActivity,
   claimEntitlement,
   ensureReferralCode,
 } from './service.js';
@@ -29,9 +31,12 @@ export async function memberRewardRoutes(server: FastifyInstance) {
   });
   server.post('/daily', { preHandler: auth, config: limited }, async (request, reply) => {
     const data = await checkIn(request.user!.sub);
-    // Earning survives even when the separately gated wallet cannot yet pay it.
+    await deliverPendingRewards({ userId: request.user!.sub });
     return reply.send({ success: true, data });
   });
+  server.post('/activity', { preHandler: auth, config: limited }, async (request, reply) =>
+    reply.send({ success: true, data: await processMemberActivity(request.user!.sub) })
+  );
   server.post<{ Params: { id: string } }>(
     '/:id/claim',
     { preHandler: auth, config: limited },

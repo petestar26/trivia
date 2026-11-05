@@ -14,6 +14,8 @@ import {
   rewardDay,
   recordPaidGiftRewards,
   ensureReferralCode,
+  processMemberActivity,
+  deliverPendingRewards,
 } from './service.js';
 import { memberProfileRoutes, memberRewardRoutes } from './routes.js';
 import { errorHandler } from '../middleware/error-handler.js';
@@ -122,7 +124,8 @@ it('uses Addis Ababa midnight for daily uniqueness', () => {
 it('starts disabled and rejects invalid, unauthorized, and stale admin settings', async () => {
   await configure({ daily_enabled: false, gift_enabled: false, referral_enabled: false });
   const member = await user();
-  await expect(checkIn(member.id)).rejects.toThrow('not been enabled');
+  await expect(checkIn(member.id)).rejects.toThrow('currently unavailable');
+  expect(await processMemberActivity(member.id)).toMatchObject({ earned: false, credited: 0 });
   const old = await readConfig();
   await expect(
     saveConfig(member.id, {
@@ -213,7 +216,7 @@ it('concurrent daily claims pay once, stay pending without eligibility, and pres
     spendable: 80,
   });
 });
-it('rewards only committed paid gifts, caps gift rewards, and qualifies each referral once despite retries', async () => {
+it('automatically credits only committed paid gifts, caps rewards, and qualifies referrals once despite retries', async () => {
   await configure({
     gift_enabled: true,
     gift_amount: 100,
@@ -247,14 +250,22 @@ it('rewards only committed paid gifts, caps gift rewards, and qualifies each ref
   };
   const sends = await Promise.all(Array.from({ length: 5 }, () => sendGift(args)));
   expect(sends.filter((s) => !s.isReplay)).toHaveLength(1);
-  expect((await rewardSummary(buyer.id)).pendingMinor).toBe(100);
+  expect((await rewardSummary(buyer.id)).pendingMinor).toBe(0);
+  expect((await rewardSummary(buyer.id)).wallet.coinAvailability?.betOnly).toBe(100);
   expect((await rewardSummary(inviter.id)).pendingMinor).toBe(500);
   await Promise.all([
     sendGift({ ...args, idempotencyKey: randomUUID() }),
     sendGift({ ...args, idempotencyKey: randomUUID() }),
   ]);
-  expect((await rewardSummary(buyer.id)).pendingMinor).toBe(200);
+  expect((await rewardSummary(buyer.id)).earnedMinor).toBe(200);
+  expect((await rewardSummary(buyer.id)).wallet.coinAvailability?.betOnly).toBe(200);
   expect((await rewardSummary(inviter.id)).qualifiedReferrals).toBe(1);
+  await eligible(inviter.id);
+  // Simulate the durable retry becoming due; no login or claim by the inviter.
+  await prisma.$executeRaw`UPDATE member_reward_entitlements SET next_attempt_at=now()
+    WHERE user_id=${inviter.id} AND claim_id IS NULL`;
+  expect((await deliverPendingRewards({ userId: inviter.id })).credited).toBe(1);
+  expect((await rewardSummary(inviter.id)).wallet.coinAvailability?.betOnly).toBe(500);
   await expect(
     sendGift({ ...args, recipientId: buyer.id, idempotencyKey: randomUUID() })
   ).rejects.toThrow('yourself');
@@ -280,6 +291,75 @@ it('rewards only committed paid gifts, caps gift rewards, and qualifies each ref
   });
   expect((await rewardSummary(lowBuyer.id)).pendingMinor).toBe(0);
   expect((await rewardSummary(inviter.id)).qualifiedReferrals).toBe(1);
+});
+
+it('automatically pays daily activity once across tabs and applies new global rates to future earnings', async () => {
+  await configure({ daily_enabled: true, daily_amount: 325 });
+  const member = await user();
+  await eligible(member.id);
+  expect((await app.inject({ method: 'POST', url: '/member-rewards/activity' })).statusCode).toBe(
+    401
+  );
+  const responses = await Promise.all(
+    Array.from({ length: 6 }, () =>
+      app.inject({
+        method: 'POST',
+        url: '/member-rewards/activity',
+        headers: headers(member.id),
+        payload: { amount: 999999, userId: adminId },
+      })
+    )
+  );
+  expect(responses.every((r) => r.statusCode === 200)).toBe(true);
+  expect(responses.filter((r) => r.json().data.earned)).toHaveLength(1);
+  expect(responses.reduce((n, r) => n + r.json().data.credited, 0)).toBe(1);
+  expect((await rewardSummary(member.id)).wallet.coinAvailability).toMatchObject({
+    betOnly: 325,
+    spendable: 0,
+  });
+
+  await configure({ daily_amount: 650 });
+  const nextMember = await user();
+  await eligible(nextMember.id);
+  await processMemberActivity(nextMember.id);
+  await processMemberActivity(member.id);
+  expect((await rewardSummary(nextMember.id)).earnedMinor).toBe(650);
+  expect((await rewardSummary(member.id)).earnedMinor).toBe(325);
+  await configure({ daily_enabled: false });
+});
+
+it('retries unfunded rewards automatically without changing earned terms or weakening the entitlement guard', async () => {
+  await configure({ daily_enabled: true, daily_amount: 275 });
+  const member = await user();
+  const activity = await processMemberActivity(member.id);
+  expect(activity).toMatchObject({ earned: true, credited: 0 });
+  const id = activity.id!;
+  const [retry] = await prisma.$queryRaw<{ deferred: boolean }[]>`
+    SELECT next_attempt_at > now() AS deferred FROM member_reward_entitlements WHERE id=${id}`;
+  expect(retry.deferred).toBe(true);
+  await expect(
+    prisma.$executeRaw`UPDATE member_reward_entitlements SET amount=999 WHERE id=${id}`
+  ).rejects.toThrow('immutable');
+  await expect(
+    prisma.$executeRaw`UPDATE member_reward_entitlements SET claimed_at=now() WHERE id=${id}`
+  ).rejects.toThrow('Unfunded');
+  await expect(
+    prisma.$executeRaw`DELETE FROM member_reward_entitlements WHERE id=${id}`
+  ).rejects.toThrow('cannot be deleted');
+  await configure({ daily_enabled: false, daily_amount: 800 });
+  await eligible(member.id);
+  await prisma.$executeRaw`UPDATE member_reward_entitlements SET next_attempt_at=now() WHERE id=${id}`;
+  // The same batch entry point used by the API's background delivery loop.
+  await deliverPendingRewards();
+  expect((await rewardSummary(member.id)).wallet.coinAvailability).toMatchObject({
+    betOnly: 275,
+    spendable: 0,
+  });
+  expect((await rewardSummary(member.id)).pendingMinor).toBe(0);
+  expect(await processMemberActivity(member.id)).toMatchObject({ earned: false, credited: 0 });
+  expect(
+    await prisma.rewardClaim.count({ where: { userId: member.id, sourceType: 'MEMBER_PROMOTION' } })
+  ).toBe(1);
 });
 it('practice gift purchases and invented gift IDs cannot earn real-Birr rewards', async () => {
   const buyer = await user(),

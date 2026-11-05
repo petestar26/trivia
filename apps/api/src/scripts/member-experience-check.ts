@@ -11,6 +11,8 @@ try {
       AND has_table_privilege(current_user,'member_reward_entitlements','SELECT')
       AND has_table_privilege(current_user,'member_reward_entitlements','INSERT')
       AND has_table_privilege(current_user,'member_reward_entitlements','UPDATE')
+      AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='member_reward_entitlements'::regclass
+        AND attname='next_attempt_at' AND NOT attisdropped)
       AND EXISTS (SELECT 1 FROM member_reward_config WHERE id='default')
       AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='member_reward_entitlements'::regclass
         AND tgname='member_reward_entitlement_guard' AND tgenabled='O')) AS ready`;
