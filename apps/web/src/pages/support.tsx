@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
+import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
 import { useLanguage } from '@/providers/language-provider';
 import './lounge.css';
@@ -59,14 +60,15 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
   const key = ['support', userId, admin];
   const help = useQuery({
     queryKey: ['support-help', userId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrapData(
-        await api.get<{
+        await boundedRequest(requestSignal => api.get<{
           aiEnabled: boolean;
           articles: { id: string; title: string; body: string; href: string }[];
-        }>('/support/help')
+        }>('/support/help', undefined, { signal: requestSignal }), signal)
       ),
     staleTime: 60_000,
+    retry: false,
   });
   const list = useQuery({
     queryKey: [...key, 'list', page, filter],
@@ -218,9 +220,14 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
           {admin && (
             <p className="salem-footnote">
               AI assistant:{' '}
-              {help.data?.aiEnabled
-                ? 'configured'
-                : 'not configured. Set the provider, model, and matching API key privately on the API service to enable it.'}
+              {help.isPending
+                ? 'checking status…'
+                : help.isError
+                  ? 'status unavailable. Check again when the connection is restored.'
+                  : help.data?.aiEnabled
+                    ? 'configured'
+                    : 'not configured. Set the provider, model, and matching API key privately on the API service to enable it.'}
+              {help.isError && <button disabled={help.isFetching} onClick={() => help.refetch()}>Check assistant status</button>}
             </p>
           )}
           <div className={`salem-support-workspace ${selected || creating ? 'has-thread' : ''}`}>

@@ -240,7 +240,7 @@ export function AdminAgents() {
               Previous
             </button>
             <span>
-              Page {page} · {query.data.total} agents
+              Page {page} · {query.data.total} {query.data.total === 1 ? 'agent' : 'agents'}
             </span>
             <button
               disabled={busy || page * query.data.pageSize >= query.data.total}
