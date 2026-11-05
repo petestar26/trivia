@@ -348,6 +348,31 @@ it('serializes group and sportsbook spending against the same available wallet',
   expect(Number(group.accepted) + Number(bet.error === 0)).toBe(1);
   expect((await wallet(f.users[0])).coinsBalance).toBe(500);
 });
+it('preserves groups with shared-round history and returns a clear conflict before deleting members', async () => {
+  const f = await fixture('GAME_POINTS');
+  const { buildServer } = await import('../../server.js');
+  const server = await buildServer();
+  try {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: f.users[0] } });
+    const token = server.jwt.sign({ sub: user.id, username: user.username, roles: ['USER'] });
+    const before = await prisma.groupMember.count({ where: { groupId: f.groupId } });
+    for (const closed of [false, true]) {
+      if (closed) await service.cancel(user.id, f.roundId);
+      const response = await server.inject({
+        method: 'DELETE',
+        url: '/api/v1/groups/' + f.groupId,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode, response.body).toBe(409);
+      expect(response.json().error.message).toContain('game or gift history');
+      expect(await prisma.groupMember.count({ where: { groupId: f.groupId } })).toBe(before);
+      expect(await prisma.group.count({ where: { id: f.groupId } })).toBe(1);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 it('refunds once before closure and requires a fresh confirmation after cancellation', async () => {
   const f = await fixture(),
     accepted = await f.confirm(0);
