@@ -1,8 +1,8 @@
 # Play Together
 
-Salem Bet group play, 5 November 2026. The initial four-game practice rollout
-is deployed. The twelve-game expansion is in release verification; its actual
-deployment evidence is recorded in the release review. Real-money play is off.
+Salem Bet group play, 5 November 2026. All twelve group contests
+are enabled for practice play. Deployment and acceptance evidence is recorded
+in the release reviews and PR. Real-money group play remains off.
 
 ## Player journey
 
@@ -43,14 +43,14 @@ All use equal entries and the same winning-profit fee calculation.
 | Turbo Keno            | Pick 5 of 80; draw 20; most matches wins                                               | Tied leaders share; zero matches for everyone refunds                | Enabled for practice |
 | Dice Duel             | Two independent fair dice per player; highest sum wins                                 | Tied leaders share; everyone tied refunds                            | Enabled for practice |
 | Number Challenge      | Pick 1–100; closest to the uniform shared target wins                                  | Equal distances share; everyone tied refunds                         | Enabled for practice |
-| Roulette Keno         | Pick 5 of 72; draw 18; most matches wins                                               | Same Keno tie/refund rules                                           | Practice expansion   |
-| Lucky Six             | Pick 6 of 48; up to 35 draws; earliest completion wins, otherwise most matches         | Tied leaders share; no matches or everyone tied refunds              | Practice expansion   |
-| Derby                 | Pick one of 8 equally likely runners; best finish among the selected runners wins      | Players selecting the same best runner share; everyone tied refunds  | Practice expansion   |
-| Dog Racing            | Same contest with 8 dogs                                                               | Same race rules                                                      | Practice expansion   |
-| Football Predictions  | Predict home/draw/away for three simulated matches; most correct wins                  | Tied leaders share; nobody correct or everyone tied refunds          | Practice expansion   |
-| Blackjack Predictions | Predict win/draw/loss for six automated hands against a dealer; most correct wins      | Tied leaders share; nobody correct or everyone tied refunds          | Practice expansion   |
-| Sky Crash Challenge   | Preselect an exit score from 1.01× to 20×; highest score strictly below the crash wins | Equal leading scores share; nobody survives or everyone ties refunds | Practice expansion   |
-| Crash Point Challenge | Same sealed target contest                                                             | Same crash rules                                                     | Practice expansion   |
+| Roulette Keno         | Pick 5 of 72; draw 18; most matches wins                                               | Same Keno tie/refund rules                                           | Enabled for practice |
+| Lucky Six             | Pick 6 of 48; up to 35 draws; earliest completion wins, otherwise most matches         | Tied leaders share; no matches or everyone tied refunds              | Enabled for practice |
+| Derby                 | Pick one of 8 equally likely runners; best finish among the selected runners wins      | Players selecting the same best runner share; everyone tied refunds  | Enabled for practice |
+| Dog Racing            | Same contest with 8 dogs                                                               | Same race rules                                                      | Enabled for practice |
+| Football Predictions  | Predict home/draw/away for three simulated matches; most correct wins                  | Tied leaders share; nobody correct or everyone tied refunds          | Enabled for practice |
+| Blackjack Predictions | Predict win/draw/loss for six automated hands against a dealer; most correct wins      | Tied leaders share; nobody correct or everyone tied refunds          | Enabled for practice |
+| Sky Crash Challenge   | Preselect an exit score from 1.01× to 20×; highest score strictly below the crash wins | Equal leading scores share; nobody survives or everyone ties refunds | Enabled for practice |
+| Crash Point Challenge | Same sealed target contest                                                             | Same crash rules                                                     | Enabled for practice |
 
 All twelve adapters are implemented. The eight expansion games now have
 game-specific selection guidance, recorded-result presentations and practice

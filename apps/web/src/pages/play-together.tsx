@@ -346,6 +346,9 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
             <li key={line}>{line}</li>
           ))}
         </ul>
+        {togetherGameGuide(game).fixtureNotes?.map((note) => (
+          <p key={note}>{note}</p>
+        ))}
         <p>{togetherGameGuide(game).tieRule}</p>
         <p>
           <ShieldCheck size={16} /> The fee is {s.settings.feeBps / 100}% of winning profit before

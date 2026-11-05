@@ -86,6 +86,8 @@ async function request(index, path, method = 'GET', body, expected = [200]) {
     body: body === undefined ? undefined : JSON.stringify(body),
     redirect: 'error',
     signal: AbortSignal.timeout(20000),
+  }).catch((error) => {
+    throw new Error(`${method} ${path}: ${error.message}`);
   });
   if (user) {
     user.cookies ??= {};
