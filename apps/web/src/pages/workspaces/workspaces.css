@@ -98,6 +98,19 @@
 .workspace-heading {
   margin-bottom: 28px;
 }
+.workspace-heading > a {
+  display: block;
+  margin-top: 10px;
+}
+.workspace-agent-table table {
+  min-width: 900px;
+}
+.workspace-agent-table :is(th, td):first-child {
+  min-width: 180px;
+}
+.workspace-agent-table :is(th, td):last-child {
+  min-width: 190px;
+}
 .workspace-heading > p {
   font-size: 11px;
   letter-spacing: 1.7px;

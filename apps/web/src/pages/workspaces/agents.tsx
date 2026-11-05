@@ -174,7 +174,7 @@ export function AdminAgents() {
         </p>
       ) : (
         <>
-          <div className="workspace-table">
+          <div className="workspace-table workspace-agent-table">
             <table>
               <thead>
                 <tr>
