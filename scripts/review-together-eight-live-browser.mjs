@@ -156,6 +156,8 @@ async function apiRequest(path, method = 'GET', body) {
     body: body === undefined ? undefined : JSON.stringify(body),
     redirect: 'error',
     signal: AbortSignal.timeout(20000),
+  }).catch((error) => {
+    throw new Error(`${method} ${path}: ${error.message}`);
   });
   user.cookies ??= {};
   for (const cookie of response.headers.getSetCookie()) {
@@ -251,7 +253,11 @@ try {
       if (url.origin !== site) return route.abort();
       const read = ['GET', 'HEAD', 'OPTIONS'].includes(request.method());
       const normalRefresh = request.method() === 'POST' && url.pathname === '/api/v1/auth/refresh';
-      if (url.pathname.startsWith('/api/') && !read && !normalRefresh) {
+      // The ordinary signed-in app records active use. This is not an entry,
+      // a manual reward claim or a wallet adjustment; allow the real UI flow.
+      const normalActivity =
+        request.method() === 'POST' && url.pathname === '/api/v1/member-rewards/activity';
+      if (url.pathname.startsWith('/api/') && !read && !normalRefresh && !normalActivity) {
         report.blockedMutations.push({ width, method: request.method(), path: url.pathname });
         return route.abort();
       }
@@ -260,7 +266,8 @@ try {
     for (const [game, heading] of games) {
       const round = snapshots[game],
         route = '/play-together/rounds/' + round.id;
-      await page.goto(site + route, { waitUntil: 'domcontentloaded' });
+      const navigationStartedAt = Date.now();
+      await page.goto(site + route, { waitUntil: 'domcontentloaded', timeout: 45000 });
       await page.getByRole('heading', { name: heading, exact: true }).waitFor();
       assert.equal(new URL(page.url()).origin, site, 'Browser left the expected site');
       assert.equal(new URL(page.url()).pathname, route, 'QA round unexpectedly redirected');
@@ -316,6 +323,7 @@ try {
         loaded: true,
         payoutMatches: true,
         overflow: false,
+        screenCheckDurationMs: Date.now() - navigationStartedAt,
       });
       console.log(`PASS ${game} ${width}px`);
     }

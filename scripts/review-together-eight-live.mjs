@@ -10,6 +10,9 @@ const site = 'https://salem.bet';
 const statePath = '/private/tmp/salem-eight-live-state.json';
 const reportPath = '/private/tmp/salem-eight-live-report.json';
 const proofModule = '/private/tmp/salem-group-live-proof.mjs';
+// The public achievement API intentionally omits definition IDs. A read-only
+// database lookup supplies this one nonsecret definition when an award exists.
+const achievementDefinitionPath = '/private/tmp/salem-eight-achievement-definition.json';
 const games = [
   {
     key: 'roulette_keno',
@@ -108,7 +111,7 @@ async function request(index, path, method = 'GET', body, expected = [200]) {
     expected.includes(response.status),
     `${method} ${path}: unexpected status ${response.status}`
   );
-  return { status: response.status, data: result.data ?? result };
+  return { status: response.status, data: result.data ?? result, meta: result.meta };
 }
 const call = async (...args) => (await request(...args)).data;
 const lobby = (index) => call(index, '/play-together/');
@@ -382,6 +385,154 @@ async function setup() {
   console.log('SETUP_COMPLETE: eight normal 120-second rounds; run verify after their deadlines.');
 }
 
+async function pointJournal(user) {
+  const rows = [];
+  let total, pages;
+  for (let page = 1; page <= (pages ?? 1); page++) {
+    const result = await request(
+      user,
+      '/wallet/transactions?currency=gamePoints&limit=100&page=' + page
+    );
+    assert(Array.isArray(result.data), 'Wallet journal must contain transaction rows');
+    assert.equal(result.meta?.page, page);
+    assert(
+      Number.isInteger(result.meta.total) && result.meta.total >= 0 && result.meta.total <= 1000,
+      'Unexpected QA journal size; investigate before continuing'
+    );
+    assert.equal(result.meta.totalPages, Math.ceil(result.meta.total / 100));
+    if (total !== undefined)
+      assert.equal(result.meta.total, total, 'Journal changed during pagination');
+    total = result.meta.total;
+    pages = result.meta.totalPages;
+    rows.push(...result.data);
+  }
+  assert.equal(rows.length, total, 'Complete wallet journal required');
+  assert.equal(new Set(rows.map((row) => row.id)).size, rows.length, 'Duplicate journal rows');
+  for (const row of rows) {
+    assert.equal(row.currency, 'GAME_POINTS');
+    assert(
+      ['GAME_POINT_CREDIT', 'GAME_POINT_DEBIT'].includes(row.type),
+      'Unexpected practice transaction type'
+    );
+    assert(Number.isSafeInteger(row.amount) && row.amount > 0);
+    assert(Number.isSafeInteger(row.balanceBefore) && row.balanceBefore >= 0);
+    assert(Number.isSafeInteger(row.balanceAfter) && row.balanceAfter >= 0);
+    assert.equal(
+      row.balanceAfter - row.balanceBefore,
+      row.type === 'GAME_POINT_CREDIT' ? row.amount : -row.amount,
+      'Journal balance change must equal its recorded amount'
+    );
+  }
+  return rows;
+}
+
+async function reconcilePracticeJournal(user, snapshots) {
+  const journal = await pointJournal(user);
+  const matched = new Set();
+  const refills = journal.filter(
+    (row) =>
+      row.referenceType === 'GAME' &&
+      /^together-practice:\d{4}-\d{2}-\d{2}$/.test(row.referenceId ?? '')
+  );
+  assert.equal(refills.length, 1, 'Exactly one QA practice refill is required');
+  const refill = refills[0];
+  assert.equal(refill.type, 'GAME_POINT_CREDIT');
+  assert.equal(refill.amount, 10000);
+  assert.equal(refill.balanceBefore, 0);
+  assert.equal(refill.balanceAfter, 10000);
+  matched.add(refill.id);
+  let gameCredits = 0;
+  for (const game of games) {
+    // Transaction IDs are intentionally visible only to their owning member.
+    const round =
+      user === 0
+        ? snapshots[game.key].round
+        : (await snapshot(user, state.rounds[game.key].id)).round;
+    const verified = snapshots[game.key].round;
+    assert.equal(round.termsHash, verified.termsHash);
+    assert.deepEqual(round.settlement, verified.settlement);
+    const entry = round.entries.find((candidate) => candidate.userId === state.users[user].id);
+    assert(entry);
+    assert.equal(entry.id, state.rounds[game.key].receipts[user].entryId);
+    assert.equal(
+      entry.payout,
+      verified.entries.find((candidate) => candidate.id === entry.id).payout
+    );
+    const hold = journal.find((row) => row.id === entry.walletTransactionId);
+    assert(hold, game.key + ': the accepted entry must have its own wallet debit');
+    assert.equal(hold.type, 'GAME_POINT_DEBIT');
+    assert.equal(hold.referenceType, 'GAME');
+    assert.equal(hold.referenceId, entry.id);
+    assert.equal(hold.amount, 100);
+    assert(!matched.has(hold.id), 'One wallet debit cannot fund multiple entries');
+    matched.add(hold.id);
+    if (entry.payout > 0) {
+      const credit = journal.find((row) => row.id === entry.payoutTransactionId);
+      assert(credit, game.key + ': a positive payout must have its own wallet credit');
+      assert.equal(credit.type, 'GAME_POINT_CREDIT');
+      assert.equal(credit.referenceType, 'GAME');
+      assert.equal(credit.referenceId, entry.id);
+      assert.equal(credit.amount, entry.payout);
+      assert(!matched.has(credit.id), 'One wallet credit cannot pay multiple entries');
+      matched.add(credit.id);
+      gameCredits++;
+    } else assert.equal(entry.payoutTransactionId, null);
+  }
+  const remaining = journal.filter((row) => !matched.has(row.id));
+  assert(remaining.length <= 1, 'Unexplained or duplicate practice-wallet transactions');
+  const achievements = await call(user, '/achievements/');
+  assert(Array.isArray(achievements));
+  const firstGroup = achievements.filter((achievement) => achievement.key === 'first_group');
+  assert.equal(
+    firstGroup.length,
+    remaining.length,
+    'A first-group award requires both its unlocked achievement and its journal credit'
+  );
+  const externalAwards = [];
+  if (remaining.length) {
+    const definition = JSON.parse(await readFile(achievementDefinitionPath, 'utf8'));
+    assert.equal(definition.key, 'first_group');
+    assert.equal(definition.gamePointReward, 20);
+    assert(/^[a-f0-9-]{36}$/i.test(definition.id));
+    const award = remaining[0];
+    assert.equal(award.type, 'GAME_POINT_CREDIT');
+    assert.equal(award.referenceType, 'ACHIEVEMENT');
+    assert.equal(award.referenceId, definition.id);
+    assert.equal(award.description, 'ACHIEVEMENT reward');
+    assert.equal(award.amount, definition.gamePointReward);
+    // The authenticated account, definition ID and unlocked key establish
+    // this award's source. The two row timestamps are recorded separately;
+    // Prisma/database defaults do not promise identical timestamps.
+    assert(Number.isFinite(Date.parse(award.createdAt)), 'Invalid award timestamp');
+    assert(Number.isFinite(Date.parse(firstGroup[0].unlockedAt)), 'Invalid achievement timestamp');
+    assert(Date.parse(award.createdAt) >= Date.parse(refill.createdAt));
+    externalAwards.push({
+      userId: state.users[user].id,
+      transactionId: award.id,
+      achievementId: definition.id,
+      key: definition.key,
+      amount: award.amount,
+      createdAt: award.createdAt,
+      unlockedAt: firstGroup[0].unlockedAt,
+      evidence: 'Authenticated wallet journal and achievement unlock; read-only definition lookup',
+    });
+    matched.add(award.id);
+  }
+  assert.equal(matched.size, journal.length, 'Every journal row must have a verified source');
+  return {
+    userId: state.users[user].id,
+    refillTransactionId: refill.id,
+    gameDebits: games.length,
+    gameCredits,
+    transactionIds: journal.map((row) => row.id),
+    externalAwards,
+    journalBalance: journal.reduce(
+      (balance, row) => balance + (row.type === 'GAME_POINT_CREDIT' ? row.amount : -row.amount),
+      0
+    ),
+  };
+}
+
 async function verify() {
   assert(state.setupComplete, 'Finish setup before verification');
   for (let index = 0; index < 2; index++) await ensureSession(index, false);
@@ -448,8 +599,14 @@ async function verify() {
       game.key + ': signed result, payout or refund, fixed receipts and closed-round replay'
     );
   }
-  const finalBalances = [];
+  const finalBalances = [],
+    journalReconciliation = [],
+    externalAwards = [];
   for (let user = 0; user < 2; user++) {
+    const reconciled = await reconcilePracticeJournal(user, snapshots);
+    journalReconciliation.push(reconciled);
+    externalAwards.push(...reconciled.externalAwards);
+    expectedPoints[user] += reconciled.externalAwards.reduce((sum, award) => sum + award.amount, 0);
     const current = await lobby(user);
     assert.equal(current.cashAvailable, false);
     assert.equal(current.settings.cashEnabled, false);
@@ -457,13 +614,17 @@ async function verify() {
     assert.equal(current.balances.cashReserved, 0);
     assert.equal(current.balances.pointsReserved, 0);
     assert.equal(current.balances.pointsAvailable, expectedPoints[user]);
+    assert.equal(current.balances.pointsAvailable, reconciled.journalBalance);
     finalBalances.push(current.balances);
   }
+  const totalExternalAwards = externalAwards.reduce((sum, award) => sum + award.amount, 0);
   assert.equal(
     finalBalances.reduce((sum, balance) => sum + balance.pointsAvailable, 0) + totalFees,
-    20000
+    20000 + totalExternalAwards
   );
-  await check('All eight pools reconcile exactly; all holds released and real cash untouched');
+  await check(
+    'All eight pools and separately witnessed achievement grants reconcile exactly; all holds released and real cash untouched'
+  );
   state.completedAt ??= new Date().toISOString();
   await save();
   await writeFile(
@@ -476,6 +637,9 @@ async function verify() {
         checks: state.checks,
         initialPoints: 20000,
         totalFees,
+        totalExternalAwards,
+        externalAwards,
+        journalReconciliation,
         finalBalances,
         groups: state.groups.map((group) => group.id),
         rounds: Object.fromEntries(games.map((game) => [game.key, snapshots[game.key].round])),
