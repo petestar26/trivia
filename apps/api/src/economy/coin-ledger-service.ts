@@ -28,12 +28,67 @@ export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> 
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
 export type OperationName =
+  | 'SPORTS_DEBIT' | 'SPORTS_CREDIT'
   | 'SCHEDULED_STAKE_HOLD' | 'SCHEDULED_STAKE_REFUND' | 'SCHEDULED_STAKE_SETTLE'
   | 'PURCHASE' | 'BONUS_GRANT' | 'WAGER' | 'PAYOUT' | 'GIFT_SPEND'
   | 'COMPETITION_ESCROW' | 'COMPETITION_RELEASE' | 'COMPETITION_PAYOUT'
   | 'WITHDRAWAL_HOLD' | 'WITHDRAWAL_RELEASE' | 'WITHDRAWAL_FINALIZE'
   | 'BONUS_CONVERSION' | 'BONUS_EXPIRY' | 'LEGACY_OPENING' | 'LEGACY_RESOLVE'
   | 'ADMIN_ADJUST' | 'ADMIN_QUALIFY' | 'COMPENSATION';
+
+/** A provider receipt, checked by deferred database constraints, is required
+ * before this transaction can commit. Only cash lots fund this sportsbook;
+ * restricted rewards and practice balances never cross this boundary. */
+export async function applySportsCashMovement(tx: EconomicTx, userId: string, args: {
+  callId: string; action: 'debit' | 'credit'; amount: number; requestHash: string;
+  policy: PolicyPin; roundId: string; gameId: string;
+}) {
+  safePositive(args.amount, 'Sports amount');
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const cash = usableSpendLots(lots, new Date()).filter(l => l.lotClass === 'WITHDRAWABLE');
+  let funding: FundingShare[] = [];
+  if (args.action === 'debit') {
+    try { funding = allocateFunding(cash, args.amount); }
+    catch (error) { if (error instanceof RangeError) throw ApiError.badRequest('Insufficient real wallet balance'); throw error; }
+  }
+  const balance = await applyBalanceChanges(tx, userId, [{
+    currency: 'COINS', amount: args.amount, ledgerType: args.action === 'debit' ? 'DEBIT' : 'CREDIT',
+    transactionType: args.action === 'debit' ? 'COIN_DEBIT' : 'COIN_CREDIT',
+    referenceType: 'GAME', referenceId: args.callId,
+    description: args.action === 'debit' ? 'Sportsbook stake / adjustment' : 'Sportsbook payout / refund',
+  }], { coinLedgerIntent: COIN_LEDGER_INTENT });
+  const walletTransactionId = balance.transactions[0].id;
+  const operation = await createOperation(tx, {
+    type: args.action === 'debit' ? 'SPORTS_DEBIT' : 'SPORTS_CREDIT', userId,
+    scopeType: 'SOFTAGGREGATOR_SPORTS', scopeId: args.callId, requestHash: args.requestHash,
+    walletTransactionIds: [walletTransactionId], policy: args.policy,
+    snapshot: { provider: 'softaggregator', roundId: args.roundId, gameId: args.gameId },
+  });
+  if (args.action === 'debit') {
+    for (const [sequence, share] of funding.entries()) await entry(tx, {
+      operationId: operation.id, userId, lotId: share.lotId, sequence,
+      entryType: 'CONSUME', availableDelta: -share.amount,
+    });
+  } else {
+    const lot = await tx.coinProvenance.create({ data: {
+      userId, walletTransactionId, amount: args.amount, provenanceType: 'GAME_WIN',
+      restrictionStatus: 'UNRESTRICTED', originalSource: 'GAME_WIN',
+      originalGrantReferenceType: 'SOFTAGGREGATOR_SPORTS', originalGrantReferenceId: args.callId,
+      countryPolicyId: args.policy.id, countryPolicyVersion: args.policy.version,
+      lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 0, reservedAmount: 0,
+      requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+      sourceOperationId: operation.id,
+    } });
+    await entry(tx, { operationId: operation.id, userId, lotId: lot.id, sequence: 0,
+      entryType: 'MINT', availableDelta: args.amount });
+  }
+  await flushCoinLedgerConstraints(tx);
+  return { operationId: operation.id, walletTransactionId,
+    balanceMinor: cash.reduce((n,l) => n + l.availableAmount,0) + (args.action === 'debit' ? -args.amount : args.amount) };
+}
 
 type LockedLot = {
   id: string; userId: string; lotClass: LotClass; state: string; amount: number; rootLotId: string | null;

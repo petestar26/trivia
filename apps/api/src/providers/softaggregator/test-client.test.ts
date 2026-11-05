@@ -9,6 +9,15 @@ const env = {
   SOFTAGGREGATOR_SALT_KEY: 'fixture-salt-123456',
   SOFTAGGREGATOR_TEST_LAUNCH_HOSTS: 'games.example.com',
 };
+it('excludes all sportsbooks from the practice catalogue and rejects direct launch attempts', async () => {
+  const transport = vi.fn(async () => new Response(JSON.stringify({ error: 0, response: [
+    { id_hash: 'x88c09ae664d9af4', name: 'Nocturn Sport', game_type: 'sportsbook' },
+    { id_hash: 'another/sports', name: 'Another sport', game_type: 'sportsbook' },
+  ] })));
+  const pilot = createProviderTest({} as any, env, transport as any);
+  expect(await pilot.games('tester')).toEqual([]);
+  await expect(pilot.launch('tester','x88c09ae664d9af4','ET')).rejects.toThrow('not in the provider catalogue');
+});
 function fixture(overrides = {}) {
   const transaction = vi.fn(async (f: any) =>
     f({

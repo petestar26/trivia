@@ -7,5 +7,12 @@ export default defineConfig({
     pool: 'forks',
     minWorkers: 1,
     maxWorkers: 1,
+    env: {
+      NODE_ENV: 'test',
+      LOG_PRETTY: 'false',
+      DATABASE_URL: 'postgresql://unused:unused@127.0.0.1:1/unused',
+      JWT_ACCESS_SECRET: 'isolated-provider-access-secret-only-32',
+      JWT_REFRESH_SECRET: 'isolated-provider-refresh-secret-only-32',
+    },
   },
 });

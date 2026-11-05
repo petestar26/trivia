@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { providerCredentials } from './credentials.js';
 import { ProviderDemoError } from './demo.js';
 import { callbackSalt, createTestWallet, testAccess, testAccessMode } from './test-wallet.js';
+import { isSportsGame } from './sports-config.js';
 
 type Env = Record<string, string | undefined>;
 export interface TestGame {
@@ -141,7 +142,7 @@ export function createProviderTest(
         const found = new Map<string, TestGame>();
         for (const row of rows) {
           const p = gameSchema.safeParse(row);
-          if (p.success && !found.has(p.data.id_hash)) {
+          if (p.success && p.data.game_type !== 'sportsbook' && !isSportsGame(p.data.id_hash, env) && !found.has(p.data.id_hash)) {
             // Portrait assets preserve the game title in the lobby's tall cards.
             // Keep one independent provider asset to recover from a failed thumbnail.
             const artwork = [
