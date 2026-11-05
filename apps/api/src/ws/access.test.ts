@@ -3,11 +3,11 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import jwt from '@fastify/jwt';
 import { config } from '@socialplay/config';
-const m = vi.hoisted(() => ({ users: new Map<string, string>(), members: new Set<string>() }));
+const m = vi.hoisted(() => ({ users: new Map<string, string>(), members: new Set<string>(), versions: new Map<string, number>() }));
 vi.mock('@socialplay/database', () => ({ prisma: {
   user: {
-    findUnique: async ({ where }: any) => ({ status: m.users.get(where.id) }),
-    findMany: async ({ where }: any) => where.id.in.filter((id: string) => m.users.get(id) === 'ACTIVE').map((id: string) => ({ id })),
+    findUnique: async ({ where }: any) => ({ status: m.users.get(where.id), tokenVersion: m.versions.get(where.id) ?? 0 }),
+    findMany: async ({ where }: any) => where.id.in.filter((id: string) => m.users.get(id) === 'ACTIVE').map((id: string) => ({ id, tokenVersion: m.versions.get(id) ?? 0 })),
   },
   groupMember: { findMany: async ({ where }: any) => where.userId.in.filter((id: string) => m.members.has(id)).map((userId: string) => ({ userId })) },
 } }));
@@ -28,7 +28,7 @@ beforeAll(async () => {
   registerWebSocket(server);
   address = await server.listen({ port: 0, host: '127.0.0.1' });
 });
-beforeEach(() => { m.users.clear(); m.members.clear(); });
+beforeEach(() => { m.users.clear(); m.members.clear(); m.versions.clear(); });
 afterAll(async () => {
   for (const client of clients) client.disconnect();
   await new Promise<void>(resolve => getSocketServer()!.close(() => resolve()));
@@ -65,6 +65,15 @@ it('rejects expired tokens and disconnects a token when it expires', async () =>
   const short = client('expiry', Math.floor(Date.now()/1000)+2);
   const ready = once(short, 'connect'); short.connect(); await ready;
   expect(await once(short, 'disconnect')).toBe('io server disconnect');
+});
+it('revokes active subscriptions and rejects an old token after password recovery', async () => {
+  const socket = await connect('recovered');
+  m.versions.set('recovered', 1);
+  const disconnected = once(socket, 'disconnect');
+  await emitToUser('recovered', 'private:event', {});
+  expect(await disconnected).toBe('io server disconnect');
+  const stale = client('recovered'); const error = once(stale, 'connect_error'); stale.connect();
+  expect((await error).message).toBe('UNAUTHORIZED');
 });
 it('delivers typing with a raw group ID, then evicts a removed recipient before private delivery', async () => {
   const sender = await connect('sender'), recipient = await connect('recipient');

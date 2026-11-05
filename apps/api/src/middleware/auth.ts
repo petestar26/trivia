@@ -41,13 +41,15 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   // Keep DB failures outside the token catch: an outage is not a bad credential.
   const actor = await prisma.user.findUnique({
     where: { id: request.user!.sub },
-    select: { status: true },
+    select: { status: true, tokenVersion: true },
   });
   if (
     !actor ||
     (actor.status !== 'ACTIVE' && request.routeOptions?.config.allowOwnFundsReturn !== true)
   )
     throw ApiError.forbidden('An active account is required');
+  if ((request.user!.tokenVersion ?? 0) !== (actor.tokenVersion ?? 0))
+    throw ApiError.unauthorized('Sign in again', { code: ErrorCode.TOKEN_INVALID });
 }
 
 export function optionalAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -64,9 +66,9 @@ export function optionalAuth(request: FastifyRequest, reply: FastifyReply): Prom
     .then(async (decoded) => {
       const actor = await prisma.user.findUnique({
         where: { id: decoded.sub },
-        select: { status: true },
+        select: { status: true, tokenVersion: true },
       });
-      if (actor?.status === 'ACTIVE') request.user = decoded;
+      if (actor?.status === 'ACTIVE' && (decoded.tokenVersion ?? 0) === (actor.tokenVersion ?? 0)) request.user = decoded;
       else delete (request as Partial<FastifyRequest>).user;
     })
     .catch(() => {

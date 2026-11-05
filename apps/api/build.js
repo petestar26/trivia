@@ -52,6 +52,7 @@ async function buildApi() {
       join(__dirname, 'src/scripts/staging-football-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-number-upgrade.ts'),
       join(__dirname, 'src/scripts/staging-payment-admin.ts'),
+      join(__dirname, 'src/scripts/owner-password-reset.ts'),
       join(__dirname, 'src/scripts/staging-recovery-fixture.ts'),
       // Explicit owner-run dormant proof import and bounded recovery.
       join(__dirname, 'src/scripts/house-round-recovery.ts'),

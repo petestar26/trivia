@@ -43,6 +43,7 @@ export interface JwtPayload {
   email?: string;
   username: string;
   roles: string[];
+  tokenVersion?: number;
   iat: number;
   exp: number;
   iss: string;

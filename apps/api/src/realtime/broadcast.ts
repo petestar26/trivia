@@ -29,9 +29,10 @@ async function deliver(
   ];
   const users = await prisma.user.findMany({
     where: { id: { in: ids }, status: 'ACTIVE' },
-    select: { id: true },
+    select: { id: true, tokenVersion: true },
   });
   const active = new Set(users.map((u) => u.id));
+  const versions = new Map(users.map((u) => [u.id, u.tokenVersion ?? 0]));
   const members = groupId
     ? await prisma.groupMember.findMany({
         where: { groupId, userId: { in: ids }, status: 'ACTIVE' },
@@ -43,6 +44,7 @@ async function deliver(
     const id = socket.data.user?.id;
     if (
       !active.has(id) ||
+      (socket.data.tokenVersion ?? 0) !== versions.get(id) ||
       !Number.isFinite(socket.data.expiresAt) ||
       socket.data.expiresAt <= Date.now()
     ) {
