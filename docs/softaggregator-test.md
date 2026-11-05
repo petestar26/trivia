@@ -59,7 +59,7 @@ provider. They cover cents, duplicate/conflicting retries, insufficient funds, b
 rollback semantics, access revocation, immutable receipts and untouched cash fixtures.
 PGlite serializes transactions; these checks are not native PostgreSQL load testing.
 Route and gateway checks cover signatures, source attestation, HTTP 200 failures and
-query redaction. UI checks cover the virtual wallet, location selection and restricted iframe.
+query redaction. UI checks cover the virtual wallet, Ethiopia launch market and restricted iframe.
 
 provider-test-probe.js --check reports configuration booleans only. --launch provisions
 one allowlisted active tester and makes one createPlayer/getGame sequence. It does not
@@ -70,8 +70,13 @@ healthy; keep ordinary readiness commands intact and restore them after the prob
 The member Casino lobby now serves Ethiopia: the server sends country ET on every
 member launch, independently of legacy client input. Provider country restrictions
 remain enforced upstream. The operator CLI retains its explicit actual-location setting.
-The catalogue exposes validated HTTPS artwork; missing or broken artwork has a local
-category fallback. Select a game tile to launch; search, category filters and Show more
+The catalogue exposes validated HTTPS artwork, preferring image_portrait over image,
+then image_square when neither is available. One distinct validated alternate image
+is retained for a failed thumbnail before showing the local category fallback.
+Portrait cards animate the supplied still artwork with a gentle pan/zoom; these are
+not gameplay videos. Motion pauses off-screen, in hidden tabs, or via Pause previews.
+Reduced-motion and data-saving preferences start previews still. No game sessions
+are created by preview motion. Select a game tile to launch; search, category filters and Show more
 make the full account catalogue browsable without opening games in the background.
 
 Hosted acceptance still requires an Ethiopia-based tester to open a game at /casino,
