@@ -6,6 +6,7 @@ import { applyBalanceChanges, getOrCreateWallet } from './wallet-service.js';
 import type { BalanceChange } from './wallet-service.js';
 import { debitCoins, lockEconomicWallet, lockUserEconomicScope } from './coin-ledger-service.js';
 import { requireActiveGiftPolicy } from './jurisdiction-service.js';
+import { lockRewardConfig, recordPaidGiftRewards } from '../member-rewards/service.js';
 
 export interface GiftCatalogItem {
   id: string;
@@ -109,6 +110,9 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
   }
   const giftTransactionId = randomUUID();
   return prisma.$transaction(async (tx) => {
+    const rewardConfig = await lockRewardConfig(tx);
+    // Serializes the per-sender daily cap and first qualifying referral purchase.
+    await lockUserEconomicScope(tx, `member-gift:${senderId}`);
     await lockUserEconomicScope(tx, `gift:${senderId}:${idempotencyKey}`);
     const previous = await tx.idempotencyRecord.findUnique({
       where: { userId_key: { userId: senderId, key: idempotencyKey } },
@@ -258,6 +262,7 @@ export async function sendGift(args: SendGiftArgs): Promise<GiftTransactionResul
       body: `You received ${quantity}x ${gift.name}`,
       data: { giftId, giftName: gift.name, senderId, quantity, totalGamePoints },
     } });
+    await recordPaidGiftRewards(tx, rewardConfig, giftTransaction.id);
     await tx.idempotencyRecord.create({ data: {
       userId: senderId, key: idempotencyKey, operation: 'gift_send',
       status: 'SUCCEEDED', responseKey: giftTransaction.id,

@@ -22,7 +22,7 @@ async function balances(userId:string){
 it('free Coins cannot buy gifts; only the profit from a win becomes spendable',async()=>{
   const f=await fixture();
   const gift=()=>db.$transaction(tx=>debitCoins(tx,f.userId,10,{type:'GIFT_SPEND',scopeType:'GIFT',scopeId:randomUUID(),referenceType:'GIFT',description:'Disposable gift'}));
-  await expect(gift()).rejects.toThrow('Free reward Coins');expect(await balances(f.userId)).toEqual({restricted:100,spendable:0,wallet:100});
+  await expect(gift()).rejects.toThrow('Bonus balance is for eligible bets only');expect(await balances(f.userId)).toEqual({restricted:100,spendable:0,wallet:100});
   await play(f,20,36);expect(await balances(f.userId)).toEqual({restricted:100,spendable:16,wallet:116});
   await gift();expect(await balances(f.userId)).toEqual({restricted:100,spendable:6,wallet:106});
   const source=await db.coinProvenance.findFirstOrThrow({where:{userId:f.userId,bonusRule:'NET_WINNINGS_V1'}});expect(source.progressAmount).toBe(0);expect(source.state).toBe('OPEN');

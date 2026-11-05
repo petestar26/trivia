@@ -2,6 +2,7 @@ import { recordActivity as recordStreak, getStreak } from '../tasks/streak-servi
 import { recordTaskEvent } from '../tasks/task-service.js';
 import { unlockAchievement } from './achievement-service.js';
 import { getProgress } from '../progress/progress-service.js';
+import { checkIn, readConfig } from '../member-rewards/service.js';
 
 export type ActivityEventType =
   | 'LOGIN'
@@ -45,6 +46,14 @@ export async function recordActivity(
   userId: string,
   event: ActivityEvent
 ): Promise<void> {
+  if (event.type === 'LOGIN') {
+    try {
+      if ((await readConfig()).daily_enabled) await checkIn(userId);
+    } catch {
+      // Login must remain available. The explicit daily check-in can recover
+      // a missed event; the same server-day key prevents duplicate rewards.
+    }
+  }
   // Streak (duplicate same-day activity is naturally ignored).
   const streakResult = await recordStreak(userId);
 
