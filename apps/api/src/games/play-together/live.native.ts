@@ -131,6 +131,13 @@ it('expired leases recover and a broken job cannot block healthy round refunds',
   const fixtures = await Promise.all(Array.from({ length: 5 }, () => fixture('spin_win', 1800)));
   await waitUntil(Math.max(...fixtures.map((f) => f.terms.closesAt)));
   const [broken, leased, ...healthy] = fixtures;
+  // The preceding legacy suite deliberately retains some active obligations.
+  // Give this test's four eligible jobs the next batch without changing or
+  // deleting those unrelated fixtures. The worker's production limit stays four.
+  await prisma.$executeRawUnsafe(
+    "UPDATE play_together_jobs SET next_attempt_at='2000-01-01'::timestamptz WHERE round_id=ANY($1::text[])",
+    fixtures.map((f) => f.id)
+  );
   await prisma.$executeRawUnsafe(
     "UPDATE play_together_jobs SET lease_token='abandoned-worker',lease_until=clock_timestamp()+interval '60 seconds' WHERE round_id=$1",
     leased.id
