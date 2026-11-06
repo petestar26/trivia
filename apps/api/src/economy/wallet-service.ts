@@ -303,8 +303,10 @@ export async function applyBalanceChanges(
       version: wallet.version,
     },
     data: {
-      coinsBalance: newCoins,
-      gamePointsBalance: newGamePoints,
+      ...(changes.some((change) => change.currency === 'COINS') ? { coinsBalance: newCoins } : {}),
+      ...(changes.some((change) => change.currency === 'GAME_POINTS')
+        ? { gamePointsBalance: newGamePoints }
+        : {}),
       version: { increment: 1 },
     },
   });

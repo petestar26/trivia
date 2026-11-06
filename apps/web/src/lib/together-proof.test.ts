@@ -86,6 +86,37 @@ it('verifies a genuine signed beacon, locked roster, result and full payout offl
   );
   expect(fetch).not.toHaveBeenCalled();
 });
+it('verifies the official v2 outcome without claiming its pending payment was verified', async () => {
+  const round = verifiedRound();
+  round.termsVersion = 2;
+  round.presentationVersion = 2;
+  round.presentationDurationMs = 20000;
+  round.termsHash = togetherTermsHash(round);
+  round.state = 'DRAWN';
+  round.paidAt = null;
+  round.settlement = null;
+  round.entries.forEach((entry) => {
+    entry.state = 'ACCEPTED';
+    entry.payout = null;
+    entry.payoutTransactionId = null;
+  });
+  const tickets = round.entries.map((entry) => ({ ...entry, selection: entry.selection! }));
+  round.outcome = deriveTogetherOutcome(round, tickets, round.proof!);
+  round.ranking = rankTogether(round.game, tickets, round.outcome);
+  round.presentation = {
+    version: 2,
+    startsAt: 0,
+    finishesAt: 20000,
+    observedAt: 20001,
+    events: [],
+    resultAvailable: true,
+  };
+  await expect(verifyTogetherRound(round, round.termsHash)).resolves.toBe(
+    'Outcome verified. Payment is still being confirmed.'
+  );
+  round.presentation.resultAvailable = false;
+  await expect(verifyTogetherRound(round, round.termsHash)).rejects.toThrow('not available yet');
+});
 it.each([
   'terms',
   'seed',

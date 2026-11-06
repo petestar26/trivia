@@ -52,6 +52,26 @@ function fixture(game: TogetherGame, picks?: number[][]) {
   return { terms, tickets, proof };
 }
 describe('published group rules', () => {
+  it('preserves the historical v1 hash and binds new presentation terms into a distinct commitment', () => {
+    const old = fixture('spin_win').terms;
+    // Captured from the deployed 9ab247b source before introducing v2.
+    expect(togetherTermsHash(old)).toBe(
+      '9dc76de040e4e3b9bf610ed34586961413d8178c2d4d36fb22f26e1f7578ac98'
+    );
+    const live: TogetherTerms = {
+      ...old,
+      termsVersion: 2,
+      presentationVersion: 2,
+      presentationDurationMs: 20000,
+    };
+    expect(togetherTermsHash(live)).not.toBe(togetherTermsHash(old));
+    expect(togetherTermsHash({ ...live, presentationDurationMs: 21000 })).not.toBe(
+      togetherTermsHash(live)
+    );
+    expect(togetherTermsHash({ ...live, closesAt: live.closesAt + 1000 })).not.toBe(
+      togetherTermsHash(live)
+    );
+  });
   it.each(TOGETHER_GAMES)(
     '$name has deterministic, replayable outcomes and conserves the pool',
     (game) => {

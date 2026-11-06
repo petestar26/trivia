@@ -94,6 +94,101 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each(TOGETHER_GAMES)(
+  'keeps the $name ending private in reduced motion and a disconnected clock',
+  (game) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    );
+    const round = fixture(game.key);
+    round.state = 'DRAWN';
+    round.outcome = null;
+    round.proof = null;
+    round.settlement = null;
+    round.ranking = [];
+    round.paidAt = null;
+    round.entries = round.entries.map((e) => ({
+      ...e,
+      state: 'ACCEPTED',
+      payout: null,
+      payoutTransactionId: null,
+    }));
+    round.presentation = {
+      version: 2,
+      startsAt: 10000,
+      finishesAt: 50000,
+      observedAt: 20000,
+      resultAvailable: false,
+      events: [],
+    };
+    const { container } = render(
+      <TogetherGameResult round={round} userId="spectator" serverNow={null} />
+    );
+    expect(screen.getByText('Watching')).toBeVisible();
+    expect(container.querySelector('[data-result-available]')).toHaveAttribute(
+      'data-result-available',
+      'false'
+    );
+    expect(container.querySelector('[data-reveal-progress]')).toHaveAttribute(
+      'data-reveal-progress',
+      '0.25'
+    );
+    expect(screen.queryByRole('button', { name: 'Replay for me' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show final result' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Recorded result')).not.toBeInTheDocument();
+  }
+);
+
+it('filters future checkpoints even when a response is inconsistent and a client clock is ahead', () => {
+  const round = fixture('turbo_keno');
+  round.state = 'DRAWN';
+  round.outcome = null;
+  round.settlement = null;
+  round.presentation = {
+    version: 2,
+    startsAt: 10000,
+    finishesAt: 50000,
+    observedAt: 20000,
+    resultAvailable: false,
+    events: [
+      { kind: 'ball', atMs: 5000, value: 12 },
+      { kind: 'ball', atMs: 39000, value: 79 },
+    ],
+  };
+  render(<TogetherGameResult round={round} userId="spectator" serverNow={50000} />);
+  const balls = screen.getByRole('list', { name: 'Drawn balls' });
+  expect(within(balls).getByText('12')).toBeVisible();
+  expect(within(balls).queryByText('79')).not.toBeInTheDocument();
+});
+
+it('allows a personal full-duration replay after the official result without implying a payment', () => {
+  const round = fixture('spin_win');
+  round.state = 'DRAWN';
+  round.outcome = { numbers: [0] };
+  round.settlement = null;
+  round.paidAt = null;
+  round.presentation = {
+    version: 2,
+    startsAt: 10000,
+    finishesAt: 30000,
+    observedAt: 30000,
+    resultAvailable: true,
+    events: [],
+  };
+  const { container } = render(
+    <TogetherGameResult round={round} userId="spectator" serverNow={30000} />
+  );
+  expect(screen.getByText('Game finished—confirming payout')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Replay for me' }));
+  expect(container.querySelector('[data-reveal-mode]')).toHaveAttribute(
+    'data-reveal-mode',
+    'personal'
+  );
+  expect(round.state).toBe('DRAWN');
+  expect(round.paidAt).toBeNull();
+});
+
 it.each(['OPEN', 'LOCKED'] as const)(
   'does not expose a result in %s even if an inconsistent response contains one',
   (state) => {

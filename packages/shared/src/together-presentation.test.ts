@@ -10,6 +10,27 @@ const round: Pick<TogetherRoundView, 'state' | 'paidAt' | 'outcome'> = {
 };
 
 describe('shared group reveal clock', () => {
+  it('follows a v2 saved schedule while money remains reserved and never skips to the end without a clock', () => {
+    const live = {
+      ...round,
+      state: 'DRAWN' as const,
+      paidAt: null,
+      outcome: null,
+      presentation: {
+        version: 2 as const,
+        startsAt: paidAt,
+        finishesAt: paidAt + 20000,
+        observedAt: paidAt + 5000,
+        events: [],
+        resultAvailable: false,
+      },
+    };
+    expect(togetherRevealTimeline(live, paidAt - 1).phase).toBe('scheduled');
+    expect(togetherRevealTimeline(live, paidAt + 10000).progress).toBe(0.5);
+    expect(togetherRevealTimeline(live, null).progress).toBe(0.25);
+    expect(togetherRevealTimeline(live, paidAt + 20000).phase).toBe('complete');
+    expect(live.outcome).toBeNull();
+  });
   it.each(['OPEN', 'LOCKED', 'DRAWN'] as const)('does not start a reveal while %s', (state) => {
     expect(togetherRevealTimeline({ ...round, state, paidAt: null }, paidAt + 20000)).toEqual({
       phase: 'awaiting',

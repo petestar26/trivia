@@ -1,0 +1,369 @@
+.tg-live {
+  --tg-bg: #081b16;
+  --tg-soft: #234a39;
+  --tg-panel: #102b21;
+  --tg-ink: #f2ead6;
+  --tg-accent: #e2c383;
+  --tg-line: #72633f;
+  position: relative;
+  overflow: hidden;
+  padding: clamp(14px, 3vw, 28px);
+  margin: 18px 0;
+  border: 1px solid #92815a88;
+  border-radius: 24px;
+  color: #f4eddc;
+  background:
+    radial-gradient(ellipse at 20% 0%, #214d3b66, transparent 60%),
+    linear-gradient(135deg, #10291fe8, #060e0c);
+  box-shadow:
+    inset 0 1px #f6e9bd33,
+    0 16px 50px #0005;
+  font-size: 14px;
+}
+.tg-live-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tg-live-header p {
+  color: #b9c7bb;
+  margin: 0 0 5px;
+}
+.tg-live h2 {
+  font-size: clamp(22px, 4vw, 32px);
+  margin: 0;
+}
+.tg-live-badge {
+  padding: 7px 12px;
+  border: 1px solid #b6a06a77;
+  border-radius: 30px;
+  color: #f3d89c;
+}
+.tg-live-progress {
+  height: 5px;
+  margin-top: 18px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff12;
+}
+.tg-live-progress > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #3d9c76, #ead29a);
+}
+.tg-live-clock {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #c4c8bd;
+  font-size: 12px;
+}
+.tg-live-countdown {
+  min-height: 240px;
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+.tg-live-countdown strong {
+  font-size: 90px;
+  color: #f2d8a3;
+  text-shadow:
+    0 6px 0 #5d472d,
+    0 16px 35px #000;
+}
+.tg-live-countdown p {
+  max-width: 400px;
+}
+.tg-live-race-canvas {
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.tg-live-football-scene {
+  --vf-panel: #102b21;
+  --vf-muted: #bbc5b9;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 230px;
+  max-height: 430px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #071e18;
+}
+.tg-live-lanes {
+  list-style: none;
+  padding: 16px 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.tg-live-lanes li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tg-live-lanes b {
+  min-width: 20px;
+}
+.tg-live-lanes li > span {
+  height: 14px;
+  flex: 1;
+  background: #ffffff12;
+  border-radius: 20px;
+  overflow: hidden;
+}
+.tg-live-lanes i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #387656, #ead29a);
+  border-radius: 20px;
+  transition: width 0.3s linear;
+}
+.tg-live-lanes small {
+  min-width: 40px;
+}
+.tg-live-scores {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.tg-live button {
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.tg-live-scores button {
+  display: grid;
+  gap: 6px;
+  padding: 12px 6px;
+  border: 1px solid #ccb47855;
+  border-radius: 12px;
+  background: #ffffff08;
+}
+.tg-live-scores button[aria-pressed='true'] {
+  background: #79643555;
+  border-color: #e7cd93;
+}
+.tg-live-scores strong {
+  font-size: clamp(22px, 4vw, 36px);
+}
+.tg-live-pitch {
+  position: relative;
+  min-height: 220px;
+  border: 2px solid #ffffff55;
+  border-radius: 12px;
+  background: repeating-linear-gradient(90deg, #266442 0 10%, #1e5338 10% 20%);
+}
+.tg-live-pitch:before {
+  content: '';
+  position: absolute;
+  width: 70px;
+  height: 70px;
+  border: 2px solid #ffffff66;
+  border-radius: 50%;
+  top: calc(50% - 35px);
+  left: calc(50% - 35px);
+}
+.tg-live-pitch > span {
+  position: absolute;
+  font-size: 30px;
+}
+.tg-live-draw {
+  text-align: center;
+}
+.tg-live-ball {
+  display: grid;
+  place-content: center;
+  width: 120px;
+  height: 120px;
+  margin: 20px auto;
+  border-radius: 50%;
+  color: #10251c;
+  font-size: 48px;
+  font-weight: 800;
+  background: radial-gradient(circle at 32% 22%, #fff9dc, #dfc48b 55%, #807043);
+  box-shadow:
+    inset -9px -12px 20px #0005,
+    0 12px 35px #0009;
+}
+.tg-live-draw ol {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 0;
+  justify-content: center;
+}
+.tg-live-draw li {
+  display: grid;
+  place-content: center;
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background: #edd9a1;
+  color: #142e23;
+  font-weight: 700;
+  box-shadow: inset -3px -3px 4px #8d713d;
+}
+.tg-live-wheel {
+  text-align: center;
+}
+.tg-live-wheel svg {
+  display: block;
+  width: min(310px, 90%);
+  margin: auto;
+  filter: drop-shadow(0 12px 15px #0008);
+}
+.tg-live-dice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.tg-live-dice article,
+.tg-live-hands article {
+  text-align: center;
+  padding: 14px;
+  border: 1px solid #d2bd8533;
+  border-radius: 14px;
+  background: #0003;
+}
+.tg-live-dice article > div {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+.tg-live-dice span {
+  font-size: 60px;
+  line-height: 1.4;
+  display: block;
+  color: #f7e9c7;
+  text-shadow: 0 5px 0 #786949;
+}
+.tg-live-tumbling {
+  animation: tg-tumble 1.6s linear infinite;
+}
+@keyframes tg-tumble {
+  50% {
+    transform: rotateX(180deg) rotateY(180deg);
+  }
+  100% {
+    transform: rotateX(360deg) rotateY(360deg);
+  }
+}
+.tg-live-hands {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.tg-live-hands article > div {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+.tg-live-hands article span {
+  background: #f5edda;
+  color: #18211b;
+  min-width: 35px;
+  padding: 6px;
+  border-radius: 5px;
+  box-shadow: 2px 4px 0 #0005;
+}
+.tg-live-hands small {
+  display: block;
+  font-size: 20px;
+}
+.tg-live-hands .red {
+  color: #a52a35;
+}
+.tg-live-hands .tg-live-card-back {
+  color: #d7bf80;
+  background: repeating-linear-gradient(45deg, #143a2b 0 3px, #25523a 3px 6px);
+  min-height: 58px;
+}
+.tg-live-number {
+  text-align: center;
+  perspective: 500px;
+  padding: 30px;
+}
+.tg-live-number div {
+  display: inline-block;
+  font-size: 92px;
+  font-weight: 900;
+  color: #f1d392;
+  text-shadow: 0 6px #77603a;
+}
+.tg-live-number p {
+  font-size: 24px;
+}
+.tg-live-flight {
+  text-align: center;
+  padding: 10px;
+}
+.tg-live-flight svg {
+  width: 100%;
+  max-height: 320px;
+  fill: #eee3c0;
+  background: radial-gradient(ellipse at 50% 100%, #22513f66, transparent);
+}
+.tg-live-flight strong {
+  font-size: 24px;
+}
+.tg-live-flight p {
+  color: #bbc5b9;
+}
+.tg-live-toggle,
+.tg-live-controls button {
+  padding: 9px 15px;
+  border: 1px solid #b39b6266;
+  border-radius: 20px;
+  background: #ffffff08;
+  margin-top: 14px;
+}
+.tg-live-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tg-live-controls small {
+  color: #bbc5b9;
+  flex: 1;
+  min-width: 160px;
+}
+.tg-live-pending {
+  padding: 14px;
+  background: #80652b44;
+  border: 1px solid #d7ba6977;
+  border-radius: 12px;
+}
+.tg-live .tg-result {
+  margin: 18px 0 0;
+}
+.tg-live details {
+  margin-top: 10px;
+  color: #c5cabc;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-live * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 480px) {
+  .tg-live {
+    border-radius: 16px;
+  }
+  .tg-live-scores {
+    gap: 5px;
+  }
+  .tg-live-hands {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .tg-live-hands article {
+    padding: 9px 3px;
+  }
+}

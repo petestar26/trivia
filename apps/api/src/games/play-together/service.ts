@@ -5,6 +5,7 @@ import {
   TOGETHER_LIMITS,
   TOGETHER_RULES_ID,
   TOGETHER_FEE_POLICY,
+  TOGETHER_GAME_DURATION_MS,
   togetherGame,
   togetherSelection,
   togetherSeedCommitment,
@@ -37,7 +38,8 @@ import {
 import { resolveJurisdictionForPlay } from '../../economy/jurisdiction-service.js';
 import { verifyQuicknetBeacon } from '../economics/round-entropy.js';
 import { fetchTogetherBeacon } from './entropy.js';
-import { togetherWorkerReady } from './runtime.js';
+import { runTogetherJobs, togetherDatabaseWorkerReady, togetherJobHealth } from './jobs.js';
+import { preparePresentation } from './presentation.js';
 import {
   rows,
   execute,
@@ -53,7 +55,11 @@ import {
   type EntryRow,
 } from './store.js';
 
-type Env = { PLAY_TOGETHER_ENABLED?: string; PLAY_TOGETHER_CASH_ENABLED?: string };
+type Env = {
+  PLAY_TOGETHER_ENABLED?: string;
+  PLAY_TOGETHER_CASH_ENABLED?: string;
+  PLAY_TOGETHER_LIVE_PRESENTATION_ENABLED?: string;
+};
 export interface CreateTogetherRound {
   groupId: string;
   game: TogetherGame;
@@ -83,20 +89,22 @@ export function createTogetherService(
   db: PrismaClient,
   options: {
     env?: Env;
-    workerReady?: () => boolean;
+    workerReady?: () => boolean | Promise<boolean>;
+    practiceWorker?: boolean;
     fetchBeacon?: (closesAt: number) => Promise<TogetherProof['beacon']>;
   } = {}
 ) {
   const env = options.env ?? process.env;
-  const ready = options.workerReady ?? togetherWorkerReady;
+  const ready = options.workerReady ?? (() => togetherDatabaseWorkerReady(db));
+  const workerId = randomUUID();
   const fetchBeacon = options.fetchBeacon ?? fetchTogetherBeacon;
   const transaction = <T>(fn: (tx: Tx) => Promise<T>) =>
     db.$transaction(fn, { timeout: 30_000, maxWait: 10_000 });
   const flush = (tx: Tx) => execute(tx, 'SET CONSTRAINTS ALL IMMEDIATE');
-  function admission(s: TogetherSettings, currency: TogetherCurrency, game: TogetherGame) {
+  async function admission(s: TogetherSettings, currency: TogetherCurrency, game: TogetherGame) {
     if (env.PLAY_TOGETHER_ENABLED === 'false')
       throw ApiError.forbidden('Group play is currently paused');
-    if (!ready())
+    if (!(await ready()))
       throw ApiError.serviceUnavailable(
         'Group processing is reconnecting. Please try again shortly.'
       );
@@ -195,7 +203,18 @@ export function createTogetherService(
       seed = randomBytes(32).toString('hex');
     const closesAt = new Date(now.getTime() + input.lobbySeconds * 1000);
     const target = quicknetTargetForCutoff(closesAt);
+    // New shared playback is initially practice-only. Disabling admission to
+    // v2 never disables recovery of already accepted v2 obligations.
+    const live =
+      input.currency === 'GAME_POINTS' && env.PLAY_TOGETHER_LIVE_PRESENTATION_ENABLED !== 'false';
     const published: TogetherTerms = {
+      ...(live
+        ? {
+            termsVersion: 2 as const,
+            presentationVersion: 2 as const,
+            presentationDurationMs: TOGETHER_GAME_DURATION_MS[input.game],
+          }
+        : {}),
       id,
       groupId,
       game: input.game,
@@ -213,8 +232,8 @@ export function createTogetherService(
     };
     await execute(
       tx,
-      'INSERT INTO play_together_rounds(id,group_id,creator_id,request_id,request_hash,game,currency,entry_amount,fee_bps,policy_version,rules_id,min_players,max_players,created_at,closes_at,recovery_deadline,seed,seed_commitment,terms_hash,beacon_round) ' +
-        'VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)',
+      'INSERT INTO play_together_rounds(id,group_id,creator_id,request_id,request_hash,game,currency,entry_amount,fee_bps,policy_version,rules_id,min_players,max_players,created_at,closes_at,recovery_deadline,seed,seed_commitment,terms_hash,beacon_round,presentation_version,presentation_duration_ms) ' +
+        'VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)',
       id,
       groupId,
       actorId,
@@ -234,7 +253,9 @@ export function createTogetherService(
       seed,
       published.seedCommitment,
       togetherTermsHash(published),
-      target.beaconRound
+      target.beaconRound,
+      live ? 2 : 1,
+      live ? published.presentationDurationMs : null
     );
     return id;
   }
@@ -269,7 +290,7 @@ export function createTogetherService(
       if (group.expiresAt.getTime() <= (await dbTime(tx)).getTime() + input.lobbySeconds * 1000)
         throw ApiError.conflict('Choose a closing time before this group expires');
       const s = await policy(tx);
-      admission(s, input.currency, input.game);
+      await admission(s, input.currency, input.game);
       if (input.currency === 'ETB' && !(await cashAdmission(tx, userId, s)))
         throw ApiError.forbidden('Real-money group play is not available for this account');
       if (
@@ -304,7 +325,7 @@ export function createTogetherService(
       await lockUserEconomicScope(tx, 'together-public:' + game + ':' + currency);
       await context(tx, userId, null);
       const s = await policy(tx);
-      admission(s, currency, game);
+      await admission(s, currency, game);
       if (!s.publicRoomsEnabled) throw ApiError.forbidden('Public group rooms are not open yet');
       if (currency === 'ETB' && !(await cashAdmission(tx, userId, s)))
         throw ApiError.forbidden('Real-money group play is not available for this account');
@@ -373,7 +394,7 @@ export function createTogetherService(
         return reject('This group has closed.');
       const s = await policy(tx);
       try {
-        admission(s, r.currency, r.game);
+        await admission(s, r.currency, r.game);
       } catch (error) {
         if (error instanceof ApiError) return reject(error.message);
         throw error;
@@ -547,6 +568,8 @@ export function createTogetherService(
     // locks. Every worker repeats validation before persisting the single draw.
     await transaction(async (tx) => {
       const metadata = await round(tx, roundId, false);
+      if (options.practiceWorker && metadata.currency !== 'GAME_POINTS')
+        throw new Error('Practice worker cannot process cash rounds');
       if (terminal(metadata)) return;
       const initial = (await entries(tx, roundId)).filter((e) => e.state === 'ACCEPTED');
       const group = await context(tx, null, metadata.group_id, {
@@ -608,13 +631,28 @@ export function createTogetherService(
           const proof = { seed: r.seed, beacon };
           const outcome = deriveTogetherOutcome(terms(r), tickets(active), proof);
           const ranking = rankTogether(r.game, tickets(active), outcome);
+          const recording =
+            r.presentation_version === 2
+              ? preparePresentation(
+                  r.game,
+                  r.presentation_duration_ms!,
+                  outcome,
+                  tickets(active),
+                  r.seed
+                )
+              : null;
           await execute(
             tx,
-            "UPDATE play_together_rounds SET state='DRAWN',outcome=$2::jsonb,proof=$3::jsonb,ranking=$4::jsonb WHERE id=$1",
+            "WITH schedule AS (SELECT date_trunc('milliseconds',clock_timestamp())+interval '5.001 seconds' AS start) " +
+              "UPDATE play_together_rounds SET state='DRAWN',outcome=$2::jsonb,proof=$3::jsonb,ranking=$4::jsonb," +
+              'presentation_starts_at=CASE WHEN presentation_version=2 THEN schedule.start END,' +
+              "presentation_finishes_at=CASE WHEN presentation_version=2 THEN schedule.start+presentation_duration_ms*interval '1 millisecond' END," +
+              'presentation_data=$5::jsonb FROM schedule WHERE id=$1',
             roundId,
             JSON.stringify(outcome),
             JSON.stringify(proof),
-            JSON.stringify(ranking)
+            JSON.stringify(ranking),
+            recording ? JSON.stringify(recording) : null
           );
           await flush(tx);
         });
@@ -623,12 +661,18 @@ export function createTogetherService(
     await transaction(async (tx) => {
       const metadata = await round(tx, roundId, false);
       if (metadata.state !== 'DRAWN') return;
+      if (
+        metadata.presentation_finishes_at &&
+        (await dbTime(tx)) < metadata.presentation_finishes_at
+      )
+        return;
       const initial = (await entries(tx, roundId)).filter((e) =>
         metadata.locked_entry_ids!.includes(e.id)
       );
       await context(tx, null, metadata.group_id, { participants: initial.map((e) => e.user_id) });
       const r = await round(tx, roundId);
       if (r.state !== 'DRAWN') return;
+      if (r.presentation_finishes_at && (await dbTime(tx)) < r.presentation_finishes_at) return;
       const active = (await entries(tx, roundId)).filter((e) => r.locked_entry_ids!.includes(e.id));
       if (active.some((e) => e.state !== 'ACCEPTED'))
         throw new Error('Group settlement has an unexpected entry state');
@@ -674,8 +718,33 @@ export function createTogetherService(
         all = await entries(tx, roundId);
       const s = await policy(tx),
         now = await dbTime(tx);
+      const resultAvailable =
+        r.presentation_version !== 2 ||
+        (!!r.presentation_finishes_at && now >= r.presentation_finishes_at);
+      const [stream] = await rows<{ revision: number; sequence: bigint }>(
+        tx,
+        'SELECT COALESCE(s.revision,0)::int AS revision,COALESCE((SELECT max(e.sequence) FROM play_together_events e WHERE e.round_id=$1 AND e.available_at<=$2),0)::bigint AS sequence FROM play_together_rounds r LEFT JOIN play_together_streams s ON s.round_id=r.id WHERE r.id=$1',
+        roundId,
+        now
+      );
       const view: TogetherRoundView = {
         ...terms(r),
+        revision: stream.revision,
+        eventSequence: Number(stream.sequence),
+        ...(r.presentation_version === 2 && r.presentation_starts_at && r.presentation_finishes_at
+          ? {
+              presentation: {
+                version: 2 as const,
+                startsAt: r.presentation_starts_at.getTime(),
+                finishesAt: r.presentation_finishes_at.getTime(),
+                observedAt: now.getTime(),
+                events: (r.presentation_data ?? []).filter(
+                  (e) => e.atMs <= now.getTime() - r.presentation_starts_at!.getTime()
+                ),
+                resultAvailable,
+              },
+            }
+          : {}),
         creatorId: r.creator_id,
         groupName: group?.name ?? null,
         state: r.state,
@@ -694,17 +763,17 @@ export function createTogetherService(
           payoutTransactionId: e.user_id === userId ? e.payout_transaction_id : null,
           requestId: e.user_id === userId ? e.request_id : null,
         })),
-        outcome: r.outcome,
-        ranking: r.ranking ?? [],
+        outcome: resultAvailable ? r.outcome : null,
+        ranking: resultAvailable ? (r.ranking ?? []) : [],
         settlement: r.settlement,
         voidReason: r.void_reason,
-        proof: r.proof,
+        proof: resultAvailable ? r.proof : null,
         recoveryDeadline: r.recovery_deadline.getTime(),
         paidAt: r.paid_at?.getTime() ?? null,
       };
       return {
         serverTime: now.getTime(),
-        workerReady: ready(),
+        workerReady: await ready(),
         admissionsEnabled: env.PLAY_TOGETHER_ENABLED !== 'false',
         settings: s,
         balances: await balances(tx, userId),
@@ -755,7 +824,7 @@ export function createTogetherService(
         : false;
       return {
         serverTime: (await dbTime(tx)).getTime(),
-        workerReady: ready(),
+        workerReady: await ready(),
         admissionsEnabled: env.PLAY_TOGETHER_ENABLED !== 'false',
         settings: s,
         group,
@@ -906,31 +975,7 @@ export function createTogetherService(
     });
   }
   async function tick() {
-    const due = await transaction((tx) =>
-      rows<{ id: string }>(
-        tx,
-        'SELECT r.id FROM play_together_rounds r LEFT JOIN groups g ON g.id=r.group_id WHERE ' +
-          "((r.state='OPEN' AND (r.closes_at<=clock_timestamp() OR g.status<>'ACTIVE' OR g.\"expiresAt\"<=clock_timestamp())) OR r.state IN ('LOCKED','DRAWN')) " +
-          'AND (r.retry_after IS NULL OR r.retry_after<=clock_timestamp()) ORDER BY r.closes_at LIMIT 20'
-      )
-    );
-    let failed = false;
-    // A failed round cannot prevent recovery of the other funded rounds.
-    for (const r of due) {
-      try {
-        await recover(r.id);
-      } catch {
-        failed = true;
-        await transaction((tx) =>
-          execute(
-            tx,
-            "UPDATE play_together_rounds SET retry_after=clock_timestamp()+interval '10 seconds' WHERE id=$1 AND state NOT IN ('PAID','REFUNDED')",
-            r.id
-          )
-        );
-      }
-    }
-    if (failed) throw new Error('Some group rounds require recovery');
+    await runTogetherJobs(db, recover, workerId, options.practiceWorker);
   }
   return {
     create,
@@ -944,6 +989,7 @@ export function createTogetherService(
     activity,
     settings,
     operations,
+    health: () => togetherJobHealth(db),
     refillPractice,
     tick,
   };
