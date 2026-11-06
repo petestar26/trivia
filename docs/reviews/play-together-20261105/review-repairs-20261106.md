@@ -53,7 +53,12 @@ A 59-byte disposable file was written through the real storage provider in the
 private voice bucket, without a message or database record. SHA-256 before the
 application replacement:
 `9d003edc269f4f42c62fccd62babaaf62fad0a62393d1318be15d906b344a04b`.
-Post-replacement verification is recorded when deployment finishes.
+The replacement API deployment `bfbe2bc1-dc37-4260-9bd8-7453e2db17bd` read exactly
+the same 59 bytes and SHA-256 through the real storage provider. The private
+storage URL returned HTTP 404 anonymously while the file still existed. The
+probe was then removed after a second checksum check. No member message was
+created. The existing voice-record count remains one and its audio remains
+unavailable, as before the repair.
 
 Persistent storage is not a backup. Keep the volume attached during rollbacks,
 retain the absolute path, and use a single API replica. Railway documents a
@@ -82,6 +87,55 @@ switch to a currently rejected provider just by changing its environment name.
   **3,024/3,024 detected messages**, no missing translations or placeholder issues.
 - A dedicated workflow runs the repair suite with Node 20 and PostgreSQL 18,
   plus type, language, build and gateway checks on future relevant changes.
+- The production-preview browser checks pass at 390 and 1,440 pixels with
+  synthetic data and outside requests blocked. After an older edit, a missed
+  deletion and a new message, the reading anchor remains at exactly 391/391 px
+  on mobile and 431/431 px on desktop. History outage/retry/empty-state checks
+  also pass. The initial fixture returned an object instead of the inbox array;
+  correcting that fixture resolved its error-boundary failure without an app
+  change. See [browser checks](review-repairs-browser.mjs) and
+  [results](review-repairs-browser.json). Run against a local production preview;
+  set `PLAYWRIGHT_MODULE` to an installed Playwright module when it is not on
+  Node's module path, and optionally `REVIEW_ORIGIN` and `REVIEW_OUTPUT`.
+
+## Hosted verification
+
+[Chat, support and upload regressions 42157301706](https://github.com/petestar26/trivia/actions/runs/42157301706)
+passed at exact application commit `e362ca5a613cf2c29baf720689064a939fffbd03`.
+Node 20/PostgreSQL 18 passed all 36 backend repair tests (including three native
+concurrency checks), six storage/configuration tests, 35 focused UI tests, both
+type checks, the strict 3,024-message audit, production builds and 40 gateway/PWA
+checks. [Play Together contracts 42157301632](https://github.com/petestar26/trivia/actions/runs/42157301632)
+also passed all PostgreSQL 13, 16 and 18 jobs at that exact source.
+
+Both application services now deploy `e362ca5a613cf2c29baf720689064a939fffbd03`:
+
+- API: `bfbe2bc1-dc37-4260-9bd8-7453e2db17bd`, SUCCESS, Node 20.20.2.
+- Website: `4e42e849-290c-4711-936a-93c3cacbdb23`, SUCCESS.
+- Website and API health endpoints return HTTP 200 with `status: ok`; home,
+  ordinary sign-in and recovery return HTTP 200. Anonymous game-history access
+  remains HTTP 401. The mounted storage path is `/data/uploads`.
+- All four hosting services are online, no staged changes remain, and the
+  database and practice-worker deployment identities are unchanged.
+- Live `PLAY_TOGETHER_CASH_ENABLED=false` and
+  `SOFTAGGREGATOR_SPORTS_LIVE_ENABLED=false` remain unchanged.
+- All 32 anonymous public-page checks passed across eight languages at 390 px
+  (ordinary/admin/agent sign-in and registration): no overflow, wrong direction,
+  unexpected redirect or JavaScript error. Inputs remained empty; 32 refresh
+  attempts and 32 outside requests were blocked. No account or financial
+  submission was made. See [live public results](review-repairs-live-public.json).
+
+Persistence details are saved in [storage evidence](review-repairs-storage.json).
+The final saved synthetic browser harness explicitly blocks WebSocket traffic
+as well as outside HTTP requests; its complete rerun passed the same four cases.
+
+The broader [Scheduled rounds run 42157301634](https://github.com/petestar26/trivia/actions/runs/42157301634)
+remains red at its native two-connection step on PostgreSQL 13, 16 and 18.
+The PostgreSQL 16 logs contain 14 failing and 16 passing native tests. All 14
+failing names and the `Native ETB wallet requires ETB pricing terms` error match
+the previously inspected [baseline run 42148886579](https://github.com/petestar26/trivia/actions/runs/42148886579).
+See the [comparison](review-repairs-ci-baseline.json). This pre-existing fixture
+failure remains open; production financial guards were not weakened to pass it.
 
 The first chat run caught a leftover reference during the pagination refactor;
 the first type checks caught three test typing issues. These were corrected.

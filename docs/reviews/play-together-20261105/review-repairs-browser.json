@@ -1,0 +1,70 @@
+{
+  "synthetic": true,
+  "checks": [
+    {
+      "width": 390,
+      "chat": "edits/deletions/new messages reconciled",
+      "anchorBefore": 391,
+      "anchorAfter": 391
+    },
+    {
+      "width": 390,
+      "history": "failed initial request, retry and genuine empty result"
+    },
+    {
+      "width": 1440,
+      "chat": "edits/deletions/new messages reconciled",
+      "anchorBefore": 431,
+      "anchorAfter": 431
+    },
+    {
+      "width": 1440,
+      "history": "failed initial request, retry and genuine empty result"
+    }
+  ],
+  "errors": [],
+  "blockedWrites": [],
+  "external": [],
+  "reads": [
+    "/auth/me",
+    "/notifications",
+    "/groups/inbox",
+    "/play-together/groups/preview/activity",
+    "/groups/preview/lifecycle",
+    "/groups/preview/messages",
+    "/member-rewards/activity",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/play-together/groups/preview/activity",
+    "/play-together/groups/preview/activity",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/auth/me",
+    "/notifications",
+    "/games/history",
+    "/member-rewards/activity",
+    "/games/history",
+    "/games/history",
+    "/auth/me",
+    "/notifications",
+    "/groups/inbox",
+    "/play-together/groups/preview/activity",
+    "/groups/preview/lifecycle",
+    "/groups/preview/messages",
+    "/member-rewards/activity",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/play-together/groups/preview/activity",
+    "/play-together/groups/preview/activity",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/groups/preview/messages",
+    "/auth/me",
+    "/notifications",
+    "/games/history",
+    "/member-rewards/activity",
+    "/games/history",
+    "/games/history"
+  ]
+}
