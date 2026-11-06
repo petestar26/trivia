@@ -31,13 +31,25 @@ vi.mock('@/providers/socket-provider', () => ({
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: testUserId } }) }));
 vi.mock('@/components/voice/voice-message-player', () => ({ VoiceMessagePlayer: () => <div>Playable voice message</div> }));
 
-import { MessagesPage } from './messages';
+import { MessagesPage, GroupRoundChat } from './messages';
 
 // jsdom does not implement scrollIntoView (same reason setup.ts stubs
 // matchMedia/localStorage). The page's auto-scroll effect calls it on every
 // message change; without this the effect throws and masks what we're testing.
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+it('loads embedded chat without scrolling the surrounding game or creating a financial action', async () => {
+  vi.mocked(Element.prototype.scrollIntoView).mockClear();
+  getGroupMessages.mockResolvedValue({ data: [{ id:'arena-message',content:'Hello from the group',createdAt:'2026-11-06T00:00:00Z',sender:{id:'friend',username:'Tigist'} }] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><MemoryRouter><GroupRoundChat groupId="group-1" userId="me" /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText('Hello from the group')).toBeVisible();
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
+  expect(screen.queryByText('Watch live')).not.toBeInTheDocument();
+  client.clear();
 });
 
 afterEach(() => {

@@ -23,6 +23,7 @@ export interface FootballSceneProps {
   /** Rendered instead of the canvas whenever 3D is unavailable. */
   fallback: ReactNode;
   label: string;
+  quality?: 'high' | 'balanced';
   onGoalMoment?: (n: number) => void;
 }
 
@@ -54,6 +55,7 @@ function SceneCanvas({
   getElapsed,
   reduced,
   label,
+  quality,
   onGoalMoment,
   onProblem,
   onReady,
@@ -74,6 +76,8 @@ function SceneCanvas({
     try {
       engine = createEngine({
         host: element,
+        maxFps: quality === 'high' ? 60 : quality === 'balanced' ? 30 : undefined,
+        maxPixelRatio: quality === 'high' ? 1.75 : quality === 'balanced' ? 1.15 : undefined,
         getElapsed: () => live.current.getElapsed(),
         reduced: live.current.reduced,
         onGoalMoment: (n) => live.current.onGoalMoment?.(n),
@@ -102,7 +106,7 @@ function SceneCanvas({
       engine.dispose();
       engineRef.current = null;
     };
-  }, []);
+  }, [quality]);
 
   useEffect(() => {
     if (match) engineRef.current?.setMatch(match);

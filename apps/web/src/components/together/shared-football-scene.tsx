@@ -14,6 +14,7 @@ export default function SharedFootballScene({
   complete,
   label,
   fallback,
+  quality,
 }: {
   roundId: string;
   events: TogetherGameEvent[];
@@ -23,6 +24,7 @@ export default function SharedFootballScene({
   complete: boolean;
   label: string;
   fallback: React.ReactNode;
+  quality: 'high' | 'balanced';
 }) {
   const clock = useRef((elapsed * 60000) / duration);
   clock.current = (elapsed * 60000) / duration;
@@ -62,6 +64,7 @@ export default function SharedFootballScene({
         }}
         getElapsed={getElapsed}
         reduced={false}
+        quality={quality}
         label={label}
         fallback={fallback}
       />

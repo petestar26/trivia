@@ -14,6 +14,8 @@ import { ChatInbox } from '@/components/groups/chat-inbox';
 import { GroupLifecycle, useGroupLifecycle } from '@/components/groups/group-lifecycle';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
+import { GroupRoundActivity } from '@/components/groups/group-round-activity';
+import '@/components/together/group-arena.css';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { VoiceMessagePlayer } from '@/components/voice/voice-message-player';
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
@@ -56,12 +58,25 @@ export function MessagesPage() {
   const { user } = useAuth();
   return <MessagesContent key={`${groupId}:${user?.id}`} userId={user?.id ?? ''} />;
 }
-function MessagesContent({ userId }: { userId: string }) {
+export function GroupRoundChat({ groupId, userId }: { groupId: string; userId: string }) {
+  return <MessagesContent key={groupId + ':' + userId} userId={userId} embeddedGroupId={groupId} />;
+}
+function MessagesContent({
+  userId,
+  embeddedGroupId,
+}: {
+  userId: string;
+  embeddedGroupId?: string;
+}) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
 
   const [giftOpen, setGiftOpen] = useState(false);
   const [giftRecipient, setGiftRecipient] = useState<string | undefined>();
-  const { groupId } = useParams<{ groupId: string }>();
+  const { groupId: routeGroupId } = useParams<{ groupId: string }>();
+  const groupId = embeddedGroupId ?? routeGroupId;
+  const embedded = !!embeddedGroupId;
+  const [hasArena, setHasArena] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const navigate = useNavigate();
   const lifecycle = useGroupLifecycle(groupId);
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -296,7 +311,12 @@ function MessagesContent({ userId }: { userId: string }) {
 
   const latestMessageId = messages.at(-1)?.id;
   useEffect(() => {
-    if (nearBottom.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const viewport = viewportRef.current;
+    // Embedded conversation must never scroll the surrounding game or document.
+    if (nearBottom.current && viewport) {
+      if (viewport.scrollTo) viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+      else viewport.scrollTop = viewport.scrollHeight;
+    }
   }, [latestMessageId]);
 
   const sendMutation = useMutation({
@@ -374,373 +394,410 @@ function MessagesContent({ userId }: { userId: string }) {
     );
 
   return (
-    <div className="qube-chat mx-auto grid h-[calc(100dvh-8rem)] min-h-[560px] max-w-7xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 lg:grid-cols-[300px_1fr]">
-      <div className="hidden min-h-0 border-r border-slate-200 dark:border-slate-800 lg:block">
-        <ChatInbox selectedId={groupId} />
-      </div>
+    <div
+      className={`qube-chat mx-auto grid h-[calc(100dvh-8rem)] min-h-[560px] max-w-7xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 ${embedded ? 'tg-chat-embedded' : hasArena ? 'tg-group-arena' : 'lg:grid-cols-[300px_1fr]'}`}
+    >
+      {!embedded && !hasArena && (
+        <div className="hidden min-h-0 border-r border-slate-200 dark:border-slate-800 lg:block">
+          <ChatInbox selectedId={groupId} />
+        </div>
+      )}
       <section className="flex min-h-0 min-w-0 flex-col">
-        <header className="space-y-3 border-b border-slate-100 px-4 py-4 dark:border-slate-800 sm:px-6">
-          <div className="flex items-center gap-3">
-            <button
-              aria-label={translateUi('Back to chats')}
-              className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
-              onClick={() => navigate('/messages')}
-            >
-              <ArrowLeft size={20} />
-            </button>
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 font-bold text-emerald-800">
-              {(lifecycle.data?.name ?? 'G').slice(0, 1).toUpperCase()}
+        {!embedded && (
+          <header className="space-y-3 border-b border-slate-100 px-4 py-4 dark:border-slate-800 sm:px-6">
+            <div className="flex items-center gap-3">
+              <button
+                aria-label={translateUi('Back to chats')}
+                className="rounded-full p-2 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"
+                onClick={() => navigate('/messages')}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 font-bold text-emerald-800">
+                {(lifecycle.data?.name ?? 'G').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-lg font-bold">
+                  {lifecycle.data?.name ?? translateUi('Group conversation')}
+                </h1>
+                <p className="text-xs text-slate-400">
+                  {translateUi('Chat, share a gift, play together')}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-bold">
-                {lifecycle.data?.name ?? translateUi('Group conversation')}
-              </h1>
-              <p className="text-xs text-slate-400">
-                {translateUi('Chat, share a gift, play together')}
-              </p>
-            </div>
+            <GroupSocialNav groupId={groupId} showRoundActivity={false} />
+            <GroupLifecycle groupId={groupId} />
+          </header>
+        )}
+        {!embedded && (
+          <div className="tg-group-game">
+            <GroupRoundActivity groupId={groupId} onWatchStateChange={setHasArena} />
           </div>
-          <GroupSocialNav groupId={groupId} />
-          <GroupLifecycle groupId={groupId} />
-        </header>
+        )}
+        {hasArena && !embedded && (
+          <button
+            className="tg-mobile-chat-toggle"
+            aria-expanded={mobileChatOpen}
+            onClick={() => setMobileChatOpen(!mobileChatOpen)}
+          >
+            <MessageCircle size={16} />
+            {translateUi('Group chat')}
+          </button>
+        )}
         <div
-          ref={viewportRef}
-          className="qube-chat-thread min-h-0 flex-1 overflow-y-auto bg-[#f3f6f4] px-4 py-5 dark:bg-[#111e1b] sm:px-6"
-          onScroll={(event) => {
-            const node = event.currentTarget;
-            nearBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
-            captureScrollAnchor();
-          }}
+          className={
+            'tg-group-conversation ' + (hasArena && !mobileChatOpen ? 'is-collapsed-mobile' : '')
+          }
         >
-          {isLoading && (
-            <p role="status" className="py-10 text-center text-sm text-slate-500">
-              {translateUi('Loading conversation…')}
-            </p>
-          )}
-          {isError && !isFetchNextPageError && (
-            <p role="alert" className="rounded-2xl bg-white p-5 text-sm text-red-600">
-              {translateUi('Failed to load messages. You may not be a member of this group.')}
-            </p>
-          )}
-          {!isLoading && !isError && messages.length === 0 && (
-            <div className="py-12 text-center">
-              <MessageCircle size={30} className="mx-auto mb-3 text-emerald-700/40" />
-              <p className="text-sm text-slate-500">
-                {translateUi('No messages yet. Start the conversation!')}
+          <div
+            ref={viewportRef}
+            className="qube-chat-thread min-h-0 flex-1 overflow-y-auto bg-[#f3f6f4] px-4 py-5 dark:bg-[#111e1b] sm:px-6"
+            onScroll={(event) => {
+              const node = event.currentTarget;
+              nearBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+              captureScrollAnchor();
+            }}
+          >
+            {isLoading && (
+              <p role="status" className="py-10 text-center text-sm text-slate-500">
+                {translateUi('Loading conversation…')}
               </p>
-            </div>
-          )}
-          {isFetchNextPageError && (
-            <p role="alert">{translateUi('Earlier messages could not be loaded. Try again.')}</p>
-          )}
-          {hasNextPage && (
-            <button
-              disabled={isFetching}
-              onClick={() => {
-                captureScrollAnchor();
-                void fetchNextPage({ cancelRefetch: false });
-              }}
-              className="mx-auto mb-5 block rounded-full bg-white px-4 py-2 text-xs text-slate-500 shadow-sm dark:bg-slate-800"
-            >
-              {isFetchingNextPage ? translateUi('Loading…') : translateUi('Load earlier messages')}
-            </button>
-          )}
-          <div className="space-y-3">
-            {messages.map((msg, index) => {
-              const own = (msg.sender?.id ?? msg.userId) === userId;
-              const day = new Date(msg.createdAt).toLocaleDateString(interfaceLocale, {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-              });
-              const previous = messages[index - 1];
-              const showDay =
-                !previous ||
-                new Date(previous.createdAt).toDateString() !==
-                  new Date(msg.createdAt).toDateString();
-              return (
-                <div key={msg.id} data-message-id={msg.id}>
-                  {showDay && (
-                    <div className="my-5 text-center">
-                      <span className="rounded-full bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">
-                        {day}
-                      </span>
-                    </div>
-                  )}
-                  <article className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`qube-chat-bubble group max-w-[90%] rounded-2xl px-3.5 py-2.5 shadow-sm sm:max-w-[78%] ${own ? 'rounded-br-md bg-[#dff3e6] dark:bg-emerald-900' : 'rounded-bl-md bg-white dark:bg-slate-800'}`}
-                    >
-                      {!own && (
-                        <p className="mb-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                          {msg.sender?.displayName || msg.sender?.username || translateUi('Member')}
-                        </p>
-                      )}
-                      {msg.replyTo && (
-                        <div className="mb-2 rounded-lg border-l-2 border-emerald-500 bg-black/5 px-3 py-2 text-xs">
-                          <p className="font-semibold text-emerald-700">
-                            {msg.replyTo.sender?.displayName ||
-                              msg.replyTo.sender?.username ||
-                              translateUi('Reply')}
+            )}
+            {isError && !isFetchNextPageError && (
+              <p role="alert" className="rounded-2xl bg-white p-5 text-sm text-red-600">
+                {translateUi('Failed to load messages. You may not be a member of this group.')}
+              </p>
+            )}
+            {!isLoading && !isError && messages.length === 0 && (
+              <div className="py-12 text-center">
+                <MessageCircle size={30} className="mx-auto mb-3 text-emerald-700/40" />
+                <p className="text-sm text-slate-500">
+                  {translateUi('No messages yet. Start the conversation!')}
+                </p>
+              </div>
+            )}
+            {isFetchNextPageError && (
+              <p role="alert">{translateUi('Earlier messages could not be loaded. Try again.')}</p>
+            )}
+            {hasNextPage && (
+              <button
+                disabled={isFetching}
+                onClick={() => {
+                  captureScrollAnchor();
+                  void fetchNextPage({ cancelRefetch: false });
+                }}
+                className="mx-auto mb-5 block rounded-full bg-white px-4 py-2 text-xs text-slate-500 shadow-sm dark:bg-slate-800"
+              >
+                {isFetchingNextPage
+                  ? translateUi('Loading…')
+                  : translateUi('Load earlier messages')}
+              </button>
+            )}
+            <div className="space-y-3">
+              {messages.map((msg, index) => {
+                const own = (msg.sender?.id ?? msg.userId) === userId;
+                const day = new Date(msg.createdAt).toLocaleDateString(interfaceLocale, {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                });
+                const previous = messages[index - 1];
+                const showDay =
+                  !previous ||
+                  new Date(previous.createdAt).toDateString() !==
+                    new Date(msg.createdAt).toDateString();
+                return (
+                  <div key={msg.id} data-message-id={msg.id}>
+                    {showDay && (
+                      <div className="my-5 text-center">
+                        <span className="rounded-full bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">
+                          {day}
+                        </span>
+                      </div>
+                    )}
+                    <article className={`flex ${own ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className={`qube-chat-bubble group max-w-[90%] rounded-2xl px-3.5 py-2.5 shadow-sm sm:max-w-[78%] ${own ? 'rounded-br-md bg-[#dff3e6] dark:bg-emerald-900' : 'rounded-bl-md bg-white dark:bg-slate-800'}`}
+                      >
+                        {!own && (
+                          <p className="mb-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                            {msg.sender?.displayName ||
+                              msg.sender?.username ||
+                              translateUi('Member')}
                           </p>
-                          <p className="mt-1 line-clamp-2 text-slate-500">
-                            {msg.replyTo.isDeleted
-                              ? translateUi('Message deleted')
-                              : msg.replyTo.content || translateUi('Attachment')}
-                          </p>
-                        </div>
-                      )}
-                      {msg.gift && !msg.isDeleted ? (
-                        <div className="my-2 flex items-center gap-3 rounded-xl bg-violet-50 p-3 dark:bg-violet-950">
-                          <GiftArt emoji={msg.gift.emoji} theme={msg.gift.theme} small />
-                          <div>
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-600">
-                              {translateUi('Gift delivered')}
+                        )}
+                        {msg.replyTo && (
+                          <div className="mb-2 rounded-lg border-l-2 border-emerald-500 bg-black/5 px-3 py-2 text-xs">
+                            <p className="font-semibold text-emerald-700">
+                              {msg.replyTo.sender?.displayName ||
+                                msg.replyTo.sender?.username ||
+                                translateUi('Reply')}
                             </p>
-                            <h3 className="mt-1 font-bold">{msg.gift.name}</h3>
-                            <p className="text-xs">
-                              {translateUi('For @{recipientUsername}', {
-                                recipientUsername: msg.gift.recipientUsername,
-                              })}
-                            </p>
-                            <p className="mt-1 text-[10px] text-slate-400">
-                              {translateUi('{faceValue} {value} gift · in their collection', {
-                                faceValue: msg.gift.faceValue,
-                                value:
-                                  msg.gift.currency === 'PRACTICE_ETB'
-                                    ? translateUi('practice ETB')
-                                    : translateUi('point'),
-                              })}
+                            <p className="mt-1 line-clamp-2 text-slate-500">
+                              {msg.replyTo.isDeleted
+                                ? translateUi('Message deleted')
+                                : msg.replyTo.content || translateUi('Attachment')}
                             </p>
                           </div>
-                        </div>
-                      ) : msg.type?.toUpperCase() === 'VOICE' && !msg.isDeleted ? (
-                        <VoiceMessagePlayer
-                          groupId={groupId}
-                          messageId={msg.id}
-                          duration={msg.voiceMessage?.duration}
-                        />
-                      ) : (
-                        <p className="whitespace-pre-wrap break-words text-[14px] leading-6 [overflow-wrap:anywhere]">
-                          {msg.isDeleted ? translateUi('Message deleted') : msg.content}
-                        </p>
-                      )}
-                      <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-slate-400">
-                        {msg.isEdited && <span>{translateUi('edited')}</span>}
-                        <time>
-                          {new Date(msg.createdAt).toLocaleTimeString(interfaceLocale, {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </time>
-                      </div>
-                      {!msg.isDeleted && userId && (
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <MessageReactions
+                        )}
+                        {msg.gift && !msg.isDeleted ? (
+                          <div className="my-2 flex items-center gap-3 rounded-xl bg-violet-50 p-3 dark:bg-violet-950">
+                            <GiftArt emoji={msg.gift.emoji} theme={msg.gift.theme} small />
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-violet-600">
+                                {translateUi('Gift delivered')}
+                              </p>
+                              <h3 className="mt-1 font-bold">{msg.gift.name}</h3>
+                              <p className="text-xs">
+                                {translateUi('For @{recipientUsername}', {
+                                  recipientUsername: msg.gift.recipientUsername,
+                                })}
+                              </p>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {translateUi('{faceValue} {value} gift · in their collection', {
+                                  faceValue: msg.gift.faceValue,
+                                  value:
+                                    msg.gift.currency === 'PRACTICE_ETB'
+                                      ? translateUi('practice ETB')
+                                      : translateUi('point'),
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        ) : msg.type?.toUpperCase() === 'VOICE' && !msg.isDeleted ? (
+                          <VoiceMessagePlayer
                             groupId={groupId}
                             messageId={msg.id}
-                            userId={userId}
-                            reactions={msg.reactions}
-                            compact
-                            disabled={!lifecycle.canWrite}
+                            duration={msg.voiceMessage?.duration}
                           />
-                          {!lifecycle.query.isError &&
-                            (lifecycle.data?.canModerate || (own && lifecycle.canWrite)) && (
-                              <button
-                                type="button"
-                                aria-label={translateUi('Hide message')}
-                                onClick={() => {
-                                  hideMessage.reset();
-                                  setModerating(msg);
-                                }}
-                                className="rounded-full p-1.5 text-slate-400 hover:text-red-600"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            )}
-                          {lifecycle.canWrite && (
-                            <>
-                              <button
-                                aria-label={translateUi('Reply to message')}
-                                className="rounded-full p-1.5 text-slate-400 hover:text-emerald-700"
-                                onClick={() => setReplyTo(msg)}
-                              >
-                                <Reply size={14} />
-                              </button>
-                              {!own && (msg.sender?.id || msg.userId) && (
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words text-[14px] leading-6 [overflow-wrap:anywhere]">
+                            {msg.isDeleted ? translateUi('Message deleted') : msg.content}
+                          </p>
+                        )}
+                        <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-slate-400">
+                          {msg.isEdited && <span>{translateUi('edited')}</span>}
+                          <time>
+                            {new Date(msg.createdAt).toLocaleTimeString(interfaceLocale, {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </time>
+                        </div>
+                        {!msg.isDeleted && userId && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <MessageReactions
+                              groupId={groupId}
+                              messageId={msg.id}
+                              userId={userId}
+                              reactions={msg.reactions}
+                              compact
+                              disabled={!lifecycle.canWrite}
+                            />
+                            {!lifecycle.query.isError &&
+                              (lifecycle.data?.canModerate || (own && lifecycle.canWrite)) && (
                                 <button
                                   type="button"
-                                  aria-label={translateUi('Send gift to {value}', {
-                                    value: msg.sender?.username || translateUi('member'),
-                                  })}
-                                  className="rounded-full p-1.5 text-violet-500"
+                                  aria-label={translateUi('Hide message')}
                                   onClick={() => {
-                                    setGiftRecipient(msg.sender?.id || msg.userId);
-                                    setGiftOpen(true);
+                                    hideMessage.reset();
+                                    setModerating(msg);
                                   }}
+                                  className="rounded-full p-1.5 text-slate-400 hover:text-red-600"
                                 >
-                                  <Gift size={14} />
+                                  <Trash2 size={14} />
                                 </button>
                               )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </article>
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-        <footer className="space-y-2 border-t border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 sm:p-4">
-          {pendingText && !sendMutation.isPending && (
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">
-              <p className="line-clamp-2">
-                {translateUi('Unconfirmed: {content}', { content: pendingText.content })}
-              </p>
-              <Button size="sm" onClick={() => sendMutation.mutate(pendingText)}>
-                {translateUi('Retry message')}
-              </Button>
+                            {lifecycle.canWrite && (
+                              <>
+                                <button
+                                  aria-label={translateUi('Reply to message')}
+                                  className="rounded-full p-1.5 text-slate-400 hover:text-emerald-700"
+                                  onClick={() => setReplyTo(msg)}
+                                >
+                                  <Reply size={14} />
+                                </button>
+                                {!own && (msg.sender?.id || msg.userId) && (
+                                  <button
+                                    type="button"
+                                    aria-label={translateUi('Send gift to {value}', {
+                                      value: msg.sender?.username || translateUi('member'),
+                                    })}
+                                    className="rounded-full p-1.5 text-violet-500"
+                                    onClick={() => {
+                                      setGiftRecipient(msg.sender?.id || msg.userId);
+                                      setGiftOpen(true);
+                                    }}
+                                  >
+                                    <Gift size={14} />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
             </div>
-          )}
-          {lifecycle.closed ? (
-            <p className="py-3 text-center text-sm text-slate-500">
-              {translateUi(
-                'This 24-hour room has closed. Your conversation, gifts and game results are saved.'
-              )}
-            </p>
-          ) : (
-            <>
-              {replyTo && (
-                <div className="flex items-center justify-between rounded-xl border-l-2 border-emerald-500 bg-slate-50 p-3 text-xs dark:bg-slate-900">
-                  <p className="line-clamp-2">
-                    {translateUi('Replying to {value}: {content}', {
-                      value:
-                        replyTo.sender?.displayName ||
-                        replyTo.sender?.username ||
-                        translateUi('message'),
-                      content: replyTo.content,
-                    })}
-                  </p>
-                  <button aria-label={translateUi('Cancel reply')} onClick={() => setReplyTo(null)}>
-                    <X size={16} />
-                  </button>
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                <button
-                  type="button"
-                  aria-label={translateUi('Open gifts')}
-                  disabled={!lifecycle.canWrite}
-                  className="rounded-xl p-3 text-violet-500 hover:bg-violet-50 disabled:opacity-40"
-                  onClick={() => {
-                    setGiftRecipient(undefined);
-                    setGiftOpen(true);
-                  }}
-                >
-                  <Gift size={21} />
-                </button>
-                <textarea
-                  aria-label={translateUi('Message')}
-                  rows={1}
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder={translateUi('Type a message…')}
-                  maxLength={5000}
-                  disabled={!lifecycle.canWrite}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === 'Enter' &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  className="max-h-32 min-h-[44px] w-full resize-y rounded-2xl border-0 bg-slate-100 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 dark:bg-slate-900"
-                />
-                <Button
-                  aria-label={translateUi('Send')}
-                  onClick={handleSend}
-                  disabled={
-                    !message.trim() ||
-                    sendMutation.isPending ||
-                    !!pendingText ||
-                    !lifecycle.canWrite
-                  }
-                  className="qube-chat-send h-11 w-11 shrink-0 rounded-2xl bg-emerald-800 hover:bg-emerald-700"
-                >
-                  <Send size={18} />
+          </div>
+          <footer className="space-y-2 border-t border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-950 sm:p-4">
+            {pendingText && !sendMutation.isPending && (
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900">
+                <p className="line-clamp-2">
+                  {translateUi('Unconfirmed: {content}', { content: pendingText.content })}
+                </p>
+                <Button size="sm" onClick={() => sendMutation.mutate(pendingText)}>
+                  {translateUi('Retry message')}
                 </Button>
               </div>
-              <div className="flex flex-wrap items-center gap-2 px-2 text-xs text-slate-400">
-                {recorder.isRecording ? (
-                  <>
-                    <span role="timer">
-                      {translateUi('Recording {value}s', {
-                        value: Math.floor(recorder.elapsedMs / 1000),
-                      })}
-                    </span>
-                    <button
-                      onClick={() => void recorder.stop()}
-                      className="font-semibold text-red-600"
-                    >
-                      {translateUi('Stop recording')}
-                    </button>
-                    <button onClick={recorder.cancel}>{translateUi('Cancel')}</button>
-                  </>
-                ) : (
-                  <button
-                    className="inline-flex items-center gap-1.5 rounded-lg py-1 disabled:opacity-40"
-                    disabled={
-                      !lifecycle.canWrite ||
-                      !recorder.isSupported ||
-                      recorder.isStarting ||
-                      voiceMutation.isPending ||
-                      !!voiceDraft
-                    }
-                    onClick={() => void recorder.start()}
-                  >
-                    <Mic size={14} />
-                    {recorder.isStarting
-                      ? translateUi('Waiting for microphone…')
-                      : translateUi('Record voice')}
-                  </button>
+            )}
+            {lifecycle.closed ? (
+              <p className="py-3 text-center text-sm text-slate-500">
+                {translateUi(
+                  'This 24-hour room has closed. Your conversation, gifts and game results are saved.'
                 )}
-                <span className="ml-auto hidden sm:inline">
-                  {translateUi('Shift + Enter for a new line')}
-                </span>
-                {voiceDraft && (
-                  <div className="flex w-full items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
-                    <span>
-                      {translateUi('Voice message · {duration}s', {
-                        duration: voiceDraft.duration,
+              </p>
+            ) : (
+              <>
+                {replyTo && (
+                  <div className="flex items-center justify-between rounded-xl border-l-2 border-emerald-500 bg-slate-50 p-3 text-xs dark:bg-slate-900">
+                    <p className="line-clamp-2">
+                      {translateUi('Replying to {value}: {content}', {
+                        value:
+                          replyTo.sender?.displayName ||
+                          replyTo.sender?.username ||
+                          translateUi('message'),
+                        content: replyTo.content,
                       })}
-                    </span>
+                    </p>
                     <button
-                      className="font-semibold text-emerald-700"
-                      disabled={!lifecycle.canWrite || voiceMutation.isPending}
-                      onClick={() => voiceMutation.mutate()}
+                      aria-label={translateUi('Cancel reply')}
+                      onClick={() => setReplyTo(null)}
                     >
-                      {translateUi('Send voice message')}
-                    </button>
-                    <button disabled={voiceMutation.isPending} onClick={() => setVoiceDraft(null)}>
-                      {translateUi('Discard')}
+                      <X size={16} />
                     </button>
                   </div>
                 )}
-              </div>
-            </>
-          )}
-          {(recorder.error || voiceNotice || sendNotice) && (
-            <p role="status" className="px-2 text-xs text-amber-700">
-              {translateUi(recorder.error || voiceNotice || sendNotice || '')}
-            </p>
-          )}
-        </footer>
+                <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    aria-label={translateUi('Open gifts')}
+                    disabled={!lifecycle.canWrite}
+                    className="rounded-xl p-3 text-violet-500 hover:bg-violet-50 disabled:opacity-40"
+                    onClick={() => {
+                      setGiftRecipient(undefined);
+                      setGiftOpen(true);
+                    }}
+                  >
+                    <Gift size={21} />
+                  </button>
+                  <textarea
+                    aria-label={translateUi('Message')}
+                    rows={1}
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    placeholder={translateUi('Type a message…')}
+                    maxLength={5000}
+                    disabled={!lifecycle.canWrite}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === 'Enter' &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    className="max-h-32 min-h-[44px] w-full resize-y rounded-2xl border-0 bg-slate-100 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 dark:bg-slate-900"
+                  />
+                  <Button
+                    aria-label={translateUi('Send')}
+                    onClick={handleSend}
+                    disabled={
+                      !message.trim() ||
+                      sendMutation.isPending ||
+                      !!pendingText ||
+                      !lifecycle.canWrite
+                    }
+                    className="qube-chat-send h-11 w-11 shrink-0 rounded-2xl bg-emerald-800 hover:bg-emerald-700"
+                  >
+                    <Send size={18} />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 px-2 text-xs text-slate-400">
+                  {recorder.isRecording ? (
+                    <>
+                      <span role="timer">
+                        {translateUi('Recording {value}s', {
+                          value: Math.floor(recorder.elapsedMs / 1000),
+                        })}
+                      </span>
+                      <button
+                        onClick={() => void recorder.stop()}
+                        className="font-semibold text-red-600"
+                      >
+                        {translateUi('Stop recording')}
+                      </button>
+                      <button onClick={recorder.cancel}>{translateUi('Cancel')}</button>
+                    </>
+                  ) : (
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-lg py-1 disabled:opacity-40"
+                      disabled={
+                        !lifecycle.canWrite ||
+                        !recorder.isSupported ||
+                        recorder.isStarting ||
+                        voiceMutation.isPending ||
+                        !!voiceDraft
+                      }
+                      onClick={() => void recorder.start()}
+                    >
+                      <Mic size={14} />
+                      {recorder.isStarting
+                        ? translateUi('Waiting for microphone…')
+                        : translateUi('Record voice')}
+                    </button>
+                  )}
+                  <span className="ml-auto hidden sm:inline">
+                    {translateUi('Shift + Enter for a new line')}
+                  </span>
+                  {voiceDraft && (
+                    <div className="flex w-full items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
+                      <span>
+                        {translateUi('Voice message · {duration}s', {
+                          duration: voiceDraft.duration,
+                        })}
+                      </span>
+                      <button
+                        className="font-semibold text-emerald-700"
+                        disabled={!lifecycle.canWrite || voiceMutation.isPending}
+                        onClick={() => voiceMutation.mutate()}
+                      >
+                        {translateUi('Send voice message')}
+                      </button>
+                      <button
+                        disabled={voiceMutation.isPending}
+                        onClick={() => setVoiceDraft(null)}
+                      >
+                        {translateUi('Discard')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            {(recorder.error || voiceNotice || sendNotice) && (
+              <p role="status" className="px-2 text-xs text-amber-700">
+                {translateUi(recorder.error || voiceNotice || sendNotice || '')}
+              </p>
+            )}
+          </footer>
+        </div>
       </section>
       <Dialog.Root
         open={!!moderating}

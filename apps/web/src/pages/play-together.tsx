@@ -25,6 +25,9 @@ import { useAuth } from '@/providers/auth-provider';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { TogetherSelection } from './play-together-selection';
+import { ArenaChat } from '@/components/together/arena-chat';
+import { TogetherLobby as RoundLobby } from '@/components/together/together-lobby';
+import '@/components/together/group-arena.css';
 import { TogetherGameResult } from '@/components/together/together-game-result';
 import { useRoundUpdates } from '@/components/together/use-round-updates';
 import './play-together.css';
@@ -853,13 +856,6 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
       setShareNotice({ message: 'Copy this round link: {url}', values: { url } });
     }
   };
-  const reveal = togetherRevealTimeline(r, visualNow);
-  const roundStep =
-    paid && (reveal.phase === 'complete' || !r.outcome)
-      ? 3
-      : r.state === 'OPEN' && seconds > 0
-        ? 1
-        : 2;
   const download = () => {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' })
@@ -871,56 +867,21 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
-    <div className="together-page">
-      {r.groupId ? (
-        <GroupSocialNav groupId={r.groupId} showRoundActivity={false} roundOpen />
-      ) : (
-        <Link to="/play-together">{t('← Shared rooms')}</Link>
-      )}
-      <header className="together-hero">
+    <div className="together-page together-round-page">
+      <header className="together-round-header">
         <div>
-          <p className="together-eyebrow">
-            <Users size={16} />
-            {r.groupName ?? t('Public shared room')}
-          </p>
-          <h1>
-            {t(game.name)}
-            <span>.</span>
-          </h1>
-          <p>{t(game.rules)}</p>
+          <Link to={r.groupId ? '/messages/' + r.groupId : '/play-together'}>
+            ← {r.groupName ?? t('Public shared room')}
+          </Link>
+          <h1>{t(game.name)}</h1>
         </div>
-        <div className="together-wallet">
-          <Wallet size={20} />
-          <div>
-            <span>
-              {r.currency === 'ETB' ? t('Available real Birr') : t('Available practice points')}
-            </span>
-            <strong>{money(available, r.currency)}</strong>
-            <small>
-              {r.currency === 'GAME_POINTS' ? t('No cash value') : t('Reward Birr is separate')}
-            </small>
-          </div>
-        </div>
+        <button onClick={() => void copyLink()}>{t('Copy round link')}</button>
       </header>
-      <div className="together-watch-tools">
-        <p>
-          <strong>{t('One round for the whole group.')}</strong>{' '}
-          {t('Watching is free. Choices stay private until betting closes.')}
+      {shareNotice && (
+        <p role="status" className="together-notice">
+          {shareNotice}
         </p>
-        <div>
-          <button onClick={() => void copyLink()}>{t('Copy round link')}</button>
-          <a href="#group-results">{t('Participants & results ↓')}</a>
-        </div>
-        {shareNotice && <p role="status">{shareNotice}</p>}
-      </div>
-      <ol className="together-journey" aria-label={t('Round progress')}>
-        {[t('Confirm entries'), t('Watch together'), t('Results & payouts')].map((label, i) => (
-          <li key={label} aria-current={roundStep === i + 1 ? 'step' : undefined}>
-            <b>{num(i + 1)}</b>
-            <strong>{label}</strong>
-          </li>
-        ))}
-      </ol>
+      )}
       <div className="together-status">
         <span role="timer">
           <Clock3 size={17} />
@@ -994,33 +955,27 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </button>
         </div>
       )}
-      {!r.outcome && !r.presentation && !paid && (
-        <section className="together-panel together-waiting" aria-label={t('Shared game screen')}>
-          <p className="together-eyebrow">{t('Your group’s shared screen')}</p>
-          <h2>
-            {r.state === 'OPEN' && seconds > 0
-              ? t('Everyone gets ready here')
-              : t('Getting the shared result ready')}
-          </h2>
-          <p>
-            {r.state === 'OPEN' && seconds > 0
-              ? t(
-                  'Choose and confirm your own entry, or watch for free. After betting closes, everyone follows one countdown and game. Payment follows the finish.'
-                )
-              : t(
-                  'Entries are closed. Preparing one verified game for everyone. You can return at any time.'
-                )}
-          </p>
-          <small>
-            {t(
-              'Return to this round at any time. Reconnecting catches up to the shared view, and completed results stay available.'
-            )}
-          </small>
-        </section>
-      )}
-      <TogetherGameResult round={r} userId={userId} serverNow={visualNow} />
+      <div className="together-arena-layout">
+        <div className="together-arena-main">
+          {!r.outcome && !r.presentation && !paid && (
+            <RoundLobby round={r} userId={userId} serverNow={visualNow} />
+          )}
+          <TogetherGameResult round={r} userId={userId} serverNow={visualNow} />
+        </div>
+        {r.groupId && <ArenaChat groupId={r.groupId} userId={userId} />}
+      </div>
       <div className="together-columns">
-        <section className="together-panel">
+        <details className="together-panel together-entry-panel" open={open || paid || undefined}>
+          <summary>{confirmed ? t('Your confirmed entry') : t('Your choice')}</summary>
+          <div className="together-wallet">
+            <Wallet size={17} />
+            <div>
+              <span>
+                {r.currency === 'ETB' ? t('Available real Birr') : t('Available practice points')}
+              </span>
+              <strong>{money(available, r.currency)}</strong>
+            </div>
+          </div>
           <p className="together-eyebrow">{t('Your choice')}</p>
           <p className="together-eyebrow" role="status">
             {pending || mutation.isPending
@@ -1154,14 +1109,19 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               {t('Cancel this round and refund everyone')}
             </button>
           )}
-        </section>
-        <section
+        </details>
+        <details
           className="together-panel"
           id="group-results"
+          open={paid || open || undefined}
           aria-label={t('Group participants and results')}
         >
-          <p className="together-eyebrow">{t('Everyone sees the same round')}</p>
-          <h2>{paid ? t('Group result and payouts') : t('Confirmed participants')}</h2>
+          <summary>
+            <h2 className="inline">
+              {paid ? t('Group result and payouts') : t('Confirmed participants')}
+            </h2>{' '}
+            · {num(participants.length)}
+          </summary>
           <div className="together-pool">
             <span>{t('Funded pool')}</span>
             <strong>{money(r.settlement?.funded ?? funded * r.entryAmount, r.currency)}</strong>
@@ -1256,10 +1216,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               )}
             </div>
           )}
-        </section>
+        </details>
       </div>
       <details className="together-panel">
         <summary>{t('Round rules and interruption policy')}</summary>
+        <p>{t(game.rules)}</p>
         <p>
           {t(
             'Selections are private until betting closes. Everyone pays the same entry. The owner cannot place a bet for you or change accepted round terms.'

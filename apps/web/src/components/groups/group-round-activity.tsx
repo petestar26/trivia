@@ -6,11 +6,17 @@ import { togetherGame, type TogetherGroupActivity } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GroupWatchArea } from '@/components/together/group-watch-area';
 
 /** A group-wide doorway. Viewing this card never joins or funds a round. */
-export function GroupRoundActivity({ groupId }: { groupId: string }) {
+export function GroupRoundActivity({
+  groupId,
+  onWatchStateChange,
+}: {
+  groupId: string;
+  onWatchStateChange?: (watching: boolean) => void;
+}) {
   const { t } = useTogetherText();
 
   const { user } = useAuth();
@@ -35,6 +41,17 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
     refetchOnWindowFocus: 'always',
     retry: false,
   });
+  useEffect(() => {
+    onWatchStateChange?.(
+      !!(query.data?.activeRound || query.data?.latestResult) && watching && !query.isError
+    );
+  }, [
+    query.data?.activeRound?.id,
+    query.data?.latestResult?.id,
+    watching,
+    query.isError,
+    onWatchStateChange,
+  ]);
   if (query.isError)
     return (
       <p className="text-sm text-slate-500" role="status">
@@ -47,11 +64,8 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
   const { activeRound, latestResult } = query.data ?? {};
   if (!activeRound && !latestResult) return null;
   return (
-    <div>
-      <aside
-        aria-label={t('Your group’s shared round')}
-        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-slate-800 dark:border-rose-900 dark:bg-slate-900 dark:text-slate-100"
-      >
+    <div className="tg-group-activity">
+      <aside aria-label={t('Your group’s shared round')} className="tg-group-activity-bar">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-semibold">
             {activeRound ? <Radio size={16} /> : <Trophy size={16} />}{' '}
@@ -69,7 +83,7 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
               type="button"
               onClick={() => setWatching(!watching)}
               aria-expanded={watching}
-              className="inline-flex items-center gap-2 rounded-lg bg-rose-800 px-3 py-2 font-semibold text-white"
+              className="tg-watch-toggle"
             >
               {watching ? t('Hide game') : t('Watch live')}
               <ArrowRight size={15} />
