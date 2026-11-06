@@ -382,7 +382,7 @@ html.qube-member.dark
     .wallet-navigation a,
     .wallet-method-options a,
     .crypto-member .crypto-tabs button,
-    .qube-catalog nav[aria-label='Play modes'] a
+    .qube-catalog nav.salem-discovery-links a
   ) {
   color: #c5d7ca;
   border-color: #466c54;
@@ -392,8 +392,8 @@ html.qube-member.dark
     .wallet-navigation a[aria-current='page'],
     .wallet-method-options a[aria-current='page'],
     .crypto-member .crypto-tabs button[aria-pressed='true'],
-    .qube-catalog nav[aria-label='Play modes'] a[aria-current='page'],
-    .pq-auth-shell [aria-label='Sign-in method'] button[aria-pressed='true']
+    .qube-catalog nav.salem-discovery-links a[aria-current='page'],
+    .pq-auth-shell .salem-sign-in-method button[aria-pressed='true']
   ) {
   color: #fff;
   background: linear-gradient(140deg, #20613f, #14442e);
@@ -527,7 +527,7 @@ html.qube-member.dark .salem-install-dialog li {
   padding-left: 0;
   padding-inline-start: 5px;
 }
-html.qube-member.dark .pq-auth-shell [aria-label='Sign-in method'] button {
+html.qube-member.dark .pq-auth-shell .salem-sign-in-method button {
   color: #c8d8cc;
   background: #13291b;
   border-color: #46664f;

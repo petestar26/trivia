@@ -412,7 +412,7 @@ function NotificationInbox({ userId }: { userId: string }) {
             : translateUi('Notifications')
         }
         onClick={handleToggle}
-        className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        className="salem-notifications-trigger relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
       >
         <Bell className="h-5 w-5 text-gray-700 dark:text-gray-300" aria-hidden="true" />
         {unreadCount > 0 && (

@@ -104,7 +104,11 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
           <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />
         )}
         {!workspace && (
-          <div role="group" aria-label={translateUi('Sign-in method')} className="flex gap-2">
+          <div
+            role="group"
+            aria-label={translateUi('Sign-in method')}
+            className="salem-sign-in-method flex gap-2"
+          >
             {(['email', 'phone'] as const).map((option) => (
               <Button
                 key={option}

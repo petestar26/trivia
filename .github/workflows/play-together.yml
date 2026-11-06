@@ -98,6 +98,8 @@ jobs:
           pnpm --filter web exec vitest run src/lib/sky-crash-catalog.test.ts src/lib/football-catalog.test.ts src/lib/derby-catalog.test.ts src/lib/system-practice-catalog.test.ts src/lib/number-challenge-catalog.test.ts src/components/member/dashboard-highlights.test.tsx src/components/layout/mobile-navigation.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Production builds
         if: matrix.postgres == 16
+        env:
+          NODE_ENV: production
         run: |
           pnpm build:api
           pnpm build:web

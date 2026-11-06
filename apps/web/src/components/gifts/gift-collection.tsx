@@ -235,7 +235,7 @@ export function GiftCollection({
                   disabled={!!attempt || groupClosed}
                   aria-label={translateUi('Choose {name}', { name: gift.name })}
                   onClick={() => pick('BUY', gift)}
-                  className="group rounded-2xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md focus-visible:outline-violet-600 dark:border-gray-700 dark:bg-gray-900"
+                  className="salem-gift-choice group rounded-2xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md focus-visible:outline-violet-600 dark:border-gray-700 dark:bg-gray-900"
                 >
                   <GiftArt emoji={gift.emoji} theme={gift.theme} />
                   <h2 className="mt-3 font-bold">{gift.name}</h2>
@@ -369,7 +369,7 @@ export function GiftCollection({
                 : translateUi('Choose the recipient and check the details before confirming.')}
             </Dialog.Description>
             <Dialog.Close
-              className="absolute right-4 top-4 rounded-full p-1 text-gray-500 dark:text-gray-400"
+              className="salem-gift-details-close absolute right-4 top-4 rounded-full p-1 text-gray-500 dark:text-gray-400"
               aria-label={translateUi('Close gift details')}
             >
               <X size={18} />

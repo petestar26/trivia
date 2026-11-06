@@ -612,7 +612,7 @@ function MessagesContent({ userId }: { userId: string }) {
                     !!pendingText ||
                     !lifecycle.canWrite
                   }
-                  className="h-11 w-11 shrink-0 rounded-2xl bg-emerald-800 hover:bg-emerald-700"
+                  className="qube-chat-send h-11 w-11 shrink-0 rounded-2xl bg-emerald-800 hover:bg-emerald-700"
                 >
                   <Send size={18} />
                 </Button>
