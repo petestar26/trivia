@@ -6,9 +6,14 @@ import { getErrorMessage } from '@/lib/error-message';
 import { requestStatus } from '@/lib/request-error';
 import { clearPasswordResetLink, readPasswordResetLink } from '@/lib/password-reset-link';
 import { PasswordInput } from '@/components/member/password-input';
+import { LanguageSelect } from '@/components/layout/language-select';
+import '@/components/layout/public-language.css';
 import { Button } from '@/components/ui/button';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function PasswordResetPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [token, setToken] = useState(readPasswordResetLink);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -62,38 +67,49 @@ export function PasswordResetPage() {
     }
   }
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
+    <main className="salem-public-entry min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center gap-5 px-4 py-8">
+      <header className="w-full max-w-md flex justify-end">
+        <div className="salem-public-language">
+          <LanguageSelect />
+        </div>
+      </header>
       <section className="w-full max-w-md rounded-xl border bg-white dark:bg-gray-800 p-7 shadow-sm">
-        <p className="text-sm font-semibold text-primary-600 mb-2">SALEM BET · ACCOUNT RECOVERY</p>
+        <p className="text-sm font-semibold text-primary-600 mb-2">
+          {translateUi('SALEM BET · ACCOUNT RECOVERY')}
+        </p>
         <h1 className="text-2xl font-bold mb-3">
-          {done ? 'Your password is ready' : 'Set a new password'}
+          {done ? translateUi('Your password is ready') : translateUi('Set a new password')}
         </h1>
         {done ? (
           <div role="status">
-            <p className="mb-5">Your password was updated. Sign in again with your new password.</p>
-            <Link to="/admin/login" className="font-semibold text-primary-600">
-              Continue to administrator sign in
+            <p className="mb-5">
+              {translateUi('Your password was updated. Sign in again with your new password.')}
+            </p>
+            <Link to="/login" className="font-semibold text-primary-600">
+              {translateUi('Sign in')}
             </Link>
           </div>
         ) : !token ? (
           <p role="alert">
-            Open your current recovery link to set a new password. Links expire after 15 minutes and
-            can only be used once.
+            {translateUi(
+              'Open your current recovery link to set a new password. Links expire after 15 minutes and can only be used once.'
+            )}
           </p>
         ) : (
           <form onSubmit={submit} className="space-y-5">
             <p className="text-sm text-gray-600 dark:text-gray-300">
-              Choose a private password for your account. This link works once and expires after 15
-              minutes.
+              {translateUi(
+                'Choose a private password for your account. This link works once and expires after 15 minutes.'
+              )}
             </p>
             {error && (
               <p role="alert" className="text-sm text-red-600">
-                {error}
+                {translateUi(error)}
               </p>
             )}
             <div>
               <label htmlFor="new-password" className="block text-sm font-medium mb-2">
-                New password
+                {translateUi('New password')}
               </label>
               <PasswordInput
                 id="new-password"
@@ -104,12 +120,14 @@ export function PasswordResetPage() {
                 required
               />
               <p className="mt-2 text-xs text-gray-500">
-                At least 8 characters, with uppercase, lowercase, a number and a symbol.
+                {translateUi(
+                  'At least 8 characters, with uppercase, lowercase, a number and a symbol.'
+                )}
               </p>
             </div>
             <div>
               <label htmlFor="confirm-password" className="block text-sm font-medium mb-2">
-                Confirm new password
+                {translateUi('Confirm new password')}
               </label>
               <PasswordInput
                 id="confirm-password"
@@ -121,7 +139,7 @@ export function PasswordResetPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? 'Updating password…' : 'Save new password'}
+              {busy ? translateUi('Updating password…') : translateUi('Save new password')}
             </Button>
           </form>
         )}

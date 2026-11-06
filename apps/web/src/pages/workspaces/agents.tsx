@@ -4,9 +4,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
-import { formatEtb } from '@/lib/payment-money';
 import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
 import { staffLabel } from './agent-overview';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Agent = {
   id: string;
   displayName: string;
@@ -34,6 +35,8 @@ const actions: Record<string, Array<[string, string]>> = {
   ],
 };
 export function AdminAgents() {
+  const { t: translateUi, formatMinorCurrency: formatMoney } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const cache = useQueryClient();
   const [params] = useSearchParams();
@@ -113,10 +116,10 @@ export function AdminAgents() {
   return (
     <>
       <header className="workspace-heading">
-        <p>AGENT MANAGEMENT</p>
-        <h1>Agents</h1>
-        <span>Review agent access, operating status and account history.</span>
-        <Link to="/admin/agents/new">Add an agent →</Link>
+        <p>{translateUi('AGENT MANAGEMENT')}</p>
+        <h1>{translateUi('Agents')}</h1>
+        <span>{translateUi('Review agent access, operating status and account history.')}</span>
+        <Link to="/admin/agents/new">{translateUi('Add an agent →')}</Link>
       </header>
       <form
         className="workspace-search"
@@ -127,7 +130,7 @@ export function AdminAgents() {
           setSelection(null);
         }}
       >
-        <label htmlFor="agent-search">Name, username or email</label>
+        <label htmlFor="agent-search">{translateUi('Name, username or email')}</label>
         <input
           id="agent-search"
           maxLength={100}
@@ -135,7 +138,7 @@ export function AdminAgents() {
           disabled={busy}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <label htmlFor="agent-status">Status</label>
+        <label htmlFor="agent-status">{translateUi('Status')}</label>
         <select
           id="agent-status"
           value={status}
@@ -146,7 +149,7 @@ export function AdminAgents() {
             setSelection(null);
           }}
         >
-          <option value="">All statuses</option>
+          <option value="">{translateUi('All statuses')}</option>
           {[
             'ACTIVE',
             'PENDING_VERIFICATION',
@@ -155,22 +158,23 @@ export function AdminAgents() {
             'DISABLED',
           ].map((s) => (
             <option key={s} value={s}>
-              {staffLabel(s)}
+              {translateUi(staffLabel(s))}
             </option>
           ))}
         </select>
-        <button disabled={busy}>Search agents</button>
+        <button disabled={busy}>{translateUi('Search agents')}</button>
       </form>
       {notice && (
         <p role="status" className="workspace-panel">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {query.isPending ? (
-        <p role="status">Loading agents…</p>
+        <p role="status">{translateUi('Loading agents…')}</p>
       ) : query.isError ? (
         <p role="alert">
-          Agents could not load. <button onClick={() => query.refetch()}>Retry</button>
+          {translateUi('Agents could not load.') + ' '}
+          <button onClick={() => query.refetch()}>{translateUi('Retry')}</button>
         </p>
       ) : (
         <>
@@ -178,11 +182,11 @@ export function AdminAgents() {
             <table>
               <thead>
                 <tr>
-                  <th>Agent</th>
-                  <th>Country</th>
-                  <th>Status</th>
-                  <th>Available deposit funding</th>
-                  <th>Operations</th>
+                  <th>{translateUi('Agent')}</th>
+                  <th>{translateUi('Country')}</th>
+                  <th>{translateUi('Status')}</th>
+                  <th>{translateUi('Available deposit funding')}</th>
+                  <th>{translateUi('Operations')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,15 +200,25 @@ export function AdminAgents() {
                     </td>
                     <td>{a.country.name}</td>
                     <td>
-                      {staffLabel(a.status)}
-                      <small>Member: {staffLabel(a.user.status)}</small>
+                      {translateUi(staffLabel(a.status))}
+                      <small>
+                        {translateUi('Member: {value}', {
+                          value: translateUi(staffLabel(a.user.status)),
+                        })}
+                      </small>
                     </td>
                     <td>
-                      {formatEtb(a.availableDepositFunding)}
-                      <small>{a._count.paymentAccounts} receiving accounts</small>
+                      {formatMoney(a.availableDepositFunding)}
+                      <small>
+                        {translateUi('{paymentAccounts} receiving accounts', {
+                          paymentAccounts: a._count.paymentAccounts,
+                        })}
+                      </small>
                     </td>
                     <td>
-                      <Link to={`/admin/accounts/${a.user.id}`}>Account details</Link>
+                      <Link to={`/admin/accounts/${a.user.id}`}>
+                        {translateUi('Account details')}
+                      </Link>
                       {a.user.id !== user?.id &&
                         (actions[a.status] ?? []).map(([action, label]) => (
                           <button
@@ -216,18 +230,18 @@ export function AdminAgents() {
                               setConfirmed(false);
                             }}
                           >
-                            {label}
+                            {translateUi(label)}
                           </button>
                         ))}
                       {a.status === 'PENDING_VERIFICATION' && (
-                        <Link to="/admin/payments">Review application</Link>
+                        <Link to="/admin/payments">{translateUi('Review application')}</Link>
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!query.data.rows.length && <p>No matching agents.</p>}
+            {!query.data.rows.length && <p>{translateUi('No matching agents.')}</p>}
           </div>
           <div className="workspace-pagination">
             <button
@@ -237,10 +251,10 @@ export function AdminAgents() {
                 setSelection(null);
               }}
             >
-              Previous
+              {translateUi('Previous')}
             </button>
             <span>
-              Page {page} · {query.data.total} {query.data.total === 1 ? 'agent' : 'agents'}
+              {translateUi('Page {page} · {count} agents', { page, count: query.data.total })}
             </span>
             <button
               disabled={busy || page * query.data.pageSize >= query.data.total}
@@ -249,7 +263,7 @@ export function AdminAgents() {
                 setSelection(null);
               }}
             >
-              Next
+              {translateUi('Next')}
             </button>
           </div>
         </>
@@ -257,17 +271,23 @@ export function AdminAgents() {
       {selected && selection && (
         <form className="workspace-panel workspace-account-form" onSubmit={change}>
           <h2>
-            {selection.label}: {selected.displayName}
+            {translateUi(selection.label)}: {selected.displayName}
           </h2>
           <p>
-            Current status: {staffLabel(selected.status)}. The member login and financial history
-            are preserved.
+            {translateUi(
+              'Current status: {value}. The member login and financial history are preserved.',
+              { value: translateUi(staffLabel(selected.status)) }
+            )}
           </p>
           {selection.action === 'disable' && (
-            <p>Disabling ends this agent profile permanently. It cannot be reactivated.</p>
+            <p>
+              {translateUi(
+                'Disabling ends this agent profile permanently. It cannot be reactivated.'
+              )}
+            </p>
           )}
           <label>
-            Reason
+            {translateUi('Reason')}
             <textarea
               required
               minLength={5}
@@ -287,19 +307,21 @@ export function AdminAgents() {
               disabled={busy || query.isFetching}
               onChange={(e) => setConfirmed(e.target.checked)}
             />
-            I reviewed this agent and the requested status change.
+            {translateUi('I reviewed this agent and the requested status change.')}
           </label>
           <button disabled={busy || !confirmed || query.isFetching || reason.trim().length < 5}>
-            {busy ? 'Updating agent…' : `Confirm ${selection.label.toLowerCase()}`}
+            {busy
+              ? translateUi('Updating agent…')
+              : translateUi('Confirm {value}', { value: selection.label.toLowerCase() })}
           </button>
           <button type="button" disabled={busy} onClick={() => setSelection(null)}>
-            Cancel
+            {translateUi('Cancel')}
           </button>
         </form>
       )}
       <p className="workspace-muted">
-        Receiving accounts, verified backing and payout liquidity are managed in{' '}
-        <Link to="/admin/payments">Payment configuration</Link>.
+        {translateUi('Receiving accounts, verified backing and payout liquidity are managed in')}{' '}
+        <Link to="/admin/payments">{translateUi('Payment configuration')}</Link>.
       </p>
     </>
   );

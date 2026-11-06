@@ -1,4 +1,6 @@
 import { InstallAppButton, InstallAppCard } from '@/components/app-install';
+import { LanguageSelect } from '@/components/layout/language-select';
+import '@/components/layout/public-language.css';
 import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, MessageCircle, Sparkles, Pause, Play } from 'lucide-react';
@@ -7,6 +9,7 @@ import { useMemberTheme } from '@/components/member/use-member-theme';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { compareMemberGameKeys } from '@/lib/member-game-catalog';
 import './welcome.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const collection = [
   ['crash_point', 'Crash Point', '/games/crash-point'],
@@ -25,24 +28,32 @@ const collection = [
 const orderedCollection = [...collection].sort(([a], [b]) => compareMemberGameKeys(a, b));
 
 function PublicHeader() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { isAuthenticated } = useAuth();
   return (
     <header className="pq-public-header">
       <Link className="pq-public-brand" to="/">
-        SALEM<span> BET</span>
-        <small>THE MEMBER LOUNGE</small>
+        {translateUi('SALEM')}
+        <span>{' ' + translateUi('BET')}</span>
+        <small>{translateUi('THE MEMBER LOUNGE')}</small>
       </Link>
-      <nav aria-label="Account">
+      <nav aria-label={translateUi('Account')}>
+        <div className="salem-public-language">
+          <LanguageSelect />
+        </div>
         <InstallAppButton />
         {isAuthenticated ? (
           <Link className="pq-public-account" to="/dashboard">
-            Open your lounge <ArrowUpRight size={15} />
+            {translateUi('Open your lounge') + ' '}
+            <ArrowUpRight size={15} />
           </Link>
         ) : (
           <>
-            <Link to="/login">Sign in</Link>
+            <Link to="/login">{translateUi('Sign in')}</Link>
             <Link className="pq-public-account" to="/register">
-              Create account <ArrowUpRight size={15} />
+              {translateUi('Create account') + ' '}
+              <ArrowUpRight size={15} />
             </Link>
           </>
         )}
@@ -52,40 +63,45 @@ function PublicHeader() {
 }
 
 export function WelcomePage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   useMemberTheme();
   const { isAuthenticated } = useAuth();
   const [paused, setPaused] = useState(false);
   if (isAuthenticated) return <Navigate to="/dashboard" replace />;
   return (
-    <div className={`pq-public pq-welcome ${paused ? 'is-paused' : ''}`}>
+    <div className={`pq-public pq-welcome salem-public-entry ${paused ? 'is-paused' : ''}`}>
       <PublicHeader />
       <main className="pq-welcome-stage">
         <div className="pq-welcome-copy">
-          <p className="pq-public-eyebrow">RUBY GRAND · SALEM BET</p>
+          <p className="pq-public-eyebrow">{translateUi('RUBY GRAND · SALEM BET')}</p>
           <h1>
-            A world of play.
+            {translateUi('A world of play.')}
             <br />
-            <em>Your kind of company.</em>
+            <em>{translateUi('Your kind of company.')}</em>
           </h1>
           <p>
-            Step into the lounge. Discover the collection, find your people, and choose your next
-            game.
+            {translateUi(
+              'Step into the lounge. Discover the collection, find your people, and choose your next game.'
+            )}
           </p>
           <Link to="/explore" className="pq-public-primary">
-            Enter the lounge <ArrowRight size={19} />
+            {translateUi('Enter the lounge') + ' '}
+            <ArrowRight size={19} />
           </Link>
-          <small>Browse first. Sign in when you're ready to join.</small>
+          <small>{translateUi("Browse first. Sign in when you're ready to join.")}</small>
           <InstallAppCard />
         </div>
         <div className="pq-welcome-sculpture" aria-hidden="true">
           <div className="pq-orbit pq-orbit-one" />
           <div className="pq-orbit pq-orbit-two" />
           <div className="pq-monogram">
-            S<span>SALEM BET</span>
+            {'S'}
+            <span>{'SALEM BET'}</span>
           </div>
-          <div className="pq-chip pq-chip-one">PLAY</div>
-          <div className="pq-chip pq-chip-two">CONNECT</div>
-          <div className="pq-chip pq-chip-three">DISCOVER</div>
+          <div className="pq-chip pq-chip-one">{translateUi('PLAY')}</div>
+          <div className="pq-chip pq-chip-two">{translateUi('CONNECT')}</div>
+          <div className="pq-chip pq-chip-three">{translateUi('DISCOVER')}</div>
           <div className="pq-sculpture-base" />
         </div>
         <button
@@ -95,15 +111,17 @@ export function WelcomePage() {
           onClick={() => setPaused(!paused)}
         >
           {paused ? <Play size={14} /> : <Pause size={14} />}
-          {paused ? 'Resume animation' : 'Pause animation'}
+          {paused ? translateUi('Resume animation') : translateUi('Pause animation')}
         </button>
       </main>
       <footer className="pq-public-footer">
         <span>
-          <Sparkles size={16} /> Play. Connect. Discover.
+          <Sparkles size={16} />
+          {' ' + translateUi('Play. Connect. Discover.')}
         </span>
         <Link to="/explore">
-          Discover what’s inside <ArrowRight size={15} />
+          {translateUi('Discover what’s inside') + ' '}
+          <ArrowRight size={15} />
         </Link>
       </footer>
     </div>
@@ -112,29 +130,35 @@ export function WelcomePage() {
 
 /** Public discovery uses no authenticated feeds, private groups, balances or fabricated winners. */
 export function ExplorePage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   useMemberTheme();
   const { isAuthenticated } = useAuth();
   return (
-    <div className="pq-public pq-explore">
+    <div className="pq-public pq-explore salem-public-entry">
       <PublicHeader />
       <main>
         <section className="pq-explore-intro">
-          <p className="pq-public-eyebrow">WELCOME TO THE LOUNGE</p>
+          <p className="pq-public-eyebrow">{translateUi('WELCOME TO THE LOUNGE')}</p>
           <h1>
-            Look around.
+            {translateUi('Look around.')}
             <br />
-            <em>Find your next game.</em>
+            <em>{translateUi('Find your next game.')}</em>
           </h1>
           <p>
             {isAuthenticated
-              ? 'Explore the collection. Choose a game to check availability, or open your member lounge.'
-              : 'Explore the collection without an account. Sign in to check availability and join a game or group.'}
+              ? translateUi(
+                  'Explore the collection. Choose a game to check availability, or open your member lounge.'
+                )
+              : translateUi(
+                  'Explore the collection without an account. Sign in to check availability and join a game or group.'
+                )}
           </p>
         </section>
         <section aria-labelledby="public-collection">
           <div className="pq-public-section-title">
-            <h2 id="public-collection">The game collection</h2>
-            <span>Choose your next experience.</span>
+            <h2 id="public-collection">{translateUi('The game collection')}</h2>
+            <span>{translateUi('Choose your next experience.')}</span>
           </div>
           <div className="pq-public-games">
             {orderedCollection.map(([key, name, destination]) => {
@@ -142,9 +166,11 @@ export function ExplorePage() {
                 <>
                   <GameArtwork kind={key} practiceAvailable={false} />
                   <div>
-                    <h3>{name}</h3>
+                    <h3>{translateUi(name)}</h3>
                     <span>
-                      {isAuthenticated ? 'Check availability' : 'Sign in to check availability'}
+                      {isAuthenticated
+                        ? translateUi('Check availability')
+                        : translateUi('Sign in to check availability')}
                       <ArrowUpRight size={14} />
                     </span>
                   </div>
@@ -168,12 +194,14 @@ export function ExplorePage() {
             <MessageCircle size={35} />
           </div>
           <div>
-            <p className="pq-public-eyebrow">BETTER TOGETHER</p>
-            <h2 id="public-groups">A place for your people.</h2>
+            <p className="pq-public-eyebrow">{translateUi('BETTER TOGETHER')}</p>
+            <h2 id="public-groups">{translateUi('A place for your people.')}</h2>
             <p>
               {isAuthenticated
-                ? 'Open groups to find your conversations and membership options.'
-                : 'Discover groups, join the conversation and choose a game together. Sign in to view groups and membership options.'}
+                ? translateUi('Open groups to find your conversations and membership options.')
+                : translateUi(
+                    'Discover groups, join the conversation and choose a game together. Sign in to view groups and membership options.'
+                  )}
             </p>
           </div>
           <Link
@@ -181,14 +209,16 @@ export function ExplorePage() {
             to={isAuthenticated ? '/groups' : '/login'}
             state={isAuthenticated ? undefined : { from: { pathname: '/groups' } }}
           >
-            Find a group <ArrowRight size={17} />
+            {translateUi('Find a group') + ' '}
+            <ArrowRight size={17} />
           </Link>
         </section>
       </main>
       <footer className="pq-public-footer">
-        <span>Browsing is public. Joining requires an account.</span>
+        <span>{translateUi('Browsing is public. Joining requires an account.')}</span>
         <Link to={isAuthenticated ? '/dashboard' : '/register'}>
-          {isAuthenticated ? 'Open your lounge' : 'Create your account'} <ArrowRight size={15} />
+          {isAuthenticated ? translateUi('Open your lounge') : translateUi('Create your account')}{' '}
+          <ArrowRight size={15} />
         </Link>
       </footer>
     </div>

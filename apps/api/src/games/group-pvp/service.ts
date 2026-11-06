@@ -201,6 +201,11 @@ export function createGroupPvpService(db: PrismaClient) {
       const active =
         await tx.$queryRaw`SELECT id FROM group_pvp_rounds WHERE group_id=${groupId} AND state IN ('OPEN','COUNTDOWN','DRAWN')`;
       if ((active as unknown[]).length) throw ApiError.conflict('Finish the current game first');
+      const together = await tx.$queryRawUnsafe<unknown[]>(
+        'SELECT id FROM play_together_rounds WHERE group_id=$1 AND state IN (\'OPEN\',\'LOCKED\',\'DRAWN\')',
+        groupId
+      );
+      if (together.length) throw ApiError.conflict('Finish the current shared round first');
       await requireOpenGroup(tx, g);
       const id = randomUUID();
       const now = await clock(tx);

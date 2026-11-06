@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,18 +9,31 @@ import { GROUP_LIST_QUERY_KEYS } from '@/lib/groups-query-keys';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const STATUS_MESSAGE: Record<string, { message: string; hint?: string }> = {
   ACCEPTED: { message: 'This invite has already been accepted.' },
-  REVOKED: { message: 'This invite has been revoked.', hint: 'Ask a group owner or admin to send you a new one.' },
-  EXPIRED: { message: 'This invite has expired.', hint: 'Ask a group owner or admin to send you a new one.' },
+  REVOKED: {
+    message: 'This invite has been revoked.',
+    hint: 'Ask a group owner or admin to send you a new one.',
+  },
+  EXPIRED: {
+    message: 'This invite has expired.',
+    hint: 'Ask a group owner or admin to send you a new one.',
+  },
 };
 
 type LoadFailure = 'invalid' | 'unavailable';
 
-const normalize = (text: string) => text.trim().replace(/[.\s]+$/, '').toLowerCase();
+const normalize = (text: string) =>
+  text
+    .trim()
+    .replace(/[.\s]+$/, '')
+    .toLowerCase();
 
 export function GroupInviteAcceptPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -47,14 +61,21 @@ export function GroupInviteAcceptPage() {
     mutationFn: () => api.acceptGroupInvite(token!),
     onSuccess: () => {
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
-      toast({ title: 'Invite accepted', description: 'You have joined the group.' });
+      toast({
+        title: <LocalizedText message="Invite accepted" />,
+        description: <LocalizedText message="You have joined the group." />,
+      });
       navigate('/groups', { replace: true });
     },
     onError: (err) => {
       // The reason stays on the page (below) — a toast disappears, and this is
       // the message the user has to act on ("verify your email", "this invite
       // is for another address", "you are banned"). The toast is only an echo.
-      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to accept invite'), variant: 'destructive' });
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: getErrorMessage(err, 'Failed to accept invite'),
+        variant: 'destructive',
+      });
       // The failure may mean the invite itself just changed state (revoked,
       // expired, taken): bring the page in line with what the server now says.
       queryClient.invalidateQueries({ queryKey: ['group-invite-info', token] });
@@ -90,9 +111,19 @@ export function GroupInviteAcceptPage() {
   // user otherwise hears nothing at all until the page is ready.
   if (inviteQuery.isLoading && !retrying) {
     return (
-      <div role="status" aria-live="polite" aria-busy="true" className="flex flex-col items-center justify-center gap-3 py-20">
-        <div aria-hidden="true" className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
-        <p className="text-sm text-gray-600 dark:text-gray-400">Loading invitation…</p>
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="flex flex-col items-center justify-center gap-3 py-20"
+      >
+        <div
+          aria-hidden="true"
+          className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent"
+        />
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          {translateUi('Loading invitation…')}
+        </p>
       </div>
     );
   }
@@ -104,12 +135,16 @@ export function GroupInviteAcceptPage() {
         <Card>
           <CardContent className="py-8 space-y-4 text-center">
             <p role="alert" className="text-red-600 dark:text-red-400">
-              {invalid ? 'Invalid or unrecognized invite link.' : "Couldn't load this invitation."}
+              {invalid
+                ? translateUi('Invalid or unrecognized invite link.')
+                : translateUi("Couldn't load this invitation.")}
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {invalid
-                ? 'Check that you copied the whole link, or ask the person who invited you to send it again.'
-                : 'Check your connection, then try again.'}
+                ? translateUi(
+                    'Check that you copied the whole link, or ask the person who invited you to send it again.'
+                  )
+                : translateUi('Check your connection, then try again.')}
             </p>
             <div className="flex items-center justify-center gap-2">
               {!invalid && (
@@ -123,11 +158,11 @@ export function GroupInviteAcceptPage() {
                     void retry(e.currentTarget);
                   }}
                 >
-                  {retrying ? 'Retrying…' : 'Try again'}
+                  {retrying ? translateUi('Retrying…') : translateUi('Try again')}
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={() => navigate('/groups')}>
-                Back to groups
+                {translateUi('Back to groups')}
               </Button>
             </div>
           </CardContent>
@@ -139,28 +174,35 @@ export function GroupInviteAcceptPage() {
   const invite = inviteQuery.data;
   const isTerminal = invite.status !== 'PENDING';
   const terminal = STATUS_MESSAGE[invite.status] ?? { message: 'Invite is no longer active.' };
-  const acceptFailure = acceptMutation.isError ? getErrorMessage(acceptMutation.error, 'Failed to accept invite') : null;
+  const acceptFailure = acceptMutation.isError
+    ? getErrorMessage(acceptMutation.error, 'Failed to accept invite')
+    : null;
   // A failed accept can be exactly what revealed the invite is no longer live;
   // then the alert already says it, and repeating it as a paragraph adds noise.
-  const alertSaysIt = acceptFailure !== null && normalize(acceptFailure) === normalize(terminal.message);
+  const alertSaysIt =
+    acceptFailure !== null && normalize(acceptFailure) === normalize(terminal.message);
 
   return (
     <div className="max-w-lg mx-auto p-4 space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-lg" ref={headingRef} tabIndex={-1}>
-            Group invitation
+            {translateUi('Group invitation')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            You have been invited to join <strong>{invite.group.name}</strong>
-            {invite.group.isPrivate && ' (Private group)'}.
+            {translateUi('You have been invited to join {group}', { group: invite.group.name })}
+            {invite.group.isPrivate && ' ' + translateUi('(Private group)')}.
           </p>
           {isTerminal ? (
             <div className="space-y-1">
-              {!alertSaysIt && <p className="text-sm text-gray-500">{terminal.message}</p>}
-              {terminal.hint && <p className="text-sm text-gray-500">{terminal.hint}</p>}
+              {!alertSaysIt && (
+                <p className="text-sm text-gray-500">{translateUi(terminal.message)}</p>
+              )}
+              {terminal.hint && (
+                <p className="text-sm text-gray-500">{translateUi(terminal.hint)}</p>
+              )}
             </div>
           ) : (
             /* aria-disabled, not `disabled`: this is the control the user just
@@ -176,7 +218,7 @@ export function GroupInviteAcceptPage() {
                 acceptMutation.mutate();
               }}
             >
-              {acceptMutation.isPending ? 'Accepting…' : 'Accept invite'}
+              {acceptMutation.isPending ? translateUi('Accepting…') : translateUi('Accept invite')}
             </Button>
           )}
           {/* Outside the branch above on purpose: it must survive the page
@@ -188,7 +230,7 @@ export function GroupInviteAcceptPage() {
             </p>
           )}
           <Button variant="outline" size="sm" onClick={() => navigate('/groups')}>
-            Back to groups
+            {translateUi('Back to groups')}
           </Button>
         </CardContent>
       </Card>

@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,11 @@ import { GroupDetailPage } from './group-detail';
 // PAGE to be right before that refetch lands hold the refetch open.
 
 const authState = vi.hoisted(() => ({
-  current: { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' } as { id: string; username: string; displayName: string } | null,
+  current: { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' } as {
+    id: string;
+    username: string;
+    displayName: string;
+  } | null,
 }));
 
 vi.mock('@/providers/auth-provider', () => ({
@@ -43,7 +48,7 @@ vi.mock('@/lib/api', () => ({
 // One shared reference, so a test can assert on what was shown to the user.
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
+  useToast: () => ({ toast: (payload: unknown) => toastMock(toastDisplay(payload)) }),
 }));
 
 import { api } from '@/lib/api';
@@ -100,15 +105,17 @@ function deferred<T = unknown>() {
 /** A tiny server: honours paging, and forgets a member once unbanned. */
 function installServer(initial: GroupBannedMemberInfo[]) {
   const state = { rows: [...initial], lists: [] as { page: number; limit: number }[] };
-  mocked.listBannedMembers.mockImplementation(async (_groupId: string, params: { page: number; limit: number }) => {
-    state.lists.push(params);
-    const start = (params.page - 1) * params.limit;
-    return {
-      success: true,
-      data: state.rows.slice(start, start + params.limit),
-      meta: pageMeta(params.page, params.limit, state.rows.length),
-    };
-  });
+  mocked.listBannedMembers.mockImplementation(
+    async (_groupId: string, params: { page: number; limit: number }) => {
+      state.lists.push(params);
+      const start = (params.page - 1) * params.limit;
+      return {
+        success: true,
+        data: state.rows.slice(start, start + params.limit),
+        meta: pageMeta(params.page, params.limit, state.rows.length),
+      };
+    }
+  );
   mocked.unbanGroupMember.mockImplementation(async (_groupId: string, userId: string) => {
     state.rows = state.rows.filter((r) => r.user.id !== userId);
     return { success: true, data: { message: 'Member unbanned' } };
@@ -116,7 +123,11 @@ function installServer(initial: GroupBannedMemberInfo[]) {
   return state;
 }
 
-function renderPage(client: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
+function renderPage(
+  client: QueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+) {
   return {
     client,
     ...render(
@@ -137,7 +148,11 @@ beforeEach(() => {
   authState.current = { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' };
   mocked.getGroup.mockResolvedValue({ data: baseGroup });
   mocked.getGroupMembers.mockResolvedValue({ data: [] });
-  mocked.listGroupInvites.mockResolvedValue({ success: true, data: [], meta: { ...pageMeta(1, 50, 0), totalPages: 0 } });
+  mocked.listGroupInvites.mockResolvedValue({
+    success: true,
+    data: [],
+    meta: { ...pageMeta(1, 50, 0), totalPages: 0 },
+  });
   mocked.listJoinRequests.mockResolvedValue({ data: [] });
 });
 
@@ -147,35 +162,43 @@ const confirmation = (name: string) => screen.findByRole('group', { name: `Unban
 const loadMore = () => screen.getByRole('button', { name: /^(Load more|Loading…)$/ });
 
 describe('banned members section — who sees it', () => {
-  it.each(['OWNER', 'ADMIN'])('%s sees the banned members, fetched once with the group id', async (role) => {
-    mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: role } });
-    installServer(bannedRows(2));
-    renderPage();
+  it.each(['OWNER', 'ADMIN'])(
+    '%s sees the banned members, fetched once with the group id',
+    async (role) => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: role } });
+      installServer(bannedRows(2));
+      renderPage();
 
-    const region = await section();
-    expect(await within(region).findByText('Banned 1')).toBeInTheDocument();
-    expect(within(region).getByText('Banned 2')).toBeInTheDocument();
-    expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(2);
-    expect(mocked.listBannedMembers).toHaveBeenCalledTimes(1);
-    expect(mocked.listBannedMembers).toHaveBeenCalledWith('g-1', { limit: 20, page: 1 });
-  });
+      const region = await section();
+      expect(await within(region).findByText('Banned 1')).toBeInTheDocument();
+      expect(within(region).getByText('Banned 2')).toBeInTheDocument();
+      expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(2);
+      expect(mocked.listBannedMembers).toHaveBeenCalledTimes(1);
+      expect(mocked.listBannedMembers).toHaveBeenCalledWith('g-1', { limit: 20, page: 1 });
+    }
+  );
 
-  it.each(['MEMBER', 'MODERATOR'])('a %s never sees the section, and the banned list is never even requested', async (role) => {
-    mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: role } });
-    installServer(bannedRows(2));
-    renderPage();
+  it.each(['MEMBER', 'MODERATOR'])(
+    'a %s never sees the section, and the banned list is never even requested',
+    async (role) => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: role } });
+      installServer(bannedRows(2));
+      renderPage();
 
-    await screen.findByText('Test Group');
-    await waitFor(() => expect(mocked.getGroupMembers).toHaveBeenCalled());
-    expect(screen.queryByRole('region', { name: 'Banned members' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Banned members')).not.toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent('Banned 1');
-    expect(screen.queryByRole('button', { name: /^Unban / })).not.toBeInTheDocument();
-    expect(mocked.listBannedMembers).not.toHaveBeenCalled();
-  });
+      await screen.findByText('Test Group');
+      await waitFor(() => expect(mocked.getGroupMembers).toHaveBeenCalled());
+      expect(screen.queryByRole('region', { name: 'Banned members' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Banned members')).not.toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent('Banned 1');
+      expect(screen.queryByRole('button', { name: /^Unban / })).not.toBeInTheDocument();
+      expect(mocked.listBannedMembers).not.toHaveBeenCalled();
+    }
+  );
 
   it('a viewer who is not a member sees nothing of it either', async () => {
-    mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isMember: false, memberRole: null } });
+    mocked.getGroup.mockResolvedValue({
+      data: { ...baseGroup, isMember: false, memberRole: null },
+    });
     installServer(bannedRows(2));
     renderPage();
 
@@ -184,16 +207,19 @@ describe('banned members section — who sees it', () => {
     expect(mocked.listBannedMembers).not.toHaveBeenCalled();
   });
 
-  it.each(['ARCHIVED', 'INACTIVE'])('a manager of a %s group gets no section (the API refuses inactive groups)', async (status) => {
-    mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, status } });
-    installServer(bannedRows(2));
-    renderPage();
+  it.each(['ARCHIVED', 'INACTIVE'])(
+    'a manager of a %s group gets no section (the API refuses inactive groups)',
+    async (status) => {
+      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, status } });
+      installServer(bannedRows(2));
+      renderPage();
 
-    await screen.findByText('Test Group');
-    await waitFor(() => expect(mocked.getGroupMembers).toHaveBeenCalled());
-    expect(screen.queryByText('Banned members')).not.toBeInTheDocument();
-    expect(mocked.listBannedMembers).not.toHaveBeenCalled();
-  });
+      await screen.findByText('Test Group');
+      await waitFor(() => expect(mocked.getGroupMembers).toHaveBeenCalled());
+      expect(screen.queryByText('Banned members')).not.toBeInTheDocument();
+      expect(mocked.listBannedMembers).not.toHaveBeenCalled();
+    }
+  );
 
   it('says so when nobody is banned', async () => {
     installServer([]);
@@ -224,7 +250,9 @@ describe('banned members section — who sees it', () => {
     renderPage();
 
     const region = await section();
-    expect(await within(region).findByRole('alert')).toHaveTextContent("Couldn't load banned members.");
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      "Couldn't load banned members."
+    );
     fireEvent.click(within(region).getByRole('button', { name: 'Retry loading banned members' }));
     expect(await within(region).findByText('Banned 1')).toBeInTheDocument();
     expect(within(region).queryByRole('alert')).not.toBeInTheDocument();
@@ -249,7 +277,11 @@ describe('banned members section — pagination', () => {
     fireEvent.click(loadMore());
     await within(region).findByText('Banned 45');
     expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(45);
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^(Load more|Loading…)$/ })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /^(Load more|Loading…)$/ })
+      ).not.toBeInTheDocument()
+    );
     expect(server.lists).toEqual([
       { limit: 20, page: 1 },
       { limit: 20, page: 2 },
@@ -307,7 +339,9 @@ describe('banned members section — pagination', () => {
 
     fireEvent.click(loadMore());
 
-    await waitFor(() => expect(within(region).getByRole('status', { name: '' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(region).getByRole('status', { name: '' })).toBeInTheDocument()
+    );
     await waitFor(() => expect(region).toHaveTextContent('Loaded 3 more banned members.'));
   });
 
@@ -320,13 +354,17 @@ describe('banned members section — pagination', () => {
 
     fireEvent.click(loadMore());
 
-    expect(await within(region).findByRole('alert')).toHaveTextContent("Couldn't load more banned members.");
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      "Couldn't load more banned members."
+    );
     expect(region).toHaveTextContent('Failed to load more banned members.');
     expect(region).not.toHaveTextContent(/Loaded \d+ more/);
     // Every loaded row is still there.
     expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(20);
 
-    fireEvent.click(within(region).getByRole('button', { name: 'Retry loading more banned members' }));
+    fireEvent.click(
+      within(region).getByRole('button', { name: 'Retry loading more banned members' })
+    );
     await within(region).findByText('Banned 30');
     expect(within(region).queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -342,7 +380,11 @@ describe('banned members section — pagination', () => {
     fireEvent.click(control);
 
     await within(region).findByText('Banned 21');
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^(Load more|Loading…)$/ })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /^(Load more|Loading…)$/ })
+      ).not.toBeInTheDocument()
+    );
     await waitFor(() => expect(unbanButton(21)).toHaveFocus());
   });
 });
@@ -384,7 +426,13 @@ describe('unbanning — the confirmation', () => {
   it('falls back to the username for a member with no display name', async () => {
     mocked.listBannedMembers.mockResolvedValue({
       success: true,
-      data: [{ id: 'bm-x', groupId: 'g-1', user: { id: 'u-x', username: 'plainuser', displayName: null, avatarUrl: null } }],
+      data: [
+        {
+          id: 'bm-x',
+          groupId: 'g-1',
+          user: { id: 'u-x', username: 'plainuser', displayName: null, avatarUrl: null },
+        },
+      ],
       meta: pageMeta(1, 20, 1),
     });
     renderPage();
@@ -401,7 +449,9 @@ describe('unbanning — the confirmation', () => {
     fireEvent.click(unbanButton(2));
 
     await confirmation('Banned 2');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm unban' })).toHaveFocus());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Confirm unban' })).toHaveFocus()
+    );
   });
 
   it('Cancel sends nothing, closes the confirmation, and puts focus back on the Unban button that opened it', async () => {
@@ -460,7 +510,9 @@ describe('unbanning — the request', () => {
       expect(region).toHaveTextContent('Unbanning Banned 2…');
 
       request.resolve({ success: true, data: { message: 'Member unbanned' } });
-      await waitFor(() => expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument()
+      );
     });
 
     it('is aria-disabled, never natively disabled (so focus is not dropped), and clicks on it, Cancel and other rows do nothing', async () => {
@@ -483,7 +535,9 @@ describe('unbanning — the request', () => {
       expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
 
       request.resolve({ success: true, data: { message: 'Member unbanned' } });
-      await waitFor(() => expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument()
+      );
     });
   });
 
@@ -502,7 +556,9 @@ describe('unbanning — the request', () => {
     // (The mutation calls the API a microtask after `mutate`, hence the wait.)
     await waitFor(() => expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1));
     request.resolve({ success: true, data: { message: 'Member unbanned' } });
-    await waitFor(() => expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument()
+    );
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
   });
 
@@ -520,7 +576,10 @@ describe('unbanning — the request', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
     await waitFor(() => expect(screen.queryByText('Banned 3')).not.toBeInTheDocument());
 
-    expect(mocked.unbanGroupMember.mock.calls.map((c: unknown[]) => c[1])).toEqual(['u-b2', 'u-b3']);
+    expect(mocked.unbanGroupMember.mock.calls.map((c: unknown[]) => c[1])).toEqual([
+      'u-b2',
+      'u-b3',
+    ]);
     expect(within(region).getByText('Banned 1')).toBeInTheDocument();
   });
 });
@@ -546,7 +605,9 @@ describe('unbanning — success', () => {
     expect(mocked.listBannedMembers).toHaveBeenCalledTimes(2);
 
     refetch.resolve(await answer('g-1', { page: 1, limit: 20 }));
-    await waitFor(() => expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(2));
+    await waitFor(() =>
+      expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(2)
+    );
     expect(server.rows.map((r) => r.user.id)).toEqual(['u-b1', 'u-b3']);
   });
 
@@ -583,10 +644,13 @@ describe('unbanning — success', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith({
         title: 'Member unbanned',
-        description: 'Banned 1 was unbanned from Test Group. They may request to join again or receive a new invitation.',
+        description:
+          'Banned 1 was unbanned from Test Group. They may request to join again or receive a new invitation.',
       })
     );
-    await waitFor(() => expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus());
+    await waitFor(() =>
+      expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus()
+    );
     expect(document.activeElement).not.toBe(document.body);
     expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument();
   });
@@ -615,10 +679,18 @@ describe('unbanning — success', () => {
       expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey }));
     }
     // ...and each active one actually went back to the server.
-    await waitFor(() => expect(mocked.listBannedMembers.mock.calls.length).toBeGreaterThan(listCallsBefore));
-    await waitFor(() => expect(mocked.getGroup.mock.calls.length).toBeGreaterThan(groupCallsBefore));
-    await waitFor(() => expect(mocked.getGroupMembers.mock.calls.length).toBeGreaterThan(membersCallsBefore));
-    await waitFor(() => expect(mocked.listJoinRequests.mock.calls.length).toBeGreaterThan(requestsCallsBefore));
+    await waitFor(() =>
+      expect(mocked.listBannedMembers.mock.calls.length).toBeGreaterThan(listCallsBefore)
+    );
+    await waitFor(() =>
+      expect(mocked.getGroup.mock.calls.length).toBeGreaterThan(groupCallsBefore)
+    );
+    await waitFor(() =>
+      expect(mocked.getGroupMembers.mock.calls.length).toBeGreaterThan(membersCallsBefore)
+    );
+    await waitFor(() =>
+      expect(mocked.listJoinRequests.mock.calls.length).toBeGreaterThan(requestsCallsBefore)
+    );
   });
 });
 
@@ -626,7 +698,9 @@ describe('unbanning — failure', () => {
   it('keeps the row, says why through the toast, and puts focus back on the Unban button that is still there', async () => {
     installServer(bannedRows(3));
     // The server did NOT change anything: the refetch still lists everyone.
-    mocked.unbanGroupMember.mockRejectedValue(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
+    mocked.unbanGroupMember.mockRejectedValue(
+      new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' }))
+    );
     renderPage();
     const region = await section();
     await within(region).findByText('Banned 2');
@@ -641,12 +715,16 @@ describe('unbanning — failure', () => {
         variant: 'destructive',
       })
     );
-    await waitFor(() => expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument()
+    );
     // Nobody left the list.
     expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(3);
     expect(within(region).getByText('Banned 2')).toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
-    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }));
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Member unbanned' })
+    );
   });
 
   it('falls back to a generic message when the error carries none', async () => {
@@ -688,20 +766,26 @@ describe('unbanning — failure', () => {
       })
     );
     await waitFor(() => expect(within(region).queryByText('Banned 2')).not.toBeInTheDocument());
-    await waitFor(() => expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus());
+    await waitFor(() =>
+      expect(within(region).getByRole('heading', { name: 'Banned members' })).toHaveFocus()
+    );
     expect(within(region).getAllByRole('button', { name: /^Unban / })).toHaveLength(2);
   });
 
   it('after a failure the same member can be tried again', async () => {
     installServer(bannedRows(2));
-    mocked.unbanGroupMember.mockRejectedValueOnce(new Error(JSON.stringify({ status: 500, message: 'Try later' })));
+    mocked.unbanGroupMember.mockRejectedValueOnce(
+      new Error(JSON.stringify({ status: 500, message: 'Try later' }))
+    );
     renderPage();
     const region = await section();
     await within(region).findByText('Banned 1');
 
     fireEvent.click(unbanButton(1));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
-    await waitFor(() => expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument()
+    );
 
     fireEvent.click(unbanButton(1));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
@@ -713,8 +797,22 @@ describe('unbanning — failure', () => {
 
 describe('the rest of the page is unchanged', () => {
   const members = [
-    { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-    { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+    {
+      id: 'm1',
+      groupId: 'g-1',
+      user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+      role: 'OWNER',
+      status: 'ACTIVE',
+      joinedAt: '',
+    },
+    {
+      id: 'm2',
+      groupId: 'g-1',
+      user: { id: 'u-mem', username: 'member', displayName: 'Member' },
+      role: 'MEMBER',
+      status: 'ACTIVE',
+      joinedAt: '',
+    },
   ];
 
   it('the members list still offers Remove, Ban and Transfer, and its Ban still confirms and bans', async () => {
@@ -723,7 +821,7 @@ describe('the rest of the page is unchanged', () => {
     mocked.banGroupMember.mockResolvedValue({ data: { message: 'Member banned' } });
     renderPage();
 
-    await screen.findByText('Member');
+    await screen.findByText('Member', { selector: 'span.text-sm.font-medium' });
     expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Transfer' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Ban' }));
@@ -753,7 +851,16 @@ describe('the rest of the page is unchanged', () => {
   it('pending join requests and the invite form are still there for the manager', async () => {
     installServer(bannedRows(1));
     mocked.listJoinRequests.mockResolvedValue({
-      data: [{ id: 'r1', groupId: 'g-1', user: { id: 'u-req', username: 'requester', displayName: 'Requester' }, role: 'MEMBER', status: 'PENDING', joinedAt: '' }],
+      data: [
+        {
+          id: 'r1',
+          groupId: 'g-1',
+          user: { id: 'u-req', username: 'requester', displayName: 'Requester' },
+          role: 'MEMBER',
+          status: 'PENDING',
+          joinedAt: '',
+        },
+      ],
     });
     renderPage();
 

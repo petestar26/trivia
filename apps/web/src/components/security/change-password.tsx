@@ -6,8 +6,11 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
 import { useAuth } from '@/providers/auth-provider';
 import { PasswordInput } from '@/components/member/password-input';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function ChangePassword() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -68,18 +71,19 @@ export function ChangePassword() {
   }
   return (
     <section className="member-panel">
-      <h2>Password</h2>
+      <h2>{translateUi('Password')}</h2>
       <p className="member-muted">
-        Change your password using your current password. You will sign in again afterward, and
-        other sessions will be signed out.
+        {translateUi(
+          'Change your password using your current password. You will sign in again afterward, and other sessions will be signed out.'
+        )}
       </p>
       {!open ? (
         <button className="salem-button secondary" onClick={() => setOpen(true)}>
-          Change password
+          {translateUi('Change password')}
         </button>
       ) : (
         <form className="member-edit" onSubmit={submit}>
-          <label htmlFor="account-current-password">Current password</label>
+          <label htmlFor="account-current-password">{translateUi('Current password')}</label>
           <PasswordInput
             id="account-current-password"
             autoComplete="current-password"
@@ -88,7 +92,7 @@ export function ChangePassword() {
             disabled={busy}
             required
           />
-          <label htmlFor="account-new-password">New password</label>
+          <label htmlFor="account-new-password">{translateUi('New password')}</label>
           <PasswordInput
             id="account-new-password"
             autoComplete="new-password"
@@ -97,7 +101,7 @@ export function ChangePassword() {
             disabled={busy}
             required
           />
-          <label htmlFor="account-confirm-password">Confirm new password</label>
+          <label htmlFor="account-confirm-password">{translateUi('Confirm new password')}</label>
           <PasswordInput
             id="account-confirm-password"
             autoComplete="new-password"
@@ -107,11 +111,13 @@ export function ChangePassword() {
             required
           />
           <p className="member-muted">
-            Use at least 8 characters, with uppercase, lowercase, a number and a symbol.
+            {translateUi(
+              'Use at least 8 characters, with uppercase, lowercase, a number and a symbol.'
+            )}
           </p>
-          {message && <p role="alert">{message}</p>}
+          {message && <p role="alert">{translateUi(message)}</p>}
           <button className="salem-button" disabled={busy}>
-            {busy ? 'Changing password…' : 'Save new password'}
+            {busy ? translateUi('Changing password…') : translateUi('Save new password')}
           </button>
           <button
             type="button"
@@ -125,7 +131,7 @@ export function ChangePassword() {
               setMessage('');
             }}
           >
-            Cancel
+            {translateUi('Cancel')}
           </button>
         </form>
       )}

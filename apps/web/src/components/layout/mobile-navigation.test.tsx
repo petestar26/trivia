@@ -25,3 +25,19 @@ it.each(['/games/sky-crash', '/messages', '/messages/group'])(
     expect(screen.queryByRole('navigation')).toBeNull();
   }
 );
+
+it('marks the shared game lobby as the group-play destination', () => {
+  render(
+    <MemoryRouter initialEntries={['/play-together?game=dice']}>
+      <MobileNavigation />
+    </MemoryRouter>
+  );
+  expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+  expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute(
+    'href',
+    '/play-together'
+  );
+});

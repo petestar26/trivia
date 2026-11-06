@@ -4,6 +4,7 @@ import { ClubBadge } from './club-badge';
 import { formatOdds } from '@/lib/football/format';
 import { quoteFor } from '@/lib/football/slip';
 import type { DisplayFixture } from '@/lib/football/reveal';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const STATUS_TEXT: Record<DisplayFixture['status'], string> = {
   SCHEDULED: 'Kick-off soon',
@@ -32,6 +33,7 @@ export function Scorecard({
   picked: number;
   onSelect: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
   const home = clubById(fixture.homeClub);
   const away = clubById(fixture.awayClub);
   const prices = ['FT:1', 'FT:X', 'FT:2'].map(
@@ -43,7 +45,17 @@ export function Scorecard({
       className="vf-card"
       aria-pressed={selected}
       onClick={onSelect}
-      aria-label={`${home.name} ${scoreText(display) === 'v' ? 'versus' : scoreText(display)} ${away.name}. ${STATUS_TEXT[display.status]}${picked ? `. ${picked} selection${picked === 1 ? '' : 's'} on your slip` : ''}`}
+      aria-label={[
+        translateUi('{home} {score} {away}. {status}', {
+          home: home.name,
+          away: away.name,
+          score: scoreText(display) === 'v' ? translateUi('versus') : scoreText(display),
+          status: translateUi(STATUS_TEXT[display.status]),
+        }),
+        picked ? translateUi('{count} selections on your slip', { count: picked }) : '',
+      ]
+        .filter(Boolean)
+        .join('. ')}
     >
       <span className="vf-card-team">
         <ClubBadge club={home.id} size={22} />
@@ -85,10 +97,16 @@ export function Scoreboard({
   display: DisplayFixture;
   week: string;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const home = clubById(fixture.homeClub);
   const away = clubById(fixture.awayClub);
   return (
-    <div className="vf-board" role="group" aria-label={`Scoreboard, ${week}`}>
+    <div
+      className="vf-board"
+      role="group"
+      aria-label={translateUi('Scoreboard, {week}', { week: week })}
+    >
       <span className="vf-board-team">
         <ClubBadge club={home.id} size={30} />
         <b>
@@ -105,11 +123,11 @@ export function Scoreboard({
         data-scoring={display.scoring}
       >
         <span className="sr-only">
-          {display.fullTime ? 'Full time. ' : ''}
+          {display.fullTime ? translateUi('Full time.') + ' ' : ''}
           {home.name} {display.score?.home ?? 0}, {away.name} {display.score?.away ?? 0}
         </span>
         <span aria-hidden="true">
-          {display.score ? `${display.score.home} – ${display.score.away}` : 'v'}
+          {display.score ? `${display.score.home} – ${display.score.away}` : translateUi('v')}
         </span>
       </span>
       <span className="vf-board-team vf-board-team--away">
@@ -122,12 +140,14 @@ export function Scoreboard({
         <ClubBadge club={away.id} size={30} />
       </span>
       <span className="vf-board-clock">
-        <b>{display.status === 'SCHEDULED' ? 'Pre-match' : display.minute}</b>
+        <b>{display.status === 'SCHEDULED' ? translateUi('Pre-match') : display.minute}</b>
         <span>
-          {display.status === 'FULL_TIME' && !display.fullTime
-            ? 'Result pending'
-            : STATUS_TEXT[display.status]}{' '}
-          · Simulated
+          {translateUi('{value} · Simulated', {
+            value:
+              display.status === 'FULL_TIME' && !display.fullTime
+                ? translateUi('Result pending')
+                : translateUi(STATUS_TEXT[display.status]),
+          })}
         </span>
       </span>
     </div>
@@ -135,12 +155,14 @@ export function Scoreboard({
 }
 
 function GoalLine({ goal, fixture }: { goal: PublicGoal; fixture: VfFixtureView }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const club = clubById(goal.side === 'H' ? fixture.homeClub : fixture.awayClub);
   return (
     <li>
       <span className="vf-goal-min">{goal.minute}&apos;</span>
       <ClubBadge club={club.id} size={18} />
-      <span>Goal · {club.name}</span>
+      <span>{translateUi('Goal · {name}', { name: club.name })}</span>
     </li>
   );
 }
@@ -155,19 +177,23 @@ export function MatchCentre({
   display: DisplayFixture;
   week: string;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
-    <section className="vf-centre" aria-label="Match centre">
+    <section className="vf-centre" aria-label={translateUi('Match centre')}>
       <Scoreboard fixture={fixture} display={display} week={week} />
-      <p className="vf-centre-status">{STATUS_TEXT[display.status]}</p>
+      <p className="vf-centre-status">{translateUi(STATUS_TEXT[display.status])}</p>
       {display.events.length ? (
-        <ol className="vf-goals" aria-label="Goals">
+        <ol className="vf-goals" aria-label={translateUi('Goals')}>
           {display.events.map((g) => (
             <GoalLine key={g.n} goal={g} fixture={fixture} />
           ))}
         </ol>
       ) : (
         <p className="vf-centre-empty">
-          {display.status === 'SCHEDULED' ? 'No goals yet.' : 'No goals so far.'}
+          {display.status === 'SCHEDULED'
+            ? translateUi('No goals yet.')
+            : translateUi('No goals so far.')}
         </p>
       )}
     </section>
@@ -182,23 +208,28 @@ export function BroadcastCaption({
   fixture: VfFixtureView;
   display: DisplayFixture;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const last = display.events.at(-1);
   return (
-    <div className="vf-broadcast-caption" aria-label="Match broadcast status">
-      <span>SALEM BET / SIMULATED MATCH</span>
+    <div className="vf-broadcast-caption" aria-label={translateUi('Match broadcast status')}>
+      <span>{translateUi('SALEM BET / SIMULATED MATCH')}</span>
       <strong>
         {display.fullTime
-          ? 'FULL TIME'
+          ? translateUi('FULL TIME')
           : display.scoring
-            ? 'MATCH ACTION'
+            ? translateUi('MATCH ACTION')
             : display.status === 'FULL_TIME'
-              ? 'RESULT PENDING'
-              : STATUS_TEXT[display.status].toUpperCase()}
+              ? translateUi('RESULT PENDING')
+              : translateUi(STATUS_TEXT[display.status])}
       </strong>
       <small>
         {last
-          ? `Last goal ${last.minute}′ · ${clubById(last.side === 'H' ? fixture.homeClub : fixture.awayClub).name}`
-          : 'Released match events appear here'}
+          ? translateUi('Last goal {minute}′ · {name}', {
+              minute: last.minute,
+              name: clubById(last.side === 'H' ? fixture.homeClub : fixture.awayClub).name,
+            })
+          : translateUi('Released match events appear here')}
       </small>
     </div>
   );

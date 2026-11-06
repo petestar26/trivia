@@ -1,3 +1,4 @@
+import { footballSelectionLabel, type InterfaceTranslate } from '@/lib/i18n/game-labels';
 import { VF_CLUBS, clubById } from '@/lib/football/clubs';
 import { useState } from 'react';
 import {
@@ -16,12 +17,15 @@ import { ClubBadge } from './club-badge';
 import { formatCredits, formatOdds } from '@/lib/football/format';
 import { fixtureTeams, matchweekLabel, weekLabel } from '@/lib/football/fixtures';
 import { displayFixture, matchweekRevealAt } from '@/lib/football/reveal';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 /** Re-derives every official goal from the revealed seed in this browser. */
 export function VerifyResults({ week }: { week: VfMatchweekView }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [checked, setChecked] = useState<{
     identity: string;
     result: ReturnType<typeof verifyMatchweek>;
@@ -47,27 +51,30 @@ export function VerifyResults({ week }: { week: VfMatchweekView }) {
   return (
     <div className="vf-verify">
       <button type="button" className="vf-secondary" onClick={run}>
-        Verify these results in your browser
+        {translateUi('Verify these results in your browser')}
       </button>
       {result && (
         <p role="status" data-ok={result.ok}>
           {result.ok
-            ? `Verified: all ${week.fixtures.length} matches were generated from the seed committed before kick-off.`
-            : `Verification failed: ${result.problems.join('; ')}`}
+            ? translateUi(
+                'Verified: all {length} matches were generated from the seed committed before kick-off.',
+                { length: week.fixtures.length }
+              )
+            : translateUi('Verification failed: {value}', { value: result.problems.join('; ') })}
         </p>
       )}
       <details>
-        <summary>Commitment details</summary>
+        <summary>{translateUi('Commitment details')}</summary>
         <dl>
-          <dt>Matchweek commitment</dt>
+          <dt>{translateUi('Matchweek commitment')}</dt>
           <dd>
             <code>{week.commitment}</code>
           </dd>
-          <dt>Revealed seed</dt>
+          <dt>{translateUi('Revealed seed')}</dt>
           <dd>
             <code>{week.seed}</code>
           </dd>
-          <dt>Rules</dt>
+          <dt>{translateUi('Rules')}</dt>
           <dd>
             <code>
               {VF_RULES_ID} · {VF_RULES_DIGEST.slice(0, 16)}…
@@ -80,11 +87,18 @@ export function VerifyResults({ week }: { week: VfMatchweekView }) {
 }
 
 function MatchweekResults({ week, serverNow }: { week: VfMatchweekView; serverNow: number }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const elapsed = serverNow - week.kickoffAt;
   const complete = serverNow >= matchweekRevealAt(week);
   return (
     <>
-      <ul className="vf-results" aria-label={`${weekLabel(week.seasonNo, week.weekNo)} results`}>
+      <ul
+        className="vf-results"
+        aria-label={translateUi('{value} results', {
+          value: weekLabel(week.seasonNo, week.weekNo),
+        })}
+      >
         {week.fixtures.map((fixture) => {
           const display = displayFixture(fixture.live, elapsed);
           const home = clubById(fixture.homeClub);
@@ -102,7 +116,7 @@ function MatchweekResults({ week, serverNow }: { week: VfMatchweekView; serverNo
                     ? `${final.home} – ${final.away}`
                     : display.score
                       ? `${display.score.home} – ${display.score.away}`
-                      : 'v'}
+                      : translateUi('v')}
                 </b>
                 <span className="vf-result-team vf-result-team--away">
                   {away.name}
@@ -110,15 +124,25 @@ function MatchweekResults({ week, serverNow }: { week: VfMatchweekView; serverNo
                 </span>
                 <small>
                   {final
-                    ? `FT${display.halfTime ? ` · HT ${display.halfTime.home}–${display.halfTime.away}` : ''}`
+                    ? translateUi('FT{value}', {
+                        value: display.halfTime
+                          ? ' ' +
+                            translateUi('· HT {home}–{away}', {
+                              home: display.halfTime.home,
+                              away: display.halfTime.away,
+                            })
+                          : '',
+                      })
                     : display.status === 'SCHEDULED'
-                      ? 'Not started'
+                      ? translateUi('Not started')
                       : display.minute}
                 </small>
               </div>
               {display.events.length > 0 && (
                 <details>
-                  <summary>Goals ({display.events.length})</summary>
+                  <summary>
+                    {translateUi('Goals ({length})', { length: display.events.length })}
+                  </summary>
                   <ol>
                     {display.events.map((g) => (
                       <li key={g.n}>
@@ -152,6 +176,8 @@ export function ResultsPanel({
   onWeek: (target: { seasonNo: number; weekNo: number } | null) => void;
   loading: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const viewed: VfViewedWeek | null = snapshot.viewed;
   const shown = weekView
     ? viewed && viewed.seasonNo === weekView.seasonNo && viewed.weekNo === weekView.weekNo
@@ -178,32 +204,39 @@ export function ResultsPanel({
   const heading = target ? weekLabel(target.seasonNo, target.weekNo) : 'Results';
   const week = weekView ? (shown?.matchweek ?? null) : latest;
   return (
-    <section className="vf-panel" aria-label="Results">
+    <section className="vf-panel" aria-label={translateUi('Results')}>
       <div className="vf-week-nav">
         <button
           type="button"
           onClick={() => go(-1)}
-          aria-label="Previous matchweek"
+          aria-label={translateUi('Previous matchweek')}
           disabled={!target || (target.seasonNo === 1 && target.weekNo === 1)}
         >
           ‹
         </button>
         <div>
           <h3>{heading}</h3>
-          {weekView === null && latest && <small>Latest completed matchweek</small>}
+          {weekView === null && latest && (
+            <small>{translateUi('Latest completed matchweek')}</small>
+          )}
           {weekView !== null && (
             <button type="button" className="vf-link" onClick={() => onWeek(null)}>
-              Back to latest
+              {translateUi('Back to latest')}
             </button>
           )}
         </div>
-        <button type="button" onClick={() => go(1)} aria-label="Next matchweek" disabled={!target}>
+        <button
+          type="button"
+          onClick={() => go(1)}
+          aria-label={translateUi('Next matchweek')}
+          disabled={!target}
+        >
           ›
         </button>
       </div>
       <div className="vf-week-pick">
         <label>
-          Season
+          {translateUi('Season')}
           <select
             value={target?.seasonNo ?? 1}
             onChange={(e) =>
@@ -214,13 +247,13 @@ export function ResultsPanel({
               .sort((a, b) => a - b)
               .map((n) => (
                 <option key={n} value={n}>
-                  Season {n}
+                  {translateUi('Season {n}', { n: n })}
                 </option>
               ))}
           </select>
         </label>
         <label>
-          Matchweek
+          {translateUi('Matchweek')}
           <select
             value={target?.weekNo ?? 1}
             onChange={(e) =>
@@ -229,20 +262,27 @@ export function ResultsPanel({
           >
             {Array.from({ length: 38 }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
-                Week {n}
+                {translateUi('Week {n}', { n: n })}
               </option>
             ))}
           </select>
         </label>
       </div>
-      {loading && <p role="status">Loading matchweek…</p>}
+      {loading && <p role="status">{translateUi('Loading matchweek…')}</p>}
       {!loading && weekView && shown && shown.state === 'FUTURE' && (
         <>
-          <p>This matchweek opens {when(shown.opensAt)}. Scheduled matches:</p>
+          <p>
+            {translateUi('This matchweek opens {value}. Scheduled matches:', {
+              value: when(shown.opensAt),
+            })}
+          </p>
           <ul className="vf-schedule">
             {shown.scheduled.map((f) => (
               <li key={f.slot}>
-                {clubById(f.homeClub).name} v {clubById(f.awayClub).name}
+                {translateUi('{name} v {name2}', {
+                  name: clubById(f.homeClub).name,
+                  name2: clubById(f.awayClub).name,
+                })}
               </li>
             ))}
           </ul>
@@ -251,30 +291,40 @@ export function ResultsPanel({
       {!loading && weekView && shown && shown.state === 'NOT_PLAYED' && (
         <>
           <p>
-            This matchweek was not played. A matchweek is only created when someone opens the game
-            during its selection window, so no results exist for it. Scheduled matches:
+            {translateUi(
+              'This matchweek was not played. A matchweek is only created when someone opens the game during its selection window, so no results exist for it. Scheduled matches:'
+            )}
           </p>
           <ul className="vf-schedule">
             {shown.scheduled.map((f) => (
               <li key={f.slot}>
-                {clubById(f.homeClub).name} v {clubById(f.awayClub).name}
+                {translateUi('{name} v {name2}', {
+                  name: clubById(f.homeClub).name,
+                  name2: clubById(f.awayClub).name,
+                })}
               </li>
             ))}
           </ul>
         </>
       )}
       {!loading && week && <MatchweekResults week={week} serverNow={serverNow} />}
-      {!loading && !week && !weekView && <p>Completed matchweeks will appear here.</p>}
+      {!loading && !week && !weekView && (
+        <p>{translateUi('Completed matchweeks will appear here.')}</p>
+      )}
     </section>
   );
 }
 
 export function StandingsPanel({ snapshot, ready }: { snapshot: VfSnapshot; ready: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { standings } = snapshot;
   if (!ready)
     return (
-      <section className="vf-panel" aria-label="League table">
-        <p role="status">The table updates once the last goal of the matchweek has been shown.</p>
+      <section className="vf-panel" aria-label={translateUi('League table')}>
+        <p role="status">
+          {translateUi('The table updates once the last goal of the matchweek has been shown.')}
+        </p>
       </section>
     );
   const rows: StandingRow[] = standings.rows.length
@@ -292,46 +342,54 @@ export function StandingsPanel({ snapshot, ready }: { snapshot: VfSnapshot; read
         points: 0,
       }));
   return (
-    <section className="vf-panel" aria-label="League table">
+    <section className="vf-panel" aria-label={translateUi('League table')}>
       <h3>
-        Season {standings.seasonNo} table{' '}
-        <small>after {standings.weeksCompleted} of 38 matchweeks played</small>
+        {translateUi('Season') + ' '}
+        {standings.seasonNo}
+        {' ' + translateUi('table')}{' '}
+        <small>
+          {translateUi('after {weeksCompleted} of 38 matchweeks played', {
+            weeksCompleted: standings.weeksCompleted,
+          })}
+        </small>
       </h3>
       <div
         className="vf-table-wrap"
         tabIndex={0}
         role="region"
-        aria-label="League table, scrollable"
+        aria-label={translateUi('League table, scrollable')}
       >
         <table className="vf-table">
-          <caption className="sr-only">Season {standings.seasonNo} league table</caption>
+          <caption className="sr-only">
+            {translateUi('Season {seasonNo} league table', { seasonNo: standings.seasonNo })}
+          </caption>
           <thead>
             <tr>
               <th scope="col">#</th>
-              <th scope="col">Club</th>
-              <th scope="col" title="Played">
-                P
+              <th scope="col">{translateUi('Club')}</th>
+              <th scope="col" title={translateUi('Played')}>
+                {translateUi('P')}
               </th>
-              <th scope="col" title="Won">
-                W
+              <th scope="col" title={translateUi('Won')}>
+                {translateUi('W')}
               </th>
-              <th scope="col" title="Drawn">
-                D
+              <th scope="col" title={translateUi('Drawn')}>
+                {translateUi('D')}
               </th>
-              <th scope="col" title="Lost">
-                L
+              <th scope="col" title={translateUi('Lost')}>
+                {translateUi('L')}
               </th>
-              <th scope="col" title="Goals for">
-                GF
+              <th scope="col" title={translateUi('Goals for')}>
+                {translateUi('GF')}
               </th>
-              <th scope="col" title="Goals against">
-                GA
+              <th scope="col" title={translateUi('Goals against')}>
+                {translateUi('GA')}
               </th>
-              <th scope="col" title="Goal difference">
-                GD
+              <th scope="col" title={translateUi('Goal difference')}>
+                {translateUi('GD')}
               </th>
-              <th scope="col" title="Points">
-                Pts
+              <th scope="col" title={translateUi('Points')}>
+                {translateUi('Pts')}
               </th>
             </tr>
           </thead>
@@ -359,19 +417,20 @@ export function StandingsPanel({ snapshot, ready }: { snapshot: VfSnapshot; read
         </table>
       </div>
       <p className="vf-fine">
-        Three points for a win, one for a draw. Ties are split by goal difference, goals scored,
-        wins, then club order. The table is built only from completed official results.
+        {translateUi(
+          'Three points for a win, one for a draw. Ties are split by goal difference, goals scored, wins, then club order. The table is built only from completed official results.'
+        )}
       </p>
     </section>
   );
 }
 
-function legLabel(fixtureId: string, selection: string) {
+function legLabel(fixtureId: string, selection: string, t: InterfaceTranslate) {
   const teams = fixtureTeams(fixtureId);
   const sel = parseSelection(selection);
   if (!teams || !sel) return selection;
   const names = { home: clubById(teams.homeClub).name, away: clubById(teams.awayClub).name };
-  return `${clubById(teams.homeClub).code} v ${clubById(teams.awayClub).code} · ${sel.label(names)}`;
+  return `${clubById(teams.homeClub).code} v ${clubById(teams.awayClub).code} · ${footballSelectionLabel(sel, names, t)}`;
 }
 
 export function TicketsPanel({
@@ -381,16 +440,20 @@ export function TicketsPanel({
   tickets: VfTicketView[];
   isRevealed: (ticket: VfTicketView) => boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   if (!tickets.length)
     return (
-      <section className="vf-panel" aria-label="My tickets">
+      <section className="vf-panel" aria-label={translateUi('My tickets')}>
         <p>
-          Your confirmed tickets will appear here. Practice ETB only: no cash stakes or prizes.
+          {translateUi(
+            'Your confirmed tickets will appear here. Practice ETB only: no cash stakes or prizes.'
+          )}
         </p>
       </section>
     );
   return (
-    <section className="vf-panel" aria-label="My tickets">
+    <section className="vf-panel" aria-label={translateUi('My tickets')}>
       <ul className="vf-tickets">
         {tickets.map((ticket) => {
           const revealed = isRevealed(ticket);
@@ -400,38 +463,56 @@ export function TicketsPanel({
               <header>
                 <h3>{matchweekLabel(ticket.matchweekId)}</h3>
                 <span data-state={settled ? 'settled' : 'open'}>
-                  {settled ? 'Settled' : 'Awaiting results'}
+                  {settled ? translateUi('Settled') : translateUi('Awaiting results')}
                 </span>
               </header>
               <p>
-                Stake {formatCredits(ticket.totalStake)} ETB
-                {settled ? ` · Returned ${formatCredits(ticket.totalReturn)} ETB` : ''}
+                {translateUi('Stake {value} ETB{value2}', {
+                  value: formatCredits(ticket.totalStake),
+                  value2: settled
+                    ? ' ' +
+                      translateUi('· Returned {value} ETB', {
+                        value: formatCredits(ticket.totalReturn),
+                      })
+                    : '',
+                })}
               </p>
               <ol>
                 {ticket.lines.map((line) => (
                   <li key={line.lineNo}>
                     <div>
-                      <b>{line.kind === 'SINGLE' ? 'Single' : `Multiple of ${line.legs.length}`}</b>
+                      <b>
+                        {line.kind === 'SINGLE'
+                          ? translateUi('Single')
+                          : translateUi('Multiple of {length}', { length: line.legs.length })}
+                      </b>
                       <span>
-                        {formatCredits(line.stake)} ETB · {formatOdds(line.combinedOddsCents)}×
-                        {settled && line.payout !== null
-                          ? ` · returned ${formatCredits(line.payout)}`
-                          : ''}
+                        {translateUi('{value} ETB · {value2}×{value3}', {
+                          value: formatCredits(line.stake),
+                          value2: formatOdds(line.combinedOddsCents),
+                          value3:
+                            settled && line.payout !== null
+                              ? ' ' +
+                                translateUi('· returned {value}', {
+                                  value: formatCredits(line.payout),
+                                })
+                              : '',
+                        })}
                       </span>
                     </div>
                     <ul>
                       {line.legs.map((leg) => (
                         <li key={leg.fixtureId + leg.selection}>
-                          <span>{legLabel(leg.fixtureId, leg.selection)}</span>
+                          <span>{legLabel(leg.fixtureId, leg.selection, translateUi)}</span>
                           <b>{formatOdds(leg.oddsCents)}</b>
                           <i data-result={revealed ? leg.result : 'PENDING'}>
                             {revealed
                               ? leg.result === 'PENDING'
-                                ? 'Pending'
+                                ? translateUi('Pending')
                                 : leg.result === 'WON'
-                                  ? 'Won'
-                                  : 'Lost'
-                              : 'Pending'}
+                                  ? translateUi('Won')
+                                  : translateUi('Lost')
+                              : translateUi('Pending')}
                           </i>
                         </li>
                       ))}
@@ -440,17 +521,17 @@ export function TicketsPanel({
                 ))}
               </ol>
               <details>
-                <summary>Receipt</summary>
+                <summary>{translateUi('Receipt')}</summary>
                 <dl>
-                  <dt>Receipt hash</dt>
+                  <dt>{translateUi('Receipt hash')}</dt>
                   <dd>
                     <code>{ticket.receiptHash}</code>
                   </dd>
-                  <dt>Request hash</dt>
+                  <dt>{translateUi('Request hash')}</dt>
                   <dd>
                     <code>{ticket.requestHash}</code>
                   </dd>
-                  <dt>Rules</dt>
+                  <dt>{translateUi('Rules')}</dt>
                   <dd>
                     <code>{ticket.rulesId}</code>
                   </dd>
@@ -461,8 +542,10 @@ export function TicketsPanel({
         })}
       </ul>
       <p className="vf-fine">
-        Your 20 most recent tickets are shown (at most {VF_LIMITS.maxTicketsPerMatchweek} per
-        matchweek). Confirmed tickets are immutable.
+        {translateUi(
+          'Your 20 most recent tickets are shown (at most {maxTicketsPerMatchweek} per matchweek). Confirmed tickets are immutable.',
+          { maxTicketsPerMatchweek: VF_LIMITS.maxTicketsPerMatchweek }
+        )}
       </p>
     </section>
   );

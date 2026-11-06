@@ -1,3 +1,4 @@
+import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -6,6 +7,8 @@ import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-mo
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Case = {
   id: string;
   orderId: string;
@@ -20,93 +23,164 @@ type Case = {
   order: { orderNumber: string; fiatCurrency: string };
 };
 export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const [page, setPage] = useState(0);
-  const [decision, setDecision] = useState<{item: Case; operation: 'release' | 'reject'} | null>(null);
+  const [decision, setDecision] = useState<{ item: Case; operation: 'release' | 'reject' } | null>(
+    null
+  );
   const cases = useQuery({
     queryKey: ['payments', 'late', user?.id, admin, page],
     queryFn: async () =>
-      unwrapData(await api.get<Case[]>(`/late-payments/${admin ? 'pending' : 'me'}${page ? `?page=${page}` : ''}`)),
+      unwrapData(
+        await api.get<Case[]>(
+          `/late-payments/${admin ? 'pending' : 'me'}${page ? `?page=${page}` : ''}`
+        )
+      ),
     enabled: !!user,
     refetchInterval: 30000,
   });
-  const access = useQuery({queryKey: ['workspace-access', user?.id], queryFn: async () => unwrapData(await api.get<{role: string}>('/workspaces/access')), enabled: admin && !!user, retry: false});
+  const access = useQuery({
+    queryKey: ['workspace-access', user?.id],
+    queryFn: async () => unwrapData(await api.get<{ role: string }>('/workspaces/access')),
+    enabled: admin && !!user,
+    retry: false,
+  });
   const action = useWalletAction('recovery-queue');
   const [selected, setSelected] = useState<Case | null>(null);
   return (
     <section className="payment-panel">
-      <h2>Late-payment recovery</h2>
-      <p>Page {page + 1} · up to 50 cases. Staff queues show oldest reports first. Super administrators can review every assignment.</p>
+      <h2>{translateUi('Late-payment recovery')}</h2>
       <p>
-        Reports are investigated separately from deposit orders. A recorded refund means staff
-        verified a transfer back to the payer; it does not add ETB.
+        {translateUi(
+          'Page {value} · up to 50 cases. Staff queues show oldest reports first. Super administrators can review every assignment.',
+          { value: page + 1 }
+        )}
+      </p>
+      <p>
+        {translateUi(
+          'Reports are investigated separately from deposit orders. A recorded refund means staff verified a transfer back to the payer; it does not add ETB.'
+        )}
       </p>
       {cases.isPending ? (
-        <p role="status">Loading recovery cases…</p>
+        <p role="status">{translateUi('Loading recovery cases…')}</p>
       ) : cases.isError ? (
         <p role="alert">
-          Could not load recovery cases. <button onClick={() => cases.refetch()}>Retry</button>
+          {translateUi('Could not load recovery cases.') + ' '}
+          <button onClick={() => cases.refetch()}>{translateUi('Retry')}</button>
         </p>
       ) : !cases.data?.length ? (
-        <p>No recovery cases.</p>
+        <p>{translateUi('No recovery cases.')}</p>
       ) : (
         cases.data.map((c) => (
           <article className="payment-record" key={c.id}>
             <strong>
-              {c.order.orderNumber} · {c.status}
+              {c.order.orderNumber} · {interfaceCodeLabel(translateUi, c.status)}
             </strong>
             <p>
-              Reported transfer: {c.paymentReference} ·{' '}
-              {formatMinor(c.paidAmount, c.order.fiatCurrency)}
+              {translateUi('Reported transfer: {paymentReference} · {value}', {
+                paymentReference: c.paymentReference,
+                value: formatMinor(c.paidAmount, c.order.fiatCurrency),
+              })}
             </p>
             <p>
-              {new Date(c.paidAt).toLocaleString()} · {c.description}
+              {new Date(c.paidAt).toLocaleString(interfaceLocale)} · {c.description}
             </p>
             {c.refundReference && (
               <p>
-                Refund reference: {c.refundReference}. {c.resolutionNote}
+                {translateUi('Refund reference: {refundReference}. {resolutionNote}', {
+                  refundReference: c.refundReference,
+                  resolutionNote: c.resolutionNote ?? '',
+                })}
               </p>
             )}
-            {c.status === 'REJECTED' && <p>Reason: {c.resolutionNote}</p>}
-            {admin && access.data?.role === 'SUPER_ADMIN' && c.status === 'ASSIGNED' && <>
-              <button disabled={action.blocked} onClick={() => setDecision({item: c, operation: 'release'})}>Release assignment</button>
-              {c.assignedAdminId === user?.id && <button disabled={action.blocked} onClick={() => setDecision({item: c, operation: 'reject'})}>Reject claim</button>}
-            </>}
+            {c.status === 'REJECTED' && (
+              <p>
+                {translateUi('Reason: {resolutionNote}', {
+                  resolutionNote: c.resolutionNote ?? '',
+                })}
+              </p>
+            )}
+            {admin && access.data?.role === 'SUPER_ADMIN' && c.status === 'ASSIGNED' && (
+              <>
+                <button
+                  disabled={action.blocked}
+                  onClick={() => setDecision({ item: c, operation: 'release' })}
+                >
+                  {translateUi('Release assignment')}
+                </button>
+                {c.assignedAdminId === user?.id && (
+                  <button
+                    disabled={action.blocked}
+                    onClick={() => setDecision({ item: c, operation: 'reject' })}
+                  >
+                    {translateUi('Reject claim')}
+                  </button>
+                )}
+              </>
+            )}
             {admin && c.status === 'OPEN' && (
               <button
                 disabled={action.blocked}
                 onClick={() => action.run(`/late-payments/${c.id}/claim`)}
               >
-                Claim investigation
+                {translateUi('Claim investigation')}
               </button>
             )}
             {admin && c.status === 'ASSIGNED' && c.assignedAdminId === user?.id && (
               <button disabled={action.blocked} onClick={() => setSelected(c)}>
-                Record verified refund
+                {translateUi('Record verified refund')}
               </button>
             )}
           </article>
         ))
       )}
-      {action.message && <p role="status">{action.message}</p>}
+      {action.message && <p role="status">{translateUi(action.message)}</p>}
       {action.pending && (
         <button
           disabled={action.busy}
           onClick={() => action.run(action.pending!.path, action.pending!.body)}
         >
-          Retry saved request
+          {translateUi('Retry saved request')}
         </button>
       )}
-      <nav aria-label="Recovery pages">
-        <button disabled={page === 0 || cases.isFetching} onClick={() => {setPage(page - 1); setSelected(null); setDecision(null);}}>Previous page</button>
-        <button disabled={cases.isFetching || cases.isError || (cases.data?.length ?? 0) < 50} onClick={() => {setPage(page + 1); setSelected(null); setDecision(null);}}>Next page</button>
+      <nav aria-label={translateUi('Recovery pages')}>
+        <button
+          disabled={page === 0 || cases.isFetching}
+          onClick={() => {
+            setPage(page - 1);
+            setSelected(null);
+            setDecision(null);
+          }}
+        >
+          {translateUi('Previous page')}
+        </button>
+        <button
+          disabled={cases.isFetching || cases.isError || (cases.data?.length ?? 0) < 50}
+          onClick={() => {
+            setPage(page + 1);
+            setSelected(null);
+            setDecision(null);
+          }}
+        >
+          {translateUi('Next page')}
+        </button>
       </nav>
-      {decision && <SupervisionForm key={`${decision.item.id}-${decision.operation}`} {...decision} close={() => setDecision(null)} />}
+      {decision && (
+        <SupervisionForm
+          key={`${decision.item.id}-${decision.operation}`}
+          {...decision}
+          close={() => setDecision(null)}
+        />
+      )}
       {selected && <RefundForm key={selected.id} item={selected} close={() => setSelected(null)} />}
     </section>
   );
 }
 export function LatePaymentReport({ orderId, currency }: { orderId: string; currency: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [open, setOpen] = useState(false),
     [reference, setReference] = useState(''),
     [amount, setAmount] = useState(''),
@@ -124,17 +198,18 @@ export function LatePaymentReport({ orderId, currency }: { orderId: string; curr
   return (
     <div>
       <button disabled={action.blocked} onClick={() => setOpen(!open)}>
-        {open ? 'Close report' : 'Already paid? Report transfer'}
+        {open ? translateUi('Close report') : translateUi('Already paid? Report transfer')}
       </button>
       {open && (
         <fieldset>
-          <legend>Report payment after closure</legend>
+          <legend>{translateUi('Report payment after closure')}</legend>
           <p>
-            Do not send another payment. Enter the actual transfer details; this report does not
-            confirm receipt or credit your balance.
+            {translateUi(
+              'Do not send another payment. Enter the actual transfer details; this report does not confirm receipt or credit your balance.'
+            )}
           </p>
           <label>
-            Transfer reference
+            {translateUi('Transfer reference')}
             <input
               maxLength={128}
               value={reference}
@@ -142,15 +217,16 @@ export function LatePaymentReport({ orderId, currency }: { orderId: string; curr
             />
           </label>
           <label>
-            Amount sent ({currency})
+            {translateUi('Amount sent (')}
+            {currency})
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </label>
           <label>
-            Transfer time (local)
+            {translateUi('Transfer time (local)')}
             <input type="datetime-local" value={time} onChange={(e) => setTime(e.target.value)} />
           </label>
           <label>
-            Details
+            {translateUi('Details')}
             <textarea maxLength={4000} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <button
@@ -165,23 +241,25 @@ export function LatePaymentReport({ orderId, currency }: { orderId: string; curr
               })
             }
           >
-            Submit recovery report
+            {translateUi('Submit recovery report')}
           </button>
         </fieldset>
       )}
-      {action.message && <p role="status">{action.message}</p>}
+      {action.message && <p role="status">{translateUi(action.message)}</p>}
       {action.pending && (
         <button
           disabled={action.busy}
           onClick={() => action.run(action.pending!.path, action.pending!.body)}
         >
-          Retry saved request
+          {translateUi('Retry saved request')}
         </button>
       )}
     </div>
   );
 }
 function RefundForm({ item, close }: { item: Case; close: () => void }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const action = useWalletAction(`recovery-case-${item.id}`);
   const [incoming, setIncoming] = useState(''),
     [amount, setAmount] = useState(''),
@@ -206,42 +284,48 @@ function RefundForm({ item, close }: { item: Case; close: () => void }) {
     timestamp <= Date.now();
   return (
     <fieldset>
-      <legend>Record full external refund · {item.order.orderNumber}</legend>
+      <legend>
+        {translateUi('Record full external refund · {orderNumber}', {
+          orderNumber: item.order.orderNumber,
+        })}
+      </legend>
       <p>
-        Verify the incoming transfer and full refund in the payment provider’s records. This form
-        records a completed refund; it does not send money. Unverified and partial refunds must
-        remain under investigation.
+        {translateUi(
+          'Verify the incoming transfer and full refund in the payment provider’s records. This form records a completed refund; it does not send money. Unverified and partial refunds must remain under investigation.'
+        )}
       </p>
       <label>
-        Verified incoming reference
+        {translateUi('Verified incoming reference')}
         <input maxLength={128} value={incoming} onChange={(e) => setIncoming(e.target.value)} />
       </label>
       <label>
-        Verified amount received and fully refunded ({item.order.fiatCurrency})
+        {translateUi('Verified amount received and fully refunded (')}
+        {item.order.fiatCurrency})
         <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </label>
       <label>
-        Refund transfer reference
+        {translateUi('Refund transfer reference')}
         <input maxLength={128} value={refund} onChange={(e) => setRefund(e.target.value)} />
       </label>
       <label>
-        Refund time (local)
+        {translateUi('Refund time (local)')}
         <input type="datetime-local" value={time} onChange={(e) => setTime(e.target.value)} />
       </label>
       <p>
-        Verification notes are visible to the member. Do not include private credentials or
-        unrelated account details.
+        {translateUi(
+          'Verification notes are visible to the member. Do not include private credentials or unrelated account details.'
+        )}
       </p>
       <label>
-        Verification notes
+        {translateUi('Verification notes')}
         <textarea maxLength={4000} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       <label>
-        <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />I
-        verified the full amount was returned to the original payer.
+        <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+        {translateUi('I verified the full amount was returned to the original payer.')}
       </label>
       <label>
-        Authenticator code
+        {translateUi('Authenticator code')}
         <input
           inputMode="numeric"
           autoComplete="one-time-code"
@@ -251,7 +335,8 @@ function RefundForm({ item, close }: { item: Case; close: () => void }) {
         />
       </label>
       <p>
-        An enabled authenticator is required. <Link to="/profile#security">Security settings</Link>
+        {translateUi('An enabled authenticator is required.') + ' '}
+        <Link to="/profile#security">{translateUi('Security settings')}</Link>
       </p>
       <button
         disabled={busy || action.blocked || !valid}
@@ -283,35 +368,77 @@ function RefundForm({ item, close }: { item: Case; close: () => void }) {
           }
         }}
       >
-        Confirm verified refund
+        {translateUi('Confirm verified refund')}
       </button>
       <button disabled={busy || action.busy} onClick={close}>
-        Back
+        {translateUi('Back')}
       </button>
-      {error && <p role="alert">{error}</p>}
-      {action.message && <p role="status">{action.message}</p>}
+      {error && <p role="alert">{translateUi(error)}</p>}
+      {action.message && <p role="status">{translateUi(action.message)}</p>}
       {action.pending && (
         <button
           disabled={action.busy}
           onClick={() => action.run(action.pending!.path, action.pending!.body)}
         >
-          Retry saved request
+          {translateUi('Retry saved request')}
         </button>
       )}
     </fieldset>
   );
 }
 
-function SupervisionForm({item, operation, close}: {item: Case; operation: 'release' | 'reject'; close: () => void}) {
+function SupervisionForm({
+  item,
+  operation,
+  close,
+}: {
+  item: Case;
+  operation: 'release' | 'reject';
+  close: () => void;
+}) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [reason, setReason] = useState('');
   const action = useWalletAction(`recovery-${operation}-${item.id}`);
-  return <fieldset>
-    <legend>{operation === 'release' ? 'Release investigation assignment' : 'Reject recovery claim'} · {item.order.orderNumber}</legend>
-    <p>{operation === 'release' ? 'The case returns to the open queue for another reviewer. No funds move.' : 'This closes the case without a refund or ETB credit. The member can read your reason. This decision cannot be undone.'}</p>
-    <label>Decision reason<textarea maxLength={4000} value={reason} onChange={e => setReason(e.target.value)} /></label>
-    <button disabled={action.blocked || reason.trim().length < 3} onClick={() => action.run(`/late-payments/${item.id}/${operation}`, {reason})}>Confirm {operation === 'release' ? 'release' : 'rejection'}</button>
-    <button disabled={action.busy} onClick={close}>Back</button>
-    {action.message && <p role="status">{action.message}</p>}
-    {action.pending && <button disabled={action.busy} onClick={() => action.run(action.pending!.path, action.pending!.body)}>Retry saved request</button>}
-  </fieldset>;
+  return (
+    <fieldset>
+      <legend>
+        {operation === 'release'
+          ? translateUi('Release investigation assignment')
+          : translateUi('Reject recovery claim')}{' '}
+        · {item.order.orderNumber}
+      </legend>
+      <p>
+        {operation === 'release'
+          ? translateUi('The case returns to the open queue for another reviewer. No funds move.')
+          : translateUi(
+              'This closes the case without a refund or ETB credit. The member can read your reason. This decision cannot be undone.'
+            )}
+      </p>
+      <label>
+        {translateUi('Decision reason')}
+        <textarea maxLength={4000} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
+      <button
+        disabled={action.blocked || reason.trim().length < 3}
+        onClick={() => action.run(`/late-payments/${item.id}/${operation}`, { reason })}
+      >
+        {translateUi('Confirm {value}', {
+          value: operation === 'release' ? translateUi('release') : translateUi('rejection'),
+        })}
+      </button>
+      <button disabled={action.busy} onClick={close}>
+        {translateUi('Back')}
+      </button>
+      {action.message && <p role="status">{translateUi(action.message)}</p>}
+      {action.pending && (
+        <button
+          disabled={action.busy}
+          onClick={() => action.run(action.pending!.path, action.pending!.body)}
+        >
+          {translateUi('Retry saved request')}
+        </button>
+      )}
+    </fieldset>
+  );
 }

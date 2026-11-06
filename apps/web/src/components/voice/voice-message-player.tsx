@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { voiceMessageUrl } from '@/lib/api';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface VoiceMessagePlayerProps {
   groupId: string;
@@ -26,6 +27,8 @@ export function VoiceMessagePlayer({
   duration = 0,
   className,
 }: VoiceMessagePlayerProps) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -77,7 +80,13 @@ export function VoiceMessagePlayer({
 
   return (
     <div className={cn('flex items-center gap-3 rounded-lg bg-muted p-3', className)}>
-      <Button type="button" size="icon" variant="secondary" onClick={toggle} aria-label={isPlaying ? 'Pause' : 'Play'}>
+      <Button
+        type="button"
+        size="icon"
+        variant="secondary"
+        onClick={toggle}
+        aria-label={isPlaying ? translateUi('Pause') : translateUi('Play')}
+      >
         {isPlaying ? '❚❚' : '▶'}
       </Button>
 

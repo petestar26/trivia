@@ -18,6 +18,8 @@ import { useAuth } from '@/providers/auth-provider';
 import { useLanguage } from '@/providers/language-provider';
 import './lounge.css';
 import './support.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Ticket = {
   id: string;
   subject: string;
@@ -42,6 +44,8 @@ export function SupportPage({ admin = false }: { admin?: boolean }) {
   ) : null;
 }
 function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { t, language } = useLanguage();
   const cache = useQueryClient();
   const [view, setView] = useState<'help' | 'requests'>(admin ? 'requests' : 'help');
@@ -62,10 +66,14 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
     queryKey: ['support-help', userId],
     queryFn: async ({ signal }) =>
       unwrapData(
-        await boundedRequest(requestSignal => api.get<{
-          aiEnabled: boolean;
-          articles: { id: string; title: string; body: string; href: string }[];
-        }>('/support/help', undefined, { signal: requestSignal }), signal)
+        await boundedRequest(
+          (requestSignal) =>
+            api.get<{
+              aiEnabled: boolean;
+              articles: { id: string; title: string; body: string; href: string }[];
+            }>('/support/help', undefined, { signal: requestSignal }),
+          signal
+        )
       ),
     staleTime: 60_000,
     retry: false,
@@ -146,12 +154,12 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
     <div className="salem-lounge salem-support">
       <header className="salem-page-heading">
         <div>
-          <span className="salem-eyebrow">HERE TO HELP</span>
-          <h1>{admin ? 'Support inbox' : t('Help center')}</h1>
+          <span className="salem-eyebrow">{translateUi('HERE TO HELP')}</span>
+          <h1>{admin ? translateUi('Support inbox') : t('Help center')}</h1>
           <p>
             {admin
-              ? 'Read requests, reply to members, and resolve issues.'
-              : 'Find an answer or talk to our team.'}
+              ? translateUi('Read requests, reply to members, and resolve issues.')
+              : translateUi('Find an answer or talk to our team.')}
           </p>
         </div>
         <span className="salem-support-symbol">
@@ -159,7 +167,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
         </span>
       </header>
       {!admin && (
-        <nav className="salem-tabs" aria-label="Support sections">
+        <nav className="salem-tabs" aria-label={translateUi('Support sections')}>
           <button aria-pressed={view === 'help'} onClick={() => setView('help')}>
             {t('Help center')}
           </button>
@@ -186,17 +194,21 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
           <section className="salem-support-panel">
             <h2>
               <Sparkles size={20} />
-              {help.data?.aiEnabled ? 'AI assistant' : t('Help assistant')}
+              {help.data?.aiEnabled ? translateUi('AI assistant') : t('Help assistant')}
             </h2>
             {help.isError ? (
               <p role="alert">
-                Help could not be loaded.{' '}
+                {translateUi('Help could not be loaded.')}{' '}
                 <button onClick={() => void help.refetch()}>{t('Retry')}</button>
               </p>
             ) : help.data?.aiEnabled ? (
               <Assistant language={language} />
             ) : (
-              <p>AI assistance is unavailable. Use the guides above or contact our team.</p>
+              <p>
+                {translateUi(
+                  'AI assistance is unavailable. Use the guides above or contact our team.'
+                )}
+              </p>
             )}
             <button
               className="salem-button secondary"
@@ -211,29 +223,36 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
             </button>
           </section>
           <p className="salem-footnote">
-            Language options translate navigation and the game lobby. Game rules and some help text
-            remain in English.
+            {translateUi(
+              'App text and game rules follow your selected language. Third-party games manage their own language options.'
+            )}
           </p>
         </>
       ) : (
         <>
           {admin && (
             <p className="salem-footnote">
-              AI assistant:{' '}
+              {translateUi('AI assistant:')}{' '}
               {help.isPending
-                ? 'checking status…'
+                ? translateUi('checking status…')
                 : help.isError
-                  ? 'status unavailable. Check again when the connection is restored.'
+                  ? translateUi('status unavailable. Check again when the connection is restored.')
                   : help.data?.aiEnabled
-                    ? 'configured'
-                    : 'not configured. Set the provider, model, and matching API key privately on the API service to enable it.'}
-              {help.isError && <button disabled={help.isFetching} onClick={() => help.refetch()}>Check assistant status</button>}
+                    ? translateUi('configured')
+                    : translateUi(
+                        'not configured. Set the provider, model, and matching API key privately on the API service to enable it.'
+                      )}
+              {help.isError && (
+                <button disabled={help.isFetching} onClick={() => help.refetch()}>
+                  {translateUi('Check assistant status')}
+                </button>
+              )}
             </p>
           )}
           <div className={`salem-support-workspace ${selected || creating ? 'has-thread' : ''}`}>
             <aside className="salem-support-list">
               <div className="salem-support-list-title">
-                <h2>{admin ? 'Requests' : t('Your requests')}</h2>
+                <h2>{admin ? translateUi('Requests') : t('Your requests')}</h2>
                 {!admin && (
                   <button
                     aria-label={t('New request')}
@@ -248,7 +267,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                 )}
               </div>
               <label className="salem-support-filter">
-                <span className="sr-only">Request status</span>
+                <span className="sr-only">{translateUi('Request status')}</span>
                 <select
                   value={filter}
                   disabled={locked}
@@ -257,7 +276,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                     setPage(0);
                   }}
                 >
-                  <option value="ALL">All requests</option>
+                  <option value="ALL">{translateUi('All requests')}</option>
                   <option value="OPEN">{t('Open')}</option>
                   <option value="RESOLVED">{t('Resolved')}</option>
                 </select>
@@ -266,7 +285,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                 <p role="status">{t('Loading…')}</p>
               ) : list.isError ? (
                 <p role="alert">
-                  Requests could not be loaded.{' '}
+                  {translateUi('Requests could not be loaded.')}{' '}
                   <button onClick={() => void list.refetch()}>{t('Retry')}</button>
                 </p>
               ) : list.data?.tickets.length ? (
@@ -285,13 +304,13 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                         {ticket.status === 'RESOLVED'
                           ? t('Resolved')
                           : ticket.last_sender === 'ADMIN'
-                            ? 'Team replied'
+                            ? translateUi('Team replied')
                             : t('Open')}
                       </span>
                       <strong>{ticket.subject}</strong>
                       <small>
                         {admin && ticket.username ? `@${ticket.username} · ` : ''}
-                        {new Date(ticket.updated_at).toLocaleDateString()}
+                        {new Date(ticket.updated_at).toLocaleDateString(interfaceLocale)}
                       </small>
                     </button>
                   ))}
@@ -299,19 +318,19 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
               ) : (
                 <div className="salem-support-list-empty">
                   <MessageCircle size={25} />
-                  <p>No requests to show.</p>
+                  <p>{translateUi('No requests to show.')}</p>
                 </div>
               )}
               <div className="salem-support-pagination">
                 <button disabled={page === 0 || locked} onClick={() => setPage((p) => p - 1)}>
-                  Previous
+                  {translateUi('Previous')}
                 </button>
                 <span>{page + 1}</span>
                 <button
                   disabled={!list.data?.hasMore || locked}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  Next
+                  {translateUi('Next')}
                 </button>
               </div>
             </aside>
@@ -345,7 +364,11 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                   }}
                 >
                   <h2>{t('New request')}</h2>
-                  <p>Describe what happened. Include an order or game reference if relevant.</p>
+                  <p>
+                    {translateUi(
+                      'Describe what happened. Include an order or game reference if relevant.'
+                    )}
+                  </p>
                   <label>
                     {t('Category')}
                     <select
@@ -383,7 +406,9 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                     />
                   </label>
                   <p className="salem-footnote">
-                    Never include passwords, verification codes, private keys or seed phrases.
+                    {translateUi(
+                      'Never include passwords, verification codes, private keys or seed phrases.'
+                    )}
                   </p>
                   <button
                     className="salem-button"
@@ -398,7 +423,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                   <p role="status">{t('Loading…')}</p>
                 ) : thread.isError ? (
                   <p role="alert">
-                    This request could not be opened.{' '}
+                    {translateUi('This request could not be opened.')}{' '}
                     <button onClick={() => void thread.refetch()}>{t('Retry')}</button>
                   </p>
                 ) : (
@@ -409,7 +434,10 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                           <h2>{item.subject}</h2>
                           <p>
                             {t(item.status === 'OPEN' ? 'Open' : 'Resolved')} ·{' '}
-                            {categories.find(([code]) => code === item.category)?.[1]}
+                            {t(
+                              categories.find(([code]) => code === item.category)?.[1] ??
+                                item.category
+                            )}
                           </p>
                         </div>
                         <button
@@ -430,15 +458,18 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                           disabled={!thread.data?.hasMore}
                           onClick={() => setMessagePage((p) => p + 1)}
                         >
-                          Earlier messages
+                          {translateUi('Earlier messages')}
                         </button>
                         {messagePage > 0 && (
                           <button onClick={() => setMessagePage((p) => p - 1)}>
-                            Newer messages
+                            {translateUi('Newer messages')}
                           </button>
                         )}
                       </div>
-                      <ol className="salem-support-messages" aria-label="Support conversation">
+                      <ol
+                        className="salem-support-messages"
+                        aria-label={translateUi('Support conversation')}
+                      >
                         {thread.data?.messages.map((message) => (
                           <li
                             key={message.id}
@@ -446,10 +477,14 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                           >
                             <div>
                               <strong>
-                                {message.staff ? t('Our team') : admin ? 'Member' : 'You'}
+                                {message.staff
+                                  ? t('Our team')
+                                  : admin
+                                    ? translateUi('Member')
+                                    : translateUi('You')}
                               </strong>
                               <time dateTime={message.created_at}>
-                                {new Date(message.created_at).toLocaleString()}
+                                {new Date(message.created_at).toLocaleString(interfaceLocale)}
                               </time>
                             </div>
                             <p>{message.body}</p>
@@ -483,7 +518,11 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
                           </button>
                         </form>
                       ) : (
-                        <p>This request is resolved. Reopen it if you still need help.</p>
+                        <p>
+                          {translateUi(
+                            'This request is resolved. Reopen it if you still need help.'
+                          )}
+                        </p>
                       )}
                     </>
                   )
@@ -491,11 +530,11 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
               ) : (
                 <div className="salem-support-welcome">
                   <Headphones size={40} />
-                  <h2>{admin ? 'Choose a request' : t('Contact support')}</h2>
+                  <h2>{admin ? translateUi('Choose a request') : t('Contact support')}</h2>
                   <p>
                     {admin
-                      ? 'Select a member’s request to read and reply.'
-                      : 'Your messages and replies stay together here.'}
+                      ? translateUi('Select a member’s request to read and reply.')
+                      : translateUi('Your messages and replies stay together here.')}
                   </p>
                   {!admin && (
                     <button className="salem-button" onClick={() => setCreating(true)}>
@@ -507,7 +546,7 @@ function SupportSession({ userId, admin }: { userId: string; admin: boolean }) {
               )}
               {notice && (
                 <p role={mutation.isError ? 'alert' : 'status'} className="salem-support-notice">
-                  {notice}
+                  {translateUi(notice)}
                 </p>
               )}
               {pending && mutation.isError && (
@@ -529,10 +568,12 @@ function HelpArticles({
   data: { id: string; title: string; body: string; href: string }[];
   loading: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [search, setSearch] = useState('');
   const { t } = useLanguage();
   const articles = data.filter((a) =>
-    `${a.title} ${a.body}`.toLowerCase().includes(search.toLowerCase())
+    `${t(a.title)} ${t(a.body)}`.toLowerCase().includes(search.toLowerCase())
   );
   return (
     <section>
@@ -553,23 +594,27 @@ function HelpArticles({
           {articles.map((article) => (
             <details key={article.id} className="salem-help-article">
               <summary>
-                {article.title}
+                {t(article.title)}
                 <Plus size={16} />
               </summary>
-              <p>{article.body}</p>
+              <p>{t(article.body)}</p>
               <Link to={article.href}>
                 {t('Continue')}
                 <ArrowRight size={14} />
               </Link>
             </details>
           ))}
-          {!articles.length && <p>No matching guides. Contact our team for help.</p>}
+          {!articles.length && (
+            <p>{translateUi('No matching guides. Contact our team for help.')}</p>
+          )}
         </div>
       )}
     </section>
   );
 }
 function Assistant({ language }: { language: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [question, setQuestion] = useState('');
   const { t } = useLanguage();
   const answer = useMutation({
@@ -589,7 +634,7 @@ function Assistant({ language }: { language: string }) {
       }}
     >
       <label>
-        Your question
+        {translateUi('Your question')}
         <textarea
           rows={3}
           value={question}
@@ -602,14 +647,17 @@ function Assistant({ language }: { language: string }) {
         />
       </label>
       <p className="salem-footnote">
-        AI-generated answers may be inaccurate. Your question is sent to our AI provider. Do not include
-        passwords or payment secrets.
+        {translateUi(
+          'AI-generated answers may be inaccurate. Your question is sent to our AI provider. Do not include passwords or payment secrets.'
+        )}
       </p>
       <button className="salem-button" disabled={!question.trim() || answer.isPending}>
-        {answer.isPending ? t('Loading…') : 'Ask assistant'}
+        {answer.isPending ? t('Loading…') : translateUi('Ask assistant')}
       </button>
       {answer.isError && (
-        <p role="alert">The assistant could not respond. Try again or contact our team.</p>
+        <p role="alert">
+          {translateUi('The assistant could not respond. Try again or contact our team.')}
+        </p>
       )}
       {answer.data && (
         <div className="salem-assistant-answer" role="status">

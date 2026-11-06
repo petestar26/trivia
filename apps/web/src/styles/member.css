@@ -725,11 +725,11 @@ html.qube-member .qube-chat-bubble.dark\:bg-emerald-900 {
 html.qube-member .qube-chat .dark\:bg-slate-950 {
   background: #1e1517;
 }
-html.qube-member .qube-chat button[aria-label='Send'] {
+html.qube-member .qube-chat button.qube-chat-send {
   background: #d8ad8f;
   color: #2f171d;
 }
-html.qube-member .qube-chat button[aria-label='Send']:hover:not(:disabled) {
+html.qube-member .qube-chat button.qube-chat-send:hover:not(:disabled) {
   background: #e6cab6;
 }
 

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function ExistingMemberAgentForm({
   countries,
@@ -12,6 +13,8 @@ export function ExistingMemberAgentForm({
   countries: Array<{ id: string; name: string; isActive: boolean }>;
   countriesUnavailable: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const cache = useQueryClient();
   const active = useRef(false);
   const [email, setEmail] = useState(''),
@@ -63,22 +66,21 @@ export function ExistingMemberAgentForm({
   }
   return (
     <section className="workspace-panel">
-      <h2>Approve an existing member</h2>
+      <h2>{translateUi('Approve an existing member')}</h2>
       <p>
-        The member keeps their current password, wallet and account history. This grants agent
-        access; receiving accounts and funding are configured separately.
+        {translateUi(
+          'The member keeps their current password, wallet and account history. This grants agent access; receiving accounts and funding are configured separately.'
+        )}
       </p>
       {result ? (
         <div role="status">
-          <h3>Agent access approved</h3>
+          <h3>{translateUi('Agent access approved')}</h3>
           <p>
             {result.username} · {result.email}
           </p>
-          <p>
-            Sign in at <Link to="/agent/login">Agent sign in</Link> using the member’s existing
-            password.
-          </p>
-          <Link to="/admin/agents">View agents</Link>
+          <p>{translateUi('Use the member’s existing password to sign in.')}</p>
+          <Link to="/agent/login">{translateUi('Agent sign in')}</Link>
+          <Link to="/admin/agents">{translateUi('View agents')}</Link>
           <button
             type="button"
             onClick={() => {
@@ -87,13 +89,13 @@ export function ExistingMemberAgentForm({
               setDisplayName('');
             }}
           >
-            Approve another member
+            {translateUi('Approve another member')}
           </button>
         </div>
       ) : (
         <form className="workspace-account-form" onSubmit={submit}>
           <label>
-            Member email
+            {translateUi('Member email')}
             <input
               type="email"
               required
@@ -107,7 +109,7 @@ export function ExistingMemberAgentForm({
             />
           </label>
           <label>
-            Agent display name
+            {translateUi('Agent display name')}
             <input
               required
               maxLength={100}
@@ -120,7 +122,7 @@ export function ExistingMemberAgentForm({
             />
           </label>
           <label>
-            Agent country
+            {translateUi('Agent country')}
             <select
               required
               value={countryId}
@@ -130,7 +132,7 @@ export function ExistingMemberAgentForm({
                 setConfirmed(false);
               }}
             >
-              <option value="">Choose an active country</option>
+              <option value="">{translateUi('Choose an active country')}</option>
               {countries
                 .filter((c) => c.isActive)
                 .map((c) => (
@@ -147,11 +149,11 @@ export function ExistingMemberAgentForm({
               disabled={busy}
               onChange={(e) => setConfirmed(e.target.checked)}
             />
-            I authorize agent access for this member.
+            {translateUi('I authorize agent access for this member.')}
           </label>
           {message && (
             <p role="alert">
-              {message} <Link to="/admin/agents">Check agents</Link>
+              {translateUi(message)} <Link to="/admin/agents">{translateUi('Check agents')}</Link>
             </p>
           )}
           <button
@@ -164,7 +166,7 @@ export function ExistingMemberAgentForm({
               countriesUnavailable
             }
           >
-            {busy ? 'Approving member…' : 'Approve agent access'}
+            {busy ? translateUi('Approving member…') : translateUi('Approve agent access')}
           </button>
         </form>
       )}

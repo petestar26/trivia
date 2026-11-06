@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemberRewardsPage } from './member-rewards';
 import { ProfilePage } from './profile';
 import { RewardControlPage } from './workspaces/reward-control';
+import { LanguageProvider, type Language } from '@/providers/language-provider';
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -99,13 +100,18 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-function show(page: React.ReactElement) {
+function show(page: React.ReactElement, language: Language = 'en') {
+  vi.mocked(localStorage.getItem).mockImplementation((key) =>
+    key === 'salem-language' ? language : null
+  );
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>{page}</MemoryRouter>
+      <LanguageProvider>
+        <MemoryRouter>{page}</MemoryRouter>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }
@@ -114,8 +120,8 @@ it('separates bonus and cash, explains practice exclusion, and shares a referral
   expect(
     await screen.findByRole('heading', { name: 'Rewards, made for you.' })
   ).toBeInTheDocument();
-  expect(screen.getByText('25.00 ETB')).toBeInTheDocument();
-  expect(screen.getByText('16.00 ETB')).toBeInTheDocument();
+  expect(screen.getByText('ETB 25.00')).toBeInTheDocument();
+  expect(screen.getByText('ETB 16.00')).toBeInTheDocument();
   expect(screen.getByText(/current gift shop uses practice ETB/)).toBeInTheDocument();
   expect(screen.getByLabelText(/Your code/)).toHaveValue(
     'http://localhost:3000/register?ref=ABCD2345'
@@ -188,3 +194,22 @@ it('admin controls reject fractional cents before submitting', async () => {
   expect(await screen.findByText(/no more than two decimal places/)).toBeInTheDocument();
   expect(mocks.put).not.toHaveBeenCalled();
 });
+
+it.each([
+  { language: 'fr' as const, bonus: /25,00\sETB/, cash: /16,00\sETB/ },
+  { language: 'ar' as const, bonus: /٢٥٫٠٠\sETB/, cash: /١٦٫٠٠\sETB/ },
+])(
+  'localizes bonus and cash separately in $language without changing stored minor amounts',
+  async ({ language, bonus, cash }) => {
+    show(<MemberRewardsPage />, language);
+    expect(await screen.findByText(bonus)).toBeVisible();
+    expect(screen.getByText(cash)).toBeVisible();
+    expect(rewards.wallet.coinAvailability).toEqual({
+      betOnly: 2500,
+      spendable: 1600,
+      pendingReview: 0,
+      reserved: 0,
+    });
+    expect(mocks.post).not.toHaveBeenCalled();
+  }
+);

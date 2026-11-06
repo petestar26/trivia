@@ -1,0 +1,10 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/packages/shared
+
+ ✓ src/play-together.test.ts  (25 tests) 684ms
+ ✓ src/group-pvp.test.ts  (9 tests) 5ms
+ ✓ src/pvp-entry.test.ts  (23 tests) 5ms
+
+ Test Files  3 passed (3)
+      Tests  57 passed (57)
+   Start at  18:24:01
+   Duration  1.63s (transform 278ms, setup 0ms, collect 347ms, tests 694ms, environment 1ms, prepare 216ms)

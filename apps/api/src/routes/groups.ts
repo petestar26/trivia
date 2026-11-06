@@ -551,6 +551,7 @@ export async function groupRoutes(server: FastifyInstance): Promise<void> {
         if (lifecycle.closed) throw ApiError.conflict('This group has closed and cannot be deleted. Archive it for yourself; its conversation remains available.');
         const [history] = await tx.$queryRaw<{exists:boolean}[]>`SELECT
           EXISTS(SELECT 1 FROM group_pvp_rounds WHERE group_id=${group.id}) OR
+          EXISTS(SELECT 1 FROM play_together_rounds WHERE group_id=${group.id}) OR
           EXISTS(SELECT 1 FROM collectible_gift_operations WHERE group_id=${group.id}) AS exists`;
         if (history.exists) throw ApiError.conflict('This group has game or gift history and cannot be deleted. Archive it for yourself; its records remain available after the room closes.');
         await tx.groupMember.deleteMany({ where: { groupId: group.id } });

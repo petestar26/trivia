@@ -89,9 +89,9 @@ it('resets once through the server and offers sign in without retaining the pass
   ).toBeInTheDocument();
   expect(post).toHaveBeenCalledTimes(1);
   expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: /administrator sign in/ })).toHaveAttribute(
+  expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
     'href',
-    '/admin/login'
+    '/login'
   );
 });
 it('shows expired-link failure without claiming a successful password change', async () => {

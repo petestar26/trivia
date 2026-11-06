@@ -1,0 +1,335 @@
+{
+  "origin": "https://salem.bet",
+  "startedAt": "2026-11-06T03:42:22.788Z",
+  "anonymous": true,
+  "realFinancialActions": 0,
+  "checks": [
+    {
+      "name": "login-en-390",
+      "path": "/login",
+      "lang": "en",
+      "status": 200,
+      "translatedHeading": "Welcome back",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-en-390",
+      "path": "/admin/login",
+      "lang": "en",
+      "status": 200,
+      "translatedHeading": "Administrator sign in",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-en-390",
+      "path": "/agent/login",
+      "lang": "en",
+      "status": 200,
+      "translatedHeading": "Agent sign in",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-en-390",
+      "path": "/register",
+      "lang": "en",
+      "status": 200,
+      "translatedHeading": "Create an account",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-am-390",
+      "path": "/login",
+      "lang": "am",
+      "status": 200,
+      "translatedHeading": "እንኳን ደህና ተመለሱ",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-am-390",
+      "path": "/admin/login",
+      "lang": "am",
+      "status": 200,
+      "translatedHeading": "የአስተዳዳሪ መግቢያ",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-am-390",
+      "path": "/agent/login",
+      "lang": "am",
+      "status": 200,
+      "translatedHeading": "የወኪል መግቢያ",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-am-390",
+      "path": "/register",
+      "lang": "am",
+      "status": 200,
+      "translatedHeading": "መለያ ፍጠር",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-om-390",
+      "path": "/login",
+      "lang": "om",
+      "status": 200,
+      "translatedHeading": "Baga nagaan deebite",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-om-390",
+      "path": "/admin/login",
+      "lang": "om",
+      "status": 200,
+      "translatedHeading": "Seensa bulchaa",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-om-390",
+      "path": "/agent/login",
+      "lang": "om",
+      "status": 200,
+      "translatedHeading": "Seensa bakka bu'aa",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-om-390",
+      "path": "/register",
+      "lang": "om",
+      "status": 200,
+      "translatedHeading": "Herrega uumi",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-ti-390",
+      "path": "/login",
+      "lang": "ti",
+      "status": 200,
+      "translatedHeading": "እንቋዕ ብደሓን ተመለስካ",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-ti-390",
+      "path": "/admin/login",
+      "lang": "ti",
+      "status": 200,
+      "translatedHeading": "መእተዊ ኣመሓዳሪ",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-ti-390",
+      "path": "/agent/login",
+      "lang": "ti",
+      "status": 200,
+      "translatedHeading": "መእተዊ ወኪል",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-ti-390",
+      "path": "/register",
+      "lang": "ti",
+      "status": 200,
+      "translatedHeading": "ሒሳብ ፍጠር",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-so-390",
+      "path": "/login",
+      "lang": "so",
+      "status": 200,
+      "translatedHeading": "Ku soo dhowow mar kale",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-so-390",
+      "path": "/admin/login",
+      "lang": "so",
+      "status": 200,
+      "translatedHeading": "Gelitaanka maamulaha",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-so-390",
+      "path": "/agent/login",
+      "lang": "so",
+      "status": 200,
+      "translatedHeading": "Soo-gelitaanka wakiilka",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-so-390",
+      "path": "/register",
+      "lang": "so",
+      "status": 200,
+      "translatedHeading": "Samee akoon",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-ar-390",
+      "path": "/login",
+      "lang": "ar",
+      "status": 200,
+      "translatedHeading": "مرحبًا بعودتك",
+      "dir": "rtl",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-ar-390",
+      "path": "/admin/login",
+      "lang": "ar",
+      "status": 200,
+      "translatedHeading": "تسجيل دخول المسؤول",
+      "dir": "rtl",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-ar-390",
+      "path": "/agent/login",
+      "lang": "ar",
+      "status": 200,
+      "translatedHeading": "تسجيل دخول الوكيل",
+      "dir": "rtl",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-ar-390",
+      "path": "/register",
+      "lang": "ar",
+      "status": 200,
+      "translatedHeading": "إنشاء حساب",
+      "dir": "rtl",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-sw-390",
+      "path": "/login",
+      "lang": "sw",
+      "status": 200,
+      "translatedHeading": "Karibu tena",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-sw-390",
+      "path": "/admin/login",
+      "lang": "sw",
+      "status": 200,
+      "translatedHeading": "Kuingia kwa msimamizi",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-sw-390",
+      "path": "/agent/login",
+      "lang": "sw",
+      "status": 200,
+      "translatedHeading": "Kuingia kwa wakala",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-sw-390",
+      "path": "/register",
+      "lang": "sw",
+      "status": 200,
+      "translatedHeading": "Fungua akaunti",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "login-fr-390",
+      "path": "/login",
+      "lang": "fr",
+      "status": 200,
+      "translatedHeading": "Bon retour",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "admin-login-fr-390",
+      "path": "/admin/login",
+      "lang": "fr",
+      "status": 200,
+      "translatedHeading": "Connexion administrateur",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "agent-login-fr-390",
+      "path": "/agent/login",
+      "lang": "fr",
+      "status": 200,
+      "translatedHeading": "Connexion agent",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "register-fr-390",
+      "path": "/register",
+      "lang": "fr",
+      "status": 200,
+      "translatedHeading": "Créer un compte",
+      "dir": "ltr",
+      "scrollWidth": 390,
+      "viewport": 390
+    }
+  ],
+  "errors": [],
+  "failures": [],
+  "blockedMutations": [],
+  "blockedSessionRefreshes": 32,
+  "blockedExternalRequests": 32,
+  "blockedProviderRequests": 0,
+  "finishedAt": "2026-11-06T03:51:10.827Z"
+}

@@ -1,5 +1,9 @@
 import { SPIN90_MARKETS, spinColour } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 export function SpinInsights({ outcomes }: { outcomes: readonly number[] }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const recent = outcomes.slice(0, 12);
   const count = (test: (n: number) => boolean) => recent.filter(test).length;
   const stats = [
@@ -10,10 +14,12 @@ export function SpinInsights({ outcomes }: { outcomes: readonly number[] }) {
   return (
     <aside
       className="grid gap-3 sm:grid-cols-2 lg:block lg:space-y-3"
-      aria-label="Spin history and statistics"
+      aria-label={translateUi('Spin history and statistics')}
     >
       <div className="rounded-xl border border-[#c7a05a]/30 bg-black/30 p-3">
-        <h2 className="text-xs font-bold uppercase tracking-[.18em] text-[#efd39b]">Pay table</h2>
+        <h2 className="text-xs font-bold uppercase tracking-[.18em] text-[#efd39b]">
+          {translateUi('Pay table')}
+        </h2>
         <div className="mt-2 space-y-1 text-xs">
           {[
             ['Colour / parity', 'red'],
@@ -22,18 +28,18 @@ export function SpinInsights({ outcomes }: { outcomes: readonly number[] }) {
             ['Number', 'number:0'],
           ].map(([label, id]) => (
             <div key={id} className="flex justify-between border-b border-white/10 py-2">
-              <span className="text-emerald-100/70">{label}</span>
+              <span className="text-emerald-100/70">{translateUi(label)}</span>
               <strong>{SPIN90_MARKETS.find((m) => m.id === id)!.grossMultiplier}×</strong>
             </div>
           ))}
         </div>
         <p className="mt-2 text-[10px] text-emerald-100/50">
-          Total returns include stake · 90% RTP
+          {translateUi('Total returns include stake · 90% RTP')}
         </p>
       </div>
       <div className="rounded-xl border border-[#c7a05a]/30 bg-black/30 p-3">
         <h2 className="text-xs font-bold uppercase tracking-[.18em] text-[#efd39b]">
-          Recent results
+          {translateUi('Recent results')}
         </h2>
         {recent.length ? (
           <div className="mt-3 grid grid-cols-6 gap-1.5">
@@ -49,15 +55,17 @@ export function SpinInsights({ outcomes }: { outcomes: readonly number[] }) {
           </div>
         ) : (
           <p className="mt-3 text-xs text-emerald-100/50">
-            Results will appear after a completed round.
+            {translateUi('Results will appear after a completed round.')}
           </p>
         )}
         <p className="mt-2 text-[10px] text-emerald-100/50">
-          Last {recent.length} completed rounds
+          {translateUi('Last {length} completed rounds', { length: recent.length })}
         </p>
       </div>
       <div className="rounded-xl border border-[#c7a05a]/30 bg-black/30 p-3">
-        <h2 className="text-xs font-bold uppercase tracking-[.18em] text-[#efd39b]">Statistics</h2>
+        <h2 className="text-xs font-bold uppercase tracking-[.18em] text-[#efd39b]">
+          {translateUi('Statistics')}
+        </h2>
         <div className="mt-3 flex gap-2">
           {stats.map(([label, value]) => (
             <div key={label} className="flex-1 rounded bg-white/5 p-2 text-center">

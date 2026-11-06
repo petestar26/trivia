@@ -28,12 +28,160 @@ export async function flushCoinLedgerConstraints(tx: EconomicTx): Promise<void> 
   await tx.$executeRawUnsafe(`SET CONSTRAINTS ${names} DEFERRED`);
 }
 export type OperationName =
+  | 'TOGETHER_HOLD' | 'TOGETHER_REFUND' | 'TOGETHER_SETTLE' | 'TOGETHER_PRIZE'
+  | 'SPORTS_DEBIT' | 'SPORTS_CREDIT'
   | 'SCHEDULED_STAKE_HOLD' | 'SCHEDULED_STAKE_REFUND' | 'SCHEDULED_STAKE_SETTLE'
   | 'PURCHASE' | 'BONUS_GRANT' | 'WAGER' | 'PAYOUT' | 'GIFT_SPEND'
   | 'COMPETITION_ESCROW' | 'COMPETITION_RELEASE' | 'COMPETITION_PAYOUT'
   | 'WITHDRAWAL_HOLD' | 'WITHDRAWAL_RELEASE' | 'WITHDRAWAL_FINALIZE'
   | 'BONUS_CONVERSION' | 'BONUS_EXPIRY' | 'LEGACY_OPENING' | 'LEGACY_RESOLVE'
   | 'ADMIN_ADJUST' | 'ADMIN_QUALIFY' | 'COMPENSATION';
+
+/** A provider receipt, checked by deferred database constraints, is required
+ * before this transaction can commit. Only cash lots fund this sportsbook;
+ * restricted rewards and practice balances never cross this boundary. */
+export async function applySportsCashMovement(tx: EconomicTx, userId: string, args: {
+  callId: string; action: 'debit' | 'credit'; amount: number; requestHash: string;
+  policy: PolicyPin; roundId: string; gameId: string;
+}) {
+  safePositive(args.amount, 'Sports amount');
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const cash = usableSpendLots(lots, new Date()).filter(l => l.lotClass === 'WITHDRAWABLE');
+  let funding: FundingShare[] = [];
+  if (args.action === 'debit') {
+    try { funding = allocateFunding(cash, args.amount); }
+    catch (error) { if (error instanceof RangeError) throw ApiError.badRequest('Insufficient real wallet balance'); throw error; }
+  }
+  const balance = await applyBalanceChanges(tx, userId, [{
+    currency: 'COINS', amount: args.amount, ledgerType: args.action === 'debit' ? 'DEBIT' : 'CREDIT',
+    transactionType: args.action === 'debit' ? 'COIN_DEBIT' : 'COIN_CREDIT',
+    referenceType: 'GAME', referenceId: args.callId,
+    description: args.action === 'debit' ? 'Sportsbook stake / adjustment' : 'Sportsbook payout / refund',
+  }], { coinLedgerIntent: COIN_LEDGER_INTENT });
+  const walletTransactionId = balance.transactions[0].id;
+  const operation = await createOperation(tx, {
+    type: args.action === 'debit' ? 'SPORTS_DEBIT' : 'SPORTS_CREDIT', userId,
+    scopeType: 'SOFTAGGREGATOR_SPORTS', scopeId: args.callId, requestHash: args.requestHash,
+    walletTransactionIds: [walletTransactionId], policy: args.policy,
+    snapshot: { provider: 'softaggregator', roundId: args.roundId, gameId: args.gameId },
+  });
+  if (args.action === 'debit') {
+    for (const [sequence, share] of funding.entries()) await entry(tx, {
+      operationId: operation.id, userId, lotId: share.lotId, sequence,
+      entryType: 'CONSUME', availableDelta: -share.amount,
+    });
+  } else {
+    const lot = await tx.coinProvenance.create({ data: {
+      userId, walletTransactionId, amount: args.amount, provenanceType: 'GAME_WIN',
+      restrictionStatus: 'UNRESTRICTED', originalSource: 'GAME_WIN',
+      originalGrantReferenceType: 'SOFTAGGREGATOR_SPORTS', originalGrantReferenceId: args.callId,
+      countryPolicyId: args.policy.id, countryPolicyVersion: args.policy.version,
+      lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 0, reservedAmount: 0,
+      requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+      sourceOperationId: operation.id,
+    } });
+    await entry(tx, { operationId: operation.id, userId, lotId: lot.id, sequence: 0,
+      entryType: 'MINT', availableDelta: args.amount });
+  }
+  await flushCoinLedgerConstraints(tx);
+  return { operationId: operation.id, walletTransactionId,
+    balanceMinor: cash.reduce((n,l) => n + l.availableAmount,0) + (args.action === 'debit' ? -args.amount : args.amount) };
+}
+
+/** Group holds share the exact wallet/lot locks used by sports, gifts and
+ * withdrawals. The calling transaction must persist the corresponding group
+ * entry and force the deferred group proofs before reporting success. */
+export async function reserveTogetherCash(tx: EconomicTx, userId: string, args: {
+  entryId: string; roundId: string; amount: number; policy: PolicyPin;
+}) {
+  safePositive(args.amount, 'Group entry');
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const funding = allocateFunding(usableSpendLots(lots, new Date()).filter(l => l.lotClass === 'WITHDRAWABLE'), args.amount);
+  const balance = await applyBalanceChanges(tx, userId, [{
+    currency: 'COINS', amount: args.amount, ledgerType: 'DEBIT', transactionType: 'COIN_DEBIT',
+    referenceType: 'GAME', referenceId: args.entryId, description: 'Group round entry reserved',
+  }], { coinLedgerIntent: COIN_LEDGER_INTENT });
+  const operation = await createOperation(tx, {
+    type: 'TOGETHER_HOLD', userId, scopeType: 'PLAY_TOGETHER', scopeId: args.entryId,
+    policy: args.policy, walletTransactionIds: [balance.transactions[0].id],
+    snapshot: { roundId: args.roundId, amount: args.amount },
+  });
+  for (const [sequence, share] of funding.entries()) await entry(tx, {
+    operationId: operation.id, userId, lotId: share.lotId, sequence,
+    entryType: 'RESERVE', availableDelta: -share.amount, reservedDelta: share.amount,
+  });
+  await flushCoinLedgerConstraints(tx);
+  return { operationId: operation.id, walletTransactionId: balance.transactions[0].id };
+}
+
+/** Refunds release the original lots. Completed rounds consume each hold once;
+ * a separately witnessed cash prize records the participant's entire return. */
+export async function resolveTogetherCash(tx: EconomicTx, userId: string, args: {
+  entryId: string; roundId: string; holdOperationId: string; amount: number;
+  payout: number; refund: boolean; policy: PolicyPin;
+}) {
+  safeNonnegative(args.payout, 'Group payout');
+  if (args.refund && args.payout !== args.amount) throw ApiError.conflict('A refund must return the entire entry');
+  const { wallet, account } = await lockEconomicWallet(tx, userId);
+  const lots = await lockLots(tx, userId);
+  requireClassified(account.classifiedAt);
+  assertBalanceMatchesLots(wallet.coinsBalance, lots, account.classifiedAt);
+  const hold = await tx.economicOperation.findUniqueOrThrow({ where: { id: args.holdOperationId } });
+  if (hold.type !== 'TOGETHER_HOLD' || hold.userId !== userId ||
+    hold.scopeType !== 'PLAY_TOGETHER' || hold.scopeId !== args.entryId)
+    throw ApiError.conflict('Group funding receipt does not match');
+  const sources = await tx.coinLotEntry.findMany({
+    where: { operationId: hold.id, entryType: 'RESERVE' }, orderBy: { sequence: 'asc' },
+  });
+  if (sources.reduce((sum, s) => sum + s.reservedDelta, 0) !== args.amount)
+    throw ApiError.conflict('Group reservation does not balance');
+  const credit = args.payout ? await applyBalanceChanges(tx, userId, [{
+    currency: 'COINS', amount: args.payout, ledgerType: 'CREDIT', transactionType: 'COIN_CREDIT',
+    referenceType: 'GAME', referenceId: args.entryId,
+    description: args.refund ? 'Group round entry refunded' : 'Group round prize including returned entry',
+  }], { coinLedgerIntent: COIN_LEDGER_INTENT }) : null;
+  const walletTransactionId = credit?.transactions[0].id ?? null;
+  const close = await createOperation(tx, {
+    type: args.refund ? 'TOGETHER_REFUND' : 'TOGETHER_SETTLE', userId,
+    scopeType: 'PLAY_TOGETHER', scopeId: args.entryId, policy: args.policy,
+    reversesOperationId: hold.id,
+    walletTransactionIds: args.refund && walletTransactionId ? [walletTransactionId] : [],
+    snapshot: { roundId: args.roundId, amount: args.amount, payout: args.payout },
+  });
+  for (const [sequence, source] of sources.entries()) await entry(tx, {
+    operationId: close.id, userId, lotId: source.lotId, sequence,
+    entryType: args.refund ? 'RELEASE' : 'FINALIZE', reversesEntryId: source.id,
+    availableDelta: args.refund ? source.reservedDelta : 0, reservedDelta: -source.reservedDelta,
+  });
+  let prizeOperationId: string | null = null;
+  if (!args.refund && args.payout > 0 && walletTransactionId) {
+    const prize = await createOperation(tx, {
+      type: 'TOGETHER_PRIZE', userId, scopeType: 'PLAY_TOGETHER', scopeId: args.entryId,
+      policy: args.policy, walletTransactionIds: [walletTransactionId],
+      snapshot: { roundId: args.roundId, payout: args.payout },
+    });
+    prizeOperationId = prize.id;
+    const lot = await tx.coinProvenance.create({ data: {
+      userId, walletTransactionId, amount: args.payout, provenanceType: 'GAME_WIN',
+      restrictionStatus: 'UNRESTRICTED', originalSource: 'GAME_WIN',
+      originalGrantReferenceType: 'PLAY_TOGETHER', originalGrantReferenceId: args.entryId,
+      countryPolicyId: args.policy.id, countryPolicyVersion: args.policy.version,
+      lotClass: 'WITHDRAWABLE', state: 'OPEN', availableAmount: 0, reservedAmount: 0,
+      requirementAmount: 0, progressAmount: 0, mintedAt: new Date(), availableAt: new Date(),
+      sourceOperationId: prize.id,
+    } });
+    await entry(tx, { operationId: prize.id, userId, lotId: lot.id, sequence: 0,
+      entryType: 'MINT', availableDelta: args.payout });
+  }
+  await flushCoinLedgerConstraints(tx);
+  return { closeOperationId: close.id, prizeOperationId, walletTransactionId };
+}
 
 type LockedLot = {
   id: string; userId: string; lotClass: LotClass; state: string; amount: number; rootLotId: string | null;

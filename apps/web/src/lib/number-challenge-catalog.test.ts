@@ -1,33 +1,23 @@
 import { expect, it } from 'vitest';
-import { memberGameDestination, memberGameLabel } from './member-game-catalog';
-import type { GameCatalogEntry } from './api';
-
+import { memberGameDestination, memberGameLabel, type MemberGame } from './member-game-catalog';
 const game = {
   key: 'number_challenge',
-  isActive: false,
   catalogStatus: 'COMING_SOON',
-} as GameCatalogEntry;
-
-it('does not release Number Challenge through artwork, a catalog row or its route alone', () => {
-  for (const practiceAvailable of [false, undefined]) {
-    expect(memberGameDestination({ ...game, practiceAvailable })).toBeUndefined();
-    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Temporarily unavailable');
+  isActive: false,
+} as MemberGame;
+it.each([undefined, false, true])(
+  'opens group rules without relying on old solo availability %s',
+  (practiceAvailable) => {
+    expect(memberGameDestination({ ...game, practiceAvailable })).toBe(
+      '/play-together?game=number_challenge'
+    );
+    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Group play');
+    // Retirement still prevents discovery; actual entry requires the group policy.
+    expect(
+      memberGameDestination({ ...game, practiceAvailable, catalogStatus: 'RETIRED' })
+    ).toBeUndefined();
+    expect(memberGameLabel({ ...game, practiceAvailable, catalogStatus: 'RETIRED' })).toBe(
+      'Unavailable'
+    );
   }
-  // Even an active, AVAILABLE catalog row is not enough: the server must report practice available.
-  expect(
-    memberGameDestination({
-      ...game,
-      isActive: true,
-      catalogStatus: 'AVAILABLE',
-      practiceAvailable: false,
-    })
-  ).toBeUndefined();
-  expect(memberGameDestination({ ...game, practiceAvailable: true })).toBe(
-    '/games/number-challenge'
-  );
-  expect(memberGameLabel({ ...game, practiceAvailable: true })).toBe('Free practice');
-  expect(
-    memberGameDestination({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })
-  ).toBeUndefined();
-  expect(memberGameLabel({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })).toBe('Unavailable');
-});
+);

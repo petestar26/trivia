@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -32,6 +33,7 @@ import { BannedMembersSection } from '@/components/groups/banned-members-section
 import { GroupLifecycle } from '@/components/groups/group-lifecycle';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import type { GroupDetailInfo, GroupInviteInfo, GroupMemberInfo } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const ROLE_OPTIONS = ['ADMIN', 'MODERATOR', 'MEMBER'] as const;
 
@@ -64,8 +66,10 @@ function roleBadge(role: string) {
     MEMBER: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colours[role] ?? colours.MEMBER}`}>
-      {role}
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colours[role] ?? colours.MEMBER}`}
+    >
+      <LocalizedText message={role.toLowerCase().replace(/^./, (c) => c.toUpperCase())} />
     </span>
   );
 }
@@ -96,6 +100,8 @@ export function GroupDetailPage() {
  * keyed.
  */
 export function GroupDetailContent({ groupId }: { groupId: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -108,7 +114,8 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   useEffect(() => {
     viewedGroupIdRef.current = groupId;
   }, [groupId]);
-  const stillViewing = (initiatingGroupId: string) => viewedGroupIdRef.current === initiatingGroupId;
+  const stillViewing = (initiatingGroupId: string) =>
+    viewedGroupIdRef.current === initiatingGroupId;
 
   // Which group actions are running, in this instance or any other (the mutation
   // cache outlives a page instance). For making controls inert.
@@ -140,21 +147,29 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     // a manager must be able to copy or revoke the 101st invite, not just the
     // first pageful.
     queryFn: async ({ pageParam }): Promise<InvitesPage> =>
-      toInvitesPage(await api.listGroupInvites(groupId, { limit: INVITES_PAGE_LIMIT, page: pageParam }), pageParam),
+      toInvitesPage(
+        await api.listGroupInvites(groupId, { limit: INVITES_PAGE_LIMIT, page: pageParam }),
+        pageParam
+      ),
     initialPageParam: 1,
     // The next page is derived from the successful `lastPageParam` — never
     // trusted from `meta.page` — and only advances while the server claims a
     // next page exists.
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.hasNextPage ? (lastPageParam as number) + 1 : undefined,
-    enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '') && groupQuery.data?.isPrivate,
+    enabled:
+      !!groupId &&
+      !!groupQuery.data?.isMember &&
+      ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '') &&
+      groupQuery.data?.isPrivate,
   });
 
   // Flatten every loaded page and drop duplicate ids (a new invite landing at
   // the top between two offset page fetches can appear on both). The cache
   // itself stores exactly what the server sent; deduplication is render-only.
   const invites = flattenInvitesPages(invitesQuery.data?.pages);
-  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError } = invitesQuery;
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError } =
+    invitesQuery;
   const hasInvitesData = invitesQuery.data !== undefined;
 
   // WHICH failure is on screen, remembered across the retry that follows it.
@@ -164,7 +179,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   // would unmount the very Retry button the user just activated — and Chromium
   // answers that by dropping focus onto <body> for the whole request. Kept as
   // state adjusted during render, so there is no frame of lag.
-  const [rememberedInvitesFailure, setRememberedInvitesFailure] = useState<InvitesFailure | null>(null);
+  const [rememberedInvitesFailure, setRememberedInvitesFailure] = useState<InvitesFailure | null>(
+    null
+  );
   let invitesFailure: InvitesFailure | null = rememberedInvitesFailure;
   if (invitesQuery.isSuccess) {
     invitesFailure = null;
@@ -176,11 +193,17 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
 
   // Outcomes are announced through one live region. The nonce makes a REPEATED
   // identical outcome a real DOM change, so it is announced again.
-  const [invitesAnnouncement, setInvitesAnnouncement] = useState({ message: '', nonce: 0 });
-  const announceInvites = (message: string) =>
-    setInvitesAnnouncement((prev) => ({ message, nonce: prev.nonce + 1 }));
+  const [invitesAnnouncement, setInvitesAnnouncement] = useState<{
+    message: string;
+    nonce: number;
+    values?: Record<string, string | number>;
+  }>({ message: '', nonce: 0 });
+  const announceInvites = (message: string, values?: Record<string, string | number>) =>
+    setInvitesAnnouncement((prev) => ({ message, values, nonce: prev.nonce + 1 }));
   const invitesAnnouncementText =
-    invitesAnnouncement.message === '' ? '' : `${invitesAnnouncement.message}${invitesAnnouncement.nonce % 2 ? '\u200B' : ''}`;
+    invitesAnnouncement.message === ''
+      ? ''
+      : `${translateUi(invitesAnnouncement.message, invitesAnnouncement.values)}${invitesAnnouncement.nonce % 2 ? '\u200B' : ''}`;
 
   // A burst of "Load more" activations must produce exactly one next-page
   // request. `isFetchingNextPage` updates a render late, so two same-tick
@@ -193,7 +216,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   // leaves the DOM (the last page removes Load more; a successful retry
   // dismisses the banner that held it). Only recorded when the control actually
   // had focus, so a pointer user is never moved.
-  const invitesFocusRef = useRef<{ trigger: HTMLElement; knownIds: ReadonlySet<string> } | null>(null);
+  const invitesFocusRef = useRef<{ trigger: HTMLElement; knownIds: ReadonlySet<string> } | null>(
+    null
+  );
   const invitesCardRef = useRef<HTMLDivElement | null>(null);
   const invitesHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -225,8 +250,12 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
           invitesFocusRef.current = null;
           return;
         }
-        const added = flattenInvitesPages(result.data?.pages).filter((inv) => !knownIds.has(inv.id)).length;
-        announceInvites(added > 0 ? `Loaded ${added} more invite${added === 1 ? '' : 's'}.` : 'No more invites to load.');
+        const added = flattenInvitesPages(result.data?.pages).filter(
+          (inv) => !knownIds.has(inv.id)
+        ).length;
+        announceInvites(added > 0 ? 'Loaded {count} more invites.' : 'No more invites to load.', {
+          count: added,
+        });
       })
       .finally(() => {
         nextPageInFlightRef.current = false;
@@ -236,7 +265,10 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   // Retry after a failed first load or a failed refresh.
   const retryInvites = (trigger: HTMLElement) => {
     if (isFetching) return;
-    invitesFocusRef.current = document.activeElement === trigger ? { trigger, knownIds: new Set(invites.map((inv) => inv.id)) } : null;
+    invitesFocusRef.current =
+      document.activeElement === trigger
+        ? { trigger, knownIds: new Set(invites.map((inv) => inv.id)) }
+        : null;
     void invitesQuery.refetch();
   };
 
@@ -266,7 +298,10 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   const requestsQuery = useQuery<GroupMemberInfo[]>({
     queryKey: ['group-requests', groupId],
     queryFn: async () => (await api.listJoinRequests(groupId)).data ?? [],
-    enabled: !!groupId && !!groupQuery.data?.isMember && ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? ''),
+    enabled:
+      !!groupId &&
+      !!groupQuery.data?.isMember &&
+      ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? ''),
   });
 
   const isManager = ['OWNER', 'ADMIN'].includes(groupQuery.data?.memberRole ?? '');
@@ -318,25 +353,43 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     variables: V,
     opts: { alsoBlockedBy?: GroupActionKind[]; scope?: 'target' | 'group' } = {}
   ): boolean {
-    const query = { groupId: variables.groupId, targetId: opts.scope === 'group' ? undefined : variables.targetId };
-    if (hasPendingGroupAction(queryClient, [kind, ...(opts.alsoBlockedBy ?? [])], query)) return false;
+    const query = {
+      groupId: variables.groupId,
+      targetId: opts.scope === 'group' ? undefined : variables.targetId,
+    };
+    if (hasPendingGroupAction(queryClient, [kind, ...(opts.alsoBlockedBy ?? [])], query))
+      return false;
     mutation.mutate(variables);
     return true;
   }
 
   const joinMutation = useMutation({
     mutationKey: groupActionKey('join'),
-    mutationFn: ({ groupId: gid, isPrivate }: JoinAction) => (isPrivate ? api.requestJoinGroup(gid) : api.joinGroup(gid)),
+    mutationFn: ({ groupId: gid, isPrivate }: JoinAction) =>
+      isPrivate ? api.requestJoinGroup(gid) : api.joinGroup(gid),
     onSuccess: (_res, { groupId: gid, groupName: gname, isPrivate }) => {
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
-      toast({ title: isPrivate ? 'Join request submitted' : 'Joined group', description: gname });
+      toast({
+        title: isPrivate ? (
+          <LocalizedText message="Join request submitted" />
+        ) : (
+          <LocalizedText message="Joined group" />
+        ),
+        description: gname,
+      });
     },
     onError: (err, { groupName: gname }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't join {group}. {error}"
+            values={{ group: gname, error: actionErrorMessage(err, 'Please try again.') }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -348,12 +401,18 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     onSuccess: (_res, { groupId: gid, groupName: gname }) => {
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
-      toast({ title: 'Left group', description: gname });
+      toast({ title: <LocalizedText message="Left group" />, description: gname });
     },
     onError: (err, { groupName: gname }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't leave ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't leave {group}. {error}"
+            values={{ group: gname, error: actionErrorMessage(err, 'Please try again.') }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -366,12 +425,30 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       queryClient.invalidateQueries({ queryKey: ['group-requests', gid] });
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
-      toast({ title: 'Request approved', description: `${name} was approved to join ${gname}.` });
+      toast({
+        title: <LocalizedText message="Request approved" />,
+        description: (
+          <LocalizedText
+            message="{name} was approved to join {group}."
+            values={{ name: name, group: gname }}
+          />
+        ),
+      });
     },
     onError: (err, { groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't approve ${name}'s request to join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't approve {name}'s request to join {group}. {error}"
+            values={{
+              name: name,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -384,12 +461,30 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       queryClient.invalidateQueries({ queryKey: ['group-requests', gid] });
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
-      toast({ title: 'Request rejected', description: `${name}'s request to join ${gname} was rejected.` });
+      toast({
+        title: <LocalizedText message="Request rejected" />,
+        description: (
+          <LocalizedText
+            message="{name}'s request to join {group} was rejected."
+            values={{ name: name, group: gname }}
+          />
+        ),
+      });
     },
     onError: (err, { groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't reject ${name}'s request to join ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't reject {name}'s request to join {group}. {error}"
+            values={{
+              name: name,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -401,12 +496,30 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     onSuccess: (_res, { groupId: gid, groupName: gname, name }) => {
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
-      toast({ title: 'Member removed', description: `${name} was removed from ${gname}.` });
+      toast({
+        title: <LocalizedText message="Member removed" />,
+        description: (
+          <LocalizedText
+            message="{name} was removed from {group}."
+            values={{ name: name, group: gname }}
+          />
+        ),
+      });
     },
     onError: (err, { groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't remove ${name} from ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't remove {name} from {group}. {error}"
+            values={{
+              name: name,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -425,8 +538,17 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
       // Scoped to the signed-in account: the notification cache is keyed by
       // identity, so there is no shared inbox key to invalidate.
-      if (currentUserId) queryClient.invalidateQueries({ queryKey: notificationsScopeKey(currentUserId) });
-      toast({ title: 'Member banned', description: `${name} was banned from ${gname}.` });
+      if (currentUserId)
+        queryClient.invalidateQueries({ queryKey: notificationsScopeKey(currentUserId) });
+      toast({
+        title: <LocalizedText message="Member banned" />,
+        description: (
+          <LocalizedText
+            message="{name} was banned from {group}."
+            values={{ name: name, group: gname }}
+          />
+        ),
+      });
       // The banned row — and the Ban button that opened this — is about to
       // disappear from the list, so focus goes to the Members heading, a
       // control that survives the refresh. Without this, dismissing the
@@ -436,8 +558,18 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     },
     onError: (err, { groupId: gid, groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't ban ${name} from ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't ban {name} from {group}. {error}"
+            values={{
+              name: name,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
       // The ban failed, so the member row and its Ban button are still
@@ -448,15 +580,39 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
 
   const roleMutation = useMutation({
     mutationKey: groupActionKey('role'),
-    mutationFn: ({ groupId: gid, targetId, role }: RoleAction) => api.changeMemberRole(gid, targetId, role),
+    mutationFn: ({ groupId: gid, targetId, role }: RoleAction) =>
+      api.changeMemberRole(gid, targetId, role),
     onSuccess: (_res, { groupId: gid, groupName: gname, name, role }) => {
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
-      toast({ title: 'Role updated', description: `${name} is now ${role} in ${gname}.` });
+      toast({
+        title: <LocalizedText message="Role updated" />,
+        description: (
+          <LocalizedText
+            message="{name} is now {role} in {group}."
+            values={{
+              name: name,
+              role: role.toLowerCase().replace(/^./, (c) => c.toUpperCase()),
+              group: gname,
+            }}
+            translateValues={['role']}
+          />
+        ),
+      });
     },
     onError: (err, { groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't change ${name}'s role in ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't change {name}'s role in {group}. {error}"
+            values={{
+              name: name,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -464,7 +620,8 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
 
   const inviteMutation = useMutation({
     mutationKey: groupActionKey('invite'),
-    mutationFn: ({ groupId: gid, email, role }: InviteAction) => api.createGroupInvite(gid, email, role),
+    mutationFn: ({ groupId: gid, email, role }: InviteAction) =>
+      api.createGroupInvite(gid, email, role),
     onSuccess: async (res, { groupId: gid, groupName: gname }) => {
       const created = res?.data;
       if (created?.token) {
@@ -485,19 +642,35 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       // link. Whatever it does, the row's own "Copy link" stays available.
       const outcome = created?.token ? await copyText(inviteLink(created.token)) : null;
       toast({
-        title: 'Invite created',
+        title: <LocalizedText message="Invite created" />,
         description:
-          outcome === 'copied'
-            ? `For ${gname}: the invite link was copied to your clipboard. It stays listed under Active invites.`
-            : created?.token
-              ? `For ${gname}: the invite link is listed under Active invites, where you can copy it whenever you need it.`
-              : undefined,
+          outcome === 'copied' ? (
+            <LocalizedText
+              message="For {group}: the invite link was copied to your clipboard. It stays listed under Active invites."
+              values={{ group: gname }}
+            />
+          ) : created?.token ? (
+            <LocalizedText
+              message="For {group}: the invite link is listed under Active invites, where you can copy it whenever you need it."
+              values={{ group: gname }}
+            />
+          ) : undefined,
       });
     },
     onError: (err, { groupName: gname, email }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't invite ${email} to ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't invite {email} to {group}. {error}"
+            values={{
+              email: email,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -515,12 +688,30 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
         applyRevokedInvite(current, targetId)
       );
       queryClient.invalidateQueries({ queryKey: ['group-invites', gid] });
-      toast({ title: 'Invite revoked', description: `The invite for ${email} to ${gname} was revoked.` });
+      toast({
+        title: <LocalizedText message="Invite revoked" />,
+        description: (
+          <LocalizedText
+            message="The invite for {email} to {group} was revoked."
+            values={{ email: email, group: gname }}
+          />
+        ),
+      });
     },
     onError: (err, { groupName: gname, email }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't revoke the invite for ${email} in ${gname}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't revoke the invite for {email} in {group}. {error}"
+            values={{
+              email: email,
+              group: gname,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -533,12 +724,27 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       queryClient.invalidateQueries({ queryKey: ['group', gid] });
       queryClient.invalidateQueries({ queryKey: ['group-members', gid] });
       for (const key of GROUP_LIST_QUERY_KEYS) queryClient.invalidateQueries({ queryKey: key });
-      toast({ title: 'Ownership transferred', description: `${name} now owns ${gname}.` });
+      toast({
+        title: <LocalizedText message="Ownership transferred" />,
+        description: (
+          <LocalizedText message="{name} now owns {group}." values={{ name: name, group: gname }} />
+        ),
+      });
     },
     onError: (err, { groupName: gname, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't transfer ${gname} to ${name}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't transfer {group} to {name}. {error}"
+            values={{
+              group: gname,
+              name: name,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
     },
@@ -554,7 +760,11 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   // nonce makes a repeated identical outcome a real DOM change, so a screen
   // reader announces the second copy too (a live region whose text does not
   // change is never re-announced).
-  const [copyFeedback, setCopyFeedback] = useState<{ inviteId: string; outcome: CopyOutcome; nonce: number } | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<{
+    inviteId: string;
+    outcome: CopyOutcome;
+    nonce: number;
+  } | null>(null);
 
   async function copyInviteLink(invite: GroupInviteInfo) {
     const outcome = await copyText(inviteLink(invite.token));
@@ -639,7 +849,13 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
    * nothing else. A late answer from group A must not dismiss a confirmation
    * that is B's, and must not move focus while the user is looking at B.
    */
-  function closeBanConfirm({ restoreTo, groupId: initiatingGroupId }: { restoreTo: 'trigger' | 'members-heading'; groupId: string }) {
+  function closeBanConfirm({
+    restoreTo,
+    groupId: initiatingGroupId,
+  }: {
+    restoreTo: 'trigger' | 'members-heading';
+    groupId: string;
+  }) {
     if (banTargetRef.current?.groupId !== initiatingGroupId) return;
     showBanConfirmFor(null);
     banInFlightRef.current = false;
@@ -651,7 +867,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
     // A trigger that was removed from the DOM can't take focus, so fall
     // back to the heading in that case too.
     const destination =
-      restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : membersHeadingRef.current;
+      restoreTo === 'trigger' && trigger && trigger.isConnected
+        ? trigger
+        : membersHeadingRef.current;
     destination?.focus();
   }
 
@@ -683,7 +901,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       <div className="max-w-3xl mx-auto p-4">
         <Card>
           <CardContent className="py-8 text-center text-red-600 dark:text-red-400">
-            Failed to load group details.
+            {translateUi('Failed to load group details.')}
           </CardContent>
         </Card>
       </div>
@@ -697,42 +915,54 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   const joinPending = groupActionPending('join', { groupId });
   const leavePending = groupActionPending('leave', { groupId });
   // Privacy is captured at the click, not read from the group when the request runs.
-  const joinAction = (isPrivate: boolean) => startAction('join', joinMutation, { groupId, groupName, isPrivate });
+  const joinAction = (isPrivate: boolean) =>
+    startAction('join', joinMutation, { groupId, groupName, isPrivate });
 
   if (!group.isMember) {
     return (
       <div className="max-w-3xl mx-auto p-4 space-y-4">
         <Button variant="ghost" size="sm" onClick={() => navigate('/groups')}>
-          ← Back to groups
+          {translateUi('← Back to groups')}
         </Button>
         <Card>
           <CardHeader>
             <CardTitle>{group.name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {group.description && <p className="text-sm text-gray-600 dark:text-gray-400">{group.description}</p>}
+            {group.description && (
+              <p className="text-sm text-gray-600 dark:text-gray-400">{group.description}</p>
+            )}
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
-              {group.isPrivate && ' · Private'}
+              {translateUi('{count} members', { count: group.memberCount })}
+              {group.isPrivate && ' ' + translateUi('· Private')}
             </p>
             {group.viewerMembershipStatus === 'BANNED' ? (
-              <p role="status" className="text-sm text-red-600 dark:text-red-400" data-testid="banned-message">
-                You have been banned from this group.
+              <p
+                role="status"
+                className="text-sm text-red-600 dark:text-red-400"
+                data-testid="banned-message"
+              >
+                {translateUi('You have been banned from this group.')}
               </p>
             ) : group.isPrivate ? (
               <Button
                 onClick={() => joinAction(true)}
-                disabled={joinMutation.isPending || joinPending || group.requestStatus === 'PENDING'}
+                disabled={
+                  joinMutation.isPending || joinPending || group.requestStatus === 'PENDING'
+                }
               >
                 {joinMutation.isPending
-                  ? 'Requesting…'
+                  ? translateUi('Requesting…')
                   : group.requestStatus === 'PENDING'
-                    ? 'Request pending'
-                    : 'Request to join'}
+                    ? translateUi('Request pending')
+                    : translateUi('Request to join')}
               </Button>
             ) : (
-              <Button onClick={() => joinAction(false)} disabled={joinMutation.isPending || joinPending}>
-                {joinMutation.isPending ? 'Joining…' : 'Join'}
+              <Button
+                onClick={() => joinAction(false)}
+                disabled={joinMutation.isPending || joinPending}
+              >
+                {joinMutation.isPending ? translateUi('Joining…') : translateUi('Join')}
               </Button>
             )}
           </CardContent>
@@ -747,29 +977,38 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate('/groups')}>
-        ← Back to groups
+        {translateUi('← Back to groups')}
       </Button>
 
       {/* Group info */}
-      <GroupSocialNav groupId={groupId}/><GroupLifecycle groupId={groupId}/>
+      <GroupSocialNav groupId={groupId} />
+      <GroupLifecycle groupId={groupId} />
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle className="text-lg">{group.name}</CardTitle>
-              {group.description && <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{group.description}</p>}
+              {group.description && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{group.description}</p>
+              )}
             </div>
             {group.owner && (
               <p className="text-xs text-gray-500 whitespace-nowrap">
-                Owned by {group.owner.displayName || group.owner.username}
+                {translateUi('Owned by {value}', {
+                  value: group.owner.displayName || group.owner.username,
+                })}
               </p>
             )}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</span>
-            {group.isPrivate && <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5">Private</span>}
+            <span>{translateUi('{count} members', { count: group.memberCount })}</span>
+            {group.isPrivate && (
+              <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5">
+                {translateUi('Private')}
+              </span>
+            )}
             {roleBadge(group.memberRole ?? 'MEMBER')}
           </div>
           <div className="flex gap-2">
@@ -779,7 +1018,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
               onClick={() => startAction('leave', leaveMutation, { groupId, groupName })}
               disabled={leaveMutation.isPending || leavePending}
             >
-              Leave
+              {translateUi('Leave')}
             </Button>
           </div>
         </CardContent>
@@ -789,32 +1028,55 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       {isManager && pendingMembers.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Pending requests ({pendingMembers.length})</CardTitle>
+            <CardTitle className="text-sm">
+              {translateUi('Pending requests ({length})', { length: pendingMembers.length })}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {pendingMembers.map((m) => {
-              const target = { groupId, groupName, targetId: m.user.id, name: m.user.displayName || m.user.username };
+              const target = {
+                groupId,
+                groupName,
+                targetId: m.user.id,
+                name: m.user.displayName || m.user.username,
+              };
               // An answer to this request is already on its way — approve OR reject.
-              const answering = groupActionPending(['approve', 'reject'], { groupId, targetId: m.user.id });
+              const answering = groupActionPending(['approve', 'reject'], {
+                groupId,
+                targetId: m.user.id,
+              });
               return (
-                <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                  <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
+                <div
+                  key={m.user.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                >
+                  <span className="text-sm font-medium">
+                    {m.user.displayName || m.user.username}
+                  </span>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="default"
                       disabled={approveMutation.isPending || answering}
-                      onClick={() => startAction('approve', approveMutation, target, { alsoBlockedBy: ['reject'] })}
+                      onClick={() =>
+                        startAction('approve', approveMutation, target, {
+                          alsoBlockedBy: ['reject'],
+                        })
+                      }
                     >
-                      Approve
+                      {translateUi('Approve')}
                     </Button>
                     <Button
                       size="sm"
                       variant="destructive"
                       disabled={rejectMutation.isPending || answering}
-                      onClick={() => startAction('reject', rejectMutation, target, { alsoBlockedBy: ['approve'] })}
+                      onClick={() =>
+                        startAction('reject', rejectMutation, target, {
+                          alsoBlockedBy: ['approve'],
+                        })
+                      }
                     >
-                      Reject
+                      {translateUi('Reject')}
                     </Button>
                   </div>
                 </div>
@@ -828,14 +1090,14 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm" ref={membersHeadingRef} tabIndex={-1}>
-            Members ({activeMembers.length})
+            {translateUi('Members ({length})', { length: activeMembers.length })}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {membersQuery.isLoading ? (
-            <p className="text-xs text-gray-500">Loading members…</p>
+            <p className="text-xs text-gray-500">{translateUi('Loading members…')}</p>
           ) : activeMembers.length === 0 ? (
-            <p className="text-xs text-gray-500">No members yet.</p>
+            <p className="text-xs text-gray-500">{translateUi('No members yet.')}</p>
           ) : (
             activeMembers.map((m) => {
               // Captured when a control is used: the group and the person, by id
@@ -852,9 +1114,14 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
               // One ownership transfer at a time in a group, whoever it names.
               const transferPending = groupActionPending('transfer', { groupId });
               return (
-                <div key={m.user.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div
+                  key={m.user.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{m.user.displayName || m.user.username}</span>
+                    <span className="text-sm font-medium">
+                      {m.user.displayName || m.user.username}
+                    </span>
                     {roleBadge(m.role)}
                   </div>
                   {canShowMemberManagementControls(m) && (
@@ -863,12 +1130,17 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                         className="text-xs border rounded px-1.5 py-0.5"
                         value={m.role}
                         onChange={(e) =>
-                          startAction('role', roleMutation, { ...target, role: e.target.value } satisfies RoleAction)
+                          startAction('role', roleMutation, {
+                            ...target,
+                            role: e.target.value,
+                          } satisfies RoleAction)
                         }
                         disabled={roleMutation.isPending || rolePending}
                       >
                         {ROLE_OPTIONS.map((r) => (
-                          <option key={r} value={r}>{r}</option>
+                          <option key={r} value={r}>
+                            {translateUi(r.toLowerCase().replace(/^./, (c) => c.toUpperCase()))}
+                          </option>
                         ))}
                       </select>
                       <Button
@@ -878,7 +1150,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                         disabled={removeMemberMutation.isPending || removePending}
                         onClick={() => startAction('remove', removeMemberMutation, target)}
                       >
-                        Remove
+                        {translateUi('Remove')}
                       </Button>
                       <Button
                         size="sm"
@@ -894,7 +1166,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                           showBanConfirmFor(target);
                         }}
                       >
-                        Ban
+                        {translateUi('Ban')}
                       </Button>
                       {isOwner && m.user.id !== group.owner?.id && (
                         <Button
@@ -907,7 +1179,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                             setTransferTarget(target);
                           }}
                         >
-                          Transfer
+                          {translateUi('Transfer')}
                         </Button>
                       )}
                     </div>
@@ -923,19 +1195,21 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       {isManager && group.isPrivate && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Invite by email</CardTitle>
+            <CardTitle className="text-sm">{translateUi('Invite by email')}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleInvite} className="flex gap-2 items-end">
               <div className="flex-1">
-                <label htmlFor="invite-email" className="sr-only">Email</label>
+                <label htmlFor="invite-email" className="sr-only">
+                  {translateUi('Email')}
+                </label>
                 <Input
                   id="invite-email"
                   ref={inviteInputRef}
                   type="email"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="user@example.com"
+                  placeholder={'user@example.com'}
                   disabled={inviteMutation.isPending}
                 />
               </div>
@@ -946,7 +1220,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                 disabled={inviteMutation.isPending}
               >
                 {ROLE_OPTIONS.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>
+                    {translateUi(r.toLowerCase().replace(/^./, (c) => c.toUpperCase()))}
+                  </option>
                 ))}
               </select>
               <Button
@@ -955,10 +1231,13 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                 disabled={
                   inviteMutation.isPending ||
                   !inviteEmail.trim() ||
-                  groupActionPending('invite', { groupId, targetId: inviteEmail.trim().toLowerCase() })
+                  groupActionPending('invite', {
+                    groupId,
+                    targetId: inviteEmail.trim().toLowerCase(),
+                  })
                 }
               >
-                {inviteMutation.isPending ? 'Sending…' : 'Invite'}
+                {inviteMutation.isPending ? translateUi('Sending…') : translateUi('Invite')}
               </Button>
             </form>
           </CardContent>
@@ -969,7 +1248,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
           page says the list is still coming. */}
       {isManager && group.isPrivate && (
         <p role="status" aria-live="polite" className="sr-only">
-          {invitesQuery.isLoading ? 'Loading invites…' : ''}
+          {invitesQuery.isLoading ? translateUi('Loading invites…') : ''}
         </p>
       )}
 
@@ -978,7 +1257,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle ref={invitesHeadingRef} tabIndex={-1} className="text-sm">
-              Active invites{invites.length > 0 ? ` (${invites.length})` : ''}
+              {translateUi('Active invites{value}', {
+                value: invites.length > 0 ? ` (${invites.length})` : '',
+              })}
             </CardTitle>
           </CardHeader>
           <CardContent ref={invitesCardRef} className="space-y-2">
@@ -987,25 +1268,29 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
             {invitesFailure === 'initial' && invites.length === 0 && (
               <div className="space-y-2">
                 <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                  Couldn&apos;t load invites.
+                  {translateUi("Couldn't load invites.")}
                 </p>
                 <Button
                   size="sm"
                   variant="outline"
                   data-action="retry-invites"
                   className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
-                  aria-label="Retry loading invites"
+                  aria-label={translateUi('Retry loading invites')}
                   aria-disabled={isFetching || undefined}
                   onClick={(e) => retryInvites(e.currentTarget)}
                 >
-                  {isFetching ? 'Retrying…' : 'Retry'}
+                  {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
                 </Button>
               </div>
             )}
             {invites.map((inv) => {
               const feedback = copyFeedback?.inviteId === inv.id ? copyFeedback : null;
               return (
-                <div key={inv.id} data-invite-id={inv.id} className="rounded-md border p-3 space-y-2">
+                <div
+                  key={inv.id}
+                  data-invite-id={inv.id}
+                  className="rounded-md border p-3 space-y-2"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <span className="text-sm font-medium">{inv.email}</span>
@@ -1014,12 +1299,20 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                     <Button
                       size="sm"
                       variant="destructive"
-                      disabled={revokeMutation.isPending || groupActionPending('revoke', { groupId, targetId: inv.id })}
+                      disabled={
+                        revokeMutation.isPending ||
+                        groupActionPending('revoke', { groupId, targetId: inv.id })
+                      }
                       onClick={() =>
-                        startAction('revoke', revokeMutation, { groupId, groupName, targetId: inv.id, email: inv.email })
+                        startAction('revoke', revokeMutation, {
+                          groupId,
+                          groupName,
+                          targetId: inv.id,
+                          email: inv.email,
+                        })
                       }
                     >
-                      Revoke
+                      {translateUi('Revoke')}
                     </Button>
                   </div>
                   {/* The recoverable link. It is part of the row for as long as the
@@ -1032,7 +1325,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                           id={inviteLinkFieldId(inv.id)}
                           readOnly
                           value={inviteLink(inv.token)}
-                          aria-label={`Invitation link for ${inv.email}`}
+                          aria-label={translateUi('Invitation link for {email}', {
+                            email: inv.email,
+                          })}
                           onFocus={(e) => e.currentTarget.select()}
                           className="h-9 font-mono text-xs"
                         />
@@ -1041,10 +1336,10 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                           size="sm"
                           variant="outline"
                           data-action="copy-link"
-                          aria-label={`Copy link for ${inv.email}`}
+                          aria-label={translateUi('Copy link for {email}', { email: inv.email })}
                           onClick={() => void copyInviteLink(inv)}
                         >
-                          Copy link
+                          {translateUi('Copy link')}
                         </Button>
                       </div>
                       <p
@@ -1056,7 +1351,9 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                             : 'text-gray-500 dark:text-gray-400'
                         }`}
                       >
-                        {feedback ? `${COPY_MESSAGES[feedback.outcome]}${feedback.nonce % 2 ? '\u200B' : ''}` : ''}
+                        {feedback
+                          ? `${translateUi(COPY_MESSAGES[feedback.outcome])}${feedback.nonce % 2 ? '\u200B' : ''}`
+                          : ''}
                       </p>
                     </>
                   )}
@@ -1069,17 +1366,19 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                 banner and its Retry stay mounted while the retry runs. */}
             {invitesFailure === 'refresh' && invites.length > 0 && (
               <div className="flex items-center gap-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200">
-                <span role="alert" className="flex-1">Couldn&apos;t refresh invites.</span>
+                <span role="alert" className="flex-1">
+                  {translateUi("Couldn't refresh invites.")}
+                </span>
                 <Button
                   size="sm"
                   variant="outline"
                   data-action="retry-invites"
                   className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
-                  aria-label="Retry refreshing invites"
+                  aria-label={translateUi('Retry refreshing invites')}
                   aria-disabled={isFetching || undefined}
                   onClick={(e) => retryInvites(e.currentTarget)}
                 >
-                  {isFetching ? 'Retrying…' : 'Retry'}
+                  {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
                 </Button>
               </div>
             )}
@@ -1092,7 +1391,7 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
               <div className="flex flex-col items-center gap-2 pt-2">
                 {invitesNextPageFailed && (
                   <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                    Couldn&apos;t load more invites.
+                    {translateUi("Couldn't load more invites.")}
                   </p>
                 )}
                 <Button
@@ -1100,18 +1399,20 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                   variant="outline"
                   data-next-invites-page
                   className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
-                  aria-label={invitesNextPageFailed ? 'Retry loading more invites' : undefined}
+                  aria-label={
+                    invitesNextPageFailed ? translateUi('Retry loading more invites') : undefined
+                  }
                   aria-disabled={isFetching || undefined}
                   aria-busy={isFetchingNextPage}
                   onClick={(e) => loadNextInvitesPage(e.currentTarget)}
                 >
                   {isFetchingNextPage
                     ? invitesNextPageFailed
-                      ? 'Retrying…'
-                      : 'Loading…'
+                      ? translateUi('Retrying…')
+                      : translateUi('Loading…')
                     : invitesNextPageFailed
-                      ? 'Retry'
-                      : 'Load more'}
+                      ? translateUi('Retry')
+                      : translateUi('Load more')}
                 </Button>
               </div>
             )}
@@ -1136,19 +1437,29 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       {transferTarget && (
         <Card className="border-amber-300 dark:border-amber-600">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-amber-700 dark:text-amber-300">Confirm ownership transfer</CardTitle>
+            <CardTitle className="text-sm text-amber-700 dark:text-amber-300">
+              {translateUi('Confirm ownership transfer')}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm">
-              Transfer ownership to <strong>{transferTarget.name}</strong>?
-              You will be demoted to Admin.
+              {translateUi('Transfer ownership to {name}? Your group role will become Admin.', {
+                name: transferTarget.name,
+              })}
             </p>
             <div className="flex gap-2">
-              <Button size="sm" variant="destructive" disabled={transferMutation.isPending} onClick={handleTransfer}>
-                {transferMutation.isPending ? 'Transferring…' : 'Confirm transfer'}
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={transferMutation.isPending}
+                onClick={handleTransfer}
+              >
+                {transferMutation.isPending
+                  ? translateUi('Transferring…')
+                  : translateUi('Confirm transfer')}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setTransferTarget(null)}>
-                Cancel
+                {translateUi('Cancel')}
               </Button>
             </div>
           </CardContent>
@@ -1159,12 +1470,16 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
       {banTarget && (
         <Card className="border-red-300 dark:border-red-600">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-red-700 dark:text-red-300">Confirm ban</CardTitle>
+            <CardTitle className="text-sm text-red-700 dark:text-red-300">
+              {translateUi('Confirm ban')}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm">
-              Ban <strong>{banTarget.name}</strong> from this group?
-              They will lose access immediately and won&apos;t be able to rejoin or redeem invites.
+              {translateUi(
+                'Ban {name} from this group? They will lose access immediately and cannot rejoin or redeem invites.',
+                { name: banTarget.name }
+              )}
             </p>
             <div className="flex gap-2">
               <Button
@@ -1174,15 +1489,17 @@ export function GroupDetailContent({ groupId }: { groupId: string }) {
                 disabled={banMutation.isPending}
                 onClick={handleBanConfirm}
               >
-                {banMutation.isPending ? 'Banning…' : 'Confirm ban'}
+                {banMutation.isPending ? translateUi('Banning…') : translateUi('Confirm ban')}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 disabled={banMutation.isPending}
-                onClick={() => closeBanConfirm({ restoreTo: 'trigger', groupId: banTarget.groupId })}
+                onClick={() =>
+                  closeBanConfirm({ restoreTo: 'trigger', groupId: banTarget.groupId })
+                }
               >
-                Cancel
+                {translateUi('Cancel')}
               </Button>
             </div>
           </CardContent>

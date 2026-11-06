@@ -1,0 +1,30 @@
+{
+  "source": "e362ca5a613cf2c29baf720689064a939fffbd03",
+  "apiDeployment": "bfbe2bc1-dc37-4260-9bd8-7453e2db17bd",
+  "webDeployment": "4e42e849-290c-4711-936a-93c3cacbdb23",
+  "volumeId": "a7041511-63bc-4278-bd2d-aead15ad4940",
+  "mountPath": "/data",
+  "storagePath": "/data/uploads",
+  "node": "v20.20.2",
+  "before": {
+    "uploadFiles": 0,
+    "voiceRecords": 1
+  },
+  "after": {
+    "voiceRecords": 1,
+    "availableAudio": 0,
+    "missingAudio": 1
+  },
+  "testFile": {
+    "bytes": 59,
+    "sha256Before": "9d003edc269f4f42c62fccd62babaaf62fad0a62393d1318be15d906b344a04b",
+    "sha256After": "9d003edc269f4f42c62fccd62babaaf62fad0a62393d1318be15d906b344a04b",
+    "survivedReplacement": true,
+    "anonymousDownloadStatus": 404,
+    "removed": true
+  },
+  "financialFlags": {
+    "sharedCash": "false",
+    "sportsLive": "false"
+  }
+}

@@ -1,0 +1,118 @@
+import type { TranslationCatalog } from '../types';
+const messages = {
+  'Deposits and withdrawals': {
+    am: 'ገንዘብ ማስገባት እና ማውጣት',
+    om: 'Maallaqa galchuu fi baasuu',
+    ti: 'ገንዘብ ምእታውን ምውጻእን',
+    so: 'Lacag dhigasho iyo lacag-bixid',
+    ar: 'الإيداع والسحب',
+    sw: 'Kuweka na kutoa fedha',
+    fr: 'Dépôts et retraits',
+  },
+  'Open Wallet, choose Deposit or Withdraw, and review the available payment methods. Check the amount, rate and instructions before confirming. Do not send a second payment while an order is pending. Contact support with the order reference if you need help.':
+    {
+      am: 'ቦርሳን ከፍተው ማስገባት ወይም ማውጣት ይምረጡ፣ ያሉትንም የክፍያ ዘዴዎች ይመልከቱ። ከማረጋገጥዎ በፊት መጠኑን፣ የምንዛሬ ተመኑን እና መመሪያዎቹን ያረጋግጡ። ትዕዛዝ በመጠባበቅ ላይ እያለ ሁለተኛ ክፍያ አይላኩ። እርዳታ ከፈለጉ የትዕዛዙን መለያ ይዘው ድጋፍን ያግኙ።',
+      om: "Boorsaa baniitii Galchi yookaan Baasi filadhu; mala kaffaltii jiru ilaali. Mirkaneessuu dura hanga, gatii jijjiirraa fi qajeelfama sakatta'i. Ajajni eegamaa osoo jiruu kaffaltii lammaffaa hin ergin. Gargaarsa yoo barbaadde lakkoofsa ajajaa waliin deeggarsa qunnami.",
+      ti: 'ቦርሳ ክፈት፣ ምእታው ወይ ምውጻእ ምረጽ፣ ዘለዉ ኣገባባት ክፍሊት እውን ርአ። ቅድሚ ምርግጋጽካ መጠን፣ ዋጋ ሸርፍን መምርሒታትን ፈትሽ። ትእዛዝ እናተጸበየ ካልኣይ ክፍሊት ኣይትልኣኽ። ሓገዝ እንተ ደሊኻ ብመለለዪ ትእዛዝ ንደገፍ ተወከስ።',
+      so: 'Fur Jeebka, dooro Dhigasho ama Bixid, oo eeg hababka lacag-bixinta ee jira. Hubi qadarka, sarifka iyo tilmaamaha ka hor xaqiijinta. Ha dirin lacag labaad inta dalabku sugayo. Taageerada la xidhiidh adigoo wata tixraaca dalabka haddii aad caawimo u baahan tahay.',
+      ar: 'افتح المحفظة واختر الإيداع أو السحب وراجع وسائل الدفع المتاحة. تحقّق من المبلغ وسعر الصرف والتعليمات قبل التأكيد. لا ترسل دفعة ثانية ما دام الطلب قيد الانتظار. تواصل مع الدعم وأرفق مرجع الطلب إذا احتجت إلى مساعدة.',
+      sw: 'Fungua Pochi, chagua Kuweka au Kutoa, na kagua njia za malipo zilizopo. Kagua kiasi, kiwango cha ubadilishaji na maelekezo kabla ya kuthibitisha. Usitume malipo ya pili wakati ombi linasubiri. Wasiliana na msaada ukiwa na rejea ya ombi ukihitaji usaidizi.',
+      fr: 'Ouvrez le Portefeuille, choisissez Déposer ou Retirer, puis consultez les moyens de paiement disponibles. Vérifiez le montant, le taux et les instructions avant de confirmer. N’envoyez pas un second paiement pendant qu’une demande est en attente. Contactez l’assistance avec la référence de la demande si nécessaire.',
+    },
+  'Playing our games': {
+    am: 'ጨዋታዎቻችንን መጫወት',
+    om: 'Taphoota keenya taphachuu',
+    ti: 'ጸወታታትና ምጽዋት',
+    so: 'Ciyaarista ciyaarahayaga',
+    ar: 'لعب ألعابنا',
+    sw: 'Kucheza michezo yetu',
+    fr: 'Jouer à nos jeux',
+  },
+  'Open Play together to choose a group game and read its rules. Group practice points have no cash value and cannot be withdrawn. They are separate from real Birr, reward Birr and older individual practice balances. Watching a room is free; entering requires your own confirmation.':
+    {
+      am: 'በጋራ እንጫወትን ከፍተው የቡድን ጨዋታ ይምረጡ እና ደንቦቹን ያንብቡ። የቡድን ልምምድ ነጥቦች የገንዘብ ዋጋ የላቸውም፣ ማውጣትም አይቻልም። ከእውነተኛ ብር፣ ከሽልማት ብር እና ከቀድሞ የግል ልምምድ ቀሪ ሂሳቦች የተለዩ ናቸው። ክፍል መመልከት ነፃ ነው፤ ለመሳተፍ የራስዎ ማረጋገጫ ያስፈልጋል።',
+      om: "Waliin taphadhu baniitii tapha garee filadhu; seera isaa dubbisi. Qabxiileen shaakala garee gatii maallaqaa hin qaban, baasuunis hin danda'amu. Birrii dhugaa, Birrii badhaasaa fi haftee shaakala dhuunfaa duraanii irraa adda. Kutaa daawwachuun bilisa; hirmaachuuf mirkaneessa kee barbaada.",
+      ti: 'ብሓባር ንጻወት ክፈት፣ ናይ ጉጅለ ጸወታ ምረጽን ሕግታቱ ኣንብብን። ነጥብታት ልምምድ ጉጅለ ዋጋ ገንዘብ የብሎምን፣ ክወጹ እውን ኣይክእሉን። ካብ ናይ ሓቂ ብር፣ ብር ሽልማትን ናይ ቀደም ውልቃዊ ልምምድ ሒሳባትን ዝተፈልዩ እዮም። ክፍሊ ምዕዛብ ነጻ እዩ፤ ምስታፍ ናትካ ምርግጋጽ የድሊ።',
+      so: 'Fur Wada ciyaara si aad u doorato ciyaar kooxeed oo aad u akhrido xeerarkeeda. Dhibcaha tababarka kooxdu qiimo lacageed ma leh lamana bixi karo. Way ka duwan yihiin Birr-ka dhabta ah, Birr-ka abaalmarinta iyo haraaga tababarka qofeed ee hore. Daawashada qolku waa bilaash; gelitaanku wuxuu u baahan yahay xaqiijintaada.',
+      ar: 'افتح اللعب معًا لاختيار لعبة جماعية وقراءة قواعدها. نقاط التدريب الجماعي بلا قيمة نقدية ولا يمكن سحبها. وهي منفصلة عن البر الحقيقي وبر المكافآت وأرصدة التدريب الفردي القديمة. مشاهدة الغرفة مجانية؛ والمشاركة تتطلب تأكيدك الشخصي.',
+      sw: 'Fungua Cheza pamoja kuchagua mchezo wa kikundi na kusoma sheria zake. Pointi za mazoezi ya kikundi hazina thamani ya fedha na haziwezi kutolewa. Ziko tofauti na Birr halisi, Birr za zawadi na salio la zamani la mazoezi binafsi. Kutazama chumba ni bure; kushiriki kunahitaji uthibitisho wako mwenyewe.',
+      fr: 'Ouvrez Jouer ensemble pour choisir un jeu de groupe et lire ses règles. Les points d’entraînement de groupe n’ont aucune valeur monétaire et ne sont pas retirables. Ils sont distincts des Birr réels, des Birr de récompense et des anciens soldes d’entraînement individuels. Regarder une salle est gratuit ; participer exige votre propre confirmation.',
+    },
+  'Playing with a group': {
+    am: 'ከቡድን ጋር መጫወት',
+    om: 'Garee waliin taphachuu',
+    ti: 'ምስ ጉጅለ ምጽዋት',
+    so: 'La ciyaarista koox',
+    ar: 'اللعب مع مجموعة',
+    sw: 'Kucheza na kikundi',
+    fr: 'Jouer avec un groupe',
+  },
+  'The owner publishes a round with fixed rules, an equal entry and a deadline. Each player confirms separately. At least two players are required. Accepted entries are reserved until settlement. Rounds close automatically; winners receive payouts automatically. The platform fee shown before entry applies only to winning profit. Underfilled rounds, no qualifying winner or all-player ties receive full refunds without a fee.':
+    {
+      am: 'ባለቤቱ ቋሚ ደንቦች፣ እኩል መግቢያ እና የመዝጊያ ጊዜ ያለው ዙር ያሳውቃል። እያንዳንዱ ተጫዋች በተናጠል ያረጋግጣል። ቢያንስ ሁለት ተጫዋቾች ያስፈልጋሉ። የተቀበሉ መግቢያዎች ሂሳቡ እስኪጠናቀቅ ይያዛሉ። ዙሮች በራስ-ሰር ይዘጋሉ፣ አሸናፊዎችም በራስ-ሰር ይከፈላሉ። ከመግባት በፊት የሚታየው የመድረክ ክፍያ በአሸናፊ ትርፍ ላይ ብቻ ይሠራል። በቂ ተጫዋች ከሌለ፣ ብቁ አሸናፊ ከሌለ ወይም ሁሉም አቻ ከሆኑ ሙሉ መግቢያው ያለ ክፍያ ይመለሳል።',
+      om: "Abbaan garee marsaa seera murtaa'e, kaffaltii hirmaannaa walqixaa fi yeroo cufiinsaa qabu maxxansa. Taphataan hundi adda ba'ee mirkaneessa. Taphattoonni yoo xiqqaate lama barbaachisu. Kaffaltiin fudhatame hanga xumura herregaatti qabama. Marsaan ofumaan cufama; mo'attoonnis ofumaan kaffalamu. Kaffaltiin waltajjii hirmaannaa dura mul'atu bu'aa mo'ataa qofa irratti hojjeta. Taphattoota gahaa dhabuu, mo'ataa ulaagaa guute dhabuu yookaan hundi walqixa ta'uu irratti kaffaltiin hirmaannaa guutuun kaffaltii tajaajilaa malee deebi'a.",
+      ti: 'ዋና ብውሱን ሕግታት፣ ማዕረ መጠን ተሳትፎን መወዳእታ ግዜን ዙር የውጽእ። ነፍሲ ወከፍ ተጻዋታይ በይኑ የረጋግጽ። ብውሑዱ ክልተ ተጻወትቲ የድልዩ። ዝተቐበሉ መጠናት ተሳትፎ ሒሳብ ክሳብ ዝዛዘም ይተሓዙ። ዙራት ብራሶም ይዕጸዉ፣ ተዓወትቲ እውን ብራሱ ይኽፈሉ። ቅድሚ ተሳትፎ ዝርአ ክፍሊት መድረኽ ኣብ ናይ ተዓዋታይ ትርፊ ጥራይ ይሰርሕ። እኹላት ተጻወትቲ እንተ ዘየለዉ፣ ብቑዕ ተዓዋታይ እንተ ዘየሎ ወይ ኩሎም ማዕረ እንተ ኾይኖም ምሉእ መጠን ተሳትፎ ብዘይ ክፍሊት ይምለስ።',
+      so: "Milkiiluhu wuxuu daabacaa wareeg leh xeerar go'an, gelitaan isku mid ah iyo wakhti xidhitaan. Ciyaaryahan kastaa si gaar ah ayuu u xaqiijiyaa. Ugu yaraan laba ciyaartoy ayaa loo baahan yahay. Gelitaannada la aqbalay waa la hayaa ilaa xisaabintu dhammaato. Wareegyadu si toos ah ayay u xidhmaan; guulaystayaashana si toos ah ayaa loo siiyaa. Khidmadda madasha ee la muujiyo ka hor gelitaanka waxay khusaysaa faa'iidada guusha oo keliya. Wareeg aan lahayn ciyaartoy ku filan, guulayste u qalma ama dhammaan ciyaartoydu siman yihiin waxaa loo celiyaa gelitaanka oo dhan khidmad la'aan.",
+      ar: 'ينشر المالك جولة بقواعد ثابتة ومبلغ مشاركة متساوٍ وموعد إغلاق. يؤكد كل لاعب مشاركته منفردًا. يلزم لاعبان على الأقل. تُحجز مبالغ المشاركات المقبولة حتى التسوية. تُغلق الجولات تلقائيًا ويُدفع للفائزين تلقائيًا. رسوم المنصة المعروضة قبل المشاركة تُطبّق على ربح الفائز فقط. تُرد المبالغ كاملة دون رسوم عند نقص اللاعبين أو عدم وجود فائز مؤهل أو تعادل جميع اللاعبين.',
+      sw: 'Mmiliki huchapisha raundi yenye sheria zilizowekwa, kiasi sawa cha ushiriki na muda wa mwisho. Kila mchezaji huthibitisha kivyake. Angalau wachezaji wawili wanahitajika. Kiasi cha ushiriki kilichokubaliwa kinashikiliwa hadi malipo yakamilike. Raundi hufungwa kiotomatiki na washindi hulipwa kiotomatiki. Ada ya jukwaa inayoonyeshwa kabla ya kujiunga hutumika kwa faida ya mshindi pekee. Raundi yenye wachezaji pungufu, bila mshindi anayestahili au yenye sare ya wachezaji wote hurejesha kiasi chote bila ada.',
+      fr: 'Le propriétaire publie une manche avec des règles fixes, une mise égale et une échéance. Chaque joueur confirme séparément. Deux joueurs au minimum sont nécessaires. Les mises acceptées sont réservées jusqu’au règlement. Les manches se ferment automatiquement et les gagnants sont payés automatiquement. Les frais affichés avant participation s’appliquent uniquement au bénéfice gagnant. Effectif insuffisant, aucun gagnant admissible ou égalité entre tous : remboursement intégral sans frais.',
+    },
+  'Casino access': {
+    am: 'የካዚኖ መዳረሻ',
+    om: 'Seensa kaasinoo',
+    ti: 'መእተዊ ካዚኖ',
+    so: 'Helitaanka casino',
+    ar: 'الوصول إلى الكازينو',
+    sw: 'Ufikiaji wa kasino',
+    fr: 'Accès au casino',
+  },
+  'Active signed-in members can access available virtual-money casino games. Provider test credits have no cash value and cannot be withdrawn. If a game fails to open, return to Casino and retry or contact support with the game name. Third-party game screens may offer different languages.':
+    {
+      am: 'ንቁ እና የገቡ አባላት ያሉትን የምናባዊ ገንዘብ ካዚኖ ጨዋታዎች ማግኘት ይችላሉ። የአቅራቢ ሙከራ ክሬዲቶች የገንዘብ ዋጋ የላቸውም፣ ማውጣትም አይቻልም። ጨዋታ ካልተከፈተ ወደ ካዚኖ ተመልሰው እንደገና ይሞክሩ ወይም የጨዋታውን ስም ይዘው ድጋፍን ያግኙ። የሌሎች አቅራቢዎች ጨዋታ ማያዎች የተለያዩ ቋንቋዎችን ሊያቀርቡ ይችላሉ።',
+      om: "Miseensonni hojii irra jiranii fi seenan taphoota kaasinoo maallaqa fakkeeffameen taphataman argachuu danda'u. Kiriditiin yaalii dhiyeessaa gatii maallaqaa hin qabu, baasuunis hin danda'amu. Taphni yoo hin banamne Kaasinootti deebi'ii yaali yookaan maqaa taphaa waliin deeggarsa qunnami. Fuulli tapha dhiyeessaa biraa afaanota adda addaa dhiyeessuu danda'a.",
+      ti: 'ንጡፋት ዝኣተዉ ኣባላት ዘለዉ ብምናባዊ ገንዘብ ዝጽወቱ ካዚኖ ጸወታታት ክረኽቡ ይኽእሉ። ናይ ኣቕራቢ ፈተነ ክሬዲታት ዋጋ ገንዘብ የብሎምን፣ ክወጹ እውን ኣይክእሉን። ጸወታ እንተ ዘይተኸፊቱ ናብ ካዚኖ ተመሊስካ ዳግም ፈትን ወይ ብስም ጸወታ ንደገፍ ተወከስ። ናይ ካልኦት ኣቕረብቲ ጸወታ ገጻት ዝተፈላለዩ ቋንቋታት ክህቡ ይኽእሉ።',
+      so: 'Xubnaha firfircoon ee galay waxay heli karaan ciyaaraha casino ee lacagta aan dhabta ahayn. Dhibcaha tijaabada bixiyuhu qiimo lacageed ma leh lamana bixi karo. Haddii ciyaar furmi weydo, ku noqo Casino oo mar kale isku day ama taageerada la xidhiidh adigoo sheegaya magaca ciyaarta. Shaashadaha ciyaaraha bixiyeyaasha kale waxay yeelan karaan luqado kala duwan.',
+      ar: 'يمكن للأعضاء النشطين المسجّلين الدخول الوصول إلى ألعاب الكازينو المتاحة بالأموال الافتراضية. أرصدة اختبار المزوّد بلا قيمة نقدية ولا يمكن سحبها. إذا لم تفتح لعبة، عُد إلى الكازينو وحاول مجددًا أو تواصل مع الدعم مع ذكر اسمها. قد توفّر شاشات ألعاب الجهات الخارجية لغات مختلفة.',
+      sw: 'Wanachama hai walioingia wanaweza kufikia michezo ya kasino inayopatikana kwa fedha pepe. Salio la majaribio la mtoa huduma halina thamani ya fedha na haliwezi kutolewa. Mchezo ukishindwa kufunguka, rudi Kasino ujaribu tena au wasiliana na msaada ukitaja jina la mchezo. Skrini za michezo ya watoa huduma wengine zinaweza kuwa na lugha tofauti.',
+      fr: 'Les membres actifs connectés peuvent accéder aux jeux de casino disponibles en argent virtuel. Les crédits de test du fournisseur n’ont aucune valeur monétaire et ne sont pas retirables. Si un jeu ne s’ouvre pas, revenez au Casino et réessayez, ou contactez l’assistance en indiquant son nom. Les jeux tiers peuvent proposer d’autres langues.',
+    },
+  'Sending a gift': {
+    am: 'ስጦታ መላክ',
+    om: 'Kennaa erguu',
+    ti: 'ህያብ ምልኣኽ',
+    so: 'Dirista hadiyad',
+    ar: 'إرسال هدية',
+    sw: 'Kutuma zawadi',
+    fr: 'Envoyer un cadeau',
+  },
+  'Open Gifts, choose a group and recipient, and review the price and funding source before confirming. Practice purchases have no cash value and do not qualify for real-Birr gift or referral rewards. Eligible rewards are credited automatically using the platform’s current reward settings. Support can help with a missing gift.':
+    {
+      am: 'ስጦታዎችን ከፍተው ቡድን እና ተቀባይ ይምረጡ። ከማረጋገጥዎ በፊት ዋጋውን እና የክፍያ ምንጩን ይመልከቱ። የልምምድ ግዢዎች የገንዘብ ዋጋ የላቸውም፣ ለእውነተኛ ብር የስጦታ ወይም የግብዣ ሽልማትም ብቁ አይደሉም። ብቁ ሽልማቶች በመድረኩ ወቅታዊ የሽልማት ቅንብሮች መሠረት በራስ-ሰር ይጨመራሉ። የጠፋ ስጦታ ካለ ድጋፍ ሊረዳ ይችላል።',
+      om: "Kennaawwan bani, garee fi fudhataa filadhu, mirkaneessuu duras gatii fi madda kaffaltii ilaali. Bittaa shaakalaa gatii maallaqaa hin qabu; badhaasa kennaa yookaan affeerraa Birrii dhugaatiif hin ga'u. Badhaasni ulaagaa guute qindaa'ina badhaasaa waltajjii yeroo ammaatiin ofumaan galmaa'a. Kennaa badeef deeggarsi gargaaruu danda'a.",
+      ti: 'ህያባት ክፈት፣ ጉጅለን ተቐባልን ምረጽ፣ ቅድሚ ምርግጋጽካ እውን ዋጋን ምንጪ ክፍሊትን ርአ። ናይ ልምምድ ዕድጊታት ዋጋ ገንዘብ የብሎምን፣ ንናይ ሓቂ ብር ሽልማት ህያብ ወይ ዕድመ እውን ብቑዓት ኣይኮኑን። ብቑዓት ሽልማታት ብእዋናዊ ቅጥዕታት ሽልማት መድረኽ ብራሶም ይኣትዉ። ዝጠፍአ ህያብ እንተ ኣሎ ደገፍ ክሕግዝ ይኽእል።',
+      so: 'Fur Hadiyadaha, dooro koox iyo qaataha, oo hubi qiimaha iyo halka lacagtu ka imanayso ka hor xaqiijinta. Iibsiyada tababarku qiimo lacageed ma leh umana qalmaan abaalmarinta hadiyad ama martiqaad ee Birr dhab ah. Abaalmarinnada u qalma si toos ah ayaa loogu daraa iyadoo la raacayo dejinta abaalmarinta ee madasha. Taageeradu way ka caawin kartaa hadiyad maqan.',
+      ar: 'افتح الهدايا واختر مجموعة ومستلمًا، ثم راجع السعر ومصدر التمويل قبل التأكيد. مشتريات التدريب بلا قيمة نقدية ولا تؤهّل لمكافآت الهدايا أو الإحالات بالبر الحقيقي. تُضاف المكافآت المستحقة تلقائيًا وفق إعدادات المكافآت الحالية للمنصة. يمكن للدعم المساعدة في هدية مفقودة.',
+      sw: 'Fungua Zawadi, chagua kikundi na mpokeaji, kisha kagua bei na chanzo cha fedha kabla ya kuthibitisha. Ununuzi wa mazoezi hauna thamani ya fedha na haustahili zawadi za ununuzi au mwaliko kwa Birr halisi. Zawadi zinazostahili huwekwa kiotomatiki kulingana na mipangilio ya sasa ya jukwaa. Msaada unaweza kusaidia kuhusu zawadi iliyokosekana.',
+      fr: 'Ouvrez Cadeaux, choisissez un groupe et un destinataire, puis vérifiez le prix et la source de financement avant de confirmer. Les achats d’entraînement n’ont aucune valeur monétaire et ne donnent pas droit aux récompenses de cadeau ou de parrainage en Birr réels. Les récompenses admissibles sont créditées automatiquement selon les paramètres actuels de la plateforme. L’assistance peut aider pour un cadeau manquant.',
+    },
+  'Changing your language': {
+    am: 'ቋንቋዎን መቀየር',
+    om: 'Afaan kee jijjiiruu',
+    ti: 'ቋንቋኻ ምቕያር',
+    so: 'Beddelista luqaddaada',
+    ar: 'تغيير لغتك',
+    sw: 'Kubadilisha lugha yako',
+    fr: 'Changer de langue',
+  },
+  'Choose your language from the header: English, Amharic, Afaan Oromoo, Tigrinya, Somali, Arabic, Swahili or French. Your choice is saved on this device. Interface text and game rules use your selected language. Member names, personal messages and transaction references stay unchanged. Third-party game screens manage their own language options.':
+    {
+      am: 'ከላይ ካለው ምናሌ ቋንቋዎን ይምረጡ፦ እንግሊዝኛ፣ አማርኛ፣ አፋን ኦሮሞ፣ ትግርኛ፣ ሶማሊኛ፣ አረብኛ፣ ስዋሂሊኛ ወይም ፈረንሳይኛ። ምርጫዎ በዚህ መሣሪያ ላይ ይቀመጣል። የመገናኛ ጽሑፎች እና የጨዋታ ደንቦች የመረጡትን ቋንቋ ይጠቀማሉ። የአባላት ስሞች፣ የግል መልዕክቶች እና የግብይት መለያዎች አይቀየሩም። የሌሎች አቅራቢዎች ጨዋታ ማያዎች የራሳቸው የቋንቋ ምርጫዎች አሏቸው።',
+      om: 'Mataduree gubbaa irraa afaan kee filadhu: Ingiliffa, Amaariffa, Afaan Oromoo, Tigrinya, Somaaliffa, Arabiffa, Kiswahili yookaan Faransaayiffa. Filannoon kee meeshaa kana irratti kuufama. Barruu fuulaa fi seerri taphaa afaan filatte fayyadamu. Maqaan miseensotaa, ergaan dhuunfaa fi lakkoofsi daldalaa hin jijjiiraman. Fuulli tapha dhiyeessaa biraa filannoo afaan ofii qaba.',
+      ti: 'ካብ ላዕሊ ዘሎ ዝርዝር ቋንቋኻ ምረጽ፦ እንግሊዝኛ፣ ኣምሓርኛ፣ ኣፋን ኦሮሞ፣ ትግርኛ፣ ሶማሊኛ፣ ዓረብኛ፣ ስዋሂሊኛ ወይ ፈረንሳይኛ። ምርጫኻ ኣብዚ መሳርሒ ይቕመጥ። ጽሑፍ መገናኛን ሕግታት ጸወታን ዝመረጽካዮ ቋንቋ ይጥቀሙ። ስማት ኣባላት፣ ውልቃዊ መልእኽትታትን መለለዪታት ግብይትን ኣይቕየሩን። ናይ ካልኦት ኣቕረብቲ ጸወታ ገጻት ናይ ገዛእ ርእሶም ምርጫታት ቋንቋ ኣለዎም።',
+      so: 'Ka dooro luqaddaada qaybta sare: Ingiriisi, Amxaari, Afaan Oromoo, Tigrinya, Soomaali, Carabi, Sawaaxili ama Faransiis. Doorashadaada qalabkan ayaa lagu kaydiyaa. Qoraalka abka iyo xeerarka ciyaaruhu waxay adeegsanayaan luqadda aad dooratay. Magacyada xubnaha, farriimaha gaarka ah iyo tixraacyada macaamilku isma beddelaan. Shaashadaha ciyaaraha bixiyeyaasha kale waxay maamulaan doorashooyinkooda luqadeed.',
+      ar: 'اختر لغتك من أعلى الصفحة: الإنجليزية أو الأمهرية أو الأورومية أو التيغرينية أو الصومالية أو العربية أو السواحيلية أو الفرنسية. يُحفظ اختيارك على هذا الجهاز. تستخدم نصوص الواجهة وقواعد الألعاب لغتك المختارة. لا تتغير أسماء الأعضاء والرسائل الشخصية ومراجع المعاملات. تدير شاشات ألعاب الجهات الخارجية خيارات لغتها الخاصة.',
+      sw: 'Chagua lugha yako kutoka juu ya ukurasa: Kiingereza, Kiamhari, Afaan Oromoo, Kitigrinya, Kisomali, Kiarabu, Kiswahili au Kifaransa. Chaguo lako huhifadhiwa kwenye kifaa hiki. Maandishi ya programu na sheria za michezo hutumia lugha uliyochagua. Majina ya wanachama, ujumbe binafsi na rejea za miamala hazibadilishwi. Skrini za michezo ya watoa huduma wengine husimamia lugha zao wenyewe.',
+      fr: 'Choisissez votre langue dans l’en-tête : anglais, amharique, afaan oromo, tigrigna, somali, arabe, swahili ou français. Votre choix est enregistré sur cet appareil. L’interface et les règles des jeux utilisent la langue sélectionnée. Les noms des membres, messages personnels et références de transaction restent inchangés. Les jeux tiers gèrent leurs propres options de langue.',
+    },
+} satisfies TranslationCatalog;
+export default messages;

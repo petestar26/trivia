@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowDownLeft, ArrowUpRight, Coins, UserRound } from 'lucide-react';
 import './wallet-navigation.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export type PaymentDirection = 'deposit' | 'withdraw';
 export function paymentPath(direction: PaymentDirection, method: 'agent' | 'crypto') {
@@ -8,12 +9,14 @@ export function paymentPath(direction: PaymentDirection, method: 'agent' | 'cryp
 }
 
 export function PaymentNavigation({ method = 'agent' }: { method?: 'agent' | 'crypto' }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { pathname, search } = useLocation();
   const direction =
     new URLSearchParams(search).get('direction') === 'withdraw' ? 'withdraw' : 'deposit';
   const active = pathname === '/wallet/crypto' ? direction : pathname.split('/').at(-1);
   return (
-    <nav aria-label="Wallet sections" className="wallet-navigation">
+    <nav aria-label={translateUi('Wallet sections')} className="wallet-navigation">
       {[
         ['/wallet', 'Overview', 'wallet'],
         [paymentPath('deposit', method), 'Deposit', 'deposit'],
@@ -21,7 +24,7 @@ export function PaymentNavigation({ method = 'agent' }: { method?: 'agent' | 'cr
         ['/wallet/activity', 'Activity', 'activity'],
       ].map(([to, label, key]) => (
         <Link key={key} to={to} aria-current={active === key ? 'page' : undefined}>
-          {label}
+          {translateUi(label)}
         </Link>
       ))}
     </nav>
@@ -29,15 +32,17 @@ export function PaymentNavigation({ method = 'agent' }: { method?: 'agent' | 'cr
 }
 
 export function WalletQuickActions() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <div className="wallet-quick-actions">
       <Link to="/wallet/deposit">
         <ArrowDownLeft aria-hidden="true" size={20} />
-        Deposit
+        {translateUi('Deposit')}
       </Link>
       <Link to="/wallet/withdraw">
         <ArrowUpRight aria-hidden="true" size={20} />
-        Withdraw
+        {translateUi('Withdraw')}
       </Link>
     </div>
   );
@@ -50,9 +55,15 @@ export function PaymentMethodChooser({
   direction: PaymentDirection;
   method: 'agent' | 'crypto';
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
-    <section className="wallet-method-picker" aria-label="Payment method options">
-      <h2>Choose how to {direction === 'deposit' ? 'deposit' : 'withdraw'}</h2>
+    <section className="wallet-method-picker" aria-label={translateUi('Payment method options')}>
+      <h2>
+        {translateUi('Choose how to {value}', {
+          value: direction === 'deposit' ? translateUi('deposit') : translateUi('withdraw'),
+        })}
+      </h2>
       <div className="wallet-method-options">
         <Link
           to={paymentPath(direction, 'agent')}
@@ -60,8 +71,8 @@ export function PaymentMethodChooser({
         >
           <UserRound size={24} aria-hidden="true" />
           <span>
-            <strong>Agent</strong>
-            <small>Bank or mobile money</small>
+            <strong>{translateUi('Agent')}</strong>
+            <small>{translateUi('Bank or mobile money')}</small>
           </span>
           <b aria-hidden="true">{method === 'agent' ? '✓' : '→'}</b>
         </Link>
@@ -71,8 +82,8 @@ export function PaymentMethodChooser({
         >
           <Coins size={24} aria-hidden="true" />
           <span>
-            <strong>Crypto</strong>
-            <small>USDT · TRON (TRC20)</small>
+            <strong>{translateUi('Crypto')}</strong>
+            <small>{'USDT · TRON (TRC20)'}</small>
           </span>
           <b aria-hidden="true">{method === 'crypto' ? '✓' : '→'}</b>
         </Link>
@@ -88,6 +99,8 @@ export function PaymentSteps({
   direction: PaymentDirection;
   method: 'agent' | 'crypto';
 }) {
+  const { t: translateUi, formatNumber } = useInterfaceLanguage();
+
   const steps =
     method === 'agent'
       ? direction === 'deposit'
@@ -97,11 +110,11 @@ export function PaymentSteps({
         ? ['Enter USDT amount', 'Send to your unique address', 'Track transfer confirmation']
         : ['Enter amount & address', 'Review and confirm', 'Track your USDT payout'];
   return (
-    <ol className="wallet-payment-steps" aria-label="How it works">
+    <ol className="wallet-payment-steps" aria-label={translateUi('How it works')}>
       {steps.map((step, i) => (
         <li key={step}>
-          <span>{i + 1}</span>
-          {step}
+          <span>{formatNumber(i + 1)}</span>
+          {translateUi(step)}
         </li>
       ))}
     </ol>

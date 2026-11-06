@@ -3,6 +3,8 @@ import { Users, History, ArrowUpRight } from 'lucide-react';
 import { GameCollection } from '@/components/member/game-collection';
 import { useLanguage } from '@/providers/language-provider';
 import '../lounge.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 interface GamesPageProps {
   mode?: 'WAGER' | 'BONUS';
   title?: string;
@@ -10,6 +12,8 @@ interface GamesPageProps {
   emptyMessage?: string;
 }
 export function GamesPage({ mode, title, description }: GamesPageProps = {}) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { t } = useLanguage();
   const location = useLocation();
   const queryMode = new URLSearchParams(location.search).get('mode');
@@ -18,16 +22,16 @@ export function GamesPage({ mode, title, description }: GamesPageProps = {}) {
     <div className="salem-lounge">
       <header className="salem-page-heading">
         <div>
-          <span className="salem-eyebrow">SALEM ORIGINALS</span>
+          <span className="salem-eyebrow">{translateUi('SALEM ORIGINALS')}</span>
           <h1>{title || t('Our games')}</h1>
-          <p>{description || 'Pick a game and start playing.'}</p>
+          <p>{description || translateUi('Pick a game and start playing.')}</p>
         </div>
         <Link to="/games/history" className="salem-button secondary">
           <History size={16} />
           {t('History')}
         </Link>
       </header>
-      <nav className="salem-discovery-links" aria-label="Play modes">
+      <nav className="salem-discovery-links" aria-label={translateUi('Play modes')}>
         <Link to="/games" aria-current={!selected ? 'page' : undefined}>
           {t('Our games')}
         </Link>

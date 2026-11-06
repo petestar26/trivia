@@ -17,6 +17,7 @@ import type {
 } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const ENDPOINT = '/games/scheduled/spin-win';
 const REQUEST_TIMEOUT_MS = 8000;
@@ -74,6 +75,8 @@ export function SpinWinScheduledPage() {
   return user ? <ScheduledTable key={user.id} userId={user.id} /> : null;
 }
 function ScheduledTable({ userId }: { userId: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [initial] = useState(() => {
     try {
       return { entry: readSpinPending(userId), error: '' };
@@ -364,7 +367,7 @@ function ScheduledTable({ userId }: { userId: string }) {
             state={{ from: { pathname: '/games/spin-win' } }}
             className="inline-block rounded-lg bg-amber-200 px-4 py-2 font-semibold text-slate-950"
           >
-            Sign in again
+            {translateUi('Sign in again')}
           </Link>
         )}
         {storageError && (
@@ -372,21 +375,30 @@ function ScheduledTable({ userId }: { userId: string }) {
             role="alert"
             className="rounded-lg border border-amber-200/40 bg-amber-200/10 p-3 text-sm text-amber-100"
           >
-            {storageError}
+            {translateUi(storageError)}
           </p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">
-            Your bets{' '}
+            {translateUi('Your bets')}{' '}
             <span className="ml-2 text-xs font-normal text-emerald-100/70">
-              {tickets.length} / {maxTickets} confirmed
+              {translateUi('{length} / {maxTickets} confirmed', {
+                length: tickets.length,
+                maxTickets: maxTickets,
+              })}
             </span>
           </h2>
           <span className="text-xs text-emerald-100/70">
-            {display ? `Round ${display.sequence}` : 'Waiting for a round'}
+            {display
+              ? translateUi('Round {sequence}', { sequence: display.sequence })
+              : translateUi('Waiting for a round')}
           </span>
         </div>
-        <div role="group" aria-label="Your Spin bets" className="flex items-stretch gap-2">
+        <div
+          role="group"
+          aria-label={translateUi('Your Spin bets')}
+          className="flex items-stretch gap-2"
+        >
           <div ref={tabStrip} className="relative flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
             {slots.map((n) => {
               const saved = tickets.some((t) => t.slot === n);
@@ -400,9 +412,13 @@ function ScheduledTable({ userId }: { userId: string }) {
                   onClick={() => chooseSlot(n)}
                   className={`min-w-[82px] shrink-0 rounded-xl border px-4 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-100 ${slot === n ? 'border-amber-100 bg-amber-200 font-bold text-slate-950 shadow-md' : 'border-white/20 bg-black/20 text-emerald-50'}`}
                 >
-                  <span className="block text-sm">Bet {n}</span>
+                  <span className="block text-sm">{translateUi('Bet {n}', { n: n })}</span>
                   <span className="mt-1 block text-[10px] opacity-80">
-                    {saved ? 'Confirmed' : waiting ? 'Checking' : 'Draft'}
+                    {saved
+                      ? translateUi('Confirmed')
+                      : waiting
+                        ? translateUi('Checking')
+                        : translateUi('Draft')}
                   </span>
                 </button>
               );
@@ -414,11 +430,13 @@ function ScheduledTable({ userId }: { userId: string }) {
             onClick={() => nextSlot && canEnterNow() && chooseSlot(nextSlot)}
             className="min-w-[92px] shrink-0 rounded-xl border border-dashed border-amber-200/40 px-3 py-3 text-xs font-semibold text-amber-100 focus-visible:ring-2 focus-visible:ring-amber-100 disabled:opacity-40"
           >
-            + Add bet
+            {translateUi('+ Add bet')}
           </button>
         </div>
         <p className="text-xs text-emerald-100/75">
-          Each bet has its own selections and total. All bets use the same Spin result.
+          {translateUi(
+            'Each bet has its own selections and total. All bets use the same Spin result.'
+          )}
         </p>
         <SpinStakeInput
           currency="practice ETB"
@@ -428,11 +446,13 @@ function ScheduledTable({ userId }: { userId: string }) {
           disabled={locked}
         />
         <h2 className="font-semibold">
-          {accepted ? `Bet ${slot} · Confirmed selections` : `Bet ${slot} · Choose selections`}
+          {accepted
+            ? translateUi('Bet {slot} · Confirmed selections', { slot: slot })
+            : translateUi('Bet {slot} · Choose selections', { slot: slot })}
         </h2>
         <div
           role="group"
-          aria-label="Scheduled practice markets"
+          aria-label={translateUi('Scheduled practice markets')}
           className="grid grid-cols-3 gap-2 sm:grid-cols-6"
         >
           {SPIN90_MARKETS.map((market) => {
@@ -444,11 +464,15 @@ function ScheduledTable({ userId }: { userId: string }) {
                 onClick={() => add(market.id)}
                 disabled={locked || !chip || total + chip > 480}
                 aria-pressed={!!amount}
-                aria-label={`Select ${market.label}`}
+                aria-label={translateUi('Select {label}', { label: market.label })}
                 className={`min-h-12 rounded-lg border p-2 text-sm focus-visible:ring-2 focus-visible:ring-amber-200 ${amount ? 'border-amber-100 bg-amber-200 font-bold text-slate-950 ring-1 ring-amber-100' : 'border-white/15 bg-black/20 disabled:opacity-40'}`}
               >
-                <span className="block">{market.label}</span>
-                {amount ? <span className="mt-1 block text-xs font-bold">{amount} ETB</span> : null}
+                <span className="block">{translateUi(market.label)}</span>
+                {amount ? (
+                  <span className="mt-1 block text-xs font-bold">
+                    {translateUi('{amount} ETB', { amount: amount })}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -456,27 +480,34 @@ function ScheduledTable({ userId }: { userId: string }) {
         {total > 0 && (
           <div
             className="rounded-xl border border-amber-200/30 bg-black/15 p-3 text-sm"
-            aria-label={`Bet ${slot} summary`}
+            aria-label={translateUi('Bet {slot} summary', { slot: slot })}
           >
             <p className="font-semibold text-amber-100">
-              {accepted ? 'Confirmed selection' : 'Selected for this bet'}
+              {accepted ? translateUi('Confirmed selection') : translateUi('Selected for this bet')}
             </p>
             <p className="mt-1 leading-relaxed text-emerald-50">{labels(bets)}</p>
             {ticket && (
               <p className="mt-2 font-semibold text-amber-100">
                 {ticket.payout === null
-                  ? 'Awaiting the published result'
-                  : `Practice return ${ticket.payout} ETB`}
+                  ? translateUi('Awaiting the published result')
+                  : translateUi('Practice return {payout} ETB', { payout: ticket.payout })}
               </p>
             )}
           </div>
         )}
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d6b475]/30 bg-[#07281f]/95 p-4 shadow-xl">
           <p className="text-sm">
-            Bet {slot} total: <strong>{total}</strong> ETB
+            {translateUi('Bet') + ' '}
+            {slot}
+            {' ' + translateUi('total:') + ' '}
+            <strong>{total}</strong>
+            {' ' + 'ETB'}
             {pending && (
               <span className="mt-1 block text-xs text-amber-100">
-                Checking Bet {pending.slot} · Round {pending.roundId.split(':')[1]}
+                {translateUi('Checking Bet {slot} · Round {value}', {
+                  slot: pending.slot,
+                  value: pending.roundId.split(':')[1],
+                })}
               </span>
             )}
           </p>
@@ -487,7 +518,7 @@ function ScheduledTable({ userId }: { userId: string }) {
               disabled={locked || !total}
               className="rounded-lg border border-white/20 px-4 py-2 text-sm disabled:opacity-40"
             >
-              Clear
+              {translateUi('Clear')}
             </button>
             <button
               type="button"
@@ -502,23 +533,25 @@ function ScheduledTable({ userId }: { userId: string }) {
               className="rounded-lg bg-amber-200 px-5 py-3 text-sm font-bold text-slate-950 disabled:opacity-40"
             >
               {sending
-                ? 'Confirming…'
+                ? translateUi('Confirming…')
                 : pending
-                  ? 'Retry same ticket'
+                  ? translateUi('Retry same ticket')
                   : accepted
-                    ? `Bet ${slot} confirmed`
-                    : `Confirm Bet ${slot}`}
+                    ? translateUi('Bet {slot} confirmed', { slot: slot })
+                    : translateUi('Confirm Bet {slot}', { slot: slot })}
             </button>
           </div>
         </div>
         {!open && !pending && connected && snapshot?.enabled && (
           <p className="text-sm text-emerald-100/70">
-            Entry is closed. Wait for the next server-opened round.
+            {translateUi('Entry is closed. Wait for the next server-opened round.')}
           </p>
         )}
         {tickets.length > 0 && (
-          <section aria-label="Saved Spin bets" className="space-y-2">
-            <h2 className="text-sm font-semibold text-amber-100">Saved bets this round</h2>
+          <section aria-label={translateUi('Saved Spin bets')} className="space-y-2">
+            <h2 className="text-sm font-semibold text-amber-100">
+              {translateUi('Saved bets this round')}
+            </h2>
             <div className="grid gap-2 sm:grid-cols-2">
               {tickets.map((t) => (
                 <button
@@ -528,14 +561,16 @@ function ScheduledTable({ userId }: { userId: string }) {
                   className={`rounded-xl border p-3 text-left text-xs focus-visible:ring-2 focus-visible:ring-amber-100 ${slot === t.slot ? 'border-amber-200/70 bg-amber-200/10' : 'border-white/15 bg-black/15'}`}
                 >
                   <span className="flex justify-between gap-3 font-bold text-amber-100">
-                    <span>Bet {t.slot}</span>
-                    <span>{t.stake} ETB</span>
+                    <span>{translateUi('Bet {slot}', { slot: t.slot })}</span>
+                    <span>{translateUi('{stake} ETB', { stake: t.stake })}</span>
                   </span>
                   <span className="mt-2 block leading-relaxed text-emerald-100/80">
                     {labels(t.bets)}
                   </span>
                   <span className="mt-2 block font-semibold">
-                    {t.payout === null ? 'Confirmed · awaiting result' : `Return ${t.payout} ETB`}
+                    {t.payout === null
+                      ? translateUi('Confirmed · awaiting result')
+                      : translateUi('Return {payout} ETB', { payout: t.payout })}
                   </span>
                 </button>
               ))}
@@ -545,19 +580,28 @@ function ScheduledTable({ userId }: { userId: string }) {
         {history.length > 0 && (
           <details className="rounded-xl border border-white/15 p-4 text-sm">
             <summary className="cursor-pointer font-semibold text-amber-100">
-              Recent tickets
+              {translateUi('Recent tickets')}
             </summary>
             <div className="mt-3 space-y-3">
               {history.map((r) => (
                 <div key={r.id} className="space-y-2 border-b border-white/10 pb-3">
                   <p className="font-semibold">
-                    Round {r.sequence} · Result {r.outcome ?? 'pending'}
+                    {translateUi('Round {sequence} · Result {value}', {
+                      sequence: r.sequence,
+                      value: r.outcome ?? translateUi('pending'),
+                    })}
                   </p>
                   {savedTickets(r).map((t) => (
                     <div key={t.slot}>
                       <p>
-                        Bet {t.slot} · Stake {t.stake} ETB ·{' '}
-                        {t.payout === null ? 'Return pending' : `Return ${t.payout} ETB`}
+                        {translateUi('Bet {slot} · Stake {stake} ETB · {value}', {
+                          slot: t.slot,
+                          stake: t.stake,
+                          value:
+                            t.payout === null
+                              ? translateUi('Return pending')
+                              : translateUi('Return {payout} ETB', { payout: t.payout }),
+                        })}
                       </p>
                       <p className="text-xs leading-relaxed text-emerald-100/70">
                         {labels(t.bets)}
@@ -571,29 +615,32 @@ function ScheduledTable({ userId }: { userId: string }) {
         )}
         <details className="rounded-xl border border-white/10 p-4 text-sm">
           <summary className="cursor-pointer font-semibold text-amber-100">
-            Schedule & rules
+            {translateUi('Schedule & rules')}
           </summary>
           <div className="mt-3 space-y-2 text-emerald-100/70">
             <p>
-              45 seconds to join, followed by 10 seconds reveal time and 5 seconds result time. The
-              server publishes the result; outages can delay rounds.
+              {translateUi(
+                '45 seconds to join, followed by 10 seconds reveal time and 5 seconds result time. The server publishes the result; outages can delay rounds.'
+              )}
             </p>
             <p>
-              Each number 0–36 has a 1/37 chance. A 40 ETB exact-number win returns 1,332; sector
-              222; dozen 111; outside 74. Returns include stake. Zero loses outside selections.
+              {translateUi(
+                'Each number 0–36 has a 1/37 chance. A 40 ETB exact-number win returns 1,332; sector 222; dozen 111; outside 74. Returns include stake. Zero loses outside selections.'
+              )}
             </p>
             <p>
-              Up to {maxTickets} independent bets per round. Use steps of 40 ETB, with at most 480
-              practice ETB per ticket. Each tap adds the entered amount to that selection. Confirmed
-              bets cannot be changed.
+              {translateUi(
+                'Up to {maxTickets} independent bets per round. Use steps of 40 ETB, with at most 480 practice ETB per ticket. Each tap adds the entered amount to that selection. Confirmed bets cannot be changed.',
+                { maxTickets: maxTickets }
+              )}
             </p>
             <p>
-              90% theoretical return over repeated play. These practice selections do not debit a
-              balance or earn cash. Your saved tickets and the last 12 results survive refresh. No
-              automatic repeat bets.
+              {translateUi(
+                '90% theoretical return over repeated play. These practice selections do not debit a balance or earn cash. Your saved tickets and the last 12 results survive refresh. No automatic repeat bets.'
+              )}
             </p>
             <Link to="/games/spin-win/verify" className="text-amber-200 underline">
-              Round-proof verifier
+              {translateUi('Round-proof verifier')}
             </Link>
           </div>
         </details>

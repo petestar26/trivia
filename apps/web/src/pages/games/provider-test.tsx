@@ -20,6 +20,7 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import './provider-lobby.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export interface TestGame {
   id: string;
@@ -57,6 +58,7 @@ const categoryIcon = (category: string) =>
           : Dice5;
 
 export function GameArtwork({ game, motion }: { game: TestGame; motion: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
   const [imageIndex, setImageIndex] = useState(0);
   const sources = [...new Set([game.image, game.imageFallback].filter(Boolean))];
   const image = sources[imageIndex];
@@ -102,7 +104,7 @@ export function GameArtwork({ game, motion }: { game: TestGame; motion: boolean 
         <div className="casino-tile-fallback" aria-hidden="true">
           <span className="casino-tile-orbit" />
           <Icon strokeWidth={1.1} />
-          <span>{categoryLabel(game.category)}</span>
+          <span>{translateUi(categoryLabel(game.category))}</span>
         </div>
       )}
       <span className="casino-tile-play" aria-hidden="true">
@@ -113,15 +115,19 @@ export function GameArtwork({ game, motion }: { game: TestGame; motion: boolean 
 }
 
 export function ProviderTestPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   return user ? (
     <ProviderTestSession key={user.id} userId={user.id} />
   ) : (
-    <p>Sign in to browse the casino.</p>
+    <p>{translateUi('Sign in to browse the casino.')}</p>
   );
 }
 
 function ProviderTestSession({ userId }: { userId: string }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
   const attemptedGame = useRef<string | null>(null);
@@ -215,7 +221,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
     () =>
       (catalogue.data ?? []).filter(
         (game) =>
-          game.category !== 'sportsbook' && (category === 'all' || game.category === category) &&
+          game.category !== 'sportsbook' &&
+          (category === 'all' || game.category === category) &&
           `${game.name} ${game.provider}`.toLowerCase().includes(search.trim().toLowerCase())
       ),
     [catalogue.data, category, search]
@@ -279,109 +286,118 @@ function ProviderTestSession({ userId }: { userId: string }) {
     <main className="casino-lobby">
       <div className="casino-topline">
         <Link to="/games">
-          <ArrowLeft size={15} /> Back to our games
+          <ArrowLeft size={15} />
+          {' ' + translateUi('Back to our games')}
         </Link>
-        <Link to="/sports"><Trophy size={15} /> Sports · Real wallet</Link>
+        <Link to="/sports">
+          <Trophy size={15} />
+          {' ' + translateUi('Sports · Real wallet')}
+        </Link>
         <span>
-          <ShieldCheck size={14} /> Virtual play
+          <ShieldCheck size={14} />
+          {' ' + translateUi('Virtual play')}
         </span>
       </div>
       <header className="casino-heading">
         <div>
-          <p className="casino-eyebrow">SALEM BET COLLECTION</p>
+          <p className="casino-eyebrow">{translateUi('SALEM BET COLLECTION')}</p>
           <h1>
-            Casino<span aria-hidden="true">.</span>
+            {translateUi('Casino')}
+            <span aria-hidden="true">.</span>
           </h1>
-          <p className="casino-subtitle">Find your game. Make it your moment.</p>
+          <p className="casino-subtitle">{translateUi('Find your game. Make it your moment.')}</p>
         </div>
         {accessGranted && (
-          <section aria-label="Test wallet" className="casino-balance">
+          <section aria-label={translateUi('Test wallet')} className="casino-balance">
             <Wallet size={21} aria-hidden="true" />
             <div>
-              <span>Virtual test balance</span>
+              <span>{translateUi('Virtual test balance')}</span>
               <strong>
-                {balance} <small>ETB</small>
+                {balance} <small>{'ETB'}</small>
               </strong>
             </div>
           </section>
         )}
       </header>
       <p className="casino-practice-note">
-        <span /> Virtual ETB · No cash value
+        <span />
+        {' ' + translateUi('Virtual ETB · No cash value')}
       </p>
       {selectionError && (
         <p className="casino-notice" role="status">
-          That game is no longer in the collection. Choose another game below.
+          {translateUi('That game is no longer in the collection. Choose another game below.')}
         </p>
       )}
       {status.isLoading && (
         <p className="casino-notice" role="status">
-          Checking casino access…
+          {translateUi('Checking casino access…')}
         </p>
       )}
       {status.isError && (
         <div className="casino-notice" role="alert">
-          Could not check casino availability.{' '}
-          <button onClick={() => void status.refetch()}>Retry</button>
+          {translateUi('Could not check casino availability.')}{' '}
+          <button onClick={() => void status.refetch()}>{translateUi('Retry')}</button>
         </div>
       )}
       {!status.isError && status.data?.enabled === false && (
         <p className="casino-notice" role="status">
           {status.data.unavailableReason === 'paused'
-            ? 'Casino practice is temporarily paused. Please try again later.'
+            ? translateUi('Casino practice is temporarily paused. Please try again later.')
             : status.data.unavailableReason === 'setup-required'
-              ? 'Casino practice is temporarily unavailable. Please try again shortly.'
-              : 'Casino practice is not available for this account.'}{' '}
-          <button onClick={() => void status.refetch()}>Check again</button>
+              ? translateUi('Casino practice is temporarily unavailable. Please try again shortly.')
+              : translateUi('Casino practice is not available for this account.')}{' '}
+          <button onClick={() => void status.refetch()}>{translateUi('Check again')}</button>
         </p>
       )}
       {accessGranted && wallet.isError && (
         <p className="casino-notice" role="alert">
-          Could not check the test balance.{' '}
-          <button onClick={() => void wallet.refetch()}>Refresh balance</button>
+          {translateUi('Could not check the test balance.')}{' '}
+          <button onClick={() => void wallet.refetch()}>{translateUi('Refresh balance')}</button>
         </p>
       )}
       {accessGranted && status.data?.launchReady === false && (
         <p className="casino-notice" role="status">
-          Games are temporarily unavailable. Please try again shortly.
+          {translateUi('Games are temporarily unavailable. Please try again shortly.')}
         </p>
       )}
 
       {accessGranted && selected ? (
-        <section aria-label="Selected provider game" className="casino-player">
+        <section aria-label={translateUi('Selected provider game')} className="casino-player">
           <div className="casino-player-toolbar">
             <button onClick={close} className="casino-back-button">
-              <ArrowLeft size={17} /> Back to casino
+              <ArrowLeft size={17} />
+              {' ' + translateUi('Back to casino')}
             </button>
             <div>
               <h2>{selected.name}</h2>
               <span>{selected.provider}</span>
             </div>
-            <span className="casino-player-mode">Virtual play</span>
+            <span className="casino-player-mode">{translateUi('Virtual play')}</span>
           </div>
           {launch.isPending && (
             <div className="casino-player-placeholder" role="status">
               <span className="casino-loading-ring" />
-              Opening {selected.name}…
+              {translateUi('Opening') + ' '}
+              {selected.name}…
             </div>
           )}
           {launch.isError && (
             <div className="casino-player-placeholder" role="alert">
               <Gamepad2 size={36} />
-              <h3>This game could not be opened.</h3>
-              <p>Try again or choose another game.</p>
+              <h3>{translateUi('This game could not be opened.')}</h3>
+              <p>{translateUi('Try again or choose another game.')}</p>
               <button
                 className="casino-primary-button"
                 disabled={!canLaunch}
                 onClick={() => launch.mutate(selected)}
               >
-                Try again
+                {translateUi('Try again')}
               </button>
             </div>
           )}
           {launch.data && (
             <iframe
-              title={`${selected.name} test`}
+              title={translateUi('{name} test', { name: selected.name })}
               src={launch.data.url}
               referrerPolicy="no-referrer"
               sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
@@ -392,29 +408,36 @@ function ProviderTestSession({ userId }: { userId: string }) {
         </section>
       ) : (
         accessGranted && (
-          <section aria-label="Casino game lobby">
+          <section aria-label={translateUi('Casino game lobby')}>
             <div className="casino-browser-bar">
               <h2>
-                <Gamepad2 size={21} /> The game collection{' '}
-                <span>{catalogue.data?.length.toLocaleString() ?? '—'}</span>
+                <Gamepad2 size={21} />
+                {' ' + translateUi('The game collection')}{' '}
+                <span>{catalogue.data?.length.toLocaleString(interfaceLocale) ?? '—'}</span>
               </h2>
               <div className="casino-browser-controls">
                 <button
                   type="button"
                   className="casino-motion-toggle"
-                  aria-label={motionEnabled ? 'Pause previews' : 'Animate previews'}
+                  aria-label={
+                    motionEnabled ? translateUi('Pause previews') : translateUi('Animate previews')
+                  }
                   aria-pressed={motionEnabled}
                   onClick={() => setMotionEnabled((enabled) => !enabled)}
                 >
                   {motionEnabled ? <Pause size={15} /> : <Play size={15} />}
-                  <span>{motionEnabled ? 'Pause previews' : 'Animate previews'}</span>
+                  <span>
+                    {motionEnabled
+                      ? translateUi('Pause previews')
+                      : translateUi('Animate previews')}
+                  </span>
                 </button>
                 <label className="casino-search">
                   <Search size={18} aria-hidden="true" />
-                  <span className="sr-only">Search games or providers</span>
+                  <span className="sr-only">{translateUi('Search games or providers')}</span>
                   <input
                     type="search"
-                    placeholder="Search games or providers"
+                    placeholder={translateUi('Search games or providers')}
                     value={search}
                     onChange={(event) => {
                       setSearch(event.target.value);
@@ -424,7 +447,11 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 </label>
               </div>
             </div>
-            <div className="casino-categories" role="group" aria-label="Game categories">
+            <div
+              className="casino-categories"
+              role="group"
+              aria-label={translateUi('Game categories')}
+            >
               <button
                 aria-pressed={category === 'all'}
                 onClick={() => {
@@ -432,7 +459,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
                   setVisibleCount(PAGE_SIZE);
                 }}
               >
-                All games
+                {translateUi('All games')}
               </button>
               {categories.map(([key, label]) => (
                 <button
@@ -443,14 +470,14 @@ function ProviderTestSession({ userId }: { userId: string }) {
                     setVisibleCount(PAGE_SIZE);
                   }}
                 >
-                  {label}
+                  {translateUi(label)}
                 </button>
               ))}
             </div>
             {catalogue.isLoading && (
               <>
                 <p className="casino-notice" role="status">
-                  Loading games…
+                  {translateUi('Loading games…')}
                 </p>
                 <div className="casino-game-grid" aria-hidden="true">
                   {Array.from({ length: 12 }, (_, i) => (
@@ -461,15 +488,15 @@ function ProviderTestSession({ userId }: { userId: string }) {
             )}
             {catalogue.isError && (
               <div className="casino-notice" role="alert">
-                Provider games are temporarily unavailable.{' '}
-                <button onClick={() => void catalogue.refetch()}>Retry</button>
+                {translateUi('Provider games are temporarily unavailable.')}{' '}
+                <button onClick={() => void catalogue.refetch()}>{translateUi('Retry')}</button>
               </div>
             )}
             {catalogue.data && !games.length && (
               <div className="casino-empty">
                 <Search size={30} />
-                <h3>No games found</h3>
-                <p>Try another title, provider, or category.</p>
+                <h3>{translateUi('No games found')}</h3>
+                <p>{translateUi('Try another title, provider, or category.')}</p>
                 {(search || category !== 'all') && (
                   <button
                     className="casino-primary-button"
@@ -479,7 +506,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
                       setVisibleCount(PAGE_SIZE);
                     }}
                   >
-                    Clear filters
+                    {translateUi('Clear filters')}
                   </button>
                 )}
               </div>
@@ -490,7 +517,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
                   key={game.id}
                   type="button"
                   className="casino-game-tile"
-                  aria-label={`Play ${game.name}`}
+                  aria-label={translateUi('Play {name}', { name: game.name })}
                   disabled={!canLaunch}
                   onClick={() => {
                     launch.reset();
@@ -516,12 +543,15 @@ function ProviderTestSession({ userId }: { userId: string }) {
             {games.length > 0 && (
               <div className="casino-more">
                 <p>
-                  Showing {Math.min(visibleCount, games.length).toLocaleString()} of{' '}
-                  {games.length.toLocaleString()} games
+                  {translateUi('Showing {value} of {value2} games', {
+                    value: Math.min(visibleCount, games.length).toLocaleString(interfaceLocale),
+                    value2: games.length.toLocaleString(interfaceLocale),
+                  })}
                 </p>
                 {visibleCount < games.length && (
                   <button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
-                    Show more games <ChevronDown size={17} />
+                    {translateUi('Show more games') + ' '}
+                    <ChevronDown size={17} />
                   </button>
                 )}
               </div>
@@ -531,13 +561,17 @@ function ProviderTestSession({ userId }: { userId: string }) {
       )}
       {accessGranted && wallet.data && wallet.data.movements.length > 0 && (
         <details className="casino-activity">
-          <summary>Recent test wallet activity</summary>
+          <summary>{translateUi('Recent test wallet activity')}</summary>
           <ul>
             {wallet.data.movements.map((m, i) => (
               <li key={`${m.at}-${i}`}>
-                <span>{m.action === 'debit' ? 'Bet' : 'Win / refund'}</span>
-                <strong>{(m.amountCents / 100).toFixed(2)} ETB</strong>
-                <span>{m.error ? 'Declined' : 'Confirmed'}</span>
+                <span>
+                  {m.action === 'debit' ? translateUi('Bet') : translateUi('Win / refund')}
+                </span>
+                <strong>
+                  {translateUi('{value} ETB', { value: (m.amountCents / 100).toFixed(2) })}
+                </strong>
+                <span>{m.error ? translateUi('Declined') : translateUi('Confirmed')}</span>
               </li>
             ))}
           </ul>

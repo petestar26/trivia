@@ -1,5 +1,13 @@
 # Railway frontend and first-party API gateway
 
+These are historical gateway-migration notes; the example hostnames below belong
+to an earlier environment. The current Salem Bet release targets **PlayQuibe
+Account Test → account-test**, with `salem.bet` on `account-web` and the API at
+`https://account-api-account-test.up.railway.app`. Use the
+[current release record](../reviews/play-together-20261105/eight-language-release.md)
+for verified deployment identities, and confirm the service/environment before
+making a hosting change.
+
 The frontend can serve its built SPA and forward `/api/v1`, `/health` and `/ws`
 through `apps/web/server.mjs`. Authentication cookies then belong to the frontend
 host and no longer depend on third-party-cookie access between Railway domains.

@@ -3,6 +3,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { api, googleClientId } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface GoogleSignInButtonProps {
   onSuccess?: () => void;
@@ -10,6 +11,8 @@ interface GoogleSignInButtonProps {
 }
 
 export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButtonProps) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const clientId = googleClientId();
   const { googleAuthenticate } = useAuth();
   const referralRef = useRef(referralCode);
@@ -36,7 +39,12 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
     setNeedsUsername(false);
   };
 
-  useEffect(() => () => { credentialRef.current = null; }, []);
+  useEffect(
+    () => () => {
+      credentialRef.current = null;
+    },
+    []
+  );
 
   // Load GIS script once.
   useEffect(() => {
@@ -49,10 +57,16 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
-    script.onload = () => { setScriptReady(true); };
-    script.onerror = () => { setError('Google sign-in is temporarily unavailable'); };
+    script.onload = () => {
+      setScriptReady(true);
+    };
+    script.onerror = () => {
+      setError('Google sign-in is temporarily unavailable');
+    };
     document.head.appendChild(script);
-    return () => { script.remove(); };
+    return () => {
+      script.remove();
+    };
   }, [clientId, scriptReady]);
 
   // Initialize GIS and render button once the script is ready.
@@ -89,13 +103,20 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
             setLoading(true);
             setError(null);
             try {
-              await googleAuthenticate({ credential: response.credential, ...(referralRef.current ? { referralCode: referralRef.current } : {}) });
+              await googleAuthenticate({
+                credential: response.credential,
+                ...(referralRef.current ? { referralCode: referralRef.current } : {}),
+              });
               onSuccess?.();
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : 'Google sign-in failed';
               // Parse JSON error for code-specific handling
               let parsed: { code?: string; message?: string } = {};
-              try { parsed = JSON.parse(msg); } catch { /* not JSON */ }
+              try {
+                parsed = JSON.parse(msg);
+              } catch {
+                /* not JSON */
+              }
               const code = parsed.code || '';
               const message = parsed.message || msg;
               if (code === 'USERNAME_REQUIRED' || message.includes('Please choose a username')) {
@@ -106,7 +127,9 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
                 initializedRef.current = false;
                 setNeedsUsername(true);
               } else if (code === 'ACCOUNT_LINK_REQUIRED') {
-                setError('An account already exists for this email. Please sign in with your existing method.');
+                setError(
+                  'An account already exists for this email. Please sign in with your existing method.'
+                );
               } else {
                 setError('Google sign-in failed. Please try again.');
               }
@@ -129,26 +152,42 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
       }
     };
     loadNonceAndInit();
-    return () => { active = false; initializedRef.current = false; };
+    return () => {
+      active = false;
+      initializedRef.current = false;
+    };
   }, [clientId, needsUsername, scriptReady]);
 
   const handleUsernameSubmit = async () => {
     if (!credentialRef.current) return;
-    if (!username.trim() || username.trim().length < 3 || username.trim().length > 30 || !/^[a-zA-Z0-9_]+$/.test(username.trim())) {
+    if (
+      !username.trim() ||
+      username.trim().length < 3 ||
+      username.trim().length > 30 ||
+      !/^[a-zA-Z0-9_]+$/.test(username.trim())
+    ) {
       setUsernameError('Username must be 3-30 characters, letters, numbers, and underscores only');
       return;
     }
     setLoading(true);
     setUsernameError(null);
     try {
-      await googleAuthenticate({ credential: credentialRef.current, username: username.trim(), ...(referralRef.current ? { referralCode: referralRef.current } : {}) });
+      await googleAuthenticate({
+        credential: credentialRef.current,
+        username: username.trim(),
+        ...(referralRef.current ? { referralCode: referralRef.current } : {}),
+      });
       credentialRef.current = null;
       setNeedsUsername(false);
       onSuccess?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Registration failed';
       let parsed: { code?: string; message?: string } = {};
-      try { parsed = JSON.parse(msg); } catch { /* not JSON */ }
+      try {
+        parsed = JSON.parse(msg);
+      } catch {
+        /* not JSON */
+      }
       const message = parsed.message || msg;
       if (message.includes('Username already taken')) {
         setUsernameError('Username already taken. Please try another.');
@@ -165,26 +204,39 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
   if (needsUsername) {
     return (
       <div key="google-username" className="space-y-3">
-        <p className="text-sm text-gray-700 dark:text-gray-300 text-center">Choose a username for your new account</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300 text-center">
+          {translateUi('Choose a username for your new account')}
+        </p>
         <div className="grid gap-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
           <Input
             type="text"
-            aria-label="Google account username"
-            placeholder="username"
+            aria-label={translateUi('Google account username')}
+            placeholder={translateUi('username')}
             value={username}
-            onChange={(e) => { setUsername(e.target.value); setUsernameError(null); }}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setUsernameError(null);
+            }}
             disabled={loading}
             maxLength={30}
             autoFocus
             className="min-w-0 w-full"
           />
           <Button onClick={handleUsernameSubmit} disabled={loading || !username.trim()}>
-            {loading ? '...' : 'Continue'}
+            {loading ? '...' : translateUi('Continue')}
           </Button>
         </div>
-        {usernameError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{usernameError}</p>}
-        <button type="button" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300" onClick={exitUsernameMode}>
-          Back to sign in
+        {usernameError && (
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {translateUi(usernameError)}
+          </p>
+        )}
+        <button
+          type="button"
+          className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          onClick={exitUsernameMode}
+        >
+          {translateUi('Back to sign in')}
         </button>
       </div>
     );
@@ -193,10 +245,14 @@ export function GoogleSignInButton({ onSuccess, referralCode }: GoogleSignInButt
   return (
     <div key="google-signin" className="space-y-2">
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400 text-center" role="alert">{error}</p>
+        <p className="text-sm text-red-600 dark:text-red-400 text-center" role="alert">
+          {translateUi(error)}
+        </p>
       )}
       <div ref={buttonRef} className="flex justify-center" />
-      {loading && <p className="text-sm text-gray-500 text-center">Signing in...</p>}
+      {loading && (
+        <p className="text-sm text-gray-500 text-center">{translateUi('Signing in...')}</p>
+      )}
     </div>
   );
 }

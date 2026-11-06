@@ -35,6 +35,7 @@ import { userRoutes } from './users.js';
 import { notificationRoutes } from './notifications.js';
 import { ledgerAdminRoutes } from '../economy/ledger-admin-routes.js';
 import { groupPvpRoutes } from '../games/group-pvp/routes.js';
+import { togetherRoutes } from '../games/play-together/routes.js';
 import { systemDiceRoutes } from '../games/group-pvp/system-dice-routes.js';
 import { systemKenoRoutes } from '../games/group-pvp/system-keno-routes.js';
 import { blackjackRoutes } from '../games/blackjack/routes.js';
@@ -43,11 +44,13 @@ import { rouletteKenoRoutes } from '../games/roulette-keno/routes.js';
 import { giftCollectionRoutes } from '../gift-collection/routes.js';
 import { providerDemoRoutes } from '../providers/softaggregator/routes.js';
 import { providerTestRoutes } from '../providers/softaggregator/test-routes.js';
+import { sportsRoutes } from '../providers/softaggregator/sports-routes.js';
 import { triviaPracticeRoutes } from '../games/trivia-practice/routes.js';
 
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(providerDemoRoutes, { prefix: '/provider-demo' });
   await server.register(providerTestRoutes, { prefix: '/provider-test' });
+  await server.register(sportsRoutes, { prefix: '/sportsbook' });
   await server.register(triviaPracticeRoutes, { prefix: '/games/trivia-practice' });
   // healthRoutes is registered directly in server.ts, outside this
   // API_PREFIX-wrapped block — see the comment there. Not registered here.
@@ -59,6 +62,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(socialGroupRoutes, { prefix: '/groups' });
   await server.register(groupRoutes, { prefix: '/groups' });
   await server.register(groupPvpRoutes, { prefix: '/groups' });
+  await server.register(togetherRoutes, { prefix: '/play-together' });
   await server.register(derbyRoutes, { prefix: '/games/thunder-derby' });
   await server.register(dogRacingRoutes, { prefix: '/games/dog-racing' });
   await server.register(numberPracticeRoutes, { prefix: '/games/number-challenge-practice' });

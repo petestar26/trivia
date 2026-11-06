@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -27,7 +28,11 @@ import { GroupDetailPage } from './group-detail';
 // group is observable rather than a 404.
 
 const authState = vi.hoisted(() => ({
-  current: { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' } as { id: string; username: string; displayName: string } | null,
+  current: { id: 'u-viewer', username: 'viewer', displayName: 'Viewer' } as {
+    id: string;
+    username: string;
+    displayName: string;
+  } | null,
 }));
 
 vi.mock('@/providers/auth-provider', () => ({
@@ -51,13 +56,18 @@ vi.mock('@/lib/api', () => ({
 
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
+  useToast: () => ({ toast: (payload: unknown) => toastMock(toastDisplay(payload)) }),
 }));
 
 import { api } from '@/lib/api';
 
 const mocked = api as unknown as Record<
-  'getGroup' | 'getGroupMembers' | 'listGroupInvites' | 'listJoinRequests' | 'listBannedMembers' | 'unbanGroupMember',
+  | 'getGroup'
+  | 'getGroupMembers'
+  | 'listGroupInvites'
+  | 'listJoinRequests'
+  | 'listBannedMembers'
+  | 'unbanGroupMember',
   ReturnType<typeof vi.fn>
 >;
 
@@ -114,14 +124,16 @@ function installServers() {
   mocked.getGroupMembers.mockResolvedValue({ data: [] });
   mocked.listJoinRequests.mockResolvedValue({ data: [] });
   mocked.listGroupInvites.mockResolvedValue({ success: true, data: [], meta: pageMeta(1, 50, 0) });
-  mocked.listBannedMembers.mockImplementation(async (groupId: string, params: { page: number; limit: number }) => {
-    state.listCalls.push(groupId);
-    return {
-      success: true,
-      data: [...state.rows[groupId]],
-      meta: pageMeta(params.page, params.limit, state.rows[groupId].length),
-    };
-  });
+  mocked.listBannedMembers.mockImplementation(
+    async (groupId: string, params: { page: number; limit: number }) => {
+      state.listCalls.push(groupId);
+      return {
+        success: true,
+        data: [...state.rows[groupId]],
+        meta: pageMeta(params.page, params.limit, state.rows[groupId].length),
+      };
+    }
+  );
   mocked.unbanGroupMember.mockImplementation(async (groupId: string, userId: string) => {
     state.rows[groupId] = state.rows[groupId].filter((r) => r.user.id !== userId);
     return { success: true, data: { message: 'Member unbanned' } };
@@ -132,7 +144,9 @@ function installServers() {
 function renderApp() {
   // Caching ON, and never collected: group B really is a cached group when the
   // user moves to it.
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
   const invalidate = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
@@ -150,14 +164,19 @@ function renderApp() {
   return { client, invalidate };
 }
 
-const goTo = (letter: 'A' | 'B') => fireEvent.click(screen.getByRole('link', { name: `go to ${letter}` }));
+const goTo = (letter: 'A' | 'B') =>
+  fireEvent.click(screen.getByRole('link', { name: `go to ${letter}` }));
 const onGroup = (name: string) => screen.findByRole('heading', { name });
 const unbanButton = (name: string) => screen.getByRole('button', { name: `Unban ${name}` });
 const anyConfirmation = () => screen.queryByRole('group', { name: /^Unban / });
 const idsIn = (data: unknown): string[] =>
-  ((data as BannedMembersInbox | undefined)?.pages ?? []).flatMap((p) => p.members.map((m) => m.user.id));
-const unbanRowNames = () => screen.getAllByRole('button', { name: /^Unban / }).map((b) => b.getAttribute('aria-label'));
-const listCallsFor = (groupId: string) => mocked.listBannedMembers.mock.calls.filter((c: unknown[]) => c[0] === groupId).length;
+  ((data as BannedMembersInbox | undefined)?.pages ?? []).flatMap((p) =>
+    p.members.map((m) => m.user.id)
+  );
+const unbanRowNames = () =>
+  screen.getAllByRole('button', { name: /^Unban / }).map((b) => b.getAttribute('aria-label'));
+const listCallsFor = (groupId: string) =>
+  mocked.listBannedMembers.mock.calls.filter((c: unknown[]) => c[0] === groupId).length;
 
 /** Visit B, then A again, so BOTH are cached before the scenario starts; leaves the app on A. */
 async function prime() {
@@ -202,7 +221,7 @@ describe('A. a confirmation opened in group A', () => {
     expect(mocked.unbanGroupMember).not.toHaveBeenCalled();
   });
 
-  it('leaves group B\'s controls pristine: a NEW confirmation there targets B, once', async () => {
+  it("leaves group B's controls pristine: a NEW confirmation there targets B, once", async () => {
     installServers();
     renderApp();
     await prime();
@@ -217,12 +236,14 @@ describe('A. a confirmation opened in group A', () => {
 
     await waitFor(() => expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1));
     expect(mocked.unbanGroupMember).toHaveBeenCalledWith('g-b', 'u-shared');
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
   });
 });
 
 describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', () => {
-  it('used A\'s group id, changed only A\'s cache and keys, and left B and its screen alone', async () => {
+  it("used A's group id, changed only A's cache and keys, and left B and its screen alone", async () => {
     const servers = installServers();
     const { client, invalidate } = renderApp();
     await prime();
@@ -249,7 +270,9 @@ describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', 
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.resolve(undefined);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
 
     // The request that was made was A's, and was made once.
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
@@ -257,13 +280,16 @@ describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', 
     // Success is announced FOR A: the toast names it, and never names B.
     expect(toastMock).toHaveBeenCalledWith({
       title: 'Member unbanned',
-      description: 'Banned 2 was unbanned from Group A. They may request to join again or receive a new invitation.',
+      description:
+        'Banned 2 was unbanned from Group A. They may request to join again or receive a new invitation.',
     });
     expect(JSON.stringify(toastMock.mock.calls)).not.toContain('Group B');
 
     // A's cache lost exactly that user; its keys — and only its keys — were invalidated.
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-a')))).toEqual(['u-a1', 'u-a3']);
-    const keys = invalidate.mock.calls.slice(invalidationsBefore).map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    const keys = invalidate.mock.calls
+      .slice(invalidationsBefore)
+      .map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     for (const key of [
       ['group-banned-members', 'g-a'],
       ['group', 'g-a'],
@@ -282,7 +308,7 @@ describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', 
     expect(screen.queryByRole('button', { name: 'Confirm unban' })).not.toBeInTheDocument();
   });
 
-  it('D. going back to A shows A\'s settled state: that member gone, nothing stale reappears', async () => {
+  it("D. going back to A shows A's settled state: that member gone, nothing stale reappears", async () => {
     const servers = installServers();
     renderApp();
     await prime();
@@ -298,7 +324,9 @@ describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', 
     goTo('B');
     await onGroup('Group B');
     request.resolve(undefined);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
 
     goTo('A');
     await onGroup('Group A');
@@ -315,7 +343,7 @@ describe('B. an Unban in flight for A that SUCCEEDS after the user moved to B', 
 });
 
 describe('C. an Unban in flight for A that FAILS after the user moved to B', () => {
-  it('leaves B untouched, names A in the error, and does not move focus onto B\'s controls', async () => {
+  it("leaves B untouched, names A in the error, and does not move focus onto B's controls", async () => {
     installServers();
     const { client, invalidate } = renderApp();
     await prime();
@@ -337,7 +365,9 @@ describe('C. an Unban in flight for A that FAILS after the user moved to B', () 
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.reject(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' }))
+    );
 
     // The error says which group it is about.
     expect(toastMock).toHaveBeenCalledWith({
@@ -352,7 +382,9 @@ describe('C. an Unban in flight for A that FAILS after the user moved to B', () 
     // B is untouched: rows, cache, and no invalidation or refetch on its account.
     expect(unbanRowNames()).toEqual(['Unban Banned 2', 'Unban Banned 4']);
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-b')))).toEqual(bIdsBefore);
-    const keys = invalidate.mock.calls.slice(invalidationsBefore).map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    const keys = invalidate.mock.calls
+      .slice(invalidationsBefore)
+      .map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     expect(keys.filter((k) => k.includes('g-b'))).toEqual([]);
     expect(listCallsFor('g-b')).toBe(bListCallsBefore);
     expect(anyConfirmation()).not.toBeInTheDocument();
@@ -360,14 +392,16 @@ describe('C. an Unban in flight for A that FAILS after the user moved to B', () 
     // D. Back in A: the failure changed nothing, and no stale confirmation is waiting.
     goTo('A');
     await onGroup('Group A');
-    await waitFor(() => expect(unbanRowNames()).toEqual(['Unban Banned 1', 'Unban Banned 2', 'Unban Banned 3']));
+    await waitFor(() =>
+      expect(unbanRowNames()).toEqual(['Unban Banned 1', 'Unban Banned 2', 'Unban Banned 3'])
+    );
     expect(anyConfirmation()).not.toBeInTheDocument();
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('F. A -> B -> A with the request still running', () => {
-  it('the member\'s Unban is inert on the re-opened A, no second confirmation is offered, and no second request starts', async () => {
+  it("the member's Unban is inert on the re-opened A, no second confirmation is offered, and no second request starts", async () => {
     const servers = installServers();
     renderApp();
     await prime();
@@ -400,7 +434,9 @@ describe('F. A -> B -> A with the request still running', () => {
     expect(unbanButton('Banned 1')).not.toHaveAttribute('aria-disabled');
 
     request.resolve(undefined);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
     await waitFor(() => expect(unbanRowNames()).toEqual(['Unban Banned 1', 'Unban Banned 3']));
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
   });
@@ -430,7 +466,9 @@ describe('E. rapid A -> B -> A navigation with cached queries', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm unban' }));
     await waitFor(() => expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1));
     expect(mocked.unbanGroupMember).toHaveBeenCalledWith('g-a', 'u-shared');
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
   });
 
@@ -459,15 +497,27 @@ describe('E. rapid A -> B -> A navigation with cached queries', () => {
     expect(anyConfirmation()).not.toBeInTheDocument();
 
     request.resolve(undefined);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member unbanned' }))
+    );
 
     expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1);
     expect(mocked.unbanGroupMember).toHaveBeenCalledWith('g-a', 'u-shared');
-    expect(toastMock.mock.calls.filter((c: unknown[]) => (c[0] as { title?: string }).title === 'Member unbanned')).toHaveLength(1);
+    expect(
+      toastMock.mock.calls.filter(
+        (c: unknown[]) => (c[0] as { title?: string }).title === 'Member unbanned'
+      )
+    ).toHaveLength(1);
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-b')))).toEqual(['u-shared', 'u-b4']);
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-a')))).toEqual(['u-a1', 'u-a3']);
-    const keys = invalidate.mock.calls.slice(invalidationsBefore).map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    const keys = invalidate.mock.calls
+      .slice(invalidationsBefore)
+      .map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     expect(keys.filter((k) => k.includes('g-b'))).toEqual([]);
-    expect(within(screen.getByRole('region', { name: 'Banned members' })).getAllByRole('button', { name: /^Unban / })).toHaveLength(2);
+    expect(
+      within(screen.getByRole('region', { name: 'Banned members' })).getAllByRole('button', {
+        name: /^Unban /,
+      })
+    ).toHaveLength(2);
   });
 });

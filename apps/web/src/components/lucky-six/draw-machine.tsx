@@ -1,8 +1,11 @@
 import { useId, type CSSProperties } from 'react';
 import { LS_COLORS, lsColor } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /** The unnumbered mixing balls are decorative; only a released result receives a number. */
 export function LuckySixMachine({ latest, drawing }: { latest: number | null; drawing: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const id = useId().replace(/:/g, '');
   const color = latest ? LS_COLORS[lsColor(latest)] : LS_COLORS[4];
   return (
@@ -11,7 +14,12 @@ export function LuckySixMachine({ latest, drawing }: { latest: number | null; dr
       viewBox="0 0 400 340"
       role="img"
       aria-label={
-        latest ? `Latest released ball: ${latest}, ${color.name}` : 'Lucky Six glass draw machine'
+        latest
+          ? translateUi('Latest released ball: {latest}, {name}', {
+              latest: latest,
+              name: color.name,
+            })
+          : translateUi('Lucky Six glass draw machine')
       }
     >
       <defs>
@@ -168,7 +176,7 @@ export function LuckySixMachine({ latest, drawing }: { latest: number | null; dr
         fontSize="8"
         letterSpacing="3"
       >
-        SALEM ORIGINALS
+        {translateUi('SALEM ORIGINALS')}
       </text>
       <text
         x="200"
@@ -179,7 +187,7 @@ export function LuckySixMachine({ latest, drawing }: { latest: number | null; dr
         fontSize="8"
         letterSpacing="2"
       >
-        48 BALLS · EIGHT COLORS
+        {translateUi('48 BALLS · EIGHT COLORS')}
       </text>
     </svg>
   );

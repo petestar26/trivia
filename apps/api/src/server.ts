@@ -1,6 +1,8 @@
 import { prisma } from '@socialplay/database';
 import { createGroupPvpService } from './games/group-pvp/service.js';
 import { startGroupPvpRuntime } from './games/group-pvp/runtime.js';
+import { createTogetherService } from './games/play-together/service.js';
+import { startTogetherRuntime } from './games/play-together/runtime.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +17,7 @@ import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction
 import { startEtbRateRefresh } from './agents/etb-rate-service.js';
 import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
 import { startRewardDelivery } from './member-rewards/service.js';
+import { assertUploadPersistence } from './storage/readiness.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -139,6 +142,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 
 async function start(): Promise<void> {
   try {
+    await assertUploadPersistence(config.STORAGE_LOCAL_PATH);
     const server = await buildServer();
     const stopRewards = startRewardDelivery(() =>
       server.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')
@@ -151,6 +155,9 @@ async function start(): Promise<void> {
       tick: createGroupPvpService(prisma).tick,
       report: () => server.log.warn('Group game processing is unavailable; new entries are paused'),
     });
+    const stopTogether = startTogetherRuntime(createTogetherService(prisma).tick, () =>
+      server.log.warn('Group rounds are recovering; new entries are paused'));
+    server.addHook('onClose', async () => { stopTogether(); });
     server.addHook('onClose', async () => {
       stopGroupPvp();
     });

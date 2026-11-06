@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatEtb } from '@/lib/payment-money';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { invalidateProgressionQueries } from '@/lib/progression-cache';
@@ -56,12 +56,20 @@ export function RewardsPage() {
 
   // Each queryFn resolves directly to its domain object; the render path
   // consumes these values as-is (no second `.data` unwrap).
-  const { data: tasks = [], isLoading: tasksLoading, isError: tasksError } = useQuery<TaskSummary[]>({
+  const {
+    data: tasks = [],
+    isLoading: tasksLoading,
+    isError: tasksError,
+  } = useQuery<TaskSummary[]>({
     queryKey: ['tasks'],
     queryFn: async () => (await api.listTasks()).data ?? [],
   });
 
-  const { data: achievements = [], isLoading: achLoading, isError: achievementsError } = useQuery<AchievementSummary[]>({
+  const {
+    data: achievements = [],
+    isLoading: achLoading,
+    isError: achievementsError,
+  } = useQuery<AchievementSummary[]>({
     queryKey: ['achievements'],
     queryFn: async () => (await api.listAchievements()).data ?? [],
     // Achievement processing is asynchronous fire-and-forget backend work. The
@@ -72,12 +80,20 @@ export function RewardsPage() {
     staleTime: 0,
   });
 
-  const { data: vip, isLoading: vipLoading, isError: vipError } = useQuery<VipStatus | undefined>({
+  const {
+    data: vip,
+    isLoading: vipLoading,
+    isError: vipError,
+  } = useQuery<VipStatus | undefined>({
     queryKey: ['vip'],
     queryFn: async () => (await api.getVip()).data,
   });
 
-  const { data: progress, isLoading: progLoading, isError: progressError } = useQuery<ProgressStatus | undefined>({
+  const {
+    data: progress,
+    isLoading: progLoading,
+    isError: progressError,
+  } = useQuery<ProgressStatus | undefined>({
     queryKey: ['progress'],
     queryFn: async () => (await api.getProgress()).data,
   });
@@ -91,7 +107,11 @@ export function RewardsPage() {
       toast({ title: 'Reward claimed!' });
     },
     onError: (err) => {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to claim'), variant: 'destructive' });
+      toast({
+        title: 'Error',
+        description: getErrorMessage(err, 'Failed to claim'),
+        variant: 'destructive',
+      });
     },
   });
 
@@ -108,7 +128,11 @@ export function RewardsPage() {
   if (tasksError) {
     return (
       <div className="max-w-3xl mx-auto p-4">
-        <Card><CardContent className="py-8 text-center text-red-600 dark:text-red-400">Failed to load rewards.</CardContent></Card>
+        <Card>
+          <CardContent className="py-8 text-center text-red-600 dark:text-red-400">
+            Failed to load rewards.
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -120,19 +144,32 @@ export function RewardsPage() {
       {/* XP / Level */}
       {(progress || progressError) && (
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Progress</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Progress</CardTitle>
+          </CardHeader>
           <CardContent>
             {progressError ? (
-              <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load progress.</p>
-            ) : progress && <div className="flex items-center gap-4">
-              <div className="text-3xl font-bold text-primary-600 dark:text-primary-400">Lv {progress.level}</div>
-              <div className="flex-1">
-                <div className="text-sm text-gray-500 dark:text-gray-400">{progress.xp} XP</div>
-                <div className="mt-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div className="h-full bg-primary-500 rounded-full" style={{ width: `${Math.min(100, (progress.xp % 100))}%` }} />
+              <p role="status" className="text-sm text-red-600 dark:text-red-400">
+                Failed to load progress.
+              </p>
+            ) : (
+              progress && (
+                <div className="flex items-center gap-4">
+                  <div className="text-3xl font-bold text-primary-600 dark:text-primary-400">
+                    Lv {progress.level}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-500 dark:text-gray-400">{progress.xp} XP</div>
+                    <div className="mt-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary-500 rounded-full"
+                        style={{ width: `${Math.min(100, progress.xp % 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>}
+              )
+            )}
           </CardContent>
         </Card>
       )}
@@ -140,16 +177,26 @@ export function RewardsPage() {
       {/* VIP */}
       {(vip || vipError) && (
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">VIP Status</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">VIP Status</CardTitle>
+          </CardHeader>
           <CardContent>
             {vipError ? (
-              <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load VIP status.</p>
+              <p role="status" className="text-sm text-red-600 dark:text-red-400">
+                Failed to load VIP status.
+              </p>
             ) : vip?.isActive ? (
               <div className="flex items-center gap-3">
-                <span className="text-2xl">{vip.tier === 'PLATINUM' ? '💎' : vip.tier === 'GOLD' ? '🥇' : '🥈'}</span>
+                <span className="text-2xl">
+                  {vip.tier === 'PLATINUM' ? '💎' : vip.tier === 'GOLD' ? '🥇' : '🥈'}
+                </span>
                 <div>
-                  <p className="font-semibold text-amber-600 dark:text-amber-400">{vip.tier} Member</p>
-                  <p className="text-xs text-gray-500">Expires {vip.expiresAt ? new Date(vip.expiresAt).toLocaleDateString() : '—'}</p>
+                  <p className="font-semibold text-amber-600 dark:text-amber-400">
+                    {vip.tier} Member
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Expires {vip.expiresAt ? new Date(vip.expiresAt).toLocaleDateString() : '—'}
+                  </p>
                 </div>
               </div>
             ) : (
@@ -161,26 +208,46 @@ export function RewardsPage() {
 
       {/* Daily Tasks */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Daily Tasks</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Daily Tasks</CardTitle>
+        </CardHeader>
         <CardContent>
           {tasks.length === 0 ? (
             <p className="text-sm text-gray-500 text-center py-4">No tasks available.</p>
           ) : (
             <div className="space-y-3">
               {tasks.map((task) => (
-                <div key={task.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div
+                  key={task.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700"
+                >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{task.title}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                      {task.title}
+                    </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{task.description}</p>
                     <div className="mt-1 flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[120px]">
-                        <div className="h-full bg-primary-500 rounded-full" style={{ width: `${Math.min(100, (task.progress / task.target) * 100)}%` }} />
+                        <div
+                          className="h-full bg-primary-500 rounded-full"
+                          style={{
+                            width: `${Math.min(100, (task.progress / task.target) * 100)}%`,
+                          }}
+                        />
                       </div>
-                      <span className="text-xs text-gray-500">{task.progress}/{task.target}</span>
+                      <span className="text-xs text-gray-500">
+                        {task.progress}/{task.target}
+                      </span>
                     </div>
                     {(task.coinReward > 0 || task.gamePointReward > 0) && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Reward: {[task.coinReward > 0 ? `${formatEtb(task.coinReward)} bonus` : null, task.gamePointReward > 0 ? `${task.gamePointReward} GP` : null].filter(Boolean).join(' + ')}
+                        Reward:{' '}
+                        {[
+                          task.coinReward > 0 ? `${formatEtb(task.coinReward)} bonus` : null,
+                          task.gamePointReward > 0 ? `${task.gamePointReward} GP` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' + ')}
                       </p>
                     )}
                   </div>
@@ -194,7 +261,9 @@ export function RewardsPage() {
                     </Button>
                   )}
                   {task.status === 'CLAIMED' && (
-                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ Claimed</span>
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                      ✓ Claimed
+                    </span>
                   )}
                 </div>
               ))}
@@ -205,19 +274,28 @@ export function RewardsPage() {
 
       {/* Achievements */}
       <Card>
-        <CardHeader><CardTitle className="text-base">Achievements</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Achievements</CardTitle>
+        </CardHeader>
         <CardContent>
           {achievementsError ? (
-            <p role="status" className="text-sm text-red-600 dark:text-red-400">Failed to load achievements.</p>
+            <p role="status" className="text-sm text-red-600 dark:text-red-400">
+              Failed to load achievements.
+            </p>
           ) : achievements.length === 0 ? (
             <p className="text-sm text-gray-500 text-center py-4">No achievements unlocked yet.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               {achievements.map((ach) => (
-                <div key={ach.key} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div
+                  key={ach.key}
+                  className="p-3 rounded-lg border border-gray-200 dark:border-gray-700"
+                >
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{ach.title}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{ach.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">Unlocked {new Date(ach.unlockedAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Unlocked {new Date(ach.unlockedAt).toLocaleDateString()}
+                  </p>
                 </div>
               ))}
             </div>

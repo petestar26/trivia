@@ -767,3 +767,289 @@
     font-size: 10px;
   }
 }
+
+/* Emerald lounge: warm artwork set into polished, dark green glass. */
+html.qube-member.dark .salem-lounge {
+  gap: 32px;
+}
+html.qube-member.dark :is(.salem-eyebrow, .salem-section-heading > a, .salem-lounge-footer a) {
+  color: var(--casino-gold);
+}
+html.qube-member.dark
+  :is(
+    .salem-welcome,
+    .salem-section-heading p,
+    .salem-footnote,
+    .salem-own-caption > span,
+    .salem-group-game span,
+    .salem-group-rooms small,
+    .salem-casino-intro p
+  ) {
+  color: var(--casino-muted);
+}
+html.qube-member.dark .salem-hero {
+  min-height: 320px;
+  border-radius: 24px;
+  border-color: #dfbd7650;
+  background: #082116;
+  box-shadow:
+    inset 0 1px #fff3,
+    0 18px 40px #0005,
+    0 0 50px #289b5620;
+}
+html.qube-member.dark .salem-hero > img {
+  opacity: 0.82;
+}
+html.qube-member.dark .salem-hero::after {
+  background:
+    linear-gradient(90deg, #06180ff5 3%, #0a2118ed 34%, #09241965 66%, #06130d20),
+    linear-gradient(0deg, #06110d8c, transparent 55%);
+}
+html.qube-member.dark .salem-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px #f8e3a63b,
+    inset 0 -1px #c1f2d11a;
+  background: linear-gradient(120deg, transparent 50%, #ffffff06 50.2%, transparent 70%);
+}
+html.qube-member.dark .salem-hero > div {
+  padding: 36px 40px;
+  max-width: 660px;
+}
+html.qube-member.dark .salem-hero h1 {
+  color: #fbfcf4;
+  font-size: clamp(34px, 3.8vw, 52px);
+  line-height: 1.12;
+  margin-block: 15px;
+}
+html.qube-member.dark .salem-hero h1 em {
+  color: #f0d398;
+}
+html.qube-member.dark .salem-hero p {
+  color: #c3d1c4;
+  font-size: 14px;
+  line-height: 1.65;
+}
+html.qube-member.dark .salem-hero-actions {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+html.qube-member.dark .salem-button {
+  min-height: 46px;
+  background: linear-gradient(160deg, #90efb9, #34d399 55%, #24b981);
+  border: 1px solid #8bf3be;
+  color: #051b11;
+  border-radius: 12px;
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px #dcffe7b3,
+    0 3px 0 #08633f,
+    0 8px 18px #0d9c4b24;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+html.qube-member.dark .salem-button.secondary {
+  background: linear-gradient(145deg, #1d3728eb, #102219e8);
+  border-color: #b4c6955e;
+  color: #eaddbb;
+  box-shadow:
+    inset 0 1px #ffffff17,
+    0 4px 14px #0003;
+}
+html.qube-member.dark .salem-quick-links {
+  position: relative;
+  z-index: 2;
+  margin-top: -17px;
+  margin-inline: 20px;
+}
+html.qube-member.dark .salem-quick-links > a {
+  background: linear-gradient(150deg, #234431, #102318);
+  border: 1px solid #98d2a72e;
+  border-radius: 14px;
+  min-height: 62px;
+  color: #edf4e8;
+  box-shadow:
+    inset 0 1px #ffffff14,
+    0 8px 18px #0004;
+}
+html.qube-member.dark .salem-quick-links > a > svg:first-child {
+  color: var(--casino-gold);
+}
+html.qube-member.dark
+  :is(
+    .salem-own-tile,
+    .salem-group-game,
+    .salem-group-rooms a,
+    .salem-casino-intro,
+    .salem-group-picker label
+  ) {
+  background: var(--casino-glass);
+  border-color: var(--casino-line);
+  box-shadow: var(--casino-depth);
+}
+html.qube-member.dark .salem-own-tile {
+  border-radius: 17px;
+}
+html.qube-member.dark .salem-own-tile .ruby-art {
+  border-bottom: 1px solid #c8e5bf24;
+}
+html.qube-member.dark .salem-own-caption {
+  padding: 15px 16px;
+}
+html.qube-member.dark :is(.salem-own-caption h3, .salem-group-game h3) {
+  color: var(--casino-text);
+}
+html.qube-member.dark .salem-favorite {
+  background: #061910d9;
+  color: #f3e3bb;
+  border-color: #c4e4c544;
+}
+html.qube-member.dark .salem-favorite[aria-pressed='true'] {
+  background: #38643e;
+  color: #ffdfa2;
+  border-color: #f0d398;
+}
+html.qube-member.dark :is(.salem-search, .salem-tabs button, .salem-discovery-links a) {
+  background: #0d1c14;
+  border-color: #3b5746;
+  color: #bbd1c1;
+}
+html.qube-member.dark .salem-search input {
+  min-height: 42px;
+  color: var(--casino-text);
+}
+html.qube-member.dark
+  :is(.salem-tabs button[aria-pressed='true'], .salem-discovery-links a[aria-current='page']) {
+  background: linear-gradient(145deg, #236a46, #123e29);
+  border-color: #8ed8a4;
+  color: #fff;
+  box-shadow: inset 0 -2px #34d399;
+}
+html.qube-member.dark .salem-tabs button {
+  min-height: 42px;
+}
+html.qube-member.dark .salem-together {
+  border-color: #8fbfa834;
+  border-radius: 22px;
+  background: radial-gradient(ellipse at 100% 0, #428b4924, transparent 70%), var(--casino-glass);
+  box-shadow:
+    inset 0 1px #ffffff14,
+    0 16px 30px #0003;
+}
+html.qube-member.dark .salem-empty {
+  border-color: #91b19c55;
+  color: var(--casino-muted);
+  background: #0d1c1466;
+}
+html.qube-member.dark .salem-empty h3 {
+  color: var(--casino-text);
+}
+html.qube-member.dark .salem-empty button {
+  color: var(--casino-gold);
+  min-height: 44px;
+}
+html.qube-member.dark .salem-lounge-footer {
+  border-color: var(--casino-line);
+}
+html.qube-member.dark .salem-lounge-footer > span {
+  color: var(--casino-muted);
+}
+html.qube-member.dark .salem-group-picker label.is-selected {
+  background: #1c422b;
+  border-color: var(--casino-emerald);
+  box-shadow:
+    inset 0 1px #bcffdc30,
+    0 0 0 3px #34d3991a;
+}
+html.qube-member.dark .salem-group-picker input {
+  accent-color: var(--casino-emerald);
+}
+html.qube-member.dark .salem-group-picker label > span {
+  color: var(--casino-text);
+}
+html.qube-member.dark .salem-group-picker small {
+  color: var(--casino-muted);
+}
+html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar)) .salem-hero h1 {
+  line-height: 1.45;
+  letter-spacing: normal;
+}
+html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar)) .salem-hero h1 em {
+  font-family: inherit;
+  font-style: normal;
+}
+html.qube-member.dark[dir='rtl'] .salem-hero::after {
+  background:
+    linear-gradient(270deg, #06180ff5 3%, #0a2118ed 34%, #09241965 66%, #06130d20),
+    linear-gradient(0deg, #06110d8c, transparent 55%);
+}
+html.qube-member.dark[dir='rtl'] .salem-hero > img {
+  transform: scaleX(-1);
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  html.qube-member.dark .salem-own-tile:hover {
+    transform: perspective(900px) translateY(-5px) rotateX(1.5deg);
+    border-color: #b9cf8c7a;
+    box-shadow:
+      inset 0 1px #fff2,
+      0 15px 26px #0005;
+  }
+  html.qube-member.dark .salem-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  html.qube-member.dark .salem-quick-links > a:hover {
+    border-color: #b5cf8270;
+    background: linear-gradient(150deg, #2b533a, #163420);
+  }
+}
+@media (max-width: 767px) {
+  html.qube-member.dark .salem-lounge {
+    gap: 27px;
+  }
+  html.qube-member.dark .salem-hero {
+    min-height: 298px;
+    border-radius: 20px;
+  }
+  html.qube-member.dark .salem-hero > div {
+    padding: 28px 23px 30px;
+  }
+  html.qube-member.dark .salem-hero h1 {
+    font-size: clamp(29px, 8vw, 40px);
+  }
+  html.qube-member.dark .salem-hero p {
+    font-size: 13px;
+  }
+  html.qube-member.dark .salem-hero::after {
+    background: linear-gradient(90deg, #06180ff0, #0a2118d9 60%, #09241970);
+  }
+  html.qube-member.dark .salem-quick-links {
+    margin-inline: 8px;
+    gap: 7px;
+  }
+  html.qube-member.dark .salem-quick-links > a {
+    padding: 12px 8px;
+    min-height: 58px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  html.qube-member.dark .salem-own-caption {
+    padding: 12px;
+  }
+  html.qube-member.dark .salem-button {
+    padding: 10px 13px;
+    font-size: 12px;
+  }
+  html.qube-member.dark .salem-section-heading {
+    gap: 12px;
+  }
+  html.qube-member.dark .salem-section-heading > a {
+    white-space: normal;
+    text-align: end;
+  }
+}

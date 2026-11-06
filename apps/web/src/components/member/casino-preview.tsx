@@ -5,7 +5,11 @@ import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useLanguage } from '@/providers/language-provider';
 import { GameArtwork, type TestGame } from '@/pages/games/provider-test';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 export function CasinoPreview() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const { t } = useLanguage();
   const status = useQuery({
@@ -30,7 +34,7 @@ export function CasinoPreview() {
     <section className="salem-home-casino" aria-labelledby="home-casino-title">
       <div className="salem-section-heading">
         <div>
-          <span className="salem-eyebrow">THE CASINO COLLECTION</span>
+          <span className="salem-eyebrow">{translateUi('THE CASINO COLLECTION')}</span>
           <h2 id="home-casino-title">{t('Casino')}</h2>
         </div>
         <Link to="/casino">
@@ -59,7 +63,7 @@ export function CasinoPreview() {
               </Link>
             ))}
           </div>
-          <p className="salem-footnote">Virtual ETB · No cash value</p>
+          <p className="salem-footnote">{translateUi('Virtual ETB · No cash value')}</p>
         </>
       ) : status.isPending || (allowed && games.isPending) ? (
         <p role="status">{t('Loading…')}</p>
@@ -70,8 +74,8 @@ export function CasinoPreview() {
             <h3>{t('Casino')}</h3>
             <p>
               {status.isError || games.isError
-                ? 'The collection could not be loaded. Open Casino to retry.'
-                : 'Browse the casino and check availability for your account.'}
+                ? translateUi('The collection could not be loaded. Open Casino to retry.')
+                : translateUi('Browse the casino and check availability for your account.')}
             </p>
           </div>
           <Link to="/casino">

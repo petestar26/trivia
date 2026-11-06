@@ -1,0 +1,28 @@
+{
+  "baselineRun": 42148886579,
+  "currentRun": 42157301634,
+  "postgres": 16,
+  "baselineFailingTests": 14,
+  "currentFailingTests": 14,
+  "sameNames": true,
+  "samePricingError": true,
+  "currentNativeSummary": [
+    "Tests  14 failed | 16 passed (30)"
+  ],
+  "failingTests": [
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > I17 counts all active holds sharing a lot, not each hold in isolation",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > does not convert a restricted source while part of it remains reserved",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > holds and refunds once; replay returns stored balances after a later change",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > holds and refunds through the documented restricted runtime role",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > ordinary SQL cannot insert an orphan operation or edit approved hold terms",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > pausing new holds still permits source-preserving refunds",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > preserves restricted lot, obligation, expiry and lineage across a refund",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > prevents concurrent different holds from overspending the wallet",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > refuses changed terms and cross-user replay without any writes",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > rejects a runtime transfer draining aggregate hold backing, then refunds both holds",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > rejects an unrelated reversal operation that would block the real refund",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > requires a published active policy but refunds a superseded version",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > rolls back a failure after hold creation",
+    "FAIL  src/games/scheduled/stake-hold.native.ts > scheduled stakes preserve original Coin sources > serializes concurrent holds and refunds across separate transactions"
+  ]
+}

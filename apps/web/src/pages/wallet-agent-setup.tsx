@@ -6,6 +6,8 @@ import { walletError } from '@/hooks/use-wallet-action';
 import { useAuth } from '@/providers/auth-provider';
 import { PaymentNavigation } from './wallet-payments';
 import './wallet-payments.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 const get = async <T,>(path: string, signal?: AbortSignal) =>
   unwrapData(
     await boundedRequest(
@@ -58,6 +60,8 @@ export function WalletAgentSetupPage({ workspace = false }: { workspace?: boolea
   return user ? <AgentSetup key={user.id} userId={user.id} workspace={workspace} /> : null;
 }
 function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const cache = useQueryClient();
   const agent = useQuery({
     queryKey: ['payments', 'own-agent', userId],
@@ -223,25 +227,30 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
   }
   return (
     <div className="payments-page">
-      <h1>Payment agent setup</h1>
+      <h1>{translateUi('Payment agent setup')}</h1>
       {!workspace && <PaymentNavigation />}
       <section className="payment-panel">
         <p>
-          Apply to serve a country and submit your payment destination for review. Approval,
-          verified backing and available liquidity are required before processing customer payments.
+          {translateUi(
+            'Apply to serve a country and submit your payment destination for review. Approval, verified backing and available liquidity are required before processing customer payments.'
+          )}
         </p>
-        {message && <p role={messageIsError ? 'alert' : 'status'}>{message}</p>}
+        {message && <p role={messageIsError ? 'alert' : 'status'}>{translateUi(message)}</p>}
         {agent.isPending ? (
-          <p role="status">Checking application…</p>
+          <p role="status">{translateUi('Checking application…')}</p>
         ) : agent.isError ? (
           <p role="alert">
-            Could not check your agent status.{' '}
-            <button onClick={() => agent.refetch()}>Retry</button>
+            {translateUi('Could not check your agent status.')}{' '}
+            <button onClick={() => agent.refetch()}>{translateUi('Retry')}</button>
           </p>
         ) : agent.data ? (
           <>
             <h2>{agent.data.displayName}</h2>
-            <p>Status: {fieldLabel(agent.data.status.toLowerCase())}</p>
+            <p>
+              {translateUi('Status: {value}', {
+                value: translateUi(fieldLabel(agent.data.status.toLowerCase())),
+              })}
+            </p>
           </>
         ) : (
           <form
@@ -261,21 +270,21 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
           >
             {countries.isError && (
               <p role="alert">
-                Countries could not load.{' '}
+                {translateUi('Countries could not load.')}{' '}
                 <button type="button" onClick={() => countries.refetch()}>
-                  Retry
+                  {translateUi('Retry')}
                 </button>
               </p>
             )}
             <label>
-              Agent country
+              {translateUi('Agent country')}
               <select
                 required
                 disabled={busy || countries.isPending || countries.isError}
                 value={application.countryId}
                 onChange={(e) => setApplication({ ...application, countryId: e.target.value })}
               >
-                <option value="">Choose country</option>
+                <option value="">{translateUi('Choose country')}</option>
                 {countries.data?.map((c) => (
                   <option value={c.id} key={c.id}>
                     {c.name}
@@ -284,17 +293,21 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
               </select>
             </label>
             {countries.data?.length === 0 && (
-              <p>The administrator must activate a country before applications can be submitted.</p>
+              <p>
+                {translateUi(
+                  'The administrator must activate a country before applications can be submitted.'
+                )}
+              </p>
             )}
             {(['displayName', 'contactEmail', 'contactPhone'] as const).map((k) => (
               <label key={k}>
-                {
+                {translateUi(
                   {
                     displayName: 'Agent display name',
                     contactEmail: 'Contact email',
                     contactPhone: 'Contact phone (optional)',
                   }[k]
-                }
+                )}
                 <input
                   required={k !== 'contactPhone'}
                   type={k === 'contactEmail' ? 'email' : 'text'}
@@ -315,56 +328,64 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                 !application.contactEmail
               }
             >
-              Submit agent application
+              {translateUi('Submit agent application')}
             </button>
           </form>
         )}
       </section>
       {agent.data && (
         <section className="payment-panel">
-          <h2>Payment accounts</h2>
+          <h2>{translateUi('Payment accounts')}</h2>
           {accounts.isPending ? (
-            <p role="status">Loading accounts…</p>
+            <p role="status">{translateUi('Loading accounts…')}</p>
           ) : accounts.isError ? (
             <p role="alert">
-              Could not load accounts. <button onClick={() => accounts.refetch()}>Retry</button>
+              {translateUi('Could not load accounts.') + ' '}
+              <button onClick={() => accounts.refetch()}>{translateUi('Retry')}</button>
             </p>
           ) : accounts.data?.length ? (
             accounts.data.map((a) => (
               <article
                 className="payment-record"
                 key={a.id}
-                aria-label={`Receiving account ${a.id}`}
+                aria-label={translateUi('Receiving account {id}', { id: a.id })}
               >
                 <div>
                   <h3>
-                    {methods.data?.find((m) => m.id === a.methodDefId)?.name ?? 'Receiving account'}
+                    {methods.data?.find((m) => m.id === a.methodDefId)?.name ??
+                      translateUi('Receiving account')}
                   </h3>
-                  <span className="payment-status">{fieldLabel(a.status.toLowerCase())}</span>
+                  <span className="payment-status">
+                    {translateUi(fieldLabel(a.status.toLowerCase()))}
+                  </span>
                 </div>
-                <p>Reference: {a.id}</p>
+                <p>{translateUi('Reference: {id}', { id: a.id })}</p>
                 <dl>
                   {Object.entries(a.accountDetails ?? {}).map(([field, value]) => (
                     <div key={field}>
-                      <dt>{fieldLabel(field)}</dt>
-                      <dd>{typeof value === 'string' ? value : 'Detail unavailable'}</dd>
+                      <dt>{translateUi(fieldLabel(field))}</dt>
+                      <dd>
+                        {typeof value === 'string' ? value : translateUi('Detail unavailable')}
+                      </dd>
                     </div>
                   ))}
                 </dl>
                 {a.status === 'REJECTED' && (
                   <p>
-                    This account was not approved. Check the administrator’s feedback, correct the
-                    details and resubmit for review.
+                    {translateUi(
+                      'This account was not approved. Check the administrator’s feedback, correct the details and resubmit for review.'
+                    )}
                   </p>
                 )}
                 {a.status === 'PENDING_APPROVAL' && (
                   <p>
-                    Awaiting administrator review. This destination cannot receive new customer
-                    orders until approved.
+                    {translateUi(
+                      'Awaiting administrator review. This destination cannot receive new customer orders until approved.'
+                    )}
                   </p>
                 )}
                 {a.status === 'DISABLED' && (
-                  <p>This account is disabled. Its history is preserved.</p>
+                  <p>{translateUi('This account is disabled. Its history is preserved.')}</p>
                 )}
                 <div className="payment-actions">
                   {editableStates.includes(a.status) && a.countryId === agent.data!.countryId && (
@@ -373,7 +394,9 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                       disabled={busy || !accountsReady || !validEditVersion(a.updatedAt)}
                       onClick={() => editAccount(a)}
                     >
-                      {a.status === 'REJECTED' ? 'Correct and resubmit' : 'Edit account'}
+                      {a.status === 'REJECTED'
+                        ? translateUi('Correct and resubmit')
+                        : translateUi('Edit account')}
                     </button>
                   )}
                   {disableableStates.includes(a.status) && (
@@ -386,19 +409,20 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                         setDisabling(a.id);
                       }}
                     >
-                      Disable account
+                      {translateUi('Disable account')}
                     </button>
                   )}
                 </div>
                 {disabling === a.id && disableableStates.includes(a.status) && (
                   <div
                     role="group"
-                    aria-label="Confirm account disabling"
+                    aria-label={translateUi('Confirm account disabling')}
                     className="payment-disclosure"
                   >
                     <p>
-                      Disable this receiving account? It will be unavailable for new customer
-                      orders. History is preserved, and it cannot be re-enabled from this page.
+                      {translateUi(
+                        'Disable this receiving account? It will be unavailable for new customer orders. History is preserved, and it cannot be re-enabled from this page.'
+                      )}
                     </p>
                     <div className="payment-actions">
                       <button
@@ -415,10 +439,10 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                           );
                         }}
                       >
-                        Confirm disable
+                        {translateUi('Confirm disable')}
                       </button>
                       <button type="button" disabled={busy} onClick={() => setDisabling('')}>
-                        Cancel
+                        {translateUi('Cancel')}
                       </button>
                     </div>
                   </div>
@@ -426,15 +450,17 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
               </article>
             ))
           ) : (
-            <p>No payment accounts submitted.</p>
+            <p>{translateUi('No payment accounts submitted.')}</p>
           )}
-          {accounts.isFetching && !accounts.isPending && <p role="status">Refreshing accounts…</p>}
-          {methods.isPending && <p role="status">Loading payment methods…</p>}
+          {accounts.isFetching && !accounts.isPending && (
+            <p role="status">{translateUi('Refreshing accounts…')}</p>
+          )}
+          {methods.isPending && <p role="status">{translateUi('Loading payment methods…')}</p>}
           {methods.isError && (
             <p role="alert">
-              Methods could not load.{' '}
+              {translateUi('Methods could not load.')}{' '}
               <button type="button" onClick={() => methods.refetch()}>
-                Retry
+                {translateUi('Retry')}
               </button>
             </p>
           )}
@@ -465,15 +491,20 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                 );
               }}
             >
-              <h3>{editing ? 'Edit receiving account' : 'Add receiving account'}</h3>
+              <h3>
+                {editing
+                  ? translateUi('Edit receiving account')
+                  : translateUi('Add receiving account')}
+              </h3>
               {editing && (
                 <p className="payment-disclosure">
-                  Saving changes sends this account back for administrator review. It cannot receive
-                  new customer orders until approved again.
+                  {translateUi(
+                    'Saving changes sends this account back for administrator review. It cannot receive new customer orders until approved again.'
+                  )}
                 </p>
               )}
               <label>
-                Account payment method
+                {translateUi('Account payment method')}
                 <select
                   value={methodId}
                   required
@@ -483,7 +514,7 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                     setDetails({});
                   }}
                 >
-                  <option value="">Choose method</option>
+                  <option value="">{translateUi('Choose method')}</option>
                   {methods.data?.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -492,11 +523,11 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                 </select>
               </label>
               {methods.data?.length === 0 && (
-                <p>No active payment methods configured for your country.</p>
+                <p>{translateUi('No active payment methods configured for your country.')}</p>
               )}
               {method?.fieldSchema.requiredFields.map((field) => (
                 <label key={field}>
-                  {fieldLabel(field)}
+                  {translateUi(fieldLabel(field))}
                   <input
                     required
                     maxLength={500}
@@ -507,19 +538,20 @@ function AgentSetup({ userId, workspace }: { userId: string; workspace: boolean 
                 </label>
               ))}
               <p>
-                Submit only the required receiving-account details. Never enter passwords, PINs or
-                recovery phrases.
+                {translateUi(
+                  'Submit only the required receiving-account details. Never enter passwords, PINs or recovery phrases.'
+                )}
               </p>
               <button disabled={busy || !validDraft}>
                 {busy
-                  ? 'Updating accounts…'
+                  ? translateUi('Updating accounts…')
                   : editing
-                    ? 'Save and resubmit for review'
-                    : 'Submit account for review'}
+                    ? translateUi('Save and resubmit for review')
+                    : translateUi('Submit account for review')}
               </button>
               {editing && (
                 <button type="button" disabled={busy} onClick={resetAccountForm}>
-                  Cancel editing
+                  {translateUi('Cancel editing')}
                 </button>
               )}
             </form>

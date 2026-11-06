@@ -14,19 +14,20 @@ vi.mock('@/pages/games', () => ({
   GamesPage: ({ mode }: { mode?: string }) => <p>Our games: {mode ?? 'all modes'}</p>,
 }));
 vi.mock('@/pages/casino', () => ({ CasinoPage: () => <p>Provider casino</p> }));
+vi.mock('@/pages/play-together', () => ({ PlayTogetherPage: () => <p>Shared group games</p> }));
 
 function Location() {
   return <output aria-label="Current address">{useLocation().pathname}</output>;
 }
 afterEach(cleanup);
 
-it('routes Games to our full catalogue without a BONUS-only override', () => {
+it('routes Games to shared group play', () => {
   render(
     <MemoryRouter initialEntries={['/games']}>
       <App />
     </MemoryRouter>
   );
-  expect(screen.getByText('Our games: all modes')).toBeInTheDocument();
+  expect(screen.getByText('Shared group games')).toBeInTheDocument();
   expect(screen.queryByText('Provider casino')).not.toBeInTheDocument();
 });
 it('keeps a direct Trivia visit on its coming soon page without starting practice', () => {

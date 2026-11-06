@@ -1,0 +1,80 @@
+name: Chat, support and upload regressions
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/review-repairs.yml'
+      - 'packages/config/**'
+      - 'packages/storage/**'
+      - 'apps/api/src/storage/**'
+      - 'apps/api/src/support/**'
+      - 'apps/api/src/routes/chat*'
+      - 'apps/api/src/realtime/**'
+      - 'apps/api/src/server.ts'
+      - 'apps/api/vitest.review-repairs.config.ts'
+      - 'apps/web/src/pages/messages*'
+      - 'apps/web/src/pages/password-reset*'
+      - 'apps/web/src/pages/games/history*'
+      - 'apps/web/src/lib/api.ts'
+      - 'apps/web/src/lib/i18n/**'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-support-test-password
+          POSTGRES_DB: salem_support_review
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SUPPORT_TEST_DATABASE_URL: postgresql://postgres:disposable-support-test-password@127.0.0.1:5432/salem_support_review
+      DATABASE_URL: postgresql://unused@127.0.0.1/unused
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      JWT_ACCESS_SECRET: disposable-review-access-secret-for-tests
+      JWT_REFRESH_SECRET: disposable-review-refresh-secret-for-tests
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install and build shared packages
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm build:packages
+      - name: Storage, concurrency, authorization and notifications
+        run: |
+          pnpm --filter @socialplay/config exec vitest run
+          pnpm --filter @socialplay/storage exec vitest run
+          pnpm --filter api exec vitest run --config vitest.review-repairs.config.ts
+      - name: Chat pagination, history failures and account recovery
+        run: pnpm --filter web exec vitest run src/pages/messages.test.tsx src/pages/games/history.test.tsx src/pages/password-reset.test.tsx --minWorkers=1 --maxWorkers=1
+      - name: Types and all eight interface languages
+        run: |
+          pnpm --filter api typecheck
+          pnpm --filter web typecheck
+          node apps/web/src/lib/i18n/tools/coverage.mjs --strict
+      - name: Production builds and gateway recovery
+        env:
+          NODE_ENV: production
+        run: |
+          pnpm --filter api build
+          pnpm --filter web build
+          pnpm --filter web exec node --test pwa.test.mjs app-recovery.test.mjs server.test.mjs

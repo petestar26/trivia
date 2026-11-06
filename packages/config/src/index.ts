@@ -60,14 +60,10 @@ const envSchema = z.object({
   RATE_LIMIT_AUTH_MAX_REQUESTS: z.coerce.number().int().positive().default(10),
   // Dedicated gateway identity key. Never share JWT signing keys with the web service.
   WEB_GATEWAY_SECRET: z.string().min(32).optional(),
-  STORAGE_PROVIDER: z.enum(['local', 's3', 'r2', 'minio']).default('local'),
-  STORAGE_LOCAL_PATH: z.string().default('./uploads'),
-  STORAGE_S3_ENDPOINT: z.string().url().optional(),
-  STORAGE_S3_REGION: z.string().optional(),
-  STORAGE_S3_BUCKET: z.string().optional(),
-  STORAGE_S3_ACCESS_KEY: z.string().optional(),
-  STORAGE_S3_SECRET_KEY: z.string().optional(),
-  STORAGE_S3_PUBLIC_URL: z.string().url().optional(),
+  STORAGE_PROVIDER: z.literal('local', {
+    errorMap: () => ({ message: 'Only local storage is implemented. Use local with a persistent volume; S3, R2 and MinIO are not supported.' }),
+  }).default('local'),
+  STORAGE_LOCAL_PATH: z.string().trim().min(1).default('./uploads'),
   REDIS_URL: z.string().url().optional(),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),

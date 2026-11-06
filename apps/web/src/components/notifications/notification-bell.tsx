@@ -18,6 +18,7 @@ import {
   type NotificationInbox,
   type NotificationPage,
 } from './notification-pages';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const PANEL_LIMIT = 20;
 const PANEL_ID = 'notification-panel';
@@ -61,14 +62,21 @@ function resolveFocusTarget(panel: HTMLElement, request: FocusRequest): HTMLElem
       // The first notification the user has not seen yet that they can act on;
       // failing that the first new row itself, so the next Tab continues from
       // where the new content begins; failing that the panel.
-      const appended = rows.filter((row) => !request.knownIds.has(row.dataset.notificationId ?? ''));
+      const appended = rows.filter(
+        (row) => !request.knownIds.has(row.dataset.notificationId ?? '')
+      );
       return firstAction(appended) ?? appended[0] ?? panel;
     }
     case 'row':
       // The row survives the action even though its button does not.
       return rows.find((row) => row.dataset.notificationId === request.rowId) ?? panel;
     case 'retry':
-      return panel.querySelector<HTMLElement>('[data-action="retry"]') ?? firstAction(rows) ?? rows[0] ?? panel;
+      return (
+        panel.querySelector<HTMLElement>('[data-action="retry"]') ??
+        firstAction(rows) ??
+        rows[0] ??
+        panel
+      );
   }
 }
 
@@ -107,6 +115,8 @@ export function NotificationBell() {
 }
 
 function NotificationInbox({ userId }: { userId: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const queryClient = useQueryClient();
   const inboxKey = useMemo(() => notificationsInboxKey(userId, PANEL_LIMIT), [userId]);
   const [open, setOpen] = useState(false);
@@ -117,9 +127,16 @@ function NotificationInbox({ userId }: { userId: string }) {
   // previously silent. The nonce alternates a zero-width space onto the
   // rendered text: a real DOM mutation that adds nothing a screen reader
   // speaks.
-  const [status, setStatus] = useState({ message: '', nonce: 0 });
-  const announce = (message: string) => setStatus((prev) => ({ message, nonce: prev.nonce + 1 }));
-  const announcedText = status.message === '' ? '' : `${status.message}${status.nonce % 2 ? '\u200B' : ''}`;
+  const [status, setStatus] = useState<{ message: string; count?: number; nonce: number }>({
+    message: '',
+    nonce: 0,
+  });
+  const announce = (message: string, count?: number) =>
+    setStatus((prev) => ({ message, count, nonce: prev.nonce + 1 }));
+  const announcedText =
+    status.message === ''
+      ? ''
+      : `${translateUi(status.message, status.count === undefined ? undefined : { count: status.count })}${status.nonce % 2 ? '\u200B' : ''}`;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
@@ -195,7 +212,9 @@ function NotificationInbox({ userId }: { userId: string }) {
       // Acts on THIS identity's key only — even if the account has been
       // switched since the request was made. If that inbox was discarded these
       // are no-ops: an absent query is not written to and is not refetched.
-      queryClient.setQueryData<NotificationInbox>(inboxKey, (current) => applyMarkRead(current, id));
+      queryClient.setQueryData<NotificationInbox>(inboxKey, (current) =>
+        applyMarkRead(current, id)
+      );
       // The patch makes the change visible now; the refetch reconciles every
       // loaded page (and the server's unread total) with the server.
       void queryClient.invalidateQueries({ queryKey: inboxKey, exact: true });
@@ -235,7 +254,9 @@ function NotificationInbox({ userId }: { userId: string }) {
 
     const knownIds = new Set(items.map((n) => n.id));
     const request: FocusRequest | null =
-      document.activeElement === trigger ? { kind: 'appended', trigger, knownIds, settled: false } : null;
+      document.activeElement === trigger
+        ? { kind: 'appended', trigger, knownIds, settled: false }
+        : null;
     focusRequestRef.current = request;
     announce('Loading more notifications…');
 
@@ -251,8 +272,11 @@ function NotificationInbox({ userId }: { userId: string }) {
     if (result.isFetchNextPageError) {
       announce('Failed to load more notifications.');
     } else {
-      const added = flattenNotificationPages(result.data?.pages).filter((n) => !knownIds.has(n.id)).length;
-      announce(added > 0 ? `Loaded ${added} more notification${added === 1 ? '' : 's'}.` : 'No more notifications to load.');
+      const added = flattenNotificationPages(result.data?.pages).filter(
+        (n) => !knownIds.has(n.id)
+      ).length;
+      if (added > 0) announce('Loaded {count} more notifications.', added);
+      else announce('No more notifications to load.');
     }
   }
 
@@ -269,7 +293,11 @@ function NotificationInbox({ userId }: { userId: string }) {
     // The Retry button stays put (and stays focused) when this fails again, so
     // nothing on screen changes: say so.
     if (result.isError && !result.isFetching) {
-      announce(result.data === undefined ? 'Failed to load notifications.' : "Couldn't refresh notifications.");
+      announce(
+        result.data === undefined
+          ? 'Failed to load notifications.'
+          : "Couldn't refresh notifications."
+      );
     }
     setSettleTick((t) => t + 1);
   }
@@ -301,7 +329,11 @@ function NotificationInbox({ userId }: { userId: string }) {
     // request whose control is still there in a state that says it should be
     // gone is a render that has not caught up yet — wait for the next one.
     const expectedGone =
-      request.kind === 'appended' ? !hasNextPage : request.kind === 'retry' ? failure === null : true;
+      request.kind === 'appended'
+        ? !hasNextPage
+        : request.kind === 'retry'
+          ? failure === null
+          : true;
     if (request.trigger.isConnected) {
       if (!expectedGone) focusRequestRef.current = null;
       return;
@@ -344,7 +376,8 @@ function NotificationInbox({ userId }: { userId: string }) {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         const target = e.target as Node | null;
-        const inside = (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) ?? false;
+        const inside =
+          (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) ?? false;
         setOpen(false);
         if (inside) {
           buttonRef.current?.focus();
@@ -373,9 +406,13 @@ function NotificationInbox({ userId }: { userId: string }) {
         type="button"
         aria-expanded={open}
         aria-controls={open ? PANEL_ID : undefined}
-        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        aria-label={
+          unreadCount > 0
+            ? translateUi('Notifications, {unreadCount} unread', { unreadCount: unreadCount })
+            : translateUi('Notifications')
+        }
         onClick={handleToggle}
-        className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        className="salem-notifications-trigger relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
       >
         <Bell className="h-5 w-5 text-gray-700 dark:text-gray-300" aria-hidden="true" />
         {unreadCount > 0 && (
@@ -406,12 +443,14 @@ function NotificationInbox({ userId }: { userId: string }) {
           ref={panelRef}
           tabIndex={-1}
           role="region"
-          aria-label="Notifications"
+          aria-label={translateUi('Notifications')}
           aria-busy={inbox.isFetching}
           className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg z-50 focus:outline-none"
         >
           <div className="flex items-center justify-between gap-2 p-3 border-b border-gray-200 dark:border-gray-700">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+              {translateUi('Notifications')}
+            </span>
             {/* aria-disabled, never native `disabled`: the button that was just
                 activated becomes unavailable the moment its request starts (and
                 again once nothing is unread), and Chromium drops focus onto
@@ -426,16 +465,18 @@ function NotificationInbox({ userId }: { userId: string }) {
                 markAllReadMutation.mutate();
               }}
             >
-              Mark all read
+              {translateUi('Mark all read')}
             </Button>
           </div>
 
           {showLoading ? (
-            <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Loading notifications…</p>
+            <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+              {translateUi('Loading notifications…')}
+            </p>
           ) : showInitialError ? (
             <div className="p-4 space-y-2">
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                Failed to load notifications.
+                {translateUi('Failed to load notifications.')}
               </p>
               <Button
                 size="sm"
@@ -445,7 +486,7 @@ function NotificationInbox({ userId }: { userId: string }) {
                 aria-disabled={inbox.isFetching || undefined}
                 onClick={(e) => void refresh(e.currentTarget)}
               >
-                {inbox.isFetching ? 'Retrying…' : 'Retry'}
+                {inbox.isFetching ? translateUi('Retrying…') : translateUi('Retry')}
               </Button>
             </div>
           ) : (
@@ -454,30 +495,33 @@ function NotificationInbox({ userId }: { userId: string }) {
                 <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
                   <p role="alert" className="text-xs text-amber-800 dark:text-amber-200">
                     {items.length === 0
-                      ? "Couldn't refresh. You may have new notifications."
-                      : "Couldn't refresh. Showing the last loaded notifications."}
+                      ? translateUi("Couldn't refresh. You may have new notifications.")
+                      : translateUi("Couldn't refresh. Showing the last loaded notifications.")}
                   </p>
                   <Button
                     size="sm"
                     variant="outline"
                     data-action="retry"
                     className="aria-disabled:opacity-50 aria-disabled:cursor-not-allowed"
-                    aria-label="Retry refreshing notifications"
+                    aria-label={translateUi('Retry refreshing notifications')}
                     aria-disabled={inbox.isFetching || undefined}
                     onClick={(e) => void refresh(e.currentTarget)}
                   >
-                    {inbox.isFetching ? 'Retrying…' : 'Retry'}
+                    {inbox.isFetching ? translateUi('Retrying…') : translateUi('Retry')}
                   </Button>
                 </div>
               )}
               {items.length === 0 ? (
                 <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
-                  {refreshFailed ? 'No notifications to show.' : "You're all caught up."}
+                  {refreshFailed
+                    ? translateUi('No notifications to show.')
+                    : translateUi("You're all caught up.")}
                 </p>
               ) : (
                 <ul className="divide-y divide-gray-200 dark:divide-gray-700">
                   {items.map((n) => {
-                    const marking = markReadMutation.isPending && markReadMutation.variables === n.id;
+                    const marking =
+                      markReadMutation.isPending && markReadMutation.variables === n.id;
                     return (
                       <li
                         key={n.id}
@@ -487,7 +531,9 @@ function NotificationInbox({ userId }: { userId: string }) {
                           !n.isRead ? 'bg-primary-50 dark:bg-primary-900/10' : ''
                         }`}
                       >
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">{n.title}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {n.title}
+                        </p>
                         <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{n.body}</p>
                         {!n.isRead && (
                           <button
@@ -500,7 +546,7 @@ function NotificationInbox({ userId }: { userId: string }) {
                               markRead(n.id, e.currentTarget);
                             }}
                           >
-                            {marking ? 'Marking…' : 'Mark as read'}
+                            {marking ? translateUi('Marking…') : translateUi('Mark as read')}
                           </button>
                         )}
                       </li>
@@ -517,8 +563,11 @@ function NotificationInbox({ userId }: { userId: string }) {
                       blur it) and never replaced by a different element when the
                       fetch fails. */}
                   {nextPageFailed && (
-                    <p role="alert" className="px-1 pb-2 text-xs text-amber-800 dark:text-amber-200">
-                      Couldn&apos;t load more notifications.
+                    <p
+                      role="alert"
+                      className="px-1 pb-2 text-xs text-amber-800 dark:text-amber-200"
+                    >
+                      {translateUi("Couldn't load more notifications.")}
                     </p>
                   )}
                   <Button
@@ -528,16 +577,18 @@ function NotificationInbox({ userId }: { userId: string }) {
                     data-next-page-control
                     aria-disabled={paginationBusy || undefined}
                     aria-busy={inbox.isFetchingNextPage}
-                    aria-label={nextPageFailed ? 'Retry loading more notifications' : undefined}
+                    aria-label={
+                      nextPageFailed ? translateUi('Retry loading more notifications') : undefined
+                    }
                     onClick={(e) => void loadMore(e.currentTarget)}
                   >
                     {inbox.isFetchingNextPage
                       ? nextPageFailed
-                        ? 'Retrying…'
-                        : 'Loading…'
+                        ? translateUi('Retrying…')
+                        : translateUi('Loading…')
                       : nextPageFailed
-                        ? 'Retry'
-                        : 'Load more'}
+                        ? translateUi('Retry')
+                        : translateUi('Load more')}
                   </Button>
                 </div>
               )}

@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,7 +18,9 @@ vi.mock('@/lib/api', () => ({
     createGroup: (...a: unknown[]) => createGroup(...a),
   },
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a.map(toastDisplay)) }),
+}));
 
 import { GroupsPage } from './groups';
 
@@ -29,7 +32,11 @@ afterEach(() => {
   toastMock.mockReset();
 });
 
-function renderPage(client: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
+function renderPage(
+  client: QueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>
       <MemoryRouter>{children}</MemoryRouter>
@@ -62,7 +69,7 @@ describe('GroupsPage', () => {
     renderPage();
 
     expect(await screen.findByText('Smoke Group')).toBeInTheDocument();
-expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
     // A group the user already belongs to offers both Messages and Manage.
     expect(screen.getByRole('button', { name: 'Messages' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Manage' })).toBeInTheDocument();
@@ -73,7 +80,9 @@ expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
   it('offers Join for a public group the user is not a member of', async () => {
     listGroups.mockResolvedValue({
       success: true,
-      data: [{ id: 'group-2', name: 'Open Group', memberCount: 4, isMember: false, isPrivate: false }],
+      data: [
+        { id: 'group-2', name: 'Open Group', memberCount: 4, isMember: false, isPrivate: false },
+      ],
     });
 
     renderPage();
@@ -92,17 +101,26 @@ expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
 
   it('shows a loading state without flashing the empty state while the list loads', async () => {
     let resolvePage!: (v: unknown) => void;
-    listGroups.mockImplementation(() => new Promise((resolve) => { resolvePage = resolve; }));
+    listGroups.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        })
+    );
 
     renderPage();
 
     // No premature "No groups found." while waiting for the first request.
     expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Create your first group' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Create your first group' })
+    ).not.toBeInTheDocument();
 
     resolvePage({
       success: true,
-      data: [{ id: 'group-1', name: 'Loaded Group', memberCount: 1, isMember: true, isPrivate: false }],
+      data: [
+        { id: 'group-1', name: 'Loaded Group', memberCount: 1, isMember: true, isPrivate: false },
+      ],
     });
     expect(await screen.findByText('Loaded Group')).toBeInTheDocument();
     expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
@@ -110,7 +128,13 @@ expect(screen.queryByText('No groups found.')).not.toBeInTheDocument();
 });
 
 describe('GroupsPage — join progression invalidation', () => {
-  const OPEN_GROUP = { id: 'group-2', name: 'Open Group', memberCount: 4, isMember: false, isPrivate: false };
+  const OPEN_GROUP = {
+    id: 'group-2',
+    name: 'Open Group',
+    memberCount: 4,
+    isMember: false,
+    isPrivate: false,
+  };
 
   it('invalidates progression caches on successful join, preserving the groups refresh', async () => {
     listGroups.mockResolvedValue({ success: true, data: [OPEN_GROUP] });
@@ -130,15 +154,21 @@ describe('GroupsPage — join progression invalidation', () => {
     // The Competitions hub's membership-filtered list must refresh too,
     // or a newly-joined group stays invisible there until an unrelated
     // refetch happens to occur.
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups-for-competitions'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['groups-for-competitions'] })
+    );
     // invalidateProgressionQueries effects.
     await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }))
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['achievements'] })
+      )
     );
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['wallet-transactions'] })
+    );
     expect(toastMock).toHaveBeenCalledWith({ title: 'Joined group' });
   });
 
@@ -155,19 +185,35 @@ describe('GroupsPage — join progression invalidation', () => {
 
     await waitFor(() => expect(joinGroup).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(toastMock).toHaveBeenCalledWith({ title: 'Error', description: 'boom', variant: 'destructive' })
+      expect(toastMock).toHaveBeenCalledWith({
+        title: 'Error',
+        description: 'boom',
+        variant: 'destructive',
+      })
     );
 
     // Neither the groups refresh nor any progression surface is invalidated.
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }));
     expect(invalidateSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: ['groups-for-competitions'] }),
+      expect.objectContaining({ queryKey: ['groups'] })
     );
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['achievements'] }));
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['progress'] }));
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['tasks'] }));
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-    expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['groups-for-competitions'] })
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['achievements'] })
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['progress'] })
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['tasks'] })
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['wallet'] })
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['wallet-transactions'] })
+    );
   });
 });
 
@@ -190,7 +236,16 @@ describe('GroupsPage — self-service group creation', () => {
     listGroups.mockImplementation(async () => ({
       success: true,
       data: created
-        ? [{ id: 'group-new', name: 'Book Club', memberCount: 1, isMember: true, isPrivate: false, memberRole: 'OWNER' }]
+        ? [
+            {
+              id: 'group-new',
+              name: 'Book Club',
+              memberCount: 1,
+              isMember: true,
+              isPrivate: false,
+              memberRole: 'OWNER',
+            },
+          ]
         : [],
     }));
     createGroup.mockImplementation(async () => {
@@ -209,12 +264,18 @@ describe('GroupsPage — self-service group creation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
 
     await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
-    expect(createGroup).toHaveBeenCalledWith({ name: 'Book Club', description: undefined, isPrivate: false });
+    expect(createGroup).toHaveBeenCalledWith({
+      name: 'Book Club',
+      description: undefined,
+      isPrivate: false,
+    });
 
     await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] })),
+      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups'] }))
     );
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['groups-for-competitions'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['groups-for-competitions'] })
+    );
     expect(toastMock).toHaveBeenCalledWith({ title: 'Group created' });
 
     // Form reset/closed.
@@ -226,7 +287,10 @@ describe('GroupsPage — self-service group creation', () => {
 
   it('submits an optional description and a private flag', async () => {
     listGroups.mockResolvedValue({ success: true, data: [] });
-    createGroup.mockResolvedValue({ success: true, data: { id: 'group-new', name: 'Secret Club' } });
+    createGroup.mockResolvedValue({
+      success: true,
+      data: { id: 'group-new', name: 'Secret Club' },
+    });
 
     renderPage();
     await screen.findByText('No groups found.');
@@ -255,7 +319,9 @@ describe('GroupsPage — self-service group creation', () => {
     await userEvent.type(screen.getByLabelText('Name'), 'A');
     fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
 
-    expect(await screen.findByText('Group name must be between 2 and 100 characters.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Group name must be between 2 and 100 characters.')
+    ).toBeInTheDocument();
     expect(createGroup).not.toHaveBeenCalled();
   });
 
@@ -268,14 +334,16 @@ describe('GroupsPage — self-service group creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
 
-    expect(await screen.findByText('Group name must be between 2 and 100 characters.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Group name must be between 2 and 100 characters.')
+    ).toBeInTheDocument();
     expect(createGroup).not.toHaveBeenCalled();
   });
 
   it('displays the server error and keeps the form open with entered values on failure', async () => {
     listGroups.mockResolvedValue({ success: true, data: [] });
     createGroup.mockRejectedValue(
-      new Error(JSON.stringify({ status: 409, message: 'A group with this name already exists' })),
+      new Error(JSON.stringify({ status: 409, message: 'A group with this name already exists' }))
     );
 
     renderPage();
@@ -294,7 +362,10 @@ describe('GroupsPage — self-service group creation', () => {
     listGroups.mockResolvedValue({ success: true, data: [] });
     let resolveCreate!: (value: { success: true; data: { id: string; name: string } }) => void;
     createGroup.mockImplementation(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        })
     );
 
     renderPage();
@@ -402,7 +473,10 @@ describe('GroupsPage — self-service group creation', () => {
 
   it('restores focus to the toggle after a successful group creation', async () => {
     listGroups.mockResolvedValue({ success: true, data: [] });
-    createGroup.mockResolvedValue({ success: true, data: { id: 'group-new', name: 'Focus Group' } });
+    createGroup.mockResolvedValue({
+      success: true,
+      data: { id: 'group-new', name: 'Focus Group' },
+    });
 
     renderPage();
 

@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { MutationObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -29,7 +30,10 @@ vi.mock('@/lib/api', () => ({
 
 import { api } from '@/lib/api';
 
-const mocked = api as unknown as Record<'listBannedMembers' | 'unbanGroupMember', ReturnType<typeof vi.fn>>;
+const mocked = api as unknown as Record<
+  'listBannedMembers' | 'unbanGroupMember',
+  ReturnType<typeof vi.fn>
+>;
 
 const person = (id: string, name: string): GroupBannedMemberInfo => ({
   id: `m-${id}`,
@@ -45,7 +49,14 @@ const ROWS: Record<string, GroupBannedMemberInfo[]> = {
   'g-b': [SHARED, person('u-b4', 'Banned 4')],
 };
 
-const meta = (total: number) => ({ total, page: 1, limit: 20, totalPages: 1, hasNextPage: false, hasPrevPage: false });
+const meta = (total: number) => ({
+  total,
+  page: 1,
+  limit: 20,
+  totalPages: 1,
+  hasNextPage: false,
+  hasPrevPage: false,
+});
 
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
@@ -58,7 +69,9 @@ function deferred<T = unknown>() {
 }
 
 const idsIn = (data: unknown): string[] =>
-  ((data as BannedMembersInbox | undefined)?.pages ?? []).flatMap((p) => p.members.map((m) => m.user.id));
+  ((data as BannedMembersInbox | undefined)?.pages ?? []).flatMap((p) =>
+    p.members.map((m) => m.user.id)
+  );
 
 let client: QueryClient;
 const toast = vi.fn();
@@ -67,7 +80,11 @@ const tree = (groupId: string, groupName: string) => (
   <QueryClientProvider client={client}>
     {/* Somewhere for the user's focus to live that is not the section itself. */}
     <button type="button">outside</button>
-    <BannedMembersSection groupId={groupId} groupName={groupName} toast={toast} />
+    <BannedMembersSection
+      groupId={groupId}
+      groupName={groupName}
+      toast={(payload) => toast(toastDisplay(payload))}
+    />
   </QueryClientProvider>
 );
 const outside = () => screen.getByRole('button', { name: 'outside' });
@@ -107,7 +124,10 @@ async function openInAThenSwitchToB() {
 describe('an instance handed another group still acts on the group the confirmation was opened for', () => {
   it('the request goes to A — never to the live groupId', async () => {
     await openInAThenSwitchToB();
-    mocked.unbanGroupMember.mockResolvedValue({ success: true, data: { message: 'Member unbanned' } });
+    mocked.unbanGroupMember.mockResolvedValue({
+      success: true,
+      data: { message: 'Member unbanned' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm unban' }));
 
@@ -118,7 +138,7 @@ describe('an instance handed another group still acts on the group the confirmat
     await waitFor(() => expect(toast).toHaveBeenCalled());
   });
 
-  it('success: only A\'s cache changes, only A\'s keys are invalidated, and the toast names A', async () => {
+  it("success: only A's cache changes, only A's keys are invalidated, and the toast names A", async () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     await openInAThenSwitchToB();
     const aBefore = idsIn(client.getQueryData(bannedMembersQueryKey('g-a')));
@@ -129,14 +149,18 @@ describe('an instance handed another group still acts on the group the confirmat
     await waitFor(() => expect(mocked.unbanGroupMember).toHaveBeenCalledTimes(1));
     outside().focus();
     const invalidationsBefore = invalidate.mock.calls.length;
-    const listCallsBefore = mocked.listBannedMembers.mock.calls.filter((c: unknown[]) => c[0] === 'g-b').length;
+    const listCallsBefore = mocked.listBannedMembers.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'g-b'
+    ).length;
 
     request.resolve({ success: true, data: { message: 'Member unbanned' } });
     await waitFor(() => expect(toast).toHaveBeenCalled());
 
     // A: the user is gone from A's cache (the patch), and A's keys are marked stale.
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-a')))).toEqual(['u-a1', 'u-a3']);
-    const keys = invalidate.mock.calls.slice(invalidationsBefore).map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    const keys = invalidate.mock.calls
+      .slice(invalidationsBefore)
+      .map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     for (const key of [
       ['group-banned-members', 'g-a'],
       ['group', 'g-a'],
@@ -148,18 +172,21 @@ describe('an instance handed another group still acts on the group the confirmat
     // B: untouched — its cache, its keys, and no refetch caused by A's answer.
     expect(keys.filter((k) => k.includes('g-b'))).toEqual([]);
     expect(idsIn(client.getQueryData(bannedMembersQueryKey('g-b')))).toEqual(['u-shared', 'u-b4']);
-    expect(mocked.listBannedMembers.mock.calls.filter((c: unknown[]) => c[0] === 'g-b').length).toBe(listCallsBefore);
+    expect(
+      mocked.listBannedMembers.mock.calls.filter((c: unknown[]) => c[0] === 'g-b').length
+    ).toBe(listCallsBefore);
     // The toast says WHICH group, so it cannot be read as being about the one on screen.
     expect(toast).toHaveBeenCalledWith({
       title: 'Member unbanned',
-      description: 'Banned 2 was unbanned from Group A. They may request to join again or receive a new invitation.',
+      description:
+        'Banned 2 was unbanned from Group A. They may request to join again or receive a new invitation.',
     });
     expect(JSON.stringify(toast.mock.calls)).not.toContain('Group B');
     // The user is looking at B: an answer for A does not move focus to a heading of B's list.
     expect(outside()).toHaveFocus();
   });
 
-  it('failure: only A\'s list is reconciled, B is left alone, and the toast names A', async () => {
+  it("failure: only A's list is reconciled, B is left alone, and the toast names A", async () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     await openInAThenSwitchToB();
     const request = deferred();
@@ -169,10 +196,14 @@ describe('an instance handed another group still acts on the group the confirmat
     outside().focus();
     const invalidationsBefore = invalidate.mock.calls.length;
 
-    request.reject(new Error(JSON.stringify({ status: 409, message: 'This member is not banned' })));
+    request.reject(
+      new Error(JSON.stringify({ status: 409, message: 'This member is not banned' }))
+    );
     await waitFor(() => expect(toast).toHaveBeenCalled());
 
-    const keys = invalidate.mock.calls.slice(invalidationsBefore).map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    const keys = invalidate.mock.calls
+      .slice(invalidationsBefore)
+      .map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
     expect(keys).toContain(JSON.stringify(['group-banned-members', 'g-a']));
     expect(keys.filter((k) => k.includes('g-b'))).toEqual([]);
     // A's cache is NOT patched by a failure; B's is untouched.
@@ -196,7 +227,11 @@ describe('an instance handed another group still acts on the group the confirmat
     // The same unban, started on an earlier visit by an instance that no longer
     // exists: the mutation cache knows about it, this instance does not.
     const earlier = deferred();
-    void new MutationObserver<unknown, Error, { groupId: string; groupName: string; targetId: string; name: string }>(client, {
+    void new MutationObserver<
+      unknown,
+      Error,
+      { groupId: string; groupName: string; targetId: string; name: string }
+    >(client, {
       mutationKey: groupActionKey('unban'),
       mutationFn: () => earlier.promise,
     }).mutate({ groupId: 'g-a', groupName: 'Group A', targetId: 'u-shared', name: 'Banned 2' });
@@ -215,26 +250,44 @@ describe('an instance handed another group still acts on the group the confirmat
     render(tree('g-a', 'Group A'));
     await screen.findByText('Banned 1');
     const earlier = deferred();
-    void new MutationObserver<unknown, Error, { groupId: string; groupName: string; targetId: string; name: string }>(client, {
+    void new MutationObserver<
+      unknown,
+      Error,
+      { groupId: string; groupName: string; targetId: string; name: string }
+    >(client, {
       mutationKey: groupActionKey('unban'),
       mutationFn: () => earlier.promise,
     }).mutate({ groupId: 'g-a', groupName: 'Group A', targetId: 'u-shared', name: 'Banned 2' });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Unban Banned 2' })).toHaveAttribute('aria-disabled', 'true'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Unban Banned 2' })).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      )
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Unban Banned 2' }));
     expect(screen.queryByRole('group', { name: /^Unban / })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Unban Banned 1' })).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('button', { name: 'Unban Banned 1' })).not.toHaveAttribute(
+      'aria-disabled'
+    );
     // The same member in ANOTHER group is a different action: not blocked.
     earlier.resolve(undefined);
     await waitFor(() => expect(client.isMutating()).toBe(0));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Unban Banned 2' })).not.toHaveAttribute('aria-disabled'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Unban Banned 2' })).not.toHaveAttribute(
+        'aria-disabled'
+      )
+    );
   });
 
   it('the confirmation names the person it was opened for and stays that way when the list beneath it changes', async () => {
     await openInAThenSwitchToB();
     // The row is on screen in B too — same person — but the target is what was captured.
     expect(screen.getByRole('group', { name: 'Unban Banned 2?' })).toBeInTheDocument();
-    mocked.unbanGroupMember.mockResolvedValue({ success: true, data: { message: 'Member unbanned' } });
+    mocked.unbanGroupMember.mockResolvedValue({
+      success: true,
+      data: { message: 'Member unbanned' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm unban' }));
     await waitFor(() => expect(toast).toHaveBeenCalled());
   });

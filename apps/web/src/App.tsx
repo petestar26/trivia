@@ -55,6 +55,8 @@ import { GroupDetailPage } from '@/pages/group-detail';
 import { GroupInviteAcceptPage } from '@/pages/group-invite-accept';
 import { MessagesPage } from '@/pages/messages';
 import { GroupGamesPage } from '@/pages/group-games';
+import { PlayTogetherPage } from '@/pages/play-together';
+import { GroupPlayControlPage } from '@/pages/workspaces/group-play-control';
 import { GroupGiftsPage } from '@/pages/group-gifts';
 import { MemberRewardsPage } from '@/pages/member-rewards';
 import { RewardControlPage } from '@/pages/workspaces/reward-control';
@@ -63,6 +65,7 @@ import { ProfilePage } from '@/pages/profile';
 import { PasswordResetPage } from '@/pages/password-reset';
 import { AdminAgents } from '@/pages/workspaces/agents';
 import { AdminAccountDetail } from '@/pages/workspaces/account-detail';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 // Keep pairing-verification code out of the normal casino entry bundle.
 const SpinWinVerifyPage = lazy(async () => {
@@ -71,6 +74,8 @@ const SpinWinVerifyPage = lazy(async () => {
 });
 
 export function App() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { isLoading } = useAuth();
   const location = useLocation();
 
@@ -99,7 +104,7 @@ export function App() {
           <Suspense
             fallback={
               <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
-                Loading round verifier…
+                {translateUi('Loading round verifier…')}
               </main>
             }
           >
@@ -122,6 +127,7 @@ export function App() {
         <Route index element={<AdminOverview />} />
         <Route path="support" element={<SupportPage admin />} />
         <Route path="rewards" element={<RewardControlPage />} />
+        <Route path="group-play" element={<GroupPlayControlPage />} />
         <Route path="payments" element={<WalletSetupAdmin />} />
         <Route path="agents/new" element={<CreateAgentPage />} />
         <Route path="agents" element={<AdminAgents />} />
@@ -166,7 +172,10 @@ export function App() {
         <Route path="groups/:id" element={<GroupDetailPage />} />
         <Route path="messages" element={<MessagesPage />} />
         <Route path="messages/:groupId" element={<MessagesPage />} />
-        <Route path="groups/:id/games" element={<GroupGamesPage />} />
+        <Route path="groups/:id/games" element={<PlayTogetherPage />} />
+        <Route path="groups/:id/games/legacy" element={<GroupGamesPage />} />
+        <Route path="play-together" element={<PlayTogetherPage />} />
+        <Route path="play-together/rounds/:roundId" element={<PlayTogetherPage />} />
         <Route path="groups/:id/gifts" element={<GroupGiftsPage />} />
         <Route path="gifts" element={<GroupGiftsPage />} />
         <Route path="wallet/operations" element={<WorkspaceDestination />} />
@@ -174,7 +183,8 @@ export function App() {
         <Route path="rewards" element={<MemberRewardsPage />} />
         <Route path="support" element={<SupportPage />} />
         <Route path="profile" element={<ProfilePage />} />
-        <Route path="games" element={<GamesPage />} />
+        <Route path="games" element={<PlayTogetherPage />} />
+        <Route path="games/practice" element={<GamesPage />} />
         <Route path="casino" element={<CasinoPage />} />
         <Route path="sports" element={<SportsPage />} />
         <Route path="sports/open" element={<SportsLaunchPage />} />

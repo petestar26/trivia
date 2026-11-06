@@ -13,6 +13,7 @@ vi.mock('@/lib/api', async () => ({
 }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: f.user }) }));
 import { SportsPage } from './sports';
+import { LanguageProvider, type Language } from '@/providers/language-provider';
 const baseline = {
   balanceMinor: 0,
   rewardBalanceMinor: 100000,
@@ -23,7 +24,10 @@ const baseline = {
   canBet: false,
   reason: 'not-live',
 };
-function mount(patch = {}) {
+function mount(patch = {}, language: Language = 'en') {
+  vi.mocked(localStorage.getItem).mockImplementation((key) =>
+    key === 'salem-language' ? language : null
+  );
   f.get.mockImplementation(async (path: string) => ({
     success: true,
     data: path.endsWith('/status') ? { ...baseline, ...patch } : [],
@@ -32,9 +36,11 @@ function mount(patch = {}) {
   return {
     ...render(
       <QueryClientProvider client={client}>
-        <MemoryRouter>
-          <SportsPage />
-        </MemoryRouter>
+        <LanguageProvider>
+          <MemoryRouter>
+            <SportsPage />
+          </MemoryRouter>
+        </LanguageProvider>
       </QueryClientProvider>
     ),
     client,
@@ -47,7 +53,7 @@ afterEach(() => {
 });
 it('shows zero real Birr without adding practice or reward money', async () => {
   mount();
-  expect(await screen.findByText('0.00 ETB')).toBeInTheDocument();
+  expect(await screen.findByText('ETB 0.00')).toBeInTheDocument();
   expect(screen.getByText(/Betting opens when real-money play/)).toBeInTheDocument();
   expect(screen.queryByText(/1,000.00/)).toBeNull();
   expect(screen.getByRole('link', { name: /Open wallet/ })).toHaveAttribute('href', '/wallet');
@@ -65,7 +71,7 @@ it('opens a protected launch page in a separate tab without embedding the provid
 });
 it('shows the funded balance and betting readiness only from the server', async () => {
   mount({ balanceMinor: 12345, liveEnabled: true, canBet: true, reason: null });
-  expect(await screen.findByText('123.45 ETB')).toBeInTheDocument();
+  expect(await screen.findByText('ETB 123.45')).toBeInTheDocument();
   expect(screen.getByText(/Each bet is checked/)).toBeInTheDocument();
 });
 it('keeps an empty wallet browseable after live launch but explains funding', async () => {
@@ -75,7 +81,7 @@ it('keeps an empty wallet browseable after live launch but explains funding', as
 });
 it('does not present a failed balance read as zero or leave a launch link', async () => {
   mount();
-  await screen.findByText('0.00 ETB');
+  await screen.findByText('ETB 0.00');
   f.get.mockRejectedValue(Error('offline'));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh sports balance' }));
   expect(await screen.findByText('Unavailable')).toBeInTheDocument();
@@ -90,7 +96,7 @@ it('does not open sessions before provider configuration is ready', async () => 
 });
 it('removes the old balance and launch link when the signed-in account changes', async () => {
   const view = mount({ balanceMinor: 12345 });
-  await screen.findByText('123.45 ETB');
+  await screen.findByText('ETB 123.45');
   f.get.mockImplementation(() => new Promise(() => {}));
   f.user = { id: 'different-member' };
   view.rerender(
@@ -100,6 +106,19 @@ it('removes the old balance and launch link when the signed-in account changes',
       </MemoryRouter>
     </QueryClientProvider>
   );
-  expect(screen.queryByText('123.45 ETB')).toBeNull();
+  expect(screen.queryByText('ETB 123.45')).toBeNull();
   expect(screen.queryByRole('link', { name: 'Browse sports' })).toBeNull();
 });
+
+it.each([
+  { language: 'fr' as const, amount: /123,45\sETB/ },
+  { language: 'ar' as const, amount: /١٢٣٫٤٥\sETB/ },
+])(
+  'localizes the exact real balance in $language without spending or adding bonus credits',
+  async ({ language, amount }) => {
+    mount({ balanceMinor: 12345, liveEnabled: true, canBet: true, reason: null }, language);
+    expect(await screen.findByText(amount)).toBeVisible();
+    expect(screen.queryByText(/1[,. ]?000|١٬٠٠٠/)).toBeNull();
+    expect(f.post).not.toHaveBeenCalled();
+  }
+);

@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 /**
  * GroupCompetitionsPage — /competitions/:groupId
  *
@@ -15,6 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /** Minimal shape this form needs from `GET /games` (already filtered to active games server-side). */
 interface ActiveGame {
@@ -131,7 +133,9 @@ interface MembershipQuerySnapshot {
  *    cached data.
  *  - `isMember === true` and the role is exactly OWNER or ADMIN.
  */
-export function isMembershipSnapshotAuthorized(snapshot: MembershipQuerySnapshot | undefined | null): boolean {
+export function isMembershipSnapshotAuthorized(
+  snapshot: MembershipQuerySnapshot | undefined | null
+): boolean {
   if (!snapshot) return false;
   if (snapshot.status !== 'success') return false;
   if (snapshot.fetchStatus !== 'idle') return false;
@@ -182,6 +186,8 @@ const MAX_TIMER_DELAY = 2_147_483_647;
 const MAX_TIMER_SLICE = MAX_TIMER_DELAY - BOUNDARY_GRACE_MS;
 
 export function GroupCompetitionsPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -314,7 +320,10 @@ export function GroupCompetitionsPage() {
   }
 
   /** Associates the shared form-error alert with the field(s) it describes. */
-  function fieldErrorProps(fieldId: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+  function fieldErrorProps(fieldId: string): {
+    'aria-invalid'?: true;
+    'aria-describedby'?: string;
+  } {
     if (!formError || !formErrorFields.includes(fieldId)) return {};
     return { 'aria-invalid': true, 'aria-describedby': 'create-competition-error' };
   }
@@ -334,16 +343,21 @@ export function GroupCompetitionsPage() {
    */
   function isMembershipAuthorized(): boolean {
     return isMembershipSnapshotAuthorized(
-      queryClient.getQueryState<MembershipData>(['group', groupId]),
+      queryClient.getQueryState<MembershipData>(['group', groupId])
     );
   }
 
   function buildCreatePayload(): CreateFormResult {
     if (!gameKey) return { ok: false, error: 'Choose a game.', fields: ['new-comp-game'] };
     const trimmedTitle = title.trim();
-    if (!trimmedTitle) return { ok: false, error: 'Title is required.', fields: ['new-comp-title'] };
+    if (!trimmedTitle)
+      return { ok: false, error: 'Title is required.', fields: ['new-comp-title'] };
     if (!startsAtLocal || !endsAtLocal) {
-      return { ok: false, error: 'Start and end time are required.', fields: ['new-comp-starts', 'new-comp-ends'] };
+      return {
+        ok: false,
+        error: 'Start and end time are required.',
+        fields: ['new-comp-starts', 'new-comp-ends'],
+      };
     }
 
     // datetime-local values are interpreted in the browser's local time
@@ -360,7 +374,11 @@ export function GroupCompetitionsPage() {
       return { ok: false, error: 'Choose a valid local end time.', fields: ['new-comp-ends'] };
     }
     if (endsAtDate <= startsAtDate) {
-      return { ok: false, error: 'End time must be after start time.', fields: ['new-comp-starts', 'new-comp-ends'] };
+      return {
+        ok: false,
+        error: 'End time must be after start time.',
+        fields: ['new-comp-starts', 'new-comp-ends'],
+      };
     }
 
     const entryResult = parseBoundedNonNegativeInt(entryAmount, MAX_ENTRY_AMOUNT);
@@ -451,7 +469,9 @@ export function GroupCompetitionsPage() {
       const state = queryClient.getQueryState<MembershipData>(['group', variables.groupId]);
       if (!isMembershipSnapshotAuthorized(state)) {
         throw new Error(
-          JSON.stringify({ message: 'You no longer have permission to create competitions in this group.' }),
+          JSON.stringify({
+            message: 'You no longer have permission to create competitions in this group.',
+          })
         );
       }
       return api.createCompetition({ ...variables.payload, groupId: variables.groupId });
@@ -476,16 +496,22 @@ export function GroupCompetitionsPage() {
         // rendered as a persistent on-page banner, not a toast, so the user
         // can read it after the form closes.
         resetCreateForm();
-        setMissingIdWarning("We couldn't confirm the competition was created. Check the competition list before trying again.");
+        setMissingIdWarning(
+          "We couldn't confirm the competition was created. Check the competition list before trying again."
+        );
         return;
       }
-      toast({ title: 'Competition created' });
+      toast({ title: <LocalizedText message="Competition created" /> });
       resetCreateForm();
       navigate(`/competitions/${groupId}/${created.id}`);
     },
     onError: (err) => {
       let msg = 'Failed to create competition';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
       setFormError(msg);
       setFormErrorFields([]);
     },
@@ -507,7 +533,11 @@ export function GroupCompetitionsPage() {
     createMutation.mutate({ groupId: groupId!, payload: result.payload });
   }
 
-  const { data: competitions = [], isLoading, isError } = useQuery<Competition[]>({
+  const {
+    data: competitions = [],
+    isLoading,
+    isError,
+  } = useQuery<Competition[]>({
     queryKey: ['competitions', groupId],
     queryFn: async () => {
       const res = await api.listCompetitionsForGroup(groupId!);
@@ -538,7 +568,8 @@ export function GroupCompetitionsPage() {
       const end = new Date(comp.endsAt).getTime();
       const now = Date.now();
       // Terminal phases are persisted/server-authoritative and need no timer.
-      if (comp.phase === 'COMPLETED' || comp.phase === 'CANCELLED' || comp.phase === 'ENDED') return acc;
+      if (comp.phase === 'COMPLETED' || comp.phase === 'CANCELLED' || comp.phase === 'ENDED')
+        return acc;
       const boundary = now < start ? start : now <= end ? end : null;
       if (boundary === null) return acc;
       return Math.min(acc ?? Infinity, boundary);
@@ -583,13 +614,18 @@ export function GroupCompetitionsPage() {
     return (
       <div className="max-w-2xl mx-auto p-4 space-y-4">
         {missingIdWarning && (
-          <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+          <div
+            role="alert"
+            className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+          >
             {missingIdWarning}
           </div>
         )}
         <Card>
           <CardContent className="py-8 text-center text-gray-500 dark:text-gray-400">
-            Could not load competitions — you may not be an active member of this group.
+            {translateUi(
+              'Could not load competitions — you may not be an active member of this group.'
+            )}
           </CardContent>
         </Card>
       </div>
@@ -601,9 +637,11 @@ export function GroupCompetitionsPage() {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/competitions')}>
-            ← Groups
+            {translateUi('← Groups')}
           </Button>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {translateUi('Competitions')}
+          </h1>
         </div>
         {/* OWNER/ADMIN only — display-only gate; the backend re-validates on submit.
             Stays mounted (hidden, not unmounted) while the form is open: the
@@ -626,15 +664,21 @@ export function GroupCompetitionsPage() {
             size="sm"
             aria-expanded={showCreateForm}
             aria-controls="create-competition-form"
-            onClick={() => { setMissingIdWarning(null); setShowCreateForm(true); }}
+            onClick={() => {
+              setMissingIdWarning(null);
+              setShowCreateForm(true);
+            }}
           >
-            Create competition
+            {translateUi('Create competition')}
           </Button>
         )}
       </div>
 
       {missingIdWarning && (
-        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+        <div
+          role="alert"
+          className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+        >
           {missingIdWarning}
         </div>
       )}
@@ -650,12 +694,15 @@ export function GroupCompetitionsPage() {
               id="create-competition-form"
               onSubmit={handleCreateSubmit}
               className="space-y-3"
-              aria-label="Create competition"
+              aria-label={translateUi('Create competition')}
               noValidate
             >
               <div>
-                <label htmlFor="new-comp-game" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Game
+                <label
+                  htmlFor="new-comp-game"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                >
+                  {translateUi('Game')}
                 </label>
                 <select
                   id="new-comp-game"
@@ -666,18 +713,22 @@ export function GroupCompetitionsPage() {
                   className={inputClass}
                   {...fieldErrorProps('new-comp-game')}
                 >
-                  <option value="">Select a game…</option>
+                  <option value="">{translateUi('Select a game…')}</option>
                   {games.map((g) => (
-                    <option key={g.key} value={g.key}>{g.name}</option>
+                    <option key={g.key} value={g.key}>
+                      {g.name}
+                    </option>
                   ))}
                 </select>
                 {gamesLoading && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Loading games…</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {translateUi('Loading games…')}
+                  </p>
                 )}
                 {!gamesLoading && gamesFailed && (
                   <div className="flex items-center gap-2 mt-1">
                     <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-                      Could not load games.
+                      {translateUi('Could not load games.')}
                     </p>
                     <Button
                       ref={retryButtonRef}
@@ -689,33 +740,42 @@ export function GroupCompetitionsPage() {
                         refetchGames();
                       }}
                     >
-                      Retry
+                      {translateUi('Retry')}
                     </Button>
                   </div>
                 )}
                 {!gamesLoading && !gamesFailed && games.length === 0 && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">No active games are available.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {translateUi('No active games are available.')}
+                  </p>
                 )}
               </div>
 
               <div>
-                <label htmlFor="new-comp-title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Title
+                <label
+                  htmlFor="new-comp-title"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                >
+                  {translateUi('Title')}
                 </label>
                 <Input
                   id="new-comp-title"
                   ref={titleRef}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Competition title"
+                  placeholder={translateUi('Competition title')}
                   disabled={createMutation.isPending}
                   {...fieldErrorProps('new-comp-title')}
                 />
               </div>
 
               <div>
-                <label htmlFor="new-comp-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Description <span className="text-gray-400 font-normal">(optional)</span>
+                <label
+                  htmlFor="new-comp-description"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                >
+                  {translateUi('Description') + ' '}
+                  <span className="text-gray-400 font-normal">{translateUi('(optional)')}</span>
                 </label>
                 <textarea
                   id="new-comp-description"
@@ -729,8 +789,11 @@ export function GroupCompetitionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="new-comp-starts" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Starts
+                  <label
+                    htmlFor="new-comp-starts"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Starts')}
                   </label>
                   <Input
                     id="new-comp-starts"
@@ -742,8 +805,11 @@ export function GroupCompetitionsPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="new-comp-ends" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Ends
+                  <label
+                    htmlFor="new-comp-ends"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Ends')}
                   </label>
                   <Input
                     id="new-comp-ends"
@@ -758,8 +824,11 @@ export function GroupCompetitionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="new-comp-entry" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Entry amount (GP)
+                  <label
+                    htmlFor="new-comp-entry"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Entry amount (GP)')}
                   </label>
                   <Input
                     id="new-comp-entry"
@@ -773,8 +842,12 @@ export function GroupCompetitionsPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="new-comp-max" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Max participants <span className="text-gray-400 font-normal">(optional)</span>
+                  <label
+                    htmlFor="new-comp-max"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Max participants') + ' '}
+                    <span className="text-gray-400 font-normal">{translateUi('(optional)')}</span>
                   </label>
                   {/* type="text" + inputMode="numeric" (not type="number") so a
                       malformed value like "2e" or "-" arrives in onChange as the
@@ -788,7 +861,7 @@ export function GroupCompetitionsPage() {
                     autoComplete="off"
                     value={maxParticipants}
                     onChange={(e) => setMaxParticipants(e.target.value)}
-                    placeholder="Unlimited"
+                    placeholder={translateUi('Unlimited')}
                     disabled={createMutation.isPending}
                     {...fieldErrorProps('new-comp-max')}
                   />
@@ -797,8 +870,11 @@ export function GroupCompetitionsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="new-comp-reward-gp" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Winner reward (GP)
+                  <label
+                    htmlFor="new-comp-reward-gp"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Winner reward (GP)')}
                   </label>
                   <Input
                     id="new-comp-reward-gp"
@@ -812,8 +888,11 @@ export function GroupCompetitionsPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="new-comp-reward-coins" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Winner reward (Coins)
+                  <label
+                    htmlFor="new-comp-reward-coins"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    {translateUi('Winner reward (Coins)')}
                   </label>
                   <Input
                     id="new-comp-reward-coins"
@@ -828,12 +907,18 @@ export function GroupCompetitionsPage() {
                 </div>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Rewards are deducted from your balance as soon as the competition is created, whether or not anyone joins.
+                {translateUi(
+                  'Rewards are deducted from your balance as soon as the competition is created, whether or not anyone joins.'
+                )}
               </p>
 
               {formError && (
-                <p id="create-competition-error" role="alert" className="text-sm text-red-600 dark:text-red-400">
-                  {formError}
+                <p
+                  id="create-competition-error"
+                  role="alert"
+                  className="text-sm text-red-600 dark:text-red-400"
+                >
+                  {translateUi(formError)}
                 </p>
               )}
 
@@ -843,11 +928,23 @@ export function GroupCompetitionsPage() {
                     the normal required-field check already blocks submission,
                     without a transient disable flicker while the catalog fetch
                     is still in flight. */}
-                <Button type="submit" size="sm" disabled={createMutation.isPending || gamesUnavailable}>
-                  {createMutation.isPending ? 'Creating…' : 'Create competition'}
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={createMutation.isPending || gamesUnavailable}
+                >
+                  {createMutation.isPending
+                    ? translateUi('Creating…')
+                    : translateUi('Create competition')}
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={resetCreateForm} disabled={createMutation.isPending}>
-                  Cancel
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={resetCreateForm}
+                  disabled={createMutation.isPending}
+                >
+                  {translateUi('Cancel')}
                 </Button>
               </div>
             </form>
@@ -857,7 +954,7 @@ export function GroupCompetitionsPage() {
 
       {competitions.length === 0 ? (
         <div className="py-16 text-center text-gray-500 dark:text-gray-400">
-          No competitions in this group yet.
+          {translateUi('No competitions in this group yet.')}
         </div>
       ) : (
         <div className="grid gap-3">
@@ -879,11 +976,13 @@ export function GroupCompetitionsPage() {
                     <div className="flex items-center gap-2">
                       {comp.isFull && (
                         <span className="text-xs font-semibold whitespace-nowrap text-orange-600 dark:text-orange-400">
-                          Full
+                          {translateUi('Full')}
                         </span>
                       )}
-                      <span className={`text-xs font-semibold whitespace-nowrap ${PHASE_COLOR[phase] ?? ''}`}>
-                        {PHASE_LABEL[phase] ?? phase}
+                      <span
+                        className={`text-xs font-semibold whitespace-nowrap ${PHASE_COLOR[phase] ?? ''}`}
+                      >
+                        {translateUi(PHASE_LABEL[phase] ?? phase)}
                       </span>
                     </div>
                   </div>
@@ -894,39 +993,56 @@ export function GroupCompetitionsPage() {
 
                 <CardContent className="space-y-2">
                   <div className="flex flex-wrap gap-3 text-sm text-gray-600 dark:text-gray-400">
-                    <span>Game: <strong>{gameName}</strong></span>
-                    <span>Entry: <strong>{comp.entryAmount > 0 ? `${comp.entryAmount} GP` : 'Free'}</strong></span>
+                    <span>
+                      {translateUi('Game:') + ' '}
+                      <strong>{gameName}</strong>
+                    </span>
+                    <span>
+                      {translateUi('Entry:') + ' '}
+                      <strong>
+                        {comp.entryAmount > 0
+                          ? translateUi('{entryAmount} GP', { entryAmount: comp.entryAmount })
+                          : translateUi('Free')}
+                      </strong>
+                    </span>
                     {comp.maxParticipants && (
-                      <span>Max: <strong>{comp.maxParticipants} players</strong></span>
+                      <span>
+                        {translateUi('Max:') + ' '}
+                        <strong>
+                          {translateUi('{maxParticipants} players', {
+                            maxParticipants: comp.maxParticipants,
+                          })}
+                        </strong>
+                      </span>
                     )}
                   </div>
 
                   {(comp.rewardGamePoints > 0 || comp.rewardCoins > 0) && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      Winner:{' '}
-                      {[
-                        comp.rewardGamePoints > 0 ? `${comp.rewardGamePoints} GP` : null,
-                        comp.rewardCoins > 0 ? `${comp.rewardCoins} Coins` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' + ')}
+                      {translateUi('Winner: {value}', {
+                        value: [
+                          comp.rewardGamePoints > 0 ? `${comp.rewardGamePoints} GP` : null,
+                          comp.rewardCoins > 0 ? `${comp.rewardCoins} Coins` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' + '),
+                      })}
                     </p>
                   )}
 
                   <div className="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <span>
-                      {started ? 'Started' : 'Starts'}: {new Date(comp.startsAt).toLocaleDateString()}
+                      {started ? translateUi('Started') : translateUi('Starts')}:{' '}
+                      {new Date(comp.startsAt).toLocaleDateString(interfaceLocale)}
                     </span>
                     <span>
-                      {ended ? 'Ended' : 'Ends'}: {new Date(comp.endsAt).toLocaleDateString()}
+                      {ended ? translateUi('Ended') : translateUi('Ends')}:{' '}
+                      {new Date(comp.endsAt).toLocaleDateString(interfaceLocale)}
                     </span>
                   </div>
 
-                  <Button
-                    size="sm"
-                    onClick={() => navigate(`/competitions/${groupId}/${comp.id}`)}
-                  >
-                    {actionLabel}
+                  <Button size="sm" onClick={() => navigate(`/competitions/${groupId}/${comp.id}`)}>
+                    {translateUi(actionLabel)}
                   </Button>
                 </CardContent>
               </Card>

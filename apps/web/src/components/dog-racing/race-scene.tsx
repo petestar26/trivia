@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { createGreyhound } from './greyhound';
 import { createTrack, trackPoint, TRACK_LENGTH } from './track';
 import { createRaceMotion } from '../derby/race-motion';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 export type DogCamera = 'trackside' | 'chase' | 'aerial';
 export default function DogRaceScene({
   round,
@@ -16,6 +18,8 @@ export default function DogRaceScene({
   reduced: boolean;
   cameraMode?: DogCamera;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const host = useRef<HTMLDivElement>(null),
     live = useRef({ round, running, reduced, cameraMode });
   live.current = { round, running, reduced, cameraMode };
@@ -213,13 +217,13 @@ export default function DogRaceScene({
       ref={host}
       className="hounds-scene"
       role="img"
-      aria-label="Animated greyhounds on the Salem oval racecourse"
+      aria-label={translateUi('Animated greyhounds on the Salem oval racecourse')}
     >
       {failed && (
         <div className="hounds-scene-fallback">
           <svg
             viewBox="-90 -45 180 90"
-            aria-label="Published runner positions on the oval track"
+            aria-label={translateUi('Published runner positions on the oval track')}
             role="img"
           >
             <rect x="-90" y="-45" width="180" height="90" fill="#263f30" />
@@ -237,7 +241,7 @@ export default function DogRaceScene({
             />
             <path d="M -48 17 V 29" stroke="#fff" strokeWidth="1" />
             <text x="0" y="1" textAnchor="middle" fill="#d6e2d3" fontSize="5" letterSpacing="1">
-              SALEM OVAL
+              {translateUi('SALEM OVAL')}
             </text>
             {RACING_DOGS.slice(0, round.field).map((dog, i) => {
               const p = trackPoint(
@@ -254,7 +258,7 @@ export default function DogRaceScene({
               );
             })}
           </svg>
-          <p role="status">Track view · 3D graphics unavailable on this device</p>
+          <p role="status">{translateUi('Track view · 3D graphics unavailable on this device')}</p>
         </div>
       )}
     </div>

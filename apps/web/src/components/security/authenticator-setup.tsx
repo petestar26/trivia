@@ -3,10 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { walletError } from '@/hooks/use-wallet-action';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type Enrollment = { secret: string; challenge: string; expiresAt: string };
 type Factors = { factors: { type: string; status: string }[] };
 export function AuthenticatorSetup() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -101,32 +104,37 @@ export function AuthenticatorSetup() {
       aria-labelledby="authenticator-title"
     >
       <h2 id="authenticator-title" className="text-xl font-semibold">
-        Authenticator security
+        {translateUi('Authenticator security')}
       </h2>
-      <p>Use a time-based authenticator app to confirm sensitive actions, including withdrawals.</p>
+      <p>
+        {translateUi(
+          'Use a time-based authenticator app to confirm sensitive actions, including withdrawals.'
+        )}
+      </p>
       {factors.isPending ? (
-        <p role="status">Checking authenticator…</p>
+        <p role="status">{translateUi('Checking authenticator…')}</p>
       ) : factors.isError ? (
         <p role="alert">
-          Could not check security settings.{' '}
-          <button onClick={() => factors.refetch()}>Retry</button>
+          {translateUi('Could not check security settings.')}{' '}
+          <button onClick={() => factors.refetch()}>{translateUi('Retry')}</button>
         </p>
       ) : enabled ? (
-        <p role="status">Authenticator enabled</p>
+        <p role="status">{translateUi('Authenticator enabled')}</p>
       ) : (
         <>
           {!enrollment ? (
             <button disabled={busy || factors.isFetching} onClick={() => run(false)}>
-              {busy ? 'Starting…' : 'Set up authenticator'}
+              {busy ? translateUi('Starting…') : translateUi('Set up authenticator')}
             </button>
           ) : (
             <>
               <p>
-                In your authenticator app, add an account with a setup key. Choose time-based, name
-                it Salem Bet, and enter this key. Keep it private.
+                {translateUi(
+                  'In your authenticator app, add an account with a setup key. Choose time-based, name it Salem Bet, and enter this key. Keep it private.'
+                )}
               </p>
               <label className="block">
-                Setup key
+                {translateUi('Setup key')}
                 <input
                   className="block w-full rounded border p-2 font-mono"
                   readOnly
@@ -135,9 +143,13 @@ export function AuthenticatorSetup() {
                   spellCheck={false}
                 />
               </label>
-              <p>Expires at {new Date(enrollment.expiresAt).toLocaleTimeString()}.</p>
+              <p>
+                {translateUi('Expires at {value}.', {
+                  value: new Date(enrollment.expiresAt).toLocaleTimeString(interfaceLocale),
+                })}
+              </p>
               <label className="block">
-                Six-digit authenticator code
+                {translateUi('Six-digit authenticator code')}
                 <input
                   className="block rounded border p-2"
                   value={code}
@@ -148,7 +160,7 @@ export function AuthenticatorSetup() {
                 />
               </label>
               <button disabled={busy || !/^\d{6}$/.test(code)} onClick={() => run(true)}>
-                Confirm authenticator
+                {translateUi('Confirm authenticator')}
               </button>{' '}
               <button
                 disabled={busy}
@@ -157,13 +169,13 @@ export function AuthenticatorSetup() {
                   setCode('');
                 }}
               >
-                Cancel setup
+                {translateUi('Cancel setup')}
               </button>
             </>
           )}
         </>
       )}
-      {message && <p role="status">{message}</p>}
+      {message && <p role="status">{translateUi(message)}</p>}
     </section>
   );
 }

@@ -73,8 +73,8 @@ function clearPending(storageKey: string): boolean {
   }
 }
 
-export const PLAY_STORAGE_UNAVAILABLE = 'Nothing was sent: this browser cannot keep this round safe across a reload. '
-  + 'Allow this site to store data (private browsing can block it), then try again.';
+export const PLAY_STORAGE_UNAVAILABLE =
+  'Nothing was sent: this browser cannot keep this round safe across a reload. Allow this site to store data (private browsing can block it), then try again.';
 
 /**
  * Whether a failed play is the server's conclusive refusal. A terminal 4xx
@@ -87,7 +87,13 @@ export function isConclusiveFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   try {
     const { status } = JSON.parse(error.message) as { status?: unknown };
-    return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429;
+    return (
+      typeof status === 'number' &&
+      status >= 400 &&
+      status < 500 &&
+      status !== 408 &&
+      status !== 429
+    );
   } catch {
     return false;
   }
@@ -124,7 +130,7 @@ export interface DurablePlayOptions {
 export function useDurablePlay<T extends GamePlayResult>(
   gameKey: string,
   handlers: DurablePlayHandlers<T> = {},
-  options: DurablePlayOptions = {},
+  options: DurablePlayOptions = {}
 ) {
   const autoResume = options.autoResume ?? true;
   const { user } = useAuth();
@@ -202,37 +208,42 @@ export function useDurablePlay<T extends GamePlayResult>(
     if (unconfirmed && autoResume) mutateRef.current({ ...unconfirmed, storageKey });
   }, [storageKey, recall, autoResume]);
 
-  const play = useCallback((body: Record<string, unknown>) => {
-    if (!storageKey) return;
-    const stored = recall(storageKey);
-    if (!stored.ok) {
-      // Cannot tell whether an earlier round is unresolved: send nothing.
-      setStorageError(PLAY_STORAGE_UNAVAILABLE);
-      return;
-    }
-    if (stored.pending) {
+  const play = useCallback(
+    (body: Record<string, unknown>) => {
+      if (!storageKey) return;
+      const stored = recall(storageKey);
+      if (!stored.ok) {
+        // Cannot tell whether an earlier round is unresolved: send nothing.
+        setStorageError(PLAY_STORAGE_UNAVAILABLE);
+        return;
+      }
+      if (stored.pending) {
+        setStorageError(null);
+        setNeedsResume(false);
+        setPending(stored.pending);
+        mutateRef.current({ ...stored.pending, storageKey });
+        return;
+      }
+      const request: PendingPlay = { key: newIdempotencyKey(), body };
+      if (!persistPending(storageKey, request)) {
+        setStorageError(PLAY_STORAGE_UNAVAILABLE);
+        return;
+      }
+      remembered.current.set(storageKey, request);
       setStorageError(null);
       setNeedsResume(false);
-      setPending(stored.pending);
-      mutateRef.current({ ...stored.pending, storageKey });
-      return;
-    }
-    const request: PendingPlay = { key: newIdempotencyKey(), body };
-    if (!persistPending(storageKey, request)) {
-      setStorageError(PLAY_STORAGE_UNAVAILABLE);
-      return;
-    }
-    remembered.current.set(storageKey, request);
-    setStorageError(null);
-    setNeedsResume(false);
-    setPending(request);
-    mutateRef.current({ ...request, storageKey });
-  }, [storageKey, recall]);
+      setPending(request);
+      mutateRef.current({ ...request, storageKey });
+    },
+    [storageKey, recall]
+  );
 
   /** True when a pending request exists and differs from `body`. */
-  const pendingDiffersFrom = useCallback((body: Record<string, unknown>) => (
-    pending !== null && canonicalPlayBody(pending.body) !== canonicalPlayBody(body)
-  ), [pending]);
+  const pendingDiffersFrom = useCallback(
+    (body: Record<string, unknown>) =>
+      pending !== null && canonicalPlayBody(pending.body) !== canonicalPlayBody(body),
+    [pending]
+  );
 
   return { play, pending, needsResume, pendingDiffersFrom, mutation, storageError };
 }

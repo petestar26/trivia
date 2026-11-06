@@ -10,9 +10,9 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
-import { formatEtb } from '@/lib/payment-money';
 import { useAuth } from '@/providers/auth-provider';
 import './sports.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface SportsStatus {
   balanceMinor: number;
@@ -33,10 +33,22 @@ interface Movement {
   createdAt: string;
 }
 export function SportsPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
-  return user ? <SportsSession key={user.id} userId={user.id} /> : <p>Sign in to browse sports.</p>;
+  return user ? (
+    <SportsSession key={user.id} userId={user.id} />
+  ) : (
+    <p>{translateUi('Sign in to browse sports.')}</p>
+  );
 }
 function SportsSession({ userId }: { userId: string }) {
+  const {
+    t: translateUi,
+    locale: interfaceLocale,
+    formatMinorCurrency: formatEtb,
+  } = useInterfaceLanguage();
+
   const status = useQuery({
     queryKey: ['sports-status', userId],
     retry: false,
@@ -69,51 +81,59 @@ function SportsSession({ userId }: { userId: string }) {
     <section className="salem-sports" aria-labelledby="sports-title">
       <div className="sports-topline">
         <Link to="/casino">
-          <ArrowLeft size={15} /> Casino
+          <ArrowLeft size={15} />
+          {' ' + translateUi('Casino')}
         </Link>
         <span>
-          <ShieldCheck size={15} /> Real wallet · Birr
+          <ShieldCheck size={15} />
+          {' ' + translateUi('Real wallet · Birr')}
         </span>
       </div>
       <header className="sports-heading">
         <div>
-          <p className="sports-eyebrow">SALEM BET SPORTS</p>
+          <p className="sports-eyebrow">{translateUi('SALEM BET SPORTS')}</p>
           <h1 id="sports-title">
-            Every match.
+            {translateUi('Every match.')}
             <br />
-            <em>Your moment.</em>
+            <em>{translateUi('Your moment.')}</em>
           </h1>
-          <p>The fixtures, the markets, the action. All in one place.</p>
+          <p>{translateUi('The fixtures, the markets, the action. All in one place.')}</p>
         </div>
-        <section className="sports-wallet" aria-label="Sports real wallet">
+        <section className="sports-wallet" aria-label={translateUi('Sports real wallet')}>
           <Wallet size={24} />
-          <span>Available real balance</span>
+          <span>{translateUi('Available real balance')}</span>
           <strong>
             {status.isPending
-              ? 'Loading…'
+              ? translateUi('Loading…')
               : status.isError
-                ? 'Unavailable'
+                ? translateUi('Unavailable')
                 : formatEtb(s?.balanceMinor)}
           </strong>
           <Link to="/wallet">
-            Open wallet <ArrowUpRight size={15} />
+            {translateUi('Open wallet') + ' '}
+            <ArrowUpRight size={15} />
           </Link>
-          <small>Sports uses cash balance. Practice money and rewards stay separate.</small>
+          <small>
+            {translateUi('Sports uses cash balance. Practice money and rewards stay separate.')}
+          </small>
         </section>
       </header>
       {status.isError ? (
         <div className="sports-notice is-error" role="alert">
-          <p>Your wallet could not be checked. Please refresh before opening sports.</p>
+          <p>
+            {translateUi('Your wallet could not be checked. Please refresh before opening sports.')}
+          </p>
           <button onClick={refresh}>
-            <RefreshCw size={16} /> Try again
+            <RefreshCw size={16} />
+            {' ' + translateUi('Try again')}
           </button>
         </div>
       ) : (
         s && (
           <div className="sports-notice" role="status">
             <CircleDot size={19} />
-            <p>{notice}</p>
-            <button aria-label="Refresh sports balance" onClick={refresh}>
+            <p>{translateUi(notice)}</p>
+            <button aria-label={translateUi('Refresh sports balance')} onClick={refresh}>
               <RefreshCw size={16} />
             </button>
           </div>
@@ -122,14 +142,19 @@ function SportsSession({ userId }: { userId: string }) {
       <section className="sports-feature" aria-labelledby="sports-browse-title">
         <div className="sports-feature-copy">
           <span className="sports-provider">
-            <Trophy size={17} /> NOCTURN SPORT
+            <Trophy size={17} />
+            {' ' + translateUi('NOCTURN SPORT')}
           </span>
           <h2 id="sports-browse-title">
-            The game starts
+            {translateUi('The game starts')}
             <br />
-            with the fixtures.
+            {translateUi('with the fixtures.')}
           </h2>
-          <p>Explore the sportsbook and choose your markets. Your wallet stays with Salem Bet.</p>
+          <p>
+            {translateUi(
+              'Explore the sportsbook and choose your markets. Your wallet stays with Salem Bet.'
+            )}
+          </p>
           {ready ? (
             <Link
               className="sports-open"
@@ -137,17 +162,21 @@ function SportsSession({ userId }: { userId: string }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Browse sports <ArrowUpRight size={19} />
+              {translateUi('Browse sports') + ' '}
+              <ArrowUpRight size={19} />
             </Link>
           ) : (
             <button className="sports-open" disabled>
-              Browse sports <ArrowUpRight size={19} />
+              {translateUi('Browse sports') + ' '}
+              <ArrowUpRight size={19} />
             </button>
           )}
-          <p className="sports-open-hint">Opens in a new tab. Your wallet stays here.</p>
+          <p className="sports-open-hint">
+            {translateUi('Opens in a new tab. Your wallet stays here.')}
+          </p>
           {!status.isPending && !status.isError && !ready && (
             <p className="sports-availability">
-              Sports is getting ready. Please check back shortly.
+              {translateUi('Sports is getting ready. Please check back shortly.')}
             </p>
           )}
         </div>
@@ -160,25 +189,30 @@ function SportsSession({ userId }: { userId: string }) {
           <div className="sports-ball">
             <CircleDot strokeWidth={1} />
           </div>
-          <p>ONE WALLET. A WORLD OF SPORT.</p>
+          <p>{translateUi('ONE WALLET. A WORLD OF SPORT.')}</p>
         </div>
       </section>
       <section className="sports-history" aria-labelledby="sports-history-title">
         <div>
-          <h2 id="sports-history-title">Wallet activity</h2>
+          <h2 id="sports-history-title">{translateUi('Wallet activity')}</h2>
           <Link to="/wallet">
-            All transactions <ArrowUpRight size={15} />
+            {translateUi('All transactions') + ' '}
+            <ArrowUpRight size={15} />
           </Link>
         </div>
         {activity.isPending ? (
-          <p>Loading your sports activity…</p>
+          <p>{translateUi('Loading your sports activity…')}</p>
         ) : activity.isError ? (
           <p role="alert">
-            Activity could not be loaded.{' '}
-            <button onClick={() => void activity.refetch()}>Try again</button>
+            {translateUi('Activity could not be loaded.')}{' '}
+            <button onClick={() => void activity.refetch()}>{translateUi('Try again')}</button>
           </p>
         ) : !activity.data?.length ? (
-          <p>No sports transactions yet. Stakes, payouts, and refunds will appear here.</p>
+          <p>
+            {translateUi(
+              'No sports transactions yet. Stakes, payouts, and refunds will appear here.'
+            )}
+          </p>
         ) : (
           <ul>
             {activity.data.map((m) => (
@@ -186,12 +220,14 @@ function SportsSession({ userId }: { userId: string }) {
                 <span>
                   <strong>
                     {m.rollback
-                      ? 'Sports adjustment'
+                      ? translateUi('Sports adjustment')
                       : m.action === 'debit'
-                        ? 'Sports stake'
-                        : 'Sports payout / refund'}
+                        ? translateUi('Sports stake')
+                        : translateUi('Sports payout / refund')}
                   </strong>
-                  <time dateTime={m.createdAt}>{new Date(m.createdAt).toLocaleString()}</time>
+                  <time dateTime={m.createdAt}>
+                    {new Date(m.createdAt).toLocaleString(interfaceLocale)}
+                  </time>
                 </span>
                 <b data-credit={m.action === 'credit'}>
                   {m.action === 'credit' ? '+' : '−'}

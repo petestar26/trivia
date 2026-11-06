@@ -39,6 +39,7 @@ async function buildApi() {
       join(__dirname, 'src/scripts/practice-games-worker.ts'),
       join(__dirname, 'src/scripts/provider-demo-probe.ts'),
       join(__dirname, 'src/scripts/provider-test-probe.ts'),
+      join(__dirname, 'src/scripts/sports-readiness.ts'),
       join(__dirname, 'src/scripts/practice-gifts-check.ts'),
       join(__dirname, 'src/scripts/payment-readiness.ts'),
       join(__dirname, 'src/scripts/member-experience-check.ts'),

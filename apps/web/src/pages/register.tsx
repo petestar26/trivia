@@ -21,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const registerSchema = z.object({
   username: z
@@ -48,13 +49,17 @@ const registerSchema = z.object({
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export function RegisterPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   useMemberTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const { register: registerUser } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [referralCode, setReferralCode] = useState(() => (new URLSearchParams(location.search).get('ref') || '').trim().toUpperCase().slice(0, 8));
+  const [referralCode, setReferralCode] = useState(() =>
+    (new URLSearchParams(location.search).get('ref') || '').trim().toUpperCase().slice(0, 8)
+  );
   const [method, setMethod] = useState<'email' | 'phone'>('email');
 
   const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
@@ -65,7 +70,9 @@ export function RegisterPage() {
     reset,
     formState: { errors },
   } = useForm<RegisterForm>({
-    resolver: zodResolver(method === 'phone' ? registerSchema.extend({ email: phoneSchema }) : registerSchema),
+    resolver: zodResolver(
+      method === 'phone' ? registerSchema.extend({ email: phoneSchema }) : registerSchema
+    ),
   });
 
   const onSubmit = async (data: RegisterForm) => {
@@ -95,27 +102,57 @@ export function RegisterPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
-            Create an account
+            {translateUi('Create an account')}
           </CardTitle>
           <CardDescription className="text-gray-600 dark:text-gray-400">
-            Join Salem Bet and start connecting
+            {translateUi('Join Salem Bet and start connecting')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-        <GoogleSignInButton referralCode={referralCode.trim().toUpperCase() || undefined} onSuccess={() => navigate(returnTo, { replace: true })} />
-          <label className="block text-sm">Referral code (optional)<Input aria-label="Referral code (optional)" autoComplete="off" maxLength={8} value={referralCode} onChange={e => setReferralCode(e.target.value.toUpperCase())} /></label>
-          <div role="group" aria-label="Registration method" className="flex gap-2">
-            {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
-              aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>
-              {option === 'email' ? 'Email' : 'Phone'}</Button>)}
+          <GoogleSignInButton
+            referralCode={referralCode.trim().toUpperCase() || undefined}
+            onSuccess={() => navigate(returnTo, { replace: true })}
+          />
+          <label className="block text-sm">
+            {translateUi('Referral code (optional)')}
+            <Input
+              aria-label={translateUi('Referral code (optional)')}
+              autoComplete="off"
+              maxLength={8}
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+            />
+          </label>
+          <div
+            role="group"
+            aria-label={translateUi('Registration method')}
+            className="salem-sign-in-method flex gap-2"
+          >
+            {(['email', 'phone'] as const).map((option) => (
+              <Button
+                key={option}
+                type="button"
+                disabled={isLoading}
+                aria-pressed={method === option}
+                onClick={() => {
+                  setMethod(option);
+                  reset();
+                  setError(null);
+                }}
+              >
+                {option === 'email' ? translateUi('Email') : translateUi('Phone')}
+              </Button>
+            ))}
           </div>
-        {method === 'phone' && <p className="text-sm">Use your country code and a password.</p>}
+          {method === 'phone' && (
+            <p className="text-sm">{translateUi('Use your country code and a password.')}</p>
+          )}
           {error && (
             <div
               role="alert"
               className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
             >
-              {error}
+              {translateUi(error)}
             </div>
           )}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -124,13 +161,13 @@ export function RegisterPage() {
                 htmlFor="username"
                 className="text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Username
+                {translateUi('Username')}
               </label>
               <Input
                 id="username"
                 type="text"
                 autoComplete="username"
-                placeholder="dawit_bekele"
+                placeholder={'dawit_bekele'}
                 {...register('username')}
                 disabled={isLoading}
                 aria-invalid={!!errors.username}
@@ -142,7 +179,7 @@ export function RegisterPage() {
                   className="text-sm text-red-600 dark:text-red-400"
                   role="alert"
                 >
-                  {errors.username.message}
+                  {translateUi(errors.username.message ?? '')}
                 </p>
               )}
             </div>
@@ -151,7 +188,7 @@ export function RegisterPage() {
                 htmlFor="email"
                 className="text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                {method === 'email' ? 'Email' : 'Phone number'}
+                {method === 'email' ? translateUi('Email') : translateUi('Phone number')}
               </label>
               <Input
                 id="email"
@@ -169,7 +206,7 @@ export function RegisterPage() {
                   className="text-sm text-red-600 dark:text-red-400"
                   role="alert"
                 >
-                  {errors.email.message}
+                  {translateUi(errors.email.message ?? '')}
                 </p>
               )}
             </div>
@@ -178,13 +215,13 @@ export function RegisterPage() {
                 htmlFor="displayName"
                 className="text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Display Name (optional)
+                {translateUi('Display Name (optional)')}
               </label>
               <Input
                 id="displayName"
                 type="text"
                 autoComplete="nickname"
-                placeholder="Dawit Bekele"
+                placeholder={'Dawit Bekele'}
                 {...register('displayName')}
                 disabled={isLoading}
                 aria-invalid={!!errors.displayName}
@@ -198,7 +235,7 @@ export function RegisterPage() {
                   className="text-sm text-red-600 dark:text-red-400"
                   role="alert"
                 >
-                  {errors.displayName.message}
+                  {translateUi(errors.displayName.message ?? '')}
                 </p>
               )}
             </div>
@@ -207,7 +244,7 @@ export function RegisterPage() {
                 htmlFor="password"
                 className="text-sm font-medium text-gray-700 dark:text-gray-300"
               >
-                Password
+                {translateUi('Password')}
               </label>
               <PasswordInput
                 id="password"
@@ -228,28 +265,29 @@ export function RegisterPage() {
                   className="text-sm text-red-600 dark:text-red-400"
                   role="alert"
                 >
-                  {errors.password.message}
+                  {translateUi(errors.password.message ?? '')}
                 </p>
               )}
               <p id="register-password-help" className="text-xs text-gray-500 dark:text-gray-400">
-                Must be at least 8 characters with uppercase, lowercase, number, and special
-                character
+                {translateUi(
+                  'Must be at least 8 characters with uppercase, lowercase, number, and special character'
+                )}
               </p>
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Creating account...' : 'Create account'}
+              {isLoading ? translateUi('Creating account...') : translateUi('Create account')}
             </Button>
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Already have an account?{' '}
+            {translateUi('Already have an account?')}{' '}
             <Link
               to="/login"
               state={{ from: (location.state as { from?: unknown } | null)?.from }}
               className="text-primary-600 hover:text-primary-500 font-medium"
             >
-              Sign in
+              {translateUi('Sign in')}
             </Link>
           </p>
         </CardFooter>

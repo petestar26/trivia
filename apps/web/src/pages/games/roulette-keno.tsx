@@ -1,3 +1,4 @@
+import { rouletteKenoSelectionLabel } from '@/lib/i18n/game-labels';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -9,7 +10,6 @@ import {
   rkColor,
   rkNumbers,
   rkMultiplierTenths,
-  rkSelectionLabel,
   rkValidate,
 } from '@socialplay/shared';
 import type {
@@ -24,6 +24,7 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
 import { RouletteKenoWheel } from '@/components/roulette-keno/wheel';
 import './roulette-keno.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const endpoint = '/games/roulette-keno';
 const receiptKey = (id: string) => `salem.roulette-keno.pending.v1.${id}`;
@@ -211,6 +212,8 @@ export function RouletteKenoView({
   onSubmit: (entry: Entry) => void;
   onRetry?: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [clock, setClock] = useState(performance.now());
   const [slot, setSlot] = useState(1);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({ 1: emptyDraft() });
@@ -294,44 +297,50 @@ export function RouletteKenoView({
   return (
     <div className="rk-page">
       <div className="rk-nav">
-        <Link to="/games">← Games</Link>
+        <Link to="/games">{translateUi('← Games')}</Link>
         <span className={connected ? 'rk-connected' : 'rk-reconnecting'}>
-          {connected ? '● Connected' : '○ Connecting'}
+          {connected ? translateUi('● Connected') : translateUi('○ Connecting')}
         </span>
       </div>
       <header className="rk-heading">
         <div>
-          <span className="rk-eyebrow">SALEM ORIGINALS</span>
+          <span className="rk-eyebrow">{translateUi('SALEM ORIGINALS')}</span>
           <h1>
-            Roulette <em>Keno</em>
+            {translateUi('Roulette') + ' '}
+            <em>{translateUi('Keno')}</em>
           </h1>
         </div>
         <div className="rk-balance">
-          <span>Practice balance</span>
+          <span>{translateUi('Practice balance')}</span>
           <strong>
-            {data ? money(data.balance) : '—'} <small>ETB</small>
+            {data ? money(data.balance) : '—'} <small>{'ETB'}</small>
           </strong>
-          <small>No cash value</small>
+          <small>{translateUi('No cash value')}</small>
         </div>
       </header>
       <div className="rk-toolbar">
         <p>
-          <b>18 balls.</b> 72 possibilities.
+          <b>{translateUi('18 balls.')}</b>
+          {' ' + translateUi('72 possibilities.')}
         </p>
         <Rules />
         <Dialog.Root>
-          <Dialog.Trigger className="rk-text-button">Recent draws ↗</Dialog.Trigger>
+          <Dialog.Trigger className="rk-text-button">
+            {translateUi('Recent draws ↗')}
+          </Dialog.Trigger>
           <Dialog.Portal>
             <Dialog.Overlay className="rk-overlay" />
             <Dialog.Content className="rk-dialog">
-              <Dialog.Title>Recent draws</Dialog.Title>
+              <Dialog.Title>{translateUi('Recent draws')}</Dialog.Title>
               <Dialog.Description>
-                Official completed results and your confirmed practice bets.
+                {translateUi('Official completed results and your confirmed practice bets.')}
               </Dialog.Description>
               {results.length ? (
                 results.map((r) => (
                   <article className="rk-history" key={r.id}>
-                    <strong>Draw {r.id.replace('rk-', '')}</strong>
+                    <strong>
+                      {translateUi('Draw {value}', { value: r.id.replace('rk-', '') })}
+                    </strong>
                     <div className="rk-history-balls">
                       {r.revealed.map((n) => (
                         <span className={rkColor(n).toLowerCase()} key={n}>
@@ -341,60 +350,78 @@ export function RouletteKenoView({
                     </div>
                     {r.tickets.map((t) => (
                       <p key={t.id}>
-                        Bet {t.slot} · {rkSelectionLabel(t.market, t.picks)} ·{' '}
-                        {t.payout === null ? 'Return pending' : `${money(t.payout)} ETB returned`}
+                        {translateUi('Bet {slot} · {value} · {value2}', {
+                          slot: t.slot,
+                          value: rouletteKenoSelectionLabel(t.market, t.picks, translateUi),
+                          value2:
+                            t.payout === null
+                              ? translateUi('Return pending')
+                              : translateUi('{value} ETB returned', { value: money(t.payout) }),
+                        })}
                       </p>
                     ))}
                   </article>
                 ))
               ) : (
-                <p>No completed draws yet.</p>
+                <p>{translateUi('No completed draws yet.')}</p>
               )}
-              <Dialog.Close className="rk-primary">Close results</Dialog.Close>
+              <Dialog.Close className="rk-primary">{translateUi('Close results')}</Dialog.Close>
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
       </div>
       {!connected && (
         <p className="rk-notice" role="alert">
-          {connectionMessage ?? 'Reconnecting. Bet entry is paused until a fresh update arrives.'}
+          {connectionMessage ??
+            translateUi('Reconnecting. Bet entry is paused until a fresh update arrives.')}
         </p>
       )}
       {connected && !round && (
         <p className="rk-notice" role="status">
-          Waiting for the next scheduled draw…
+          {translateUi('Waiting for the next scheduled draw…')}
         </p>
       )}
       {error && (
         <p className="rk-notice" role="alert">
-          {error}
+          {translateUi(error)}
         </p>
       )}
       <div className="rk-table">
-        <section className="rk-studio" aria-label="Live practice draw">
+        <section className="rk-studio" aria-label={translateUi('Live practice draw')}>
           <div className="rk-studio-heading">
             <span className="rk-dot" />
-            {open ? 'Place your bets' : complete ? 'Draw complete' : 'Drawing now'}
+            {open
+              ? translateUi('Place your bets')
+              : complete
+                ? translateUi('Draw complete')
+                : translateUi('Drawing now')}
             <span className="rk-countdown" role="timer">
-              {open ? 'Closes' : 'Next draw'} <b>{seconds}s</b>
+              {open ? translateUi('Closes') : translateUi('Next draw')}{' '}
+              <b>{translateUi('{seconds}s', { seconds: seconds })}</b>
             </span>
           </div>
           <RouletteKenoWheel latest={revealed.at(-1) ?? null} drawing={drawing && connected} />
           <div className="rk-draw-results">
             <div className="rk-draw-label">
               <strong>
-                {revealed.length} <span>/ 18 balls</span>
+                {revealed.length} <span>{translateUi('/ 18 balls')}</span>
               </strong>
-              <small>Draw {display?.id.replace('rk-', '') ?? '—'}</small>
+              <small>
+                {translateUi('Draw {value}', { value: display?.id.replace('rk-', '') ?? '—' })}
+              </small>
             </div>
-            <ol className="rk-balls" aria-label="Released balls">
+            <ol className="rk-balls" aria-label={translateUi('Released balls')}>
               {Array.from({ length: 18 }, (_, i) => {
                 const n = revealed[i];
                 return (
                   <li
                     key={i}
                     className={`${n ? rkColor(n).toLowerCase() : ''} ${i === 0 ? 'first' : ''} ${n && i === revealed.length - 1 ? 'latest' : ''}`}
-                    aria-label={n ? `Ball ${i + 1}: ${n}` : `Ball ${i + 1}: waiting`}
+                    aria-label={
+                      n
+                        ? translateUi('Ball {value}: {n}', { value: i + 1, n: n })
+                        : translateUi('Ball {value}: waiting', { value: i + 1 })
+                    }
                   >
                     {n ?? <span>·</span>}
                   </li>
@@ -402,31 +429,32 @@ export function RouletteKenoView({
               })}
             </ol>
             <div className="rk-first-ball">
-              <span>FIRST BALL</span>
+              <span>{translateUi('FIRST BALL')}</span>
               <strong>{revealed[0] ?? '—'}</strong>
               <small>
                 {revealed[0]
-                  ? `${rkColor(revealed[0]) === 'RED' ? 'Red' : 'Black'} · ${revealed[0] % 2 ? 'Odd' : 'Even'} · ${revealed[0] <= 36 ? 'Low' : 'High'}`
-                  : 'Decides the outside markets'}
+                  ? `${translateUi(rkColor(revealed[0]) === 'RED' ? 'Red' : 'Black')} · ${translateUi(revealed[0] % 2 ? 'Odd' : 'Even')} · ${translateUi(revealed[0] <= 36 ? 'Low' : 'High')}`
+                  : translateUi('Decides the outside markets')}
               </small>
             </div>
           </div>
           <div className="rk-studio-footer">
-            <span>New draw every 90 seconds</span>
-            <span>Free practice</span>
+            <span>{translateUi('New draw every 90 seconds')}</span>
+            <span>{translateUi('Free practice')}</span>
           </div>
         </section>
-        <section className="rk-play" aria-label="Place a practice bet">
-          <div className="rk-ticket-tabs" role="group" aria-label="Your bets">
+        <section className="rk-play" aria-label={translateUi('Place a practice bet')}>
+          <div className="rk-ticket-tabs" role="group" aria-label={translateUi('Your bets')}>
             {slots.map((n) => (
               <button key={n} type="button" aria-pressed={slot === n} onClick={() => setSlot(n)}>
-                Bet {n}
+                {translateUi('Bet') + ' '}
+                {n}
                 <small>
                   {tickets.some((t) => t.slot === n)
-                    ? '✓ Saved'
+                    ? translateUi('✓ Saved')
                     : pending?.slot === n && pending.roundId === round?.id
-                      ? 'Checking'
-                      : 'Draft'}
+                      ? translateUi('Checking')
+                      : translateUi('Draft')}
                 </small>
               </button>
             ))}
@@ -436,11 +464,11 @@ export function RouletteKenoView({
                 disabled={!open || !!pending || !!error || submitting}
                 onClick={add}
               >
-                + Add bet
+                {translateUi('+ Add bet')}
               </button>
             )}
           </div>
-          <div className="rk-markets" role="group" aria-label="Bet market">
+          <div className="rk-markets" role="group" aria-label={translateUi('Bet market')}>
             {RK_MARKETS.map((m) => (
               <button
                 key={m}
@@ -448,22 +476,27 @@ export function RouletteKenoView({
                 disabled={locked}
                 onClick={() => update({ market: m, picks: [] })}
               >
-                {RK_LABELS[m]}
+                {translateUi(RK_LABELS[m])}
               </button>
             ))}
           </div>
           <div className="rk-market-caption">
             <p>
               {market === 'NUMBERS'
-                ? 'Pick 1–10 numbers · all 18 balls count'
-                : 'Pick one option · first ball only'}
+                ? translateUi('Pick 1–10 numbers · all 18 balls count')
+                : translateUi('Pick one option · first ball only')}
             </p>
             <strong>
-              {multiplier.toFixed(1)}× <span>{market === 'NUMBERS' ? 'per match' : 'return'}</span>
+              {multiplier.toFixed(1)}×{' '}
+              <span>{market === 'NUMBERS' ? translateUi('per match') : translateUi('return')}</span>
             </strong>
           </div>
           {market !== 'NUMBERS' && (
-            <div className="rk-options" role="group" aria-label={`${RK_LABELS[market]} options`}>
+            <div
+              className="rk-options"
+              role="group"
+              aria-label={translateUi('{value} options', { value: translateUi(RK_LABELS[market]) })}
+            >
               {Array.from(
                 { length: market === 'ROW' ? 6 : market === 'COLUMN' ? 4 : 2 },
                 (_, i) => i + 1
@@ -475,7 +508,7 @@ export function RouletteKenoView({
                   aria-pressed={picks.includes(n)}
                   onClick={() => update({ picks: [n] })}
                 >
-                  {rkSelectionLabel(market, [n])}
+                  {rouletteKenoSelectionLabel(market, [n], translateUi)}
                   {picks.includes(n) && <span aria-hidden="true"> ✓</span>}
                 </button>
               ))}
@@ -484,7 +517,7 @@ export function RouletteKenoView({
           <div
             className={`rk-board ${market !== 'NUMBERS' ? 'is-coverage' : ''}`}
             role="group"
-            aria-label="72-number board"
+            aria-label={translateUi('72-number board')}
           >
             {Array.from({ length: 72 }, (_, i) => i + 1).map((n) => {
               const selected = covered.includes(n),
@@ -494,7 +527,10 @@ export function RouletteKenoView({
                 <button
                   key={n}
                   type="button"
-                  aria-label={`Number ${n}${drawn ? ', drawn' : ''}`}
+                  aria-label={translateUi('Number {n}{value}', {
+                    n: n,
+                    value: drawn ? translateUi(', drawn') : '',
+                  })}
                   aria-pressed={selected}
                   disabled={locked || market !== 'NUMBERS'}
                   onClick={() => toggle(n)}
@@ -509,9 +545,11 @@ export function RouletteKenoView({
           <div className="rk-board-bottom">
             <span>
               <i />
-              Selected <i />
-              Drawn <i />
-              Match
+              {translateUi('Selected') + ' '}
+              <i />
+              {translateUi('Drawn') + ' '}
+              <i />
+              {translateUi('Match')}
             </span>
             <div>
               <button
@@ -532,32 +570,40 @@ export function RouletteKenoView({
                   update({ picks: pool.slice(0, 5).sort((a, b) => a - b) });
                 }}
               >
-                Quick pick 5
+                {translateUi('Quick pick 5')}
               </button>
               <button
                 className="rk-text-button"
                 disabled={locked || !picks.length}
                 onClick={() => update({ picks: [] })}
               >
-                Clear
+                {translateUi('Clear')}
               </button>
             </div>
           </div>
           <div className="rk-slip">
             <div className="rk-slip-selection">
-              <span>{ticket ? 'CONFIRMED SELECTION' : `BET ${slot} SELECTION`}</span>
+              <span>
+                {ticket
+                  ? translateUi('CONFIRMED SELECTION')
+                  : translateUi('BET {slot} SELECTION', { slot: slot })}
+              </span>
               <strong>
-                {picks.length ? rkSelectionLabel(market, picks) : 'Choose your numbers above'}
+                {picks.length
+                  ? rouletteKenoSelectionLabel(market, picks, translateUi)
+                  : translateUi('Choose your numbers above')}
               </strong>
             </div>
             <div className="rk-stake-row">
               <div>
                 <label htmlFor="rk-amount">
-                  {market === 'NUMBERS' ? 'ETB per number' : 'Bet amount · ETB'}
+                  {market === 'NUMBERS'
+                    ? translateUi('ETB per number')
+                    : translateUi('Bet amount · ETB')}
                 </label>
                 <div className="rk-stepper">
                   <button
-                    aria-label="Decrease amount"
+                    aria-label={translateUi('Decrease amount')}
                     disabled={locked || amount <= 5}
                     onClick={() => update({ text: String(Math.max(5, amount - 5)) })}
                   >
@@ -572,7 +618,7 @@ export function RouletteKenoView({
                     onChange={(e) => update({ text: e.target.value })}
                   />
                   <button
-                    aria-label="Increase amount"
+                    aria-label={translateUi('Increase amount')}
                     disabled={locked || amount >= 500}
                     onClick={() => update({ text: String(Math.min(500, amount + 5)) })}
                   >
@@ -581,16 +627,22 @@ export function RouletteKenoView({
                 </div>
               </div>
               <div className="rk-total">
-                <span>Total bet</span>
+                <span>{translateUi('Total bet')}</span>
                 <strong>
-                  {money(cost || 0)} <small>ETB</small>
+                  {money(cost || 0)} <small>{'ETB'}</small>
                 </strong>
               </div>
             </div>
             <p className="rk-return-note">
               {valid
-                ? `${money(amount * multiplier)} ETB returned ${market === 'NUMBERS' ? 'per matching number' : 'if your selection wins'}. Includes stake.`
-                : 'Steps of 5 ETB · Up to 500 ETB per bet.'}
+                ? translateUi('{value} ETB returned {value2}. Includes stake.', {
+                    value: money(amount * multiplier),
+                    value2:
+                      market === 'NUMBERS'
+                        ? translateUi('per matching number')
+                        : translateUi('if your selection wins'),
+                  })
+                : translateUi('Steps of 5 ETB · Up to 500 ETB per bet.')}
             </p>
             <button
               className="rk-primary"
@@ -600,21 +652,24 @@ export function RouletteKenoView({
               }
             >
               {ticket
-                ? '✓ Bet confirmed'
+                ? translateUi('✓ Bet confirmed')
                 : pending
-                  ? 'Checking confirmation…'
+                  ? translateUi('Checking confirmation…')
                   : !open
-                    ? 'Bets are closed'
-                    : `Review bet · ${money(cost || 0)} ETB`}
+                    ? translateUi('Bets are closed')
+                    : translateUi('Review bet · {value} ETB', { value: money(cost || 0) })}
             </button>
             {valid && !ticket && cost > (data?.balance ?? 0) && (
-              <p className="rk-warning">Not enough practice ETB for this bet.</p>
+              <p className="rk-warning">{translateUi('Not enough practice ETB for this bet.')}</p>
             )}
             {ticket && complete && (
               <p className="rk-receipt-result" role="status">
                 {ticket.payout === null
-                  ? 'Your return is being settled.'
-                  : `${money(ticket.payout)} ETB returned · Bet ${ticket.slot}`}
+                  ? translateUi('Your return is being settled.')
+                  : translateUi('{value} ETB returned · Bet {slot}', {
+                      value: money(ticket.payout),
+                      slot: ticket.slot,
+                    })}
               </p>
             )}
           </div>
@@ -622,23 +677,26 @@ export function RouletteKenoView({
       </div>
       {notice && (
         <p className="rk-notice" role="status">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {pending && !submitting && (
         <div className="rk-pending">
-          <p>One bet is awaiting confirmation. Retry checks the same receipt.</p>
+          <p>{translateUi('One bet is awaiting confirmation. Retry checks the same receipt.')}</p>
           <button onClick={onRetry} disabled={!connected || !!error}>
-            Retry unconfirmed bet
+            {translateUi('Retry unconfirmed bet')}
           </button>
         </div>
       )}
       {!!tickets.length && (
-        <section className="rk-saved" aria-label="Saved bets">
+        <section className="rk-saved" aria-label={translateUi('Saved bets')}>
           <header>
-            <h2>Your bets this draw</h2>
+            <h2>{translateUi('Your bets this draw')}</h2>
             <span>
-              {tickets.length} / {maxTickets} confirmed
+              {translateUi('{length} / {maxTickets} confirmed', {
+                length: tickets.length,
+                maxTickets: maxTickets,
+              })}
             </span>
           </header>
           <div>
@@ -649,18 +707,19 @@ export function RouletteKenoView({
                 onClick={() => setSlot(t.slot)}
               >
                 <span>
-                  <b>Bet {t.slot}</b>
-                  <strong>{money(t.stake)} ETB</strong>
+                  <b>{translateUi('Bet {slot}', { slot: t.slot })}</b>
+                  <strong>{translateUi('{value} ETB', { value: money(t.stake) })}</strong>
                 </span>
                 <small>
-                  {RK_LABELS[t.market]} · {rkSelectionLabel(t.market, t.picks)}
+                  {translateUi(RK_LABELS[t.market])} ·{' '}
+                  {rouletteKenoSelectionLabel(t.market, t.picks, translateUi)}
                 </small>
                 <em>
                   {complete
                     ? t.payout === null
-                      ? 'Return pending'
-                      : `${money(t.payout)} ETB returned`
-                    : 'Confirmed · waiting for results'}
+                      ? translateUi('Return pending')
+                      : translateUi('{value} ETB returned', { value: money(t.payout) })
+                    : translateUi('Confirmed · waiting for results')}
                 </em>
               </button>
             ))}
@@ -668,34 +727,52 @@ export function RouletteKenoView({
         </section>
       )}
       <p className="rk-disclosure">
-        Practice ETB only · No deposits or redeemable prizes · 90% theoretical return
+        {translateUi(
+          'Practice ETB only · No deposits or redeemable prizes · 90% theoretical return'
+        )}
       </p>
       <Dialog.Root open={!!review} onOpenChange={(v) => !v && setReview(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="rk-overlay" />
           <Dialog.Content className="rk-dialog">
-            <Dialog.Title>Confirm Bet {review?.slot}</Dialog.Title>
+            <Dialog.Title>
+              {translateUi('Confirm Bet {slot}', { slot: review?.slot ?? '' })}
+            </Dialog.Title>
             <Dialog.Description>
-              Review your practice selection. A confirmed bet cannot be changed.
+              {translateUi('Review your practice selection. A confirmed bet cannot be changed.')}
             </Dialog.Description>
             {review && (
               <>
                 <div className="rk-review-choice">
-                  <span>{RK_LABELS[review.market]}</span>
-                  <strong>{rkSelectionLabel(review.market, review.picks)}</strong>
+                  <span>{translateUi(RK_LABELS[review.market])}</span>
+                  <strong>
+                    {rouletteKenoSelectionLabel(review.market, review.picks, translateUi)}
+                  </strong>
                   <p>
                     {review.market === 'NUMBERS'
-                      ? 'All 18 drawn balls count.'
-                      : 'Only the first drawn ball counts.'}
+                      ? translateUi('All 18 drawn balls count.')
+                      : translateUi('Only the first drawn ball counts.')}
                   </p>
                 </div>
                 <dl className="rk-review-totals">
-                  <dt>Total bet</dt>
-                  <dd>{money(review.amount * review.picks.length)} ETB</dd>
-                  <dt>{review.market === 'NUMBERS' ? 'Return per match' : 'Return if correct'}</dt>
-                  <dd>{money((review.amount * rkMultiplierTenths(review.market)) / 10)} ETB</dd>
+                  <dt>{translateUi('Total bet')}</dt>
+                  <dd>
+                    {translateUi('{value} ETB', {
+                      value: money(review.amount * review.picks.length),
+                    })}
+                  </dd>
+                  <dt>
+                    {review.market === 'NUMBERS'
+                      ? translateUi('Return per match')
+                      : translateUi('Return if correct')}
+                  </dt>
+                  <dd>
+                    {translateUi('{value} ETB', {
+                      value: money((review.amount * rkMultiplierTenths(review.market)) / 10),
+                    })}
+                  </dd>
                 </dl>
-                <p>Returns include the stake. Practice ETB has no cash value.</p>
+                <p>{translateUi('Returns include the stake. Practice ETB has no cash value.')}</p>
                 <button
                   className="rk-primary"
                   disabled={
@@ -709,11 +786,11 @@ export function RouletteKenoView({
                     setReview(null);
                   }}
                 >
-                  Confirm practice bet
+                  {translateUi('Confirm practice bet')}
                 </button>
               </>
             )}
-            <Dialog.Close className="rk-secondary">Keep editing</Dialog.Close>
+            <Dialog.Close className="rk-secondary">{translateUi('Keep editing')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -721,68 +798,78 @@ export function RouletteKenoView({
   );
 }
 function Rules() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <Dialog.Root>
-      <Dialog.Trigger className="rk-text-button">How to play ↗</Dialog.Trigger>
+      <Dialog.Trigger className="rk-text-button">{translateUi('How to play ↗')}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="rk-overlay" />
         <Dialog.Content className="rk-dialog">
-          <Dialog.Title>How to play Roulette Keno</Dialog.Title>
+          <Dialog.Title>{translateUi('How to play Roulette Keno')}</Dialog.Title>
           <Dialog.Description>
-            Salem's original practice game. Pick numbers or a first-ball market before the countdown
-            ends.
+            {translateUi(
+              "Salem's original practice game. Pick numbers or a first-ball market before the countdown ends."
+            )}
           </Dialog.Description>
           <ol className="rk-rules-steps">
-            <li>Each 90-second round has 60 seconds to place bets.</li>
-            <li>The server draws 18 different numbers from 1–72 and releases one each second.</li>
-            <li>Keep up to ten independent bets. Choose and confirm each separately.</li>
+            <li>{translateUi('Each 90-second round has 60 seconds to place bets.')}</li>
+            <li>
+              {translateUi(
+                'The server draws 18 different numbers from 1–72 and releases one each second.'
+              )}
+            </li>
+            <li>
+              {translateUi('Keep up to ten independent bets. Choose and confirm each separately.')}
+            </li>
           </ol>
           <table className="rk-rules-table">
             <thead>
               <tr>
-                <th>Market</th>
-                <th>Decided by</th>
-                <th>Return</th>
+                <th>{translateUi('Market')}</th>
+                <th>{translateUi('Decided by')}</th>
+                <th>{translateUi('Return')}</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>Numbers · 1–10 picks</td>
-                <td>All 18 balls</td>
-                <td>3.6× per match</td>
+                <td>{translateUi('Numbers · 1–10 picks')}</td>
+                <td>{translateUi('All 18 balls')}</td>
+                <td>{translateUi('3.6× per match')}</td>
               </tr>
               <tr>
-                <td>Red / black, odd / even, low / high</td>
-                <td>First ball</td>
+                <td>{translateUi('Red / black, odd / even, low / high')}</td>
+                <td>{translateUi('First ball')}</td>
                 <td>1.8×</td>
               </tr>
               <tr>
-                <td>Rows A–F · 12 numbers each</td>
-                <td>First ball</td>
+                <td>{translateUi('Rows A–F · 12 numbers each')}</td>
+                <td>{translateUi('First ball')}</td>
                 <td>5.4×</td>
               </tr>
               <tr>
-                <td>Columns 1–4 · 18 numbers each</td>
-                <td>First ball</td>
+                <td>{translateUi('Columns 1–4 · 18 numbers each')}</td>
+                <td>{translateUi('First ball')}</td>
                 <td>3.6×</td>
               </tr>
             </tbody>
           </table>
           <p>
-            Rows: A 1–12, B 13–24, C 25–36, D 37–48, E 49–60, F 61–72. Columns: 1–18, 19–36, 37–54,
-            55–72. The board shows each number's red or black color.
+            {translateUi(
+              "Rows: A 1–12, B 13–24, C 25–36, D 37–48, E 49–60, F 61–72. Columns: 1–18, 19–36, 37–54, 55–72. The board shows each number's red or black color."
+            )}
           </p>
           <p>
-            For number bets the amount applies to each number. Other markets use one amount per
-            selection. Amounts are in steps of 5 ETB, with a total limit of 500 ETB per bet.
+            {translateUi(
+              'For number bets the amount applies to each number. Other markets use one amount per selection. Amounts are in steps of 5 ETB, with a total limit of 500 ETB per bet.'
+            )}
           </p>
           <p>
-            Each account starts with 1,000 separate practice ETB. All returns include the stake and
-            settle after the final ball. The mathematical return is 90% over repeated play; an
-            individual round can return zero. No jackpots, automatic repeat bets, deposits or
-            redeemable prizes.
+            {translateUi(
+              'Each account starts with 1,000 separate practice ETB. All returns include the stake and settle after the final ball. The mathematical return is 90% over repeated play; an individual round can return zero. No jackpots, automatic repeat bets, deposits or redeemable prizes.'
+            )}
           </p>
-          <Dialog.Close className="rk-primary">Got it</Dialog.Close>
+          <Dialog.Close className="rk-primary">{translateUi('Got it')}</Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

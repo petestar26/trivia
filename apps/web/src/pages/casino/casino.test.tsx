@@ -115,7 +115,10 @@ describe('Games owns the platform catalogue', () => {
     expect(screen.queryByRole('heading', { name: 'Trivia' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Spin Win' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Legacy Lucky Spin' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute('href', '/games/dice');
+    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute(
+      'href',
+      '/play-together?game=dice'
+    );
     expect(screen.queryByRole('link', { name: /Trivia/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
     expect(apiGet.mock.calls.map(([path]) => path).sort()).toEqual(['/games']);
@@ -143,7 +146,7 @@ describe('Games owns the platform catalogue', () => {
     expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute('href', '/groups');
     expect(screen.getByRole('link', { name: /Casino/ })).toHaveAttribute('href', '/casino');
   });
-  it('preserves disabled practice gates', async () => {
+  it('opens group discovery independently of a disabled legacy practice balance', async () => {
     ownGames(
       catalog
         .filter((game) => game.key === 'dice')
@@ -151,8 +154,11 @@ describe('Games owns the platform catalogue', () => {
     );
     mount(<GamesPage />, '/games');
     expect(await screen.findByRole('heading', { name: 'Dice' })).toBeInTheDocument();
-    expect(screen.getByText('Temporarily unavailable')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Dice/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Group play')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Dice/ })).toHaveAttribute(
+      'href',
+      '/play-together?game=dice'
+    );
     expect(screen.queryByText(/Bet:/)).not.toBeInTheDocument();
   });
   it('preserves sign-in recovery for an unavailable session', async () => {
@@ -212,23 +218,39 @@ describe('Casino owns provider tests', () => {
   });
 });
 
-describe('member navigation distinguishes own and provider games', () => {
+describe('member navigation distinguishes shared and provider games', () => {
   it.each([
-    ['/games', 'Games'],
-    ['/games/dice', 'Games'],
-    ['/games/crash-point', 'Games'],
-    ['/games/turbo-keno', 'Games'],
-    ['/games/spin-win/play', 'Games'],
-    ['/games/trivia', 'Games'],
-    ['/games/history', 'Games'],
+    ['/play-together', 'Play together'],
+    ['/play-together/round/example', 'Play together'],
     ['/casino', 'Casino'],
     ['/games/provider-demos', 'Casino'],
   ])('marks %s as belonging only to %s', (path, active) => {
     mount(<Sidebar />, path);
     expect(screen.getByRole('link', { name: active })).toHaveAttribute('aria-current', 'page');
-    const other = active === 'Games' ? 'Casino' : 'Games';
+    const other = active === 'Play together' ? 'Casino' : 'Play together';
     expect(screen.getByRole('link', { name: other })).not.toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Games' })).toHaveAttribute('href', '/games');
+    expect(screen.getByRole('link', { name: 'Play together' })).toHaveAttribute(
+      'href',
+      '/play-together'
+    );
     expect(screen.getByRole('link', { name: 'Casino' })).toHaveAttribute('href', '/casino');
+  });
+  it.each([
+    '/games/dice',
+    '/games/crash-point',
+    '/games/turbo-keno',
+    '/games/spin-win/play',
+    '/games/trivia',
+    '/games/history',
+  ])('does not describe a legacy route %s as the shared lobby or provider casino', (path) => {
+    mount(<Sidebar />, path);
+    expect(screen.getByRole('link', { name: 'Play together' })).not.toHaveAttribute(
+      'aria-current',
+      'page'
+    );
+    expect(screen.getByRole('link', { name: 'Casino' })).not.toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 });

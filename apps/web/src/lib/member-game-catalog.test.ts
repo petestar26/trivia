@@ -27,8 +27,13 @@ function game(key: string, overrides: Partial<MemberGame> = {}): MemberGame {
 }
 
 const futureKeys = [
-  'trivia', 'turbo_circuit_3d', 'starfall_nebula',
-  'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush',
+  'trivia',
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
 ];
 const gatedRoutes = [
   ['number_challenge', '/games/number-challenge'],
@@ -46,12 +51,15 @@ const gatedRoutes = [
 ] as const;
 
 describe.each(futureKeys)('unfinished %s', (key) => {
-  it.each(['COMING_SOON', 'AVAILABLE', 'UNAVAILABLE'])('stays coming soon with API status %s', (catalogStatus) => {
-    const entry = game(key, { catalogStatus, practiceAvailable: true });
-    expect(memberGameDestination(entry)).toBeUndefined();
-    expect(memberGameLabel(entry)).toBe('Coming soon');
-    expect(memberGameUnavailableDescription(entry)).toBe('A new experience is on its way.');
-  });
+  it.each(['COMING_SOON', 'AVAILABLE', 'UNAVAILABLE'])(
+    'stays coming soon with API status %s',
+    (catalogStatus) => {
+      const entry = game(key, { catalogStatus, practiceAvailable: true });
+      expect(memberGameDestination(entry)).toBeUndefined();
+      expect(memberGameLabel(entry)).toBe('Coming soon');
+      expect(memberGameUnavailableDescription(entry)).toBe('A new experience is on its way.');
+    }
+  );
   it('keeps retirement precedence', () => {
     const entry = game(key, { catalogStatus: 'RETIRED', practiceAvailable: true });
     expect(memberGameDestination(entry)).toBeUndefined();
@@ -59,16 +67,19 @@ describe.each(futureKeys)('unfinished %s', (key) => {
   });
 });
 
-describe.each(gatedRoutes)('implemented %s', (key, destination) => {
-  it.each([undefined, false])('requires explicit practice availability (%s)', (practiceAvailable) => {
-    const entry = game(key, { practiceAvailable });
-    expect(memberGameDestination(entry)).toBeUndefined();
-    expect(memberGameLabel(entry)).toBe('Temporarily unavailable');
-  });
-  it('keeps its practice destination when the server enables it', () => {
+describe.each(gatedRoutes)('implemented %s', (key) => {
+  it.each([undefined, false])(
+    'opens only the group lobby when old solo practice availability is %s',
+    (practiceAvailable) => {
+      const entry = game(key, { practiceAvailable });
+      expect(memberGameDestination(entry)).toBe('/play-together?game=' + key);
+      expect(memberGameLabel(entry)).toBe('Group play');
+    }
+  );
+  it('opens group discovery without placing an entry', () => {
     const entry = game(key, { practiceAvailable: true });
-    expect(memberGameDestination(entry)).toBe(destination);
-    expect(memberGameLabel(entry)).toBe('Free practice');
+    expect(memberGameDestination(entry)).toBe('/play-together?game=' + key);
+    expect(memberGameLabel(entry)).toBe('Group play');
   });
   it('does not allow retired entries', () => {
     const entry = game(key, { catalogStatus: 'RETIRED', practiceAvailable: true });

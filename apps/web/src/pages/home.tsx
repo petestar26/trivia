@@ -9,6 +9,8 @@ import { GameArtwork } from '@/components/member/game-artwork';
 import { api, unwrapData } from '@/lib/api';
 import './home.css';
 import './lounge.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 interface LoungeGroup {
   id: string;
   name: string;
@@ -18,6 +20,8 @@ interface LoungeGroup {
   status: string;
 }
 export function HomePage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const { t } = useLanguage();
   const groups = useQuery({
@@ -32,21 +36,22 @@ export function HomePage() {
   return (
     <div className="salem-lounge">
       <div className="salem-welcome">
-        <span className="salem-eyebrow">SALEM BET</span>
+        <span className="salem-eyebrow">{'SALEM BET'}</span>
         <p>
-          Welcome back, <strong>{user?.displayName || user?.username || 'player'}</strong>
+          {translateUi('Welcome back,') + ' '}
+          <strong>{user?.displayName || user?.username || translateUi('player')}</strong>
         </p>
       </div>
       <section className="salem-hero">
         <img src="/art/ruby-grand/lounge.webp" alt="" />
         <div>
-          <span className="salem-eyebrow">YOUR GAMES. YOUR PEOPLE.</span>
+          <span className="salem-eyebrow">{translateUi('YOUR GAMES. YOUR PEOPLE.')}</span>
           <h1>
-            A little play.
+            {translateUi('A little play.')}
             <br />
-            <em>A shared moment.</em>
+            <em>{translateUi('A shared moment.')}</em>
           </h1>
-          <p>Find a favorite or bring your group together.</p>
+          <p>{translateUi('Find a favorite or bring your group together.')}</p>
           <div className="salem-hero-actions">
             <a className="salem-button" href="#our-games">
               {t('Our games')}
@@ -59,7 +64,7 @@ export function HomePage() {
           </div>
         </div>
       </section>
-      <nav className="salem-quick-links" aria-label="Quick access">
+      <nav className="salem-quick-links" aria-label={translateUi('Quick access')}>
         {[
           [Wallet, 'Wallet', '/wallet'],
           [Gift, 'Gifts', '/gifts'],
@@ -78,7 +83,7 @@ export function HomePage() {
       <section id="our-games" aria-labelledby="our-games-title">
         <div className="salem-section-heading">
           <div>
-            <span className="salem-eyebrow">SALEM ORIGINALS</span>
+            <span className="salem-eyebrow">{translateUi('SALEM ORIGINALS')}</span>
             <h2 id="our-games-title">{t('Our games')}</h2>
           </div>
           <Link to="/games/history">
@@ -92,9 +97,9 @@ export function HomePage() {
       <section className="salem-together" aria-labelledby="together-title">
         <div className="salem-section-heading">
           <div>
-            <span className="salem-eyebrow">BETTER TOGETHER</span>
+            <span className="salem-eyebrow">{translateUi('BETTER TOGETHER')}</span>
             <h2 id="together-title">{t('Play together')}</h2>
-            <p>One room. One result. Spin, Turbo Keno, or Dice.</p>
+            <p>{translateUi('One room. One result. Spin, Turbo Keno, or Dice.')}</p>
           </div>
           <Link to="/groups">
             {t('Groups')}
@@ -110,20 +115,23 @@ export function HomePage() {
             <Link to="/groups" key={key} className="salem-group-game">
               <GameArtwork kind={key} practiceAvailable />
               <div>
-                <h3>{name}</h3>
+                <h3>{translateUi(name)}</h3>
                 <span>
-                  2–20 players <ArrowUpRight size={14} />
+                  {translateUi('2–20 players') + ' '}
+                  <ArrowUpRight size={14} />
                 </span>
               </div>
             </Link>
           ))}
         </div>
         <p className="salem-footnote">
-          Group games use noncash Game Points. Open an active group to check availability.
+          {translateUi(
+            'Start with free practice points. Each player confirms their own entry; accepted rounds settle automatically.'
+          )}
         </p>
         {groups.isError ? (
           <p role="status">
-            Groups could not be loaded.{' '}
+            {translateUi('Groups could not be loaded.')}{' '}
             <button onClick={() => void groups.refetch()}>{t('Retry')}</button>
           </p>
         ) : (
@@ -134,7 +142,9 @@ export function HomePage() {
                   <Users size={18} />
                   <span>
                     <strong>{g.name}</strong>
-                    <small>{g.memberCount} members</small>
+                    <small>
+                      {translateUi('{memberCount} members', { memberCount: g.memberCount })}
+                    </small>
                   </span>
                   <ArrowRight size={15} />
                 </Link>
@@ -144,7 +154,7 @@ export function HomePage() {
         )}
       </section>
       <footer className="salem-lounge-footer">
-        <span>SALEM BET</span>
+        <span>{'SALEM BET'}</span>
         <Link to="/support">
           {t('Help center')}
           <ArrowUpRight size={14} />

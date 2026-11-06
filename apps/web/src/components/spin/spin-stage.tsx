@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { SpinWinWheel } from './spin-wheel';
 import { SpinInsights } from './spin-insights';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 export function SpinStage({
   mode,
   rotation,
@@ -22,23 +24,25 @@ export function SpinStage({
   balance?: ReactNode;
   children: ReactNode;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <section className="spin-stage mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <Link to="/games" className="text-primary-600 dark:text-primary-400">
-          ← Games
+          {translateUi('← Games')}
         </Link>
         <Link to="/groups" className="text-primary-600 dark:text-primary-400">
-          PVP · play in a group →
+          {translateUi('PVP · play in a group →')}
         </Link>
       </div>
       <GameRoundSummary
         game="Spin Win"
-        label="Latest number"
+        label={translateUi('Latest number')}
         value={number ?? 'Awaiting draw'}
         detail={
           <span role="status" aria-live="polite">
-            {status}
+            {typeof status === 'string' ? translateUi(status) : status}
           </span>
         }
         clock={mode === 'scheduled' ? balance : undefined}
@@ -53,31 +57,37 @@ export function SpinStage({
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d6b475]/20 bg-black/15 px-5 py-4 sm:px-7">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[.3em] text-[#ecd19b]">
-              Salem Bet originals
+              {translateUi('Salem Bet originals')}
             </p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Spin Win</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+              {translateUi('Spin Win')}
+            </h1>
           </div>
           <div className="text-right">
             <p className="text-[10px] uppercase tracking-widest text-emerald-100/60">
               {mode === 'coins'
-                ? 'Coin balance'
+                ? translateUi('Coin balance')
                 : mode === 'solo'
-                  ? 'Practice balance'
-                  : 'System table · one-minute rounds'}
+                  ? translateUi('Practice balance')
+                  : translateUi('System table · one-minute rounds')}
             </p>
             <div className="mt-1 font-semibold text-[#ffe2a1]">
               {mode === 'scheduled'
-                ? 'Free practice · ETB'
-                : (balance ?? 'One server result for every player')}
+                ? translateUi('Free practice · ETB')
+                : (balance ?? translateUi('One server result for every player'))}
             </div>
           </div>
         </header>
         <p className="border-b border-[#d6b475]/15 bg-black/10 px-5 py-2.5 text-xs text-emerald-100/75 sm:px-7">
           {mode === 'solo'
-            ? 'Practice mode · No cash is spent or won. Credits reset when you leave.'
+            ? translateUi('Practice mode · No cash is spent or won. Credits reset when you leave.')
             : mode === 'scheduled'
-              ? 'Practice only · No deposits, fees or redeemable prizes. Each confirmed ticket is locked to its round.'
-              : 'Coin mode · Server settlement · Confirm pending rounds before entering again.'}
+              ? translateUi(
+                  'Practice only · No deposits, fees or redeemable prizes. Each confirmed ticket is locked to its round.'
+                )
+              : translateUi(
+                  'Coin mode · Server settlement · Confirm pending rounds before entering again.'
+                )}
         </p>
         <div className="grid items-center gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_230px]">
           <div className="min-w-0">

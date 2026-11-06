@@ -382,8 +382,8 @@ class ApiClient {
     return this.post(`/groups/${groupId}/leave`);
   }
 
-  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number; latest?: boolean; before?: string }): Promise<ApiResponse<any>> {
-    return this.get(`/groups/${groupId}/messages`, params);
+  async getGroupMessages(groupId: string, params?: { page?: number; limit?: number; latest?: boolean; before?: string }, options?: { signal?: AbortSignal }): Promise<ApiResponse<any>> {
+    return this.get(`/groups/${groupId}/messages`, params, options);
   }
 
   // Group members

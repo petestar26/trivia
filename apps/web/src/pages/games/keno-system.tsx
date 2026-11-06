@@ -13,6 +13,8 @@ import { requestStatus } from '@/lib/request-error';
 import { drawKeno, parseKenoStake } from '@/lib/keno-practice';
 import { KenoMachine } from './keno';
 import './keno.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 const endpoint = '/games/system-keno';
 interface Entry {
   roundId: string;
@@ -50,6 +52,8 @@ export function SystemKenoPage() {
   return user ? <SystemKeno key={user.id} userId={user.id} /> : null;
 }
 function SystemKeno({ userId }: { userId: string }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { coinsBalance, walletLoading, walletError } = useCasino();
   const [clock, setClock] = useState(performance.now());
   const [slot, setSlot] = useState(1);
@@ -237,12 +241,18 @@ function SystemKeno({ userId }: { userId: string }) {
   return (
     <div className="keno-page keno-system">
       <div className="keno-navigation">
-        <Link to="/games">← Games</Link>
-        <Link to="/groups">PVP · play in a group →</Link>
+        <Link to="/games">{translateUi('← Games')}</Link>
+        <Link to="/groups">{translateUi('PVP · play in a group →')}</Link>
       </div>
       <GameRoundSummary
         game="Keno"
-        label={count === 20 ? 'Draw result' : count ? 'Ball reveal' : 'Keno draw'}
+        label={
+          count === 20
+            ? translateUi('Draw result')
+            : count
+              ? translateUi('Ball reveal')
+              : translateUi('Keno draw')
+        }
         value={
           count
             ? `${count}/20 balls${count === 20 && ticket ? ` · ${hits.length} matches` : ''}`
@@ -259,71 +269,78 @@ function SystemKeno({ userId }: { userId: string }) {
         }
         clock={`${!connected ? 'Reconnecting · ' : ''}${open ? 'Closes' : 'Next round'} ${seconds}s`}
       />
-      <section className="keno-stage" aria-label="System Keno practice">
+      <section className="keno-stage" aria-label={translateUi('System Keno practice')}>
         <header className="keno-header">
           <div>
-            <p className="keno-eyebrow">SALEM BET ORIGINALS · SYSTEM TABLE</p>
+            <p className="keno-eyebrow">{translateUi('SALEM BET ORIGINALS · SYSTEM TABLE')}</p>
             <h1>
-              Turbo <span>Keno</span>
+              {translateUi('Turbo') + ' '}
+              <span>{translateUi('Keno')}</span>
             </h1>
-            <p>One new round every minute.</p>
+            <p>{translateUi('One new round every minute.')}</p>
           </div>
           <div className="keno-balances">
             {!PRACTICE_ETB && (
               <div className="keno-wallet">
-                <span>ACCOUNT BALANCE</span>
+                <span>{translateUi('ACCOUNT BALANCE')}</span>
                 <strong>
                   {walletLoading
-                    ? 'Loading…'
+                    ? translateUi('Loading…')
                     : walletError
-                      ? 'Unavailable'
+                      ? translateUi('Unavailable')
                       : formatEtb(coinsBalance)}
                 </strong>
-                <small>Not used in practice</small>
+                <small>{translateUi('Not used in practice')}</small>
               </div>
             )}
             <div className="keno-balance">
-              <span>PRACTICE BALANCE</span>
-              <strong>{s?.balance.toLocaleString() ?? '—'}</strong>
-              <small>ETB · no cash value</small>
+              <span>{translateUi('PRACTICE BALANCE')}</span>
+              <strong>{s?.balance.toLocaleString(interfaceLocale) ?? '—'}</strong>
+              <small>{translateUi('ETB · no cash value')}</small>
             </div>
           </div>
         </header>
         <div className="keno-economics">
-          <span>90% theoretical return</span>
-          <span>10% expected house edge</span>
-          <span>3.6× return per matching number</span>
+          <span>{translateUi('90% theoretical return')}</span>
+          <span>{translateUi('10% expected house edge')}</span>
+          <span>{translateUi('3.6× return per matching number')}</span>
         </div>
         <div className="keno-practice-note">
-          Server practice · No deposits or redeemable prizes · 45 seconds to enter, 15
-          seconds for results
+          {translateUi(
+            'Server practice · No deposits or redeemable prizes · 45 seconds to enter, 15 seconds for results'
+          )}
         </div>
         {!connected && (
           <p role="alert" className="px-6 py-3">
             {query.isPending
-              ? 'Connecting to the system table…'
+              ? translateUi('Connecting to the system table…')
               : requestStatus(query.error) === 401
-                ? 'Your session has expired. Sign in again to play.'
+                ? translateUi('Your session has expired. Sign in again to play.')
                 : [403, 404].includes(requestStatus(query.error))
-                  ? 'This Keno table is currently unavailable. Please return to the casino.'
-                  : 'Reconnecting. Ticket entry is paused until a fresh server update arrives.'}
+                  ? translateUi(
+                      'This Keno table is currently unavailable. Please return to the casino.'
+                    )
+                  : translateUi(
+                      'Reconnecting. Ticket entry is paused until a fresh server update arrives.'
+                    )}
           </p>
         )}
         {connected && !round && (
           <p role="status" className="px-6 py-3">
-            Waiting for the next scheduled round…
+            {translateUi('Waiting for the next scheduled round…')}
           </p>
         )}
-        <div className="keno-ticket-tabs" role="group" aria-label="Keno tickets">
+        <div className="keno-ticket-tabs" role="group" aria-label={translateUi('Keno tickets')}>
           {slots.map((n) => (
             <button key={n} aria-pressed={slot === n} onClick={() => setSlot(n)}>
-              Bet {n}
+              {translateUi('Bet') + ' '}
+              {n}
               <small>
                 {tickets.some((t) => t.slot === n)
-                  ? 'Confirmed'
+                  ? translateUi('Confirmed')
                   : pending && pending.roundId === round?.id && (pending.slot ?? 1) === n
-                    ? 'Checking'
-                    : 'Draft'}
+                    ? translateUi('Checking')
+                    : translateUi('Draft')}
               </small>
             </button>
           ))}
@@ -342,32 +359,50 @@ function SystemKeno({ userId }: { userId: string }) {
                 }
               }}
             >
-              + Add bet
+              {translateUi('+ Add bet')}
             </button>
           )}
         </div>
         <p className="keno-ticket-help">
-          Bet {slot} · Up to {maxTickets} tickets per round · Each ticket is confirmed separately
+          {translateUi(
+            'Bet {slot} · Up to {maxTickets} tickets per round · Each ticket is confirmed separately',
+            { slot: slot, maxTickets: maxTickets }
+          )}
         </p>
         {storageError && (
           <p role="alert" className="keno-storage">
-            {storageError}
+            {translateUi(storageError)}
           </p>
         )}
         <div className="keno-layout">
           <div className="keno-board-panel">
             <div className="keno-draw-heading">
-              <h2>{open ? 'PLACE YOUR TICKET' : round ? 'ENTRIES LOCKED' : 'SYSTEM TABLE'}</h2>
-              <span role="timer" aria-label={open ? 'Betting closes in' : 'Next round in'}>
-                {String(seconds).padStart(2, '0')}s <b>{count}/20</b>
+              <h2>
+                {open
+                  ? translateUi('PLACE YOUR TICKET')
+                  : round
+                    ? translateUi('ENTRIES LOCKED')
+                    : translateUi('SYSTEM TABLE')}
+              </h2>
+              <span
+                role="timer"
+                aria-label={open ? translateUi('Betting closes in') : translateUi('Next round in')}
+              >
+                {String(seconds).padStart(2, '0')}
+                {translateUi('sec') + ' '}
+                <b>{count}/20</b>
               </span>
             </div>
-            <div className="keno-board" role="group" aria-label="Choose Keno numbers">
+            <div
+              className="keno-board"
+              role="group"
+              aria-label={translateUi('Choose Keno numbers')}
+            >
               {Array.from({ length: 80 }, (_, i) => i + 1).map((n) => (
                 <button
                   key={n}
                   type="button"
-                  aria-label={`Number ${n}`}
+                  aria-label={translateUi('Number {n}', { n: n })}
                   aria-pressed={picks.includes(n)}
                   disabled={locked}
                   onClick={() => toggle(n)}
@@ -386,40 +421,50 @@ function SystemKeno({ userId }: { userId: string }) {
             <div className="keno-legend">
               <span>
                 <i className="legend-selected" />
-                Selected
+                {translateUi('Selected')}
               </span>
               <span>
                 <i className="legend-drawn" />
-                Drawn
+                {translateUi('Drawn')}
               </span>
               <span>
                 <i className="legend-hit" />
-                Match
+                {translateUi('Match')}
               </span>
             </div>
           </div>
           <aside className="keno-machine-panel">
             <div className="keno-machine-title">
-              <span>SERVER BALL REVEAL</span>
-              <strong>{open ? 'Waiting for the draw' : `${count} of 20`}</strong>
+              <span>{translateUi('SERVER BALL REVEAL')}</span>
+              <strong>
+                {open
+                  ? translateUi('Waiting for the draw')
+                  : translateUi('{count} of 20', { count: count })}
+              </strong>
             </div>
             <KenoMachine number={drawn.at(-1) ?? null} running={!!display?.outcome && count < 20} />
             <div className="keno-result" role="status">
               {count === 20
                 ? ticket
-                  ? `${hits.length} matches · ${ticket.payout === null ? 'Return pending' : `${ticket.payout} ETB returned`}`
-                  : 'Draw complete'
+                  ? translateUi('{length} matches · {value}', {
+                      length: hits.length,
+                      value:
+                        ticket.payout === null
+                          ? translateUi('Return pending')
+                          : translateUi('{payout} ETB returned', { payout: ticket.payout }),
+                    })
+                  : translateUi('Draw complete')
                 : count
-                  ? `${count} of 20 balls revealed`
+                  ? translateUi('{count} of 20 balls revealed', { count: count })
                   : ticket
-                    ? 'Ticket confirmed. Waiting for the draw.'
-                    : 'Select your numbers before the countdown ends.'}
+                    ? translateUi('Ticket confirmed. Waiting for the draw.')
+                    : translateUi('Select your numbers before the countdown ends.')}
             </div>
           </aside>
         </div>
         <div className="keno-stake-panel">
           <div>
-            <label htmlFor="system-keno-stake">Bet amount per number</label>
+            <label htmlFor="system-keno-stake">{translateUi('Bet amount per number')}</label>
             <div className="keno-stake-row">
               <input
                 id="system-keno-stake"
@@ -428,23 +473,28 @@ function SystemKeno({ userId }: { userId: string }) {
                 onChange={(e) => updateDraft({ stakeText: e.target.value })}
                 disabled={locked}
               />
-              <span>practice ETB</span>
+              <span>{translateUi('practice ETB')}</span>
             </div>
-            <p>Steps of 5 · Maximum 480 ETB per ticket</p>
+            <p>{translateUi('Steps of 5 · Maximum 480 ETB per ticket')}</p>
           </div>
           <div className="keno-ticket-summary">
-            <span>TOTAL BET</span>
-            <strong>{cost} ETB</strong>
+            <span>{translateUi('TOTAL BET')}</span>
+            <strong>{translateUi('{cost} ETB', { cost: cost })}</strong>
             <small>
-              {picks.length} numbers × {shownStake || '—'} ETB
+              {translateUi('{length} numbers × {value} ETB', {
+                length: picks.length,
+                value: shownStake || '—',
+              })}
             </small>
           </div>
         </div>
         <div className="keno-controls">
           <div>
-            <h2>{picks.length}/10 numbers selected</h2>
-            <p>{notice}</p>
-            <p className="keno-picks">{picks.join(' · ') || 'Your selections appear here'}</p>
+            <h2>{translateUi('{length}/10 numbers selected', { length: picks.length })}</h2>
+            <p>{translateUi(notice)}</p>
+            <p className="keno-picks">
+              {picks.join(' · ') || translateUi('Your selections appear here')}
+            </p>
           </div>
           <div className="keno-actions">
             <button
@@ -457,10 +507,10 @@ function SystemKeno({ userId }: { userId: string }) {
                 });
               }}
             >
-              Quick pick 5
+              {translateUi('Quick pick 5')}
             </button>
             <button disabled={locked || !picks.length} onClick={() => updateDraft({ picks: [] })}>
-              Clear
+              {translateUi('Clear')}
             </button>
             <button
               className="keno-play"
@@ -476,50 +526,54 @@ function SystemKeno({ userId }: { userId: string }) {
               }
             >
               {ticket
-                ? 'Ticket confirmed'
+                ? translateUi('Ticket confirmed')
                 : pending
-                  ? 'Checking ticket…'
-                  : `Confirm ticket · ${cost} ETB`}
+                  ? translateUi('Checking ticket…')
+                  : translateUi('Confirm ticket · {cost} ETB', { cost: cost })}
             </button>
           </div>
         </div>
         {pending && !mutation.isPending && (
           <div className="px-6 pb-4">
             <button disabled={!connected} onClick={() => submit(pending)}>
-              Retry unconfirmed ticket
+              {translateUi('Retry unconfirmed ticket')}
             </button>
           </div>
         )}
-        <section className="keno-saved-tickets" aria-label="Saved tickets">
+        <section className="keno-saved-tickets" aria-label={translateUi('Saved tickets')}>
           {tickets.map((t) => (
             <article key={t.slot}>
               <header>
-                <strong>Bet {t.slot}</strong>
-                <span>{t.stake} ETB</span>
+                <strong>{translateUi('Bet {slot}', { slot: t.slot })}</strong>
+                <span>{translateUi('{stake} ETB', { stake: t.stake })}</span>
               </header>
               <p>{t.picks.join(' · ')}</p>
               <small>
                 {count === 20
-                  ? `${t.picks.filter((n) => drawn.includes(n)).length} matches · ${t.payout === null ? 'Return pending' : `${t.payout} ETB returned`}`
-                  : 'Confirmed · waiting for draw'}
+                  ? translateUi('{length} matches · {value}', {
+                      length: t.picks.filter((n) => drawn.includes(n)).length,
+                      value:
+                        t.payout === null
+                          ? translateUi('Return pending')
+                          : translateUi('{payout} ETB returned', { payout: t.payout }),
+                    })
+                  : translateUi('Confirmed · waiting for draw')}
               </small>
             </article>
           ))}
         </section>
         <footer className="keno-footer">
           <details>
-            <summary>Rules & recent server draws</summary>
+            <summary>{translateUi('Rules & recent server draws')}</summary>
             <p>
-              Choose 1–10 numbers from 1–80. Each matching number returns 3.6× its stake, including
-              the original stake on that number. Twenty different numbers are drawn. The 25% chance
-              × 3.6× return gives 90% theoretical return over repeated play.
+              {translateUi(
+                'Choose 1–10 numbers from 1–80. Each matching number returns 3.6× its stake, including the original stake on that number. Twenty different numbers are drawn. The 25% chance × 3.6× return gives 90% theoretical return over repeated play.'
+              )}
             </p>
             <p>
-              The server runs a new round every minute, including when nobody is watching. Entries
-              close after 45 seconds. Refreshing or reconnecting restores your saved ticket and
-              result. You can confirm up to 10 separate tickets before the deadline. Confirmed
-              tickets cannot be edited. Tickets are never placed automatically. Group PVP uses
-              separate rules and a 7% completion fee.
+              {translateUi(
+                'The server runs a new round every minute, including when nobody is watching. Entries close after 45 seconds. Refreshing or reconnecting restores your saved ticket and result. You can confirm up to 10 separate tickets before the deadline. Confirmed tickets cannot be edited. Tickets are never placed automatically. Group PVP uses separate rules and a 7% completion fee.'
+              )}
             </p>
             <ol>
               {s?.rounds
@@ -529,8 +583,11 @@ function SystemKeno({ userId }: { userId: string }) {
                     <strong>{r.id}</strong> · {r.outcome!.join(', ')}
                     {(r.tickets ?? (r.ticket ? [{ ...r.ticket, slot: 1 }] : [])).map((t) => (
                       <span key={t.slot}>
-                        {' '}
-                        · Bet {t.slot}: {t.payout ?? 'pending'} ETB
+                        {' ' +
+                          translateUi('· Bet {slot}: {value} ETB', {
+                            slot: t.slot,
+                            value: t.payout ?? translateUi('pending'),
+                          })}
                       </span>
                     ))}
                   </li>

@@ -1,8 +1,9 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
+import { CHAT_REACTIONS } from '@socialplay/shared';
 
 const getGroupMessages = vi.fn();
 const post = vi.fn();
@@ -11,6 +12,7 @@ let roomClosed=false;
 let canModerate=false;
 const socketListeners=new Map<string,(event?:unknown)=>void>();
 let testSocket:object|null=null;
+let testUserId='me';
 
 vi.mock('@/lib/api', () => ({
   unwrapData: (value:any)=>value.data,
@@ -26,7 +28,7 @@ vi.mock('@/providers/socket-provider', () => ({
   useSocket: () => ({ socket: testSocket, isConnected: !!testSocket }),
 }));
 
-vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: 'me' } }) }));
+vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: testUserId } }) }));
 vi.mock('@/components/voice/voice-message-player', () => ({ VoiceMessagePlayer: () => <div>Playable voice message</div> }));
 
 import { MessagesPage } from './messages';
@@ -45,6 +47,7 @@ afterEach(() => {
   post.mockReset();
   deleteMessage.mockReset();roomClosed=false;canModerate=false;
   testSocket=null;socketListeners.clear();
+  testUserId='me';
 });
 
 function renderAtGroup(groupId = 'group-1', client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
@@ -184,7 +187,7 @@ it('renders authoritative gift cards alongside free reactions and requests lates
   renderAtGroup();expect(await screen.findByText('Gift delivered')).toBeInTheDocument();expect(screen.getByText('Golden Heart')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'Add reaction'}));
   expect(screen.getByRole('button',{name:'Love'})).toBeInTheDocument();expect(screen.getByRole('button',{name:'Open gifts'})).toBeInTheDocument();
-  expect(getGroupMessages).toHaveBeenCalledWith('group-1',{limit:50,latest:true});
+  expect(getGroupMessages).toHaveBeenCalledWith('group-1',{limit:50,latest:true,before:undefined},{signal:expect.any(AbortSignal)});
 });
 
 it('retains a newer draft while an earlier message is sending',async()=>{
@@ -250,7 +253,7 @@ describe('closed chat moderation',()=>{
 it('removes only the deleted older message and preserves the reader’s loaded history',async()=>{
   const row=(id:string)=>({id,content:`History ${id}`,createdAt:'2026-10-03T00:00:00Z',sender:{id:'other'}});
   const latest=Array.from({length:50},(_,i)=>row(`new-${i}`));
-  const older=[row('old-1'),row('old-2'),row('old-3')];
+  let older=[row('old-1'),row('old-2'),row('old-3')];
   getGroupMessages.mockImplementation(async(_id,options)=>({data:options.before?older:latest}));
   testSocket={on:(name:string,fn:(value?:unknown)=>void)=>socketListeners.set(name,fn),
     off:(name:string)=>socketListeners.delete(name),emit:vi.fn()};
@@ -260,6 +263,7 @@ it('removes only the deleted older message and preserves the reader’s loaded h
   Object.defineProperties(scroller,{scrollHeight:{value:2000},clientHeight:{value:500}});
   fireEvent.scroll(scroller,{target:{scrollTop:0}});
   vi.mocked(Element.prototype.scrollIntoView).mockClear();
+  older=older.filter(item=>item.id!=='old-2');
   act(()=>socketListeners.get('message:deleted')?.({messageId:'old-2'}));
   await waitFor(()=>expect(screen.queryByText('History old-2')).not.toBeInTheDocument());
   expect(screen.getByText('History old-1')).toBeInTheDocument();
@@ -268,4 +272,106 @@ it('removes only the deleted older message and preserves the reader’s loaded h
   expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   act(()=>socketListeners.get('message:deleted')?.({messageId:123}));
   expect(screen.getByText('History old-1')).toBeInTheDocument();
+});
+
+// Model the real cursor API so refetching across a moving latest-page boundary
+// must derive the next cursor from the freshly fetched page, not a stale one.
+function pagedHistory() {
+  let rows = Array.from({ length: 103 }, (_, i) => ({
+    id: `history-${i}`, content: `Message ${i}`, createdAt: new Date(2026, 0, 1, 0, i).toISOString(),
+    sender: { id: 'other', username: 'Friend' }, reactions: [] as { type: string; userId: string }[],
+  }));
+  getGroupMessages.mockImplementation(async (_id, options) => {
+    const end = options.before ? rows.findIndex(row => row.id === options.before) : rows.length;
+    if (end < 0) throw new Error('Stale cursor');
+    return { data: structuredClone(rows.slice(Math.max(0, end - 50), end)) };
+  });
+  testSocket = { on: (name: string, fn: (value?: unknown) => void) => socketListeners.set(name, fn),
+    off: (name: string) => socketListeners.delete(name), emit: vi.fn() };
+  return { rows, remove: (id: string) => { rows = rows.filter(row => row.id !== id); } };
+}
+async function showAllHistory() {
+  renderAtGroup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Load earlier messages' }));
+  await screen.findByText('Message 3');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Load earlier messages' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Load earlier messages' }));
+  await screen.findByText('Message 0');
+}
+it('reconciles edits and reactions on every loaded page without scrolling to the latest message', async () => {
+  const server = pagedHistory();
+  await showAllHistory();
+  const scroller = screen.getByText('Message 0').closest('.overflow-y-auto')!;
+  Object.defineProperties(scroller, { scrollHeight: { value: 6000 }, clientHeight: { value: 500 } });
+  fireEvent.scroll(scroller, { target: { scrollTop: 100 } });
+  vi.mocked(Element.prototype.scrollIntoView).mockClear();
+  server.rows[1].content = 'Corrected older message';
+  act(() => socketListeners.get('message:updated')?.({ content: 'Untrusted event content' }));
+  await screen.findByText('Corrected older message');
+  expect(screen.queryByText('Message 1')).not.toBeInTheDocument();
+  expect(screen.queryByText('Untrusted event content')).not.toBeInTheDocument();
+  server.rows[1].reactions = [{ type: CHAT_REACTIONS[0].type, userId: 'me' }];
+  act(() => socketListeners.get('reaction:added')?.());
+  const article = screen.getByText('Corrected older message').closest('article')!;
+  expect(await within(article).findByRole('button', { name: CHAT_REACTIONS[0].label })).toHaveAttribute('aria-pressed', 'true');
+  server.rows[1].reactions = [];
+  act(() => socketListeners.get('reaction:removed')?.());
+  await waitFor(() => expect(within(article).queryByRole('button', { name: CHAT_REACTIONS[0].label })).not.toBeInTheDocument());
+  expect(screen.getByText('Message 0')).toBeInTheDocument();
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+});
+it('removes missed deletions after reconnect and fills the moving latest-page boundary', async () => {
+  const server = pagedHistory();
+  await showAllHistory();
+  server.rows.push({ ...server.rows[102], id: 'new-after-disconnect', content: 'New while away' });
+  server.remove('history-1');
+  act(() => socketListeners.get('connect')?.());
+  await screen.findByText('New while away');
+  await waitFor(() => expect(screen.queryByText('Message 1')).not.toBeInTheDocument());
+  for (const i of [0, 2, 3, 52, 53, 102]) expect(screen.getByText(`Message ${i}`)).toBeInTheDocument();
+  expect(document.querySelectorAll('[data-message-id]')).toHaveLength(103);
+});
+it('leaves loaded history available when an older-page refresh fails and recovers on the next reconnect', async () => {
+  const server = pagedHistory();
+  await showAllHistory();
+  const read = getGroupMessages.getMockImplementation()!;
+  getGroupMessages.mockImplementation(async (...args) => {
+    if (args[1].before) throw new Error('Temporarily unavailable');
+    return read(...args);
+  });
+  act(() => socketListeners.get('connect')?.());
+  await screen.findByText(/Failed to load messages/);
+  expect(screen.getByText('Message 0')).toBeInTheDocument();
+  server.remove('history-0');
+  getGroupMessages.mockImplementation(read);
+  act(() => socketListeners.get('connect')?.());
+  await waitFor(() => expect(screen.queryByText('Message 0')).not.toBeInTheDocument());
+  expect(screen.queryByText(/Failed to load messages/)).not.toBeInTheDocument();
+  expect(screen.getByText('Message 2')).toBeInTheDocument();
+});
+it.each(['success', 'failure'])('cancels an older-page request on account change and ignores its late %s', async outcome => {
+  const row = (id: string) => ({ id, content: id, createdAt: '2026-01-01T00:00:00Z', sender: { id: 'other' } });
+  let finish!: (value: unknown) => void;
+  let fail!: (reason: Error) => void;
+  let signal!: AbortSignal;
+  getGroupMessages.mockImplementation(async (_id, options, request) => {
+    if (testUserId === 'second-account') return { data: [row('Second account history')] };
+    if (!options.before) return { data: Array.from({ length: 50 }, (_, i) => row(`First account ${i}`)) };
+    signal = request.signal;
+    return new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+  });
+  const page = renderAtGroup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Load earlier messages' }));
+  await waitFor(() => expect(signal).toBeDefined());
+  testUserId = 'second-account';
+  page.rerender(<Routes><Route path="/messages/:groupId" element={<MessagesPage />} /></Routes>);
+  await screen.findByText('Second account history');
+  expect(signal.aborted).toBe(true);
+  await act(async () => {
+    if (outcome === 'success') finish({ data: [row('Private late first account history')] });
+    else fail(new Error('Private late first account error'));
+  });
+  expect(screen.queryByText(/First account|Private late/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByText('Second account history')).toBeInTheDocument();
 });

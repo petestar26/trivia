@@ -10,24 +10,37 @@ it.each([
   ['dice', '/games/dice'],
   ['crash_point', '/games/crash-point'],
   ['turbo_keno', '/games/turbo-keno'],
-])('requires the server to confirm %s practice before offering its route', (key, route) => {
+])('routes %s to group rules without releasing its old solo practice', (key, _route) => {
   const game = { key, catalogStatus: 'COMING_SOON', isActive: false } as MemberGame;
   for (const practiceAvailable of [undefined, false]) {
-    expect(memberGameDestination({ ...game, practiceAvailable })).toBeUndefined();
-    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Temporarily unavailable');
+    expect(memberGameDestination({ ...game, practiceAvailable })).toBe(
+      '/play-together?game=' + key
+    );
+    expect(memberGameLabel({ ...game, practiceAvailable })).toBe('Group play');
   }
-  expect(memberGameDestination({ ...game, practiceAvailable: true })).toBe(route);
-  expect(memberGameLabel({ ...game, practiceAvailable: true })).toBe('Free practice');
-  expect(memberGameDestination({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })).toBeUndefined();
+  expect(memberGameDestination({ ...game, practiceAvailable: true })).toBe(
+    '/play-together?game=' + key
+  );
+  expect(memberGameLabel({ ...game, practiceAvailable: true })).toBe('Group play');
+  expect(
+    memberGameDestination({ ...game, practiceAvailable: true, catalogStatus: 'RETIRED' })
+  ).toBeUndefined();
   for (const practiceAvailable of [undefined, false, true]) {
-    expect(memberGameLabel({ ...game, practiceAvailable, catalogStatus: 'RETIRED' })).toBe('Unavailable');
+    expect(memberGameLabel({ ...game, practiceAvailable, catalogStatus: 'RETIRED' })).toBe(
+      'Unavailable'
+    );
   }
 });
 
-it.each(['turbo_circuit_3d', 'starfall_nebula', 'jungle_dash_3d', 'crystal_trail', 'heat_vault', 'strait_rush'])(
-  'keeps genuine future game %s coming soon without offering entry', (key) => {
-    const game = { key, catalogStatus: 'COMING_SOON', isActive: false } as MemberGame;
-    expect(memberGameLabel(game)).toBe('Coming soon');
-    expect(memberGameDestination(game)).toBeUndefined();
-  }
-);
+it.each([
+  'turbo_circuit_3d',
+  'starfall_nebula',
+  'jungle_dash_3d',
+  'crystal_trail',
+  'heat_vault',
+  'strait_rush',
+])('keeps genuine future game %s coming soon without offering entry', (key) => {
+  const game = { key, catalogStatus: 'COMING_SOON', isActive: false } as MemberGame;
+  expect(memberGameLabel(game)).toBe('Coming soon');
+  expect(memberGameDestination(game)).toBeUndefined();
+});

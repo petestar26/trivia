@@ -1,0 +1,22 @@
+RUN  v1.6.1 /Users/petestar/Desktop/Game/salem-play-together/apps/web
+
+stderr | src/components/member/dashboard-highlights.test.tsx > dashboard confirmed practice-return board > shows the ten highest individual returns with explicit period, stake and alias meanings
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/member/dashboard-highlights.test.tsx  (16 tests) 425ms
+ ✓ src/lib/system-practice-catalog.test.ts  (14 tests) 3ms
+stderr | src/components/layout/mobile-navigation.test.tsx > provides six real destinations including sports and marks the current section
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/components/layout/mobile-navigation.test.tsx  (4 tests) 77ms
+ ✓ src/lib/football-catalog.test.ts  (3 tests) 2ms
+ ✓ src/lib/derby-catalog.test.ts  (3 tests) 1ms
+ ✓ src/lib/number-challenge-catalog.test.ts  (3 tests) 2ms
+ ✓ src/lib/sky-crash-catalog.test.ts  (3 tests) 2ms
+
+ Test Files  7 passed (7)
+      Tests  46 passed (46)
+   Start at  06:28:13
+   Duration  5.28s (transform 187ms, setup 726ms, collect 695ms, tests 512ms, environment 2.24s, prepare 442ms)

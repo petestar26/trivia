@@ -55,14 +55,18 @@ const matches = (path, mode = 'navigate') =>
   );
 
 test('the release is installable with a stable identity and real home-screen icons', async () => {
-  const manifest = JSON.parse(await readFile(new URL('./dist/manifest.webmanifest', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(
+    await readFile(new URL('./dist/manifest.webmanifest', import.meta.url), 'utf8')
+  );
   assert.equal(manifest.name, 'Salem Bet');
   assert.equal(manifest.id, '/');
   assert.equal(manifest.start_url, '/');
   assert.equal(manifest.scope, '/');
   assert.equal(manifest.display, 'standalone');
   for (const size of [192, 512]) {
-    const icon = manifest.icons.find(icon => icon.sizes === `${size}x${size}` && icon.type === 'image/png');
+    const icon = manifest.icons.find(
+      (icon) => icon.sizes === `${size}x${size}` && icon.type === 'image/png'
+    );
     assert.ok(icon, `Missing ${size}px install icon`);
     assert.match(icon.src, /^\/icons\/[^/]+\.png$/);
     const bytes = await readFile(new URL(`./dist${icon.src}`, import.meta.url));
@@ -203,4 +207,24 @@ test('Football face is a small local optional asset, not install precache', asyn
     precache.some((entry) => /models\/football\//.test(entry.url)),
     false
   );
+});
+
+test('the app entry and all language packs are available in the install cache', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const html = await readFile(new URL('./dist/index.html', import.meta.url), 'utf8');
+  const entry = html.match(/<script[^>]*type="module"[^>]*src="([^"]+)"/)?.[1];
+  assert.ok(entry, 'Release entry is present');
+  const cached = new Set(precache.map((item) => item.url.replace(/^\//, '')));
+  assert.ok(cached.has(entry.replace(/^\//, '')), 'The offline app must include its entry module');
+  const packs = (await readdir(new URL('./dist/assets/', import.meta.url))).filter((name) =>
+    /^translations-.*\.js$/.test(name)
+  );
+  assert.equal(packs.length, 4, 'Every static catalogue group ships in the release');
+  for (const pack of packs) {
+    assert.ok(cached.has('assets/' + pack), pack + ' must be cached for offline language changes');
+    assert.ok(
+      (await stat(new URL('./dist/assets/' + pack, import.meta.url))).size < 2 * 1024 * 1024,
+      pack + ' must stay below the default cache size limit'
+    );
+  }
 });

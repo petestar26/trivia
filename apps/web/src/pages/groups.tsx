@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const NAME_MIN = 2;
 const NAME_MAX = 100;
@@ -37,12 +39,18 @@ interface GroupSummary {
 // @/lib/groups-query-keys so the two pages cannot drift apart.
 
 export function GroupsPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   // Resolves directly to the array; the render path uses it as-is.
-  const { data: groups = [], isLoading, isError } = useQuery<GroupSummary[]>({
+  const {
+    data: groups = [],
+    isLoading,
+    isError,
+  } = useQuery<GroupSummary[]>({
     queryKey: GROUPS_QUERY_KEY,
     queryFn: async () => (await api.listGroups({ limit: 50 })).data ?? [],
   });
@@ -80,23 +88,31 @@ export function GroupsPage() {
   }
 
   /** Associates the shared form-error alert with the field(s) it describes. */
-  function fieldErrorProps(fieldId: string): { 'aria-invalid'?: true; 'aria-describedby'?: string } {
+  function fieldErrorProps(fieldId: string): {
+    'aria-invalid'?: true;
+    'aria-describedby'?: string;
+  } {
     if (!formError || !formErrorFields.includes(fieldId)) return {};
     return { 'aria-invalid': true, 'aria-describedby': 'create-group-error' };
   }
 
   const createMutation = useMutation({
-    mutationFn: (body: { name: string; description?: string; isPrivate: boolean }) => api.createGroup(body),
+    mutationFn: (body: { name: string; description?: string; isPrivate: boolean }) =>
+      api.createGroup(body),
     onSuccess: () => {
       for (const queryKey of GROUP_LIST_QUERY_KEYS) {
         queryClient.invalidateQueries({ queryKey });
       }
       resetCreateForm();
-      toast({ title: 'Group created' });
+      toast({ title: <LocalizedText message="Group created" /> });
     },
     onError: (err) => {
       let msg = 'Failed to create group';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
       setFormError(msg);
       setFormErrorFields([]);
     },
@@ -133,10 +149,18 @@ export function GroupsPage() {
   const createGroupForm = (
     <Card>
       <CardContent className="pt-6">
-        <form id="create-group-form" onSubmit={handleCreateSubmit} className="space-y-3" aria-label="Create group">
+        <form
+          id="create-group-form"
+          onSubmit={handleCreateSubmit}
+          className="space-y-3"
+          aria-label={translateUi('Create group')}
+        >
           <div>
-            <label htmlFor="new-group-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Name
+            <label
+              htmlFor="new-group-name"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              {translateUi('Name')}
             </label>
             <Input
               id="new-group-name"
@@ -144,14 +168,18 @@ export function GroupsPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={NAME_MAX}
-              placeholder="Group name"
+              placeholder={translateUi('Group name')}
               disabled={createMutation.isPending}
               {...fieldErrorProps('new-group-name')}
             />
           </div>
           <div>
-            <label htmlFor="new-group-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Description <span className="text-gray-400 font-normal">(optional)</span>
+            <label
+              htmlFor="new-group-description"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
+              {translateUi('Description') + ' '}
+              <span className="text-gray-400 font-normal">{translateUi('(optional)')}</span>
             </label>
             <textarea
               id="new-group-description"
@@ -159,7 +187,7 @@ export function GroupsPage() {
               onChange={(e) => setDescription(e.target.value)}
               maxLength={DESCRIPTION_MAX}
               rows={2}
-              placeholder="What's this group about?"
+              placeholder={translateUi("What's this group about?")}
               disabled={createMutation.isPending}
               className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               {...fieldErrorProps('new-group-description')}
@@ -173,25 +201,41 @@ export function GroupsPage() {
               disabled={createMutation.isPending}
               className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Private group</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {translateUi('Private group')}
+            </span>
           </label>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
-            <strong>Chat, gifts and PVP games</strong>
-            <p className="mt-1">Public and private groups have a game room. Members join and confirm their entry, then the owner starts a 30-second countdown.</p>
+            <strong>{translateUi('Chat, gifts and PVP games')}</strong>
+            <p className="mt-1">
+              {translateUi(
+                'The owner publishes a round with a 2-, 5- or 10-minute entry window. Each member confirms their own entry. Betting closes automatically, and group members can watch for free.'
+              )}
+            </p>
           </div>
 
           {formError && (
-            <p id="create-group-error" role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {formError}
+            <p
+              id="create-group-error"
+              role="alert"
+              className="text-sm text-red-600 dark:text-red-400"
+            >
+              {translateUi(formError)}
             </p>
           )}
 
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Creating…' : 'Create group'}
+              {createMutation.isPending ? translateUi('Creating…') : translateUi('Create group')}
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={resetCreateForm} disabled={createMutation.isPending}>
-              Cancel
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={resetCreateForm}
+              disabled={createMutation.isPending}
+            >
+              {translateUi('Cancel')}
             </Button>
           </div>
         </form>
@@ -207,12 +251,16 @@ export function GroupsPage() {
       }
       // Joining a group may fire achievement/progression side effects.
       invalidateProgressionQueries(queryClient);
-      toast({ title: 'Joined group' });
+      toast({ title: <LocalizedText message="Joined group" /> });
     },
     onError: (err) => {
       let msg = 'Failed to join';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
+      toast({ title: <LocalizedText message="Error" />, description: msg, variant: 'destructive' });
     },
   });
 
@@ -227,7 +275,11 @@ export function GroupsPage() {
   if (isError) {
     return (
       <div className="max-w-3xl mx-auto p-4">
-        <Card><CardContent className="py-8 text-center text-red-600 dark:text-red-400">Failed to load groups.</CardContent></Card>
+        <Card>
+          <CardContent className="py-8 text-center text-red-600 dark:text-red-400">
+            {translateUi('Failed to load groups.')}
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -235,7 +287,9 @@ export function GroupsPage() {
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Groups</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {translateUi('Groups')}
+        </h1>
         {/* Stays mounted (hidden, not unmounted) while the form is open: the
             `hidden` attribute drops it from the accessibility tree and from
             `getByRole` queries just like unmounting would, but keeps
@@ -257,7 +311,7 @@ export function GroupsPage() {
           aria-controls="create-group-form"
           onClick={() => setShowCreateForm(true)}
         >
-          Create group
+          {translateUi('Create group')}
         </Button>
       </div>
 
@@ -265,10 +319,10 @@ export function GroupsPage() {
 
       {groups.length === 0 ? (
         <div className="py-16 text-center text-gray-500 dark:text-gray-400 space-y-3">
-          <p>No groups found.</p>
+          <p>{translateUi('No groups found.')}</p>
           {!showCreateForm && (
             <Button size="sm" onClick={() => setShowCreateForm(true)}>
-              Create your first group
+              {translateUi('Create your first group')}
             </Button>
           )}
         </div>
@@ -278,28 +332,52 @@ export function GroupsPage() {
             <Card key={group.id} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{group.name}</CardTitle>
-                {group.description && <CardDescription className="line-clamp-2">{group.description}</CardDescription>}
+                {group.description && (
+                  <CardDescription className="line-clamp-2">{group.description}</CardDescription>
+                )}
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
-                  {group.isPrivate && ' · Private'}
+                  {translateUi('{count} members', { count: group.memberCount })}
+                  {group.isPrivate && ' ' + translateUi('· Private')}
                 </p>
                 <div className="flex gap-2">
                   {group.isMember ? (
                     <>
-                      <Button size="sm" onClick={() => navigate(`/messages/${group.id}`)}>Messages</Button>
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}/games`)}>Games</Button>
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}`)}>Manage</Button>
-                    </>
-                  ) : (
-                    group.isPrivate ? (
-                      <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.id}`)}>View</Button>
-                    ) : (
-                      <Button size="sm" onClick={() => joinMutation.mutate(group.id)} disabled={joinMutation.isPending}>
-                        {joinMutation.isPending ? 'Joining…' : 'Join'}
+                      <Button size="sm" onClick={() => navigate(`/messages/${group.id}`)}>
+                        {translateUi('Messages')}
                       </Button>
-                    )
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`/groups/${group.id}/games`)}
+                      >
+                        {translateUi('Games')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`/groups/${group.id}`)}
+                      >
+                        {translateUi('Manage')}
+                      </Button>
+                    </>
+                  ) : group.isPrivate ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/groups/${group.id}`)}
+                    >
+                      {translateUi('View')}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => joinMutation.mutate(group.id)}
+                      disabled={joinMutation.isPending}
+                    >
+                      {joinMutation.isPending ? translateUi('Joining…') : translateUi('Join')}
+                    </Button>
                   )}
                 </div>
               </CardContent>

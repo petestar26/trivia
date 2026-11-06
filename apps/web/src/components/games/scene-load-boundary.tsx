@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { LocalizedText } from '@/lib/i18n/text';
 import './scene-load-boundary.css';
 
 /** A lazy import can fail before the renderer's own boundary has mounted. */
@@ -15,9 +16,9 @@ export class SceneLoadBoundary extends Component<
       <div className="game-scene-recovery" role="status">
         {this.props.fallback}
         <p>
-          The 3D view could not load. Results remain available.{' '}
+          <LocalizedText message="The 3D view could not load. Results remain available." />{' '}
           <button type="button" onClick={() => window.location.reload()}>
-            Reload game view
+            <LocalizedText message="Reload game view" />
           </button>
         </p>
       </div>

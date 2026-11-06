@@ -30,7 +30,9 @@ vi.mock('@/lib/api', () => ({
   },
   unwrapData: (res: { data?: unknown }) => res.data,
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }),
+}));
 vi.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({ user: { id: 'u1' } }),
 }));
@@ -146,7 +148,9 @@ function WalletProbe() {
 
 let memberRole = 'MEMBER';
 
-function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
+function renderPage(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>
       <WalletProbe />
@@ -158,7 +162,7 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
       <Route path="/competitions/:groupId/:competitionId" element={<CompetitionDetailPage />} />
       <Route path="*" element={null} />
     </Routes>,
-    { wrapper },
+    { wrapper }
   );
 }
 
@@ -234,7 +238,10 @@ describe('CompetitionDetailPage lifecycle phases', () => {
   it('OPEN participant sees Play and no Join', async () => {
     getCompetitionForGroup.mockResolvedValue({
       success: true,
-      data: makeCompetition({ phase: 'OPEN', participants: [{ userId: 'u1', score: 0, gamesPlayed: 0 }] }),
+      data: makeCompetition({
+        phase: 'OPEN',
+        participants: [{ userId: 'u1', score: 0, gamesPlayed: 0 }],
+      }),
     });
 
     renderPage();
@@ -370,16 +377,20 @@ describe('CompetitionDetailPage lifecycle phases', () => {
       data: makeCompetition({
         phase: 'OPEN',
         maxPlaysPerParticipant: 5,
-        participants: [{
-          userId: 'u1',
-          score: 25,
-          gamesPlayed: serverRejectedAtLimit ? 5 : 4,
-        }],
+        participants: [
+          {
+            userId: 'u1',
+            score: 25,
+            gamesPlayed: serverRejectedAtLimit ? 5 : 4,
+          },
+        ],
       }),
     }));
     playCompetition.mockImplementation(async () => {
       serverRejectedAtLimit = true;
-      throw new Error(JSON.stringify({ message: 'You have reached the maximum of 5 plays for this competition' }));
+      throw new Error(
+        JSON.stringify({ message: 'You have reached the maximum of 5 plays for this competition' })
+      );
     });
 
     renderPage();
@@ -388,10 +399,18 @@ describe('CompetitionDetailPage lifecycle phases', () => {
 
     expect(await screen.findByText('You have completed all 5 rounds.')).toBeInTheDocument();
     expect(getCompetitionForGroup).toHaveBeenCalledTimes(2);
-    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Error',
-      description: 'You have reached the maximum of 5 plays for this competition',
-    }));
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock.mock.calls[0][0].variant).toBe('destructive');
+    const limitNotice = render(
+      <>
+        {toastMock.mock.calls[0][0].title}
+        {toastMock.mock.calls[0][0].description}
+      </>
+    );
+    expect(limitNotice.container).toHaveTextContent('Error');
+    expect(limitNotice.container).toHaveTextContent(
+      'You have reached the maximum of 5 plays for this competition'
+    );
   });
 
   it('persisted SCHEDULED + OPEN phase still offers Play for a joined participant', async () => {
@@ -413,7 +432,10 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     memberRole = 'OWNER';
     getCompetitionForGroup.mockResolvedValue({
       success: true,
-      data: makeCompetition({ phase: 'ENDED', participants: [{ userId: 'u1', score: 5, gamesPlayed: 1 }] }),
+      data: makeCompetition({
+        phase: 'ENDED',
+        participants: [{ userId: 'u1', score: 5, gamesPlayed: 1 }],
+      }),
     });
 
     renderPage();
@@ -421,13 +443,18 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(await screen.findByText('This competition has ended.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Join/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Play/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Finalize & distribute rewards/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Finalize & distribute rewards/ })
+    ).toBeInTheDocument();
   });
 
   it('ENDED member does not see Finalize', async () => {
     getCompetitionForGroup.mockResolvedValue({
       success: true,
-      data: makeCompetition({ phase: 'ENDED', participants: [{ userId: 'u1', score: 5, gamesPlayed: 1 }] }),
+      data: makeCompetition({
+        phase: 'ENDED',
+        participants: [{ userId: 'u1', score: 5, gamesPlayed: 1 }],
+      }),
     });
 
     renderPage();
@@ -493,7 +520,12 @@ describe('CompetitionDetailPage lifecycle phases', () => {
   it('a full competition does not expose a usable Join', async () => {
     getCompetitionForGroup.mockResolvedValue({
       success: true,
-      data: makeCompetition({ phase: 'OPEN', isFull: true, maxParticipants: 5, participantCount: 5 }),
+      data: makeCompetition({
+        phase: 'OPEN',
+        isFull: true,
+        maxParticipants: 5,
+        participantCount: 5,
+      }),
     });
 
     renderPage();
@@ -588,7 +620,9 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
 
     // 5. Manager sees Finalize in the ENDED phase.
-    expect(screen.getByRole('button', { name: /Finalize & distribute rewards/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Finalize & distribute rewards/ })
+    ).toBeInTheDocument();
     expect(screen.getByText('This competition has ended.')).toBeInTheDocument();
   });
 
@@ -634,7 +668,9 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(getCompetitionForGroup).toHaveBeenCalledTimes(3);
     expect(screen.queryByRole('button', { name: /Play a round/ })).not.toBeInTheDocument();
     expect(screen.getByText('This competition has ended.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Finalize & distribute rewards/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Finalize & distribute rewards/ })
+    ).toBeInTheDocument();
   });
 
   it('continues a far-future wait through its safe slice to the boundary', async () => {
@@ -713,28 +749,31 @@ describe('CompetitionDetailPage lifecycle phases', () => {
     expect(getCompetitionForGroup).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['ENDED', 'COMPLETED', 'CANCELLED'] as const)('does not arm a boundary timer for %s', async (phase) => {
-    vi.useFakeTimers();
-    notifyManager.setScheduler((callback) => callback());
-    vi.setSystemTime(FAKE_NOW);
-    const timers = recordWindowTimers();
-    const startsAt = new Date(FAKE_NOW + 10_000).toISOString();
-    const endsAt = new Date(FAKE_NOW + 20_000).toISOString();
-    getCompetitionForGroup.mockResolvedValue({
-      success: true,
-      data: makeCompetition({
-        phase,
-        status: phase === 'ENDED' ? 'SCHEDULED' : phase,
-        startsAt,
-        endsAt,
-      }),
-    });
+  it.each(['ENDED', 'COMPLETED', 'CANCELLED'] as const)(
+    'does not arm a boundary timer for %s',
+    async (phase) => {
+      vi.useFakeTimers();
+      notifyManager.setScheduler((callback) => callback());
+      vi.setSystemTime(FAKE_NOW);
+      const timers = recordWindowTimers();
+      const startsAt = new Date(FAKE_NOW + 10_000).toISOString();
+      const endsAt = new Date(FAKE_NOW + 20_000).toISOString();
+      getCompetitionForGroup.mockResolvedValue({
+        success: true,
+        data: makeCompetition({
+          phase,
+          status: phase === 'ENDED' ? 'SCHEDULED' : phase,
+          startsAt,
+          endsAt,
+        }),
+      });
 
-    renderPage();
-    await flushQueryUpdates();
+      renderPage();
+      await flushQueryUpdates();
 
-    expect(timers.scheduled.some(({ delay }) => delay >= BOUNDARY_GRACE_MS)).toBe(false);
-  });
+      expect(timers.scheduled.some(({ delay }) => delay >= BOUNDARY_GRACE_MS)).toBe(false);
+    }
+  );
 
   it('falls back to clock-derived OPEN when phase is absent (deployment skew)', async () => {
     const startsAt = new Date(Date.now() - 60_000).toISOString();

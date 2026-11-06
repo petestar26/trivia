@@ -11,6 +11,7 @@ export * from './spin-publication-archive.js';
 export * from './house-game-policy.js';
 export * from './pvp-entry.js';
 export * from './group-pvp.js';
+export * from './play-together.js';
 export * from './system-keno.js';
 export * from './gift-collection.js';
 export * from './system-dice.js';
@@ -30,3 +31,7 @@ export * from './roulette-keno.js';
 export * from './lucky-six.js';
 
 export * from './blackjack.js';
+
+export * from './together-game-guide.js';
+export * from './together-presentation.js';
+export * from './support-help.js';

@@ -1,6 +1,7 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '@/lib/api';
 import type * as ApiModule from '@/lib/api';
 import contract from '@/test/fixtures/game-history.contract.json';
 
@@ -23,15 +24,52 @@ vi.mock('@/lib/api', async () => {
 import { GameHistoryPage } from './history';
 
 afterEach(cleanup);
+beforeEach(() => {
+  vi.mocked(api.get)
+    .mockReset()
+    .mockResolvedValue(contract as any);
+});
 
-function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(<QueryClientProvider client={client}><GameHistoryPage /></QueryClientProvider>);
+function renderPage(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+) {
+  return render(
+    <QueryClientProvider client={client}>
+      <GameHistoryPage />
+    </QueryClientProvider>
+  );
 }
 
 const row = (id: string) => screen.findByTestId(`history-row-${id}`);
 
 describe('GameHistoryPage against the API history contract', () => {
+  it('shows an outage separately from empty history and lets the member retry', async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error('Service unavailable'));
+    renderPage();
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be loaded');
+    expect(screen.queryByText(/No games yet/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await row('session-solo-win');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps saved results visible and labels them when a background refresh fails', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    renderPage(client);
+    await row('session-solo-win');
+    vi.mocked(api.get).mockRejectedValueOnce(new Error('Offline'));
+    await act(() => client.invalidateQueries({ queryKey: ['game-history'] }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('last saved results');
+    expect(await row('session-solo-win')).toBeInTheDocument();
+    expect(screen.queryByText(/No games yet/)).not.toBeInTheDocument();
+  });
+
+  it('shows empty history only after a successful empty response', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [], meta: { page: 1, totalPages: 0 } } as any);
+    renderPage();
+    await screen.findByText(/No games yet/);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   it('renders a competition round as such, with no stake and no Coins debit', async () => {
     renderPage();
     const competition = await row('session-competition-round');

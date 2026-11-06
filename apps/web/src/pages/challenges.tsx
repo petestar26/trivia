@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +11,15 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const challengeSchema = z.object({
   gameKey: z.string().min(1, 'Game key required'),
@@ -21,15 +30,15 @@ const challengeSchema = z.object({
 type ChallengeFormValues = z.infer<typeof challengeSchema>;
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING:   'Pending',
-  ACTIVE:    'Active',
+  PENDING: 'Pending',
+  ACTIVE: 'Active',
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled',
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  PENDING:   'text-yellow-600 dark:text-yellow-400',
-  ACTIVE:    'text-green-600 dark:text-green-400',
+  PENDING: 'text-yellow-600 dark:text-yellow-400',
+  ACTIVE: 'text-green-600 dark:text-green-400',
   COMPLETED: 'text-blue-600 dark:text-blue-400',
   CANCELLED: 'text-gray-500 dark:text-gray-400',
 };
@@ -65,7 +74,11 @@ function mapChallengeError(err: unknown): string {
   return CHALLENGE_ERROR_MESSAGES[message] ?? GENERIC_CHALLENGE_ERROR;
 }
 
-function RecipientAvatar({ user }: { user: Pick<UserSearchResult, 'avatarUrl' | 'displayName' | 'username'> }) {
+function RecipientAvatar({
+  user,
+}: {
+  user: Pick<UserSearchResult, 'avatarUrl' | 'displayName' | 'username'>;
+}) {
   const initial = (user.displayName || user.username)[0]?.toUpperCase() ?? '?';
   return (
     <span className="h-8 w-8 flex-shrink-0 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center overflow-hidden">
@@ -73,13 +86,17 @@ function RecipientAvatar({ user }: { user: Pick<UserSearchResult, 'avatarUrl' | 
         // eslint-disable-next-line jsx-a11y/alt-text
         <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
       ) : (
-        <span className="text-sm font-medium text-primary-600 dark:text-primary-400">{initial}</span>
+        <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
+          {initial}
+        </span>
       )}
     </span>
   );
 }
 
 export function ChallengesPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -194,24 +211,37 @@ export function ChallengesPage() {
   const showRateLimited = !selectedRecipient && !isSearching && searchError === 'RATE_LIMITED';
   const showGenericError = !selectedRecipient && !isSearching && searchError === 'GENERIC';
   const showNoResults =
-    !selectedRecipient && !isSearching && !searchError && searchable && resultsCurrent && results.length === 0;
+    !selectedRecipient &&
+    !isSearching &&
+    !searchError &&
+    searchable &&
+    resultsCurrent &&
+    results.length === 0;
   const showResults =
     !selectedRecipient && !isSearching && !searchError && resultsCurrent && results.length > 0;
-  const showDropdown = showSearching || showRateLimited || showGenericError || showNoResults || showResults;
+  const showDropdown =
+    showSearching || showRateLimited || showGenericError || showNoResults || showResults;
 
   // ── Create challenge form ─────────────────────────────────────────
-  const { register, handleSubmit, formState: { errors }, reset } =
-    useForm<ChallengeFormValues>({
-      resolver: zodResolver(challengeSchema),
-      defaultValues: { gameKey: '', entryAmount: 0 },
-    });
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+  } = useForm<ChallengeFormValues>({
+    resolver: zodResolver(challengeSchema),
+    defaultValues: { gameKey: '', entryAmount: 0 },
+  });
 
   const createMutation = useMutation({
     mutationFn: (body: CreateChallengeBody) => api.createChallenge(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['challenges'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Challenge sent', description: 'Your challenge has been sent.' });
+      toast({
+        title: <LocalizedText message="Challenge sent" />,
+        description: <LocalizedText message="Your challenge has been sent." />,
+      });
       reset();
       requestGenRef.current += 1;
       setSelectedRecipient(null);
@@ -243,11 +273,15 @@ export function ChallengesPage() {
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['challenges'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Challenge accepted' });
+      toast({ title: <LocalizedText message="Challenge accepted" /> });
       navigate(`/challenges/${id}`);
     },
     onError: (err) => {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to accept challenge'), variant: 'destructive' });
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: <LocalizedText message={getErrorMessage(err, 'Failed to accept challenge')} />,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -256,10 +290,16 @@ export function ChallengesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['challenges'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Challenge declined' });
+      toast({ title: <LocalizedText message="Challenge declined" /> });
     },
     onError: (err) => {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to decline challenge'), variant: 'destructive' });
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText message={getErrorMessage(err, 'Failed to decline challenge')} />
+        ),
+        variant: 'destructive',
+      });
     },
   });
 
@@ -268,15 +308,18 @@ export function ChallengesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['challenges'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Challenge cancelled' });
+      toast({ title: <LocalizedText message="Challenge cancelled" /> });
     },
     onError: (err) => {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Failed to cancel challenge'), variant: 'destructive' });
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: <LocalizedText message={getErrorMessage(err, 'Failed to cancel challenge')} />,
+        variant: 'destructive',
+      });
     },
   });
 
-  const isBusy =
-    acceptMutation.isPending || declineMutation.isPending || cancelMutation.isPending;
+  const isBusy = acceptMutation.isPending || declineMutation.isPending || cancelMutation.isPending;
 
   if (isLoading) {
     return (
@@ -290,11 +333,13 @@ export function ChallengesPage() {
     <div className="max-w-3xl mx-auto p-4 space-y-8">
       {/* ── Challenge list ── */}
       <section>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Challenges</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+          {translateUi('Challenges')}
+        </h1>
 
         {challenges.length === 0 ? (
           <p className="text-gray-500 dark:text-gray-400 py-8 text-center">
-            No challenges yet. Send one below!
+            {translateUi('No challenges yet. Send one below!')}
           </p>
         ) : (
           <div className="grid gap-3">
@@ -309,31 +354,54 @@ export function ChallengesPage() {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between gap-2">
                       <CardTitle className="text-base">{gameName}</CardTitle>
-                      <span className={`text-xs font-semibold ${STATUS_COLOR[challenge.status] ?? ''}`}>
-                        {STATUS_LABEL[challenge.status] ?? challenge.status}
+                      <span
+                        className={`text-xs font-semibold ${STATUS_COLOR[challenge.status] ?? ''}`}
+                      >
+                        {translateUi(STATUS_LABEL[challenge.status] ?? challenge.status)}
                       </span>
                     </div>
                     <CardDescription>
                       {iAmChallenger
-                        ? `You challenged ${challenge.challenged.displayName ?? challenge.challenged.username}`
-                        : `${challenge.challenger.displayName ?? challenge.challenger.username} challenged you`}
+                        ? translateUi('You challenged {value}', {
+                            value:
+                              challenge.challenged.displayName ??
+                              challenge.challenged.username ??
+                              '',
+                          })
+                        : translateUi('{value} challenged you', {
+                            value:
+                              challenge.challenger.displayName ??
+                              challenge.challenger.username ??
+                              '',
+                          })}
                     </CardDescription>
                   </CardHeader>
 
                   <CardContent className="pb-2 flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-400">
                     {challenge.entryAmount > 0 && (
-                      <span>Entry: <strong>{challenge.entryAmount} GP</strong></span>
+                      <span>
+                        {translateUi('Entry:') + ' '}
+                        <strong>
+                          {translateUi('{entryAmount} GP', { entryAmount: challenge.entryAmount })}
+                        </strong>
+                      </span>
                     )}
                     {challenge.expiresAt && (
-                      <span>Expires: {new Date(challenge.expiresAt).toLocaleDateString()}</span>
+                      <span>
+                        {translateUi('Expires: {value}', {
+                          value: new Date(challenge.expiresAt).toLocaleDateString(interfaceLocale),
+                        })}
+                      </span>
                     )}
                     {challenge.status === 'COMPLETED' && challenge.winnerId && (
                       <span className="font-medium text-green-600 dark:text-green-400">
-                        {challenge.winnerId === user?.id ? 'You won!' : 'Opponent won'}
+                        {challenge.winnerId === user?.id
+                          ? translateUi('You won!')
+                          : translateUi('Opponent won')}
                       </span>
                     )}
                     {challenge.status === 'COMPLETED' && challenge.winnerId === null && (
-                      <span className="font-medium text-gray-500">Tie</span>
+                      <span className="font-medium text-gray-500">{translateUi('Tie')}</span>
                     )}
                   </CardContent>
 
@@ -346,7 +414,7 @@ export function ChallengesPage() {
                           onClick={() => acceptMutation.mutate(challenge.id)}
                           disabled={isBusy}
                         >
-                          Accept
+                          {translateUi('Accept')}
                         </Button>
                         <Button
                           size="sm"
@@ -354,22 +422,23 @@ export function ChallengesPage() {
                           onClick={() => declineMutation.mutate(challenge.id)}
                           disabled={isBusy}
                         >
-                          Decline
+                          {translateUi('Decline')}
                         </Button>
                       </>
                     )}
 
                     {/* Challenger can cancel PENDING or ACTIVE */}
-                    {(challenge.status === 'PENDING' || challenge.status === 'ACTIVE') && iAmChallenger && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => cancelMutation.mutate(challenge.id)}
-                        disabled={isBusy}
-                      >
-                        Cancel
-                      </Button>
-                    )}
+                    {(challenge.status === 'PENDING' || challenge.status === 'ACTIVE') &&
+                      iAmChallenger && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => cancelMutation.mutate(challenge.id)}
+                          disabled={isBusy}
+                        >
+                          {translateUi('Cancel')}
+                        </Button>
+                      )}
 
                     {/* Both parties can view / play ACTIVE challenges */}
                     {challenge.status === 'ACTIVE' && (
@@ -378,7 +447,7 @@ export function ChallengesPage() {
                         variant="outline"
                         onClick={() => navigate(`/challenges/${challenge.id}`)}
                       >
-                        Play
+                        {translateUi('Play')}
                       </Button>
                     )}
 
@@ -389,7 +458,7 @@ export function ChallengesPage() {
                         variant="outline"
                         onClick={() => navigate(`/challenges/${challenge.id}`)}
                       >
-                        View result
+                        {translateUi('View result')}
                       </Button>
                     )}
                   </CardFooter>
@@ -402,7 +471,9 @@ export function ChallengesPage() {
 
       {/* ── New challenge form ── */}
       <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Challenge a Friend</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          {translateUi('Challenge a Friend')}
+        </h2>
         <form
           onSubmit={handleSubmit((values) => {
             if (!selectedRecipient) return;
@@ -415,12 +486,15 @@ export function ChallengesPage() {
           className="space-y-4"
         >
           <div>
-            <label htmlFor="recipientSearch" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Search by username or email
+            <label
+              htmlFor="recipientSearch"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              {translateUi('Search by username or email')}
             </label>
             <Input
               id="recipientSearch"
-              placeholder="@username or email@example.com"
+              placeholder={translateUi('@username or email@example.com')}
               value={searchText}
               onChange={(e) => handleSearchChange(e.target.value)}
               disabled={createMutation.isPending}
@@ -434,27 +508,31 @@ export function ChallengesPage() {
               <>
                 <div aria-live="polite" className="mt-1">
                   {showSearching && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Searching…</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {translateUi('Searching…')}
+                    </p>
                   )}
                   {showRateLimited && (
                     <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                      Too many searches. Try again shortly.
+                      {translateUi('Too many searches. Try again shortly.')}
                     </p>
                   )}
                   {showGenericError && (
                     <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-                      Unable to search right now.
+                      {translateUi('Unable to search right now.')}
                     </p>
                   )}
                   {showNoResults && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400">No matching user found.</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {translateUi('No matching user found.')}
+                    </p>
                   )}
                 </div>
 
                 {showResults && (
                   <ul
                     role="listbox"
-                    aria-label="Search results"
+                    aria-label={translateUi('Search results')}
                     className="mt-1 max-h-72 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800"
                   >
                     {results.map((r) => (
@@ -501,37 +579,43 @@ export function ChallengesPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  aria-label="Remove selected recipient"
+                  aria-label={translateUi('Remove selected recipient')}
                   onClick={handleRemoveRecipient}
                   disabled={createMutation.isPending}
                 >
-                  Remove
+                  {translateUi('Remove')}
                 </Button>
               </div>
             )}
           </div>
 
           <div>
-            <label htmlFor="gameKey" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Game
+            <label
+              htmlFor="gameKey"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              {translateUi('Game')}
             </label>
             <Input
               id="gameKey"
-              placeholder="dice · lucky_spin · number_challenge · trivia"
+              placeholder={translateUi('dice · lucky_spin · number_challenge · trivia')}
               {...register('gameKey')}
               disabled={createMutation.isPending}
               className="mt-1"
             />
             {errors.gameKey && (
               <p className="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
-                {errors.gameKey.message}
+                {translateUi(errors.gameKey.message ?? 'Game key required')}
               </p>
             )}
           </div>
 
           <div>
-            <label htmlFor="entryAmount" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Entry Amount (GP)
+            <label
+              htmlFor="entryAmount"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              {translateUi('Entry Amount (GP)')}
             </label>
             <Input
               id="entryAmount"
@@ -543,22 +627,22 @@ export function ChallengesPage() {
               className="mt-1"
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              0 = free challenge. Both players pay entry; winner takes the pot.
+              {translateUi('0 = free challenge. Both players pay entry; winner takes the pot.')}
             </p>
             {errors.entryAmount && (
               <p className="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">
-                {errors.entryAmount.message}
+                {translateUi(errors.entryAmount.message ?? 'Must be non-negative')}
               </p>
             )}
           </div>
 
           <Button type="submit" disabled={!selectedRecipient || createMutation.isPending}>
-            {createMutation.isPending ? 'Sending…' : 'Send Challenge'}
+            {createMutation.isPending ? translateUi('Sending…') : translateUi('Send Challenge')}
           </Button>
 
           {createMutation.isError && (
             <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-              {mapChallengeError(createMutation.error)}
+              {translateUi(mapChallengeError(createMutation.error))}
             </p>
           )}
         </form>
