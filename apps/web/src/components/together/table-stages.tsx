@@ -184,7 +184,11 @@ export function BlackjackStage({
                 <header>
                   {hand === 0 ? t('Dealer') : t('Hand {number}', { number: num(hand) })}
                 </header>
-                <div className="tg-hand-cards">
+                <div
+                  className="tg-hand-cards"
+                  dir="ltr"
+                  style={{ maxWidth: (cards.length || 2) * 26 + 24 }}
+                >
                   {cards.length ? (
                     cards.map((card, i) => (
                       <PlayingCard

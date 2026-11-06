@@ -26,12 +26,57 @@ on:
       - 'packages/shared/**'
       - 'packages/database/**'
       - 'scripts/check-together-catalogue-migration.mjs'
+      - 'scripts/review-shared-game-capacity.mjs'
       - 'pnpm-lock.yaml'
 
 permissions:
   contents: read
 
 jobs:
+  capacity-layout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build the shared-game website
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm --filter @socialplay/shared build
+          pnpm --filter web build
+      - name: Install the pinned browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/together-browser" --no-save --package-lock=false playwright@1.62.1
+          node "$RUNNER_TEMP/together-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Long Blackjack hands and full groups
+        run: |
+          pnpm --filter web exec vite preview --host 127.0.0.1 --port 4181 --strictPort > "$RUNNER_TEMP/together-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4181/ > /dev/null; then break; fi
+            sleep 1
+          done
+          TOGETHER_REVIEW_ORIGIN=http://127.0.0.1:4181 \
+          TOGETHER_REVIEW_OUTPUT="$RUNNER_TEMP/together-capacity" \
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/together-browser/node_modules/playwright" \
+          node scripts/review-shared-game-capacity.mjs
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-game-capacity
+          path: |
+            ${{ runner.temp }}/together-capacity
+            ${{ runner.temp }}/together-preview.log
+          retention-days: 7
+
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 20

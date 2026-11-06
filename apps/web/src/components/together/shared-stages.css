@@ -467,18 +467,17 @@
   margin-bottom: 9px;
 }
 .tg-live .tg-hand-cards {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(26px, 1fr));
+  justify-items: center;
   align-items: center;
+  gap: 10px 0;
+  padding-inline: 12px;
+  margin-inline: auto;
   min-height: 72px;
 }
-.tg-live .tg-hand-cards > span + span {
-  margin-inline-start: -18px;
-  transform: rotate(7deg);
-}
-.tg-live .tg-hand-cards > span:first-child {
-  transform: rotate(-5deg);
-}
+/* Cards overlap only inside a row of their own hand. Wrapping preserves the
+   rank/suit strip instead of shrinking long hands or bleeding into a neighbour. */
 .tg-live .tg-playing-card {
   position: relative;
   flex: none;
@@ -938,9 +937,6 @@
   .tg-live .tg-hand-cards {
     min-height: 58px;
   }
-  .tg-live .tg-hand-cards > span + span {
-    margin-inline-start: -19px;
-  }
   .tg-live .tg-card-art {
     inset: 17px 8px;
   }
@@ -1027,6 +1023,12 @@
   .tg-live .tg-sky-stage .sky-flight-world {
     width: 100%;
     height: 100%;
+  }
+}
+
+@container stage (max-width:420px) {
+  .tg-live .tg-table-hands {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
