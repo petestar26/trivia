@@ -98,6 +98,28 @@ it('bounds open tickets but still permits an idempotent retry at the limit', asy
   await expect(service.create(user, input())).rejects.toThrow('10 open');
   expect(await service.create(user, first)).toHaveProperty('id');
 });
+it.each([false, true])(
+  'applies the owner cap when reopening, including staff actions (staff=%s)',
+  async (staff) => {
+    const ids: string[] = [];
+    for (let i = 0; i < 11; i++) {
+      const { id } = await service.create(user, input());
+      await service.setStatus(user, id, 'RESOLVED');
+      ids.push(id);
+    }
+    const actor = staff ? admin : user;
+    for (const id of ids.slice(0, 10)) await service.setStatus(actor, id, 'OPEN', staff);
+    await expect(service.setStatus(actor, ids[10], 'OPEN', staff)).rejects.toThrow('10 open');
+    expect((await service.list(user, false, 0, 'OPEN')).tickets).toHaveLength(10);
+    const before = (await service.read(user, ids[0])).ticket;
+    expect(await service.setStatus(actor, ids[0], 'OPEN', staff)).toEqual({ status: 'OPEN' });
+    expect((await service.read(user, ids[0])).ticket).toEqual(before);
+    await service.setStatus(actor, ids[0], 'RESOLVED', staff);
+    await service.setStatus(actor, ids[10], 'OPEN', staff);
+    expect((await service.list(user, false, 0, 'OPEN')).tickets).toHaveLength(10);
+    expect((await service.list(admin, false, 0, 'OPEN')).tickets).toHaveLength(0);
+  }
+);
 it('paginates long conversations and rejects changed message retries', async () => {
   const { id } = await service.create(user, input());
   const message = { body: 'Reply', requestId: randomUUID() };

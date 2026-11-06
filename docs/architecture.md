@@ -311,7 +311,7 @@ pnpm test --coverage
 ### Requirements
 - PostgreSQL 15+
 - Redis 7+ (for Socket.IO scaling)
-- S3-compatible storage (production)
+- Persistent filesystem volume for uploads (production)
 - Node.js 20+
 
 ### CI/CD Pipeline (future)
@@ -359,10 +359,11 @@ pnpm test --coverage
 ## Storage Abstraction
 
 ### Providers
-- **Local**: Development (filesystem)
-- **S3**: AWS S3
-- **R2**: Cloudflare R2
-- **MinIO**: Self-hosted S3-compatible
+- **Local**: Implemented filesystem provider; production requires a persistent volume.
+- **S3 / R2 / MinIO**: Not implemented. Configuration rejects these values at startup.
+
+Railway API startup verifies that `STORAGE_LOCAL_PATH` is inside the actual
+mounted volume. See the [upload repair and rollout record](reviews/play-together-20261105/review-repairs-20261106.md).
 
 ### Interface
 ```typescript

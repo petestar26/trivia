@@ -1,9 +1,14 @@
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  useMutation,
+  type InfiniteData,
+} from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { invalidateProgressionQueries } from '@/lib/progression-cache';
 import { useSocket } from '@/providers/socket-provider';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChatInbox } from '@/components/groups/chat-inbox';
 import { GroupLifecycle, useGroupLifecycle } from '@/components/groups/group-lifecycle';
@@ -83,10 +88,36 @@ function MessagesContent({ userId }: { userId: string }) {
     }
   };
   const nearBottom = useRef(true);
-  const [older, setOlder] = useState<ChatMessage[]>([]);
-  const [hasOlder, setHasOlder] = useState(true);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const scrollAnchor = useRef<{ id: string; offset: number }[]>([]);
+  const captureScrollAnchor = () => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const top = viewport.getBoundingClientRect().top;
+    scrollAnchor.current = Array.from(viewport.querySelectorAll<HTMLElement>('[data-message-id]'))
+      .filter((node) => node.getBoundingClientRect().bottom > top)
+      .slice(0, 3)
+      .map((node) => ({
+        id: node.dataset.messageId!,
+        offset: node.getBoundingClientRect().top - top,
+      }));
+  };
   const { socket } = useSocket();
   const queryClient = useQueryClient();
+  const removeCachedMessage = useCallback(
+    (id: string) => {
+      queryClient.setQueryData<InfiniteData<ChatMessage[]>>(
+        ['messages', groupId, userId],
+        (current) =>
+          current && {
+            ...current,
+            pages: current.pages.map((page) => page.filter((item) => item.id !== id)),
+          }
+      );
+      setReplyTo((current) => (current?.id === id ? null : current));
+    },
+    [queryClient, groupId, userId]
+  );
   const hideMessage = useMutation({
     mutationFn: async (id: string) => {
       try {
@@ -99,11 +130,7 @@ function MessagesContent({ userId }: { userId: string }) {
     },
     onSuccess: (_result, id) => {
       setModerating(null);
-      setOlder((current) => current.filter((item) => item.id !== id));
-      setReplyTo((current) => (current?.id === id ? null : current));
-      queryClient.setQueryData<ChatMessage[]>(['messages', groupId, userId], (current) =>
-        current?.filter((item) => item.id !== id)
-      );
+      removeCachedMessage(id);
       void queryClient.invalidateQueries({ queryKey: ['messages', groupId] });
       void queryClient.invalidateQueries({ queryKey: ['chat-inbox'] });
     },
@@ -137,40 +164,63 @@ function MessagesContent({ userId }: { userId: string }) {
       setVoiceNotice('Voice message could not be confirmed. Check the chat before sending again.'),
   });
 
-  // Resolves directly to the array; the render path uses it as-is.
+  // All loaded pages belong to the same account-scoped query. A reconnect,
+  // edit, deletion or poll re-reads each page with freshly derived cursors;
+  // keeping older rows in separate state would leave missed changes visible.
   const {
-    data: latestMessages = [],
+    data: history,
     isLoading,
     isError,
-  } = useQuery<ChatMessage[]>({
+    isFetching,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
     queryKey: ['messages', groupId, userId],
-    queryFn: async () =>
-      (await api.getGroupMessages(groupId!, { limit: 50, latest: true })).data ?? [],
-    enabled: !!groupId,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }): Promise<ChatMessage[]> =>
+      (
+        await api.getGroupMessages(
+          groupId!,
+          { limit: 50, latest: true, before: pageParam },
+          { signal }
+        )
+      ).data ?? [],
+    getNextPageParam: (lastPage) => (lastPage.length === 50 ? lastPage[0].id : undefined),
+    enabled: !!groupId && !!userId,
     refetchOnWindowFocus: true,
     refetchInterval: 10000,
   });
 
-  const messages = [
-    ...older.filter((item) => !latestMessages.some((latest) => latest.id === item.id)),
-    ...latestMessages,
-  ];
-  const loadOlder = useMutation({
-    mutationFn: async () => {
-      if (!messages[0]) return [];
-      return (
-        await api.getGroupMessages(groupId!, { limit: 50, latest: true, before: messages[0].id })
-      ).data as ChatMessage[];
-    },
-    onSuccess: (items) => {
-      setOlder((current) => [
-        ...items,
-        ...current.filter((old) => !items.some((item) => item.id === old.id)),
-      ]);
-      setHasOlder(items.length === 50);
-    },
-    onError: () => setSendNotice('Earlier messages could not be loaded. Try again.'),
-  });
+  const messages = Array.from(
+    new Map(
+      [...(history?.pages ?? [])]
+        .reverse()
+        .flat()
+        .map((item) => [item.id, item])
+    ).values()
+  );
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || nearBottom.current) return;
+    for (const anchor of scrollAnchor.current) {
+      const node = Array.from(viewport.querySelectorAll<HTMLElement>('[data-message-id]')).find(
+        (item) => item.dataset.messageId === anchor.id
+      );
+      if (!node) continue;
+      viewport.scrollTop +=
+        node.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.offset;
+      break;
+    }
+    captureScrollAnchor();
+  }, [history]);
+  useEffect(() => {
+    if (!history) return;
+    setReplyTo((current) =>
+      current ? (history.pages.flat().find((item) => item.id === current.id) ?? null) : null
+    );
+  }, [history]);
 
   // Join the Socket.IO group room when groupId changes
   const joinRoom = useCallback(() => {
@@ -224,11 +274,10 @@ function MessagesContent({ userId }: { userId: string }) {
       const id =
         event && typeof event === 'object' && 'messageId' in event ? event.messageId : undefined;
       if (typeof id === 'string' && id.length <= 128) {
-        setOlder((current) => current.filter((item) => item.id !== id));
-        setReplyTo((current) => (current?.id === id ? null : current));
+        removeCachedMessage(id);
       }
-      // Keep pagination and the reader's history intact. Latest messages are
-      // still refetched from the authorized API, not replaced by event data.
+      // Reconcile every loaded page using the authorized API, including
+      // deletion events this connection may have missed.
       refresh();
     };
     socket.on('message:created', refresh);
@@ -243,7 +292,7 @@ function MessagesContent({ userId }: { userId: string }) {
       socket.off('reaction:added', refresh);
       socket.off('reaction:removed', refresh);
     };
-  }, [socket, groupId, queryClient]);
+  }, [socket, groupId, queryClient, removeCachedMessage]);
 
   const latestMessageId = messages.at(-1)?.id;
   useEffect(() => {
@@ -282,17 +331,19 @@ function MessagesContent({ userId }: { userId: string }) {
     const pending = pendingRef.current;
     if (
       pending &&
-      latestMessages.some(
-        (item) =>
-          item.clientRequestId === pending.clientRequestId &&
-          (item.sender?.id ?? item.userId) === userId
-      )
+      history?.pages
+        .flat()
+        .some(
+          (item) =>
+            item.clientRequestId === pending.clientRequestId &&
+            (item.sender?.id ?? item.userId) === userId
+        )
     ) {
       remember(null);
       setMessage((current) => (current.trim() === pending.content ? '' : current));
       setSendNotice('Confirmed by the server.');
     }
-  }, [latestMessages, userId]);
+  }, [history, userId]);
   const handleSend = () => {
     if (sendMutation.isPending || pendingRef.current || !message.trim() || !lifecycle.canWrite)
       return;
@@ -353,10 +404,12 @@ function MessagesContent({ userId }: { userId: string }) {
           <GroupLifecycle groupId={groupId} />
         </header>
         <div
+          ref={viewportRef}
           className="qube-chat-thread min-h-0 flex-1 overflow-y-auto bg-[#f3f6f4] px-4 py-5 dark:bg-[#111e1b] sm:px-6"
           onScroll={(event) => {
             const node = event.currentTarget;
             nearBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+            captureScrollAnchor();
           }}
         >
           {isLoading && (
@@ -364,7 +417,7 @@ function MessagesContent({ userId }: { userId: string }) {
               {translateUi('Loading conversation…')}
             </p>
           )}
-          {isError && (
+          {isError && !isFetchNextPageError && (
             <p role="alert" className="rounded-2xl bg-white p-5 text-sm text-red-600">
               {translateUi('Failed to load messages. You may not be a member of this group.')}
             </p>
@@ -377,13 +430,19 @@ function MessagesContent({ userId }: { userId: string }) {
               </p>
             </div>
           )}
-          {messages.length >= 50 && hasOlder && (
+          {isFetchNextPageError && (
+            <p role="alert">{translateUi('Earlier messages could not be loaded. Try again.')}</p>
+          )}
+          {hasNextPage && (
             <button
-              disabled={loadOlder.isPending}
-              onClick={() => loadOlder.mutate()}
+              disabled={isFetching}
+              onClick={() => {
+                captureScrollAnchor();
+                void fetchNextPage({ cancelRefetch: false });
+              }}
               className="mx-auto mb-5 block rounded-full bg-white px-4 py-2 text-xs text-slate-500 shadow-sm dark:bg-slate-800"
             >
-              {loadOlder.isPending ? translateUi('Loading…') : translateUi('Load earlier messages')}
+              {isFetchingNextPage ? translateUi('Loading…') : translateUi('Load earlier messages')}
             </button>
           )}
           <div className="space-y-3">
@@ -400,7 +459,7 @@ function MessagesContent({ userId }: { userId: string }) {
                 new Date(previous.createdAt).toDateString() !==
                   new Date(msg.createdAt).toDateString();
               return (
-                <div key={msg.id}>
+                <div key={msg.id} data-message-id={msg.id}>
                   {showDay && (
                     <div className="my-5 text-center">
                       <span className="rounded-full bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800">

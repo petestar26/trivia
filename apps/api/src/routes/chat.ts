@@ -541,6 +541,8 @@ export async function chatRoutes(server: FastifyInstance): Promise<void> {
         data: message,
       });
 
+      // The stored message is committed before connected members are notified.
+      emitToGroup(groupId, 'message:created', message);
       // Server-verified activity (post-commit, best-effort).
       safeRecordActivity(request.user!.sub, { type: 'VOICE_MESSAGE' });
     }

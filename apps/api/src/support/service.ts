@@ -46,6 +46,13 @@ export function createSupportService(db: PrismaClient) {
       throw ApiError.notFound('Request not found');
     return rows[0];
   }
+  async function requireOpenSlot(tx: Tx, userId: string) {
+    const [{ count }] = await tx.$queryRaw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM support_tickets WHERE user_id=${userId} AND status='OPEN'`;
+    if (count >= 10)
+      throw ApiError.conflict('You have 10 open requests. Please reply to an existing request.');
+  }
   return {
     list: (userId: string, admin = false, page = 0, status = 'ALL') =>
       db.$transaction(async (tx) => {
@@ -84,13 +91,7 @@ export function createSupportService(db: PrismaClient) {
             );
           return { id: old.id };
         }
-        const [{ count }] = await tx.$queryRaw<
-          { count: number }[]
-        >`SELECT count(*)::int AS count FROM support_tickets WHERE user_id=${userId} AND status='OPEN'`;
-        if (count >= 10)
-          throw ApiError.conflict(
-            'You have 10 open requests. Please reply to an existing request.'
-          );
+        await requireOpenSlot(tx, userId);
         const id = randomUUID();
         await tx.$executeRaw`INSERT INTO support_tickets(id,user_id,request_id,subject,category) VALUES(${id},${userId},${input.requestId},${input.subject.trim()},${input.category})`;
         await tx.$executeRaw`INSERT INTO support_messages(id,ticket_id,sender_id,staff,body,request_id) VALUES(${randomUUID()},${id},${userId},false,${input.body.trim()},${input.requestId})`;
@@ -135,7 +136,18 @@ export function createSupportService(db: PrismaClient) {
       }),
     setStatus: (userId: string, id: string, status: 'OPEN' | 'RESOLVED', admin = false) =>
       db.$transaction(async (tx) => {
-        await ticket(tx, id, userId, admin, true);
+        // Read only the owner before locking; ticket() below still checks the
+        // actor and ownership before returning or changing anything. Lock both
+        // user rows in a stable order, before actor() takes its shared lock and
+        // before the ticket lock. This shares create()'s per-owner serialization
+        // and avoids share-to-update upgrades or opposing staff/owner lock orders.
+        const [owner] = await tx.$queryRaw<{ user_id: string }[]>`
+          SELECT user_id FROM support_tickets WHERE id=${id}`;
+        const ownerId = owner?.user_id ?? userId;
+        await tx.$queryRaw`SELECT id FROM users WHERE id IN (${userId},${ownerId}) ORDER BY id FOR UPDATE`;
+        const item = await ticket(tx, id, userId, admin, true);
+        if (item.status === status) return { status };
+        if (status === 'OPEN') await requireOpenSlot(tx, item.user_id);
         await tx.$executeRaw`UPDATE support_tickets SET status=${status},last_sender=CASE WHEN ${status}='OPEN' THEN ${admin ? 'ADMIN' : 'USER'} ELSE last_sender END,updated_at=now() WHERE id=${id}`;
         return { status };
       }),

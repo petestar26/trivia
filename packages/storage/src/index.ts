@@ -1,12 +1,8 @@
 import { config } from '@socialplay/config';
-import { StorageProvider, FileType, STORAGE_BUCKETS, FILE_UPLOAD } from '@socialplay/shared';
+import { FileType, STORAGE_BUCKETS, FILE_UPLOAD } from '@socialplay/shared';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export interface StorageFile {
   key: string;
@@ -55,7 +51,7 @@ export interface StorageProviderInterface {
   listFiles(bucket: string, prefix?: string): Promise<StorageFile[]>;
 }
 
-class LocalStorageProvider implements StorageProviderInterface {
+export class LocalStorageProvider implements StorageProviderInterface {
   private basePath: string;
 
   constructor(basePath: string) {
@@ -218,48 +214,8 @@ class LocalStorageProvider implements StorageProviderInterface {
   }
 }
 
-class S3StorageProvider implements StorageProviderInterface {
-  // TODO: Implement S3 provider when needed
-  // This would use @aws-sdk/client-s3
-  async upload(): Promise<StorageFile> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async download(): Promise<Buffer> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async delete(): Promise<void> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async getPresignedUrl(): Promise<string> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async fileExists(): Promise<boolean> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async getFileInfo(): Promise<StorageFile | null> {
-    throw new Error('S3 provider not implemented yet');
-  }
-  async listFiles(): Promise<StorageFile[]> {
-    throw new Error('S3 provider not implemented yet');
-  }
-}
-
-function createStorageProvider(): StorageProviderInterface {
-  const provider = config.STORAGE_PROVIDER;
-
-  switch (provider) {
-    case StorageProvider.LOCAL:
-      return new LocalStorageProvider(config.STORAGE_LOCAL_PATH);
-    case StorageProvider.S3:
-    case StorageProvider.R2:
-    case StorageProvider.MINIO:
-      return new S3StorageProvider();
-    default:
-      throw new Error(`Unknown storage provider: ${provider}`);
-  }
-}
-
-export const storage = createStorageProvider();
+// Configuration rejects unimplemented providers before serving requests.
+export const storage: StorageProviderInterface = new LocalStorageProvider(config.STORAGE_LOCAL_PATH);
 
 export function validateFileUpload(file: {
   name: string;

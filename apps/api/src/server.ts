@@ -17,6 +17,7 @@ import { redactedRequestSerializer, redactUrl } from './middleware/log-redaction
 import { startEtbRateRefresh } from './agents/etb-rate-service.js';
 import { providerTestCallbackRoutes } from './providers/softaggregator/callback-routes.js';
 import { startRewardDelivery } from './member-rewards/service.js';
+import { assertUploadPersistence } from './storage/readiness.js';
 
 /**
  * Test seams. Production always calls `buildServer()` with no arguments and
@@ -141,6 +142,7 @@ async function buildServer(options: BuildServerOptions = {}): Promise<FastifyIns
 
 async function start(): Promise<void> {
   try {
+    await assertUploadPersistence(config.STORAGE_LOCAL_PATH);
     const server = await buildServer();
     const stopRewards = startRewardDelivery(() =>
       server.log.warn('Automatic reward delivery is temporarily unavailable; credits will retry')

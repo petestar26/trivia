@@ -151,7 +151,8 @@ See `.env.example` for all available options.
 | `JWT_ACCESS_SECRET` | Yes | Access token secret (32+ chars) |
 | `JWT_REFRESH_SECRET` | Yes | Refresh token secret (32+ chars) |
 | `CORS_ORIGIN` | Yes | Frontend URL for CORS |
-| `STORAGE_PROVIDER` | No | `local`, `s3`, `r2`, `minio` |
+| `STORAGE_PROVIDER` | No | `local` only; unimplemented S3/R2/MinIO values fail startup |
+| `STORAGE_LOCAL_PATH` | Production | Absolute path on a persistent volume; Railway uses `/data/uploads` on a `/data` mount |
 | `REDIS_URL` | No | Redis for Socket.IO scaling |
 
 ## API Endpoints

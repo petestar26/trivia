@@ -1,5 +1,10 @@
 # Staging Deployment Guide (H-0B)
 
+Historical staging plan: its service names and example variables are not the
+current Salem.bet target. Current Railway API uploads require a persistent
+volume and an absolute `STORAGE_LOCAL_PATH` on it. See the
+[verified storage rollout](../reviews/play-together-20261105/review-repairs-20261106.md).
+
 ## H-0D: Waiting for Railway API domain
 
 This change prepares repository documentation only; deployment activation is pending.
@@ -392,7 +397,11 @@ around, not a documented guarantee that polling silently covers it.
 - New deployment
 - Scaling events
 
-For persistent storage in staging/production, configure S3-compatible storage (e.g., AWS S3, Cloudflare R2, MinIO).
+For persistent storage, attach a volume at `/data` and set
+`STORAGE_LOCAL_PATH=/data/uploads`. Inventory and preserve existing uploads
+before replacement. Current Railway API startup rejects an unmounted or
+out-of-volume path. S3, R2 and MinIO remain unimplemented and are rejected by
+configuration; changing the provider name does not enable them.
 
 ### 3. Build From Workspace Root
 
@@ -507,7 +516,7 @@ reduce deploy frequency deliberately.
 ## Next Steps (Post-Staging)
 
 1. **Production Database**: Migrate to managed PostgreSQL (AWS RDS, Google Cloud SQL)
-2. **Persistent Storage**: Configure S3-compatible storage for user uploads
+2. **Persistent Storage**: Attach a persistent upload volume and configure its absolute storage path
 3. **Redis**: Add Redis for Socket.IO scaling (currently single-instance)
 4. **Monitoring**: Add APM (Datadog, New Relic) and error tracking (Sentry)
 5. **CI/CD**: Automate staging deployments on merge to `main`

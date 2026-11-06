@@ -112,7 +112,7 @@ export function GameHistoryPage() {
   const [page, setPage] = useState(1);
   const limit = 15;
 
-  const { data, isLoading, isFetching } = useQuery<HistoryResponse>({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery<HistoryResponse>({
     queryKey: ['game-history', page],
     queryFn: async () => {
       const res = await api.get<GameHistoryItem[]>('/games/history', { page, limit });
@@ -137,14 +137,38 @@ export function GameHistoryPage() {
         </p>
       </div>
 
+      {isError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 space-y-3"
+        >
+          <p>
+            {translateUi(
+              data
+                ? 'Game history could not be refreshed. These are the last saved results.'
+                : 'Game history could not be loaded. Please try again.'
+            )}
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="rounded-lg border border-current px-4 py-2 text-sm disabled:opacity-40"
+          >
+            {translateUi('Retry')}
+          </button>
+        </div>
+      )}
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent"></div>
         </div>
       ) : sessions.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-10 text-center text-gray-500 dark:text-gray-400">
-          {translateUi('No games yet. Head to the Games hub to play!')}
-        </div>
+        !isError && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-10 text-center text-gray-500 dark:text-gray-400">
+            {translateUi('No games yet. Head to the Games hub to play!')}
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {sessions.map((s) => (

@@ -85,8 +85,8 @@ export function PasswordResetPage() {
             <p className="mb-5">
               {translateUi('Your password was updated. Sign in again with your new password.')}
             </p>
-            <Link to="/admin/login" className="font-semibold text-primary-600">
-              {translateUi('Continue to administrator sign in')}
+            <Link to="/login" className="font-semibold text-primary-600">
+              {translateUi('Sign in')}
             </Link>
           </div>
         ) : !token ? (
