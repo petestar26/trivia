@@ -123,7 +123,11 @@ export function RegisterPage() {
               onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
             />
           </label>
-          <div role="group" aria-label={translateUi('Registration method')} className="flex gap-2">
+          <div
+            role="group"
+            aria-label={translateUi('Registration method')}
+            className="salem-sign-in-method flex gap-2"
+          >
             {(['email', 'phone'] as const).map((option) => (
               <Button
                 key={option}
