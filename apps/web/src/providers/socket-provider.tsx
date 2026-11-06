@@ -84,3 +84,8 @@ export function useSocket() {
   }
   return context;
 }
+
+/** Read-only game views also work without a socket (polling fallback). */
+export function useOptionalSocket() {
+  return useContext(SocketContext);
+}

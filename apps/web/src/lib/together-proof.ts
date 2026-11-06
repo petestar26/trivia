@@ -17,7 +17,7 @@ export async function verifyTogetherRound(
   round: TogetherRoundView,
   savedTermsHash?: string | null
 ) {
-  if (!round.proof || !round.outcome || !round.settlement)
+  if (!round.proof || !round.outcome || (!round.settlement && !round.presentation?.resultAvailable))
     throw Error('The completed result is not available yet.');
   if (
     togetherTermsHash(round) !== round.termsHash ||
@@ -47,7 +47,11 @@ export async function verifyTogetherRound(
     chain: () => ({ baseUrl: 'offline:salem-group-proof', info: async () => QUICKNET_CHAIN_INFO }),
   };
   await fetchBeacon(client, target.beaconRound);
-  const ids = new Set(round.settlement.payouts.map((p) => p.entryId));
+  const ids = new Set(
+    round.settlement
+      ? round.settlement.payouts.map((p) => p.entryId)
+      : round.entries.filter((e) => e.state === 'ACCEPTED').map((e) => e.id)
+  );
   const tickets = round.entries
     .filter((e) => ids.has(e.id))
     .map((e) => ({
@@ -66,6 +70,7 @@ export async function verifyTogetherRound(
   const ranking = rankTogether(round.game, tickets, result);
   if (canonicalJson(ranking) !== canonicalJson(round.ranking))
     throw Error('Displayed player results differ.');
+  if (!round.settlement) return 'Outcome verified. Payment is still being confirmed.';
   const settlement = settleTogether(round.entryAmount, round.feeBps, ranking, round.id);
   if (canonicalJson(settlement) !== canonicalJson(round.settlement))
     throw Error('The payout calculation differs.');

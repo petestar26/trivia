@@ -5,6 +5,7 @@ import { JwtPayload } from '@socialplay/shared';
 import { createMessage, getGroupMembership } from '../realtime/chat-service.js';
 import { prisma } from '@socialplay/database';
 import { emitToGroup, setSocketServer } from '../realtime/broadcast.js';
+import { canWatchTogether } from '../games/play-together/events.js';
 
 const GROUP_ROOM_PREFIX = 'group:';
 
@@ -102,6 +103,26 @@ export function registerWebSocket(server: FastifyInstance): void {
 
     // Join user-specific room for private events (e.g. gift:received)
     socket.join(`user:${user.id}`);
+
+    socket.on(
+      'together:watch',
+      async (payload: { roundId: string }, ack?: (res: unknown) => void) => {
+        try {
+          if (!rateLimit(user.id, 'together-watch', 60))
+            throw new SocketError('RATE_LIMITED', 'Too many subscriptions');
+          validateGroupId(payload?.roundId);
+          if (!(await canWatchTogether(prisma, user.id, payload.roundId)))
+            throw new SocketError('FORBIDDEN', 'Round access is unavailable');
+          await socket.join('together:' + payload.roundId);
+          ack?.({ success: true, roundId: payload.roundId });
+        } catch (error) {
+          ack?.(socketError(error));
+        }
+      }
+    );
+    socket.on('together:leave', (payload: { roundId: string }) => {
+      if (typeof payload?.roundId === 'string') void socket.leave('together:' + payload.roundId);
+    });
 
     socket.on('group:join', async (payload: JoinGroupPayload, ack?: (res: unknown) => void) => {
       try {

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, ShieldCheck, Clock3, Trophy, ArrowRight, Wallet, Download } from 'lucide-react';
 import {
   TOGETHER_GAMES,
+  TOGETHER_GAME_DURATION_MS,
   togetherGame,
   togetherGameGuide,
   togetherSelection,
@@ -25,6 +26,7 @@ import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { TogetherSelection } from './play-together-selection';
 import { TogetherGameResult } from '@/components/together/together-game-result';
+import { useRoundUpdates } from '@/components/together/use-round-updates';
 import './play-together.css';
 
 const get = async <T,>(path: string, signal?: AbortSignal) =>
@@ -493,6 +495,13 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
                   <option value="600">{t('{count} minutes', { count: 10 })}</option>
                 </select>
               </label>
+              {currency === 'GAME_POINTS' && (
+                <p>
+                  {t('Game duration: {seconds} seconds', {
+                    seconds: TOGETHER_GAME_DURATION_MS[game] / 1000,
+                  })}
+                </p>
+              )}
               <button
                 className="together-primary"
                 disabled={
@@ -699,6 +708,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
   });
   const s = query.data?.snapshot,
     r = s?.round;
+  useRoundUpdates(userId, roundId, r?.eventSequence);
   useEffect(() => {
     if (r?.id && location.hash === '#group-results') {
       document.getElementById('group-results')?.scrollIntoView?.({ block: 'start' });
@@ -926,7 +936,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
             : r.state === 'LOCKED'
               ? t('Entries locked — preparing the shared result')
               : r.state === 'DRAWN'
-                ? t('Result recorded — paying wallets')
+                ? r.presentation
+                  ? r.presentation.resultAvailable
+                    ? t('Game finished—confirming payout')
+                    : t('Live game')
+                  : t('Result recorded — paying wallets')
                 : r.state === 'PAID'
                   ? t('Paid')
                   : t('Refunded')}
@@ -980,7 +994,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </button>
         </div>
       )}
-      {!r.outcome && !paid && (
+      {!r.outcome && !r.presentation && !paid && (
         <section className="together-panel together-waiting" aria-label={t('Shared game screen')}>
           <p className="together-eyebrow">{t('Your group’s shared screen')}</p>
           <h2>
@@ -991,10 +1005,10 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           <p>
             {r.state === 'OPEN' && seconds > 0
               ? t(
-                  'Choose and confirm your own entry below, or stay here to watch for free. The shared reveal starts automatically after entries close and the result is saved.'
+                  'Choose and confirm your own entry, or watch for free. After betting closes, everyone follows one countdown and game. Payment follows the finish.'
                 )
               : t(
-                  'Entries are closed. Keep this screen open; the saved result will appear automatically for every member.'
+                  'Entries are closed. Preparing one verified game for everyone. You can return at any time.'
                 )}
           </p>
           <small>
@@ -1008,6 +1022,15 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
       <div className="together-columns">
         <section className="together-panel">
           <p className="together-eyebrow">{t('Your choice')}</p>
+          <p className="together-eyebrow" role="status">
+            {pending || mutation.isPending
+              ? t('Confirming')
+              : confirmed
+                ? t('Confirmed')
+                : picks.length
+                  ? t('Choosing')
+                  : t('Watching')}
+          </p>
           <h2>
             {paid
               ? t('Round complete')
@@ -1023,6 +1046,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               percent: r.feeBps / 100,
             })}
           </p>
+          {r.presentationDurationMs && (
+            <p>
+              {t('Game duration: {seconds} seconds', { seconds: r.presentationDurationMs / 1000 })}
+            </p>
+          )}
           {!paid && (open || confirmed) && (
             <TogetherSelection
               game={r.game}
@@ -1210,7 +1238,7 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               )[r.settlement?.reason ?? r.voidReason ?? ''] ?? t('The round was refunded.')}
             </p>
           )}
-          {paid && (
+          {(paid || r.presentation?.resultAvailable) && (
             <div className="together-result-actions">
               <button onClick={download}>
                 <Download size={16} />
@@ -1219,7 +1247,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               {r.proof && (
                 <button disabled={checking} onClick={() => void verify()}>
                   <ShieldCheck size={16} />
-                  {checking ? t('Checking result…') : t('Verify result and payouts')}
+                  {checking
+                    ? t('Checking result…')
+                    : paid
+                      ? t('Verify result and payouts')
+                      : t('Verify outcome')}
                 </button>
               )}
             </div>

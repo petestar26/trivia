@@ -148,6 +148,10 @@ export function togetherSelection(key: TogetherGame, input: unknown): number[] {
   return ordered ? [...input] : [...input].sort((a, b) => a - b);
 }
 export interface TogetherTerms {
+  /** Absent on historical v1 receipts; never add defaults to their hash. */
+  termsVersion?: 2;
+  presentationVersion?: 2;
+  presentationDurationMs?: number;
   id: string;
   groupId: string | null;
   game: TogetherGame;
@@ -205,6 +209,9 @@ export interface TogetherEntryView {
   requestId: string | null;
 }
 export interface TogetherRoundView extends TogetherTerms {
+  presentation?: import('./together-presentation.js').TogetherPresentationView;
+  revision?: number;
+  eventSequence?: number;
   creatorId: string | null;
   groupName: string | null;
   state: TogetherState;
@@ -276,6 +283,13 @@ export function togetherTermsHash(terms: TogetherTerms): string {
       feePolicy,
       seedCommitment,
       beaconRound,
+      ...(terms.termsVersion === 2
+        ? {
+            termsVersion: 2,
+            presentationVersion: terms.presentationVersion,
+            presentationDurationMs: terms.presentationDurationMs,
+          }
+        : {}),
     })
   );
 }

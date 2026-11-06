@@ -227,6 +227,7 @@ export async function togetherRoutes(server: FastifyInstance) {
     success: true,
     data: await service.operations(request.user.sub),
   }));
+  server.get('/admin/health', admin, async () => ({ success: true, data: await service.health() }));
   server.post<{ Params: { roundId: string } }>(
     '/admin/rounds/:roundId/retry',
     { ...admin, schema: { params } },

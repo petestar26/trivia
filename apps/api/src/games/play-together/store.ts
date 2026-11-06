@@ -9,6 +9,7 @@ import type {
   TogetherSettings,
   TogetherState,
   TogetherTerms,
+  TogetherGameEvent,
 } from '@socialplay/shared';
 import { TOGETHER_RULES_ID, TOGETHER_FEE_POLICY } from '@socialplay/shared';
 import { ApiError } from '../../middleware/api-error.js';
@@ -20,6 +21,11 @@ export const rows = <T>(tx: Tx, sql: string, ...values: unknown[]) =>
 export const execute = (tx: Tx, sql: string, ...values: unknown[]) =>
   tx.$executeRawUnsafe(sql, ...values);
 export interface RoundRow {
+  presentation_version: 1 | 2;
+  presentation_duration_ms: number | null;
+  presentation_starts_at: Date | null;
+  presentation_finishes_at: Date | null;
+  presentation_data: TogetherGameEvent[] | null;
   id: string;
   group_id: string | null;
   creator_id: string | null;
@@ -101,6 +107,13 @@ export async function policy(tx: Tx): Promise<TogetherSettings> {
 }
 export function terms(r: RoundRow): TogetherTerms {
   return {
+    ...(r.presentation_version === 2
+      ? {
+          termsVersion: 2 as const,
+          presentationVersion: 2 as const,
+          presentationDurationMs: r.presentation_duration_ms!,
+        }
+      : {}),
     id: r.id,
     groupId: r.group_id,
     game: r.game,

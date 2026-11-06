@@ -2,6 +2,7 @@ import { prisma } from '@socialplay/database';
 import { createGroupPvpService } from './games/group-pvp/service.js';
 import { startGroupPvpRuntime } from './games/group-pvp/runtime.js';
 import { createTogetherService } from './games/play-together/service.js';
+import { dispatchTogetherEvents } from './games/play-together/events.js';
 import { startTogetherRuntime } from './games/play-together/runtime.js';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -155,9 +156,17 @@ async function start(): Promise<void> {
       tick: createGroupPvpService(prisma).tick,
       report: () => server.log.warn('Group game processing is unavailable; new entries are paused'),
     });
-    const stopTogether = startTogetherRuntime(createTogetherService(prisma).tick, () =>
-      server.log.warn('Group rounds are recovering; new entries are paused'));
-    server.addHook('onClose', async () => { stopTogether(); });
+    const togetherService = createTogetherService(prisma);
+    const stopTogether = startTogetherRuntime(
+      async () => {
+        if (process.env.PLAY_TOGETHER_WORKER_MODE !== 'external') await togetherService.tick();
+        await dispatchTogetherEvents(prisma);
+      },
+      () => server.log.warn('Group rounds are recovering; new entries are paused')
+    );
+    server.addHook('onClose', async () => {
+      stopTogether();
+    });
     server.addHook('onClose', async () => {
       stopGroupPvp();
     });
