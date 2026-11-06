@@ -13,8 +13,11 @@ import {
   loadPublicPublicationArchive,
 } from '@/lib/spin-publication-archive';
 import type { PublicationArchiveIntegrity } from '@/lib/spin-publication-archive';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function SpinWinVerifyPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [roundId, setRoundId] = useState('');
   const [proofText, setProofText] = useState('');
   const [savedText, setSavedText] = useState('');
@@ -169,21 +172,22 @@ export function SpinWinVerifyPage() {
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100">
       <div className="mx-auto max-w-4xl space-y-6">
         <Link to="/games/spin-win" className="text-sm text-amber-200">
-          ← Spin Win
+          {translateUi('← Spin Win')}
         </Link>
         <header>
           <p className="text-xs uppercase tracking-widest text-amber-300">
-            Salem Bet · Round transparency
+            {translateUi('Salem Bet · Round transparency')}
           </p>
-          <h1 className="mt-2 text-3xl font-bold">Verify a Spin Win round</h1>
+          <h1 className="mt-2 text-3xl font-bold">{translateUi('Verify a Spin Win round')}</h1>
           <p className="mt-3 text-slate-300">
-            Check a published commitment and reproduce the result locally in your browser.
-            Verification only · No bets or deposits.
+            {translateUi(
+              'Check a published commitment and reproduce the result locally in your browser. Verification only · No bets or deposits.'
+            )}
           </p>
         </header>
         <section className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
           <label htmlFor="proof-round" className="block text-sm font-medium">
-            Round ID
+            {translateUi('Round ID')}
           </label>
           <div className="mt-2 flex flex-wrap gap-3">
             <input
@@ -196,7 +200,7 @@ export function SpinWinVerifyPage() {
                 reset();
               }}
               className="min-w-0 flex-1 rounded-lg border border-slate-600 bg-slate-950 p-3"
-              placeholder="stream:sequence"
+              placeholder={translateUi('stream:sequence')}
             />
             <button
               type="button"
@@ -204,7 +208,7 @@ export function SpinWinVerifyPage() {
               onClick={() => void load()}
               className="rounded-lg bg-amber-300 px-5 py-3 font-semibold text-slate-950 disabled:opacity-50"
             >
-              Load published proof
+              {translateUi('Load published proof')}
             </button>
             <button
               type="button"
@@ -212,17 +216,18 @@ export function SpinWinVerifyPage() {
               onClick={() => void loadArchive()}
               className="rounded-lg border border-slate-500 px-5 py-3 font-semibold disabled:opacity-50"
             >
-              Load timestamp archive
+              {translateUi('Load timestamp archive')}
             </button>
           </div>
           <p className="mt-3 text-sm text-slate-400">
-            Only future-beacon financial rounds have this proof. Solo and scheduled practice rounds
-            use different protocols.
+            {translateUi(
+              'Only future-beacon financial rounds have this proof. Solo and scheduled practice rounds use different protocols.'
+            )}
           </p>
         </section>
         <section className="space-y-4 rounded-2xl border border-slate-700 bg-slate-900 p-5">
           <label htmlFor="proof-json" className="block text-sm font-medium">
-            Round proof JSON
+            {translateUi('Round proof JSON')}
           </label>
           <textarea
             id="proof-json"
@@ -237,7 +242,7 @@ export function SpinWinVerifyPage() {
             className="w-full rounded-lg border border-slate-600 bg-slate-950 p-3 font-mono text-xs"
           />
           <label className="block text-sm">
-            Upload proof JSON{' '}
+            {translateUi('Upload proof JSON')}{' '}
             <input
               type="file"
               accept=".json,application/json"
@@ -247,7 +252,7 @@ export function SpinWinVerifyPage() {
             />
           </label>
           <label htmlFor="saved-json" className="block text-sm font-medium">
-            Earlier saved commitment (optional)
+            {translateUi('Earlier saved commitment (optional)')}
           </label>
           <textarea
             id="saved-json"
@@ -262,7 +267,7 @@ export function SpinWinVerifyPage() {
             className="w-full rounded-lg border border-slate-600 bg-slate-950 p-3 font-mono text-xs"
           />
           <label className="block text-sm">
-            Upload saved receipt{' '}
+            {translateUi('Upload saved receipt')}{' '}
             <input
               type="file"
               accept=".json,application/json"
@@ -277,7 +282,7 @@ export function SpinWinVerifyPage() {
             onClick={() => void verify()}
             className="rounded-lg bg-emerald-400 px-5 py-3 font-semibold text-slate-950 disabled:opacity-50"
           >
-            {busy ? 'Checking…' : 'Verify locally'}
+            {busy ? translateUi('Checking…') : translateUi('Verify locally')}
           </button>
         </section>
         {archiveResult && (
@@ -285,31 +290,33 @@ export function SpinWinVerifyPage() {
             role="status"
             className="space-y-3 rounded-2xl border border-slate-600 bg-slate-900 p-5"
           >
-            <h2 className="text-xl font-bold">Archive ready to save</h2>
+            <h2 className="text-xl font-bold">{translateUi('Archive ready to save')}</h2>
             <p>
               {archiveResult.archive.receipt
-                ? 'Response bytes included · timestamp signature not verified here'
-                : 'Request only · no timestamp receipt included'}
+                ? translateUi('Response bytes included · timestamp signature not verified here')
+                : translateUi('Request only · no timestamp receipt included')}
             </p>
             <p className="text-sm">
               {archiveResult.matchedSavedReceipt
-                ? 'Matches your saved commitment.'
-                : 'No earlier saved receipt was compared.'}
+                ? translateUi('Matches your saved commitment.')
+                : translateUi('No earlier saved receipt was compared.')}
             </p>
             <p className="text-sm text-slate-300">
-              The browser checked structure and hashes only. Verify the timestamp offline against
-              separately approved certificates. A download does not prove independent retention or
-              earlier public availability.
+              {translateUi(
+                'The browser checked structure and hashes only. Verify the timestamp offline against separately approved certificates. A download does not prove independent retention or earlier public availability.'
+              )}
             </p>
             <p className="break-all font-mono text-xs">
-              Commitment hash: {archiveResult.archive.proof.commitmentHash}
+              {translateUi('Commitment hash: {commitmentHash}', {
+                commitmentHash: archiveResult.archive.proof.commitmentHash,
+              })}
             </p>
             <button
               type="button"
               onClick={downloadArchive}
               className="rounded-lg bg-amber-300 px-4 py-2 font-semibold text-slate-950"
             >
-              Download timestamp archive
+              {translateUi('Download timestamp archive')}
             </button>
           </section>
         )}
@@ -318,7 +325,7 @@ export function SpinWinVerifyPage() {
             role="alert"
             className="rounded-xl border border-rose-400/30 bg-rose-950 p-4 text-rose-100"
           >
-            {error}
+            {translateUi(error)}
           </p>
         )}
         {result && (
@@ -328,29 +335,40 @@ export function SpinWinVerifyPage() {
           >
             <h2 className="text-xl font-bold">
               {result.status === 'VERIFIED'
-                ? `Verified result · ${result.computedOutcome}`
-                : 'Commitment checked · awaiting draw'}
+                ? translateUi('Verified result · {computedOutcome}', {
+                    computedOutcome: result.computedOutcome ?? '',
+                  })
+                : translateUi('Commitment checked · awaiting draw')}
             </h2>
-            <p className="break-all text-sm">Round {result.proof.commitment.roundId}</p>
+            <p className="break-all text-sm">
+              {translateUi('Round {roundId}', { roundId: result.proof.commitment.roundId })}
+            </p>
             <p className="text-sm">
               {result.matchedSavedReceipt
-                ? 'Matches your saved commitment.'
-                : 'No earlier saved receipt was compared.'}
+                ? translateUi('Matches your saved commitment.')
+                : translateUi('No earlier saved receipt was compared.')}
             </p>
             <p className="text-sm text-slate-300">
-              {result.status === 'VERIFIED'
-                ? 'Seed commitment, beacon signature and draw agree.'
-                : 'The terms and receipt hash agree. The seed and beacon are not yet revealed.'}{' '}
-              This does not independently establish publication time, funding or payment.
+              {translateUi(
+                '{value} This does not independently establish publication time, funding or payment.',
+                {
+                  value:
+                    result.status === 'VERIFIED'
+                      ? translateUi('Seed commitment, beacon signature and draw agree.')
+                      : translateUi(
+                          'The terms and receipt hash agree. The seed and beacon are not yet revealed.'
+                        ),
+                }
+              )}
             </p>
             <details className="text-sm">
-              <summary className="cursor-pointer">Commitment details</summary>
+              <summary className="cursor-pointer">{translateUi('Commitment details')}</summary>
               <dl className="mt-3 space-y-2">
-                <dt>Receipt hash</dt>
+                <dt>{translateUi('Receipt hash')}</dt>
                 <dd className="break-all font-mono text-xs">{result.proof.commitmentHash}</dd>
-                <dt>Betting cutoff</dt>
+                <dt>{translateUi('Betting cutoff')}</dt>
                 <dd>{new Date(result.proof.commitment.closesAtMs).toISOString()}</dd>
-                <dt>Pinned beacon</dt>
+                <dt>{translateUi('Pinned beacon')}</dt>
                 <dd>
                   {result.proof.commitment.beaconRound} ·{' '}
                   {new Date(result.proof.commitment.beaconTimeMs).toISOString()}
@@ -362,16 +380,19 @@ export function SpinWinVerifyPage() {
               onClick={download}
               className="rounded-lg border border-emerald-300 px-4 py-2"
             >
-              Download{' '}
-              {result.status === 'COMMITMENT_ONLY' ? 'commitment receipt' : 'verified proof'} JSON
+              {translateUi('Download {value} JSON', {
+                value:
+                  result.status === 'COMMITMENT_ONLY'
+                    ? translateUi('commitment receipt')
+                    : translateUi('verified proof'),
+              })}
             </button>
           </section>
         )}
         <p className="text-sm text-slate-400">
-          Save a commitment receipt before joining a future financial round, then compare it after
-          the draw. Retain an independent dated copy if you need evidence of when you observed it.
-          The receipt hash identifies its terms; it is not an operator signature or trusted
-          timestamp.
+          {translateUi(
+            'Save a commitment receipt before joining a future financial round, then compare it after the draw. Retain an independent dated copy if you need evidence of when you observed it. The receipt hash identifies its terms; it is not an operator signature or trusted timestamp.'
+          )}
         </p>
       </div>
     </main>

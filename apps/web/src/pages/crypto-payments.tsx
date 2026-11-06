@@ -1,3 +1,4 @@
+import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { PaymentMethodChooser, PaymentSteps, paymentPath } from './wallet-navigation';
@@ -8,6 +9,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import './crypto-payments.css';
 import { formatEtb, inputToMinor } from '@/lib/payment-money';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type ExchangeRate = {
   available: boolean;
@@ -83,6 +85,7 @@ export function cryptoEstimate(value: string, withdraw = false, localPerUsd?: st
   }
 }
 function CopyAddress({ address }: { address: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
   const [status, setStatus] = useState('Copy address');
   return (
     <div className="crypto-address">
@@ -98,12 +101,14 @@ function CopyAddress({ address }: { address: string }) {
           }
         }}
       >
-        {status}
+        {translateUi(status)}
       </button>
     </div>
   );
 }
 function PaymentCard({ payment, children }: { payment: Payment; children?: React.ReactNode }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!payment.expiresAt || payment.status !== 'WAITING') return;
@@ -114,66 +119,89 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
   return (
     <article className="crypto-record">
       <div className="crypto-row">
-        <strong>{payment.amount} USDT</strong>
+        <strong>{translateUi('{amount} USDT', { amount: payment.amount })}</strong>
         <span className={`crypto-status crypto-status-${payment.status.toLowerCase()}`}>
           {payment.status === 'WAITING'
             ? expired
-              ? 'Awaiting final check'
-              : 'Awaiting transfer'
-            : payment.status.replaceAll('_', ' ')}
+              ? translateUi('Awaiting final check')
+              : translateUi('Awaiting transfer')
+            : interfaceCodeLabel(translateUi, payment.status)}
         </span>
       </div>
-      <p>{formatEtb(payment.coinAmount)} · TRON (TRC20)</p>
-      {payment.rate?.localPerUsd && <p>Locked rate: 1 USDT = {payment.rate.localPerUsd} ETB</p>}
-      <small>Request {payment.id}</small>
-      {payment.userId && <p>Member: {payment.userId}</p>}
+      <p>{translateUi('{value} · TRON (TRC20)', { value: formatEtb(payment.coinAmount) })}</p>
+      {payment.rate?.localPerUsd && (
+        <p>
+          {translateUi('Locked rate: 1 USDT = {localPerUsd} ETB', {
+            localPerUsd: payment.rate.localPerUsd,
+          })}
+        </p>
+      )}
+      <small>{translateUi('Request {id}', { id: payment.id })}</small>
+      {payment.userId && <p>{translateUi('Member: {userId}', { userId: payment.userId })}</p>}
       {payment.expiresAt && payment.status === 'WAITING' && !expired && (
         <p className="crypto-timer">
-          Transfer within <strong>{timeRemaining(payment.expiresAt, now)}</strong>
+          <strong>
+            {translateUi('Transfer within {time}', { time: timeRemaining(payment.expiresAt, now) })}
+          </strong>
         </p>
       )}
       <CopyAddress address={payment.address} />
       {payment.expiresAt && (
         <p>
           {payment.status === 'CREDITED'
-            ? 'Your ETB balance has been credited. Do not send again or reuse this address.'
+            ? translateUi(
+                'Your ETB balance has been credited. Do not send again or reuse this address.'
+              )
             : payment.status === 'REVIEW'
-              ? 'This address is closed for new transfers. Your deposit needs support review.'
+              ? translateUi(
+                  'This address is closed for new transfers. Your deposit needs support review.'
+                )
               : expired
-                ? 'The transfer window has ended. Do not send to this address. On-time transfers may still be confirming.'
-                : 'Send the exact amount in a single transfer. Exchange and network fees must not reduce the amount received.'}
+                ? translateUi(
+                    'The transfer window has ended. Do not send to this address. On-time transfers may still be confirming.'
+                  )
+                : translateUi(
+                    'Send the exact amount in a single transfer. Exchange and network fees must not reduce the amount received.'
+                  )}
         </p>
       )}
       {payment.verificationDelayed && (
-        <p role="status">Verification is delayed. Do not send again. We will keep checking.</p>
+        <p role="status">
+          {translateUi('Verification is delayed. Do not send again. We will keep checking.')}
+        </p>
       )}
       {payment.reviewReason && (
         <p role="status">
-          This deposit needs support review. {payment.reviewReason}. Keep your transfer receipt; do
-          not send again.
+          {translateUi(
+            'This deposit needs support review. {reviewReason}. Keep your transfer receipt; do not send again.',
+            { reviewReason: payment.reviewReason }
+          )}
         </p>
       )}
       {payment.transfers?.map((t) => (
         <p key={`${t.txHash}:${t.logIndex}`}>
-          Confirmed receipt: {t.amount} USDT · block {t.blockNumber} ·{' '}
+          {translateUi('Confirmed receipt:') + ' '}
+          {t.amount}
+          {' ' + translateUi('USDT · block') + ' '}
+          {t.blockNumber} ·{' '}
           <a
             href={`https://tronscan.org/#/transaction/${t.txHash}`}
             target="_blank"
             rel="noreferrer"
           >
-            View deposit transfer
+            {translateUi('View deposit transfer')}
           </a>
         </p>
       ))}
       {payment.txHash && (
         <p>
-          Transfer:{' '}
+          {translateUi('Transfer:')}{' '}
           <a
             href={`https://tronscan.org/#/transaction/${payment.txHash}`}
             target="_blank"
             rel="noreferrer"
           >
-            View on TRON explorer
+            {translateUi('View on TRON explorer')}
           </a>
         </p>
       )}
@@ -182,6 +210,8 @@ function PaymentCard({ payment, children }: { payment: Payment; children?: React
   );
 }
 export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { user } = useAuth(),
     cache = useQueryClient();
   const [search, setSearch] = useSearchParams();
@@ -265,20 +295,30 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
   return (
     <main className={`crypto-page ${admin ? '' : 'crypto-member'}`}>
       <header>
-        <Link to={admin ? '/admin' : '/wallet'}>← {admin ? 'Administration' : 'Wallet'}</Link>
-        <p className="crypto-eyebrow">USDT · TRON NETWORK</p>
-        <h1>{admin ? 'Crypto payments' : direction === 'deposit' ? 'Deposit' : 'Withdraw'}</h1>
+        <Link to={admin ? '/admin' : '/wallet'}>
+          ← {admin ? translateUi('Administration') : translateUi('Wallet')}
+        </Link>
+        <p className="crypto-eyebrow">{translateUi('USDT · TRON NETWORK')}</p>
+        <h1>
+          {admin
+            ? translateUi('Crypto payments')
+            : direction === 'deposit'
+              ? translateUi('Deposit')
+              : translateUi('Withdraw')}
+        </h1>
         <p>
           {admin
-            ? 'Manage receiving addresses, review deposits and complete manual withdrawals.'
+            ? translateUi(
+                'Manage receiving addresses, review deposits and complete manual withdrawals.'
+              )
             : direction === 'deposit'
-              ? 'Add funds using USDT on TRON.'
-              : 'Receive USDT in your own TRON wallet.'}
+              ? translateUi('Add funds using USDT on TRON.')
+              : translateUi('Receive USDT in your own TRON wallet.')}
         </p>
       </header>
       {!admin && (
         <>
-          <div className="crypto-tabs" role="group" aria-label="Payment direction">
+          <div className="crypto-tabs" role="group" aria-label={translateUi('Payment direction')}>
             <button
               aria-pressed={direction === 'deposit'}
               onClick={() => {
@@ -286,7 +326,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 setAmount('');
               }}
             >
-              Deposit
+              {translateUi('Deposit')}
             </button>
             <button
               aria-pressed={direction === 'withdrawal'}
@@ -295,7 +335,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 setAmount('');
               }}
             >
-              Withdraw
+              {translateUi('Withdraw')}
             </button>
           </div>
           <PaymentMethodChooser
@@ -310,25 +350,35 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
       )}
       <div className="crypto-notice">
         {admin
-          ? 'Use USDT on TRON (TRC20) only. Verify transfers before completing a payout.'
+          ? translateUi(
+              'Use USDT on TRON (TRC20) only. Verify transfers before completing a payout.'
+            )
           : direction === 'deposit'
-            ? 'Send USDT on TRON (TRC20) only. Your deposit is credited after the transfer is verified.'
-            : 'USDT payouts use TRON (TRC20) and are processed by an administrator.'}
+            ? translateUi(
+                'Send USDT on TRON (TRC20) only. Your deposit is credited after the transfer is verified.'
+              )
+            : translateUi('USDT payouts use TRON (TRC20) and are processed by an administrator.')}
       </div>
       {!admin && (
         <section className="crypto-panel">
           {opts.isPending ? (
-            <p>Loading payment availability…</p>
+            <p>{translateUi('Loading payment availability…')}</p>
           ) : opts.isError ? (
             <p role="alert">
-              Could not load availability. <button onClick={() => opts.refetch()}>Retry</button>
+              {translateUi('Could not load availability.') + ' '}
+              <button onClick={() => opts.refetch()}>{translateUi('Retry')}</button>
             </p>
           ) : (
             <>
               {!enabled && (
                 <div role="status" className="crypto-paused">
                   <p>
-                    New crypto {direction === 'deposit' ? 'deposits' : 'withdrawals'} are paused.
+                    {translateUi('New crypto {value} are paused.', {
+                      value:
+                        direction === 'deposit'
+                          ? translateUi('deposits')
+                          : translateUi('withdrawals'),
+                    })}
                   </p>
                   <p>
                     {direction === 'deposit'
@@ -339,9 +389,8 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               )}
               {!opts.data?.countries.length && (
                 <p>
-                  Add an active payment profile in{' '}
-                  <Link to="/wallet/withdraw">add a payout account</Link> before requesting a
-                  payment.
+                  {translateUi('Add an active payout account before requesting a payment.')}{' '}
+                  <Link to="/wallet/withdraw">{translateUi('Add a payout account')}</Link>
                 </p>
               )}
               <form
@@ -376,9 +425,9 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 }}
               >
                 <label>
-                  Payment country
+                  {translateUi('Payment country')}
                   <select
-                    aria-label="Payment country"
+                    aria-label={translateUi('Payment country')}
                     value={country}
                     disabled={formBlocked}
                     onChange={(e) => {
@@ -386,7 +435,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                       setReviewed(false);
                     }}
                   >
-                    {!country && <option value="">Select your country</option>}
+                    {!country && <option value="">{translateUi('Select your country')}</option>}
                     {opts.data?.countries.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -395,7 +444,9 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   </select>
                 </label>
                 <label>
-                  {direction === 'deposit' ? 'Deposit amount (USDT)' : 'Withdraw amount (ETB)'}
+                  {direction === 'deposit'
+                    ? translateUi('Deposit amount (USDT)')
+                    : translateUi('Withdraw amount (ETB)')}
                   <input
                     inputMode="decimal"
                     value={amount}
@@ -413,41 +464,62 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 </label>
                 <div className="crypto-quote">
                   <span>
-                    {direction === 'deposit' ? 'You receive' : 'You receive at your address'}
+                    {direction === 'deposit'
+                      ? translateUi('You receive')
+                      : translateUi('You receive at your address')}
                   </span>
                   <strong>{estimate || '—'}</strong>
                   {freshRate ? (
                     <>
-                      <small>1 USDT = {freshRate.localPerUsd} ETB · No platform fee</small>
+                      <small>
+                        {translateUi('1 USDT = {localPerUsd} ETB · No platform fee', {
+                          localPerUsd: freshRate.localPerUsd ?? '',
+                        })}
+                      </small>
                       <small>
                         {direction === 'deposit'
-                          ? `Minimum deposit: ${(freshRate.cryptoDepositMinUsdCents! / 100).toFixed(2)} USDT`
-                          : `Withdrawal must exceed ${(freshRate.cryptoWithdrawalAboveUsdCents! / 100).toFixed(2)} USDT at this rate.`}
+                          ? translateUi('Minimum deposit: {value} USDT', {
+                              value: (freshRate.cryptoDepositMinUsdCents! / 100).toFixed(2),
+                            })
+                          : translateUi('Withdrawal must exceed {value} USDT at this rate.', {
+                              value: (freshRate.cryptoWithdrawalAboveUsdCents! / 100).toFixed(2),
+                            })}
                       </small>
                       <details>
-                        <summary>Exchange rate details</summary>
+                        <summary>{translateUi('Exchange rate details')}</summary>
                         <small>
-                          USD reference from{' '}
+                          {translateUi(
+                            'USD reference: {source}. Quoted at 1 USDT = USD 1. Amounts round down to 0.01 ETB or 0.000001 USDT.',
+                            { source: 'EthioBlackMarket' }
+                          )}{' '}
                           <a href="https://ethioblackmarket.com/" target="_blank" rel="noreferrer">
-                            EthioBlackMarket
+                            {translateUi('View source')}
                           </a>
-                          ; quoted at 1 USDT = USD 1. Amounts round down to 0.01 ETB or 0.000001
-                          USDT.
                         </small>
                         <small>
-                          Updated {new Date(freshRate.observedAt!).toLocaleTimeString()} · valid
-                          until {new Date(freshRate.expiresAt!).toLocaleTimeString()}
+                          {translateUi('Updated {value} · valid until {value2}', {
+                            value: new Date(freshRate.observedAt!).toLocaleTimeString(
+                              interfaceLocale
+                            ),
+                            value2: new Date(freshRate.expiresAt!).toLocaleTimeString(
+                              interfaceLocale
+                            ),
+                          })}
                         </small>
                       </details>
                     </>
                   ) : (
-                    <small>A fresh exchange rate is unavailable. Please try again shortly.</small>
+                    <small>
+                      {translateUi(
+                        'A fresh exchange rate is unavailable. Please try again shortly.'
+                      )}
+                    </small>
                   )}
                 </div>
                 {direction === 'withdrawal' && (
                   <>
                     <label>
-                      Your TRON receiving address
+                      {translateUi('Your TRON receiving address')}
                       <input
                         value={address}
                         disabled={formBlocked}
@@ -458,16 +530,17 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                         autoComplete="off"
                         spellCheck={false}
                         required
-                        placeholder="T…"
+                        placeholder={'T…'}
                         pattern="T[1-9A-HJ-NP-Za-km-z]{33}"
                       />
                     </label>
                     <p>
-                      Use your own receiving address on TRON (TRC20). Your requested ETB balance is
-                      held while the payout is processed. Practice balances cannot be withdrawn.
+                      {translateUi(
+                        'Use your own receiving address on TRON (TRC20). Your requested ETB balance is held while the payout is processed. Practice balances cannot be withdrawn.'
+                      )}
                     </p>
                     <label>
-                      Authenticator code (if required)
+                      {translateUi('Authenticator code (if required)')}
                       <input
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
@@ -500,42 +573,52 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                           }
                         }}
                       >
-                        Verify identity
+                        {translateUi('Verify identity')}
                       </button>
                     )}
                   </>
                 )}
                 {reviewed && direction === 'withdrawal' && (
-                  <section className="crypto-quote" aria-label="Review withdrawal">
-                    <h2>Check your withdrawal</h2>
+                  <section className="crypto-quote" aria-label={translateUi('Review withdrawal')}>
+                    <h2>{translateUi('Check your withdrawal')}</h2>
                     <p>
-                      You withdraw <strong>{amount} ETB</strong> and receive{' '}
-                      <strong>{estimate}</strong>.
+                      <strong>
+                        {translateUi('You withdraw {amount} ETB and receive {estimate}.', {
+                          amount,
+                          estimate,
+                        })}
+                      </strong>
                     </p>
-                    <p>Network: TRON (TRC20)</p>
+                    <p>{translateUi('Network: TRON (TRC20)')}</p>
                     <code className="crypto-review-address">{address.trim()}</code>
                     <p>
-                      An administrator processes the payout. Check this receiving address before
-                      submitting.
+                      {translateUi(
+                        'An administrator processes the payout. Check this receiving address before submitting.'
+                      )}
                     </p>
                     <button type="button" onClick={() => setReviewed(false)}>
-                      Back to editing
+                      {translateUi('Back to editing')}
                     </button>
                   </section>
                 )}
                 {reviewed && direction === 'deposit' && (
-                  <section className="crypto-quote" aria-label="Review deposit">
-                    <h2>Check your deposit</h2>
+                  <section className="crypto-quote" aria-label={translateUi('Review deposit')}>
+                    <h2>{translateUi('Check your deposit')}</h2>
                     <p>
-                      Send <strong>{amount} USDT</strong> on TRON to receive{' '}
-                      <strong>{estimate}</strong>.
+                      <strong>
+                        {translateUi('Send {amount} USDT on TRON to receive {estimate}.', {
+                          amount,
+                          estimate,
+                        })}
+                      </strong>
                     </p>
                     <p>
-                      The rate is locked when your deposit address is created. Send within the
-                      displayed time limit.
+                      {translateUi(
+                        'The rate is locked when your deposit address is created. Send within the displayed time limit.'
+                      )}
                     </p>
                     <button type="button" onClick={() => setReviewed(false)}>
-                      Back to editing
+                      {translateUi('Back to editing')}
                     </button>
                   </section>
                 )}
@@ -554,28 +637,33 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 >
                   {direction === 'deposit'
                     ? reviewed
-                      ? 'Get deposit address'
-                      : 'Review deposit'
+                      ? translateUi('Get deposit address')
+                      : translateUi('Review deposit')
                     : reviewed
-                      ? 'Request withdrawal'
-                      : 'Review withdrawal'}
+                      ? translateUi('Request withdrawal')
+                      : translateUi('Review withdrawal')}
                 </button>
               </form>
             </>
           )}
-          {action.message && <p role="status">{action.message}</p>}
+          {action.message && <p role="status">{translateUi(action.message)}</p>}
           {action.pending && (
             <div>
               <p>
-                One earlier{' '}
-                {action.pending.path.endsWith('/withdrawals') ? 'withdrawal' : 'deposit'} still
-                needs confirmation. Retry sends exactly the saved details.
+                {translateUi(
+                  'One earlier {value} still needs confirmation. Retry sends exactly the saved details.',
+                  {
+                    value: action.pending.path.endsWith('/withdrawals')
+                      ? translateUi('withdrawal')
+                      : translateUi('deposit'),
+                  }
+                )}
               </p>
               <button
                 disabled={action.busy}
                 onClick={() => action.run(action.pending!.path, action.pending!.body)}
               >
-                Retry the same request
+                {translateUi('Retry the same request')}
               </button>
             </div>
           )}
@@ -583,10 +671,11 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
       )}
       {admin && (
         <section className="crypto-panel">
-          <h2>Deposit address pool</h2>
+          <h2>{translateUi('Deposit address pool')}</h2>
           <p>
-            Each address is reserved permanently for one deposit request. Add a new, unused address
-            that your organization controls. Never enter a private key or seed phrase.
+            {translateUi(
+              'Each address is reserved permanently for one deposit request. Add a new, unused address that your organization controls. Never enter a private key or seed phrase.'
+            )}
           </p>
           <form
             onSubmit={(e) => {
@@ -599,7 +688,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
             }}
           >
             <label>
-              TRON address
+              {translateUi('TRON address')}
               <input
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
@@ -609,7 +698,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               />
             </label>
             <label>
-              Address label
+              {translateUi('Address label')}
               <input
                 value={label}
                 maxLength={100}
@@ -623,10 +712,10 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 checked={confirmed}
                 onChange={(e) => setConfirmed(e.target.checked)}
               />
-              I control this unused receiving address.
+              {translateUi('I control this unused receiving address.')}
             </label>
             <label>
-              Authenticator code
+              {translateUi('Authenticator code')}
               <input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
@@ -636,12 +725,17 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                 required
               />
             </label>
-            <button disabled={busy || !confirmed}>Add receiving address</button>
+            <button disabled={busy || !confirmed}>{translateUi('Add receiving address')}</button>
           </form>
           {records.data?.addresses?.map((a) => (
             <div key={a.address} className="crypto-record">
               <strong>
-                {a.label} · {a.retired ? 'Retired' : a.used ? 'Reserved permanently' : 'Available'}
+                {a.label} ·{' '}
+                {a.retired
+                  ? translateUi('Retired')
+                  : a.used
+                    ? translateUi('Reserved permanently')
+                    : translateUi('Available')}
               </strong>
               <CopyAddress address={a.address} />
               {!a.retired && !a.used && (
@@ -649,7 +743,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                   disabled={busy}
                   onClick={() => post(`/crypto-payments/admin/addresses/${a.address}/retire`)}
                 >
-                  Retire address
+                  {translateUi('Retire address')}
                 </button>
               )}
             </div>
@@ -658,25 +752,33 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
       )}
       {message && (
         <p role="status" className="crypto-notice">
-          {message}
+          {translateUi(message)}
         </p>
       )}
       {selected && (
         <section className="crypto-panel">
           <h2>
             {selected.action === 'claim'
-              ? 'Take responsibility for manual payout'
-              : 'Confirm your completed transfer'}
+              ? translateUi('Take responsibility for manual payout')
+              : translateUi('Confirm your completed transfer')}
           </h2>
           <p>
-            Request {selected.id}.{' '}
-            {selected.action === 'claim'
-              ? 'After claiming, verify the address and amount, then transfer USDT from your external wallet. Cancellation will be unavailable.'
-              : 'Confirm only after checking the successful transfer on TRON. This action completes the held ETB withdrawal.'}
+            {translateUi('Request {id}. {value}', {
+              id: selected.id,
+              value:
+                selected.action === 'claim'
+                  ? translateUi(
+                      'After claiming, verify the address and amount, then transfer USDT from your external wallet. Cancellation will be unavailable.'
+                    )
+                  : translateUi(
+                      'Confirm only after checking the successful transfer on TRON. This action completes the held ETB withdrawal.'
+                    ),
+            })}
           </p>
           <p className="crypto-warning">
-            Verify that the recipient controls the destination wallet. Never transfer a withdrawal
-            to a platform deposit address, including a retired address.
+            {translateUi(
+              'Verify that the recipient controls the destination wallet. Never transfer a withdrawal to a platform deposit address, including a retired address.'
+            )}
           </p>
           <form
             onSubmit={(e) => {
@@ -691,7 +793,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
             {selected.action === 'confirm' && (
               <>
                 <label>
-                  TRON transaction hash
+                  {translateUi('TRON transaction hash')}
                   <input
                     required
                     pattern="[a-fA-F0-9]{64}"
@@ -706,13 +808,14 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                     checked={confirmed}
                     onChange={(e) => setConfirmed(e.target.checked)}
                   />
-                  I verified the successful transfer, receiving address, TRC20 network and exact
-                  amount.
+                  {translateUi(
+                    'I verified the successful transfer, receiving address, TRC20 network and exact amount.'
+                  )}
                 </label>
               </>
             )}
             <label>
-              Authenticator code
+              {translateUi('Authenticator code')}
               <input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
@@ -723,31 +826,35 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
               />
             </label>
             <button disabled={busy || (selected.action === 'confirm' && !confirmed)}>
-              {selected.action === 'claim' ? 'Claim manual payout' : 'Confirm withdrawal'}
+              {selected.action === 'claim'
+                ? translateUi('Claim manual payout')
+                : translateUi('Confirm withdrawal')}
             </button>
             <button type="button" disabled={busy} onClick={() => setSelected(null)}>
-              Close
+              {translateUi('Close')}
             </button>
           </form>
         </section>
       )}
       {!admin && (
-        <nav className="wallet-history-links" aria-label="Other payment methods">
+        <nav className="wallet-history-links" aria-label={translateUi('Other payment methods')}>
           <Link to={paymentPath(direction === 'deposit' ? 'deposit' : 'withdraw', 'agent')}>
-            Use an agent instead
+            {translateUi('Use an agent instead')}
           </Link>
-          <Link to="/wallet/activity">Agent payment activity</Link>
+          <Link to="/wallet/activity">{translateUi('Agent payment activity')}</Link>
         </nav>
       )}
       <section className="crypto-panel">
-        <h2>{admin ? 'Payment queue' : 'Your crypto requests'}</h2>
+        <h2>{admin ? translateUi('Payment queue') : translateUi('Your crypto requests')}</h2>
         <p>
-          Page {page + 1} · up to 50 of each request type.{' '}
-          {admin ? 'Open requests appear first.' : ''}
+          {translateUi('Page {value} · up to 50 of each request type. {value2}', {
+            value: page + 1,
+            value2: admin ? translateUi('Open requests appear first.') : '',
+          })}
         </p>
         <div className="crypto-row">
           <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-            Previous page
+            {translateUi('Previous page')}
           </button>
           <button
             disabled={
@@ -760,27 +867,30 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
             }
             onClick={() => setPage((p) => p + 1)}
           >
-            Next page
+            {translateUi('Next page')}
           </button>
         </div>
         {records.isPending ? (
-          <p>Loading requests…</p>
+          <p>{translateUi('Loading requests…')}</p>
         ) : records.isError ? (
           <p role="alert">
-            Could not load requests. <button onClick={() => records.refetch()}>Retry</button>
+            {translateUi('Could not load requests.') + ' '}
+            <button onClick={() => records.refetch()}>{translateUi('Retry')}</button>
           </p>
         ) : (
           <div className="crypto-grid">
             <div>
-              <h3>Deposits</h3>
-              {!records.data?.deposits.length && <p>No deposit requests yet.</p>}
+              <h3>{translateUi('Deposits')}</h3>
+              {!records.data?.deposits.length && <p>{translateUi('No deposit requests yet.')}</p>}
               {records.data?.deposits.map((p) => (
                 <PaymentCard key={p.id} payment={p} />
               ))}
             </div>
             <div>
-              <h3>Withdrawals</h3>
-              {!records.data?.withdrawals.length && <p>No withdrawal requests yet.</p>}
+              <h3>{translateUi('Withdrawals')}</h3>
+              {!records.data?.withdrawals.length && (
+                <p>{translateUi('No withdrawal requests yet.')}</p>
+              )}
               {records.data?.withdrawals.map((p) => (
                 <PaymentCard key={p.id} payment={p}>
                   {p.status === 'HELD' && (
@@ -794,7 +904,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                             setConfirmed(false);
                           }}
                         >
-                          Claim manual payout
+                          {translateUi('Claim manual payout')}
                         </button>
                       )}
                       <button
@@ -805,7 +915,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                           )
                         }
                       >
-                        Cancel and return ETB
+                        {translateUi('Cancel and return ETB')}
                       </button>
                     </div>
                   )}
@@ -819,7 +929,7 @@ export function CryptoPaymentsPage({ admin = false }: { admin?: boolean }) {
                         setConfirmed(false);
                       }}
                     >
-                      Record completed transfer
+                      {translateUi('Record completed transfer')}
                     </button>
                   )}
                 </PaymentCard>

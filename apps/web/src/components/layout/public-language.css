@@ -1,0 +1,45 @@
+/* Public entry pages keep the language choice readable before sign-in. */
+.salem-public-language {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+html .salem-public-entry .salem-public-language label.salem-language {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #a6beb0;
+  border-radius: 10px;
+  background: #fff;
+  color: #173c2b;
+}
+html .salem-public-entry .salem-public-language .salem-language select {
+  width: 118px;
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: 0 20px;
+  font-size: 12px;
+  color: inherit;
+  background-color: transparent;
+}
+html .salem-public-entry .salem-public-language .salem-language svg {
+  width: 17px;
+  flex-shrink: 0;
+}
+html .salem-public-entry .salem-public-language .salem-language:focus-within {
+  outline: 2px solid #238650;
+  outline-offset: 3px;
+}
+html.dark .salem-public-entry .salem-public-language label.salem-language {
+  color: #e4eee7;
+  background: linear-gradient(155deg, #20382b, #102017);
+  border-color: #6da783;
+}
+html .salem-public-entry .pq-auth-header-actions,
+html .salem-public-entry .pq-public-header nav {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}

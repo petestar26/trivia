@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const activationTimeoutMs = 10_000;
 const updateCheckIntervalMs = 60_000;
@@ -8,6 +9,8 @@ export function AppUpdateNotice({
 }: {
   reload?: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [available, setAvailable] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState('');
@@ -238,15 +241,17 @@ export function AppUpdateNotice({
   return (
     <aside
       role="status"
-      aria-label="App update available"
+      aria-label={translateUi('App update available')}
       className="fixed bottom-4 left-4 right-4 z-[80] mx-auto flex max-w-lg flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-slate-900 shadow-xl dark:border-emerald-800 dark:bg-slate-900 dark:text-white"
     >
       <div>
-        <p className="text-sm font-semibold">A new version is ready</p>
+        <p className="text-sm font-semibold">{translateUi('A new version is ready')}</p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Finish your message or game, then reload to update.
+          {translateUi('Finish your message or game, then reload to update.')}
         </p>
-        {error && <p className="mt-1 text-xs text-red-700 dark:text-red-300">{error}</p>}
+        {error && (
+          <p className="mt-1 text-xs text-red-700 dark:text-red-300">{translateUi(error)}</p>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         <button
@@ -255,7 +260,7 @@ export function AppUpdateNotice({
           onClick={() => dismissRef.current?.()}
           className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800 disabled:opacity-50"
         >
-          Later
+          {translateUi('Later')}
         </button>
         <button
           type="button"
@@ -263,7 +268,7 @@ export function AppUpdateNotice({
           onClick={() => activateRef.current?.()}
           className="min-h-11 rounded-xl bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-900 disabled:opacity-50"
         >
-          {updating ? 'Updating…' : 'Reload app'}
+          {updating ? translateUi('Updating…') : translateUi('Reload app')}
         </button>
       </div>
     </aside>

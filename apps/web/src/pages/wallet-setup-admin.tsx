@@ -6,6 +6,7 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { useWalletAction, walletError } from '@/hooks/use-wallet-action';
 import { currencyMinorDigits, inputToMinor, formatMinor } from '@/lib/payment-money';
 import { ConfirmAction, PaymentCard } from './wallet-payments';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type Country = {
   id: string;
@@ -80,6 +81,8 @@ function displayedPaymentAccountVersion(record: Review): string | null {
 }
 
 export function WalletSetupAdmin() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const cache = useQueryClient();
   const countries = useQuery({
     queryKey: ['payments', 'admin-countries'],
@@ -157,7 +160,10 @@ export function WalletSetupAdmin() {
     }
   }
   const c = setup.data?.country;
-  const parsedAmount = inputToMinor(amount.replace(/^-/, ''), c && fundType === 'liquidity' ? currencyMinorDigits(c.currencyCode) : 2);
+  const parsedAmount = inputToMinor(
+    amount.replace(/^-/, ''),
+    c && fundType === 'liquidity' ? currencyMinorDigits(c.currencyCode) : 2
+  );
   const signed = parsedAmount === null ? null : parsedAmount * (amount.startsWith('-') ? -1 : 1);
   const fundsBody =
     c && signed !== null
@@ -172,34 +178,38 @@ export function WalletSetupAdmin() {
           }
       : null;
   return (
-    <section className="payment-panel" aria-label="Payment administration">
-      <h1>Payment setup & oversight</h1>
+    <section className="payment-panel" aria-label={translateUi('Payment administration')}>
+      <h1>{translateUi('Payment setup & oversight')}</h1>
       <p>
-        Configure a country, verified rate and payment methods, approve agents, then record backed
-        ETB deposit funding and fiat liquidity. Existing account and jurisdiction checks still apply.
+        {translateUi(
+          'Configure a country, verified rate and payment methods, approve agents, then record backed ETB deposit funding and fiat liquidity. Existing account and jurisdiction checks still apply.'
+        )}
       </p>
-      {message && <p role="status">{message}</p>}
+      {message && <p role="status">{translateUi(message)}</p>}
       {funding.message && <p role="status">{funding.message}</p>}
       {funding.pending && (
         <button
           disabled={funding.busy}
           onClick={() => funding.run(funding.pending!.path, funding.pending!.body)}
         >
-          Retry saved funding request
+          {translateUi('Retry saved funding request')}
         </button>
       )}
-      {countries.isPending && <p role="status">Loading countries…</p>}
+      {countries.isPending && <p role="status">{translateUi('Loading countries…')}</p>}
       {countries.isError && (
         <p role="alert">
-          Could not load countries. <button onClick={() => countries.refetch()}>Retry</button>
+          {translateUi('Could not load countries.') + ' '}
+          <button onClick={() => countries.refetch()}>{translateUi('Retry')}</button>
         </p>
       )}
       <details>
-        <summary>Add a country</summary>
-        <p>New countries start inactive with payments disabled.</p>
+        <summary>{translateUi('Add a country')}</summary>
+        <p>{translateUi('New countries start inactive with payments disabled.')}</p>
         {(['code', 'name', 'currencyCode'] as const).map((k) => (
           <label key={k}>
-            {{ code: 'Country code', name: 'Country name', currencyCode: 'Currency code' }[k]}
+            {translateUi(
+              { code: 'Country code', name: 'Country name', currencyCode: 'Currency code' }[k]
+            )}
             <input
               value={newCountry[k]}
               maxLength={k === 'name' ? 80 : 3}
@@ -222,11 +232,11 @@ export function WalletSetupAdmin() {
           }
           onClick={() => change('/agent-config/countries', newCountry)}
         >
-          Create inactive country
+          {translateUi('Create inactive country')}
         </button>
       </details>
       <label>
-        Manage country
+        {translateUi('Manage country')}
         <select
           value={countryId}
           disabled={busy || funding.blocked}
@@ -236,7 +246,7 @@ export function WalletSetupAdmin() {
             setAmount('');
           }}
         >
-          <option value="">Select country</option>
+          <option value="">{translateUi('Select country')}</option>
           {countries.data?.map((x) => (
             <option value={x.id} key={x.id}>
               {x.name} · {x.currencyCode}
@@ -244,26 +254,37 @@ export function WalletSetupAdmin() {
           ))}
         </select>
       </label>
-      {setup.isFetching && countryId && <p role="status">Checking setup…</p>}
+      {setup.isFetching && countryId && <p role="status">{translateUi('Checking setup…')}</p>}
       {setup.isError && (
         <p role="alert">
-          Setup could not load. <button onClick={() => setup.refetch()}>Retry</button>
+          {translateUi('Setup could not load.') + ' '}
+          <button onClick={() => setup.refetch()}>{translateUi('Retry')}</button>
         </p>
       )}
       {c && (
         <>
           <article className="payment-record">
-            <h3>{c.name} setup status</h3>
+            <h3>{translateUi('{name} setup status', { name: c.name })}</h3>
             <p>
-              Country: {c.isActive ? 'Active' : 'Inactive'} · Agent payments:{' '}
-              {c.agentPaymentEnabled ? 'Enabled' : 'Paused'}
+              {translateUi('Country: {value} · Agent payments: {value2}', {
+                value: c.isActive ? translateUi('Active') : translateUi('Inactive'),
+                value2: c.agentPaymentEnabled ? translateUi('Enabled') : translateUi('Paused'),
+              })}
             </p>
-            <p>Rate: {setup.data!.rateStatus}</p>
-            <p>Active methods: {c.paymentMethods.filter((m) => m.isActive).length}</p>
+            <p>{translateUi('Rate: {rateStatus}', { rateStatus: setup.data!.rateStatus })}</p>
+            <p>
+              {translateUi('Active methods: {length}', {
+                length: c.paymentMethods.filter((m) => m.isActive).length,
+              })}
+            </p>
             <p>{setup.data!.admissionNotice}</p>
             <div className="payment-actions">
               <ConfirmAction
-                label={c.isActive ? 'Deactivate country' : 'Activate country directory'}
+                label={
+                  c.isActive
+                    ? translateUi('Deactivate country')
+                    : translateUi('Activate country directory')
+                }
                 disabled={busy}
                 onConfirm={() =>
                   change(`/agent-config/countries/${c.id}`, { isActive: !c.isActive }, true)
@@ -271,7 +292,9 @@ export function WalletSetupAdmin() {
               />
               <ConfirmAction
                 label={
-                  c.agentPaymentEnabled ? 'Pause new agent payments' : 'Enable new agent payments'
+                  c.agentPaymentEnabled
+                    ? translateUi('Pause new agent payments')
+                    : translateUi('Enable new agent payments')
                 }
                 disabled={
                   busy ||
@@ -291,12 +314,14 @@ export function WalletSetupAdmin() {
             </div>
           </article>
           <details>
-            <summary>Payment methods</summary>
+            <summary>{translateUi('Payment methods')}</summary>
             {c.paymentMethods.map((m) => (
               <p key={m.id}>
-                {m.name} · {m.isActive ? 'Active' : 'Inactive'}{' '}
+                {m.name} · {m.isActive ? translateUi('Active') : translateUi('Inactive')}{' '}
                 <ConfirmAction
-                  label={`${m.isActive ? 'Pause' : 'Enable'} ${m.name}`}
+                  label={translateUi(m.isActive ? 'Pause {name}' : 'Enable {name}', {
+                    name: m.name,
+                  })}
                   disabled={busy}
                   onConfirm={() =>
                     change(`/agent-config/payment-methods/${m.id}`, { isActive: !m.isActive }, true)
@@ -305,7 +330,7 @@ export function WalletSetupAdmin() {
               </p>
             ))}
             <label>
-              Method name
+              {translateUi('Method name')}
               <input
                 value={method.name}
                 disabled={busy}
@@ -313,18 +338,18 @@ export function WalletSetupAdmin() {
               />
             </label>
             <label>
-              Method type
+              {translateUi('Method type')}
               <select
                 value={method.type}
                 disabled={busy}
                 onChange={(e) => setMethod({ ...method, type: e.target.value })}
               >
-                <option value="BANK_TRANSFER">Bank transfer</option>
-                <option value="MOBILE_PAYMENT">Mobile payment</option>
+                <option value="BANK_TRANSFER">{translateUi('Bank transfer')}</option>
+                <option value="MOBILE_PAYMENT">{translateUi('Mobile payment')}</option>
               </select>
             </label>
             <label>
-              Required account fields (comma-separated)
+              {translateUi('Required account fields (comma-separated)')}
               <input
                 value={method.fields}
                 disabled={busy}
@@ -344,37 +369,55 @@ export function WalletSetupAdmin() {
                 })
               }
             >
-              Add inactive method
+              {translateUi('Add inactive method')}
             </button>
           </details>
           <details>
-            <summary>Agents, ETB deposit funding & fiat liquidity</summary>
+            <summary>{translateUi('Agents, ETB deposit funding & fiat liquidity')}</summary>
             {setup.data!.truncated && (
-              <p>Showing the first 100 agents. This is not a complete funding summary.</p>
+              <p>
+                {translateUi(
+                  'Showing the first 100 agents. This is not a complete funding summary.'
+                )}
+              </p>
             )}
             {!setup.data!.agents.length && (
               <p>
-                No agents registered for this country. Create an agent from the administrator
-                workspace, or review a submitted agent application.
+                {translateUi(
+                  'No agents registered for this country. Create an agent from the administrator workspace, or review a submitted agent application.'
+                )}
               </p>
             )}
             {setup.data!.agents.map((a) => (
               <article className="payment-record" key={a.id}>
                 <h3>{a.displayName}</h3>
                 <p>
-                  {a.status} · User {a.user.status} · Approved active accounts:{' '}
-                  {a.approvedPaymentAccounts}
+                  {translateUi(
+                    '{status} · User {status2} · Approved active accounts: {approvedPaymentAccounts}',
+                    {
+                      status: a.status,
+                      status2: a.user.status,
+                      approvedPaymentAccounts: a.approvedPaymentAccounts,
+                    }
+                  )}
                 </p>
-                <p>Available deposit funding: {formatEtb(a.availableCoins)}</p>
+                <p>
+                  {translateUi('Available deposit funding: {value}', {
+                    value: formatEtb(a.availableCoins),
+                  })}
+                </p>
                 {a.fiatLiquidity.map((l) => (
                   <p key={l.fiatCurrency}>
-                    Available fiat: {formatMinor(l.availableBalance, l.fiatCurrency)}
+                    {translateUi('Available fiat: {value}', {
+                      value: formatMinor(l.availableBalance, l.fiatCurrency),
+                    })}
                   </p>
                 ))}
                 {a.status === 'ACTIVE' && (
                   <>
                     <label>
-                      Suspension reason for {a.displayName}
+                      {translateUi('Suspension reason for') + ' '}
+                      {a.displayName}
                       <textarea
                         value={actionNotes[`suspend:${a.id}`] ?? ''}
                         maxLength={500}
@@ -385,7 +428,7 @@ export function WalletSetupAdmin() {
                       />
                     </label>
                     <ConfirmAction
-                      label={`Suspend ${a.displayName}`}
+                      label={translateUi('Suspend {displayName}', { displayName: a.displayName })}
                       disabled={busy || (actionNotes[`suspend:${a.id}`] ?? '').trim().length < 5}
                       onConfirm={() =>
                         change(`/agents/${a.id}/suspend`, {
@@ -397,7 +440,7 @@ export function WalletSetupAdmin() {
                 )}
                 {(a.status === 'TEMPORARILY_SUSPENDED' || a.status === 'UNDER_REVIEW') && (
                   <ConfirmAction
-                    label={`Reactivate ${a.displayName}`}
+                    label={translateUi('Reactivate {displayName}', { displayName: a.displayName })}
                     disabled={busy}
                     onConfirm={() => change(`/agents/${a.id}/reactivate`, {})}
                   />
@@ -408,7 +451,7 @@ export function WalletSetupAdmin() {
                     <p key={p.id}>
                       {p.methodDef.name}{' '}
                       <ConfirmAction
-                        label="Disable account"
+                        label={translateUi('Disable account')}
                         disabled={busy}
                         onConfirm={() =>
                           change(`/agents/payment-accounts/${p.id}/admin-disable`, {})
@@ -419,18 +462,18 @@ export function WalletSetupAdmin() {
               </article>
             ))}
             <p>
-              Funding records must represent verified backing. Initial funding is allowed once;
-              subsequent adjustments require a super administrator. This form does not transfer bank
-              funds.
+              {translateUi(
+                'Funding records must represent verified backing. Initial funding is allowed once; subsequent adjustments require a super administrator. This form does not transfer bank funds.'
+              )}
             </p>
             <label>
-              Agent
+              {translateUi('Agent')}
               <select
                 value={selectedAgent}
                 disabled={funding.blocked}
                 onChange={(e) => setSelectedAgent(e.target.value)}
               >
-                <option value="">Select agent</option>
+                <option value="">{translateUi('Select agent')}</option>
                 {setup.data!.agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.displayName}
@@ -439,7 +482,7 @@ export function WalletSetupAdmin() {
               </select>
             </label>
             <label>
-              Funding balance
+              {translateUi('Funding balance')}
               <select
                 value={fundType}
                 disabled={funding.blocked}
@@ -448,23 +491,26 @@ export function WalletSetupAdmin() {
                   setAmount('');
                 }}
               >
-                <option value="inventory">ETB deposit funding</option>
-                <option value="liquidity">Fiat liquidity · {c.currencyCode}</option>
+                <option value="inventory">{translateUi('ETB deposit funding')}</option>
+                <option value="liquidity">
+                  {translateUi('Fiat liquidity · {currencyCode}', { currencyCode: c.currencyCode })}
+                </option>
               </select>
             </label>
             <label>
-              Operation
+              {translateUi('Operation')}
               <select
                 value={fundMode}
                 disabled={funding.blocked}
                 onChange={(e) => setFundMode(e.target.value)}
               >
-                <option value="fund">Initial allocation</option>
-                <option value="adjust">Adjustment · super admin</option>
+                <option value="fund">{translateUi('Initial allocation')}</option>
+                <option value="adjust">{translateUi('Adjustment · super admin')}</option>
               </select>
             </label>
             <label>
-              Amount ({fundType === 'inventory' ? 'ETB' : c.currencyCode})
+              {translateUi('Amount (')}
+              {fundType === 'inventory' ? 'ETB' : c.currencyCode})
               <input
                 value={amount}
                 disabled={funding.blocked}
@@ -473,15 +519,17 @@ export function WalletSetupAdmin() {
               />
             </label>
             <p>
-              Review amount:{' '}
-              {signed === null
-                ? 'Enter a valid amount'
-                : fundType === 'inventory'
-                  ? formatEtb(signed)
-                  : formatMinor(signed, c.currencyCode)}
+              {translateUi('Review amount: {value}', {
+                value:
+                  signed === null
+                    ? translateUi('Enter a valid amount')
+                    : fundType === 'inventory'
+                      ? formatEtb(signed)
+                      : formatMinor(signed, c.currencyCode),
+              })}
             </p>
             <ConfirmAction
-              label="Confirm backed allocation"
+              label={translateUi('Confirm backed allocation')}
               disabled={
                 funding.blocked ||
                 !selectedAgent ||
@@ -498,7 +546,7 @@ export function WalletSetupAdmin() {
         </>
       )}
       <label>
-        Funding adjustment reason
+        {translateUi('Funding adjustment reason')}
         <textarea
           value={note}
           maxLength={500}
@@ -513,15 +561,16 @@ export function WalletSetupAdmin() {
         ] as const
       ).map(([title, q, path]) => (
         <details key={path}>
-          <summary>{title}</summary>
+          <summary>{translateUi(title)}</summary>
           {q.isPending ? (
-            <p>Loading…</p>
+            <p>{translateUi('Loading…')}</p>
           ) : q.isError ? (
             <p role="alert">
-              Could not load reviews. <button onClick={() => q.refetch()}>Retry</button>
+              {translateUi('Could not load reviews.') + ' '}
+              <button onClick={() => q.refetch()}>{translateUi('Retry')}</button>
             </p>
           ) : !q.data?.length ? (
-            <p>No pending reviews.</p>
+            <p>{translateUi('No pending reviews.')}</p>
           ) : (
             q.data.map((r) => {
               const paymentAccount = path === 'payment-accounts';
@@ -540,19 +589,35 @@ export function WalletSetupAdmin() {
                   key={
                     paymentAccount ? JSON.stringify([r.id, r.updatedAt, r.accountDetails]) : r.id
                   }
-                  aria-label={`${paymentAccount ? 'Payment account' : 'Agent application'} review ${r.id}`}
+                  aria-label={translateUi('{value} review {id}', {
+                    value: paymentAccount
+                      ? translateUi('Payment account')
+                      : translateUi('Agent application'),
+                    id: r.id,
+                  })}
                 >
                   <h3>{r.agent.displayName}</h3>
                   <p>
-                    Country:{' '}
-                    {countries.data?.find(
-                      (c) => c.id === (paymentAccount ? r.countryId : r.agent.countryId)
-                    )?.name ??
-                      (paymentAccount ? (r.countryId ?? 'Unavailable') : r.agent.countryId)}
+                    {translateUi('Country: {value}', {
+                      value:
+                        countries.data?.find(
+                          (c) => c.id === (paymentAccount ? r.countryId : r.agent.countryId)
+                        )?.name ??
+                        (paymentAccount
+                          ? (r.countryId ?? translateUi('Unavailable'))
+                          : r.agent.countryId),
+                    })}
                   </p>
-                  {paymentAccount && <p>Payment method: {r.methodDef?.name ?? 'Unavailable'}</p>}
+                  {paymentAccount && (
+                    <p>
+                      {translateUi('Payment method: {value}', {
+                        value: r.methodDef?.name ?? translateUi('Unavailable'),
+                      })}
+                    </p>
+                  )}
                   <label>
-                    Review reason for {r.agent.displayName}
+                    {translateUi('Review reason for') + ' '}
+                    {r.agent.displayName}
                     <textarea
                       value={reviewNote}
                       maxLength={500}
@@ -569,12 +634,13 @@ export function WalletSetupAdmin() {
                   </pre>
                   {paymentAccount && !expectedUpdatedAt && (
                     <p role="alert">
-                      Account details or review version are unavailable. Reload this review before
-                      making a decision.
+                      {translateUi(
+                        'Account details or review version are unavailable. Reload this review before making a decision.'
+                      )}
                     </p>
                   )}
                   <ConfirmAction
-                    label="Approve verified record"
+                    label={translateUi('Approve verified record')}
                     disabled={busy || reviewUnavailable}
                     onConfirm={() => {
                       if (busy || reviewUnavailable) return;
@@ -582,7 +648,7 @@ export function WalletSetupAdmin() {
                     }}
                   />
                   <ConfirmAction
-                    label="Reject with reason"
+                    label={translateUi('Reject with reason')}
                     disabled={busy || reviewUnavailable || reviewNote.trim().length < 5}
                     onConfirm={() => {
                       if (busy || reviewUnavailable || reviewNote.trim().length < 5) return;
@@ -596,29 +662,30 @@ export function WalletSetupAdmin() {
         </details>
       ))}
       <details>
-        <summary>Latest 100 deposit orders</summary>
+        <summary>{translateUi('Latest 100 deposit orders')}</summary>
         {deposits.isPending ? (
-          <p>Loading…</p>
+          <p>{translateUi('Loading…')}</p>
         ) : deposits.isError ? (
           <p role="alert">
-            Could not load orders. <button onClick={() => deposits.refetch()}>Retry</button>
+            {translateUi('Could not load orders.') + ' '}
+            <button onClick={() => deposits.refetch()}>{translateUi('Retry')}</button>
           </p>
         ) : !deposits.data?.length ? (
-          <p>No deposit orders.</p>
+          <p>{translateUi('No deposit orders.')}</p>
         ) : (
           deposits.data.map((d) => (
             <PaymentCard key={d.id} payment={d}>
-              <p>Agent: {d.agent.displayName}</p>
+              <p>{translateUi('Agent: {displayName}', { displayName: d.agent.displayName })}</p>
             </PaymentCard>
           ))
         )}
       </details>
       <details>
-        <summary>Crypto integration status</summary>
+        <summary>{translateUi('Crypto integration status')}</summary>
         <p>
-          USDT, USDC, Bitcoin, Ethereum and Solana are planned options. Your existing provider must
-          be identified before network mappings, authenticated payment notifications and settlement
-          can be connected. Crypto remains unavailable; there is no manual “mark paid” bypass.
+          {translateUi(
+            'USDT, USDC, Bitcoin, Ethereum and Solana are planned options. Your existing provider must be identified before network mappings, authenticated payment notifications and settlement can be connected. Crypto remains unavailable; there is no manual “mark paid” bypass.'
+          )}
         </p>
         {setup.data?.crypto.map((a) => (
           <p key={a.symbol}>

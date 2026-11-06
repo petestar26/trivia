@@ -313,7 +313,7 @@ describe('Football page', () => {
       })
     );
     await client.invalidateQueries();
-    const alert = await screen.findByText(/price has\s+changed/);
+    const alert = await screen.findByText(/Prices changed for 1 selection/);
     expect(alert).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Review ticket/ })).toBeDisabled();
     expect(mocks.post).not.toHaveBeenCalled();
@@ -321,7 +321,7 @@ describe('Football page', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Review ticket/ })).toBeEnabled()
     );
-    expect(screen.queryByText(/price has\s+changed/)).toBeNull();
+    expect(screen.queryByText(/Prices changed for 1 selection/)).toBeNull();
   });
 
   it('blocks admission when the rules changed under the page', async () => {
@@ -409,7 +409,9 @@ describe('Football page', () => {
     const stage = screen.getByRole('region', { name: 'Match view' });
     expect(stage.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const identityNote = screen.getByText(/Premier League club-themed simulation/);
-    expect(stage.compareDocumentPosition(identityNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      stage.compareDocumentPosition(identityNote) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     fireEvent.click(within(banner).getByRole('button', { name: 'All results' }));
     expect(screen.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
 
@@ -509,9 +511,7 @@ describe('Football page', () => {
     expect(review.closest('[inert]')).not.toBeNull();
     fireEvent.click(review);
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    fireEvent.click(
-      within(expanded).getByRole('button', { name: 'Minimize Football view' })
-    );
+    fireEvent.click(within(expanded).getByRole('button', { name: 'Minimize Football view' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByTestId('scene')).toBe(scene);
     expect(stake).toHaveValue(25);

@@ -1,7 +1,11 @@
+import { LanguageProvider } from '@/providers/language-provider';
+import { LANGUAGES } from '@/lib/i18n/types';
+import { translate } from '@/lib/i18n/format';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   TOGETHER_FEE_POLICY,
+  TOGETHER_GAMES,
   TOGETHER_RULES_ID,
   type TogetherGame,
   type TogetherRoundView,
@@ -132,7 +136,7 @@ it.each(['spin_win', 'turbo_keno', 'dice', 'number_challenge'] as const)(
 it('shows the complete Keno draw and only the current player’s matches on initial load', () => {
   const round = fixture('roulette_keno');
   render(<TogetherGameResult round={round} userId="me" serverNow={60000} />);
-  expect(screen.getByText('4 matches')).toBeInTheDocument();
+  expect(screen.getByText('Your ticket: 4 matches')).toBeInTheDocument();
   expect(
     within(screen.getByRole('list', { name: 'Balls in draw order' })).getAllByRole('listitem')
   ).toHaveLength(18);
@@ -184,7 +188,7 @@ it.each(['thunder_derby_3d', 'neon_hounds_3d'] as const)(
     expect(finish).toHaveLength(8);
     expect(finish[0]).toHaveTextContent(game === 'neon_hounds_3d' ? 'Dog 8' : 'Runner 8');
     expect(finish[3]).toHaveTextContent('Your pick');
-    expect(screen.getByText('#4')).toBeInTheDocument();
+    expect(screen.getByText('Finished #4')).toBeInTheDocument();
   }
 );
 
@@ -230,7 +234,7 @@ it('displays actual blackjack cards, dealer, natural blackjack, and prediction r
   const dealer = screen.getByRole('article', { name: 'Dealer hand' });
   expect(within(dealer).getByText('Total 19')).toBeInTheDocument();
   const natural = screen.getByRole('article', { name: 'Hand 1' });
-  expect(within(natural).getByLabelText('A of spades')).toBeInTheDocument();
+  expect(within(natural).getByLabelText('Ace of spades')).toBeInTheDocument();
   expect(within(natural).getByText('Blackjack · 21')).toBeInTheDocument();
   expect(within(natural).getByText('Your prediction: Win · Correct')).toBeInTheDocument();
   expect(screen.getAllByRole('article')).toHaveLength(7);
@@ -353,8 +357,10 @@ it('identifies the winning group pick even when an unselected runner finishes fi
   round.entries[1].selection = [8];
   round.outcome = { numbers: [1, 2, 3, 4, 5, 6, 7, 8] };
   render(<TogetherGameResult round={round} userId="me" serverNow={60000} />);
-  expect(screen.getByText('Group-winning pick: Runner 4')).toBeInTheDocument();
-  expect(screen.queryByText('Group-winning pick: Runner 1')).not.toBeInTheDocument();
+  expect(
+    screen.getByText('Group-winning pick: Runner 4 · finished #4 overall')
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/Group-winning pick: Runner 1/)).not.toBeInTheDocument();
 });
 
 function revealFixture(game: TogetherGame) {
@@ -522,3 +528,65 @@ it('a saved result awaiting payment does not invent a shared start time', () => 
   expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Replay for me' })).not.toBeInTheDocument();
 });
+
+it.each(LANGUAGES)(
+  'renders saved results of all twelve games in $code without changing receipts',
+  ({ code }) => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation((key) =>
+      key === 'salem-language' ? code : null
+    );
+    for (const game of TOGETHER_GAMES) {
+      const round = game.key === 'blackjack' ? blackjackFixture() : fixture(game.key);
+      if (game.key === 'spin_win') round.outcome = { numbers: [0] };
+      if (game.key === 'dice') round.outcome = { numbers: [6, 5, 2, 3] };
+      if (game.key === 'number_challenge') {
+        round.outcome = { numbers: [42] };
+        round.entries[0].selection = [40];
+        round.entries[1].selection = [75];
+      }
+      if (game.key === 'turbo_keno')
+        round.outcome = { numbers: Array.from({ length: 20 }, (_, i) => i + 1) };
+      if (game.key === 'lucky_six') {
+        round.outcome = { numbers: Array.from({ length: 35 }, (_, i) => i + 1) };
+        round.entries[0].selection = [1, 2, 3, 4, 5, 6];
+      }
+      if (['thunder_derby_3d', 'neon_hounds_3d'].includes(game.key)) {
+        round.outcome = { numbers: [8, 1, 2, 3, 4, 5, 6, 7] };
+        round.entries[0].selection = [3];
+        round.entries[1].selection = [5];
+      }
+      if (game.key === 'virtual_football_3d') {
+        round.outcome = {
+          numbers: [0, 1, 2],
+          football: [
+            { home: 2, away: 1 },
+            { home: 0, away: 0 },
+            { home: 1, away: 3 },
+          ],
+        };
+        round.entries[0].selection = [0, 0, 2];
+      }
+      if (['sky_crash', 'crash_point'].includes(game.key)) {
+        round.outcome = { numbers: [250] };
+        round.entries[0].selection = [200];
+        round.entries[1].selection = [300];
+      }
+      const before = JSON.stringify(round);
+      const { container, unmount } = render(
+        <LanguageProvider>
+          <TogetherGameResult round={round} userId="me" serverNow={60000} />
+        </LanguageProvider>
+      );
+      expect(screen.getByRole('heading', { level: 2 })).toBeInTheDocument();
+      expect(screen.queryByText('Result display unavailable')).not.toBeInTheDocument();
+      if (code !== 'en') expect(screen.queryByText('Recorded result')).not.toBeInTheDocument();
+      const replay = screen.getByRole('button', { name: translate(code, 'Replay for me') });
+      fireEvent.click(replay);
+      fireEvent.click(screen.getByRole('button', { name: translate(code, 'Show final result') }));
+      expect(container.querySelector('[data-reveal-mode="final"]')).toBeInTheDocument();
+      expect(JSON.stringify(round)).toBe(before);
+      unmount();
+    }
+    localStorage.removeItem('salem-language');
+  }
+);

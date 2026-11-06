@@ -215,7 +215,7 @@ try {
         for (let i = 0; i < selection(game).length; i++)
           await selects.nth(i).selectOption(String(selection(game)[i]));
       } else if (game === 'sky_crash' || game === 'crash_point')
-        await page.getByLabel('Automatic exit target (1.01×–20×)').fill('2.00');
+        await page.getByLabel('Automatic exit target (1.01×–20.00×)').fill('2.00');
       else if (game === 'thunder_derby_3d')
         await page.getByRole('button', { name: 'Choose runner 1', exact: true }).click();
       else if (game === 'neon_hounds_3d')

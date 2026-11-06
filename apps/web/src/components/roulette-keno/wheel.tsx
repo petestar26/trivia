@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { rkColor } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /** Original resolution-independent wheel. It only displays server-released balls. */
 export function RouletteKenoWheel({
@@ -9,6 +10,8 @@ export function RouletteKenoWheel({
   latest: number | null;
   drawing: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const id = useId().replace(/:/g, '');
   const at = (r: number, a: number) =>
     `${200 + r * Math.sin((a * Math.PI) / 180)},${200 - r * Math.cos((a * Math.PI) / 180)}`;
@@ -18,7 +21,9 @@ export function RouletteKenoWheel({
         viewBox="0 0 400 400"
         role="img"
         aria-label={
-          latest ? `Latest released ball ${latest}` : 'Roulette Keno wheel waiting for the draw'
+          latest
+            ? translateUi('Latest released ball {latest}', { latest: latest })
+            : translateUi('Roulette Keno wheel waiting for the draw')
         }
       >
         <defs>
@@ -127,7 +132,7 @@ export function RouletteKenoWheel({
         <circle cx="200" cy="198" r="70" fill={`url(#${id}-ball)`} filter={`url(#${id}-shadow)`} />
         <circle cx="200" cy="198" r="57" fill="none" stroke="#c2b394" strokeWidth=".8" />
         <text x="200" y="177" textAnchor="middle" fill="#66543a" fontSize="8.5" letterSpacing="1.4">
-          {latest ? 'RELEASED BALL' : 'SALEM ORIGINALS'}
+          {latest ? translateUi('RELEASED BALL') : translateUi('SALEM ORIGINALS')}
         </text>
         <text
           x="200"
@@ -140,7 +145,7 @@ export function RouletteKenoWheel({
           {latest ?? 'RK'}
         </text>
         <text x="200" y="240" textAnchor="middle" fill="#66543a" fontSize="8.5" letterSpacing="1.1">
-          {latest ? rkColor(latest) : 'ROULETTE KENO'}
+          {latest ? rkColor(latest) : translateUi('ROULETTE KENO')}
         </text>
       </svg>
     </div>

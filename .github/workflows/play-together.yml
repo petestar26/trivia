@@ -18,15 +18,11 @@ on:
       - 'apps/api/src/routes/index.ts'
       - 'apps/api/src/routes/groups.ts'
       - 'apps/api/vitest.together*.ts'
-      - 'apps/web/src/pages/play-together*'
-      - 'apps/web/src/components/together/**'
-      - 'apps/web/src/components/groups/group-round-activity*'
-      - 'apps/web/src/components/groups/group-social-nav.tsx'
-      - 'apps/web/src/pages/groups.tsx'
-      - 'apps/web/src/pages/workspaces/group-play-control*'
-      - 'apps/web/src/lib/together-proof*'
-      - 'apps/web/src/lib/member-game-catalog*'
-      - 'apps/web/src/App.tsx'
+      - 'apps/web/src/**'
+      - 'apps/web/vite.config.ts'
+      - 'apps/web/pwa.test.mjs'
+      - 'apps/web/app-recovery.test.mjs'
+      - 'apps/web/index.html'
       - 'packages/shared/**'
       - 'packages/database/**'
       - 'scripts/check-together-catalogue-migration.mjs'
@@ -105,3 +101,10 @@ jobs:
         run: |
           pnpm build:api
           pnpm build:web
+      - name: Interface languages and offline install
+        if: matrix.postgres == 16
+        run: |
+          node apps/web/src/lib/i18n/tools/coverage.mjs --strict
+          node --test apps/web/src/lib/i18n/tools/inventory.test.mjs
+          pnpm --filter web exec vitest run src/lib/i18n src/providers/language-provider.test.tsx src/pages/member-language-state.test.tsx src/pages/public-language-select.test.tsx --minWorkers=1 --maxWorkers=1
+          pnpm --filter web test:pwa

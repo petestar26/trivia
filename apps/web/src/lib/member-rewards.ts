@@ -45,9 +45,9 @@ export const rewardLabels = {
   REFERRAL: 'Referral reward',
 };
 export const memberGet = async <T>(path: string) => unwrapData(await api.get<T>(path));
-export const memberDate = (value: string | null) =>
+export const memberDate = (value: string | null, locale?: string) =>
   value && !Number.isNaN(Date.parse(value))
-    ? new Date(value).toLocaleDateString(undefined, {
+    ? new Date(value).toLocaleDateString(locale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',

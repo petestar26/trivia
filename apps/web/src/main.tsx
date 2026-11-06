@@ -24,22 +24,22 @@ const queryClient = new QueryClient({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AppErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AppInstallProvider>
-            <AuthProvider>
-              <SocketProvider>
-                <LanguageProvider>
+    <LanguageProvider>
+      <AppErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <AppInstallProvider>
+              <AuthProvider>
+                <SocketProvider>
                   <App />
-                </LanguageProvider>
-                <AppUpdateNotice />
-                <Toaster />
-              </SocketProvider>
-            </AuthProvider>
-          </AppInstallProvider>
-        </BrowserRouter>
-      </QueryClientProvider>
-    </AppErrorBoundary>
+                  <AppUpdateNotice />
+                  <Toaster />
+                </SocketProvider>
+              </AuthProvider>
+            </AppInstallProvider>
+          </BrowserRouter>
+        </QueryClientProvider>
+      </AppErrorBoundary>
+    </LanguageProvider>
   </React.StrictMode>
 );

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, unwrapData } from '@/lib/api';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type Reference = {
   available: boolean;
@@ -14,6 +15,8 @@ type Reference = {
 };
 
 export function WalletPricingAdmin() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const rate = useQuery({
     queryKey: ['payments', 'etb-reference'],
     queryFn: async () => unwrapData(await api.get<Reference>('/wallet/exchange-rate')),
@@ -22,69 +25,99 @@ export function WalletPricingAdmin() {
   const fresh = rate.data?.available && Date.parse(rate.data.expiresAt ?? '') > Date.now();
   return (
     <section className="payment-panel">
-      <h1>Birr wallet & exchange rate</h1>
+      <h1>{translateUi('Birr wallet & exchange rate')}</h1>
       <p>
-        Members hold one balance in ETB. Agent deposits credit Birr directly. Crypto deposits
-        convert USDT to ETB using the rate shown before confirmation.
+        {translateUi(
+          'Members hold one balance in ETB. Agent deposits credit Birr directly. Crypto deposits convert USDT to ETB using the rate shown before confirmation.'
+        )}
       </p>
       <div className="payment-disclosure">
-        <strong>Wallet currency: Birr (ETB)</strong>
-        <p>Precision: 0.01 ETB · Platform conversion fee: 0</p>
+        <strong>{translateUi('Wallet currency: Birr (ETB)')}</strong>
+        <p>{translateUi('Precision: 0.01 ETB · Platform conversion fee: 0')}</p>
         {rate.isPending ? (
-          <p role="status">Loading the exchange rate…</p>
+          <p role="status">{translateUi('Loading the exchange rate…')}</p>
         ) : fresh ? (
           <>
-            <h2>1 USD = {rate.data!.localPerUsd} ETB</h2>
-            <p>Observed {new Date(rate.data!.observedAt!).toLocaleString()}</p>
-            <p>New quotes available until {new Date(rate.data!.expiresAt!).toLocaleString()}</p>
+            <h2>
+              {translateUi('1 USD = {localPerUsd} ETB', {
+                localPerUsd: rate.data!.localPerUsd ?? '',
+              })}
+            </h2>
+            <p>
+              {translateUi('Observed {value}', {
+                value: new Date(rate.data!.observedAt!).toLocaleString(interfaceLocale),
+              })}
+            </p>
+            <p>
+              {translateUi('New quotes available until {value}', {
+                value: new Date(rate.data!.expiresAt!).toLocaleString(interfaceLocale),
+              })}
+            </p>
           </>
         ) : (
           <p role="status">
             {rate.data?.reason ??
-              'A fresh exchange rate is unavailable. New conversion quotes are paused.'}
+              translateUi(
+                'A fresh exchange rate is unavailable. New conversion quotes are paused.'
+              )}
           </p>
         )}
         <p>
-          Source:{' '}
+          {translateUi('Source:')}{' '}
           <a href="https://ethioblackmarket.com/" target="_blank" rel="noreferrer">
-            EthioBlackMarket
+            {'EthioBlackMarket'}
           </a>
-          . The server checks every 15 minutes. Rates expire 30 minutes after the source
-          observation.
+          {translateUi(
+            '. The server checks every 15 minutes. Rates expire 30 minutes after the source observation.'
+          )}
         </p>
         <button disabled={rate.isFetching} onClick={() => void rate.refetch()}>
-          Refresh status
+          {translateUi('Refresh status')}
         </button>
       </div>
-      <h2>How payments are priced</h2>
+      <h2>{translateUi('How payments are priced')}</h2>
       <p>
-        USDT is quoted at 1 USDT = USD 1 using the displayed USD reference. This reference is not a
-        guaranteed exchange execution price. The exact ETB amount is locked when the payment request
-        is created.
+        {translateUi(
+          'USDT is quoted at 1 USDT = USD 1 using the displayed USD reference. This reference is not a guaranteed exchange execution price. The exact ETB amount is locked when the payment request is created.'
+        )}
       </p>
       <p>
-        Verified deposits credit the saved ETB amount. Later rate changes never revalue wallet
-        balances. Withdrawals reserve the requested ETB amount and show the USDT payout before
-        confirmation.
+        {translateUi(
+          'Verified deposits credit the saved ETB amount. Later rate changes never revalue wallet balances. Withdrawals reserve the requested ETB amount and show the USDT payout before confirmation.'
+        )}
       </p>
       {fresh && (
         <dl>
-          <dt>Agent deposit minimum</dt>
-          <dd>USD {(rate.data!.p2pDepositMinUsdCents! / 100).toFixed(2)} equivalent in ETB</dd>
-          <dt>Agent withdrawals</dt>
+          <dt>{translateUi('Agent deposit minimum')}</dt>
           <dd>
-            More than USD {(rate.data!.p2pWithdrawalAboveUsdCents! / 100).toFixed(2)} equivalent in
-            ETB
+            {translateUi('USD {value} equivalent in ETB', {
+              value: (rate.data!.p2pDepositMinUsdCents! / 100).toFixed(2),
+            })}
           </dd>
-          <dt>Crypto deposit minimum</dt>
-          <dd>{(rate.data!.cryptoDepositMinUsdCents! / 100).toFixed(2)} USDT</dd>
-          <dt>Crypto withdrawals</dt>
-          <dd>More than {(rate.data!.cryptoWithdrawalAboveUsdCents! / 100).toFixed(2)} USDT</dd>
+          <dt>{translateUi('Agent withdrawals')}</dt>
+          <dd>
+            {translateUi('More than USD {value} equivalent in ETB', {
+              value: (rate.data!.p2pWithdrawalAboveUsdCents! / 100).toFixed(2),
+            })}
+          </dd>
+          <dt>{translateUi('Crypto deposit minimum')}</dt>
+          <dd>
+            {translateUi('{value} USDT', {
+              value: (rate.data!.cryptoDepositMinUsdCents! / 100).toFixed(2),
+            })}
+          </dd>
+          <dt>{translateUi('Crypto withdrawals')}</dt>
+          <dd>
+            {translateUi('More than {value} USDT', {
+              value: (rate.data!.cryptoWithdrawalAboveUsdCents! / 100).toFixed(2),
+            })}
+          </dd>
         </dl>
       )}
       <p>
-        Practice balances have no cash value. Payment account approval and funding availability are
-        managed in payment setup.
+        {translateUi(
+          'Practice balances have no cash value. Payment account approval and funding availability are managed in payment setup.'
+        )}
       </p>
     </section>
   );

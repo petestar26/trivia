@@ -2,6 +2,7 @@ import { memberGameName } from '@/lib/member-game-catalog';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface GameHistoryItem {
   id: string;
@@ -71,6 +72,8 @@ const CONTEST_ROUND_LABELS: Record<string, string> = {
 };
 
 function RoundSettlement({ session }: { session: GameHistoryItem }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const contestLabel = CONTEST_ROUND_LABELS[session.playContext];
   const debit = session.settlementDebitCurrency;
   const credit = session.settlementCreditCurrency;
@@ -80,7 +83,10 @@ function RoundSettlement({ session }: { session: GameHistoryItem }) {
         <div className="text-sm font-medium text-gray-700 dark:text-gray-200">{contestLabel}</div>
       ) : debit && session.betAmount > 0 ? (
         <div className="text-sm text-gray-600 dark:text-gray-300">
-          Bet: <span className="font-medium">{session.betAmount} {currencyLabel(debit)}</span>
+          {translateUi('Bet:') + ' '}
+          <span className="font-medium">
+            {session.betAmount} {currencyLabel(debit)}
+          </span>
         </div>
       ) : null}
       {credit && session.rewardAmount > 0 ? (
@@ -88,15 +94,21 @@ function RoundSettlement({ session }: { session: GameHistoryItem }) {
           +{session.rewardAmount} {currencyLabel(credit)}
         </div>
       ) : !contestLabel && debit && session.betAmount > 0 && !session.isWin ? (
-        <div className="text-sm text-red-600 dark:text-red-400">−{session.betAmount} {currencyLabel(debit)}</div>
+        <div className="text-sm text-red-600 dark:text-red-400">
+          −{session.betAmount} {currencyLabel(debit)}
+        </div>
       ) : contestLabel ? (
-        <div className="text-xs text-gray-500 dark:text-gray-400">Entry paid once to the contest</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {translateUi('Entry paid once to the contest')}
+        </div>
       ) : null}
     </div>
   );
 }
 
 export function GameHistoryPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [page, setPage] = useState(1);
   const limit = 15;
 
@@ -117,9 +129,11 @@ export function GameHistoryPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Game History</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {translateUi('Game History')}
+        </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Your recent games and results.
+          {translateUi('Your recent games and results.')}
         </p>
       </div>
 
@@ -129,7 +143,7 @@ export function GameHistoryPage() {
         </div>
       ) : sessions.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-10 text-center text-gray-500 dark:text-gray-400">
-          No games yet. Head to the Games hub to play!
+          {translateUi('No games yet. Head to the Games hub to play!')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -142,16 +156,27 @@ export function GameHistoryPage() {
               <div className="text-3xl">{GAME_ICONS[s.game.key] ?? '🎮'}</div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-gray-900 dark:text-white">
-                  {memberGameName(s.game)}
+                  {translateUi(memberGameName(s.game))}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {formatDate(s.completedAt ?? s.createdAt)}
                 </div>
-                {(s.mode || s.family || s.rulesVersion != null || s.resultSchemaVersion != null) && (
+                {(s.mode ||
+                  s.family ||
+                  s.rulesVersion != null ||
+                  s.resultSchemaVersion != null) && (
                   <div className="text-xs text-gray-400 dark:text-gray-500">
                     {[s.mode, s.family].filter(Boolean).join(' · ')}
-                    {s.rulesVersion != null && `${s.mode || s.family ? ' · ' : ''}Rules v${s.rulesVersion}`}
-                    {s.resultSchemaVersion != null && ` · Schema v${s.resultSchemaVersion}`}
+                    {s.rulesVersion != null &&
+                      translateUi('{value}Rules v{rulesVersion}', {
+                        value: s.mode || s.family ? ' · ' : '',
+                        rulesVersion: s.rulesVersion,
+                      })}
+                    {s.resultSchemaVersion != null &&
+                      ' ' +
+                        translateUi('· Schema v{resultSchemaVersion}', {
+                          resultSchemaVersion: s.resultSchemaVersion,
+                        })}
                   </div>
                 )}
               </div>
@@ -166,17 +191,17 @@ export function GameHistoryPage() {
                 disabled={page <= 1 || isFetching}
                 className="px-4 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40"
               >
-                Previous
+                {translateUi('Previous')}
               </button>
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                Page {page} of {totalPages}
+                {translateUi('Page {page} of {totalPages}', { page: page, totalPages: totalPages })}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages || isFetching}
                 className="px-4 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40"
               >
-                Next
+                {translateUi('Next')}
               </button>
             </div>
           )}

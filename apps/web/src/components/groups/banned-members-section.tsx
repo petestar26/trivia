@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { GroupBannedMemberInfo } from '@socialplay/shared';
@@ -20,6 +21,7 @@ import {
 import type { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type ListFailure = 'initial' | 'refresh' | 'next-page';
 
@@ -32,7 +34,8 @@ const BANNED_PAGE_LIMIT = 20;
 // stray edit away from being lost.
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 
-const memberName = (member: GroupBannedMemberInfo) => member.user.displayName || member.user.username;
+const memberName = (member: GroupBannedMemberInfo) =>
+  member.user.displayName || member.user.username;
 
 /**
  * What one Unban confirmation is FOR — captured when it opens, and carried
@@ -82,6 +85,8 @@ export function BannedMembersSection({
   groupName: string;
   toast: Toast;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const queryClient = useQueryClient();
   // The group this instance shows RIGHT NOW: used only to decide whether moving
   // focus still makes sense for a request that has just settled, never to decide
@@ -90,7 +95,8 @@ export function BannedMembersSection({
   useEffect(() => {
     viewedGroupIdRef.current = groupId;
   }, [groupId]);
-  const stillViewing = (initiatingGroupId: string) => viewedGroupIdRef.current === initiatingGroupId;
+  const stillViewing = (initiatingGroupId: string) =>
+    viewedGroupIdRef.current === initiatingGroupId;
   // Whether an unban is running for a member — started here or on an earlier visit.
   const unbanPending = useGroupActionPending();
   const headingId = useId();
@@ -101,7 +107,10 @@ export function BannedMembersSection({
     // Group-scoped, and the same key the page's ban mutation invalidates.
     queryKey: bannedMembersQueryKey(groupId),
     queryFn: async ({ pageParam }): Promise<BannedMembersPage> =>
-      toBannedMembersPage(await api.listBannedMembers(groupId, { limit: BANNED_PAGE_LIMIT, page: pageParam }), pageParam),
+      toBannedMembersPage(
+        await api.listBannedMembers(groupId, { limit: BANNED_PAGE_LIMIT, page: pageParam }),
+        pageParam
+      ),
     initialPageParam: 1,
     // Derived from the successful `lastPageParam` — never trusted from
     // `meta.page` — and only advances while the server claims another page.
@@ -113,7 +122,8 @@ export function BannedMembersSection({
   // Every loaded page flattened, one row per user. The cache keeps exactly what
   // the server sent; the de-duplication is render-only.
   const members = flattenBannedMembersPages(query.data?.pages);
-  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError } = query;
+  const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetching, isFetchNextPageError } =
+    query;
   const hasData = query.data !== undefined;
 
   // WHICH failure is on screen, remembered across the retry that follows it.
@@ -133,10 +143,17 @@ export function BannedMembersSection({
 
   // Outcomes of loading are announced through one live region. The nonce makes
   // a REPEATED identical message a real DOM change, so it is announced again.
-  const [announcement, setAnnouncement] = useState({ message: '', nonce: 0 });
-  const announce = (message: string) => setAnnouncement((prev) => ({ message, nonce: prev.nonce + 1 }));
+  const [announcement, setAnnouncement] = useState<{
+    message: string;
+    nonce: number;
+    values?: Record<string, string | number>;
+  }>({ message: '', nonce: 0 });
+  const announce = (message: string, values?: Record<string, string | number>) =>
+    setAnnouncement((prev) => ({ message, values, nonce: prev.nonce + 1 }));
   const announcementText =
-    announcement.message === '' ? '' : `${announcement.message}${announcement.nonce % 2 ? ZERO_WIDTH_SPACE : ''}`;
+    announcement.message === ''
+      ? ''
+      : `${translateUi(announcement.message, announcement.values)}${announcement.nonce % 2 ? ZERO_WIDTH_SPACE : ''}`;
 
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -171,8 +188,13 @@ export function BannedMembersSection({
           focusRequestRef.current = null;
           return;
         }
-        const added = flattenBannedMembersPages(result.data?.pages).filter((m) => !knownUserIds.has(m.user.id)).length;
-        announce(added > 0 ? `Loaded ${added} more banned member${added === 1 ? '' : 's'}.` : 'No more banned members to load.');
+        const added = flattenBannedMembersPages(result.data?.pages).filter(
+          (m) => !knownUserIds.has(m.user.id)
+        ).length;
+        announce(
+          added > 0 ? 'Loaded {count} more banned members.' : 'No more banned members to load.',
+          { count: added }
+        );
       })
       .finally(() => {
         nextPageInFlightRef.current = false;
@@ -183,7 +205,9 @@ export function BannedMembersSection({
   const retryList = (trigger: HTMLElement) => {
     if (isFetching) return;
     focusRequestRef.current =
-      document.activeElement === trigger ? { trigger, knownUserIds: new Set(members.map((m) => m.user.id)) } : null;
+      document.activeElement === trigger
+        ? { trigger, knownUserIds: new Set(members.map((m) => m.user.id)) }
+        : null;
     void query.refetch();
   };
 
@@ -201,8 +225,12 @@ export function BannedMembersSection({
     // Focus that went somewhere on purpose is left alone; only lost focus is repaired.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    const rows = Array.from(sectionRef.current?.querySelectorAll<HTMLElement>('[data-banned-user-id]') ?? []);
-    const appended = rows.filter((row) => !request.knownUserIds.has(row.dataset.bannedUserId ?? ''));
+    const rows = Array.from(
+      sectionRef.current?.querySelectorAll<HTMLElement>('[data-banned-user-id]') ?? []
+    );
+    const appended = rows.filter(
+      (row) => !request.knownUserIds.has(row.dataset.bannedUserId ?? '')
+    );
     // The first row the user has not seen yet, so the next Tab continues from
     // where the new content begins; failing that, the section heading.
     const firstAction = appended
@@ -243,7 +271,8 @@ export function BannedMembersSection({
     triggerRef.current = null;
     if (!stillViewing(initiatingGroupId)) return;
     // A trigger that left the DOM can't take focus, so fall back to the heading.
-    const destination = restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : headingRef.current;
+    const destination =
+      restoreTo === 'trigger' && trigger && trigger.isConnected ? trigger : headingRef.current;
     destination?.focus();
   }
 
@@ -253,13 +282,15 @@ export function BannedMembersSection({
   // render's callbacks, so a closure over the prop is not protection.)
   const unbanMutation = useMutation({
     mutationKey: groupActionKey('unban'),
-    mutationFn: ({ groupId: targetGroupId, targetId }: UnbanTarget) => api.unbanGroupMember(targetGroupId, targetId),
+    mutationFn: ({ groupId: targetGroupId, targetId }: UnbanTarget) =>
+      api.unbanGroupMember(targetGroupId, targetId),
     onSuccess: (_res, { groupId: targetGroupId, groupName: targetGroupName, targetId, name }) => {
       // Only this user leaves, from every loaded page, NOW: were it left until
       // the refetch below succeeds, a slow or failed refresh would keep offering
       // Unban for someone who is no longer banned.
-      queryClient.setQueryData<BannedMembersInbox>(bannedMembersQueryKey(targetGroupId), (current) =>
-        applyUnbannedMember(current, targetId)
+      queryClient.setQueryData<BannedMembersInbox>(
+        bannedMembersQueryKey(targetGroupId),
+        (current) => applyUnbannedMember(current, targetId)
       );
       // The backend is the authority on what an unban did; these bring every
       // view of the group in line. The unbanned member is LEFT, not ACTIVE, so
@@ -272,8 +303,13 @@ export function BannedMembersSection({
       queryClient.invalidateQueries({ queryKey: ['group-requests', targetGroupId] });
       // Names the group: the person may have moved on to another one by now.
       toast({
-        title: 'Member unbanned',
-        description: `${name} was unbanned from ${targetGroupName}. They may request to join again or receive a new invitation.`,
+        title: <LocalizedText message="Member unbanned" />,
+        description: (
+          <LocalizedText
+            message="{name} was unbanned from {group}. They may request to join again or receive a new invitation."
+            values={{ name: name, group: targetGroupName }}
+          />
+        ),
       });
       // The row — and the Unban button that opened this — is gone, so focus
       // goes to the heading, a control that survives.
@@ -281,8 +317,18 @@ export function BannedMembersSection({
     },
     onError: (err, { groupId: targetGroupId, groupName: targetGroupName, name }) => {
       toast({
-        title: 'Error',
-        description: `Couldn't unban ${name} from ${targetGroupName}. ${actionErrorMessage(err, 'Please try again.')}`,
+        title: <LocalizedText message="Error" />,
+        description: (
+          <LocalizedText
+            message="Couldn't unban {name} from {group}. {error}"
+            values={{
+              name: name,
+              group: targetGroupName,
+              error: actionErrorMessage(err, 'Please try again.'),
+            }}
+            translateValues={['error']}
+          />
+        ),
         variant: 'destructive',
       });
       // The unban failed, so the row and its Unban button are still there —
@@ -316,14 +362,19 @@ export function BannedMembersSection({
     unbanInFlightRef.current = true;
     // The same unban may already be running — started on an earlier visit, by an
     // instance that is gone. The mutation cache knows; this component does not.
-    if (hasPendingGroupAction(queryClient, 'unban', { groupId: target.groupId, targetId: target.targetId })) {
+    if (
+      hasPendingGroupAction(queryClient, 'unban', {
+        groupId: target.groupId,
+        targetId: target.targetId,
+      })
+    ) {
       closeConfirm('trigger', target.groupId);
       return;
     }
     // Deliberately does NOT close the confirmation here: it stays mounted for
     // the whole request so its "Unbanning…" state is actually reachable, and
     // closing is left to the mutation's settled callbacks.
-    announce(`Unbanning ${target.name}…`);
+    announce('Unbanning {name}…', { name: target.name });
     unbanMutation.mutate(target);
   };
 
@@ -341,13 +392,13 @@ export function BannedMembersSection({
     <Card role="region" aria-labelledby={headingId}>
       <CardHeader className="pb-2">
         <CardTitle id={headingId} ref={headingRef} tabIndex={-1} className="text-sm">
-          Banned members
+          {translateUi('Banned members')}
         </CardTitle>
       </CardHeader>
       <CardContent ref={sectionRef} className="space-y-2">
         {query.isLoading && (
           <p role="status" className="text-xs text-gray-500">
-            Loading banned members…
+            {translateUi('Loading banned members…')}
           </p>
         )}
 
@@ -356,24 +407,24 @@ export function BannedMembersSection({
         {failure === 'initial' && members.length === 0 && (
           <div className="space-y-2">
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              Couldn&apos;t load banned members.
+              {translateUi("Couldn't load banned members.")}
             </p>
             <Button
               size="sm"
               variant="outline"
               data-action="retry-banned"
               className={inertClass}
-              aria-label="Retry loading banned members"
+              aria-label={translateUi('Retry loading banned members')}
               aria-disabled={isFetching || undefined}
               onClick={(e) => retryList(e.currentTarget)}
             >
-              {isFetching ? 'Retrying…' : 'Retry'}
+              {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
             </Button>
           </div>
         )}
 
         {hasData && members.length === 0 && failure !== 'initial' && (
-          <p className="text-xs text-gray-500">No banned members.</p>
+          <p className="text-xs text-gray-500">{translateUi('No banned members.')}</p>
         )}
 
         {members.length > 0 && (
@@ -386,18 +437,22 @@ export function BannedMembersSection({
               >
                 <div className="min-w-0">
                   <span className="text-sm font-medium">{memberName(m)}</span>
-                  {m.user.displayName && <span className="ml-2 text-xs text-gray-500">@{m.user.username}</span>}
+                  {m.user.displayName && (
+                    <span className="ml-2 text-xs text-gray-500">@{m.user.username}</span>
+                  )}
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   data-action="unban"
                   className={inertClass}
-                  aria-label={`Unban ${memberName(m)}`}
-                  aria-disabled={pending || unbanPending('unban', { groupId, targetId: m.user.id }) || undefined}
+                  aria-label={translateUi('Unban {value}', { value: memberName(m) })}
+                  aria-disabled={
+                    pending || unbanPending('unban', { groupId, targetId: m.user.id }) || undefined
+                  }
                   onClick={(e) => openConfirm(m, e.currentTarget)}
                 >
-                  Unban
+                  {translateUi('Unban')}
                 </Button>
               </li>
             ))}
@@ -411,18 +466,18 @@ export function BannedMembersSection({
         {failure === 'refresh' && members.length > 0 && (
           <div className="flex items-center gap-3 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200">
             <span role="alert" className="flex-1">
-              Couldn&apos;t refresh banned members.
+              {translateUi("Couldn't refresh banned members.")}
             </span>
             <Button
               size="sm"
               variant="outline"
               data-action="retry-banned"
               className={inertClass}
-              aria-label="Retry refreshing banned members"
+              aria-label={translateUi('Retry refreshing banned members')}
               aria-disabled={isFetching || undefined}
               onClick={(e) => retryList(e.currentTarget)}
             >
-              {isFetching ? 'Retrying…' : 'Retry'}
+              {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
             </Button>
           </div>
         )}
@@ -434,7 +489,7 @@ export function BannedMembersSection({
           <div className="flex flex-col items-center gap-2 pt-2">
             {nextPageFailed && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                Couldn&apos;t load more banned members.
+                {translateUi("Couldn't load more banned members.")}
               </p>
             )}
             <Button
@@ -442,12 +497,20 @@ export function BannedMembersSection({
               variant="outline"
               data-next-banned-page
               className={inertClass}
-              aria-label={nextPageFailed ? 'Retry loading more banned members' : undefined}
+              aria-label={
+                nextPageFailed ? translateUi('Retry loading more banned members') : undefined
+              }
               aria-disabled={isFetching || undefined}
               aria-busy={isFetchingNextPage}
               onClick={(e) => loadNextPage(e.currentTarget)}
             >
-              {isFetchingNextPage ? (nextPageFailed ? 'Retrying…' : 'Loading…') : nextPageFailed ? 'Retry' : 'Load more'}
+              {isFetchingNextPage
+                ? nextPageFailed
+                  ? translateUi('Retrying…')
+                  : translateUi('Loading…')
+                : nextPageFailed
+                  ? translateUi('Retry')
+                  : translateUi('Load more')}
             </Button>
           </div>
         )}
@@ -460,10 +523,12 @@ export function BannedMembersSection({
             className="space-y-3 rounded-md border border-amber-300 p-3 dark:border-amber-600"
           >
             <p id={confirmTitleId} className="text-sm font-medium">
-              {`Unban ${target.name}?`}
+              {translateUi('Unban {name}?', { name: target.name })}
             </p>
             <p id={confirmBodyId} className="text-sm text-gray-600 dark:text-gray-400">
-              They will not automatically rejoin the group. They may request to join again or receive a new invitation.
+              {translateUi(
+                'They will not automatically rejoin the group. They may request to join again or receive a new invitation.'
+              )}
             </p>
             <div className="flex gap-2">
               <Button
@@ -475,7 +540,7 @@ export function BannedMembersSection({
                 aria-busy={pending}
                 onClick={handleConfirm}
               >
-                {pending ? 'Unbanning…' : 'Confirm unban'}
+                {pending ? translateUi('Unbanning…') : translateUi('Confirm unban')}
               </Button>
               <Button
                 size="sm"
@@ -485,7 +550,7 @@ export function BannedMembersSection({
                 aria-disabled={pending || undefined}
                 onClick={handleCancel}
               >
-                Cancel
+                {translateUi('Cancel')}
               </Button>
             </div>
           </div>

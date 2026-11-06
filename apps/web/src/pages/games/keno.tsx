@@ -16,8 +16,11 @@ import { useCasino } from '@/components/casino/CasinoProvider';
 import { HOUSE_GAME_POLICY, KENO_90_RULES } from '@socialplay/shared';
 import { parseKenoStake, KENO_MAX_PRACTICE_STAKE } from '@/lib/keno-practice';
 import './keno.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function KenoMachine({ number, running }: { number: number | null; running: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const id = useId().replaceAll(':', '');
   const paint = (name: string) => `url(#${id}-${name})`;
   return (
@@ -25,7 +28,11 @@ export function KenoMachine({ number, running }: { number: number | null; runnin
       <svg
         viewBox="0 0 380 360"
         role="img"
-        aria-label={number === null ? 'Keno ball machine ready' : `Latest drawn ball ${number}`}
+        aria-label={
+          number === null
+            ? translateUi('Keno ball machine ready')
+            : translateUi('Latest drawn ball {number}', { number: number })
+        }
       >
         <defs>
           <linearGradient id={`${id}-metal`}>
@@ -167,10 +174,10 @@ export function KenoMachine({ number, running }: { number: number | null; runnin
           <circle key={x} cx={x} cy="310" r="3" fill="#f9d8a1" />
         ))}
         <text x="190" y="349" textAnchor="middle" fontSize="10" letterSpacing="3" fill="#e9c5a9">
-          {number === null ? 'READY TO DRAW' : 'LATEST DRAWN BALL'}
+          {number === null ? translateUi('READY TO DRAW') : translateUi('LATEST DRAWN BALL')}
         </text>
       </svg>
-      <p>{running ? 'MIXING & REVEALING' : 'LIVE DRAW CHAMBER'}</p>
+      <p>{running ? translateUi('MIXING & REVEALING') : translateUi('LIVE DRAW CHAMBER')}</p>
     </div>
   );
 }
@@ -186,6 +193,8 @@ export function KenoPage() {
 }
 
 function KenoSession({ storageKey }: { storageKey: string }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const [state, setState] = useState<KenoState>(() => {
     try {
       return advanceKeno(loadKeno(sessionStorage.getItem(storageKey)), Date.now());
@@ -274,57 +283,75 @@ function KenoSession({ storageKey }: { storageKey: string }) {
   return (
     <div className="keno-page">
       <div className="keno-navigation">
-        <Link to="/games">← Games</Link>
-        <span>Practice · this tab</span>
+        <Link to="/games">{translateUi('← Games')}</Link>
+        <span>{translateUi('Practice · this tab')}</span>
       </div>
-      <section className="keno-stage" aria-label="Turbo Keno practice">
+      <section className="keno-stage" aria-label={translateUi('Turbo Keno practice')}>
         <header className="keno-header">
           <div>
-            <p className="keno-eyebrow">SALEM BET ORIGINALS</p>
+            <p className="keno-eyebrow">{translateUi('SALEM BET ORIGINALS')}</p>
             <h1>
-              Turbo <span>Keno</span>
+              {translateUi('Turbo') + ' '}
+              <span>{translateUi('Keno')}</span>
             </h1>
-            <p>Every ball brings a new possibility.</p>
+            <p>{translateUi('Every ball brings a new possibility.')}</p>
           </div>
           <div className="keno-balances">
             <div className="keno-wallet">
-              <span>ACCOUNT BALANCE</span>
+              <span>{translateUi('ACCOUNT BALANCE')}</span>
               <strong>
                 {walletLoading
-                  ? 'Loading…'
+                  ? translateUi('Loading…')
                   : walletError
-                    ? 'Unavailable'
+                    ? translateUi('Unavailable')
                     : formatEtb(coinsBalance)}
               </strong>
-              <small>Not used in practice</small>
+              <small>{translateUi('Not used in practice')}</small>
             </div>
             <div className="keno-balance">
-              <span>PRACTICE BALANCE</span>
-              <strong>{state.balance.toLocaleString()}</strong>
-              <small>credits · no cash value</small>
+              <span>{translateUi('PRACTICE BALANCE')}</span>
+              <strong>{state.balance.toLocaleString(interfaceLocale)}</strong>
+              <small>{translateUi('credits · no cash value')}</small>
             </div>
           </div>
         </header>
         <div className="keno-economics">
-          <span>{HOUSE_GAME_POLICY.targetRtpBps / 100}% theoretical return</span>
-          <span>{HOUSE_GAME_POLICY.expectedHouseEdgeBps / 100}% expected house edge</span>
-          <span>3.6× return per matching number</span>
+          <span>
+            {translateUi('{value}% theoretical return', {
+              value: HOUSE_GAME_POLICY.targetRtpBps / 100,
+            })}
+          </span>
+          <span>
+            {translateUi('{value}% expected house edge', {
+              value: HOUSE_GAME_POLICY.expectedHouseEdgeBps / 100,
+            })}
+          </span>
+          <span>{translateUi('3.6× return per matching number')}</span>
         </div>
         <div className="keno-practice-note">
-          Practice only · Local demo draw · No deposits or redeemable prizes
+          {translateUi('Practice only · Local demo draw · No deposits or redeemable prizes')}
         </div>
         <div className="keno-layout">
           <div className="keno-board-panel">
             <div className="keno-draw-heading">
               <h2>
-                DRAW <span>{String(round?.id ?? state.nextId).padStart(3, '0')}</span>
+                {translateUi('DRAW') + ' '}
+                <span>{String(round?.id ?? state.nextId).padStart(3, '0')}</span>
               </h2>
               <span>
-                {state.active ? 'REVEALING' : round ? 'DRAW COMPLETE' : 'READY TO PLAY'}{' '}
+                {state.active
+                  ? translateUi('REVEALING')
+                  : round
+                    ? translateUi('DRAW COMPLETE')
+                    : translateUi('READY TO PLAY')}{' '}
                 <b>{count}/20</b>
               </span>
             </div>
-            <div className="keno-board" role="group" aria-label="Choose Keno numbers">
+            <div
+              className="keno-board"
+              role="group"
+              aria-label={translateUi('Choose Keno numbers')}
+            >
               {Array.from({ length: 80 }, (_, i) => i + 1).map((n) => {
                 const selected = shownPicks.includes(n),
                   revealed = drawn.includes(n),
@@ -335,7 +362,11 @@ function KenoSession({ storageKey }: { storageKey: string }) {
                     type="button"
                     disabled={!!state.active}
                     aria-pressed={selected}
-                    aria-label={`Number ${n}${revealed ? ', drawn' : ''}${hit ? ', match' : ''}`}
+                    aria-label={translateUi('Number {n}{value}{value2}', {
+                      n: n,
+                      value: revealed ? translateUi(', drawn') : '',
+                      value2: hit ? translateUi(', match') : '',
+                    })}
                     onClick={() => toggle(n)}
                     className={`keno-number ${selected ? 'is-selected' : ''} ${revealed ? 'is-drawn' : ''} ${hit ? 'is-hit' : ''} ${drawn.at(-1) === n ? 'is-latest' : ''}`}
                   >
@@ -353,36 +384,46 @@ function KenoSession({ storageKey }: { storageKey: string }) {
             <div className="keno-legend">
               <span>
                 <i className="legend-selected" />
-                Selected
+                {translateUi('Selected')}
               </span>
               <span>
                 <i className="legend-drawn" />
-                Drawn
+                {translateUi('Drawn')}
               </span>
               <span>
                 <i className="legend-hit" />
-                Match
+                {translateUi('Match')}
               </span>
             </div>
           </div>
           <aside className="keno-machine-panel">
             <div className="keno-machine-title">
-              <span>LIVE BALL REVEAL</span>
-              <strong>{state.active ? `${count} of 20` : '20 balls · 80 numbers'}</strong>
+              <span>{translateUi('LIVE BALL REVEAL')}</span>
+              <strong>
+                {state.active
+                  ? translateUi('{count} of 20', { count: count })
+                  : translateUi('20 balls · 80 numbers')}
+              </strong>
             </div>
             <KenoMachine number={drawn.at(-1) ?? null} running={!!state.active} />
             <div className="keno-result" role="status" aria-live="polite">
               {state.active
-                ? `${count} of 20 revealed · ${hits.length} matches`
+                ? translateUi('{count} of 20 revealed · {length} matches', {
+                    count: count,
+                    length: hits.length,
+                  })
                 : round
-                  ? `${round.picks.filter((n) => round.numbers.includes(n)).length} matches · ${kenoReturn(round)} credits returned`
-                  : 'Select your numbers, then start the draw.'}
+                  ? translateUi('{length} matches · {value} credits returned', {
+                      length: round.picks.filter((n) => round.numbers.includes(n)).length,
+                      value: kenoReturn(round),
+                    })
+                  : translateUi('Select your numbers, then start the draw.')}
             </div>
           </aside>
         </div>
         <div className="keno-stake-panel">
           <div>
-            <label htmlFor="keno-bet-amount">Bet amount per number</label>
+            <label htmlFor="keno-bet-amount">{translateUi('Bet amount per number')}</label>
             <div className="keno-stake-row">
               <input
                 id="keno-bet-amount"
@@ -395,81 +436,100 @@ function KenoSession({ storageKey }: { storageKey: string }) {
                 aria-invalid={!state.active && !stakeValid}
                 aria-describedby="keno-stake-help"
               />
-              <span>practice credits</span>
+              <span>{translateUi('practice credits')}</span>
             </div>
             <p id="keno-stake-help">
               {!state.active && !stakeValid
-                ? 'Use steps of 5, within your practice balance and the 480-credit ticket limit.'
-                : 'Steps of 5 · Maximum 480 credits per ticket · Amount locks when the draw starts.'}
+                ? translateUi(
+                    'Use steps of 5, within your practice balance and the 480-credit ticket limit.'
+                  )
+                : translateUi(
+                    'Steps of 5 · Maximum 480 credits per ticket · Amount locks when the draw starts.'
+                  )}
             </p>
           </div>
           <div className="keno-ticket-summary">
-            <span>TOTAL BET</span>
-            <strong>{ticketCost.toLocaleString()} credits</strong>
+            <span>{translateUi('TOTAL BET')}</span>
+            <strong>
+              {translateUi('{value} credits', {
+                value: ticketCost.toLocaleString(interfaceLocale),
+              })}
+            </strong>
             <small>
-              {shownPicks.length} numbers × {displayedStake || '—'} credits
+              {translateUi('{length} numbers × {value} credits', {
+                length: shownPicks.length,
+                value: displayedStake || '—',
+              })}
             </small>
             <small>
-              Each match returns{' '}
-              {displayedStake
-                ? (displayedStake / KENO_90_RULES.stakeStep) * KENO_90_RULES.returnPerStep
-                : '—'}{' '}
-              credits
+              {translateUi('Each match returns {value} credits', {
+                value: displayedStake
+                  ? (displayedStake / KENO_90_RULES.stakeStep) * KENO_90_RULES.returnPerStep
+                  : '—',
+              })}
             </small>
           </div>
         </div>
         <div className="keno-controls">
           <div>
-            <h2>{shownPicks.length}/10 numbers selected</h2>
-            <p>{notice}</p>
+            <h2>{translateUi('{length}/10 numbers selected', { length: shownPicks.length })}</h2>
+            <p>{translateUi(notice)}</p>
             <p className="keno-picks">
-              {shownPicks.length ? shownPicks.join(' · ') : 'Your selections appear here'}
+              {shownPicks.length
+                ? shownPicks.join(' · ')
+                : translateUi('Your selections appear here')}
             </p>
           </div>
           <div className="keno-actions">
             <button disabled={!!state.active} onClick={quickPick}>
-              Quick pick 5
+              {translateUi('Quick pick 5')}
             </button>
             <button disabled={!!state.active || !picks.length} onClick={() => setPicks([])}>
-              Clear
+              {translateUi('Clear')}
             </button>
             <button
               className="keno-play"
               disabled={!!state.active || !picks.length || !stakeValid}
               onClick={play}
             >
-              {state.active ? 'Drawing…' : `Start draw · ${ticketCost} credits`}
+              {state.active
+                ? translateUi('Drawing…')
+                : translateUi('Start draw · {ticketCost} credits', { ticketCost: ticketCost })}
             </button>
           </div>
         </div>
         <footer className="keno-footer">
           <details>
-            <summary>Practice rules & recent draws</summary>
+            <summary>{translateUi('Practice rules & recent draws')}</summary>
             <p>
-              Select 1–10 numbers. Choose a stake in steps of 5 for each selected number. A matching
-              number returns 3.6× its stake (18 for every 5 credits) if included among the 20 drawn
-              numbers. Returns include the stake on that number. Every draw has 20 different numbers
-              from 1–80.
+              {translateUi(
+                'Select 1–10 numbers. Choose a stake in steps of 5 for each selected number. A matching number returns 3.6× its stake (18 for every 5 credits) if included among the 20 drawn numbers. Returns include the stake on that number. Every draw has 20 different numbers from 1–80.'
+              )}
             </p>
             <p>
-              Each number has a 20/80 chance of being drawn. A 25% chance × 3.6× total return gives
-              90% theoretical return and a 10% expected house edge over repeated play; this is not a
-              guarantee for an individual draw.
+              {translateUi(
+                'Each number has a 20/80 chance of being drawn. A 25% chance × 3.6× total return gives 90% theoretical return and a 10% expected house edge over repeated play; this is not a guarantee for an individual draw.'
+              )}
             </p>
             <p>
-              Common house-game rule: solo, shared and group play use the same payout table and 90%
-              theoretical return. Group house games have no additional group fee. Pooled
-              competitions are separate.
+              {translateUi(
+                'Common house-game rule: solo, shared and group play use the same payout table and 90% theoretical return. Group house games have no additional group fee. Pooled competitions are separate.'
+              )}
             </p>
             <p>
-              This local practice session resumes after a refresh in this tab. Shared server draws
-              and cash play are not available here.
+              {translateUi(
+                'This local practice session resumes after a refresh in this tab. Shared server draws and cash play are not available here.'
+              )}
             </p>
             <ol>
               {state.history.map((r) => (
                 <li key={r.id}>
-                  <strong>Draw {String(r.id).padStart(3, '0')}</strong> · {r.numbers.join(', ')} ·
-                  Return {kenoReturn(r)}
+                  <strong>
+                    {translateUi('Draw {value}', { value: String(r.id).padStart(3, '0') })}
+                  </strong>{' '}
+                  · {r.numbers.join(', ')}
+                  {' ' + translateUi('· Return') + ' '}
+                  {kenoReturn(r)}
                 </li>
               ))}
             </ol>
@@ -482,12 +542,14 @@ function KenoSession({ storageKey }: { storageKey: string }) {
               setNotice('New practice session started.');
             }}
           >
-            Reset practice
+            {translateUi('Reset practice')}
           </button>
         </footer>
         {storageWarning && (
           <p className="keno-storage" role="alert">
-            Browser storage is unavailable. This practice session will reset if you refresh.
+            {translateUi(
+              'Browser storage is unavailable. This practice session will reset if you refresh.'
+            )}
           </p>
         )}
       </section>

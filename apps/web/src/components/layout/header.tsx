@@ -5,8 +5,11 @@ import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { Menu, Wallet } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { NotificationBell } from '@/components/notifications/notification-bell';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const { t } = useLanguage();
   const { pathname } = useLocation();
@@ -34,29 +37,34 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           <button
             onClick={onMenuClick}
             className="qube-icon-button lg:hidden"
-            aria-label="Open navigation menu"
+            aria-label={translateUi('Open navigation menu')}
           >
             <Menu size={22} />
           </button>
         )}
         <div className="min-w-0">
-          <span className="qube-header-eyebrow">SALEM BET</span>
+          <span className="qube-header-eyebrow">{'SALEM BET'}</span>
           <p className="qube-header-title truncate">{t(labels[section] || 'Home')}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         {PRACTICE_ETB && !['sports', 'play-together', 'groups', 'games'].includes(section) && (
           <span className="salem-mode-badge">
-            Practice <b>ETB</b>
+            {translateUi('Practice') + ' '}
+            <b>{'ETB'}</b>
           </span>
         )}
-        <Link to="/wallet" className="qube-wallet-link" aria-label="Open your wallet">
+        <Link
+          to="/wallet"
+          className="qube-wallet-link"
+          aria-label={translateUi('Open your wallet')}
+        >
           <Wallet size={17} aria-hidden="true" />
           <span className="hidden sm:inline">{t('Wallet')}</span>
         </Link>
         <LanguageSelect />
         <NotificationBell />
-        <Link to="/profile" aria-label="Your profile" className="qube-avatar">
+        <Link to="/profile" aria-label={translateUi('Your profile')} className="qube-avatar">
           {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
         </Link>
       </div>

@@ -15,6 +15,7 @@ import {
   Headphones,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const sections = [
   {
@@ -44,6 +45,8 @@ const sections = [
   },
 ];
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user, logout } = useAuth();
   const { t } = useLanguage();
   const { pathname } = useLocation();
@@ -54,20 +57,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         <span className="qube-brand-mark">
           <Hexagon size={25} />
         </span>
-        Salem Bet<span className="qube-brand-dot">•</span>
+        {translateUi('Salem Bet')}
+        <span className="qube-brand-dot">•</span>
       </Link>
-      <nav aria-label="Member navigation" className="qube-navigation">
+      <nav aria-label={translateUi('Member navigation')} className="qube-navigation">
         {user &&
           ['ADMIN', 'SUPER_ADMIN'].includes(
             (user as typeof user & { role?: string }).role ?? ''
           ) && (
             <Link to="/admin" onClick={onNavigate} className="qube-staff-link">
-              Administration dashboard →
+              {translateUi('Administration dashboard →')}
             </Link>
           )}
         {sections.map((section) => (
           <div className="qube-nav-section" key={section.title}>
-            <p>{section.title}</p>
+            <p>{t(section.title)}</p>
             {section.items.map(({ name, href, icon: Icon }) => {
               const active =
                 href === '/casino'
@@ -94,10 +98,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         <details className="salem-nav-more">
           <summary>{t('More')}</summary>
           <Link to="/challenges" onClick={onNavigate}>
-            Challenges
+            {translateUi('Challenges')}
           </Link>
           <Link to="/competitions" onClick={onNavigate}>
-            Competitions
+            {translateUi('Competitions')}
           </Link>
           <Link to="/profile" onClick={onNavigate}>
             {t('Profile')}
@@ -111,7 +115,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           </span>
           <span className="min-w-0">
             <strong className="block truncate">{user?.displayName || user?.username}</strong>
-            <small className="block truncate">@{user?.username}</small>
+            <small className="block truncate">
+              <bdi dir="ltr">@{user?.username}</bdi>
+            </small>
           </span>
         </Link>
         <button onClick={() => logout()} className="qube-signout">

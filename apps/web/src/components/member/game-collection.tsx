@@ -15,8 +15,11 @@ import {
   memberGameName,
   type MemberGame,
 } from '@/lib/member-game-catalog';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
@@ -34,13 +37,15 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
         memberGameVisible(g) &&
         (!mode || g.mode === mode) &&
         (!favorites || favoriteIds.includes(g.id)) &&
-        memberGameName(g).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+        [memberGameName(g), t(memberGameName(g))].some((name) =>
+          name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+        )
     )
     .sort((a, b) => compareMemberGameKeys(a.key, b.key));
   return (
     <div className="salem-collection">
       <div className="salem-collection-controls">
-        <div className="salem-tabs" role="group" aria-label="Game collection">
+        <div className="salem-tabs" role="group" aria-label={translateUi('Game collection')}>
           <button aria-pressed={!favorites} onClick={() => setFavorites(false)}>
             {t('All games')}
           </button>
@@ -67,12 +72,12 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
         <div role="alert" className="salem-empty">
           {requestStatus(catalog.error) === 401 ? (
             <>
-              <p>Your session is unavailable.</p>
-              <Link to="/login">Sign in again</Link>
+              <p>{translateUi('Your session is unavailable.')}</p>
+              <Link to="/login">{translateUi('Sign in again')}</Link>
             </>
           ) : (
             <>
-              Unable to load games.{' '}
+              {translateUi('Unable to load games.')}{' '}
               <button onClick={() => void catalog.refetch()}>{t('Retry')}</button>
             </>
           )}
@@ -81,14 +86,14 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
         <div className="salem-own-grid">
           {games.map((game) => {
             const to = memberGameDestination(game);
-            const name = memberGameName(game);
+            const name = t(memberGameName(game));
             const content = (
               <>
                 <GameArtwork kind={game.key} practiceAvailable={game.practiceAvailable} />
                 <div className="salem-own-caption">
                   <h3>{name}</h3>
                   <span>
-                    {to ? t('Group play') : 'Temporarily unavailable'}
+                    {to ? t('Group play') : translateUi('Temporarily unavailable')}
                     {to && <ArrowUpRight size={15} />}
                   </span>
                 </div>
@@ -97,16 +102,25 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
             return (
               <div className="salem-own-tile" key={game.id}>
                 {to ? (
-                  <Link to={to} aria-label={`${t('Play')} ${name}`}>
+                  <Link to={to} aria-label={t('Play {name}', { name })}>
                     {content}
                   </Link>
                 ) : (
-                  <article aria-label={`${name}: temporarily unavailable`}>{content}</article>
+                  <article
+                    aria-label={translateUi('{name}: temporarily unavailable', { name: name })}
+                  >
+                    {content}
+                  </article>
                 )}
                 <button
                   className="salem-favorite"
                   disabled={storageUnavailable || !user?.id}
-                  aria-label={`${favoriteIds.includes(game.id) ? 'Remove' : 'Add'} ${name} ${favoriteIds.includes(game.id) ? 'from' : 'to'} favorites`}
+                  aria-label={translateUi(
+                    favoriteIds.includes(game.id)
+                      ? 'Remove {name} from favorites'
+                      : 'Add {name} to favorites',
+                    { name }
+                  )}
                   aria-pressed={favoriteIds.includes(game.id)}
                   onClick={() => {
                     if (favorites) input.current?.focus();
@@ -137,11 +151,13 @@ export function GameCollection({ mode }: { mode?: 'WAGER' | 'BONUS' }) {
       )}
       {storageUnavailable && (
         <p role="status" className="salem-footnote">
-          Favorites are unavailable in this browser.
+          {translateUi('Favorites are unavailable in this browser.')}
         </p>
       )}
       <p className="salem-footnote">
-        Practice ETB · No cash value · Each game has a separate balance.
+        {translateUi(
+          'Start with free practice points. Each player confirms their own entry; accepted rounds settle automatically.'
+        )}
       </p>
     </div>
   );

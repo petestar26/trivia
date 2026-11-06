@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useReducedMotion } from '@/lib/football/motion';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /** Decorative flight only. A released server result is the sole departure trigger. */
 export function FlightScene({
@@ -13,6 +14,8 @@ export function FlightScene({
   connected: boolean;
   departed: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [reduced] = useReducedMotion();
   const lastConnectedElapsed = useRef(elapsed);
   if (connected) lastConnectedElapsed.current = elapsed;
@@ -132,12 +135,12 @@ export function FlightScene({
       </svg>
       <span className="sky-flight-location">
         {departed
-          ? 'FLIGHT COMPLETE'
+          ? translateUi('FLIGHT COMPLETE')
           : lift > 0.6
-            ? 'ABOVE THE CLOUDS'
+            ? translateUi('ABOVE THE CLOUDS')
             : lift > 0
-              ? 'CLIMBING OUT'
-              : 'RUNWAY 09 · SALEM BET'}
+              ? translateUi('CLIMBING OUT')
+              : translateUi('RUNWAY 09 · SALEM BET')}
       </span>
     </div>
   );

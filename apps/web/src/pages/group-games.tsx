@@ -20,6 +20,7 @@ import { GroupLifecycle } from '@/components/groups/group-lifecycle';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface Action {
   path: string;
@@ -39,6 +40,8 @@ export function GroupGamesPage() {
   return id && user ? <GroupGames key={`${id}:${user.id}`} groupId={id} userId={user.id} /> : null;
 }
 function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const cache = useQueryClient();
   const { t } = useLanguage();
   const endpoint = `/groups/${groupId}/pvp`;
@@ -172,15 +175,17 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
   if (query.isPending)
     return (
       <p role="status" className="p-8">
-        Loading group game room…
+        {translateUi('Loading group game room…')}
       </p>
     );
   if (!s)
     return (
       <div className="p-6 space-y-4">
         <GroupSocialNav groupId={groupId} />
-        <p role="alert">{query.error ? errorText(query.error) : 'Game room unavailable.'}</p>
-        <Button onClick={() => void query.refetch()}>Retry</Button>
+        <p role="alert">
+          {query.error ? errorText(query.error) : translateUi('Game room unavailable.')}
+        </p>
+        <Button onClick={() => void query.refetch()}>{translateUi('Retry')}</Button>
       </div>
     );
   const countdown = r?.startsAt ? Math.max(0, Math.ceil((r.startsAt - now) / 1000)) : 0;
@@ -194,39 +199,49 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
           <p className="text-xs font-bold uppercase tracking-[.25em] text-amber-600">
             {s.groupName}
           </p>
-          <h1 className="mt-1 text-3xl font-bold">Group game room</h1>
+          <h1 className="mt-1 text-3xl font-bold">{translateUi('Group game room')}</h1>
           <p className="mt-2 text-sm text-gray-500">
-            Play together. Confirm your entry. The owner starts the countdown.
+            {translateUi('Play together. Confirm your entry. The owner starts the countdown.')}
           </p>
         </div>
         <div className="rounded-2xl border bg-white px-5 py-3 dark:bg-gray-900">
-          <span className="text-xs text-gray-500">Game Points</span>
-          <p className="text-2xl font-bold tabular-nums">{s.balance.toLocaleString()}</p>
+          <span className="text-xs text-gray-500">{translateUi('Game Points')}</span>
+          <p className="text-2xl font-bold tabular-nums">
+            {s.balance.toLocaleString(interfaceLocale)}
+          </p>
         </div>
       </header>
       <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
-        Game Points PVP · 7% completion fee · 93% prize pool · No cash is spent or won.
+        {translateUi(
+          'Game Points PVP · 7% completion fee · 93% prize pool · No cash is spent or won.'
+        )}
       </p>
       {!s.enabled && (
         <p role="status" className="rounded-xl border p-4 text-sm">
           {s.availability === 'PROCESSING_UNAVAILABLE'
-            ? 'Group processing is reconnecting. New entries are paused.'
+            ? translateUi('Group processing is reconnecting. New entries are paused.')
             : s.availability === 'DISABLED'
-              ? 'Group play is currently unavailable. You can still chat and explore solo games.'
-              : 'This group is closed. Open an active group to start a new round.'}{' '}
+              ? translateUi(
+                  'Group play is currently unavailable. You can still chat and explore solo games.'
+                )
+              : translateUi(
+                  'This group is closed. Open an active group to start a new round.'
+                )}{' '}
           <Link to="/groups" className="underline">
-            Browse groups
+            {translateUi('Browse groups')}
           </Link>
         </p>
       )}
       {!connected && (
         <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-800">
-          Reconnecting. Entries and start controls are paused until the server confirms this round.
+          {translateUi(
+            'Reconnecting. Entries and start controls are paused until the server confirms this round.'
+          )}
         </p>
       )}
       {terminal && own && (
         <section className="rounded-2xl border bg-white p-5 dark:bg-gray-900">
-          <h2 className="text-lg font-bold">Create a round</h2>
+          <h2 className="text-lg font-bold">{translateUi('Create a round')}</h2>
           <div className="mt-4 flex flex-wrap items-end gap-4">
             <fieldset className="salem-group-picker">
               <legend>{t('Choose a game')}</legend>
@@ -243,18 +258,18 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                     />
                     <GameArtwork kind={item.key} practiceAvailable />
                     <span>
-                      <strong>{item.name}</strong>
+                      <strong>{translateUi(item.name)}</strong>
                       {game === item.key && <Check size={17} />}
                     </span>
-                    <small>{item.description}</small>
+                    <small>{translateUi(item.description)}</small>
                   </label>
                 ))}
               </div>
             </fieldset>
             <label className="flex flex-col gap-1 text-sm">
-              Entry per player
+              {translateUi('Entry per player')}
               <input
-                aria-label="Entry per player"
+                aria-label={translateUi('Entry per player')}
                 inputMode="numeric"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -277,18 +292,20 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                 })
               }
             >
-              Create game
+              {translateUi('Create game')}
             </Button>
           </div>
           <p className="mt-3 text-xs text-gray-500">
-            100–10,000 points, in steps of 100. Everyone pays the same entry. Up to{' '}
-            {GROUP_PVP_RULES.maxPlayers} players.
+            {translateUi(
+              '100–10,000 points, in steps of 100. Everyone pays the same entry. Up to {maxPlayers} players.',
+              { maxPlayers: GROUP_PVP_RULES.maxPlayers }
+            )}
           </p>
         </section>
       )}
       {!r && !own && s.enabled && (
         <p className="rounded-2xl border p-8 text-center">
-          Waiting for the group owner to create a game.
+          {translateUi('Waiting for the group owner to create a game.')}
         </p>
       )}
       {r && (
@@ -296,22 +313,22 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-6 py-5">
             <div>
               <p className="text-xs uppercase tracking-[.25em] text-amber-200">
-                Player versus player
+                {translateUi('Player versus player')}
               </p>
               <h2 className="text-2xl font-bold">
-                {GROUP_PVP_GAMES.find((item) => item.key === r.game)?.name}
+                {translateUi(GROUP_PVP_GAMES.find((item) => item.key === r.game)?.name ?? '')}
               </h2>
             </div>
             <span className="rounded-full bg-white/10 px-4 py-2 text-sm">
               {r.state === 'OPEN'
-                ? 'Waiting for players'
+                ? translateUi('Waiting for players')
                 : r.state === 'COUNTDOWN'
-                  ? 'Entries locked'
+                  ? translateUi('Entries locked')
                   : r.state === 'DRAWN'
-                    ? 'Result saved · payout pending'
+                    ? translateUi('Result saved · payout pending')
                     : r.state === 'VOID'
-                      ? 'Refunded'
-                      : 'Paid'}
+                      ? translateUi('Refunded')
+                      : translateUi('Paid')}
             </span>
           </div>
           <div className="grid gap-6 p-5 lg:grid-cols-[1fr_320px]">
@@ -319,13 +336,13 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
               {r.state === 'COUNTDOWN' && (
                 <div
                   role="timer"
-                  aria-label="Game starts in"
+                  aria-label={translateUi('Game starts in')}
                   className="rounded-2xl bg-black/20 p-6 text-center"
                 >
-                  <p className="text-sm text-emerald-100">Game starts in</p>
+                  <p className="text-sm text-emerald-100">{translateUi('Game starts in')}</p>
                   <p className="text-6xl font-black tabular-nums">{countdown}</p>
                   <p className="mt-2 text-xs">
-                    Confirmed entries are locked. Everyone sees the same result.
+                    {translateUi('Confirmed entries are locked. Everyone sees the same result.')}
                   </p>
                 </div>
               )}
@@ -333,10 +350,12 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                 <div className="rounded-2xl bg-black/20 p-5">
                   <h3 className="mb-3 text-sm font-semibold text-amber-200">
                     {r.game === 'spin_win'
-                      ? 'Winning number'
+                      ? translateUi('Winning number')
                       : r.game === 'dice'
-                        ? `Dice total: ${r.outcome.reduce((a, b) => a + b, 0)}`
-                        : 'Drawn numbers'}
+                        ? translateUi('Dice total: {value}', {
+                            value: r.outcome.reduce((a, b) => a + b, 0),
+                          })
+                        : translateUi('Drawn numbers')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {r.outcome.map((n, index) => (
@@ -352,9 +371,9 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
               )}
               {r.game === 'dice' && (
                 <p className="text-xs leading-5 text-emerald-100">
-                  Exact-total chances out of 36: 2/12 → 1 each; 3/11 → 2; 4/10 → 3; 5/9 → 4; 6/8 →
-                  5; 7 → 6. Matching players share the prize; returned points can be less than your
-                  entry after the fee.
+                  {translateUi(
+                    'Exact-total chances out of 36: 2/12 → 1 each; 3/11 → 2; 4/10 → 3; 5/9 → 4; 6/8 → 5; 7 → 6. Matching players share the prize; returned points can be less than your entry after the fee.'
+                  )}
                 </p>
               )}
               {r.game === 'spin_win' && !r.outcome && (
@@ -368,7 +387,9 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
               {r.state === 'OPEN' && (
                 <>
                   <p className="text-sm text-emerald-100">
-                    {GROUP_PVP_GAMES.find((item) => item.key === r.game)?.description}
+                    {translateUi(
+                      GROUP_PVP_GAMES.find((item) => item.key === r.game)?.description ?? ''
+                    )}
                   </p>
                   <div className="grid grid-cols-7 gap-1.5 sm:grid-cols-10">
                     {Array.from(
@@ -378,7 +399,7 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                       <button
                         key={n}
                         aria-pressed={picks.includes(n)}
-                        aria-label={`Number ${n}`}
+                        aria-label={translateUi('Number {n}', { n: n })}
                         disabled={!open || !!mine?.ready || !!s.hasWithdrawn || busy}
                         onClick={() => toggle(n)}
                         className={`min-h-10 rounded-lg border text-sm font-bold ${picks.includes(n) ? 'border-amber-100 bg-amber-300 text-amber-950' : 'border-white/15 bg-white/5 hover:bg-white/15'} disabled:cursor-not-allowed`}
@@ -391,7 +412,9 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
               )}
               {mine?.ready && (
                 <p className="rounded-xl bg-emerald-900/60 p-3 text-sm">
-                  Your confirmed numbers: {mine.selection?.join(', ')}
+                  {translateUi('Your confirmed numbers: {value}', {
+                    value: mine.selection?.join(', ') ?? '',
+                  })}
                 </p>
               )}
               {r.settlement && (
@@ -400,30 +423,46 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                   className="rounded-2xl border border-amber-300/30 bg-black/15 p-5"
                 >
                   <h3 className="text-xl font-bold">
-                    {r.state === 'VOID' ? 'Full refunds completed' : 'Winners paid'}
+                    {r.state === 'VOID'
+                      ? translateUi('Full refunds completed')
+                      : translateUi('Winners paid')}
                   </h3>
                   {r.settlement.prizes.map((w) => (
                     <p key={w.userId} className="mt-3 flex justify-between gap-3">
                       <span>@{w.username}</span>
                       <span className="text-right">
-                        <strong>{w.amount.toLocaleString()} points returned</strong>
+                        <strong>
+                          {translateUi('{value} points returned', {
+                            value: w.amount.toLocaleString(interfaceLocale),
+                          })}
+                        </strong>
                         <small className="block text-xs text-emerald-100">
-                          {w.amount - r.entryAmount >= 0 ? '+' : ''}
-                          {(w.amount - r.entryAmount).toLocaleString()} net · {r.entryAmount} entry
+                          {translateUi('{value}{value2} net · {entryAmount} entry', {
+                            value: w.amount - r.entryAmount >= 0 ? '+' : '',
+                            value2: (w.amount - r.entryAmount).toLocaleString(interfaceLocale),
+                            entryAmount: r.entryAmount,
+                          })}
                         </small>
                       </span>
                     </p>
                   ))}
                   {r.state === 'VOID' && (
                     <p className="mt-2 text-sm">
-                      {r.settlement.reason === 'NO_WINNER'
-                        ? 'Nobody matched the winning result.'
-                        : 'This round was cancelled or expired.'}{' '}
-                      Every confirmed entry was returned. No fee was charged.
+                      {translateUi(
+                        '{value} Every confirmed entry was returned. No fee was charged.',
+                        {
+                          value:
+                            r.settlement.reason === 'NO_WINNER'
+                              ? translateUi('Nobody matched the winning result.')
+                              : translateUi('This round was cancelled or expired.'),
+                        }
+                      )}
                     </p>
                   )}
                   <p className="mt-3 text-xs text-emerald-100">
-                    Platform fee: {r.settlement.platformFee} points
+                    {translateUi('Platform fee: {platformFee} points', {
+                      platformFee: r.settlement.platformFee,
+                    })}
                   </p>
                 </div>
               )}
@@ -431,37 +470,42 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
             <aside className="space-y-4">
               <div className="rounded-2xl bg-black/20 p-5">
                 <p className="text-xs uppercase tracking-widest text-emerald-100/70">
-                  Confirmed prize pool
+                  {translateUi('Confirmed prize pool')}
                 </p>
                 <p className="mt-2 text-4xl font-bold text-amber-200">
-                  {(funded * Number(quote!.prizeContribution)).toLocaleString()}
+                  {(funded * Number(quote!.prizeContribution)).toLocaleString(interfaceLocale)}
                 </p>
-                <p className="mt-1 text-xs">Game Points · after the 7% completion fee</p>
+                <p className="mt-1 text-xs">
+                  {translateUi('Game Points · after the 7% completion fee')}
+                </p>
                 <dl className="mt-5 space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <dt>Entry per player</dt>
+                    <dt>{translateUi('Entry per player')}</dt>
                     <dd>{r.entryAmount}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>Fee if completed</dt>
+                    <dt>{translateUi('Fee if completed')}</dt>
                     <dd>{quote!.platformFee}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>To the prize pool</dt>
+                    <dt>{translateUi('To the prize pool')}</dt>
                     <dd>{quote!.prizeContribution}</dd>
                   </div>
                 </dl>
               </div>
               <div className="rounded-2xl bg-black/20 p-5">
                 <h3 className="font-bold">
-                  Players · {funded}/{r.entries.length} ready
+                  {translateUi('Players · {funded}/{length} ready', {
+                    funded: funded,
+                    length: r.entries.length,
+                  })}
                 </h3>
                 <ul className="mt-3 space-y-3">
                   {r.entries.map((e) => (
                     <li key={e.userId} className="flex justify-between gap-2 text-sm">
                       <span className="truncate">@{e.username}</span>
                       <span className={e.ready ? 'text-emerald-300' : 'text-amber-200'}>
-                        {e.ready ? 'Ready' : 'Choosing'}
+                        {e.ready ? translateUi('Ready') : translateUi('Choosing')}
                       </span>
                     </li>
                   ))}
@@ -469,12 +513,12 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
               </div>
               {open && !mine && !s.hasWithdrawn && (
                 <Button className="w-full" disabled={busy} onClick={() => act('join')}>
-                  Join round
+                  {translateUi('Join round')}
                 </Button>
               )}
               {open && s.hasWithdrawn && (
                 <p role="status" className="rounded-xl bg-white/10 p-3 text-sm">
-                  You left this round. Join the next one.
+                  {translateUi('You left this round. Join the next one.')}
                 </p>
               )}
               {open && mine && !mine.ready && (
@@ -492,7 +536,9 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                     })
                   }
                 >
-                  Confirm {r.entryAmount} points · Ready
+                  {translateUi('Confirm {entryAmount} points · Ready', {
+                    entryAmount: r.entryAmount,
+                  })}
                 </Button>
               )}
               {roundOpen && mine && (
@@ -502,7 +548,7 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                   disabled={busy}
                   onClick={() => act('withdraw')}
                 >
-                  {mine.ready ? 'Leave and refund entry' : 'Leave round'}
+                  {mine.ready ? translateUi('Leave and refund entry') : translateUi('Leave round')}
                 </Button>
               )}
               {roundOpen && own && (
@@ -514,7 +560,7 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                     }
                     onClick={() => act('start')}
                   >
-                    Start 30-second countdown
+                    {translateUi('Start 30-second countdown')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -522,15 +568,14 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
                     disabled={busy}
                     onClick={() => act('cancel')}
                   >
-                    Cancel round · full refunds
+                    {translateUi('Cancel round · full refunds')}
                   </Button>
                 </>
               )}
               <p className="text-xs leading-relaxed text-emerald-100/70">
-                The owner can start once every joined player confirms. No entries or cancellations
-                after start. No winner means a full refund. The lobby expires after 15 minutes or
-                when the group closes. The game and entry amount are fixed for this round. Paid
-                players cannot be removed.
+                {translateUi(
+                  'The owner can start once every joined player confirms. No entries or cancellations after start. No winner means a full refund. The lobby expires after 15 minutes or when the group closes. The game and entry amount are fixed for this round. Paid players cannot be removed.'
+                )}
               </p>
             </aside>
           </div>
@@ -538,16 +583,16 @@ function GroupGames({ groupId, userId }: { groupId: string; userId: string }) {
       )}
       {notice && (
         <p role="status" className="rounded-xl border p-3 text-sm">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {pendingAction && !mutation.isPending && (
         <Button disabled={!connected} onClick={() => submit(pendingAction)}>
-          Retry unconfirmed action
+          {translateUi('Retry unconfirmed action')}
         </Button>
       )}
       <Link className="text-sm text-primary-600" to={`/messages/${groupId}`}>
-        Return to group chat
+        {translateUi('Return to group chat')}
       </Link>
     </div>
   );

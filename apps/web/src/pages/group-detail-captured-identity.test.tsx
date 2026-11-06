@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { MutationObserver } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
@@ -67,7 +68,7 @@ vi.mock('@/lib/api', () => ({
 
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
+  useToast: () => ({ toast: (payload: unknown) => toastMock(toastDisplay(payload)) }),
 }));
 
 import { api } from '@/lib/api';
@@ -121,7 +122,9 @@ describe.each(ACTIONS)('$label', (spec) => {
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.resolve(spec.result ?? { success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title }))
+    );
     await idle(client);
 
     // The request, the keys, the cache patches and the words all belong to A.
@@ -140,10 +143,12 @@ describe.each(ACTIONS)('$label', (spec) => {
     // ...and the user, who is looking at B, is not moved.
     expect(backButton()).toHaveFocus();
     // The confirmation that was A's is closed by A's answer.
-    expect(screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })
+    ).not.toBeInTheDocument();
   });
 
-  it('clicking and moving to B in the SAME tick still sends the request to A (it is made a moment after the click, by the latest render\'s callbacks)', async () => {
+  it("clicking and moving to B in the SAME tick still sends the request to A (it is made a moment after the click, by the latest render's callbacks)", async () => {
     const { goTo } = await startReused(spec);
     await spec.ready();
 
@@ -170,23 +175,33 @@ describe.each(ACTIONS)('$label', (spec) => {
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.reject(refusal('Insufficient permissions'));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' }))
+    );
     await idle(client);
 
-    expect(toastMock).toHaveBeenCalledWith({ title: 'Error', description: spec.failure, variant: 'destructive' });
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'Error',
+      description: spec.failure,
+      variant: 'destructive',
+    });
     expect(JSON.stringify(toastMock.mock.calls)).not.toContain(NAME_B);
-    expect(invalidatedSince(invalidate, invalidationsBefore).filter((k) => k.includes(B))).toEqual([]);
+    expect(invalidatedSince(invalidate, invalidationsBefore).filter((k) => k.includes(B))).toEqual(
+      []
+    );
     expect(snapshotB(client)).toEqual(bBefore);
     // Focus stays where the user put it: no "restore to the trigger" in a group they have left.
     expect(backButton()).toHaveFocus();
-    expect(screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })
+    ).not.toBeInTheDocument();
   });
 });
 
 const CONFIRMATIONS = ACTIONS.filter((a) => a.open !== undefined);
 
 describe.each(CONFIRMATIONS)('$label: the confirmation carries its group', (spec) => {
-  it('confirming after the instance was handed group B still sends the request to A, for A\'s target', async () => {
+  it("confirming after the instance was handed group B still sends the request to A, for A's target", async () => {
     const { goTo } = await startReused(spec);
     await spec.open!();
 
@@ -198,7 +213,9 @@ describe.each(CONFIRMATIONS)('$label: the confirmation carries its group', (spec
     await waitFor(() => expect(mocked[spec.api]).toHaveBeenCalledTimes(1));
     expect(mocked[spec.api]).toHaveBeenCalledWith(...spec.args);
     expect(mocked[spec.api]).not.toHaveBeenCalledWith(B, expect.anything());
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title }))
+    );
     expect(JSON.stringify(toastMock.mock.calls)).not.toContain(NAME_B);
   });
 
@@ -212,7 +229,9 @@ describe.each(CONFIRMATIONS)('$label: the confirmation carries its group', (spec
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     // Closed — and focus is where the user put it, not on a "trigger" of the other group.
-    expect(screen.queryByRole('button', { name: /^Confirm (ban|transfer)$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Confirm (ban|transfer)$/ })
+    ).not.toBeInTheDocument();
     expect(mocked[spec.api]).not.toHaveBeenCalled();
     if (spec.id === 'ban') expect(backButton()).toHaveFocus();
   });
@@ -229,7 +248,11 @@ describe.each(CONFIRMATIONS)('$label: the confirmation carries its group', (spec
     const earlier = deferred();
     // (A transfer is one-at-a-time in a group whoever it names, so the earlier one
     // names somebody ELSE: it must still block this one.)
-    void new MutationObserver<unknown, Error, { groupId: string; groupName: string; targetId: string; name: string }>(client, {
+    void new MutationObserver<
+      unknown,
+      Error,
+      { groupId: string; groupName: string; targetId: string; name: string }
+    >(client, {
       mutationKey: groupActionKey(spec.id === 'ban' ? 'ban' : 'transfer'),
       mutationFn: () => earlier.promise,
     }).mutate(
@@ -247,8 +270,8 @@ describe.each(CONFIRMATIONS)('$label: the confirmation carries its group', (spec
   });
 });
 
-describe('Ban: an answer from A never closes — or steals focus from — a confirmation that is B\'s', () => {
-  it('A\'s late success leaves B\'s open confirmation alone; cancelling it then restores focus to B\'s own trigger', async () => {
+describe("Ban: an answer from A never closes — or steals focus from — a confirmation that is B's", () => {
+  it("A's late success leaves B's open confirmation alone; cancelling it then restores focus to B's own trigger", async () => {
     const spec = ACTIONS.find((a) => a.id === 'ban')!;
     const { goTo } = await startReused(spec);
     const request = deferred();
@@ -260,11 +283,15 @@ describe('Ban: an answer from A never closes — or steals focus from — a conf
     // The user opens a confirmation in B (its own trigger, its own target); it replaces A's on screen.
     const bTrigger = inMemberRow().getByRole('button', { name: 'Ban' });
     fireEvent.click(bTrigger);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Banning…' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Banning…' })).toBeInTheDocument()
+    );
     backButton().focus();
 
     request.resolve({ success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member banned' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Member banned' }))
+    );
 
     // A's answer did not dismiss B's confirmation, and did not move focus.
     expect(screen.getByRole('heading', { name: 'Confirm ban' })).toBeInTheDocument();
@@ -286,7 +313,11 @@ describe('Approve / Reject: an answer already on its way blocks the opposite ans
     const earlier = deferred();
     // The opposite answer, started on an earlier visit. Clicking Approve in the same
     // tick — before this instance has re-rendered — must not add a second answer.
-    void new MutationObserver<unknown, Error, { groupId: string; groupName: string; targetId: string; name: string }>(client, {
+    void new MutationObserver<
+      unknown,
+      Error,
+      { groupId: string; groupName: string; targetId: string; name: string }
+    >(client, {
       mutationKey: groupActionKey('reject'),
       mutationFn: () => earlier.promise,
     }).mutate({ groupId: A, groupName: 'Group A', targetId: 'u-req', name: 'Requester' });

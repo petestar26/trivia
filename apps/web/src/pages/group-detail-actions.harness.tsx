@@ -82,7 +82,10 @@ export interface World {
 }
 
 export function newWorld(): World {
-  const both = <T,>(make: (g: GroupKey) => T): Record<GroupKey, T> => ({ [A]: make(A), [B]: make(B) });
+  const both = <T,>(make: (g: GroupKey) => T): Record<GroupKey, T> => ({
+    [A]: make(A),
+    [B]: make(B),
+  });
   return {
     isMember: both(() => true),
     members: both((g) => [memberRow(g, VIEWER, 'OWNER'), memberRow(g, SHARED, 'MEMBER')]),
@@ -147,18 +150,26 @@ export function installApi(mocked: MockedApi, world: World) {
       owner: VIEWER,
     },
   }));
-  mocked.getGroupMembers.mockImplementation(async (groupId: GroupKey) => ({ data: world.members[groupId] }));
-  mocked.listJoinRequests.mockImplementation(async (groupId: GroupKey) => ({ data: world.requests[groupId] }));
-  mocked.listGroupInvites.mockImplementation(async (groupId: GroupKey, params: { page: number; limit: number }) => ({
-    success: true,
-    data: world.invites[groupId],
-    meta: pageMeta(params.page, params.limit, world.invites[groupId].length),
+  mocked.getGroupMembers.mockImplementation(async (groupId: GroupKey) => ({
+    data: world.members[groupId],
   }));
-  mocked.listBannedMembers.mockImplementation(async (_groupId: GroupKey, params: { page: number; limit: number }) => ({
-    success: true,
-    data: [],
-    meta: pageMeta(params.page, params.limit, 0),
+  mocked.listJoinRequests.mockImplementation(async (groupId: GroupKey) => ({
+    data: world.requests[groupId],
   }));
+  mocked.listGroupInvites.mockImplementation(
+    async (groupId: GroupKey, params: { page: number; limit: number }) => ({
+      success: true,
+      data: world.invites[groupId],
+      meta: pageMeta(params.page, params.limit, world.invites[groupId].length),
+    })
+  );
+  mocked.listBannedMembers.mockImplementation(
+    async (_groupId: GroupKey, params: { page: number; limit: number }) => ({
+      success: true,
+      data: [],
+      meta: pageMeta(params.page, params.limit, 0),
+    })
+  );
   for (const name of [
     'unbanGroupMember',
     'banGroupMember',
@@ -174,20 +185,22 @@ export function installApi(mocked: MockedApi, world: World) {
   ] as const) {
     mocked[name].mockResolvedValue(ok(name));
   }
-  mocked.createGroupInvite.mockImplementation(async (groupId: GroupKey, email: string, role: string) => ({
-    success: true,
-    data: {
-      id: 'inv-new',
-      groupId,
-      email,
-      role,
-      status: 'PENDING',
-      token: 'tok-new',
-      expiresAt: '2030-01-01T00:00:00.000Z',
-      invitedBy: 'u-viewer',
-      createdAt: '2024-02-01T00:00:00.000Z',
-    },
-  }));
+  mocked.createGroupInvite.mockImplementation(
+    async (groupId: GroupKey, email: string, role: string) => ({
+      success: true,
+      data: {
+        id: 'inv-new',
+        groupId,
+        email,
+        role,
+        status: 'PENDING',
+        token: 'tok-new',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        invitedBy: 'u-viewer',
+        createdAt: '2024-02-01T00:00:00.000Z',
+      },
+    })
+  );
 }
 
 export function deferred<T = unknown>() {
@@ -200,7 +213,8 @@ export function deferred<T = unknown>() {
   return { promise, resolve, reject };
 }
 
-export const refusal = (message: string, status = 403) => new Error(JSON.stringify({ status, message }));
+export const refusal = (message: string, status = 403) =>
+  new Error(JSON.stringify({ status, message }));
 
 /** What the tests read of the `invalidateQueries` spy. */
 export interface InvalidateSpy {
@@ -236,7 +250,11 @@ export function renderRouted(): Rendered {
       </MemoryRouter>
     </QueryClientProvider>
   );
-  return { client, invalidate, goTo: (g) => fireEvent.click(screen.getByRole('link', { name: `go to ${g}` })) };
+  return {
+    client,
+    invalidate,
+    goTo: (g) => fireEvent.click(screen.getByRole('link', { name: `go to ${g}` })),
+  };
 }
 
 /** ONE GroupDetailContent, no key, handed a new `groupId`. */
@@ -282,7 +300,8 @@ const memberRowEl = () => {
 export const inMemberRow = () => within(memberRowEl());
 
 /** Is `el` inert — natively disabled or aria-disabled? */
-export const isInert = (el: HTMLElement) => (el as HTMLButtonElement).disabled === true || el.getAttribute('aria-disabled') === 'true';
+export const isInert = (el: HTMLElement) =>
+  (el as HTMLButtonElement).disabled === true || el.getAttribute('aria-disabled') === 'true';
 
 export interface ActionSpec {
   id: string;
@@ -339,7 +358,10 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(inMemberRow().getByRole('button', { name: 'Remove' }));
     },
-    invalidates: [['group-members', A], ['group', A]],
+    invalidates: [
+      ['group-members', A],
+      ['group', A],
+    ],
     success: { title: 'Member removed', mention: 'Shared Member was removed from Group A.' },
     failure: "Couldn't remove Shared Member from Group A. Insufficient permissions",
   },
@@ -360,7 +382,7 @@ const RAW_ACTIONS: RawSpec[] = [
       fireEvent.change(inMemberRow().getByRole('combobox'), { target: { value: 'ADMIN' } });
     },
     invalidates: [['group-members', A]],
-    success: { title: 'Role updated', mention: 'Shared Member is now ADMIN in Group A.' },
+    success: { title: 'Role updated', mention: 'Shared Member is now Admin in Group A.' },
     failure: "Couldn't change Shared Member's role in Group A. Insufficient permissions",
   },
   {
@@ -377,7 +399,11 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(screen.getByRole('button', { name: 'Approve' }));
     },
-    invalidates: [['group-requests', A], ['group-members', A], ['group', A]],
+    invalidates: [
+      ['group-requests', A],
+      ['group-members', A],
+      ['group', A],
+    ],
     success: { title: 'Request approved', mention: 'Requester was approved to join Group A.' },
     failure: "Couldn't approve Requester's request to join Group A. Insufficient permissions",
   },
@@ -395,8 +421,15 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(screen.getByRole('button', { name: 'Reject' }));
     },
-    invalidates: [['group-requests', A], ['group-members', A], ['group', A]],
-    success: { title: 'Request rejected', mention: "Requester's request to join Group A was rejected." },
+    invalidates: [
+      ['group-requests', A],
+      ['group-members', A],
+      ['group', A],
+    ],
+    success: {
+      title: 'Request rejected',
+      mention: "Requester's request to join Group A was rejected.",
+    },
     failure: "Couldn't reject Requester's request to join Group A. Insufficient permissions",
   },
   {
@@ -414,11 +447,17 @@ const RAW_ACTIONS: RawSpec[] = [
       click(screen.getByRole('button', { name: 'Revoke' }));
     },
     invalidates: [['group-invites', A]],
-    success: { title: 'Invite revoked', mention: 'The invite for invitee@test.com to Group A was revoked.' },
+    success: {
+      title: 'Invite revoked',
+      mention: 'The invite for invitee@test.com to Group A was revoked.',
+    },
     failure: "Couldn't revoke the invite for invitee@test.com in Group A. Insufficient permissions",
     afterSuccess: (client) => {
       // A's list lost the invitation the request named...
-      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>(['group-invites', A]);
+      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>([
+        'group-invites',
+        A,
+      ]);
       expect(a?.pages.flatMap((p) => p.invites.map((i) => i.id))).toEqual([]);
     },
   },
@@ -446,13 +485,17 @@ const RAW_ACTIONS: RawSpec[] = [
       await screen.findByPlaceholderText('user@example.com');
     },
     fire: () => {
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'new@test.com' },
+      });
       click(screen.getByRole('button', { name: 'Invite' }));
     },
     counterpart: () => screen.getByPlaceholderText('user@example.com'),
     inert: () => screen.getByRole('button', { name: 'Invite' }),
     retry: async () => {
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'new@test.com' },
+      });
       click(screen.getByRole('button', { name: 'Invite' }));
     },
     invalidates: [['group-invites', A]],
@@ -460,7 +503,10 @@ const RAW_ACTIONS: RawSpec[] = [
     failure: "Couldn't invite new@test.com to Group A. Insufficient permissions",
     afterSuccess: (client) => {
       // The created invitation — a bearer-equivalent link — is in A's list...
-      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>(['group-invites', A]);
+      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>([
+        'group-invites',
+        A,
+      ]);
       expect(a?.pages.flatMap((p) => p.invites.map((i) => i.id))).toContain('inv-new');
     },
   },
@@ -500,7 +546,10 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(screen.getByRole('button', { name: 'Request to join' }));
     },
-    invalidates: [['group', A], ['group-members', A]],
+    invalidates: [
+      ['group', A],
+      ['group-members', A],
+    ],
     success: { title: 'Join request submitted', mention: 'Group A' },
     failure: "Couldn't join Group A. Insufficient permissions",
   },
@@ -521,7 +570,13 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(inMemberRow().getByRole('button', { name: 'Ban' }));
     },
-    invalidates: [['group-members', A], ['group-requests', A], ['group-invites', A], ['group-banned-members', A], ['group', A]],
+    invalidates: [
+      ['group-members', A],
+      ['group-requests', A],
+      ['group-invites', A],
+      ['group-banned-members', A],
+      ['group', A],
+    ],
     success: { title: 'Member banned', mention: 'Shared Member was banned from Group A.' },
     failure: "Couldn't ban Shared Member from Group A. Insufficient permissions",
   },
@@ -542,7 +597,10 @@ const RAW_ACTIONS: RawSpec[] = [
     retry: async () => {
       click(inMemberRow().getByRole('button', { name: 'Transfer' }));
     },
-    invalidates: [['group', A], ['group-members', A]],
+    invalidates: [
+      ['group', A],
+      ['group-members', A],
+    ],
     success: { title: 'Ownership transferred', mention: 'Shared Member now owns Group A.' },
     failure: "Couldn't transfer Group A to Shared Member. Insufficient permissions",
   },
@@ -568,10 +626,18 @@ export const snapshotB = (client: QueryClient) => ({
 
 /** How many times B's data was fetched — an answer from A must not cause a refetch of B. */
 export const fetchesOfB = (mocked: MockedApi) =>
-  (['getGroup', 'getGroupMembers', 'listJoinRequests', 'listGroupInvites', 'listBannedMembers'] as const).map(
-    (name) => mocked[name].mock.calls.filter((c: unknown[]) => c[0] === B).length
-  );
+  (
+    [
+      'getGroup',
+      'getGroupMembers',
+      'listJoinRequests',
+      'listGroupInvites',
+      'listBannedMembers',
+    ] as const
+  ).map((name) => mocked[name].mock.calls.filter((c: unknown[]) => c[0] === B).length);
 
 /** JSON of every key passed to invalidateQueries since `since`. */
 export const invalidatedSince = (invalidate: Rendered['invalidate'], since: number) =>
-  invalidate.mock.calls.slice(since).map((c: unknown[]) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+  invalidate.mock.calls
+    .slice(since)
+    .map((c: unknown[]) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));

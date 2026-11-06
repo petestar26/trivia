@@ -24,6 +24,7 @@ import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
 import './blackjack.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const endpoint = '/games/blackjack';
 const receiptKey = (id: string) => `salem.blackjack.pending.v1.${id}`;
@@ -188,12 +189,14 @@ const emptyDraft = (): Draft => ({ seat: 1, market: null, text: '10' });
 const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const phases = ['First card', 'Second card', 'Third card', 'Showdown'];
 function Card({ value, index }: { value?: number; index: number }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const c = value === undefined ? null : bjCard(value);
   return (
     <span
       className={`bj-card ${c?.red ? 'bj-red' : ''} ${!c ? 'bj-card-back' : ''}`}
       style={{ '--card-index': index } as CSSProperties}
-      aria-label={c ? `${c.rank} ${c.suit}` : 'Waiting for card'}
+      aria-label={c ? `${c.rank} ${c.suit}` : translateUi('Waiting for card')}
     >
       {c ? (
         <>
@@ -238,6 +241,8 @@ export function BlackjackView({
   onSubmit: (e: Entry) => void;
   onRetry?: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [clock, setClock] = useState(performance.now());
   const [slot, setSlot] = useState(1),
     [drafts, setDrafts] = useState<Record<number, Draft>>({ 1: emptyDraft() });
@@ -298,54 +303,63 @@ export function BlackjackView({
   return (
     <div className="bj-page">
       <div className="bj-topline">
-        <Link to="/games">← Games</Link>
+        <Link to="/games">{translateUi('← Games')}</Link>
         <span className={connected ? 'bj-online' : ''}>
           <i />
-          {connected ? 'Connected' : 'Connecting'}
+          {connected ? translateUi('Connected') : translateUi('Connecting')}
         </span>
       </div>
       <header className="bj-header">
         <div>
-          <span className="bj-eyebrow">SALEM TABLE GAMES</span>
+          <span className="bj-eyebrow">{translateUi('SALEM TABLE GAMES')}</span>
           <h1>
-            Black<span>jack</span>
+            {translateUi('Black')}
+            <span>{translateUi('jack')}</span>
           </h1>
-          <p>Six seats. One dealer. Your call.</p>
+          <p>{translateUi('Six seats. One dealer. Your call.')}</p>
         </div>
         <div className="bj-balance">
-          <small>Practice balance</small>
+          <small>{translateUi('Practice balance')}</small>
           <strong>
-            {money(data?.balance ?? 0)} <em>ETB</em>
+            {money(data?.balance ?? 0)} <em>{'ETB'}</em>
           </strong>
-          <span>Virtual ETB · no cash value</span>
+          <span>{translateUi('Virtual ETB · no cash value')}</span>
         </div>
       </header>
       {(connectionMessage || error || !connected) && (
         <p className="bj-notice" role="status">
           {error ||
             connectionMessage ||
-            'Connection interrupted. Betting pauses until the table is up to date.'}
+            translateUi('Connection interrupted. Betting pauses until the table is up to date.')}
         </p>
       )}
       <div className="bj-layout">
-        <section className="bj-arena" aria-label="Blackjack table">
+        <section className="bj-arena" aria-label={translateUi('Blackjack table')}>
           <div className="bj-stagebar">
             <div>
               <span className="bj-live-dot" />
               <b>
                 {history
-                  ? 'Past round'
+                  ? translateUi('Past round')
                   : complete
-                    ? 'Round complete'
+                    ? translateUi('Round complete')
                     : open
-                      ? 'Bets open'
-                      : 'Dealing cards'}
+                      ? translateUi('Bets open')
+                      : translateUi('Dealing cards')}
               </b>
               <small>#{table?.id.replace('bj-', '') ?? '—'}</small>
             </div>
             <div className="bj-timer">
-              <span>{history ? 'Final result' : phase === 3 ? 'Next round' : 'Next deal'}</span>
-              <strong>{history ? '✓' : `${countdown}s`}</strong>
+              <span>
+                {history
+                  ? translateUi('Final result')
+                  : phase === 3
+                    ? translateUi('Next round')
+                    : translateUi('Next deal')}
+              </span>
+              <strong>
+                {history ? '✓' : translateUi('{countdown}s', { countdown: countdown })}
+              </strong>
             </div>
           </div>
           <div className="bj-stages">
@@ -357,15 +371,15 @@ export function BlackjackView({
                 }
               >
                 <span>{i < 3 ? `0${i + 1}` : '♠'}</span>
-                <b>{name}</b>
+                <b>{translateUi(name)}</b>
               </div>
             ))}
           </div>
           <div className="bj-felt">
             <div className="bj-table-inscription" aria-hidden="true">
-              <span>SALEM</span>
-              <strong>BLACKJACK</strong>
-              <small>ALL HANDS STAND ON 17</small>
+              <span>{translateUi('SALEM')}</span>
+              <strong>{translateUi('BLACKJACK')}</strong>
+              <small>{translateUi('ALL HANDS STAND ON 17')}</small>
               <div>♦ ───── ♠ ───── ♥</div>
             </div>
             <div className="bj-hands">
@@ -378,14 +392,22 @@ export function BlackjackView({
                     key={s}
                     type="button"
                     className={`bj-hand bj-hand-${s} ${s === seat ? 'selected' : ''} ${result ? `bj-result-${result.toLowerCase()}` : ''}`}
-                    aria-label={`${s === 0 ? 'Dealer' : `Seat ${s}`}, ${cards.length ? v.total + ' points' : 'waiting'}`}
+                    aria-label={`${s === 0 ? translateUi('Dealer') : translateUi('Seat {s}', { s })}, ${cards.length ? translateUi('{amount} points', { amount: v.total }) : translateUi('waiting')}`}
                     aria-pressed={s === seat}
                     onClick={() => update({ seat: s, market: null })}
                     disabled={!!ticket || !!pending || !!history}
                   >
                     <span className="bj-seat-name">
-                      {s === 0 ? 'Dealer' : `Seat ${s}`}
-                      <b>{cards.length ? (v.blackjack ? 'BJ' : v.bust ? 'BUST' : v.total) : '—'}</b>
+                      {s === 0 ? translateUi('Dealer') : translateUi('Seat {s}', { s: s })}
+                      <b>
+                        {cards.length
+                          ? v.blackjack
+                            ? translateUi('BJ')
+                            : v.bust
+                              ? translateUi('BUST')
+                              : v.total
+                          : '—'}
+                      </b>
                     </span>
                     <span
                       className="bj-card-row"
@@ -403,21 +425,21 @@ export function BlackjackView({
                     <span className={`bj-hand-status ${result ? 'settled' : ''}`}>
                       {result
                         ? result === 'WIN'
-                          ? 'Wins'
+                          ? translateUi('Wins')
                           : result === 'DRAW'
-                            ? 'Draw'
-                            : 'Loses'
+                            ? translateUi('Draw')
+                            : translateUi('Loses')
                         : s === 0
-                          ? 'Stand on all 17s'
+                          ? translateUi('Stand on all 17s')
                           : v.blackjack
-                            ? 'Natural blackjack'
+                            ? translateUi('Natural blackjack')
                             : v.bust
-                              ? 'Bust'
+                              ? translateUi('Bust')
                               : v.total >= 17
-                                ? 'Standing'
+                                ? translateUi('Standing')
                                 : cards.length
-                                  ? 'In play'
-                                  : 'Waiting'}
+                                  ? translateUi('In play')
+                                  : translateUi('Waiting')}
                     </span>
                   </button>
                 );
@@ -426,20 +448,28 @@ export function BlackjackView({
           </div>
           <div className="bj-table-footer">
             <span>
-              6-deck shoe <i>·</i> 2m 40s rounds
+              {translateUi('6-deck shoe') + ' '}
+              <i>·</i>
+              {' ' + translateUi('2m 40s rounds')}
             </span>
             <Rules />
           </div>
         </section>
-        <section className="bj-slip" aria-label="Your bet">
+        <section className="bj-slip" aria-label={translateUi('Your bet')}>
           <div className="bj-slip-heading">
             <div>
-              <span className="bj-eyebrow">YOUR SELECTION</span>
-              <h2>{history ? 'Round receipts' : `Bet ${slot}`}</h2>
+              <span className="bj-eyebrow">{translateUi('YOUR SELECTION')}</span>
+              <h2>
+                {history
+                  ? translateUi('Round receipts')
+                  : translateUi('Bet {slot}', { slot: slot })}
+              </h2>
             </div>
-            <span className="bj-ticket-count">{tickets.length}/10 confirmed</span>
+            <span className="bj-ticket-count">
+              {translateUi('{length}/10 confirmed', { length: tickets.length })}
+            </span>
           </div>
-          <div className="bj-ticket-tabs" aria-label="Bet tabs">
+          <div className="bj-ticket-tabs" aria-label={translateUi('Bet tabs')}>
             {Array.from(used)
               .sort((a, b) => a - b)
               .map((i) => (
@@ -449,7 +479,8 @@ export function BlackjackView({
                   className={slot === i ? 'active' : ''}
                   onClick={() => setSlot(i)}
                 >
-                  Bet {i}
+                  {translateUi('Bet') + ' '}
+                  {i}
                   {tickets.some((t) => t.slot === i) && <span> ✓</span>}
                 </button>
               ))}
@@ -462,26 +493,28 @@ export function BlackjackView({
                   setSlot(next);
                 }
               }}
-              aria-label="Add bet"
+              aria-label={translateUi('Add bet')}
             >
               ＋
             </button>
           </div>
           <div className="bj-slip-content">
             <div className="bj-market-heading">
-              <h3>{seat === 0 ? 'Dealer' : `Seat ${seat}`}</h3>
+              <h3>
+                {seat === 0 ? translateUi('Dealer') : translateUi('Seat {seat}', { seat: seat })}
+              </h3>
               <span>
                 {ticket
-                  ? 'Price locked'
+                  ? translateUi('Price locked')
                   : history
-                    ? 'Finished'
-                    : `Stage ${(current?.stage ?? 0) + 1} prices`}
+                    ? translateUi('Finished')
+                    : translateUi('Stage {value} prices', { value: (current?.stage ?? 0) + 1 })}
               </span>
             </div>
             <p className="bj-small">
               {seat === 0
-                ? 'Predict the dealer’s final total.'
-                : 'Predict this seat’s result against the dealer.'}
+                ? translateUi('Predict the dealer’s final total.')
+                : translateUi('Predict this seat’s result against the dealer.')}
             </p>
             {seat !== 0 && (
               <div className="bj-outcomes">
@@ -498,7 +531,8 @@ export function BlackjackView({
               </div>
             )}
             <div className="bj-market-label">
-              Final points <span>or a special finish</span>
+              {translateUi('Final points') + ' '}
+              <span>{translateUi('or a special finish')}</span>
             </div>
             <div className="bj-point-markets">
               {BJ_MARKETS.slice(3).map((m) => (
@@ -513,15 +547,18 @@ export function BlackjackView({
               ))}
             </div>
             <div className="bj-selected" aria-live="polite">
-              <span>{market ? '✓ ' + bjSelection(seat, market) : 'Choose a result above'}</span>
+              <span>
+                {market ? '✓ ' + bjSelection(seat, market) : translateUi('Choose a result above')}
+              </span>
               <strong>{odds ? `${(odds / 100).toFixed(2)}×` : '—'}</strong>
             </div>
             <label className="bj-amount-label" htmlFor="bj-amount">
-              Bet amount <span>ETB</span>
+              {translateUi('Bet amount') + ' '}
+              <span>{'ETB'}</span>
             </label>
             <div className="bj-amount">
               <button
-                aria-label="Decrease amount"
+                aria-label={translateUi('Decrease amount')}
                 disabled={locked || amount <= 5}
                 onClick={() => update({ text: String(Math.max(5, (amount || 5) - 5)) })}
               >
@@ -536,7 +573,7 @@ export function BlackjackView({
                 onChange={(e) => update({ text: e.target.value })}
               />
               <button
-                aria-label="Increase amount"
+                aria-label={translateUi('Increase amount')}
                 disabled={locked || amount >= 500}
                 onClick={() => update({ text: String(Math.min(500, (amount || 0) + 5)) })}
               >
@@ -556,18 +593,22 @@ export function BlackjackView({
               ))}
             </div>
             <div className="bj-return">
-              <span>{ticket && complete ? 'Returned' : 'Return if correct'}</span>
+              <span>
+                {ticket && complete ? translateUi('Returned') : translateUi('Return if correct')}
+              </span>
               <b>
                 {ticket && complete
                   ? ticket.payout === null
-                    ? 'Settling…'
-                    : `${money(ticket.payout)} ETB`
+                    ? translateUi('Settling…')
+                    : translateUi('{value} ETB', { value: money(ticket.payout) })
                   : valid
-                    ? `${money((amount * odds!) / 100)} ETB`
+                    ? translateUi('{value} ETB', { value: money((amount * odds!) / 100) })
                     : '—'}
               </b>
             </div>
-            <p className="bj-small">Returns include your stake. 5–500 ETB per bet.</p>
+            <p className="bj-small">
+              {translateUi('Returns include your stake. 5–500 ETB per bet.')}
+            </p>
             <button
               className="bj-primary"
               disabled={!canReview}
@@ -587,39 +628,47 @@ export function BlackjackView({
               }
             >
               {ticket
-                ? '✓ Bet confirmed'
+                ? translateUi('✓ Bet confirmed')
                 : pending
-                  ? 'Checking confirmation…'
+                  ? translateUi('Checking confirmation…')
                   : history
-                    ? 'Viewing past round'
+                    ? translateUi('Viewing past round')
                     : !open
-                      ? 'Bets are closed'
-                      : `Review bet · ${money(Number.isFinite(amount) ? amount : 0)} ETB`}
+                      ? translateUi('Bets are closed')
+                      : translateUi('Review bet · {value} ETB', {
+                          value: money(Number.isFinite(amount) ? amount : 0),
+                        })}
             </button>
             {open && !ticket && amount > (data?.balance ?? 0) && (
-              <p className="bj-warning">Not enough practice ETB for this bet.</p>
+              <p className="bj-warning">{translateUi('Not enough practice ETB for this bet.')}</p>
             )}
           </div>
         </section>
       </div>
       {notice && (
         <p className="bj-notice" role="status">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {pending && !submitting && (
         <div className="bj-notice">
-          <span>A bet is awaiting confirmation. Retry checks the same receipt.</span>
+          <span>
+            {translateUi('A bet is awaiting confirmation. Retry checks the same receipt.')}
+          </span>
           <button onClick={onRetry} disabled={!connected || !!error}>
-            Retry unconfirmed bet
+            {translateUi('Retry unconfirmed bet')}
           </button>
         </div>
       )}
       {!!tickets.length && (
-        <section className="bj-receipts" aria-label="Confirmed bets">
+        <section className="bj-receipts" aria-label={translateUi('Confirmed bets')}>
           <header>
-            <h2>Your bets this round</h2>
-            <span>{money(tickets.reduce((s, t) => s + t.amount, 0))} ETB total</span>
+            <h2>{translateUi('Your bets this round')}</h2>
+            <span>
+              {translateUi('{value} ETB total', {
+                value: money(tickets.reduce((s, t) => s + t.amount, 0)),
+              })}
+            </span>
           </header>
           <div>
             {tickets.map((t) => (
@@ -629,34 +678,37 @@ export function BlackjackView({
                 onClick={() => setSlot(t.slot)}
               >
                 <span>
-                  <b>Bet {t.slot}</b>
-                  <strong>{money(t.amount)} ETB</strong>
+                  <b>{translateUi('Bet {slot}', { slot: t.slot })}</b>
+                  <strong>{translateUi('{value} ETB', { value: money(t.amount) })}</strong>
                 </span>
                 <p>{bjSelection(t.seat, t.market)}</p>
                 <small>
-                  {(t.odds / 100).toFixed(2)}× locked · Stage {t.stage + 1}
+                  {translateUi('{value}× locked · Stage {value2}', {
+                    value: (t.odds / 100).toFixed(2),
+                    value2: t.stage + 1,
+                  })}
                 </small>
                 <em className={t.payout && t.payout > 0 ? 'won' : ''}>
                   {complete
                     ? t.payout === null
-                      ? 'Return pending'
-                      : `${money(t.payout)} ETB returned`
-                    : 'Confirmed · waiting for showdown'}
+                      ? translateUi('Return pending')
+                      : translateUi('{value} ETB returned', { value: money(t.payout) })
+                    : translateUi('Confirmed · waiting for showdown')}
                 </em>
               </button>
             ))}
           </div>
         </section>
       )}
-      <section className="bj-history" aria-label="Recent rounds">
+      <section className="bj-history" aria-label={translateUi('Recent rounds')}>
         <header>
-          <h2>Recent rounds</h2>
-          <span>Last 15 results</span>
+          <h2>{translateUi('Recent rounds')}</h2>
+          <span>{translateUi('Last 15 results')}</span>
         </header>
         <div>
           {history && (
             <button className="bj-back-live" onClick={() => setHistory(null)}>
-              ← Back to live table
+              {translateUi('← Back to live table')}
             </button>
           )}
           {data?.rounds
@@ -666,7 +718,7 @@ export function BlackjackView({
               <button
                 key={r.id}
                 className={history === r.id ? 'active' : ''}
-                aria-label={`View round ${r.id}`}
+                aria-label={translateUi('View round {id}', { id: r.id })}
                 onClick={() => {
                   setHistory(r.id);
                   setSlot(r.tickets[0]?.slot ?? 1);
@@ -678,45 +730,64 @@ export function BlackjackView({
                   {r.hands.slice(1).map((h, i) => (
                     <i key={i} className={`result-${bjResult(h, r.hands[0]).toLowerCase()}`}>
                       {bjResult(h, r.hands[0]) === 'WIN'
-                        ? 'W'
+                        ? translateUi('W')
                         : bjResult(h, r.hands[0]) === 'DRAW'
-                          ? 'D'
-                          : 'L'}
+                          ? translateUi('D')
+                          : translateUi('L')}
                     </i>
                   ))}
                 </strong>
               </button>
             ))}
-          {!data?.rounds.some((r) => r.stage === 3) && <p>Completed rounds will appear here.</p>}
+          {!data?.rounds.some((r) => r.stage === 3) && (
+            <p>{translateUi('Completed rounds will appear here.')}</p>
+          )}
         </div>
       </section>
-      <p className="bj-disclosure">Free practice · No cash value · Salem’s original table rules</p>
+      <p className="bj-disclosure">
+        {translateUi('Free practice · No cash value · Salem’s original table rules')}
+      </p>
       <Dialog.Root open={!!review} onOpenChange={(v) => !v && setReview(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="bj-overlay" />
           <Dialog.Content className="bj-dialog">
-            <Dialog.Title>Confirm Bet {review?.slot}</Dialog.Title>
+            <Dialog.Title>
+              {translateUi('Confirm Bet {slot}', { slot: review?.slot ?? '' })}
+            </Dialog.Title>
             <Dialog.Description>
-              Review your selection and price. Confirmed bets cannot be changed.
+              {translateUi('Review your selection and price. Confirmed bets cannot be changed.')}
             </Dialog.Description>
             {review && (
               <>
                 <div className="bj-confirm-choice">
                   <span>
-                    Stage {review.stage + 1} · {bjSelection(review.seat, review.market)}
+                    {translateUi('Stage {value} · {value2}', {
+                      value: review.stage + 1,
+                      value2: bjSelection(review.seat, review.market),
+                    })}
                   </span>
                   <strong>{(review.odds / 100).toFixed(2)}×</strong>
                 </div>
                 <dl>
-                  <dt>Practice stake</dt>
-                  <dd>{money(review.amount)} ETB</dd>
-                  <dt>Return if correct</dt>
-                  <dd>{money((review.amount * review.odds) / 100)} ETB</dd>
+                  <dt>{translateUi('Practice stake')}</dt>
+                  <dd>{translateUi('{value} ETB', { value: money(review.amount) })}</dd>
+                  <dt>{translateUi('Return if correct')}</dt>
+                  <dd>
+                    {translateUi('{value} ETB', {
+                      value: money((review.amount * review.odds) / 100),
+                    })}
+                  </dd>
                 </dl>
-                <p>Includes your stake. Settles at showdown. Virtual ETB has no cash value.</p>
+                <p>
+                  {translateUi(
+                    'Includes your stake. Settles at showdown. Virtual ETB has no cash value.'
+                  )}
+                </p>
                 {!reviewValid && (
                   <p className="bj-warning">
-                    The stage or price changed. Close this review and select a current price.
+                    {translateUi(
+                      'The stage or price changed. Close this review and select a current price.'
+                    )}
                   </p>
                 )}
                 <button
@@ -729,11 +800,11 @@ export function BlackjackView({
                     }
                   }}
                 >
-                  Confirm practice bet
+                  {translateUi('Confirm practice bet')}
                 </button>
               </>
             )}
-            <Dialog.Close className="bj-secondary">Keep editing</Dialog.Close>
+            <Dialog.Close className="bj-secondary">{translateUi('Keep editing')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -753,70 +824,84 @@ function MarketButton({
   locked: boolean;
   onClick: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <button
       className={`bj-market ${selected ? 'selected' : ''}`}
-      aria-label={`${BJ_LABELS[market]}${price ? ` at ${(price / 100).toFixed(2)} times` : ', closed'}`}
+      aria-label={
+        price
+          ? translateUi('{market} at {price} times', {
+              market: translateUi(BJ_LABELS[market]),
+              price: (price / 100).toFixed(2),
+            })
+          : translateUi('{market}, closed', { market: translateUi(BJ_LABELS[market]) })
+      }
       aria-pressed={selected}
       disabled={locked || !price}
       onClick={onClick}
     >
       <span>
         {selected ? '✓ ' : ''}
-        {BJ_LABELS[market]}
+        {translateUi(BJ_LABELS[market])}
       </span>
-      <b>{price ? (price / 100).toFixed(2) : 'Closed'}</b>
+      <b>{price ? (price / 100).toFixed(2) : translateUi('Closed')}</b>
     </button>
   );
 }
 function Rules() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <Dialog.Root>
-      <Dialog.Trigger className="bj-rules-link">How to play ↗</Dialog.Trigger>
+      <Dialog.Trigger className="bj-rules-link">{translateUi('How to play ↗')}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="bj-overlay" />
         <Dialog.Content className="bj-dialog">
-          <Dialog.Title>How to play Blackjack</Dialog.Title>
+          <Dialog.Title>{translateUi('How to play Blackjack')}</Dialog.Title>
           <Dialog.Description>
-            Predict six automated seats playing against one dealer. You choose bets; the table deals
-            and plays each hand.
+            {translateUi(
+              'Predict six automated seats playing against one dealer. You choose bets; the table deals and plays each hand.'
+            )}
           </Dialog.Description>
           <ol>
             <li>
-              Each round lasts 2 minutes 40 seconds. A first card is visible immediately. The second
-              card arrives at 40 seconds; a third arrives at 80 seconds for hands below 17. Betting
-              closes at 120 seconds, when the remaining cards and results appear.
+              {translateUi(
+                'Each round lasts 2 minutes 40 seconds. A first card is visible immediately. The second card arrives at 40 seconds; a third arrives at 80 seconds for hands below 17. Betting closes at 120 seconds, when the remaining cards and results appear.'
+              )}
             </li>
             <li>
-              Choose a seat to win, draw or lose against the dealer, or predict final points: 17–21,
-              a natural Blackjack, or a Bust. Dealer bets are final-points bets only.
+              {translateUi(
+                'Choose a seat to win, draw or lose against the dealer, or predict final points: 17–21, a natural Blackjack, or a Bust. Dealer bets are final-points bets only.'
+              )}
             </li>
             <li>
-              All hands stand on 17, including soft 17. Aces count as 1 or 11; picture cards count
-              as 10. Blackjack is an Ace and any ten-value card on the first two cards and beats a
-              multi-card 21. A busted seat loses even when the dealer busts. Equal surviving hands
-              draw.
+              {translateUi(
+                'All hands stand on 17, including soft 17. Aces count as 1 or 11; picture cards count as 10. Blackjack is an Ace and any ten-value card on the first two cards and beats a multi-card 21. A busted seat loses even when the dealer busts. Equal surviving hands draw.'
+              )}
             </li>
             <li>
-              Prices refresh after each deal and lock when you confirm. Closed outcomes cannot be
-              bet on. A winning prediction returns stake × locked price; an incorrect prediction
-              returns zero. Draw bets pay only when you select Draw.
+              {translateUi(
+                'Prices refresh after each deal and lock when you confirm. Closed outcomes cannot be bet on. A winning prediction returns stake × locked price; an incorrect prediction returns zero. Draw bets pay only when you select Draw.'
+              )}
             </li>
             <li>
-              Place up to ten independent tickets per round, with 5–500 practice ETB each. You start
-              with a separate 1,000 ETB practice balance.
+              {translateUi(
+                'Place up to ten independent tickets per round, with 5–500 practice ETB each. You start with a separate 1,000 ETB practice balance.'
+              )}
             </li>
           </ol>
           <p>
-            A fresh six-deck shoe is used each round, without replacement. Prices are estimates from
-            simulations of the visible cards, rounded down and capped at 200×. The 21 market
-            excludes a two-card natural Blackjack.
+            {translateUi(
+              'A fresh six-deck shoe is used each round, without replacement. Prices are estimates from simulations of the visible cards, rounded down and capped at 200×. The 21 market excludes a two-card natural Blackjack.'
+            )}
           </p>
           <p>
-            This is Salem’s original practice game. No deposits, cash prizes, insurance, splits,
-            double-downs, or automatic repeat bets.
+            {translateUi(
+              'This is Salem’s original practice game. No deposits, cash prizes, insurance, splits, double-downs, or automatic repeat bets.'
+            )}
           </p>
-          <Dialog.Close className="bj-primary">Got it</Dialog.Close>
+          <Dialog.Close className="bj-primary">{translateUi('Got it')}</Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

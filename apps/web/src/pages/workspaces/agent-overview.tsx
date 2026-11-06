@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
-import { formatEtb, formatMinor } from '@/lib/payment-money';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Overview = {
   agent: { displayName: string; contactEmail: string; contactPhone: string | null };
   country: { name: string; currencyCode: string };
@@ -42,6 +43,12 @@ export const staffLabel = (value: string) =>
     .replaceAll('_', ' ')
     .replace(/^./, (c) => c.toUpperCase());
 export function AgentOverview() {
+  const {
+    t: translateUi,
+    formatMinorCurrency: formatMoney,
+    locale: interfaceLocale,
+  } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const query = useQuery({
     queryKey: ['agent-overview', user?.id],
@@ -58,13 +65,14 @@ export function AgentOverview() {
   if (query.isPending)
     return (
       <p role="status" className="workspace-panel">
-        Loading your agent workspace…
+        {translateUi('Loading your agent workspace…')}
       </p>
     );
   if (query.isError)
     return (
       <div role="alert" className="workspace-panel">
-        Your agent overview could not load. <button onClick={() => query.refetch()}>Retry</button>
+        {translateUi('Your agent overview could not load.') + ' '}
+        <button onClick={() => query.refetch()}>{translateUi('Retry')}</button>
       </div>
     );
   const d = query.data;
@@ -79,87 +87,94 @@ export function AgentOverview() {
   return (
     <>
       <header className="workspace-heading">
-        <p>YOUR AGENT WORKSPACE</p>
-        <h1>Welcome, {d.agent.displayName}</h1>
+        <p>{translateUi('YOUR AGENT WORKSPACE')}</p>
+        <h1>{translateUi('Welcome, {displayName}', { displayName: d.agent.displayName })}</h1>
         <span>
           {d.country.name} · {d.agent.contactEmail}
         </span>
       </header>
       <div className="workspace-metrics">
         <Link to="/agent/operations">
-          <span>Deposits to verify</span>
+          <span>{translateUi('Deposits to verify')}</span>
           <strong>{d.deposits.PAYMENT_SUBMITTED ?? 0}</strong>
         </Link>
         <Link to="/agent/operations">
-          <span>Payouts to process</span>
+          <span>{translateUi('Payouts to process')}</span>
           <strong>{(d.payouts.HELD ?? 0) + (d.payouts.PAYOUT_IN_PROGRESS ?? 0)}</strong>
         </Link>
         <Link to="/agent/accounts">
-          <span>Receiving accounts in review</span>
+          <span>{translateUi('Receiving accounts in review')}</span>
           <strong>{d.setup.pendingAccounts}</strong>
         </Link>
         <article>
-          <span>Completed payments</span>
+          <span>{translateUi('Completed payments')}</span>
           <strong>{(d.deposits.COMPLETED ?? 0) + (d.payouts.COMPLETED ?? 0)}</strong>
         </article>
       </div>
       <div className="workspace-grid">
         <section className="workspace-panel">
-          <h2>Operating balances</h2>
+          <h2>{translateUi('Operating balances')}</h2>
           <dl className="workspace-facts">
             <div>
-              <dt>Available for deposits</dt>
-              <dd>{formatEtb(d.inventory.available)}</dd>
+              <dt>{translateUi('Available for deposits')}</dt>
+              <dd>{formatMoney(d.inventory.available)}</dd>
             </div>
             <div>
-              <dt>Reserved for deposits</dt>
-              <dd>{formatEtb(d.inventory.reserved)}</dd>
+              <dt>{translateUi('Reserved for deposits')}</dt>
+              <dd>{formatMoney(d.inventory.reserved)}</dd>
             </div>
             {d.liquidity.map((l) => (
               <div key={l.currency}>
-                <dt>Available payout funds · {l.currency}</dt>
+                <dt>
+                  {translateUi('Available payout funds · {currency}', { currency: l.currency })}
+                </dt>
                 <dd>
-                  {formatMinor(l.available, l.currency)}
-                  <small>{formatMinor(l.reserved, l.currency)} reserved</small>
+                  {formatMoney(l.available, l.currency)}
+                  <small>
+                    {translateUi('{value} reserved', {
+                      value: formatMoney(l.reserved, l.currency),
+                    })}
+                  </small>
                 </dd>
               </div>
             ))}
           </dl>
-          {!d.liquidity.length && <p>No payout liquidity has been allocated.</p>}
+          {!d.liquidity.length && <p>{translateUi('No payout liquidity has been allocated.')}</p>}
           <p className="workspace-muted">
-            These are agent operating balances. Your member wallet is separate.
+            {translateUi('These are agent operating balances. Your member wallet is separate.')}
           </p>
         </section>
         <section className="workspace-panel">
-          <h2>Payment setup</h2>
+          <h2>{translateUi('Payment setup')}</h2>
           <ul className="workspace-checks">
             {checks.map(([label, ready]) => (
               <li key={label}>
-                <span>{label}</span>
+                <span>{translateUi(label)}</span>
                 <strong className={ready ? 'is-ready' : 'needs-setup'}>
-                  {ready ? 'Ready' : 'Needs setup'}
+                  {ready ? translateUi('Ready') : translateUi('Needs setup')}
                 </strong>
               </li>
             ))}
           </ul>
           <p>
-            Each payment also checks the member’s eligibility, amount limits and current financial
-            policy.
+            {translateUi(
+              'Each payment also checks the member’s eligibility, amount limits and current financial policy.'
+            )}
           </p>
-          <Link to="/agent/accounts">Manage receiving accounts →</Link>
+          <Link to="/agent/accounts">{translateUi('Manage receiving accounts →')}</Link>
         </section>
       </div>
       <section className="workspace-panel">
-        <h2>Recent assigned payments</h2>
+        <h2>{translateUi('Recent assigned payments')}</h2>
         <div className="workspace-table">
           <table>
             <thead>
               <tr>
-                <th>Reference</th>
-                <th>Type</th>
-                <th>ETB amount</th>
-                <th>Status</th>
-                <th>Created</th>
+                <th>{translateUi('Reference')}</th>
+                <th>{translateUi('Type')}</th>
+                <th>{translateUi('ETB amount')}</th>
+                <th>{translateUi('Status')}</th>
+                <th>{translateUi('Created')}</th>
               </tr>
             </thead>
             <tbody>
@@ -179,22 +194,25 @@ export function AgentOverview() {
                 .map((p) => (
                   <tr key={p.id}>
                     <td>{p.reference}</td>
-                    <td>{p.type}</td>
-                    <td>{formatEtb(p.coinAmount)}</td>
-                    <td>{staffLabel(p.status)}</td>
-                    <td>{new Date(p.createdAt).toLocaleString()}</td>
+                    <td>{translateUi(staffLabel(p.type))}</td>
+                    <td>{formatMoney(p.coinAmount)}</td>
+                    <td>{translateUi(staffLabel(p.status))}</td>
+                    <td>{new Date(p.createdAt).toLocaleString(interfaceLocale)}</td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
-        {!d.recentDeposits.length && !d.recentPayouts.length && <p>No assigned payments yet.</p>}
-        <Link to="/agent/operations">Open deposits & payouts →</Link>
+        {!d.recentDeposits.length && !d.recentPayouts.length && (
+          <p>{translateUi('No assigned payments yet.')}</p>
+        )}
+        <Link to="/agent/operations">{translateUi('Open deposits & payouts →')}</Link>
       </section>
       <p className="workspace-muted">
-        Updated {new Date(d.asOf).toLocaleString()}{' '}
+        {translateUi('Updated') + ' '}
+        {new Date(d.asOf).toLocaleString(interfaceLocale)}{' '}
         <button disabled={query.isFetching} onClick={() => query.refetch()}>
-          Refresh overview
+          {translateUi('Refresh overview')}
         </button>
       </p>
     </>

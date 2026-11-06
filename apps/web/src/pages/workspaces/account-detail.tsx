@@ -4,9 +4,10 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '@/providers/auth-provider';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
-import { formatEtb } from '@/lib/payment-money';
 import { staffLabel } from './agent-overview';
 import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Payment = {
   id: string;
   orderNumber?: string;
@@ -61,6 +62,12 @@ type Detail = {
   asOf: string;
 };
 export function AdminAccountDetail() {
+  const {
+    t: translateUi,
+    formatMinorCurrency: formatMoney,
+    locale: interfaceLocale,
+  } = useInterfaceLanguage();
+
   const { id } = useParams();
   const { user } = useAuth();
   const cache = useQueryClient();
@@ -132,15 +139,15 @@ export function AdminAccountDetail() {
   if (query.isPending)
     return (
       <p role="status" className="workspace-panel">
-        Loading account details…
+        {translateUi('Loading account details…')}
       </p>
     );
   if (query.isError)
     return (
       <div role="alert" className="workspace-panel">
-        <h1>Account could not be loaded</h1>
-        <button onClick={() => query.refetch()}>Retry</button>{' '}
-        <Link to="/admin/accounts">Back to accounts</Link>
+        <h1>{translateUi('Account could not be loaded')}</h1>
+        <button onClick={() => query.refetch()}>{translateUi('Retry')}</button>{' '}
+        <Link to="/admin/accounts">{translateUi('Back to accounts')}</Link>
       </div>
     );
   const d = query.data,
@@ -148,46 +155,56 @@ export function AdminAccountDetail() {
     w = d.wallet;
   const facts = [
     ['Username', a.username],
-    ['Email', a.email || 'Not added'],
+    ['Email', a.email || translateUi('Not added')],
     [
       'Phone',
-      a.phone ? `${a.phone} · ${a.phoneVerified ? 'Verified' : 'Not verified'}` : 'Not added',
+      a.phone
+        ? `${a.phone} · ${translateUi(a.phoneVerified ? 'Verified' : 'Not verified')}`
+        : translateUi('Not added'),
     ],
-    ['Role', staffLabel(a.role)],
-    ['Status', staffLabel(a.status)],
-    ['Joined', new Date(a.createdAt).toLocaleString()],
-    ['Last sign-in', a.lastLoginAt ? new Date(a.lastLoginAt).toLocaleString() : 'Not recorded'],
+    ['Role', translateUi(staffLabel(a.role))],
+    ['Status', translateUi(staffLabel(a.status))],
+    ['Joined', new Date(a.createdAt).toLocaleString(interfaceLocale)],
+    [
+      'Last sign-in',
+      a.lastLoginAt
+        ? new Date(a.lastLoginAt).toLocaleString(interfaceLocale)
+        : translateUi('Not recorded'),
+    ],
     [
       'Identity verification',
       a.kycVerification
-        ? `${staffLabel(a.kycVerification.status)} · Tier ${a.kycVerification.verifiedTier}`
-        : 'Not submitted',
+        ? translateUi('{status} · Tier {tier}', {
+            status: translateUi(staffLabel(a.kycVerification.status)),
+            tier: a.kycVerification.verifiedTier,
+          })
+        : translateUi('Not submitted'),
     ],
   ];
   return (
     <>
       <header className="workspace-heading">
-        <p>MEMBER ACCOUNT</p>
+        <p>{translateUi('MEMBER ACCOUNT')}</p>
         <h1>{a.displayName || a.username}</h1>
         <span>
-          @{a.username} · {staffLabel(a.status)}
+          @{a.username} · {translateUi(staffLabel(a.status))}
         </span>
-        <Link to="/admin/accounts">← Account directory</Link>
+        <Link to="/admin/accounts">{translateUi('← Account directory')}</Link>
       </header>
       <div className="workspace-grid">
         <section className="workspace-panel">
-          <h2>Account information</h2>
+          <h2>{translateUi('Account information')}</h2>
           <dl className="workspace-facts">
             {facts.map(([label, value]) => (
               <div key={label}>
-                <dt>{label}</dt>
+                <dt>{translateUi(String(label))}</dt>
                 <dd>{value}</dd>
               </div>
             ))}
           </dl>
         </section>
         <section className="workspace-panel">
-          <h2>Wallet overview</h2>
+          <h2>{translateUi('Wallet overview')}</h2>
           {w ? (
             <dl className="workspace-facts">
               {[
@@ -198,38 +215,45 @@ export function AdminAccountDetail() {
                 ['Pending review', w.pendingReview],
               ].map(([label, amount]) => (
                 <div key={String(label)}>
-                  <dt>{label}</dt>
-                  <dd>{formatEtb(Number(amount))}</dd>
+                  <dt>{translateUi(String(label))}</dt>
+                  <dd>{formatMoney(Number(amount))}</dd>
                 </div>
               ))}
               <div>
-                <dt>Practice points</dt>
-                <dd>{w.practicePoints.toLocaleString()}</dd>
+                <dt>{translateUi('Practice points')}</dt>
+                <dd>{w.practicePoints.toLocaleString(interfaceLocale)}</dd>
               </div>
             </dl>
           ) : (
-            <p>This member has not opened a wallet.</p>
+            <p>{translateUi('This member has not opened a wallet.')}</p>
           )}
           <p className="workspace-muted">
-            Bet-only rewards cannot be withdrawn. Cash withdrawals still require eligibility checks.
+            {translateUi(
+              'Bet-only rewards cannot be withdrawn. Cash withdrawals still require eligibility checks.'
+            )}
           </p>
         </section>
       </div>
       {notice && (
         <p role="status" className="workspace-panel">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {d.canChangeStatus && (
         <section className="workspace-panel">
-          <h2>{a.status === 'ACTIVE' ? 'Suspend member activity' : 'Reactivate member account'}</h2>
+          <h2>
+            {a.status === 'ACTIVE'
+              ? translateUi('Suspend member activity')
+              : translateUi('Reactivate member account')}
+          </h2>
           <p>
-            Financial records and balances are preserved. Suspension blocks new account activity and
-            removes refresh sessions.
+            {translateUi(
+              'Financial records and balances are preserved. Suspension blocks new account activity and removes refresh sessions.'
+            )}
           </p>
           <form className="workspace-account-form" onSubmit={changeStatus}>
             <label>
-              Account status reason
+              {translateUi('Account status reason')}
               <textarea
                 required
                 minLength={5}
@@ -249,51 +273,53 @@ export function AdminAccountDetail() {
                 disabled={busy || query.isFetching}
                 onChange={(e) => setConfirmed(e.target.checked)}
               />
-              I reviewed this member and authorize the status change.
+              {translateUi('I reviewed this member and authorize the status change.')}
             </label>
             <button disabled={busy || query.isFetching || !confirmed || reason.trim().length < 5}>
               {busy
-                ? 'Updating account…'
+                ? translateUi('Updating account…')
                 : a.status === 'ACTIVE'
-                  ? 'Suspend member'
-                  : 'Reactivate member'}
+                  ? translateUi('Suspend member')
+                  : translateUi('Reactivate member')}
             </button>
           </form>
         </section>
       )}
       <section className="workspace-panel">
-        <h2>Agent access</h2>
+        <h2>{translateUi('Agent access')}</h2>
         {a.agentProfile ? (
           <>
             <p>
-              {a.agentProfile.displayName} · {staffLabel(a.agentProfile.status)} ·{' '}
+              {a.agentProfile.displayName} · {translateUi(staffLabel(a.agentProfile.status))} ·{' '}
               {a.agentProfile.country.name}
             </p>
             {a.agentProfile.suspendedReason && <p>{a.agentProfile.suspendedReason}</p>}
             <Link to={`/admin/agents?q=${encodeURIComponent(a.email || a.username)}`}>
-              Manage this agent →
+              {translateUi('Manage this agent →')}
             </Link>
           </>
         ) : (
           <>
-            <p>This account has no agent profile.</p>
+            <p>{translateUi('This account has no agent profile.')}</p>
             {a.role === 'USER' && a.status === 'ACTIVE' && (
-              <Link to="/admin/agents/new">Approve an existing member as an agent →</Link>
+              <Link to="/admin/agents/new">
+                {translateUi('Approve an existing member as an agent →')}
+              </Link>
             )}
           </>
         )}
       </section>
       <section className="workspace-panel">
-        <h2>Recent deposits & withdrawals</h2>
+        <h2>{translateUi('Recent deposits & withdrawals')}</h2>
         <div className="workspace-table">
           <table>
             <thead>
               <tr>
-                <th>Reference</th>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Created</th>
+                <th>{translateUi('Reference')}</th>
+                <th>{translateUi('Type')}</th>
+                <th>{translateUi('Amount')}</th>
+                <th>{translateUi('Status')}</th>
+                <th>{translateUi('Created')}</th>
               </tr>
             </thead>
             <tbody>
@@ -305,70 +331,74 @@ export function AdminAccountDetail() {
                 .map((p) => (
                   <tr key={p.id}>
                     <td>{p.orderNumber || p.withdrawalNumber}</td>
-                    <td>{p.kind}</td>
-                    <td>{formatEtb(p.coinAmount)}</td>
-                    <td>{staffLabel(p.status)}</td>
-                    <td>{new Date(p.createdAt).toLocaleString()}</td>
+                    <td>{translateUi(p.kind)}</td>
+                    <td>{formatMoney(p.coinAmount)}</td>
+                    <td>{translateUi(staffLabel(p.status))}</td>
+                    <td>{new Date(p.createdAt).toLocaleString(interfaceLocale)}</td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
-        {!d.deposits.length && !d.withdrawals.length && <p>No payment history.</p>}
+        {!d.deposits.length && !d.withdrawals.length && <p>{translateUi('No payment history.')}</p>}
         <p className="workspace-muted">
-          Latest 15 records of each type. Payment reviews remain in Payment configuration and
-          Disputes.
+          {translateUi(
+            'Latest 15 records of each type. Payment reviews remain in Payment configuration and Disputes.'
+          )}
         </p>
       </section>
       <section className="workspace-panel">
-        <h2>Recent wallet activity</h2>
+        <h2>{translateUi('Recent wallet activity')}</h2>
         <div className="workspace-table">
           <table>
             <thead>
               <tr>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Time</th>
+                <th>{translateUi('Type')}</th>
+                <th>{translateUi('Amount')}</th>
+                <th>{translateUi('Status')}</th>
+                <th>{translateUi('Time')}</th>
               </tr>
             </thead>
             <tbody>
               {d.transactions.map((t) => (
                 <tr key={t.id}>
-                  <td>{staffLabel(t.type)}</td>
+                  <td>{translateUi(staffLabel(t.type))}</td>
                   <td>
                     {t.currency === 'COINS'
-                      ? formatEtb(t.amount)
-                      : `${t.amount.toLocaleString()} practice points`}
+                      ? formatMoney(t.amount)
+                      : translateUi('{value} practice points', {
+                          value: t.amount.toLocaleString(interfaceLocale),
+                        })}
                   </td>
-                  <td>{staffLabel(t.status)}</td>
-                  <td>{new Date(t.createdAt).toLocaleString()}</td>
+                  <td>{translateUi(staffLabel(t.status))}</td>
+                  <td>{new Date(t.createdAt).toLocaleString(interfaceLocale)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!d.transactions.length && <p>No wallet activity.</p>}
+        {!d.transactions.length && <p>{translateUi('No wallet activity.')}</p>}
       </section>
       <section className="workspace-panel">
-        <h2>Account audit history</h2>
+        <h2>{translateUi('Account audit history')}</h2>
         {d.audit.length ? (
           <ul className="workspace-history">
             {d.audit.map((event) => (
               <li key={event.id}>
-                <span>{staffLabel(event.action)}</span>
-                <time>{new Date(event.createdAt).toLocaleString()}</time>
+                <span>{translateUi(staffLabel(event.action))}</span>
+                <time>{new Date(event.createdAt).toLocaleString(interfaceLocale)}</time>
               </li>
             ))}
           </ul>
         ) : (
-          <p>No recorded administrative activity.</p>
+          <p>{translateUi('No recorded administrative activity.')}</p>
         )}
       </section>
       <p className="workspace-muted">
-        Updated {new Date(d.asOf).toLocaleString()}{' '}
+        {translateUi('Updated') + ' '}
+        {new Date(d.asOf).toLocaleString(interfaceLocale)}{' '}
         <button disabled={query.isFetching} onClick={() => query.refetch()}>
-          Refresh account
+          {translateUi('Refresh account')}
         </button>
       </p>
     </>

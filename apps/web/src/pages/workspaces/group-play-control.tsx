@@ -6,8 +6,11 @@ import { api, unwrapData } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/providers/auth-provider';
 import '../play-together.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function GroupPlayControlPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { user } = useAuth(),
     cache = useQueryClient(),
     [notice, setNotice] = useState('');
@@ -50,26 +53,29 @@ export function GroupPlayControlPage() {
     <div className="together-page">
       <header className="together-hero">
         <div>
-          <p className="together-eyebrow">Platform controls</p>
+          <p className="together-eyebrow">{translateUi('Platform controls')}</p>
           <h1>
-            Group play<span>.</span>
+            {translateUi('Group play')}
+            <span>.</span>
           </h1>
           <p>
-            Set platform-wide rules for new rounds. Accepted entries keep the terms each player
-            confirmed.
+            {translateUi(
+              'Set platform-wide rules for new rounds. Accepted entries keep the terms each player confirmed.'
+            )}
           </p>
         </div>
       </header>
       {notice && (
         <p role="status" className="together-notice">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {settings.isPending ? (
-        <p role="status">Loading group controls…</p>
+        <p role="status">{translateUi('Loading group controls…')}</p>
       ) : settings.isError ? (
         <p role="alert">
-          Controls unavailable. <button onClick={() => void settings.refetch()}>Retry</button>
+          {translateUi('Controls unavailable.') + ' '}
+          <button onClick={() => void settings.refetch()}>{translateUi('Retry')}</button>
         </p>
       ) : (
         <SettingsEditor
@@ -82,43 +88,51 @@ export function GroupPlayControlPage() {
         />
       )}
       <section className="together-panel">
-        <h2>Round processing</h2>
+        <h2>{translateUi('Round processing')}</h2>
         <p>
-          Rounds start and settle automatically. Recovery retries the existing result and receipts;
-          it cannot choose a winner or pay twice.
+          {translateUi(
+            'Rounds start and settle automatically. Recovery retries the existing result and receipts; it cannot choose a winner or pay twice.'
+          )}
         </p>
         {rounds.isError ? (
-          <p role="alert">Round monitoring is unavailable.</p>
+          <p role="alert">{translateUi('Round monitoring is unavailable.')}</p>
         ) : !rounds.data?.length ? (
-          <p>No group rounds yet.</p>
+          <p>{translateUi('No group rounds yet.')}</p>
         ) : (
           <div className="together-history">
             {rounds.data.map((r) => (
               <div key={r.id} className="together-notice">
                 <strong>
                   {togetherGame(r.game).name} ·{' '}
-                  {r.currency === 'ETB' ? 'Real Birr' : 'Practice points'}
+                  {r.currency === 'ETB' ? translateUi('Real Birr') : translateUi('Practice points')}
                 </strong>
                 <p>
-                  {r.state === 'DRAWN'
-                    ? 'Settlement pending'
-                    : r.state === 'LOCKED'
-                      ? 'Waiting for verified result'
-                      : r.state}{' '}
-                  · Closes {new Date(r.closes_at).toLocaleString()}
+                  {translateUi('{value} · Closes {value2}', {
+                    value:
+                      r.state === 'DRAWN'
+                        ? translateUi('Settlement pending')
+                        : r.state === 'LOCKED'
+                          ? translateUi('Waiting for verified result')
+                          : r.state,
+                    value2: new Date(r.closes_at).toLocaleString(interfaceLocale),
+                  })}
                 </p>
                 {r.platform_fee !== null && (
                   <small>
-                    Platform fee:{' '}
-                    {r.currency === 'ETB'
-                      ? (r.platform_fee / 100).toFixed(2) + ' Birr'
-                      : r.platform_fee + ' points'}
+                    {translateUi('Platform fee: {value}', {
+                      value:
+                        r.currency === 'ETB'
+                          ? translateUi('{value} Birr', {
+                              value: (r.platform_fee / 100).toFixed(2),
+                            })
+                          : translateUi('{platform_fee} points', { platform_fee: r.platform_fee }),
+                    })}
                   </small>
                 )}
-                <small>Round {r.id}</small>
+                <small>{translateUi('Round {id}', { id: r.id })}</small>
                 {['OPEN', 'LOCKED', 'DRAWN'].includes(r.state) && (
                   <button disabled={retry.isPending} onClick={() => retry.mutate(r.id)}>
-                    Check recovery
+                    {translateUi('Check recovery')}
                   </button>
                 )}
               </div>
@@ -127,12 +141,14 @@ export function GroupPlayControlPage() {
         )}
       </section>
       <p>
-        <Link to="/play-together">Open member group rooms →</Link>
+        <Link to="/play-together">{translateUi('Open member group rooms →')}</Link>
       </p>
     </div>
   );
 }
 function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved: () => void }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [draft, setDraft] = useState(settings),
     [fee, setFee] = useState(String(settings.feeBps / 100));
   const [min, setMin] = useState(String(settings.minEntry / 100)),
@@ -159,10 +175,11 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
   };
   return (
     <section className="together-panel">
-      <h2>Rules for new rounds</h2>
+      <h2>{translateUi('Rules for new rounds')}</h2>
       <p>
-        The fee applies to winning profit before fees. All-tie, no-winner, cancelled and underfilled
-        rounds have no fee.
+        {translateUi(
+          'The fee applies to winning profit before fees. All-tie, no-winner, cancelled and underfilled rounds have no fee.'
+        )}
       </p>
       <form
         onSubmit={(e) => {
@@ -172,7 +189,7 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
       >
         <div className="together-form">
           <label>
-            Platform fee (%)
+            {translateUi('Platform fee (%)')}
             <input
               inputMode="decimal"
               value={fee}
@@ -181,24 +198,28 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
             />
           </label>
           <label>
-            Minimum cash entry (Birr)
+            {translateUi('Minimum cash entry (Birr)')}
             <input
               inputMode="numeric"
               value={min}
               onChange={(e) => setMin(e.target.value)}
               required
             />
-            <small>Practice minimum: {Number(min) * 100 || 0} points</small>
+            <small>
+              {translateUi('Practice minimum: {value} points', { value: Number(min) * 100 || 0 })}
+            </small>
           </label>
           <label>
-            Maximum cash entry (Birr)
+            {translateUi('Maximum cash entry (Birr)')}
             <input
               inputMode="numeric"
               value={max}
               onChange={(e) => setMax(e.target.value)}
               required
             />
-            <small>Practice maximum: {Number(max) * 100 || 0} points</small>
+            <small>
+              {translateUi('Practice maximum: {value} points', { value: Number(max) * 100 || 0 })}
+            </small>
           </label>
         </div>
         <div className="together-settings-checks">
@@ -208,7 +229,7 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
               checked={draft.practiceEnabled}
               onChange={(e) => setDraft({ ...draft, practiceEnabled: e.target.checked })}
             />
-            Practice group entries
+            {translateUi('Practice group entries')}
           </label>
           <label>
             <input
@@ -216,7 +237,7 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
               checked={draft.publicRoomsEnabled}
               onChange={(e) => setDraft({ ...draft, publicRoomsEnabled: e.target.checked })}
             />
-            Public shared rooms
+            {translateUi('Public shared rooms')}
           </label>
           <label>
             <input
@@ -224,14 +245,15 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
               checked={draft.cashEnabled}
               onChange={(e) => setDraft({ ...draft, cashEnabled: e.target.checked })}
             />
-            Real-Birr group entries
+            {translateUi('Real-Birr group entries')}
           </label>
         </div>
         <p>
-          Real-Birr entries also require the platform’s cash-play readiness controls. Turning
-          entries off does not stop accepted payouts or refunds.
+          {translateUi(
+            'Real-Birr entries also require the platform’s cash-play readiness controls. Turning entries off does not stop accepted payouts or refunds.'
+          )}
         </p>
-        <h3>Games available to groups</h3>
+        <h3>{translateUi('Games available to groups')}</h3>
         <div className="together-settings-checks">
           {TOGETHER_GAMES.map((g) => (
             <label key={g.key}>
@@ -253,15 +275,17 @@ function SettingsEditor({ settings, saved }: { settings: TogetherSettings; saved
         </div>
         {error && (
           <p role="alert" className="together-notice">
-            {error}
+            {translateUi(error)}
           </p>
         )}
         <button className="together-primary" disabled={mutation.isPending}>
-          {mutation.isPending ? 'Saving…' : 'Save platform settings'}
+          {mutation.isPending ? translateUi('Saving…') : translateUi('Save platform settings')}
         </button>
         <small>
-          Policy version {settings.version}. Existing rounds retain their published fee and game
-          rules.
+          {translateUi(
+            'Policy version {version}. Existing rounds retain their published fee and game rules.',
+            { version: settings.version }
+          )}
         </small>
       </form>
     </section>

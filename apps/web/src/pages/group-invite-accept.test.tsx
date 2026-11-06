@@ -44,33 +44,48 @@ describe('GroupInviteAcceptPage', () => {
 
   beforeEach(() => {
     mocked.resolveGroupInvite.mockResolvedValue({
-      data: { id: 'inv-1', group: { id: 'g-1', name: 'Book Club', isPrivate: true }, status: 'PENDING', expiresAt: '' },
+      data: {
+        id: 'inv-1',
+        group: { id: 'g-1', name: 'Book Club', isPrivate: true },
+        status: 'PENDING',
+        expiresAt: '',
+      },
     });
-    mocked.acceptGroupInvite.mockResolvedValue({ success: true, data: { message: 'Invite accepted' } });
+    mocked.acceptGroupInvite.mockResolvedValue({
+      success: true,
+      data: { message: 'Invite accepted' },
+    });
   });
 
   it('renders the group invitation and an Accept button', async () => {
     renderPage('tok-1');
-    expect(await screen.findByText('Book Club')).toBeInTheDocument();
+    expect(await screen.findByText(/You have been invited to join Book Club/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Accept invite' })).toBeInTheDocument();
   });
 
   it('accepts the invite when the button is pressed', async () => {
     renderPage('tok-2');
-    await screen.findByText('Book Club');
+    await screen.findByText(/You have been invited to join Book Club/);
     fireEvent.click(screen.getByRole('button', { name: 'Accept invite' }));
     await waitFor(() => expect(mocked.acceptGroupInvite).toHaveBeenCalledWith('tok-2'));
   });
 
   it('shows an error state for an invalid token', async () => {
-    mocked.resolveGroupInvite.mockRejectedValue(new Error('{"status":404,"code":"NOT_FOUND","message":"Invalid invite token"}'));
+    mocked.resolveGroupInvite.mockRejectedValue(
+      new Error('{"status":404,"code":"NOT_FOUND","message":"Invalid invite token"}')
+    );
     renderPage('tok-bad');
     expect(await screen.findByText('Invalid or unrecognized invite link.')).toBeInTheDocument();
   });
 
   it('reflects terminal statuses without an Accept button', async () => {
     mocked.resolveGroupInvite.mockResolvedValue({
-      data: { id: 'inv-3', group: { id: 'g-1', name: 'Book Club', isPrivate: true }, status: 'EXPIRED', expiresAt: '' },
+      data: {
+        id: 'inv-3',
+        group: { id: 'g-1', name: 'Book Club', isPrivate: true },
+        status: 'EXPIRED',
+        expiresAt: '',
+      },
     });
     renderPage('tok-3');
     expect(await screen.findByText(/has expired/)).toBeInTheDocument();
@@ -78,8 +93,16 @@ describe('GroupInviteAcceptPage', () => {
   });
 
   describe('accessibility', () => {
-    const apiError = (status: number, message: string) => new Error(JSON.stringify({ status, code: 'X', message }));
-    const pendingInvite = { data: { id: 'inv-1', group: { id: 'g-1', name: 'Book Club', isPrivate: true }, status: 'PENDING', expiresAt: '' } };
+    const apiError = (status: number, message: string) =>
+      new Error(JSON.stringify({ status, code: 'X', message }));
+    const pendingInvite = {
+      data: {
+        id: 'inv-1',
+        group: { id: 'g-1', name: 'Book Club', isPrivate: true },
+        status: 'PENDING',
+        expiresAt: '',
+      },
+    };
 
     it('announces loading as a status, not a bare spinner', async () => {
       mocked.resolveGroupInvite.mockReturnValue(new Promise(() => {}));
@@ -94,7 +117,9 @@ describe('GroupInviteAcceptPage', () => {
     it('an unknown link is a role=alert message with a way out — and offers no pointless retry', async () => {
       mocked.resolveGroupInvite.mockRejectedValue(apiError(404, 'Invalid invite token'));
       renderPage('tok-bad');
-      expect(await screen.findByRole('alert')).toHaveTextContent('Invalid or unrecognized invite link.');
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Invalid or unrecognized invite link.'
+      );
       expect(screen.getByText(/ask the person who invited you/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Back to groups' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
@@ -126,7 +151,10 @@ describe('GroupInviteAcceptPage', () => {
 
       let release!: () => void;
       mocked.resolveGroupInvite.mockImplementation(
-        () => new Promise((resolve) => { release = () => resolve(pendingInvite); })
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve(pendingInvite);
+          })
       );
       retry.focus();
       await user.keyboard('{Enter}');
@@ -144,8 +172,12 @@ describe('GroupInviteAcceptPage', () => {
       expect(mocked.resolveGroupInvite.mock.calls.length).toBe(callsBefore);
 
       act(() => release());
-      expect(await screen.findByText('Book Club')).toBeInTheDocument();
-      await waitFor(() => expect(screen.getByRole('heading', { name: 'Group invitation' })).toHaveFocus());
+      expect(
+        await screen.findByText(/You have been invited to join Book Club/)
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { name: 'Group invitation' })).toHaveFocus()
+      );
     });
 
     it('a Try again that fails again stays on the alert with the button, still focused', async () => {
@@ -177,36 +209,53 @@ describe('GroupInviteAcceptPage', () => {
     describe('accepting', () => {
       it('a failure stays on the page as a role=alert (the toast is only an echo) and Accept remains usable', async () => {
         mocked.resolveGroupInvite.mockResolvedValue(pendingInvite);
-        mocked.acceptGroupInvite.mockRejectedValueOnce(apiError(403, 'You must have a verified email to accept invites'));
+        mocked.acceptGroupInvite.mockRejectedValueOnce(
+          apiError(403, 'You must have a verified email to accept invites')
+        );
         const user = userEvent.setup();
         renderPage('tok-403');
         const accept = await screen.findByRole('button', { name: 'Accept invite' });
         accept.focus();
         await user.keyboard('{Enter}');
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('You must have a verified email to accept invites');
-        expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ description: 'You must have a verified email to accept invites' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          'You must have a verified email to accept invites'
+        );
+        expect(toastMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            description: 'You must have a verified email to accept invites',
+          })
+        );
         // Same button, same focus, ready to try again.
         expect(screen.getByRole('button', { name: 'Accept invite' })).toBe(accept);
         expect(accept).toHaveFocus();
         expect(accept).not.toHaveAttribute('aria-disabled');
 
-        mocked.acceptGroupInvite.mockResolvedValueOnce({ success: true, data: { message: 'Invite accepted', groupId: 'g-1' } });
+        mocked.acceptGroupInvite.mockResolvedValueOnce({
+          success: true,
+          data: { message: 'Invite accepted', groupId: 'g-1' },
+        });
         await user.keyboard('{Enter}');
         expect(await screen.findByText('Groups list')).toBeInTheDocument();
       });
 
-      it("a failure that means the invite changed (it was revoked) refreshes the page to its new state", async () => {
+      it('a failure that means the invite changed (it was revoked) refreshes the page to its new state', async () => {
         mocked.resolveGroupInvite.mockResolvedValueOnce(pendingInvite);
-        mocked.acceptGroupInvite.mockRejectedValueOnce(apiError(409, 'This invite has been revoked'));
+        mocked.acceptGroupInvite.mockRejectedValueOnce(
+          apiError(409, 'This invite has been revoked')
+        );
         renderPage('tok-rev');
         fireEvent.click(await screen.findByRole('button', { name: 'Accept invite' }));
 
-        mocked.resolveGroupInvite.mockResolvedValue({ data: { ...pendingInvite.data, status: 'REVOKED' } });
+        mocked.resolveGroupInvite.mockResolvedValue({
+          data: { ...pendingInvite.data, status: 'REVOKED' },
+        });
         // The reason is announced and stays — it does not vanish with the Accept
         // button when the page switches to its terminal state...
         expect(await screen.findByRole('alert')).toHaveTextContent('This invite has been revoked');
-        await waitFor(() => expect(screen.queryByRole('button', { name: 'Accept invite' })).not.toBeInTheDocument());
+        await waitFor(() =>
+          expect(screen.queryByRole('button', { name: 'Accept invite' })).not.toBeInTheDocument()
+        );
         expect(screen.getByRole('alert')).toHaveTextContent('This invite has been revoked');
         expect(screen.getByText(/send you a new one/)).toBeInTheDocument();
         // ...and is not said a second time as a paragraph.
@@ -216,7 +265,12 @@ describe('GroupInviteAcceptPage', () => {
       it('while pending the button is aria-disabled — never native disabled — and keeps focus', async () => {
         mocked.resolveGroupInvite.mockResolvedValue(pendingInvite);
         let settle!: () => void;
-        mocked.acceptGroupInvite.mockImplementation(() => new Promise((resolve) => { settle = () => resolve({ success: true, data: {} }); }));
+        mocked.acceptGroupInvite.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              settle = () => resolve({ success: true, data: {} });
+            })
+        );
         const user = userEvent.setup();
         renderPage('tok-pending');
         const accept = await screen.findByRole('button', { name: 'Accept invite' });

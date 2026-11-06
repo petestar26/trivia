@@ -727,3 +727,249 @@
 .together-page a.group-nav-active {
   color: #fff;
 }
+
+/* A shared casino table: decorative depth never changes the accepted game state. */
+.dark .together-page {
+  --tg-bg: var(--casino-bg, #050b09);
+  --tg-panel: var(--casino-surface, #0d1915);
+  --tg-ink: var(--casino-text, #f5f7ef);
+  --tg-muted: var(--casino-muted, #acbbb4);
+  --tg-line: var(--casino-line, rgba(155, 221, 190, 0.16));
+  --tg-accent: var(--casino-emerald, #34d399);
+  --tg-soft: #112c22;
+}
+.together-page {
+  font-variant-numeric: tabular-nums;
+}
+.dark .together-hero {
+  position: relative;
+  isolation: isolate;
+  padding: clamp(20px, 3vw, 38px);
+  border-radius: 26px;
+  border: 1px solid #d9c38c24;
+  background:
+    radial-gradient(ellipse at 90% 20%, #21c68b20, transparent 55%),
+    linear-gradient(115deg, #152a21f2, #08100dd9 72%);
+  box-shadow:
+    inset 0 1px #e4d6a52b,
+    0 22px 55px #0004;
+}
+.dark .together-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(125deg, #fff08a08, transparent 35%, #ffffff07 36%, transparent 36.5%);
+}
+.together-hero h1 {
+  font-size: clamp(2rem, 4.5vw, 4rem);
+}
+.dark .together-hero h1 > span {
+  color: var(--casino-gold, #dfbd76);
+}
+.dark .together-eyebrow {
+  color: var(--casino-gold, #dfbd76);
+}
+.dark .together-wallet {
+  background: linear-gradient(145deg, #233e2fb0, #0a1511dc);
+  border-color: #d9c38c32;
+  box-shadow:
+    inset 0 1px #fff2,
+    0 9px 24px #0004;
+}
+.dark .together-wallet > svg {
+  color: var(--casino-gold, #dfbd76);
+}
+.dark .together-panel,
+.dark .together-catalogue {
+  background: linear-gradient(155deg, #17271fe8, #0a1511f5 75%);
+  box-shadow:
+    inset 0 1px #eefcdb0c,
+    0 12px 30px #0003;
+}
+.together-panel,
+.together-catalogue {
+  position: relative;
+}
+.dark .together-room-doorway {
+  border-color: #6de3af40;
+}
+.dark .together-room-doorway .together-history > a {
+  padding-inline: 12px;
+  margin-block: 5px;
+  border-radius: 12px;
+  background: #06120c40;
+}
+.dark .together-room-doorway .together-history > a:hover {
+  background: #1c46354a;
+  text-decoration: none;
+}
+.dark .together-page .together-primary {
+  color: #03170f;
+  background: linear-gradient(165deg, #8cf1b9, #35c98c 55%, #20ac75);
+  border-color: #9af5c4;
+  box-shadow:
+    inset 0 1px #efffffa1,
+    0 4px 0 #076340,
+    0 9px 22px #12bc7a1c;
+  transition:
+    transform 160ms ease,
+    filter 160ms ease,
+    box-shadow 160ms ease;
+}
+.dark .together-page .together-primary:not(:disabled):hover {
+  transform: translateY(-2px);
+  filter: brightness(1.07);
+}
+.dark .together-page .together-primary:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px #efffff71,
+    0 1px 0 #076340;
+}
+.dark .together-page .together-primary:disabled {
+  box-shadow: none;
+}
+.dark .together-page button {
+  background-color: #14271f;
+}
+.dark .together-mode {
+  background: #07130fd9;
+  border: 1px solid var(--tg-line);
+}
+.dark .together-mode button[aria-pressed='true'],
+.dark .together-page .together-number-grid button[aria-pressed='true'] {
+  color: #04190f;
+  background: linear-gradient(140deg, #a4f6c4, #3bd498);
+  border-color: #92efba;
+  box-shadow:
+    inset 0 1px #f4ffefb3,
+    0 3px 0 #126441;
+}
+.dark .together-page .together-game {
+  transform-style: preserve-3d;
+  background: linear-gradient(155deg, #1c3026, #0b1511);
+  box-shadow:
+    inset 0 1px #eef5da1c,
+    0 7px 0 #040b08,
+    0 15px 25px #0004;
+  border-color: #b3d4bb29;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease;
+}
+.dark .together-page .together-game.selected {
+  border-color: var(--casino-gold, #dfbd76);
+  box-shadow:
+    inset 0 1px #ffebbca1,
+    0 7px 0 #493d20,
+    0 18px 30px #0005;
+}
+.together-art {
+  position: relative;
+}
+.together-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, #fff2, transparent 42%, #fff0 48%, #fff1 49%, #fff0 50%);
+}
+.dark .together-page input,
+.dark .together-page select {
+  background: #030b08a6;
+  box-shadow: inset 0 2px 7px #0005;
+  border-color: #8cb59e45;
+}
+.dark .together-pool,
+.dark .together-personal-result {
+  background:
+    radial-gradient(ellipse at 90% 0, #d4bc6b14, transparent 65%),
+    linear-gradient(135deg, #153a2a, #0a2118);
+  border: 1px solid #a1dcaf30;
+  box-shadow:
+    inset 0 1px #d0e9ba25,
+    0 10px 20px #0002;
+}
+.dark .together-pool > strong {
+  color: #f4dca5;
+}
+.dark .together-journey li {
+  background: linear-gradient(135deg, #172a20aa, #09130faa);
+}
+.dark .together-journey li[aria-current='step'] {
+  background: linear-gradient(135deg, #19432f, #0a251b);
+  box-shadow: inset 0 1px #b4f4c32e;
+}
+.dark .together-journey b,
+.dark .together-avatar {
+  background: radial-gradient(circle at 30% 20%, #2e694a, #10291f);
+  box-shadow:
+    inset 0 1px #d4f4d739,
+    0 3px 6px #0004;
+}
+.dark .together-waiting {
+  background:
+    radial-gradient(ellipse at 50% 115%, #1a6d4933, transparent 65%),
+    linear-gradient(135deg, #10291d, #09140f);
+}
+.dark .together-watch-tools {
+  border-radius: 16px;
+  padding: 16px;
+  background: #14261f99;
+  border: 1px solid var(--tg-line);
+}
+.dark .together-notice {
+  background: #11251bd9;
+}
+html[dir='rtl'] .together-mode > span,
+html[dir='rtl'] .together-member-amount {
+  margin-left: 0;
+  margin-right: auto;
+}
+html[dir='rtl'] .together-game {
+  text-align: right;
+}
+html[dir='rtl'] .together-confirm dd,
+html[dir='rtl'] .together-member-amount {
+  text-align: left;
+}
+html:is([lang='am'], [lang='ti'], [lang='ar']) .together-page :is(h1, h2, h3, .together-eyebrow) {
+  letter-spacing: normal;
+  line-height: 1.5;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .together-page .together-game:not(:disabled):hover {
+    transform: perspective(900px) translateY(-6px) rotateX(2deg);
+  }
+}
+@media (max-width: 560px) {
+  .dark .together-hero {
+    padding: 20px 16px;
+    border-radius: 20px;
+  }
+  .together-hero h1 {
+    overflow-wrap: anywhere;
+  }
+  .together-history > a > span:last-child {
+    white-space: normal;
+  }
+  .dark .together-watch-tools {
+    padding: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .together-page *,
+  .together-page *::before,
+  .together-page *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .together-page .together-game:not(:disabled):hover,
+  .dark .together-page .together-primary:not(:disabled):hover {
+    transform: none;
+  }
+}

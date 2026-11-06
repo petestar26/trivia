@@ -11,8 +11,11 @@ import { useMemberTheme } from '@/components/member/use-member-theme';
 import { useAutomaticRewards } from '@/lib/use-automatic-rewards';
 import { useAuth } from '@/providers/auth-provider';
 import { InstallAppButton, InstallAppCard } from '@/components/app-install';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 export function Layout() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   useMemberTheme();
   const { user } = useAuth();
   useAutomaticRewards(user?.id);
@@ -33,7 +36,7 @@ export function Layout() {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:z-[100] focus:bg-white focus:p-4"
       >
-        Skip to content
+        {translateUi('Skip to content')}
       </a>
       <div className="hidden lg:block">
         <Sidebar />
@@ -45,11 +48,11 @@ export function Layout() {
             className="fixed inset-y-0 left-0 z-50 w-64 lg:hidden"
             aria-describedby={undefined}
           >
-            <Dialog.Title className="sr-only">Main navigation</Dialog.Title>
+            <Dialog.Title className="sr-only">{translateUi('Main navigation')}</Dialog.Title>
             <Sidebar onNavigate={closeMobileNav} />
             <Dialog.Close
               className="absolute right-2 top-3 z-[60] min-h-10 min-w-10 rounded-lg bg-white text-gray-700 dark:bg-gray-800 dark:text-white"
-              aria-label="Close navigation menu"
+              aria-label={translateUi('Close navigation menu')}
             >
               ✕
             </Dialog.Close>
@@ -60,7 +63,9 @@ export function Layout() {
         <Header onMenuClick={() => setMobileNavOpen(true)} />
         <main id="main-content" className="qube-main p-4 lg:p-8">
           {pathname === '/dashboard' ? <InstallAppCard /> : null}
-          {['/dashboard', '/games', '/play-together', '/profile', '/support'].includes(pathname) && (
+          {['/dashboard', '/games', '/play-together', '/profile', '/support'].includes(
+            pathname
+          ) && (
             <div className="salem-member-install">
               <InstallAppButton whenReminderHidden={pathname === '/dashboard'} />
             </div>

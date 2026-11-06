@@ -292,7 +292,7 @@ describe('shared scheduled practice', () => {
     };
     mocks.get.mockResolvedValue({ data });
     mount();
-    await screen.findByText(/Practice return 1332/);
+    await screen.findByText(/Practice return 1,332/);
     expect(screen.getByRole('button', { name: 'Bet 1 confirmed' })).toBeDisabled();
     expect(mocks.post).not.toHaveBeenCalled();
   });
@@ -514,14 +514,14 @@ describe('independent Spin tickets', () => {
     };
     mocks.get.mockResolvedValue({ data });
     mount();
-    await screen.findByText('Return 2664 ETB');
+    await screen.findByText('Return 2,664 ETB');
     expect(screen.getByText('Return 0 ETB')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Bet 2 Confirmed' }));
     expect(screen.getByRole('button', { name: 'Select 0' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-    expect(screen.getByText('Practice return 2664 ETB')).toBeInTheDocument();
+    expect(screen.getByText('Practice return 2,664 ETB')).toBeInTheDocument();
     expect(mocks.post).not.toHaveBeenCalled();
   });
   it('closes additional entry at cutoff and starts the next round with an empty Bet 1', async () => {

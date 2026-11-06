@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { COMPETITIONS_HUB_GROUPS_QUERY_KEY } from '@/lib/groups-query-keys';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface GroupSummary {
   id: string;
@@ -56,6 +57,8 @@ interface FocusIntent {
 }
 
 export function CompetitionsPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const navigate = useNavigate();
 
   const {
@@ -137,7 +140,10 @@ export function CompetitionsPage() {
     if (isBackgroundRefetching) return;
     setPaginationEngaged(true);
     setCompletionMessage('');
-    trackActivation({ kind: 'next-page', groupCountBefore: groups.length }, fetchNextPage({ cancelRefetch: false }));
+    trackActivation(
+      { kind: 'next-page', groupCountBefore: groups.length },
+      fetchNextPage({ cancelRefetch: false })
+    );
   };
 
   // Initial-load Retry and background-refresh Retry both re-run the query.
@@ -196,11 +202,11 @@ export function CompetitionsPage() {
       <div
         role="status"
         aria-live="polite"
-        aria-label="Loading your groups"
+        aria-label={translateUi('Loading your groups')}
         className="flex items-center justify-center py-20"
       >
         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-500 border-t-transparent" />
-        <span className="sr-only">Loading your groups…</span>
+        <span className="sr-only">{translateUi('Loading your groups…')}</span>
       </div>
     );
   }
@@ -211,13 +217,21 @@ export function CompetitionsPage() {
   if (isError && !isRefetchError && !showCards) {
     return (
       <div ref={rootRef} className="max-w-3xl mx-auto p-4 space-y-4">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {translateUi('Competitions')}
+        </h1>
         <p role="alert" className="text-center text-sm text-red-600 dark:text-red-400">
-          Failed to load your groups.
+          {translateUi('Failed to load your groups.')}
         </p>
         <div className="flex justify-center">
-          <Button variant="outline" size="sm" data-refresh-retry onClick={retryRefresh} disabled={isFetching}>
-            {isFetching ? 'Retrying…' : 'Retry'}
+          <Button
+            variant="outline"
+            size="sm"
+            data-refresh-retry
+            onClick={retryRefresh}
+            disabled={isFetching}
+          >
+            {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
           </Button>
         </div>
       </div>
@@ -228,30 +242,38 @@ export function CompetitionsPage() {
 
   return (
     <div ref={rootRef} className="max-w-3xl mx-auto p-4 space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Competitions</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+        {translateUi('Competitions')}
+      </h1>
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Select a group to view and join its competitions.
+        {translateUi('Select a group to view and join its competitions.')}
       </p>
 
       {/* Background refresh failure: whatever was already loaded — cards or
           the empty state — stays on screen, with a distinct, retryable
           message that is NOT a "load more" error. */}
       {isRefetchError && (
-        <div
-          className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200 flex items-center gap-3"
-        >
-          <span role="alert" className="flex-1">Couldn&apos;t refresh groups.</span>
-          <Button variant="outline" size="sm" data-refresh-retry onClick={retryRefresh} disabled={isFetching}>
-            {isFetching ? 'Retrying…' : 'Retry'}
+        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-600 dark:bg-red-900/30 dark:text-red-200 flex items-center gap-3">
+          <span role="alert" className="flex-1">
+            {translateUi("Couldn't refresh groups.")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            data-refresh-retry
+            onClick={retryRefresh}
+            disabled={isFetching}
+          >
+            {isFetching ? translateUi('Retrying…') : translateUi('Retry')}
           </Button>
         </div>
       )}
 
       {!showCards ? (
         <div className="py-16 text-center text-gray-500 dark:text-gray-400 space-y-3">
-          <p>You are not a member of any groups yet.</p>
+          <p>{translateUi('You are not a member of any groups yet.')}</p>
           <Button size="sm" data-empty-cta onClick={() => navigate('/groups')}>
-            Create a group
+            {translateUi('Create a group')}
           </Button>
         </div>
       ) : (
@@ -267,15 +289,15 @@ export function CompetitionsPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
-                    {group.memberRole && ` · ${group.memberRole}`}
+                    {translateUi('{count} members', { count: group.memberCount })}
+                    {group.memberRole && <> · {translateUi(group.memberRole)}</>}
                   </p>
                   <Button
                     size="sm"
                     data-group-action
                     onClick={() => navigate(`/competitions/${group.id}`)}
                   >
-                    View competitions
+                    {translateUi('View competitions')}
                   </Button>
                 </CardContent>
               </Card>
@@ -291,11 +313,14 @@ export function CompetitionsPage() {
               focused control to <body>. The activation guard in loadNextPage
               rejects any click while a background refetch is running. */}
           {(footerHasControl || paginationEngaged) && (
-            <div ref={footerRef} className={footerHasControl ? 'flex flex-col items-center gap-2 pt-2' : undefined}>
+            <div
+              ref={footerRef}
+              className={footerHasControl ? 'flex flex-col items-center gap-2 pt-2' : undefined}
+            >
               {isFetchNextPageError ? (
                 <>
                   <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-                    Couldn&apos;t load more groups.
+                    {translateUi("Couldn't load more groups.")}
                   </p>
                   <Button
                     variant="outline"
@@ -306,7 +331,7 @@ export function CompetitionsPage() {
                     aria-disabled={isBackgroundRefetching || undefined}
                     aria-busy={isFetchingNextPage}
                   >
-                    {isFetchingNextPage ? 'Retrying…' : 'Retry next page'}
+                    {isFetchingNextPage ? translateUi('Retrying…') : translateUi('Retry next page')}
                   </Button>
                 </>
               ) : hasNextPage ? (
@@ -319,11 +344,11 @@ export function CompetitionsPage() {
                   aria-disabled={isBackgroundRefetching || undefined}
                   aria-busy={isFetchingNextPage}
                 >
-                  {isFetchingNextPage ? 'Loading…' : 'Load more'}
+                  {isFetchingNextPage ? translateUi('Loading…') : translateUi('Load more')}
                 </Button>
               ) : null}
               <span role="status" aria-live="polite" className="sr-only">
-                {isFetchingNextPage ? 'Loading more groups…' : completionMessage}
+                {isFetchingNextPage ? translateUi('Loading more groups…') : completionMessage}
               </span>
             </div>
           )}

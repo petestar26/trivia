@@ -7,10 +7,10 @@ import { ChangePassword } from '@/components/security/change-password';
 import { useAuth } from '@/providers/auth-provider';
 import { api, unwrapData } from '@/lib/api';
 import { memberGet, memberDate, type RewardSummary } from '@/lib/member-rewards';
-import { formatEtb } from '@/lib/payment-money';
 import { getErrorMessage } from '@/lib/error-message';
 import './lounge.css';
 import './member-account.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type Profile = {
   id: string;
@@ -30,16 +30,29 @@ type Profile = {
   payoutCountry: { name: string; currencyCode: string } | null;
   kycVerification: { status: string; verifiedTier: number } | null;
 };
-const label = (value: string) =>
+const sourceLabel = (value: string) =>
   value
     .toLowerCase()
     .replaceAll('_', ' ')
     .replace(/^./, (c) => c.toUpperCase());
 export function ProfilePage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
-  return user ? <ProfileSession key={user.id} userId={user.id} /> : <p>Not signed in.</p>;
+  return user ? (
+    <ProfileSession key={user.id} userId={user.id} />
+  ) : (
+    <p>{translateUi('Not signed in.')}</p>
+  );
 }
 function ProfileSession({ userId }: { userId: string }) {
+  const {
+    t: translateUi,
+    locale: interfaceLocale,
+    formatMinorCurrency: formatEtb,
+  } = useInterfaceLanguage();
+  const label = (value: string) => translateUi(sourceLabel(value));
+
   const { logout, refreshUser } = useAuth();
   const cache = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -74,15 +87,15 @@ function ProfileSession({ userId }: { userId: string }) {
   if (profile.isPending)
     return (
       <div className="member-account" role="status">
-        Loading your profile…
+        {translateUi('Loading your profile…')}
       </div>
     );
   if (profile.isError)
     return (
       <div className="member-account member-panel" role="alert">
-        <h1>Profile could not be loaded</h1>
+        <h1>{translateUi('Profile could not be loaded')}</h1>
         <button className="salem-button" onClick={() => profile.refetch()}>
-          Try again
+          {translateUi('Try again')}
         </button>
       </div>
     );
@@ -90,39 +103,50 @@ function ProfileSession({ userId }: { userId: string }) {
     balance = rewards.data?.wallet.coinAvailability;
   const info = [
     ['Username', `@${p.username}`],
-    ['Email address', p.email || 'Not added'],
+    ['Email address', p.email || translateUi('Not added')],
     [
       'Phone number',
-      p.phone ? `${p.phone}${p.phoneVerified ? ' · Verified' : ' · Not verified'}` : 'Not added',
+      p.phone
+        ? `${p.phone} · ${translateUi(p.phoneVerified ? 'Verified' : 'Not verified')}`
+        : translateUi('Not added'),
     ],
-    ['Member since', memberDate(p.createdAt)],
-    ['Last sign-in', p.lastLoginAt ? new Date(p.lastLoginAt).toLocaleString() : 'Not available'],
+    ['Member since', translateUi(memberDate(p.createdAt, interfaceLocale))],
+    [
+      'Last sign-in',
+      p.lastLoginAt
+        ? new Date(p.lastLoginAt).toLocaleString(interfaceLocale)
+        : translateUi('Not available'),
+    ],
     ['Account status', label(p.status)],
-    ['Account type', p.role === 'USER' ? 'Member' : label(p.role)],
-    ['Account verification', p.isVerified ? 'Verified' : 'Not verified'],
+    ['Account type', p.role === 'USER' ? translateUi('Member') : label(p.role)],
+    ['Account verification', translateUi(p.isVerified ? 'Verified' : 'Not verified')],
     [
       'Identity verification',
       p.kycVerification
-        ? `${label(p.kycVerification.status)} · Tier ${p.kycVerification.verifiedTier}`
-        : 'Not submitted',
+        ? translateUi('{status} · Tier {tier}', {
+            status: label(p.kycVerification.status),
+            tier: p.kycVerification.verifiedTier,
+          })
+        : translateUi('Not submitted'),
     ],
-    ['Payment country', p.payoutCountry?.name || 'Not configured'],
-    ['Wallet currency', 'Ethiopian Birr (ETB)'],
+    ['Payment country', p.payoutCountry?.name || translateUi('Not configured')],
+    ['Wallet currency', translateUi('Ethiopian Birr (ETB)')],
     [
       'Sign-in methods',
-      p.signInMethods.length ? p.signInMethods.map(label).join(', ') : 'Password',
+      p.signInMethods.length ? p.signInMethods.map(label).join(', ') : translateUi('Password'),
     ],
   ];
   return (
     <div className="salem-lounge member-account">
       <header className="member-heading">
         <div>
-          <span className="salem-eyebrow">YOUR ACCOUNT</span>
-          <h1>My profile</h1>
-          <p>Your details, account activity, and security.</p>
+          <span className="salem-eyebrow">{translateUi('YOUR ACCOUNT')}</span>
+          <h1>{translateUi('My profile')}</h1>
+          <p>{translateUi('Your details, account activity, and security.')}</p>
         </div>
         <Link className="salem-button secondary" to="/rewards">
-          My rewards <ArrowUpRight size={16} />
+          {translateUi('My rewards') + ' '}
+          <ArrowUpRight size={16} />
         </Link>
       </header>
       <section className="member-profile-hero">
@@ -134,9 +158,13 @@ function ProfileSession({ userId }: { userId: string }) {
           )}
         </div>
         <div>
-          <span className="member-pill active">{label(p.status)} member</span>
+          <span className="member-pill active">
+            {translateUi('{value} member', { value: label(p.status) })}
+          </span>
           <h2>{p.displayName || p.username}</h2>
-          <p>@{p.username}</p>
+          <p>
+            <bdi dir="ltr">@{p.username}</bdi>
+          </p>
           {p.bio && <p className="member-bio">{p.bio}</p>}
         </div>
         <button
@@ -149,12 +177,12 @@ function ProfileSession({ userId }: { userId: string }) {
           }}
         >
           <Pencil size={15} aria-hidden="true" />
-          Edit profile
+          {translateUi('Edit profile')}
         </button>
       </section>
       {notice && (
         <p role="status" className="member-feedback">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {editing && (
@@ -165,9 +193,9 @@ function ProfileSession({ userId }: { userId: string }) {
             save.mutate();
           }}
         >
-          <h2>Edit your profile</h2>
+          <h2>{translateUi('Edit your profile')}</h2>
           <label>
-            Display name
+            {translateUi('Display name')}
             <input
               autoFocus
               required
@@ -177,7 +205,7 @@ function ProfileSession({ userId }: { userId: string }) {
             />
           </label>
           <label>
-            About you
+            {translateUi('About you')}
             <textarea
               rows={3}
               maxLength={500}
@@ -185,10 +213,10 @@ function ProfileSession({ userId }: { userId: string }) {
               onChange={(e) => setBio(e.target.value)}
             />
           </label>
-          <small>{bio.length}/500 characters</small>
+          <small>{translateUi('{length}/500 characters', { length: bio.length })}</small>
           <div className="member-actions">
             <button className="salem-button" disabled={save.isPending || !displayName.trim()}>
-              {save.isPending ? 'Saving…' : 'Save changes'}
+              {save.isPending ? translateUi('Saving…') : translateUi('Save changes')}
             </button>
             <button
               className="salem-button secondary"
@@ -196,7 +224,7 @@ function ProfileSession({ userId }: { userId: string }) {
               disabled={save.isPending}
               onClick={() => setEditing(false)}
             >
-              Cancel
+              {translateUi('Cancel')}
             </button>
           </div>
         </form>
@@ -206,64 +234,69 @@ function ProfileSession({ userId }: { userId: string }) {
           <div className="member-section-title">
             <h2>
               <UserRound size={19} aria-hidden="true" />
-              Account details
+              {translateUi('Account details')}
             </h2>
-            <span className="member-muted">Visible only to you</span>
+            <span className="member-muted">{translateUi('Visible only to you')}</span>
           </div>
           <dl className="member-details">
             {info.map(([name, value]) => (
               <div key={name}>
-                <dt>{name}</dt>
-                <dd>{value}</dd>
+                <dt>{translateUi(name)}</dt>
+                <dd>{name === 'Username' ? <bdi dir="ltr">{value}</bdi> : value}</dd>
               </div>
             ))}
           </dl>
           <div className="member-id">
-            <span>Member ID</span>
+            <span>{translateUi('Member ID')}</span>
             <code>{p.id}</code>
           </div>
         </section>
         <aside className="member-profile-aside">
           <section className="member-panel">
-            <h2>Your Birr balances</h2>
+            <h2>{translateUi('Your Birr balances')}</h2>
             {rewards.isError ? (
               <div role="alert">
-                <p>Balances are unavailable.</p>
+                <p>{translateUi('Balances are unavailable.')}</p>
                 <button className="salem-button secondary" onClick={() => rewards.refetch()}>
-                  Retry balances
+                  {translateUi('Retry balances')}
                 </button>
               </div>
             ) : rewards.isPending ? (
-              <p role="status">Loading balances…</p>
+              <p role="status">{translateUi('Loading balances…')}</p>
             ) : (
               <>
                 <div className="member-mini-balance">
-                  <span>Available cash</span>
+                  <span>{translateUi('Available cash')}</span>
                   <strong>{formatEtb(balance?.spendable)}</strong>
                 </div>
                 <div className="member-mini-balance">
-                  <span>Bonus · bets only</span>
+                  <span>{translateUi('Bonus · bets only')}</span>
                   <strong>{formatEtb(balance?.betOnly)}</strong>
                 </div>
                 <div className="member-mini-balance">
-                  <span>Held for review</span>
+                  <span>{translateUi('Held for review')}</span>
                   <strong>{formatEtb(balance?.pendingReview)}</strong>
                 </div>
                 <p className="member-muted">
-                  Bonus principal cannot be withdrawn. Only eligible net winnings become cash.
-                  Practice ETB is separate.
+                  {translateUi(
+                    'Bonus principal cannot be withdrawn. Only eligible net winnings become cash. Practice ETB is separate.'
+                  )}
                 </p>
               </>
             )}
             <Link className="member-text-link" to="/wallet/deposit">
-              Payment options <ArrowUpRight size={15} />
+              {translateUi('Payment options') + ' '}
+              <ArrowUpRight size={15} />
             </Link>
           </section>
           <section className="member-panel">
-            <h2>Invitations</h2>
-            <p className="member-muted">Track your friends and earned referral Birr.</p>
+            <h2>{translateUi('Invitations')}</h2>
+            <p className="member-muted">
+              {translateUi('Track your friends and earned referral Birr.')}
+            </p>
             <Link className="salem-button secondary" to="/rewards">
-              Open rewards <ArrowUpRight size={15} />
+              {translateUi('Open rewards') + ' '}
+              <ArrowUpRight size={15} />
             </Link>
           </section>
         </aside>
@@ -271,23 +304,30 @@ function ProfileSession({ userId }: { userId: string }) {
       <section className="member-panel member-security">
         <h2>
           <ShieldCheck size={20} aria-hidden="true" />
-          Security & access
+          {translateUi('Security & access')}
         </h2>
-        <p className="member-muted">Protect sensitive account actions with an authenticator app.</p>
+        <p className="member-muted">
+          {translateUi('Protect sensitive account actions with an authenticator app.')}
+        </p>
         <AuthenticatorSetup key={userId} />
       </section>
       <ChangePassword />
       <footer className="member-profile-footer">
         <div>
-          <h2>Need help with your details?</h2>
-          <p>Contact support for changes to your sign-in or verification information.</p>
+          <h2>{translateUi('Need help with your details?')}</h2>
+          <p>
+            {translateUi(
+              'Contact support for changes to your sign-in or verification information.'
+            )}
+          </p>
           <Link className="member-text-link" to="/support">
-            Contact support <ArrowUpRight size={15} />
+            {translateUi('Contact support') + ' '}
+            <ArrowUpRight size={15} />
           </Link>
         </div>
         <button className="salem-button secondary" onClick={() => void logout()}>
           <LogOut size={16} aria-hidden="true" />
-          Sign out
+          {translateUi('Sign out')}
         </button>
       </footer>
     </div>

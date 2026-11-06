@@ -1,0 +1,682 @@
+/* Salem Emerald. Member-only materials also cover portaled dialogs.
+   The extra .dark scope deliberately takes precedence over the older member
+   palettes without changing staff workspaces or game outcome colors. */
+html.qube-member.dark {
+  color-scheme: dark;
+  --casino-bg: #050b09;
+  --casino-surface: #0d1915;
+  --casino-raised: #14261f;
+  --casino-emerald: #34d399;
+  --casino-emerald-deep: #087f5b;
+  --casino-gold: #dfbd76;
+  --casino-text: #f5f7ef;
+  --casino-muted: #acbbb4;
+  --casino-line: rgba(155, 221, 190, 0.16);
+  --casino-glass:
+    linear-gradient(145deg, #ffffff08, #ffffff00 42%), linear-gradient(160deg, #14261ff5, #0b1713fa);
+  --casino-depth: inset 0 1px 0 #ffffff0d, 0 8px 24px #00000024;
+  --salem-theme: emerald;
+  --salem-canvas: var(--casino-bg);
+  --salem-panel: var(--casino-surface);
+  --salem-raised: var(--casino-raised);
+  --salem-line: var(--casino-line);
+  --salem-text: var(--casino-text);
+  --salem-muted: var(--casino-muted);
+  --salem-gold: var(--casino-gold);
+  --salem-wine: #123d2c;
+  --qube-surface: var(--casino-surface);
+  --qube-text: var(--casino-text);
+  --qube-muted: var(--casino-muted);
+  --background: 160 38% 3%;
+  --foreground: 75 33% 95%;
+  --card: 160 32% 7%;
+  --card-foreground: 75 33% 95%;
+  --popover: 157 31% 10%;
+  --popover-foreground: 75 33% 95%;
+  --primary: 158 64% 52%;
+  --primary-foreground: 155 67% 5%;
+  --secondary: 155 31% 13%;
+  --secondary-foreground: 75 33% 95%;
+  --muted: 155 22% 12%;
+  --muted-foreground: 152 10% 70%;
+  --accent: 156 50% 17%;
+  --accent-foreground: 75 33% 95%;
+  --border: 153 22% 22%;
+  --input: 153 18% 35%;
+  --ring: 158 64% 52%;
+  --radius: 0.85rem;
+}
+
+html.qube-member.dark body {
+  background: var(--casino-bg);
+  color: var(--casino-text);
+}
+html.qube-member.dark .qube-shell {
+  color: var(--casino-text);
+  background:
+    radial-gradient(ellipse at 88% 0, #126f4426, transparent 38rem),
+    radial-gradient(ellipse at 12% 45%, #dfbd7606, transparent 38rem), var(--casino-bg);
+}
+html.qube-member.dark ::selection {
+  background: #1b7254;
+  color: #fff;
+}
+html.qube-member.dark :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--casino-emerald);
+  outline-offset: 4px;
+}
+html.qube-member.dark :is(button, a, input, select, textarea) {
+  -webkit-tap-highlight-color: #34d39926;
+}
+html.qube-member.dark :is(input, textarea)::placeholder {
+  color: #9eafa5;
+  opacity: 1;
+}
+html.qube-member.dark :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+html.qube-member.dark .qube-main {
+  padding-top: 28px;
+}
+
+/* Solid underlays remain readable when backdrop filtering is unavailable. */
+html.qube-member.dark .qube-sidebar {
+  background:
+    radial-gradient(ellipse at 0 0, #1e604730, transparent 24rem),
+    linear-gradient(170deg, #101e18, #060e0a 75%);
+  border-inline-end: 1px solid #d0e8d51c;
+  box-shadow: 10px 0 36px #0000001c;
+}
+html.qube-member.dark .qube-brand {
+  min-height: 82px;
+  font-size: 27px;
+  gap: 12px;
+  color: var(--casino-text);
+}
+html.qube-member.dark .qube-brand-mark {
+  width: 37px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid #dfbd766b;
+  background: linear-gradient(145deg, #4b8661, #0a3e2b 54%, #09251b);
+  color: #f2d99c;
+  transform: perspective(180px) rotateY(-13deg) rotateX(7deg);
+  box-shadow:
+    inset 0 1px 1px #ffefb860,
+    3px 4px 0 #051e15,
+    6px 8px 16px #0007;
+}
+html.qube-member.dark .qube-brand-dot {
+  color: var(--casino-gold);
+  margin-left: 0;
+  margin-inline-start: -7px;
+}
+html.qube-member.dark .qube-nav-section > p {
+  color: #91aa9c;
+  font-size: 10px;
+}
+html.qube-member.dark .qube-nav-link {
+  min-height: 46px;
+  border-radius: 11px;
+  color: #bdcdc3;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+html.qube-member.dark .qube-nav-link > svg {
+  flex-shrink: 0;
+}
+html.qube-member.dark .qube-nav-link:hover {
+  color: #fff;
+  background: #c1f4d90a;
+}
+html.qube-member.dark .qube-nav-link.is-active {
+  background: linear-gradient(100deg, #176744, #13452f 75%);
+  border-color: #5ee2a34a;
+  color: #fff;
+  box-shadow:
+    inset 3px 0 var(--casino-emerald),
+    inset 0 1px #c1ffe314,
+    0 6px 16px #0003;
+}
+html.qube-member.dark .qube-nav-link.is-active > svg {
+  color: #9ff2c2;
+}
+html.qube-member.dark :is(.salem-nav-more, .qube-signout) {
+  color: var(--casino-muted);
+}
+html.qube-member.dark .qube-staff-link {
+  color: var(--casino-gold);
+}
+html.qube-member.dark .qube-account {
+  background: #01070330;
+  border-color: var(--casino-line);
+}
+html.qube-member.dark .qube-avatar {
+  color: #f0d799;
+  background: radial-gradient(circle at 30% 15%, #345d45, #123e29 55%, #09231a);
+  border-color: #dfbd7650;
+  box-shadow:
+    inset 0 1px #fff2,
+    0 4px 8px #0003;
+}
+html.qube-member.dark .qube-header {
+  background: #07120eea;
+  border-color: #9bddbe1c;
+  box-shadow: 0 5px 22px #0002;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+html.qube-member.dark .qube-header-title {
+  color: var(--casino-text);
+}
+html.qube-member.dark :is(.qube-wallet-link, .qube-icon-button, .salem-language) {
+  background: linear-gradient(155deg, #20382b, #102017);
+  border-color: #c0dec126;
+  border-radius: 11px;
+  color: #e0c991;
+  box-shadow:
+    inset 0 1px #ffffff0d,
+    0 3px 9px #0002;
+}
+html.qube-member.dark .salem-language {
+  min-height: 40px;
+  color: #d5e2d8;
+}
+html.qube-member.dark .salem-language select {
+  padding-inline: 0 18px;
+}
+html.qube-member.dark .salem-language option {
+  background: #0f2118;
+  color: #f5f7ef;
+}
+html.qube-member.dark .salem-mode-badge {
+  background: #112a1d;
+  border-color: #80c79940;
+  color: #c7ead2;
+}
+html.qube-member.dark .salem-mode-badge b {
+  border-left: 0;
+  padding-left: 0;
+  border-inline-start: 1px solid #80c79940;
+  padding-inline-start: 8px;
+}
+html.qube-member.dark .salem-mobile-nav {
+  background: linear-gradient(180deg, #183024ed, #08150ff5);
+  border-color: #b5e0bd36;
+  box-shadow:
+    0 -9px 30px #0006,
+    inset 0 1px #fff1;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+html.qube-member.dark .salem-mobile-nav a {
+  color: #b8cbbd;
+  min-width: 0;
+  padding-inline: 2px;
+}
+html.qube-member.dark .salem-mobile-nav a span {
+  max-width: 100%;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+html.qube-member.dark .salem-mobile-nav a.is-active {
+  background: linear-gradient(145deg, #1b704b, #145537);
+  color: #fff;
+  box-shadow: inset 0 1px #9ff2c245;
+}
+html.qube-member.dark .salem-support-float {
+  width: 46px;
+  height: 46px;
+  border-color: #c8e2be66;
+  background: linear-gradient(145deg, #286b47, #0a3322);
+  color: #f1d69a;
+  box-shadow:
+    inset 0 1px #ffffff30,
+    0 8px 24px #0008;
+}
+
+/* A common glass material connects dashboard, wallet, rewards and profile. */
+html.qube-member.dark
+  :is(
+    .member-panel,
+    .wallet-balance-card,
+    .wallet-info-card,
+    .payment-panel,
+    .crypto-panel,
+    .qube-quick-card,
+    .qube-catalog-card,
+    .qube-catalog-header,
+    .ruby-game-card,
+    .ruby-group-card,
+    .ruby-future-card,
+    .salem-launchpad a
+  ) {
+  background: var(--casino-glass);
+  border-color: var(--casino-line);
+  border-radius: 16px;
+  box-shadow: var(--casino-depth);
+}
+html.qube-member.dark .member-account {
+  --member-surface: var(--casino-surface);
+  --member-border: var(--casino-line);
+  --member-muted: var(--casino-muted);
+}
+html.qube-member.dark
+  :is(.member-profile-hero, .member-balance-band, .member-reward-card.featured) {
+  background:
+    radial-gradient(ellipse at 90% 0, #dfbd7614, transparent 65%),
+    linear-gradient(125deg, #1b402d, #0d2017 75%);
+  border-color: #c8ba7540;
+  box-shadow:
+    inset 0 1px #dfbd7629,
+    0 14px 30px #0003;
+}
+html.qube-member.dark :is(.member-profile-hero p, .member-balance-band span) {
+  color: #bacdbf;
+}
+html.qube-member.dark
+  :is(.member-balance-band strong, .member-reward-amount, .member-mini-balance strong) {
+  color: #f0d897;
+  font-variant-numeric: tabular-nums;
+}
+html.qube-member.dark
+  :is(.member-avatar, .member-card-top > svg, .member-text-link, .member-invite-actions strong) {
+  color: var(--casino-gold);
+}
+html.qube-member.dark .member-avatar {
+  background: #0c271b;
+  border-color: #dfbd7655;
+  box-shadow:
+    inset 0 1px #fff2,
+    0 6px 16px #0003;
+}
+html.qube-member.dark .member-balance-band > div + div {
+  border-left: 0;
+  border-inline-start: 1px solid var(--casino-line);
+}
+html.qube-member.dark .member-feedback {
+  border-left: 0;
+  border-inline-start: 3px solid var(--casino-gold);
+  background: #dfbd7610;
+}
+html.qube-member.dark
+  :is(.member-account input, .member-account textarea, .pq-auth-shell .pq-auth-form-panel input) {
+  background: #06110cd9;
+  border-color: #5d7969;
+  color: var(--casino-text);
+  box-shadow: inset 0 2px 5px #0003;
+  border-radius: 10px;
+}
+html.qube-member.dark :is(.member-account input, .member-account textarea):focus {
+  outline-color: var(--casino-emerald);
+}
+html.qube-member.dark
+  :is(.dark\:bg-gray-800, .dark\:bg-slate-800, .dark\:bg-gray-900, .dark\:bg-slate-900, .bg-card) {
+  background: var(--casino-glass);
+  box-shadow: var(--casino-depth);
+}
+html.qube-member.dark :is(.dark\:border-gray-700, .dark\:border-slate-700) {
+  border-color: var(--casino-line);
+}
+html.qube-member.dark
+  :is(
+    .text-primary-600,
+    .dark\:text-primary-400,
+    .salem-surface .text-violet-600,
+    .salem-surface .dark\:text-violet-300
+  ) {
+  color: #8de6b8;
+}
+html.qube-member.dark
+  :is(
+    .bg-primary-600,
+    .salem-surface .bg-violet-600,
+    .qube-primary-link,
+    .pq-public-primary,
+    .pq-auth-shell .pq-auth-form-panel button[type='submit']
+  ) {
+  color: #051b11;
+  background: linear-gradient(160deg, #8bebb2, #34d399 55%, #24b981);
+  border-color: #85efb4;
+  border-radius: 11px;
+  box-shadow:
+    inset 0 1px #dcffe7b3,
+    0 3px 0 #08633f,
+    0 7px 20px #0d9c4b24;
+  font-weight: 700;
+}
+html.qube-member.dark
+  :is(
+    .hover\:bg-primary-700:hover,
+    .qube-primary-link:hover,
+    .pq-public-primary:hover,
+    .pq-auth-shell .pq-auth-form-panel button[type='submit']:hover:not(:disabled)
+  ) {
+  background: linear-gradient(160deg, #adf7c8, #56dfaa 60%, #36c58b);
+  color: #051b11;
+  border-color: #b1f9d0;
+  filter: none;
+}
+html.qube-member.dark
+  :is(.qube-eyebrow, .qube-section-heading > a, .ruby-game-action, .salem-launchpad a > svg) {
+  color: var(--casino-gold);
+}
+html.qube-member.dark
+  :is(.salem-surface .bg-violet-50, .salem-surface .dark\:bg-violet-950, .dark\:bg-primary-900) {
+  background: #123c29;
+  color: #c5f2d7;
+}
+html.qube-member.dark :is(.qube-quick-icon, .ruby-home .ruby-favorite-button[aria-pressed='true']) {
+  background: #224c32;
+  border-color: #7dbd8e;
+  color: #f4d99a;
+}
+html.qube-member.dark :is(.wallet-navigation, .wallet-member .payment-balance) {
+  background: #07160f;
+  border-color: var(--casino-line);
+}
+html.qube-member.dark
+  :is(
+    .wallet-navigation a,
+    .wallet-method-options a,
+    .crypto-member .crypto-tabs button,
+    .qube-catalog nav[aria-label='Play modes'] a
+  ) {
+  color: #c5d7ca;
+  border-color: #466c54;
+}
+html.qube-member.dark
+  :is(
+    .wallet-navigation a[aria-current='page'],
+    .wallet-method-options a[aria-current='page'],
+    .crypto-member .crypto-tabs button[aria-pressed='true'],
+    .qube-catalog nav[aria-label='Play modes'] a[aria-current='page'],
+    .pq-auth-shell [aria-label='Sign-in method'] button[aria-pressed='true']
+  ) {
+  color: #fff;
+  background: linear-gradient(140deg, #20613f, #14442e);
+  border-color: #86d7a0;
+  box-shadow: inset 0 -2px var(--casino-emerald);
+}
+html.qube-member.dark .wallet-balance-card {
+  border-top-color: var(--casino-gold);
+}
+html.qube-member.dark .wallet-balance-card .wallet-balance-value {
+  color: #f5e4b4;
+}
+html.qube-member.dark
+  :is(
+    .payments-page.wallet-member .payment-disclosure,
+    .payments-page.wallet-member .payment-quote,
+    .crypto-member .crypto-quote
+  ) {
+  background: #15281c;
+  border-color: #829466;
+  color: #e4ecd8;
+}
+html.qube-member.dark
+  :is(
+    .payments-page.wallet-member .payment-panel input:not([type='checkbox']),
+    .payments-page.wallet-member .payment-panel select,
+    .crypto-member input,
+    .crypto-member select
+  ) {
+  background: #06110c;
+  border-color: #5d7969;
+}
+
+/* Reuse the existing photographic artwork; reflections are decorative only. */
+html.qube-member.dark :is(.pq-public, .qube-auth.pq-auth-shell) {
+  background: radial-gradient(ellipse at 80% 5%, #14734435, transparent 45rem), var(--casino-bg);
+  color: var(--casino-text);
+}
+html.qube-member.dark
+  :is(.pq-public-game, .qube-auth.pq-auth-shell .pq-auth-form-panel > .bg-card) {
+  background: var(--casino-glass);
+  border-color: #a8cca339;
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px #fff2,
+    0 20px 55px #0004;
+}
+html.qube-member.dark .pq-auth-shell .pq-auth-pass {
+  background: linear-gradient(135deg, #438e59, #17452d 42%, #071c12);
+  border-color: #e0c47c80;
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px #ffebae77,
+    5px 7px 0 #071e13,
+    9px 12px 0 #031209,
+    16px 24px 42px #0006;
+}
+html.qube-member.dark .pq-auth-shell .pq-auth-ring {
+  border-color: #a3dbb04d;
+  opacity: 0.65;
+}
+html.qube-member.dark :is(.pq-auth-brand, .pq-public-brand) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+html.qube-member.dark :is(input[type='email'], input[type='tel'], .member-copy input) {
+  direction: ltr;
+  text-align: start;
+}
+html.qube-member.dark .pq-auth-shell .pq-auth-disc {
+  background: repeating-conic-gradient(#d9c582 0deg 16deg, #315a3d 16deg 30deg);
+  border-color: #a1bd825c;
+  box-shadow:
+    inset 0 0 0 7px #173e29,
+    inset 0 0 0 9px #dfbd7666,
+    0 5px 0 #082316,
+    0 12px 20px #0005;
+}
+html.qube-member.dark :is(.salem-install-card, .salem-install-dialog) {
+  background: radial-gradient(ellipse at 0 0, #dfbd7610, transparent 65%), var(--casino-glass);
+  color: var(--casino-text);
+  border-color: #b7d39748;
+  box-shadow:
+    inset 0 1px #ffffff1a,
+    0 10px 26px #0003;
+  font-family: inherit;
+}
+html.qube-member.dark .salem-install-card {
+  padding-inline: 20px 46px;
+}
+html.qube-member.dark .salem-install-card-icon {
+  color: var(--casino-gold);
+  background: #dfbd7617;
+}
+html.qube-member.dark
+  :is(.salem-install-copy p, .salem-install-dialog > p, .salem-install-dialog .salem-install-note) {
+  color: var(--casino-muted);
+}
+html.qube-member.dark :is(.salem-install-help, .salem-install-dialog .salem-install-device) {
+  color: #ecd49a;
+}
+html.qube-member.dark .salem-install-button {
+  color: #ead8ac;
+  border-color: #c7ce8f70;
+  background: var(--casino-glass);
+  font-family: inherit;
+}
+html.qube-member.dark .salem-install-primary {
+  color: #102317;
+  border-color: #f0dba6;
+  background: linear-gradient(155deg, #f5e3ac, #d4b976);
+  box-shadow:
+    inset 0 1px #fff9,
+    0 3px 0 #665523;
+  font-family: inherit;
+}
+html.qube-member.dark :is(.salem-install-dismiss, .salem-install-close) {
+  right: auto;
+  inset-inline-end: 4px;
+  color: #ceddcf;
+}
+html.qube-member.dark .salem-install-dialog .salem-install-close {
+  right: auto;
+  inset-inline-end: 10px;
+}
+html.qube-member.dark .salem-install-dialog ol {
+  padding-left: 0;
+  padding-inline-start: 22px;
+}
+html.qube-member.dark .salem-install-dialog li {
+  padding-left: 0;
+  padding-inline-start: 5px;
+}
+html.qube-member.dark .pq-auth-shell [aria-label='Sign-in method'] button {
+  color: #c8d8cc;
+  background: #13291b;
+  border-color: #46664f;
+}
+html.qube-member.dark .salem-launchpad a > svg:last-child {
+  margin-left: 0;
+  margin-inline-start: auto;
+}
+
+/* Scripts with joining letters must not inherit Latin display tracking. */
+html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar)) body {
+  font-family: 'Noto Sans Ethiopic', 'Noto Sans Arabic', Nyala, system-ui, sans-serif;
+  line-height: 1.7;
+}
+html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar))
+  :is(
+    h1,
+    h2,
+    h3,
+    h4,
+    button,
+    label,
+    .qube-eyebrow,
+    .salem-eyebrow,
+    .casino-eyebrow,
+    .sports-eyebrow,
+    .qube-nav-section > p,
+    .sports-provider
+  ) {
+  font-family: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.55;
+}
+html.qube-member.dark:is(:lang(am), :lang(ti), :lang(ar)) :is(.qube-brand, .pq-public-brand) {
+  font-family: Georgia, serif;
+}
+html.qube-member.dark[dir='rtl'] .qube-sidebar {
+  border-right: 0;
+  border-left: 1px solid #d0e8d51c;
+}
+html.qube-member.dark[dir='rtl'] .qube-nav-link.is-active {
+  box-shadow:
+    inset -3px 0 var(--casino-emerald),
+    inset 0 1px #c1ffe314,
+    0 6px 16px #0003;
+}
+html.qube-member.dark[dir='rtl'] [role='dialog'].inset-y-0.left-0 {
+  left: auto;
+  right: 0;
+}
+html.qube-member.dark[dir='rtl'] [role='dialog'].inset-y-0 > button.absolute.right-2 {
+  right: auto;
+  left: 0.5rem;
+}
+html.qube-member.dark[dir='rtl'] .member-profile-hero > button {
+  margin-left: 0;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  html.qube-member.dark :is(.qube-primary-link, .salem-launchpad a, .qube-quick-card) {
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  html.qube-member.dark :is(.salem-launchpad a, .qube-quick-card):hover {
+    transform: translateY(-3px);
+    border-color: #d9d59b6b;
+    box-shadow:
+      inset 0 1px #fff2,
+      0 12px 26px #0005;
+  }
+  html.qube-member.dark .qube-primary-link:hover {
+    transform: translateY(-1px);
+  }
+}
+@media (max-width: 700px) {
+  html.qube-member.dark .member-balance-band > div + div {
+    border-inline-start: 0;
+    border-top: 1px solid var(--casino-line);
+  }
+}
+@media (max-width: 640px) {
+  html.qube-member.dark .qube-main {
+    padding-top: 20px;
+  }
+  html.qube-member.dark .qube-header {
+    min-height: 64px;
+    height: 64px;
+  }
+  html.qube-member.dark .salem-language {
+    min-height: 40px;
+    max-width: 116px;
+  }
+  html.qube-member.dark .salem-language select {
+    width: 82px;
+    min-width: 0;
+  }
+  html.qube-member.dark .salem-install-card {
+    padding-inline: 17px 40px;
+  }
+  html.qube-member.dark .salem-mobile-nav {
+    padding-top: 7px;
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+  }
+  html.qube-member.dark .salem-mobile-nav a {
+    min-height: 50px;
+  }
+}
+@media (max-width: 359px) {
+  html.qube-member.dark .qube-header .qube-wallet-link {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.qube-member.dark
+    :is(
+      .animate-fade-in,
+      .animate-slide-up,
+      .animate-slide-down,
+      .animate-scale-in,
+      .casino-tile-art > img,
+      .casino-tile-skeleton,
+      .sports-ball
+    ) {
+    animation: none !important;
+  }
+  html.qube-member.dark
+    :is(
+      .qube-nav-link,
+      .qube-primary-link,
+      .salem-launchpad a,
+      .qube-quick-card,
+      .salem-own-tile,
+      .casino-game-tile,
+      .salem-button,
+      .sports-open
+    ) {
+    transition: none !important;
+  }
+  html.qube-member.dark
+    :is(
+      .qube-primary-link,
+      .salem-launchpad a,
+      .qube-quick-card,
+      .salem-own-tile,
+      .casino-game-tile
+    ):hover {
+    transform: none;
+  }
+}

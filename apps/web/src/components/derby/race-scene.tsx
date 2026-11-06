@@ -15,6 +15,7 @@ import {
 } from './rigged-horse';
 import { createStrideClock } from './stride-clock';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const RUNNER_GROUND_Y = 0.035;
 
@@ -28,6 +29,8 @@ export default function RaceScene({
   running: boolean;
   reduced: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const host = useRef<HTMLDivElement>(null);
   const live = useRef({ round, running, reduced });
   live.current = { round, running, reduced };
@@ -554,15 +557,18 @@ export default function RaceScene({
     <div
       className="derby-scene"
       ref={host}
-      aria-label="Three-dimensional horse race. Official finishing order appears above."
+      aria-label={translateUi(
+        'Three-dimensional horse race. Official finishing order appears above.'
+      )}
       role="img"
     >
       {failed && (
         <div className="derby-scene-fallback">
-          3D view unavailable on this device. Follow the numbered race progress and official results
-          above.{' '}
+          {translateUi(
+            '3D view unavailable on this device. Follow the numbered race progress and official results above.'
+          )}{' '}
           <button type="button" onClick={() => setContextRevision((r) => r + 1)}>
-            Retry 3D view
+            {translateUi('Retry 3D view')}
           </button>
         </div>
       )}

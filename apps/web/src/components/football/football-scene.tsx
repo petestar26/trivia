@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createEngine, type Engine, type MatchInput } from './engine/engine';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /**
  * Lazy 3D match view. Purely decorative: it renders only facts the server has already
@@ -118,6 +119,8 @@ function SceneCanvas({
 }
 
 export default function FootballScene(props: FootballSceneProps) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [problem, setProblem] = useState<Problem>(null);
   const [revision, setRevision] = useState(0);
   const timer = useRef(0);
@@ -163,13 +166,13 @@ export default function FootballScene(props: FootballSceneProps) {
           {fallback}
           <p className="vf-scene-note">
             {problem === 'lost'
-              ? 'The 3D view paused and is restoring. Results continue below.'
+              ? translateUi('The 3D view paused and is restoring. Results continue below.')
               : problem === 'unsupported'
-                ? '3D view is not available on this device. Results continue below.'
-                : 'The 3D view stopped. Results continue below.'}{' '}
+                ? translateUi('3D view is not available on this device. Results continue below.')
+                : translateUi('The 3D view stopped. Results continue below.')}{' '}
             {problem !== 'unsupported' && (
               <button type="button" className="vf-link" onClick={retry}>
-                Retry 3D view
+                {translateUi('Retry 3D view')}
               </button>
             )}
           </p>

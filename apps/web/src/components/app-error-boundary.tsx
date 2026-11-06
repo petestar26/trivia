@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { LocalizedText } from '@/lib/i18n/text';
 export class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
@@ -8,13 +9,18 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, { faile
     if (this.state.failed)
       return (
         <main className="payments-page" role="alert">
-          <h1>This page couldn’t load</h1>
+          <h1>
+            <LocalizedText message="This page couldn’t load" />
+          </h1>
           <p>
-            Reload to reconnect. Previously confirmed requests remain saved on the server; check
-            their status before submitting another.
+            <LocalizedText message="Reload to reconnect. Previously confirmed requests remain saved on the server; check their status before submitting another." />
           </p>
-          <button onClick={() => window.location.reload()}>Reload page</button>
-          <a href="/">Return home</a>
+          <button onClick={() => window.location.reload()}>
+            <LocalizedText message="Reload page" />
+          </button>
+          <a href="/">
+            <LocalizedText message="Return home" />
+          </a>
         </main>
       );
     return this.props.children;

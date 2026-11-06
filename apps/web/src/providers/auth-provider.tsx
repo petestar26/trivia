@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { setSessionUser } from '@/lib/session';
 import { UserPublicProfile } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface AuthContextType {
   user: UserPublicProfile | null;
@@ -19,7 +20,11 @@ interface AuthContextType {
     displayName?: string;
     referralCode?: string;
   }) => Promise<void>;
-  googleAuthenticate: (data: { credential: string; username?: string; referralCode?: string }) => Promise<void>;
+  googleAuthenticate: (data: {
+    credential: string;
+    username?: string;
+    referralCode?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -58,6 +63,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
  * operation — are silently ignored and never throw.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const queryClient = useQueryClient();
   const [user, setUser] = useState<UserPublicProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -201,7 +208,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const googleAuthenticate = async (data: { credential: string; username?: string; referralCode?: string }) => {
+  const googleAuthenticate = async (data: {
+    credential: string;
+    username?: string;
+    referralCode?: string;
+  }) => {
     const claim = ++credGenRef.current;
     pendingCredRef.current += 1;
     try {
@@ -279,14 +290,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     >
       {sessionError && isLoading && (
         <div role="alert" className="p-6 text-center">
-          <p>We couldn’t check your session. Reconnecting…</p>
+          <p>{translateUi('We couldn’t check your session. Reconnecting…')}</p>
           <button
             onClick={() => {
               setSessionError(false);
               setProbeRevision((v) => v + 1);
             }}
           >
-            Retry connection
+            {translateUi('Retry connection')}
           </button>
         </div>
       )}

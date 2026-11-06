@@ -34,3 +34,4 @@ export * from './blackjack.js';
 
 export * from './together-game-guide.js';
 export * from './together-presentation.js';
+export * from './support-help.js';

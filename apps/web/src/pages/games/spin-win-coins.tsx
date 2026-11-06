@@ -14,6 +14,7 @@ import type { GameCatalogEntry, GamePlayResult } from '@/lib/api';
 import { useDurablePlay } from '@/hooks/use-durable-play';
 import { useCasino } from '@/components/casino/CasinoProvider';
 import { SpinStage } from '@/components/spin/spin-stage';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface SpinRound extends GamePlayResult {
   result: {
@@ -37,6 +38,8 @@ function errorText(error: unknown) {
 
 /** Financial play uses stored server responses only. Practice has a separate route. */
 export function SpinWinCoinsPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { coinsBalance, refetchBalance, walletError, walletLoading } = useCasino();
   const client = useQueryClient();
   const [bets, setBets] = useState<SpinBet[]>([]);
@@ -46,7 +49,9 @@ export function SpinWinCoinsPage() {
   const [rotation, setRotation] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [history, setHistory] = useState<number[]>([]);
-  const [message, setMessage] = useState('Enter a bet amount or choose a chip, then select your markets.');
+  const [message, setMessage] = useState(
+    'Enter a bet amount or choose a chip, then select your markets.'
+  );
   const [undo, setUndo] = useState<SpinBet[][]>([]);
   const [previous, setPrevious] = useState<SpinBet[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -149,26 +154,46 @@ export function SpinWinCoinsPage() {
           ? 'Loading…'
           : walletError
             ? 'Unavailable'
-            : `${coinsBalance.toLocaleString()} Coins`
+            : `${coinsBalance.toLocaleString(interfaceLocale)} Coins`
       }
     >
       <div className="space-y-4">
-        {isLoading && <p role="status">Loading game availability…</p>}
-        {isError && <p role="alert">Cannot load game availability. New wagers are disabled.</p>}
-        {walletError && <p role="alert">Cannot load your balance. New wagers are disabled.</p>}
+        {isLoading && <p role="status">{translateUi('Loading game availability…')}</p>}
+        {isError && (
+          <p role="alert">
+            {translateUi('Cannot load game availability. New wagers are disabled.')}
+          </p>
+        )}
+        {walletError && (
+          <p role="alert">{translateUi('Cannot load your balance. New wagers are disabled.')}</p>
+        )}
         {!available && !isLoading && !isError && (
           <p>
-            Coin play is not available.
-            {durable.pending && ' You can still confirm a previously submitted round below.'}
+            {translateUi('Coin play is not available.{value}', {
+              value:
+                (durable.pending &&
+                  ' ' + translateUi('You can still confirm a previously submitted round below.')) ??
+                '',
+            })}
           </p>
         )}
         <fieldset
           disabled={!available || locked || walletLoading || walletError}
           className="space-y-3 disabled:opacity-50"
         >
-          <legend className="font-semibold">Coin bets</legend>
-          <SpinStakeInput value={stakeText} onChange={setStakeText} maximum={game?.maxBet ?? 480} disabled={!available || locked || walletLoading || walletError} currency="Coins" />
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Coin chip value">
+          <legend className="font-semibold">{translateUi('Coin bets')}</legend>
+          <SpinStakeInput
+            value={stakeText}
+            onChange={setStakeText}
+            maximum={game?.maxBet ?? 480}
+            disabled={!available || locked || walletLoading || walletError}
+            currency="Coins"
+          />
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label={translateUi('Coin chip value')}
+          >
             {[40, 80, 120, 200, 400].map((amount) => (
               <button
                 key={amount}
@@ -190,13 +215,13 @@ export function SpinWinCoinsPage() {
                   key={market.id}
                   disabled={!chip}
                   onClick={() => add(market.id)}
-                  aria-label={`Bet on ${market.label}`}
+                  aria-label={translateUi('Bet on {label}', { label: market.label })}
                   aria-pressed={!!amount}
                   className="min-h-12 rounded-lg border border-white/15 bg-black/20 p-2 text-sm aria-pressed:border-amber-300 aria-pressed:bg-amber-200/10 focus-visible:ring-2 focus-visible:ring-amber-200"
                 >
-                  <span>{market.label}</span>
+                  <span>{translateUi(market.label)}</span>
                   <span className="block text-[10px] text-emerald-100/60">
-                    {amount ? `${amount} Coins · ` : ''}
+                    {amount ? translateUi('{amount} Coins ·', { amount: amount }) + ' ' : ''}
                     {market.grossMultiplier}×
                   </span>
                 </button>
@@ -212,7 +237,7 @@ export function SpinWinCoinsPage() {
               }}
               className="rounded-lg border border-white/20 px-4 py-2 disabled:opacity-30"
             >
-              Undo
+              {translateUi('Undo')}
             </button>
             <button
               type="button"
@@ -223,7 +248,7 @@ export function SpinWinCoinsPage() {
               }}
               className="rounded-lg border border-white/20 px-4 py-2"
             >
-              Clear bets
+              {translateUi('Clear bets')}
             </button>
             <button
               disabled={
@@ -237,15 +262,20 @@ export function SpinWinCoinsPage() {
               }}
               className="rounded-lg border border-white/20 px-4 py-2 disabled:opacity-30"
             >
-              Rebet
+              {translateUi('Rebet')}
             </button>
           </div>
         </fieldset>
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d6b475]/30 bg-[#07281f]/95 px-4 py-3 shadow-xl">
           <p>
-            Total bet: <strong>{total} Coins</strong>
+            {translateUi('Total bet:') + ' '}
+            <strong>{translateUi('{total} Coins', { total: total })}</strong>
             {game
-              ? ` · Range ${Math.ceil(game.minBet / 40) * 40}–${Math.floor(game.maxBet / 40) * 40}`
+              ? ' ' +
+                translateUi('· Range {value}–{value2}', {
+                  value: Math.ceil(game.minBet / 40) * 40,
+                  value2: Math.floor(game.maxBet / 40) * 40,
+                })
               : ''}
           </p>
           <button
@@ -254,7 +284,7 @@ export function SpinWinCoinsPage() {
             onClick={submit}
             className="rounded-xl bg-amber-200 px-6 py-3 font-bold text-slate-950 disabled:opacity-40"
           >
-            Place Coin bets
+            {translateUi('Place Coin bets')}
           </button>
         </div>
         {durable.pending && (
@@ -264,25 +294,35 @@ export function SpinWinCoinsPage() {
             onClick={() => durable.play(durable.pending!.body)}
             className="rounded-lg border border-amber-300 px-4 py-2"
           >
-            {durable.mutation.isPending ? 'Confirming round…' : 'Confirm pending round'}
+            {durable.mutation.isPending
+              ? translateUi('Confirming round…')
+              : translateUi('Confirm pending round')}
           </button>
         )}
         {durable.storageError && <p role="alert">{durable.storageError}</p>}
         {durable.mutation.isError && <p role="alert">{errorText(durable.mutation.error)}</p>}
-        {round && <p className="text-xs text-emerald-100/60">Rules v{round.rulesVersion}</p>}
+        {round && (
+          <p className="text-xs text-emerald-100/60">
+            {translateUi('Rules v{rulesVersion}', { rulesVersion: round.rulesVersion ?? '' })}
+          </p>
+        )}
         <details className="rounded-xl border border-white/10 p-4 text-sm">
-          <summary className="cursor-pointer font-semibold text-amber-100">Rules & payouts</summary>
+          <summary className="cursor-pointer font-semibold text-amber-100">
+            {translateUi('Rules & payouts')}
+          </summary>
           <div className="mt-3 space-y-2 text-emerald-100/70">
             <p>
-              All bets share one server-generated number. Returns include winning stakes; zero loses
-              every group bet. Selections use multiples of 40 Coins.
+              {translateUi(
+                'All bets share one server-generated number. Returns include winning stakes; zero loses every group bet. Selections use multiples of 40 Coins.'
+              )}
             </p>
             <p>
-              90% theoretical player return; 10% expected house edge before costs. Individual
-              results vary.
+              {translateUi(
+                '90% theoretical player return; 10% expected house edge before costs. Individual results vary.'
+              )}
             </p>
             <Link to="/games/history" className="text-amber-200 underline">
-              Your game history
+              {translateUi('Your game history')}
             </Link>
           </div>
         </details>

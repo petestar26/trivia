@@ -12,6 +12,8 @@ import { safeReturnTo } from '@/lib/safe-return-to';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MemberAuthShell } from '@/components/member/member-auth-shell';
+import { LanguageSelect } from '@/components/layout/language-select';
+import '@/components/layout/public-language.css';
 import { PasswordInput } from '@/components/member/password-input';
 import {
   Card,
@@ -21,6 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -30,6 +33,8 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   useMemberTheme(!workspace);
   const navigate = useNavigate();
   const location = useLocation();
@@ -49,7 +54,9 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
     reset,
     formState: { errors },
   } = useForm<LoginForm>({
-    resolver: zodResolver(method === 'phone' ? loginSchema.extend({ email: phoneSchema }) : loginSchema),
+    resolver: zodResolver(
+      method === 'phone' ? loginSchema.extend({ email: phoneSchema }) : loginSchema
+    ),
   });
 
   const onSubmit = async (data: LoginForm) => {
@@ -74,37 +81,59 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
       <CardHeader className="text-center">
         <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
           {workspace === 'admin'
-            ? 'Administrator sign in'
+            ? translateUi('Administrator sign in')
             : workspace === 'agent'
-              ? 'Agent sign in'
-              : 'Welcome back'}
+              ? translateUi('Agent sign in')
+              : translateUi('Welcome back')}
         </CardTitle>
         <CardDescription className="text-gray-600 dark:text-gray-400">
           {workspace
-            ? `Sign in with your approved ${workspace === 'admin' ? 'administrator' : 'agent'} account`
-            : 'Sign in to your Salem Bet account'}
+            ? translateUi('Sign in with your approved {value} account', {
+                value: workspace === 'admin' ? translateUi('administrator') : translateUi('agent'),
+              })
+            : translateUi('Sign in to your Salem Bet account')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {(location.state as { passwordChanged?: boolean } | null)?.passwordChanged && <p role="status" className="text-sm text-center">Your password was changed. Sign in with your new password.</p>}
-        {!workspace && <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />}
-        {!workspace && <div role="group" aria-label="Sign-in method" className="flex gap-2">
-          {(['email', 'phone'] as const).map(option => <Button key={option} type="button" disabled={isLoading}
-            aria-pressed={method === option} onClick={() => { setMethod(option); reset(); setError(null); }}>
-            {option === 'email' ? 'Email' : 'Phone'}</Button>)}
-        </div>}
+        {(location.state as { passwordChanged?: boolean } | null)?.passwordChanged && (
+          <p role="status" className="text-sm text-center">
+            {translateUi('Your password was changed. Sign in with your new password.')}
+          </p>
+        )}
+        {!workspace && (
+          <GoogleSignInButton onSuccess={() => navigate(returnTo, { replace: true })} />
+        )}
+        {!workspace && (
+          <div role="group" aria-label={translateUi('Sign-in method')} className="flex gap-2">
+            {(['email', 'phone'] as const).map((option) => (
+              <Button
+                key={option}
+                type="button"
+                disabled={isLoading}
+                aria-pressed={method === option}
+                onClick={() => {
+                  setMethod(option);
+                  reset();
+                  setError(null);
+                }}
+              >
+                {option === 'email' ? translateUi('Email') : translateUi('Phone')}
+              </Button>
+            ))}
+          </div>
+        )}
         {error && (
           <div
             role="alert"
             className="text-red-600 dark:text-red-400 text-sm text-center bg-red-50 dark:bg-red-900/30 p-3 rounded-lg"
           >
-            {error}
+            {translateUi(error)}
           </div>
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
             <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {method === 'email' ? 'Email' : 'Phone number'}
+              {method === 'email' ? translateUi('Email') : translateUi('Phone number')}
             </label>
             <Input
               id="email"
@@ -122,7 +151,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 className="text-sm text-red-600 dark:text-red-400"
                 role="alert"
               >
-                {errors.email.message}
+                {translateUi(errors.email.message ?? '')}
               </p>
             )}
           </div>
@@ -131,7 +160,7 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
               htmlFor="password"
               className="text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Password
+              {translateUi('Password')}
             </label>
             {workspace ? (
               <Input
@@ -161,12 +190,12 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
                 className="text-sm text-red-600 dark:text-red-400"
                 role="alert"
               >
-                {errors.password.message}
+                {translateUi(errors.password.message ?? '')}
               </p>
             )}
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? 'Signing in...' : 'Sign in'}
+            {isLoading ? translateUi('Signing in...') : translateUi('Sign in')}
           </Button>
         </form>
       </CardContent>
@@ -174,29 +203,31 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
         {workspace ? (
           <div className="text-center text-sm space-y-3">
             <p>
-              Access is assigned by the platform. Signing in here does not change your permissions.
+              {translateUi(
+                'Access is assigned by the platform. Signing in here does not change your permissions.'
+              )}
             </p>
             {workspace === 'agent' && (
               <p>
                 <Link to="/agent/activate" className="text-primary-600">
-                  First sign-in? Set your private password
+                  {translateUi('First sign-in? Set your private password')}
                 </Link>
               </p>
             )}
             <Link to="/login" className="text-primary-600">
-              Member sign in
+              {translateUi('Member sign in')}
             </Link>
           </div>
         ) : (
           <>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Don't have an account?{' '}
+              {translateUi("Don't have an account?")}{' '}
               <Link
                 to="/register"
                 state={{ from: (location.state as { from?: unknown } | null)?.from }}
                 className="text-primary-600 hover:text-primary-500 font-medium"
               >
-                Sign up
+                {translateUi('Sign up')}
               </Link>
             </p>
           </>
@@ -206,7 +237,12 @@ export function LoginPage({ workspace }: { workspace?: 'admin' | 'agent' }) {
   );
 
   return workspace ? (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
+    <div className="salem-public-entry min-h-screen flex flex-col items-center justify-center gap-5 bg-gray-50 dark:bg-gray-900 px-4 py-8">
+      <header className="w-full max-w-md flex justify-end">
+        <div className="salem-public-language">
+          <LanguageSelect />
+        </div>
+      </header>
       {form}
     </div>
   ) : (

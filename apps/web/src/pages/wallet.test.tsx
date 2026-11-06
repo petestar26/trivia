@@ -67,13 +67,20 @@ const COIN_DEBIT = {
 
 describe('WalletPage — balance cards', () => {
   it('renders ETB and Game Points balances from the API response', async () => {
-    getWallet.mockResolvedValue({ success: true, data: { coinsBalance: 120, gamePointsBalance: 75 } });
-    getWalletTransactions.mockResolvedValue({ success: true, data: [], meta: { page: 1, total: 0, totalPages: 0 } });
+    getWallet.mockResolvedValue({
+      success: true,
+      data: { coinsBalance: 120, gamePointsBalance: 75 },
+    });
+    getWalletTransactions.mockResolvedValue({
+      success: true,
+      data: [],
+      meta: { page: 1, total: 0, totalPages: 0 },
+    });
 
     renderPage();
 
     // Both balances appear on screen.
-    expect(await screen.findByText('1.20 ETB')).toBeInTheDocument();
+    expect(await screen.findByText(/ETB\s+1\.20/)).toBeInTheDocument();
     expect(screen.getByText('75')).toBeInTheDocument();
   });
 });
@@ -94,8 +101,8 @@ describe('WalletPage — transaction history', () => {
     renderPage();
 
     // Currency and debit labels are readable while Game Points stay separate.
-    expect(await screen.findByText('GAME_POINT_CREDIT')).toBeInTheDocument();
-    expect(screen.getByText('GAME_POINTS')).toBeInTheDocument();
+    expect(await screen.findByText('Game point credit')).toBeInTheDocument();
+    expect(screen.getByText('Game Points', { selector: 'td' })).toBeInTheDocument();
     expect(screen.getByText('Debit')).toBeInTheDocument();
     expect(screen.getByText('ETB')).toBeInTheDocument();
     expect(screen.queryByText('No transactions yet.')).not.toBeInTheDocument();
@@ -126,13 +133,16 @@ describe('WalletPage — transaction history', () => {
 
     renderPage();
 
-    const amount = await screen.findByText('−1.00 ETB');
+    const amount = await screen.findByText(/−ETB\s+1\.00/);
     // balanceAfter (100) < balanceBefore (200) => debit presentation.
     expect(amount).toHaveClass('text-red-600 dark:text-red-400');
   });
 
   it('shows the empty state when the API legitimately returns no transactions', async () => {
-    getWallet.mockResolvedValue({ success: true, data: { coinsBalance: 50, gamePointsBalance: 30 } });
+    getWallet.mockResolvedValue({
+      success: true,
+      data: { coinsBalance: 50, gamePointsBalance: 30 },
+    });
     getWalletTransactions.mockResolvedValue({
       success: true,
       data: [],

@@ -73,6 +73,7 @@ import {
   stalePicks,
 } from '@/lib/football/slip';
 import './virtual-football.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const FootballScene = lazy(() => import('@/components/football/football-scene'));
 const endpoint = '/games/virtual-football';
@@ -169,6 +170,7 @@ function PhaseBar({
   live: boolean;
   nextOpensAt: number | null;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
   const server = useServerNow(250) ?? week.opensAt;
   let label: string;
   let clockText = '';
@@ -177,7 +179,7 @@ function PhaseBar({
     phase = 'past';
     label = 'Last played matchweek';
     if (nextOpensAt !== null && nextOpensAt > server) {
-      label += ' · next opens in';
+      label = 'Last played matchweek · next opens in';
       clockText = formatClock(nextOpensAt - server);
     }
   } else if (server < week.opensAt) {
@@ -218,10 +220,10 @@ function PhaseBar({
     <div className="vf-phase" data-phase={phase}>
       <span className="vf-phase-dot" aria-hidden="true" />
       <span>
-        {label} {clockText && <b>{clockText}</b>}
+        {translateUi(label)} {clockText && <b>{clockText}</b>}
       </span>
       <span className="sr-only" role="status" aria-live="polite">
-        {announce}
+        {translateUi(announce)}
       </span>
     </div>
   );
@@ -229,13 +231,18 @@ function PhaseBar({
 
 /** Nothing is on yet: a matchweek only exists if someone opens the game while its selections are open. */
 function NextMatchweek({ endsAt }: { endsAt: number }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const server = useServerNow(250) ?? 0;
   const left = endsAt - server;
   return (
     <p role="status" className="vf-solo-note">
       {left > 0
-        ? `The next matchweek opens in ${formatClock(left)}. Matches are created only while selections are open, so a matchweek that nobody opens is never played.`
-        : 'The next matchweek is opening…'}
+        ? translateUi(
+            'The next matchweek opens in {value}. Matches are created only while selections are open, so a matchweek that nobody opens is never played.',
+            { value: formatClock(left) }
+          )
+        : translateUi('The next matchweek is opening…')}
     </p>
   );
 }
@@ -282,6 +289,8 @@ function usePhaseWhistles(
 }
 
 function FootballGame({ userId, clock }: { userId: string; clock: ServerClock }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const serverNow = useServerNow(250);
   const [weekView, setWeekView] = useState<{ seasonNo: number; weekNo: number } | null>(null);
   const [tab, setTab] = useState<Tab>('markets');
@@ -590,15 +599,15 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
   if (!snapshot) {
     return (
       <main className="vf-page">
-        <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Football</h1>
+        <Link to="/games">{translateUi('← Games')}</Link>
+        <h1 className="vf-solo-title">{translateUi('Football')}</h1>
         <p role="status">
           {query.isError
-            ? 'Practice is unavailable. Please try again later.'
-            : 'Preparing the stadium…'}
+            ? translateUi('Practice is unavailable. Please try again later.')
+            : translateUi('Preparing the stadium…')}
         </p>
         <button type="button" className="vf-secondary" onClick={() => refetch()}>
-          Refresh
+          {translateUi('Refresh')}
         </button>
       </main>
     );
@@ -606,11 +615,11 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
   if (!stageWeek) {
     return (
       <main className="vf-page">
-        <Link to="/games">← Games</Link>
-        <h1 className="vf-solo-title">Football</h1>
+        <Link to="/games">{translateUi('← Games')}</Link>
+        <h1 className="vf-solo-title">{translateUi('Football')}</h1>
         <NextMatchweek endsAt={snapshot.cycle.endsAt} />
         <button type="button" className="vf-secondary" onClick={() => refetch()}>
-          Refresh
+          {translateUi('Refresh')}
         </button>
       </main>
     );
@@ -659,18 +668,19 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
     <main className="vf-page">
       <header className="vf-header">
         <div>
-          <Link to="/games">← All games</Link>
+          <Link to="/games">{translateUi('← All games')}</Link>
           <h1>
-            SALEM BET <em>FOOTBALL</em>
-            <small>CLUB FOOTBALL · FREE PRACTICE</small>
+            {'SALEM BET' + ' '}
+            <em>{translateUi('FOOTBALL')}</em>
+            <small>{translateUi('CLUB FOOTBALL · FREE PRACTICE')}</small>
           </h1>
         </div>
         <div className="vf-credit">
-          <span>Free practice</span>
+          <span>{translateUi('Free practice')}</span>
           <strong>
-            {formatCredits(shownBalance)} <small>ETB</small>
+            {formatCredits(shownBalance)} <small>{'ETB'}</small>
           </strong>
-          <p>No cash stakes · No cash prizes</p>
+          <p>{translateUi('No cash stakes · No cash prizes')}</p>
         </div>
       </header>
 
@@ -683,7 +693,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             aria-pressed={text}
             onClick={() => setText((v) => !v)}
           >
-            {text ? 'Show match' : 'Text match centre'}
+            {text ? translateUi('Show match') : translateUi('Text match centre')}
           </button>
           <button
             type="button"
@@ -691,7 +701,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             aria-pressed={sound}
             onClick={() => void toggleSound()}
           >
-            {sound ? 'Sound on' : 'Sound off'}
+            {sound ? translateUi('Sound on') : translateUi('Sound off')}
           </button>
           <label>
             <input
@@ -699,7 +709,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
               checked={reduced}
               onChange={(e) => setReducedOverride(e.target.checked)}
             />{' '}
-            Reduced motion
+            {translateUi('Reduced motion')}
           </label>
           <RulesDialog />
         </div>
@@ -707,14 +717,16 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
 
       {!rulesOk && (
         <p role="alert" className="vf-alert">
-          These rules have been updated. Refresh the page to continue. No new ticket can be
-          confirmed until you do.
+          {translateUi(
+            'These rules have been updated. Refresh the page to continue. No new ticket can be confirmed until you do.'
+          )}
         </p>
       )}
       {!pricesVerified && (
         <p role="alert" className="vf-alert">
-          Prices for this matchweek could not be verified in your browser, so selections are paused.
-          Refresh to try again.
+          {translateUi(
+            'Prices for this matchweek could not be verified in your browser, so selections are paused. Refresh to try again.'
+          )}
         </p>
       )}
       {notice && (
@@ -728,10 +740,13 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       {pending && (
         <div className="vf-alert" role="alert">
           <p>
-            A ticket confirmation is unresolved ({pending.lines.length} line
-            {pending.lines.length === 1 ? '' : 's'},{' '}
-            {formatCredits(pending.lines.reduce((n, l) => n + l.stake, 0))} ETB). Checking it
-            again cannot charge you twice.
+            {translateUi(
+              'A ticket confirmation is unresolved ({count} lines, {amount} ETB). Checking it again cannot charge you twice.',
+              {
+                count: pending.lines.length,
+                amount: formatCredits(pending.lines.reduce((n, l) => n + l.stake, 0)),
+              }
+            )}
           </p>
           <button
             type="button"
@@ -739,7 +754,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
             disabled={busy}
             onClick={() => void submit(pending)}
           >
-            Check this confirmation
+            {translateUi('Check this confirmation')}
           </button>
         </div>
       )}
@@ -747,7 +762,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       {fixture && overview && (
         <GameRoundSummary
           game="Football"
-          label={overview.fullTime ? 'Full time' : 'Featured match'}
+          label={overview.fullTime ? translateUi('Full time') : translateUi('Featured match')}
           value={
             <>
               <span className="vf-overview-names">
@@ -774,7 +789,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
         />
       )}
       <GameArena
-        title="Football"
+        title={translateUi('Football')}
         className="vf-arena"
         onReturnToControls={() => {
           ticketControls.current?.scrollIntoView({
@@ -786,9 +801,11 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       >
         <p className="vf-connection" role="status" aria-live="polite" aria-atomic="true">
           {(!fresh || query.isError) &&
-            'Connection interrupted. Selections are paused until the game status refreshes.'}
+            translateUi(
+              'Connection interrupted. Selections are paused until the game status refreshes.'
+            )}
         </p>
-        <section className="vf-stage" aria-label="Match view">
+        <section className="vf-stage" aria-label={translateUi('Match view')}>
           <div className="vf-stage-frame">
             {text || !fixture ? (
               fixture && <LiveCentre fixture={fixture} week={stageWeek} />
@@ -798,7 +815,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                   <Suspense
                     fallback={
                       <div className="vf-scene-loading" role="status">
-                        Preparing the stadium…
+                        {translateUi('Preparing the stadium…')}
                       </div>
                     }
                   >
@@ -806,7 +823,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                       match={matchInput}
                       getElapsed={getElapsed}
                       reduced={reduced}
-                      label={`Match view of ${matchTitle(fixture)}`}
+                      label={translateUi('Match view of {value}', { value: matchTitle(fixture) })}
                       onGoalMoment={onGoalMoment}
                       fallback={<LiveCentre fixture={fixture} week={stageWeek} />}
                     />
@@ -819,7 +836,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
               </>
             )}
           </div>
-          <div className="vf-strip" role="group" aria-label="Matches this week">
+          <div className="vf-strip" role="group" aria-label={translateUi('Matches this week')}>
             {fixtures.map((f) => (
               <LiveScorecard
                 key={f.id}
@@ -836,20 +853,33 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
       </GameArena>
 
       {previousWeek && previousFixture && previousFinal && (
-        <section className="vf-previous-result" aria-label="Previous featured result">
+        <section
+          className="vf-previous-result"
+          aria-label={translateUi('Previous featured result')}
+        >
           <div>
             <small>
-              Last completed matchweek · {weekLabel(previousWeek.seasonNo, previousWeek.weekNo)}
+              {translateUi('Last completed matchweek · {value}', {
+                value: weekLabel(previousWeek.seasonNo, previousWeek.weekNo),
+              })}
             </small>
             <strong>
               {clubById(previousFixture.homeClub).name} {previousFinal.home} – {previousFinal.away}{' '}
               {clubById(previousFixture.awayClub).name}
             </strong>
             <span>
-              Full time ·{' '}
-              {previousFinal.home === previousFinal.away
-                ? 'Draw'
-                : `${clubById(previousFinal.home > previousFinal.away ? previousFixture.homeClub : previousFixture.awayClub).name} wins`}
+              {translateUi('Full time · {value}', {
+                value:
+                  previousFinal.home === previousFinal.away
+                    ? translateUi('Draw')
+                    : translateUi('{name} wins', {
+                        name: clubById(
+                          previousFinal.home > previousFinal.away
+                            ? previousFixture.homeClub
+                            : previousFixture.awayClub
+                        ).name,
+                      }),
+              })}
             </span>
           </div>
           <button
@@ -860,19 +890,25 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
               setTab('results');
             }}
           >
-            All results
+            {translateUi('All results')}
           </button>
         </section>
       )}
 
       <p className="vf-scene-note">
-        Premier League club-themed simulation · Original kits and badges · Not real fixtures or
-        player likenesses
+        {translateUi(
+          'Premier League club-themed simulation · Original kits and badges · Not real fixtures or player likenesses'
+        )}
       </p>
 
       <div className="vf-layout">
         <section className="vf-main">
-          <div className="vf-tabs" role="tablist" aria-label="Game sections" onKeyDown={onTabKey}>
+          <div
+            className="vf-tabs"
+            role="tablist"
+            aria-label={translateUi('Game sections')}
+            onKeyDown={onTabKey}
+          >
             {(
               [
                 ['markets', 'Markets'],
@@ -894,7 +930,7 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                 tabIndex={tab === key ? 0 : -1}
                 onClick={() => setTab(key)}
               >
-                {label}
+                {translateUi(label)}
               </button>
             ))}
           </div>
@@ -916,10 +952,12 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
                 {!canSelect && (
                   <p className="vf-fine" role="status">
                     {pending
-                      ? 'Resolve your unconfirmed ticket to add more selections.'
+                      ? translateUi('Resolve your unconfirmed ticket to add more selections.')
                       : liveWeek && serverNow !== null && serverNow < liveWeek.kickoffAt
-                        ? 'Selections are paused while the connection recovers.'
-                        : 'Selections are closed for this matchweek. The next one opens soon.'}
+                        ? translateUi('Selections are paused while the connection recovers.')
+                        : translateUi(
+                            'Selections are closed for this matchweek. The next one opens soon.'
+                          )}
                   </p>
                 )}
                 <MarketPanel
@@ -960,16 +998,16 @@ function FootballGame({ userId, clock }: { userId: string; clock: ServerClock })
           ref={ticketControls}
           tabIndex={-1}
           role="region"
-          aria-label="Your ticket controls"
+          aria-label={translateUi('Your ticket controls')}
         >
           {slipView}
         </div>
       </div>
 
       <p className="vf-disclaimer">
-        Club names are a visual theme for simulated matches, not real fixtures or player likenesses.
-        Results are random and previous matches do not predict the next. Practice ETB have no
-        monetary value.
+        {translateUi(
+          'Club names are a visual theme for simulated matches, not real fixtures or player likenesses. Results are random and previous matches do not predict the next. Practice ETB have no monetary value.'
+        )}
       </p>
 
       <ReviewDialog
@@ -994,6 +1032,8 @@ const matchTitle = (f: VfFixtureView) =>
 
 /** Phones: a persistent bar that scrolls to the slip, so the ticket is never lost below the fold. */
 function MobileTray({ count, stake }: { count: number; stake: number }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   if (!count) return null;
   return (
     <div className="vf-tray">
@@ -1003,10 +1043,8 @@ function MobileTray({ count, stake }: { count: number; stake: number }) {
           document.querySelector('.vf-slip')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         }
       >
-        <span>
-          Ticket · {count} selection{count === 1 ? '' : 's'}
-        </span>
-        <b>{formatCredits(stake)} ETB</b>
+        <span>{translateUi('Ticket · {count} selections', { count })}</span>
+        <b>{translateUi('{value} ETB', { value: formatCredits(stake) })}</b>
       </button>
     </div>
   );
@@ -1025,12 +1063,14 @@ function ExpandedMatchDetails({
   fixture: VfFixtureView;
   week: VfMatchweekView;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const display = useDisplay(fixture, week, 100);
   return (
-    <section className="vf-expanded-details" aria-label="Released match details">
-      <h2>Released goals</h2>
+    <section className="vf-expanded-details" aria-label={translateUi('Released match details')}>
+      <h2>{translateUi('Released goals')}</h2>
       {display.events.length ? (
-        <ol aria-label="Released goals">
+        <ol aria-label={translateUi('Released goals')}>
           {display.events.map((goal) => (
             <li key={goal.n}>
               <b>{goal.minute}′</b>{' '}
@@ -1039,10 +1079,12 @@ function ExpandedMatchDetails({
           ))}
         </ol>
       ) : (
-        <p>No goals released yet.</p>
+        <p>{translateUi('No goals released yet.')}</p>
       )}
       <p>
-        Choose another fixture above, or minimize to return to your selections and ticket draft.
+        {translateUi(
+          'Choose another fixture above, or minimize to return to your selections and ticket draft.'
+        )}
       </p>
     </section>
   );

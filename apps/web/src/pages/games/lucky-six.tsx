@@ -1,3 +1,4 @@
+import { luckySixSelectionLabel } from '@/lib/i18n/game-labels';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -14,7 +15,6 @@ import {
   lsCompletion,
   lsStake,
   lsFixedTenths,
-  lsSelectionLabel,
   lsValidate,
 } from '@socialplay/shared';
 import type {
@@ -29,6 +29,7 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
 import { LuckySixMachine } from '@/components/lucky-six/draw-machine';
 import './lucky-six.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const endpoint = '/games/lucky-six';
 const receiptKey = (id: string) => `salem.lucky-six.pending.v1.${id}`;
@@ -229,6 +230,8 @@ export function LuckySixView({
   onSubmit: (entry: Entry) => void;
   onRetry?: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [clock, setClock] = useState(performance.now());
   const [slot, setSlot] = useState(1);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({ 1: emptyDraft() });
@@ -335,100 +338,117 @@ export function LuckySixView({
   return (
     <div className="ls-page">
       <div className="ls-nav">
-        <Link to="/games">← Games</Link>
+        <Link to="/games">{translateUi('← Games')}</Link>
         <span className={connected ? 'ls-connected' : ''}>
-          {connected ? '● Connected' : '○ Connecting'}
+          {connected ? translateUi('● Connected') : translateUi('○ Connecting')}
         </span>
       </div>
       <header className="ls-heading">
         <div>
-          <span className="ls-eyebrow">SALEM ORIGINALS</span>
+          <span className="ls-eyebrow">{translateUi('SALEM ORIGINALS')}</span>
           <h1>
-            Lucky <em>Six</em>
+            {translateUi('Lucky') + ' '}
+            <em>{translateUi('Six')}</em>
             <span className="ls-title-dot" aria-hidden="true">
               ●
             </span>
           </h1>
         </div>
         <div className="ls-balance">
-          <span>Practice balance</span>
+          <span>{translateUi('Practice balance')}</span>
           <strong>
-            {data ? money(data.balance) : '—'} <small>ETB</small>
+            {data ? money(data.balance) : '—'} <small>{'ETB'}</small>
           </strong>
-          <small>No cash value</small>
+          <small>{translateUi('No cash value')}</small>
         </div>
       </header>
       <div className="ls-toolbar">
         <p>
-          <b>Pick six.</b> Follow every ball.
+          <b>{translateUi('Pick six.')}</b>
+          {' ' + translateUi('Follow every ball.')}
         </p>
         <Rules />
         <Dialog.Root>
-          <Dialog.Trigger className="ls-text-button">Recent draws ↗</Dialog.Trigger>
+          <Dialog.Trigger className="ls-text-button">
+            {translateUi('Recent draws ↗')}
+          </Dialog.Trigger>
           <Dialog.Portal>
             <Dialog.Overlay className="ls-overlay" />
             <Dialog.Content className="ls-dialog">
-              <Dialog.Title>Recent Lucky Six draws</Dialog.Title>
+              <Dialog.Title>{translateUi('Recent Lucky Six draws')}</Dialog.Title>
               <Dialog.Description>
-                Completed results and your confirmed practice bets.
+                {translateUi('Completed results and your confirmed practice bets.')}
               </Dialog.Description>
               {results.length ? (
                 results.map((r) => (
                   <article className="ls-history" key={r.id}>
-                    <strong>Draw {r.id.replace('ls-', '')}</strong>
+                    <strong>
+                      {translateUi('Draw {value}', { value: r.id.replace('ls-', '') })}
+                    </strong>
                     <div className="ls-history-balls">
                       {r.revealed.map((n, i) => (
-                        <span key={n} style={colored(n)} title={`Ball ${i + 1}`}>
+                        <span
+                          key={n}
+                          style={colored(n)}
+                          title={translateUi('Ball {value}', { value: i + 1 })}
+                        >
                           {n}
                         </span>
                       ))}
                     </div>
                     {r.tickets.map((t) => (
                       <p key={t.id}>
-                        Bet {t.slot} · {lsSelectionLabel(t.market, t.picks)} ·{' '}
-                        {t.payout === null ? 'Return pending' : `${money(t.payout)} ETB returned`}
+                        {translateUi('Bet {slot} · {value} · {value2}', {
+                          slot: t.slot,
+                          value: luckySixSelectionLabel(t.market, t.picks, translateUi),
+                          value2:
+                            t.payout === null
+                              ? translateUi('Return pending')
+                              : translateUi('{value} ETB returned', { value: money(t.payout) }),
+                        })}
                       </p>
                     ))}
                   </article>
                 ))
               ) : (
-                <p>No completed draws yet.</p>
+                <p>{translateUi('No completed draws yet.')}</p>
               )}
-              <Dialog.Close className="ls-primary">Close results</Dialog.Close>
+              <Dialog.Close className="ls-primary">{translateUi('Close results')}</Dialog.Close>
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
       </div>
       {!connected && (
         <p className="ls-notice" role="alert">
-          {connectionMessage ?? 'Reconnecting. Bet entry pauses until a fresh update arrives.'}
+          {connectionMessage ??
+            translateUi('Reconnecting. Bet entry pauses until a fresh update arrives.')}
         </p>
       )}
       {connected && !round && (
         <p className="ls-notice" role="status">
-          Waiting for the next scheduled draw…
+          {translateUi('Waiting for the next scheduled draw…')}
         </p>
       )}
       {error && (
         <p className="ls-notice" role="alert">
-          {error}
+          {translateUi(error)}
         </p>
       )}
       <div className="ls-table">
-        <section className="ls-studio" aria-label="Live practice draw">
+        <section className="ls-studio" aria-label={translateUi('Live practice draw')}>
           <div className="ls-studio-heading">
             <span className="ls-dot" />
             {!connected
-              ? 'Connecting'
+              ? translateUi('Connecting')
               : !round
-                ? 'Next draw pending'
+                ? translateUi('Next draw pending')
                 : open
-                  ? 'Place your bets'
+                  ? translateUi('Place your bets')
                   : complete
-                    ? 'Draw complete'
-                    : 'Drawing now'}
+                    ? translateUi('Draw complete')
+                    : translateUi('Drawing now')}
             <span className="ls-countdown" role="timer">
-              {open ? 'Closes in' : 'Next draw'} <b>{countdown}</b>
+              {open ? translateUi('Closes in') : translateUi('Next draw')} <b>{countdown}</b>
             </span>
           </div>
           <LuckySixMachine latest={revealed.at(-1) ?? null} drawing={drawing && connected} />
@@ -436,11 +456,13 @@ export function LuckySixView({
             <div className="ls-draw-label">
               <strong>
                 {revealed.length}
-                <span> / 35 balls</span>
+                <span>{' ' + translateUi('/ 35 balls')}</span>
               </strong>
-              <small>Draw {display?.id.replace('ls-', '') ?? '—'}</small>
+              <small>
+                {translateUi('Draw {value}', { value: display?.id.replace('ls-', '') ?? '—' })}
+              </small>
             </div>
-            <ol className="ls-balls" aria-label="Released balls">
+            <ol className="ls-balls" aria-label={translateUi('Released balls')}>
               {Array.from({ length: 35 }, (_, i) => {
                 const n = revealed[i];
                 return (
@@ -448,7 +470,11 @@ export function LuckySixView({
                     key={i}
                     style={n ? colored(n) : undefined}
                     className={`${i < 5 ? 'preball' : ''} ${n ? 'released' : ''} ${n && numberMarket && picks.includes(n) && (market === 'SIX' || i < 5) ? 'match' : ''}`}
-                    aria-label={n ? `Ball ${i + 1}: ${n}` : `Ball ${i + 1}: waiting`}
+                    aria-label={
+                      n
+                        ? translateUi('Ball {value}: {n}', { value: i + 1, n: n })
+                        : translateUi('Ball {value}: waiting', { value: i + 1 })
+                    }
                   >
                     {n ?? <span>·</span>}
                   </li>
@@ -457,28 +483,36 @@ export function LuckySixView({
             </ol>
             <p className="ls-result-note" aria-live="polite">
               {completion
-                ? `Six matched at ball ${completion} · ${LS_SIX_TENTHS[completion - 6] / 10}× return`
+                ? translateUi('Six matched at ball {completion} · {value}× return', {
+                    completion: completion,
+                    value: LS_SIX_TENTHS[completion - 6] / 10,
+                  })
                 : revealed.length
-                  ? `Ball ${revealed.length}: ${revealed.at(-1)} · ${LS_COLORS[lsColor(revealed.at(-1)!)].name}`
-                  : 'The first five slots are the pre-balls.'}
+                  ? translateUi('Ball {length}: {value} · {name}', {
+                      length: revealed.length,
+                      value: revealed.at(-1) ?? '',
+                      name: translateUi(LS_COLORS[lsColor(revealed.at(-1)!)].name),
+                    })
+                  : translateUi('The first five slots are the pre-balls.')}
             </p>
           </div>
           <div className="ls-studio-footer">
-            <span>Every five minutes</span>
-            <span>35 of 48 · Free practice</span>
+            <span>{translateUi('Every five minutes')}</span>
+            <span>{translateUi('35 of 48 · Free practice')}</span>
           </div>
         </section>
-        <section className="ls-play" aria-label="Place a practice bet">
-          <div className="ls-ticket-tabs" role="group" aria-label="Your bets">
+        <section className="ls-play" aria-label={translateUi('Place a practice bet')}>
+          <div className="ls-ticket-tabs" role="group" aria-label={translateUi('Your bets')}>
             {slots.map((n) => (
               <button key={n} type="button" aria-pressed={slot === n} onClick={() => setSlot(n)}>
-                Bet {n}
+                {translateUi('Bet') + ' '}
+                {n}
                 <small>
                   {tickets.some((t) => t.slot === n)
-                    ? '✓ Saved'
+                    ? translateUi('✓ Saved')
                     : pending?.slot === n && pending.roundId === round?.id
-                      ? 'Checking'
-                      : 'Draft'}
+                      ? translateUi('Checking')
+                      : translateUi('Draft')}
                 </small>
               </button>
             ))}
@@ -491,11 +525,15 @@ export function LuckySixView({
                   setSlot(nextSlot);
                 }}
               >
-                + Add bet
+                {translateUi('+ Add bet')}
               </button>
             )}
           </div>
-          <div className="ls-market-groups" role="group" aria-label="Market category">
+          <div
+            className="ls-market-groups"
+            role="group"
+            aria-label={translateUi('Market category')}
+          >
             {Object.keys(groups).map((g) => (
               <button
                 key={g}
@@ -508,7 +546,7 @@ export function LuckySixView({
             ))}
           </div>
           <div className="ls-market-select">
-            <label htmlFor="ls-market">Bet type</label>
+            <label htmlFor="ls-market">{translateUi('Bet type')}</label>
             <select
               id="ls-market"
               value={market}
@@ -517,15 +555,18 @@ export function LuckySixView({
             >
               {groups[group].map((m) => (
                 <option key={m} value={m}>
-                  {LS_LABELS[m]}
+                  {translateUi(LS_LABELS[m])}
                 </option>
               ))}
             </select>
             <strong>{fixed === null ? '6 / 48' : `${fixed / 10}×`}</strong>
           </div>
-          <p className="ls-market-caption">{LS_DESCRIPTIONS[market]}</p>
+          <p className="ls-market-caption">{translateUi(LS_DESCRIPTIONS[market])}</p>
           {market === 'SIX' && (
-            <div className="ls-six-slots" aria-label={`${picks.length} of 6 numbers selected`}>
+            <div
+              className="ls-six-slots"
+              aria-label={translateUi('{length} of 6 numbers selected', { length: picks.length })}
+            >
               {Array.from({ length: 6 }, (_, i) => (
                 <span
                   key={i}
@@ -541,7 +582,7 @@ export function LuckySixView({
             <div
               className={`ls-options ${market.endsWith('COLOR') ? 'color-options' : ''}`}
               role="group"
-              aria-label={`${LS_LABELS[market]} options`}
+              aria-label={translateUi('{value} options', { value: translateUi(LS_LABELS[market]) })}
             >
               {Array.from({ length: market.endsWith('COLOR') ? 8 : 2 }, (_, i) => i + 1).map(
                 (n) => (
@@ -553,7 +594,7 @@ export function LuckySixView({
                     onClick={() => update({ picks: [n] })}
                   >
                     {market.endsWith('COLOR') && <i />}
-                    {lsSelectionLabel(market, [n])}
+                    {luckySixSelectionLabel(market, [n], translateUi)}
                     {picks.includes(n) && <span aria-hidden="true"> ✓</span>}
                   </button>
                 )
@@ -563,7 +604,7 @@ export function LuckySixView({
           <div
             className={`ls-board ${!numberMarket ? 'is-coverage' : ''}`}
             role="group"
-            aria-label="48-number board"
+            aria-label={translateUi('48-number board')}
           >
             {Array.from({ length: 48 }, (_, i) => i + 1).map((n) => {
               const selected = covered.includes(n),
@@ -577,7 +618,10 @@ export function LuckySixView({
                   key={n}
                   type="button"
                   style={colored(n)}
-                  aria-label={`Number ${n}${drawn ? ', drawn' : ''}`}
+                  aria-label={translateUi('Number {n}{value}', {
+                    n: n,
+                    value: drawn ? translateUi(', drawn') : '',
+                  })}
                   aria-pressed={selected}
                   disabled={locked || !numberMarket}
                   onClick={() => toggle(n)}
@@ -592,10 +636,10 @@ export function LuckySixView({
           <div className="ls-board-bottom">
             <span>
               {market === 'SIX'
-                ? `${picks.length} / 6 selected`
+                ? translateUi('{length} / 6 selected', { length: picks.length })
                 : numberMarket
-                  ? `${picks.length} / 1 selected`
-                  : 'Eight colors · six balls each'}
+                  ? translateUi('{length} / 1 selected', { length: picks.length })
+                  : translateUi('Eight colors · six balls each')}
             </span>
             <div>
               <button
@@ -603,32 +647,40 @@ export function LuckySixView({
                 disabled={locked || !numberMarket}
                 onClick={quickPick}
               >
-                Quick pick {market === 'SIX' ? '6' : '1'}
+                {translateUi('Quick pick {value}', { value: market === 'SIX' ? '6' : '1' })}
               </button>
               <button
                 className="ls-text-button"
                 disabled={locked || !picks.length || market === 'ALL_COLORS'}
                 onClick={() => update({ picks: [] })}
               >
-                Clear
+                {translateUi('Clear')}
               </button>
             </div>
           </div>
           <div className="ls-slip">
             <div className="ls-slip-selection">
-              <span>{ticket ? 'CONFIRMED SELECTION' : `BET ${slot} SELECTION`}</span>
+              <span>
+                {ticket
+                  ? translateUi('CONFIRMED SELECTION')
+                  : translateUi('BET {slot} SELECTION', { slot: slot })}
+              </span>
               <strong>
-                {picks.length ? lsSelectionLabel(market, picks) : 'Choose your selection above'}
+                {picks.length
+                  ? luckySixSelectionLabel(market, picks, translateUi)
+                  : translateUi('Choose your selection above')}
               </strong>
             </div>
             <div className="ls-stake-row">
               <div>
                 <label htmlFor="ls-amount">
-                  {market === 'ALL_COLORS' ? 'ETB per color line' : 'Bet amount · ETB'}
+                  {market === 'ALL_COLORS'
+                    ? translateUi('ETB per color line')
+                    : translateUi('Bet amount · ETB')}
                 </label>
                 <div className="ls-stepper">
                   <button
-                    aria-label="Decrease amount"
+                    aria-label={translateUi('Decrease amount')}
                     disabled={locked || amount <= 5}
                     onClick={() => update({ text: String(Math.max(5, amount - 5)) })}
                   >
@@ -643,7 +695,7 @@ export function LuckySixView({
                     onChange={(e) => update({ text: e.target.value })}
                   />
                   <button
-                    aria-label="Increase amount"
+                    aria-label={translateUi('Increase amount')}
                     disabled={locked || amount >= (market === 'ALL_COLORS' ? 60 : 500)}
                     onClick={() =>
                       update({
@@ -656,16 +708,18 @@ export function LuckySixView({
                 </div>
               </div>
               <div className="ls-total">
-                <span>Total bet</span>
+                <span>{translateUi('Total bet')}</span>
                 <strong>
-                  {money(cost || 0)} <small>ETB</small>
+                  {money(cost || 0)} <small>{'ETB'}</small>
                 </strong>
               </div>
             </div>
             <p className="ls-return-note">
               {valid
-                ? `${scopeReturn(market, amount)}. Returns include stake.`
-                : 'Steps of 5 ETB · Up to 500 ETB per bet.'}
+                ? translateUi('{value}. Returns include stake.', {
+                    value: scopeReturn(market, amount),
+                  })
+                : translateUi('Steps of 5 ETB · Up to 500 ETB per bet.')}
             </p>
             <button
               className="ls-primary"
@@ -675,21 +729,24 @@ export function LuckySixView({
               }
             >
               {ticket
-                ? '✓ Bet confirmed'
+                ? translateUi('✓ Bet confirmed')
                 : pending
-                  ? 'Checking confirmation…'
+                  ? translateUi('Checking confirmation…')
                   : !open
-                    ? 'Bets are closed'
-                    : `Review bet · ${money(cost || 0)} ETB`}
+                    ? translateUi('Bets are closed')
+                    : translateUi('Review bet · {value} ETB', { value: money(cost || 0) })}
             </button>
             {valid && !ticket && cost > (data?.balance ?? 0) && (
-              <p className="ls-warning">Not enough practice ETB for this bet.</p>
+              <p className="ls-warning">{translateUi('Not enough practice ETB for this bet.')}</p>
             )}
             {ticket && complete && (
               <p className="ls-receipt-result" role="status">
                 {ticket.payout === null
-                  ? 'Your return is being settled.'
-                  : `${money(ticket.payout)} ETB returned · Bet ${ticket.slot}`}
+                  ? translateUi('Your return is being settled.')
+                  : translateUi('{value} ETB returned · Bet {slot}', {
+                      value: money(ticket.payout),
+                      slot: ticket.slot,
+                    })}
               </p>
             )}
           </div>
@@ -697,23 +754,26 @@ export function LuckySixView({
       </div>
       {notice && (
         <p className="ls-notice" role="status">
-          {notice}
+          {translateUi(notice)}
         </p>
       )}
       {pending && !submitting && (
         <div className="ls-pending">
-          <p>One bet is awaiting confirmation. Retry checks the same receipt.</p>
+          <p>{translateUi('One bet is awaiting confirmation. Retry checks the same receipt.')}</p>
           <button onClick={onRetry} disabled={!connected || !!error}>
-            Retry unconfirmed bet
+            {translateUi('Retry unconfirmed bet')}
           </button>
         </div>
       )}
       {!!tickets.length && (
-        <section className="ls-saved" aria-label="Saved bets">
+        <section className="ls-saved" aria-label={translateUi('Saved bets')}>
           <header>
-            <h2>Your bets this draw</h2>
+            <h2>{translateUi('Your bets this draw')}</h2>
             <span>
-              {tickets.length} / {maxTickets} confirmed
+              {translateUi('{length} / {maxTickets} confirmed', {
+                length: tickets.length,
+                maxTickets: maxTickets,
+              })}
             </span>
           </header>
           <div>
@@ -724,18 +784,19 @@ export function LuckySixView({
                 onClick={() => setSlot(t.slot)}
               >
                 <span>
-                  <b>Bet {t.slot}</b>
-                  <strong>{money(t.stake)} ETB</strong>
+                  <b>{translateUi('Bet {slot}', { slot: t.slot })}</b>
+                  <strong>{translateUi('{value} ETB', { value: money(t.stake) })}</strong>
                 </span>
                 <small>
-                  {LS_LABELS[t.market]} · {lsSelectionLabel(t.market, t.picks)}
+                  {translateUi(LS_LABELS[t.market])} ·{' '}
+                  {luckySixSelectionLabel(t.market, t.picks, translateUi)}
                 </small>
                 <em>
                   {complete
                     ? t.payout === null
-                      ? 'Return pending'
-                      : `${money(t.payout)} ETB returned`
-                    : 'Confirmed · waiting for results'}
+                      ? translateUi('Return pending')
+                      : translateUi('{value} ETB returned', { value: money(t.payout) })
+                    : translateUi('Confirmed · waiting for results')}
                 </em>
               </button>
             ))}
@@ -743,32 +804,43 @@ export function LuckySixView({
         </section>
       )}
       <p className="ls-disclosure">
-        Practice ETB only · No deposits or redeemable prizes · Salem's original rules
+        {translateUi(
+          "Practice ETB only · No deposits or redeemable prizes · Salem's original rules"
+        )}
       </p>
       <Dialog.Root open={!!review} onOpenChange={(v) => !v && setReview(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="ls-overlay" />
           <Dialog.Content className="ls-dialog">
-            <Dialog.Title>Confirm Bet {review?.slot}</Dialog.Title>
+            <Dialog.Title>
+              {translateUi('Confirm Bet {slot}', { slot: review?.slot ?? '' })}
+            </Dialog.Title>
             <Dialog.Description>
-              Review your practice selection. A confirmed bet cannot be changed.
+              {translateUi('Review your practice selection. A confirmed bet cannot be changed.')}
             </Dialog.Description>
             {review && (
               <>
                 <div className="ls-review-choice">
-                  <span>{LS_LABELS[review.market]}</span>
-                  <strong>{lsSelectionLabel(review.market, review.picks)}</strong>
-                  <p>{LS_DESCRIPTIONS[review.market]}</p>
+                  <span>{translateUi(LS_LABELS[review.market])}</span>
+                  <strong>
+                    {luckySixSelectionLabel(review.market, review.picks, translateUi)}
+                  </strong>
+                  <p>{translateUi(LS_DESCRIPTIONS[review.market])}</p>
                 </div>
                 <dl className="ls-review-totals">
-                  <dt>Total bet</dt>
-                  <dd>{money(lsStake(review.market, review.amount))} ETB</dd>
-                  <dt>Return</dt>
+                  <dt>{translateUi('Total bet')}</dt>
+                  <dd>
+                    {translateUi('{value} ETB', {
+                      value: money(lsStake(review.market, review.amount)),
+                    })}
+                  </dd>
+                  <dt>{translateUi('Return')}</dt>
                   <dd>{scopeReturn(review.market, review.amount)}</dd>
                 </dl>
                 <p>
-                  Returns include the stake and settle after ball 35. Practice ETB has no cash
-                  value.
+                  {translateUi(
+                    'Returns include the stake and settle after ball 35. Practice ETB has no cash value.'
+                  )}
                 </p>
                 <button
                   className="ls-primary"
@@ -783,11 +855,11 @@ export function LuckySixView({
                     setReview(null);
                   }}
                 >
-                  Confirm practice bet
+                  {translateUi('Confirm practice bet')}
                 </button>
               </>
             )}
-            <Dialog.Close className="ls-secondary">Keep editing</Dialog.Close>
+            <Dialog.Close className="ls-secondary">{translateUi('Keep editing')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -795,62 +867,73 @@ export function LuckySixView({
   );
 }
 function Rules() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <Dialog.Root>
-      <Dialog.Trigger className="ls-text-button">How to play ↗</Dialog.Trigger>
+      <Dialog.Trigger className="ls-text-button">{translateUi('How to play ↗')}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="ls-overlay" />
         <Dialog.Content className="ls-dialog">
-          <Dialog.Title>How to play Lucky Six</Dialog.Title>
+          <Dialog.Title>{translateUi('How to play Lucky Six')}</Dialog.Title>
           <Dialog.Description>
-            Salem's original practice rules. Choose your bets before the countdown closes.
+            {translateUi(
+              "Salem's original practice rules. Choose your bets before the countdown closes."
+            )}
           </Dialog.Description>
           <ol className="ls-rules-steps">
             <li>
-              New rounds begin every five minutes. You have 3 minutes 30 seconds to place bets.
+              {translateUi(
+                'New rounds begin every five minutes. You have 3 minutes 30 seconds to place bets.'
+              )}
             </li>
             <li>
-              The server draws 35 different balls from 1–48, revealing one every two seconds. The
-              first five are the pre-balls.
+              {translateUi(
+                'The server draws 35 different balls from 1–48, revealing one every two seconds. The first five are the pre-balls.'
+              )}
             </li>
             <li>
-              Pick exactly six numbers for one amount. All six must appear; the position of your
-              sixth match sets the return.
+              {translateUi(
+                'Pick exactly six numbers for one amount. All six must appear; the position of your sixth match sets the return.'
+              )}
             </li>
             <li>
-              Keep up to ten independent confirmed bets per draw. Each bet has its own selection and
-              amount.
+              {translateUi(
+                'Keep up to ten independent confirmed bets per draw. Each bet has its own selection and amount.'
+              )}
             </li>
           </ol>
-          <h3>Six-match returns</h3>
+          <h3>{translateUi('Six-match returns')}</h3>
           <p>
-            Gross multiples of the amount, including the stake. Fewer than six matches returns zero.
+            {translateUi(
+              'Gross multiples of the amount, including the stake. Fewer than six matches returns zero.'
+            )}
           </p>
           <div className="ls-payout-grid">
             {LS_SIX_TENTHS.map((mult, i) => (
               <div key={i} className={i === 29 ? 'last' : ''}>
-                <span>Ball {i + 6}</span>
+                <span>{translateUi('Ball {value}', { value: i + 6 })}</span>
                 <b>{(mult / 10).toLocaleString('en-US')}×</b>
               </div>
             ))}
           </div>
-          <h3>Other bet types</h3>
+          <h3>{translateUi('Other bet types')}</h3>
           <table className="ls-rules-table">
             <thead>
               <tr>
-                <th>Market</th>
-                <th>Rule</th>
-                <th>Gross return</th>
+                <th>{translateUi('Market')}</th>
+                <th>{translateUi('Rule')}</th>
+                <th>{translateUi('Gross return')}</th>
               </tr>
             </thead>
             <tbody>
               {LS_MARKETS.filter((m) => m !== 'SIX').map((m) => (
                 <tr key={m}>
-                  <td>{LS_LABELS[m]}</td>
-                  <td>{LS_DESCRIPTIONS[m]}</td>
+                  <td>{translateUi(LS_LABELS[m])}</td>
+                  <td>{translateUi(LS_DESCRIPTIONS[m])}</td>
                   <td>
                     {lsFixedTenths(m) === null
-                      ? 'Six-match table per line'
+                      ? translateUi('Six-match table per line')
                       : `${lsFixedTenths(m)! / 10}×`}
                   </td>
                 </tr>
@@ -858,21 +941,22 @@ function Rules() {
             </tbody>
           </table>
           <p>
-            Colors repeat every eight numbers: Red 1, 9, 17, 25, 33, 41; Green 2, 10, 18, 26, 34,
-            42; and so on through Pink 8, 16, 24, 32, 40, 48. All colors buys all eight six-number
-            lines in one ticket.
+            {translateUi(
+              'Colors repeat every eight numbers: Red 1, 9, 17, 25, 33, 41; Green 2, 10, 18, 26, 34, 42; and so on through Pink 8, 16, 24, 32, 40, 48. All colors buys all eight six-number lines in one ticket.'
+            )}
           </p>
           <p>
-            Amount steps are 5 ETB, up to 500 ETB total per bet. All colors uses 5–60 ETB per line,
-            costing 40–480 ETB total. Every return settles after the final ball.
+            {translateUi(
+              'Amount steps are 5 ETB, up to 500 ETB total per bet. All colors uses 5–60 ETB per line, costing 40–480 ETB total. Every return settles after the final ball.'
+            )}
           </p>
           <p>
-            You start with 1,000 separate practice ETB. Six-number lines have a theoretical gross
-            return of about 92.18%; other markets have different returns. A round may return zero.
-            Most color refunds every bet on that market when two or more colors tie for the lead.
+            {translateUi(
+              'You start with 1,000 separate practice ETB. Six-number lines have a theoretical gross return of about 92.18%; other markets have different returns. A round may return zero. Most color refunds every bet on that market when two or more colors tie for the lead.'
+            )}
           </p>
-          <p>No jackpots, automatic repeat bets, deposits or redeemable prizes.</p>
-          <Dialog.Close className="ls-primary">Got it</Dialog.Close>
+          <p>{translateUi('No jackpots, automatic repeat bets, deposits or redeemable prizes.')}</p>
+          <Dialog.Close className="ls-primary">{translateUi('Got it')}</Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

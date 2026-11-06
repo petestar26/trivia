@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -51,7 +52,7 @@ vi.mock('@/lib/api', () => ({
 // verify errors are surfaced accessibly, not just silently swallowed.
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
+  useToast: () => ({ toast: (payload: unknown) => toastMock(toastDisplay(payload)) }),
 }));
 
 import { api } from '@/lib/api';
@@ -92,7 +93,9 @@ const baseGroup = {
 
 function renderPage(
   groupId = 'g-1',
-  client: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  client: QueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
 ) {
   return render(
     <QueryClientProvider client={client}>
@@ -143,26 +146,47 @@ describe('GroupDetailPage', () => {
 
   describe('non-member view', () => {
     it('shows join button for public group', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isMember: false, memberRole: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: { ...baseGroup, isMember: false, memberRole: null },
+      });
       renderPage();
       expect(await screen.findByText('Test Group')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Join' })).toBeInTheDocument();
     });
 
     it('shows request-to-join button for private group', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null },
+      });
       renderPage();
       expect(await screen.findByText('Request to join')).toBeInTheDocument();
     });
 
     it('shows request pending when requestStatus is PENDING', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, requestStatus: 'PENDING' } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isPrivate: true,
+          isMember: false,
+          memberRole: null,
+          requestStatus: 'PENDING',
+        },
+      });
       renderPage();
       expect(await screen.findByText('Request pending')).toBeInTheDocument();
     });
 
     it('renders the persistent banned message and no Request to join when viewerMembershipStatus is BANNED', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isPrivate: true,
+          isMember: false,
+          memberRole: null,
+          viewerMembershipStatus: 'BANNED',
+          requestStatus: null,
+        },
+      });
       renderPage();
       expect(await screen.findByText('You have been banned from this group.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Request to join' })).not.toBeInTheDocument();
@@ -170,7 +194,16 @@ describe('GroupDetailPage', () => {
     });
 
     it('does not call the join-request API for a banned caller', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isPrivate: true,
+          isMember: false,
+          memberRole: null,
+          viewerMembershipStatus: 'BANNED',
+          requestStatus: null,
+        },
+      });
       renderPage();
       await screen.findByText('You have been banned from this group.');
       expect(mocked.requestJoinGroup).not.toHaveBeenCalled();
@@ -178,7 +211,16 @@ describe('GroupDetailPage', () => {
     });
 
     it('shows Request to join for an eligible non-member with viewerMembershipStatus null', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: null, requestStatus: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isPrivate: true,
+          isMember: false,
+          memberRole: null,
+          viewerMembershipStatus: null,
+          requestStatus: null,
+        },
+      });
       renderPage();
       const card = await screen.findByText('Test Group');
       const joinButton = card.closest('.border')!.querySelector('button');
@@ -188,14 +230,31 @@ describe('GroupDetailPage', () => {
     });
 
     it('PENDING renders the existing pending state and not the banned message', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, isMember: false, memberRole: null, viewerMembershipStatus: 'PENDING', requestStatus: 'PENDING' } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isPrivate: true,
+          isMember: false,
+          memberRole: null,
+          viewerMembershipStatus: 'PENDING',
+          requestStatus: 'PENDING',
+        },
+      });
       renderPage();
       expect(await screen.findByText('Request pending')).toBeInTheDocument();
       expect(screen.queryByText('You have been banned from this group.')).not.toBeInTheDocument();
     });
 
     it('exposes the banned message through an accessible status role without CSS reliance', async () => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isMember: false, memberRole: null, viewerMembershipStatus: 'BANNED', requestStatus: null } });
+      mocked.getGroup.mockResolvedValue({
+        data: {
+          ...baseGroup,
+          isMember: false,
+          memberRole: null,
+          viewerMembershipStatus: 'BANNED',
+          requestStatus: null,
+        },
+      });
       renderPage();
       const status = await screen.findByRole('status');
       expect(status).toBeInTheDocument();
@@ -208,7 +267,7 @@ describe('GroupDetailPage', () => {
       renderPage();
       expect(await screen.findByText('Test Group')).toBeInTheDocument();
       expect(screen.getByText('A test group')).toBeInTheDocument();
-      expect(screen.getByText('MEMBER')).toBeInTheDocument();
+      expect(screen.getByText('Member', { selector: 'span.rounded-full' })).toBeInTheDocument();
     });
 
     it('shows Leave button', async () => {
@@ -220,8 +279,22 @@ describe('GroupDetailPage', () => {
     it('loads and displays members', async () => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u1', username: 'alice', displayName: 'Alice' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u2', username: 'bob', displayName: 'Bob' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u1', username: 'alice', displayName: 'Alice' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u2', username: 'bob', displayName: 'Bob' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
       renderPage();
@@ -239,16 +312,33 @@ describe('GroupDetailPage', () => {
     it('does not show role/change controls for the owner themselves', async () => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u2', username: 'bob', displayName: 'Bob' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u2', username: 'bob', displayName: 'Bob' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
       renderPage();
-      await screen.findByText('Owner');
+      await screen.findByText('Owner', { selector: 'span.text-sm.font-medium' });
       // Owner's row has no role select, Remove, or Transfer controls; the non-owner
       // row (Bob) does. Find each member's row container and assert inside it only.
       const findRow = (name: string) =>
-        screen.getByText(name).closest('.border')!.closest('.border') as HTMLElement;
+        screen
+          .getByText(name, { selector: 'span.text-sm.font-medium' })
+          .closest('.border')!
+          .closest('.border') as HTMLElement;
       const ownerRow = findRow('Owner');
       const bobRow = findRow('Bob');
       expect(ownerRow.querySelector('select')).toBeNull();
@@ -260,12 +350,26 @@ describe('GroupDetailPage', () => {
     it('shows pending requests when they exist', async () => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
       mocked.listJoinRequests.mockResolvedValue({
         data: [
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-pending', username: 'pending', displayName: 'Pending User' }, role: 'MEMBER', status: 'PENDING', joinedAt: '' },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-pending', username: 'pending', displayName: 'Pending User' },
+            role: 'MEMBER',
+            status: 'PENDING',
+            joinedAt: '',
+          },
         ],
       });
       renderPage();
@@ -277,11 +381,31 @@ describe('GroupDetailPage', () => {
 
   describe('invite form (private group, manager)', () => {
     beforeEach(() => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, memberRole: 'OWNER' } });
+      mocked.getGroup.mockResolvedValue({
+        data: { ...baseGroup, isPrivate: true, memberRole: 'OWNER' },
+      });
       mocked.listGroupInvites.mockResolvedValue({
         success: true,
-        data: [{ id: 'inv-1', email: 'alice@test.com', role: 'MEMBER', status: 'PENDING', token: 'tok-alice', expiresAt: '', invitedBy: '', createdAt: '' }],
-        meta: { total: 1, page: 1, limit: 50, totalPages: 1, hasNextPage: false, hasPrevPage: false },
+        data: [
+          {
+            id: 'inv-1',
+            email: 'alice@test.com',
+            role: 'MEMBER',
+            status: 'PENDING',
+            token: 'tok-alice',
+            expiresAt: '',
+            invitedBy: '',
+            createdAt: '',
+          },
+        ],
+        meta: {
+          total: 1,
+          page: 1,
+          limit: 50,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
       });
     });
 
@@ -299,9 +423,13 @@ describe('GroupDetailPage', () => {
       mocked.createGroupInvite.mockResolvedValue({ data: { id: 'inv-2' } });
       renderPage();
       await screen.findByPlaceholderText('user@example.com');
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'new@test.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
-      await waitFor(() => expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER'));
+      await waitFor(() =>
+        expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER')
+      );
     });
 
     it('copies the invite link after creation', async () => {
@@ -313,9 +441,13 @@ describe('GroupDetailPage', () => {
       mocked.createGroupInvite.mockResolvedValue({ data: { id: 'inv-2', token: 'tok-abc' } });
       renderPage();
       await screen.findByPlaceholderText('user@example.com');
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'new@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'new@test.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
-      await waitFor(() => expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER'));
+      await waitFor(() =>
+        expect(mocked.createGroupInvite).toHaveBeenCalledWith('g-1', 'new@test.com', 'MEMBER')
+      );
       expect(clipboardSpy).toHaveBeenCalledWith(expect.stringContaining('/groups/invite/tok-abc'));
       clipboardSpy.mockRestore();
     });
@@ -336,7 +468,9 @@ describe('GroupDetailPage', () => {
     const PAGE = 50;
 
     beforeEach(() => {
-      mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, isPrivate: true, memberRole: 'OWNER' } });
+      mocked.getGroup.mockResolvedValue({
+        data: { ...baseGroup, isPrivate: true, memberRole: 'OWNER' },
+      });
     });
 
     // Pages of `count` invites starting at `start`, following the backend's
@@ -345,7 +479,14 @@ describe('GroupDetailPage', () => {
     const pageOf = (start: number, count: number, total: number, page: number) => ({
       success: true,
       data: Array.from({ length: count }, (_, i) => inv(start + i)),
-      meta: { total, page, limit: PAGE, totalPages: Math.ceil(total / PAGE), hasNextPage: start + count - 1 < total, hasPrevPage: page > 1 },
+      meta: {
+        total,
+        page,
+        limit: PAGE,
+        totalPages: Math.ceil(total / PAGE),
+        hasNextPage: start + count - 1 < total,
+        hasPrevPage: page > 1,
+      },
     });
 
     const mockPages = (total: number) => {
@@ -384,8 +525,14 @@ describe('GroupDetailPage', () => {
       await screen.findByText('invite-51@test.com');
       expect(screen.getByText('invite-1@test.com')).toBeInTheDocument();
       expect(screen.getByText('Active invites (100)')).toBeInTheDocument();
-      expect(mocked.listGroupInvites).toHaveBeenCalledWith('g-1', expect.objectContaining({ page: 1 }));
-      expect(mocked.listGroupInvites).toHaveBeenCalledWith('g-1', expect.objectContaining({ page: 2 }));
+      expect(mocked.listGroupInvites).toHaveBeenCalledWith(
+        'g-1',
+        expect.objectContaining({ page: 1 })
+      );
+      expect(mocked.listGroupInvites).toHaveBeenCalledWith(
+        'g-1',
+        expect.objectContaining({ page: 2 })
+      );
     });
 
     it('copies an invite loaded from a later page', async () => {
@@ -400,7 +547,9 @@ describe('GroupDetailPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
       await screen.findByText('invite-51@test.com');
       fireEvent.click(screen.getByRole('button', { name: `Copy link for invite-51@test.com` }));
-      await waitFor(() => expect(clipboardSpy).toHaveBeenCalledWith(expect.stringContaining('/groups/invite/tok-51')));
+      await waitFor(() =>
+        expect(clipboardSpy).toHaveBeenCalledWith(expect.stringContaining('/groups/invite/tok-51'))
+      );
       clipboardSpy.mockRestore();
     });
 
@@ -411,7 +560,9 @@ describe('GroupDetailPage', () => {
       await screen.findByText('invite-1@test.com');
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
       await screen.findByText('invite-51@test.com');
-      const row = screen.getByText('invite-51@test.com').closest('div[class*="rounded-md"]') as HTMLElement;
+      const row = screen
+        .getByText('invite-51@test.com')
+        .closest('div[class*="rounded-md"]') as HTMLElement;
       fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }));
       await waitFor(() => expect(mocked.revokeGroupInvite).toHaveBeenCalledWith('g-1', 'inv-51'));
     });
@@ -426,7 +577,14 @@ describe('GroupDetailPage', () => {
         return Promise.resolve({
           success: true,
           data: [inv(50), ...Array.from({ length: 20 }, (_, i) => inv(51 + i))],
-          meta: { total: 70, page: 2, limit: PAGE, totalPages: 2, hasNextPage: false, hasPrevPage: true },
+          meta: {
+            total: 70,
+            page: 2,
+            limit: PAGE,
+            totalPages: 2,
+            hasNextPage: false,
+            hasPrevPage: true,
+          },
         });
       });
       renderPage();
@@ -441,7 +599,9 @@ describe('GroupDetailPage', () => {
 
     it('sends exactly one next-page request on rapid Load-more activation', async () => {
       let resolvePageTwo: (v: unknown) => void;
-      const gate = new Promise((r) => { resolvePageTwo = r as (v: unknown) => void; });
+      const gate = new Promise((r) => {
+        resolvePageTwo = r as (v: unknown) => void;
+      });
       const seenPages: number[] = [];
       mocked.listGroupInvites.mockImplementation((_g, params) => {
         const page = params?.page ?? 1;
@@ -461,7 +621,9 @@ describe('GroupDetailPage', () => {
       await waitFor(() => expect(seenPages).toContain(2));
       // Only one request reached the server for page 2 despite two clicks.
       expect(seenPages.filter((p) => p === 2)).toHaveLength(1);
-      await act(async () => { resolvePageTwo(null); });
+      await act(async () => {
+        resolvePageTwo(null);
+      });
       await screen.findByText('invite-51@test.com');
     });
 
@@ -482,7 +644,9 @@ describe('GroupDetailPage', () => {
       // Final page: the control unmounts, so focus must not drop to <body> — it
       // goes to the first invite the user has not seen yet that they can act on.
       await waitFor(() =>
-        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copy link for invite-101@test.com' }))
+        expect(document.activeElement).toBe(
+          screen.getByRole('button', { name: 'Copy link for invite-101@test.com' })
+        )
       );
     });
 
@@ -491,10 +655,25 @@ describe('GroupDetailPage', () => {
       // real backend would, so the mutation's own invalidation refetch finds
       // it on page 1 instead of dropping the optimistic row.
       let created: ReturnType<typeof inv> | null = null;
-      const firstPage = () => created ? [created, ...Array.from({ length: 50 }, (_, i) => inv(i + 1))] : Array.from({ length: 50 }, (_, i) => inv(i + 1));
+      const firstPage = () =>
+        created
+          ? [created, ...Array.from({ length: 50 }, (_, i) => inv(i + 1))]
+          : Array.from({ length: 50 }, (_, i) => inv(i + 1));
       mocked.listGroupInvites.mockImplementation((_g, params) => {
         const page = params?.page ?? 1;
-        if (page === 1) return Promise.resolve({ success: true, data: firstPage(), meta: { total: created ? 121 : 120, page: 1, limit: PAGE, totalPages: 3, hasNextPage: true, hasPrevPage: false } });
+        if (page === 1)
+          return Promise.resolve({
+            success: true,
+            data: firstPage(),
+            meta: {
+              total: created ? 121 : 120,
+              page: 1,
+              limit: PAGE,
+              totalPages: 3,
+              hasNextPage: true,
+              hasPrevPage: false,
+            },
+          });
         if (page === 2) return Promise.resolve(pageOf(51, 50, created ? 121 : 120, 2));
         return Promise.resolve(pageOf(101, 20, created ? 121 : 120, 3));
       });
@@ -512,7 +691,9 @@ describe('GroupDetailPage', () => {
         data: { ...inv(999), groupId: 'g-1' },
       });
       created = inv(999);
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'fresh@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'fresh@test.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
       await waitFor(() => expect(screen.getByText('invite-999@test.com')).toBeInTheDocument());
 
@@ -526,13 +707,15 @@ describe('GroupDetailPage', () => {
       expect(screen.getByText('invite-51@test.com')).toBeInTheDocument();
       expect(screen.getByText('invite-100@test.com')).toBeInTheDocument();
       expect(screen.getByText('invite-999@test.com')).toBeInTheDocument();
-      expect((screen.getByLabelText('Invitation link for invite-999@test.com') as HTMLInputElement).value)
-        .toContain('/groups/invite/tok-999');
+      expect(
+        (screen.getByLabelText('Invitation link for invite-999@test.com') as HTMLInputElement).value
+      ).toContain('/groups/invite/tok-999');
     });
 
     // ─── failure, single flight, state ───────────────────────────────────────
 
-    const rowOf = (email: string) => screen.getByText(email).closest('div[data-invite-id]') as HTMLElement;
+    const rowOf = (email: string) =>
+      screen.getByText(email).closest('div[data-invite-id]') as HTMLElement;
     const pageFor = (page: number, total: number) => {
       const start = (page - 1) * PAGE + 1;
       return pageOf(start, Math.min(PAGE, Math.max(0, total - (start - 1))), total, page);
@@ -661,17 +844,34 @@ describe('GroupDetailPage', () => {
         return Promise.resolve({
           success: true,
           data: rows,
-          meta: { total: created ? 121 : 120, page: 1, limit: PAGE, totalPages: 3, hasNextPage: true, hasPrevPage: false },
+          meta: {
+            total: created ? 121 : 120,
+            page: 1,
+            limit: PAGE,
+            totalPages: 3,
+            hasNextPage: true,
+            hasPrevPage: false,
+          },
         });
       });
       renderPage();
       await screen.findByText('invite-1@test.com');
       fireEvent.click(screen.getByRole('button', { name: 'Load more' })); // page 2 is now in flight
-      await waitFor(() => expect(mocked.listGroupInvites).toHaveBeenCalledWith('g-1', expect.objectContaining({ page: 2 })));
+      await waitFor(() =>
+        expect(mocked.listGroupInvites).toHaveBeenCalledWith(
+          'g-1',
+          expect.objectContaining({ page: 2 })
+        )
+      );
 
-      mocked.createGroupInvite.mockResolvedValue({ success: true, data: { ...inv(999), groupId: 'g-1' } });
+      mocked.createGroupInvite.mockResolvedValue({
+        success: true,
+        data: { ...inv(999), groupId: 'g-1' },
+      });
       created = inv(999);
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'fresh@test.com' } });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'fresh@test.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
       await screen.findByText('invite-999@test.com');
 
@@ -685,7 +885,11 @@ describe('GroupDetailPage', () => {
       expect(screen.queryByText('invite-51@test.com')).not.toBeInTheDocument(); // stale rows not applied
       expect(screen.queryByText(/Loaded \d+ more|More invites loaded/)).not.toBeInTheDocument(); // nothing claims success
       // The list is coherent and can still be paged.
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load more' })).not.toHaveAttribute('aria-disabled'));
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Load more' })).not.toHaveAttribute(
+          'aria-disabled'
+        )
+      );
     });
 
     it('a created invite is shown even when NOTHING was cached because the first load failed — and stays when the refetch fails too', async () => {
@@ -693,12 +897,19 @@ describe('GroupDetailPage', () => {
       renderPage();
       expect(await screen.findByText("Couldn't load invites.")).toBeInTheDocument();
 
-      mocked.createGroupInvite.mockResolvedValue({ success: true, data: { ...inv(7), groupId: 'g-1' } });
-      fireEvent.change(screen.getByPlaceholderText('user@example.com'), { target: { value: 'fresh@test.com' } });
+      mocked.createGroupInvite.mockResolvedValue({
+        success: true,
+        data: { ...inv(7), groupId: 'g-1' },
+      });
+      fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+        target: { value: 'fresh@test.com' },
+      });
       fireEvent.click(screen.getByRole('button', { name: 'Invite' }));
 
       expect(await screen.findByText('invite-7@test.com')).toBeInTheDocument();
-      expect((screen.getByLabelText('Invitation link for invite-7@test.com') as HTMLInputElement).value).toContain('/groups/invite/tok-7');
+      expect(
+        (screen.getByLabelText('Invitation link for invite-7@test.com') as HTMLInputElement).value
+      ).toContain('/groups/invite/tok-7');
       // Every refetch is still failing; the new link stays put.
       await screen.findByText(/Couldn't refresh invites\./);
       expect(screen.getByText('invite-7@test.com')).toBeInTheDocument();
@@ -726,7 +937,9 @@ describe('GroupDetailPage', () => {
       await act(async () => release());
       await screen.findByText('invite-1@test.com');
       await waitFor(() =>
-        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copy link for invite-1@test.com' }))
+        expect(document.activeElement).toBe(
+          screen.getByRole('button', { name: 'Copy link for invite-1@test.com' })
+        )
       );
       expect(screen.queryByText("Couldn't load invites.")).not.toBeInTheDocument();
     });
@@ -757,7 +970,9 @@ describe('GroupDetailPage', () => {
       expect(screen.getByText('invite-1@test.com')).toBeInTheDocument(); // rows stay throughout
 
       await act(async () => release());
-      await waitFor(() => expect(screen.queryByText(/Couldn't refresh invites\./)).not.toBeInTheDocument());
+      await waitFor(() =>
+        expect(screen.queryByText(/Couldn't refresh invites\./)).not.toBeInTheDocument()
+      );
       await waitFor(() => expect(document.activeElement).toBe(screen.getByText(/^Active invites/)));
     });
 
@@ -769,17 +984,28 @@ describe('GroupDetailPage', () => {
     });
 
     it("invite state is scoped to its GROUP: one group's loaded pages are never shown for another, and each keeps its own cache entry", async () => {
-      const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 0 } } });
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 0 } },
+      });
       let releaseB!: () => void;
       const gateB = new Promise<void>((resolve) => (releaseB = resolve));
-      mocked.getGroup.mockImplementation(async (groupId: string) => ({ data: { ...baseGroup, id: groupId, isPrivate: true, memberRole: 'OWNER' } }));
+      mocked.getGroup.mockImplementation(async (groupId: string) => ({
+        data: { ...baseGroup, id: groupId, isPrivate: true, memberRole: 'OWNER' },
+      }));
       mocked.listGroupInvites.mockImplementation((groupId: string) =>
         groupId === 'g-1'
           ? Promise.resolve(pageOf(1, 3, 3, 1))
           : gateB.then(() => ({
               success: true,
               data: [{ ...inv(900), email: 'only-in-g2@test.com' }],
-              meta: { total: 1, page: 1, limit: PAGE, totalPages: 1, hasNextPage: false, hasPrevPage: false },
+              meta: {
+                total: 1,
+                page: 1,
+                limit: PAGE,
+                totalPages: 1,
+                hasNextPage: false,
+                hasPrevPage: false,
+              },
             }))
       );
 
@@ -795,9 +1021,19 @@ describe('GroupDetailPage', () => {
       expect(await screen.findByText('only-in-g2@test.com')).toBeInTheDocument();
       expect(screen.queryByText('invite-1@test.com')).not.toBeInTheDocument();
       // Two group-scoped entries, each holding only its own group's invites.
-      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>(['group-invites', 'g-1']);
-      const b = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>(['group-invites', 'g-2']);
-      expect(a?.pages.flatMap((pg) => pg.invites).map((i) => i.id)).toEqual(['inv-1', 'inv-2', 'inv-3']);
+      const a = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>([
+        'group-invites',
+        'g-1',
+      ]);
+      const b = client.getQueryData<{ pages: { invites: { id: string }[] }[] }>([
+        'group-invites',
+        'g-2',
+      ]);
+      expect(a?.pages.flatMap((pg) => pg.invites).map((i) => i.id)).toEqual([
+        'inv-1',
+        'inv-2',
+        'inv-3',
+      ]);
       expect(b?.pages.flatMap((pg) => pg.invites).map((i) => i.id)).toEqual(['inv-900']);
     });
 
@@ -824,8 +1060,22 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-bob', username: 'bob', displayName: 'Bob' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-bob', username: 'bob', displayName: 'Bob' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
     });
@@ -866,12 +1116,26 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'ADMIN' } });
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-admin', username: 'admin', displayName: 'Admin' }, role: 'ADMIN', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-admin', username: 'admin', displayName: 'Admin' },
+            role: 'ADMIN',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
       mocked.listJoinRequests.mockResolvedValue({
         data: [
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-pending', username: 'requester', displayName: 'Requester' }, role: 'MEMBER', status: 'PENDING', joinedAt: '' },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-pending', username: 'requester', displayName: 'Requester' },
+            role: 'MEMBER',
+            status: 'PENDING',
+            joinedAt: '',
+          },
         ],
       });
     });
@@ -880,14 +1144,18 @@ describe('GroupDetailPage', () => {
       mocked.approveJoinRequest.mockResolvedValue({ data: { message: 'approved' } });
       renderPage();
       fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
-      await waitFor(() => expect(mocked.approveJoinRequest).toHaveBeenCalledWith('g-1', 'u-pending'));
+      await waitFor(() =>
+        expect(mocked.approveJoinRequest).toHaveBeenCalledWith('g-1', 'u-pending')
+      );
     });
 
     it('reject calls the API', async () => {
       mocked.rejectJoinRequest.mockResolvedValue({ data: { message: 'rejected' } });
       renderPage();
       fireEvent.click(await screen.findByRole('button', { name: 'Reject' }));
-      await waitFor(() => expect(mocked.rejectJoinRequest).toHaveBeenCalledWith('g-1', 'u-pending'));
+      await waitFor(() =>
+        expect(mocked.rejectJoinRequest).toHaveBeenCalledWith('g-1', 'u-pending')
+      );
     });
   });
 
@@ -896,8 +1164,22 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-mem', username: 'member', displayName: 'Member' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
     });
@@ -914,8 +1196,22 @@ describe('GroupDetailPage', () => {
     beforeEach(() => {
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-mem', username: 'member', displayName: 'Member' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
     });
@@ -923,29 +1219,32 @@ describe('GroupDetailPage', () => {
     it('shows a Ban action for an active, non-owner member when the viewer is a manager (OWNER)', async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       renderPage();
-      await screen.findByText('Member');
+      await screen.findByText('Member', { selector: 'span.text-sm.font-medium' });
       expect(screen.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
     });
 
     it('shows Ban for an ADMIN manager too', async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'ADMIN' } });
       renderPage();
-      await screen.findByText('Member');
+      await screen.findByText('Member', { selector: 'span.text-sm.font-medium' });
       expect(screen.getByRole('button', { name: 'Ban' })).toBeInTheDocument();
     });
 
-    it('never shows a Ban action on the owner\'s own row', async () => {
+    it("never shows a Ban action on the owner's own row", async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       renderPage();
-      await screen.findByText('Owner');
-      const ownerRow = screen.getByText('Owner').closest('.border')!.closest('.border') as HTMLElement;
+      await screen.findByText('Owner', { selector: 'span.text-sm.font-medium' });
+      const ownerRow = screen
+        .getByText('Owner', { selector: 'span.text-sm.font-medium' })
+        .closest('.border')!
+        .closest('.border') as HTMLElement;
       expect(ownerRow.querySelector('button')).toBeNull();
     });
 
     it('hides the Ban action entirely for a non-manager (MEMBER) viewer', async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'MEMBER' } });
       renderPage();
-      await screen.findByText('Member');
+      await screen.findByText('Member', { selector: 'span.text-sm.font-medium' });
       expect(screen.queryByRole('button', { name: 'Ban' })).not.toBeInTheDocument();
     });
 
@@ -995,13 +1294,23 @@ describe('GroupDetailPage', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
 
       await waitFor(() => expect(mocked.banGroupMember).toHaveBeenCalledTimes(1));
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-members', 'g-1'] }));
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-requests', 'g-1'] }));
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['group-invites', 'g-1'] }));
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['group-members', 'g-1'] })
+      );
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['group-requests', 'g-1'] })
+      );
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['group-invites', 'g-1'] })
+      );
       // Scoped to the signed-in account: the inbox cache is keyed by identity,
       // so there is no identity-free ['notifications'] key to invalidate.
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['notifications', 'u-viewer'] }));
-      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['notifications'] }));
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['notifications', 'u-viewer'] })
+      );
+      expect(invalidateSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['notifications'] })
+      );
     });
 
     describe('confirmation focus and pending state', () => {
@@ -1090,9 +1399,30 @@ describe('GroupDetailPage', () => {
         // than a replay of the first.
         mocked.getGroupMembers.mockResolvedValue({
           data: [
-            { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-            { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
-            { id: 'm3', groupId: 'g-1', user: { id: 'u-mem2', username: 'member2', displayName: 'Member Two' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+            {
+              id: 'm1',
+              groupId: 'g-1',
+              user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+              role: 'OWNER',
+              status: 'ACTIVE',
+              joinedAt: '',
+            },
+            {
+              id: 'm2',
+              groupId: 'g-1',
+              user: { id: 'u-mem', username: 'member', displayName: 'Member' },
+              role: 'MEMBER',
+              status: 'ACTIVE',
+              joinedAt: '',
+            },
+            {
+              id: 'm3',
+              groupId: 'g-1',
+              user: { id: 'u-mem2', username: 'member2', displayName: 'Member Two' },
+              role: 'MEMBER',
+              status: 'ACTIVE',
+              joinedAt: '',
+            },
           ],
         });
         mocked.banGroupMember.mockResolvedValue({ data: { message: 'Member banned' } });
@@ -1156,7 +1486,9 @@ describe('GroupDetailPage', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Confirm ban' }));
         await screen.findByRole('button', { name: 'Banning…' });
 
-        deferred.reject(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
+        deferred.reject(
+          new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' }))
+        );
 
         await waitFor(() =>
           expect(screen.queryByRole('heading', { name: 'Confirm ban' })).not.toBeInTheDocument()
@@ -1167,7 +1499,9 @@ describe('GroupDetailPage', () => {
 
     it('surfaces a ban failure accessibly, without silently swallowing it', async () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
-      mocked.banGroupMember.mockRejectedValue(new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' })));
+      mocked.banGroupMember.mockRejectedValue(
+        new Error(JSON.stringify({ status: 403, message: 'Insufficient permissions' }))
+      );
       renderPage();
 
       fireEvent.click(await screen.findByRole('button', { name: 'Ban' }));
@@ -1188,8 +1522,22 @@ describe('GroupDetailPage', () => {
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.getGroupMembers.mockResolvedValue({
         data: [
-          { id: 'm1', groupId: 'g-1', user: { id: 'u-owner', username: 'owner', displayName: 'Owner' }, role: 'OWNER', status: 'ACTIVE', joinedAt: '' },
-          { id: 'm2', groupId: 'g-1', user: { id: 'u-mem', username: 'member', displayName: 'Member' }, role: 'MEMBER', status: 'ACTIVE', joinedAt: '' },
+          {
+            id: 'm1',
+            groupId: 'g-1',
+            user: { id: 'u-owner', username: 'owner', displayName: 'Owner' },
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
+          {
+            id: 'm2',
+            groupId: 'g-1',
+            user: { id: 'u-mem', username: 'member', displayName: 'Member' },
+            role: 'MEMBER',
+            status: 'ACTIVE',
+            joinedAt: '',
+          },
         ],
       });
     });
@@ -1197,10 +1545,12 @@ describe('GroupDetailPage', () => {
     it('calls changeMemberRole on select change', async () => {
       mocked.changeMemberRole.mockResolvedValue({ data: { message: 'updated' } });
       renderPage();
-      await screen.findByText('Member');
+      await screen.findByText('Member', { selector: 'span.text-sm.font-medium' });
       const selects = screen.getAllByRole('combobox');
       fireEvent.change(selects[0], { target: { value: 'ADMIN' } });
-      await waitFor(() => expect(mocked.changeMemberRole).toHaveBeenCalledWith('g-1', 'u-mem', 'ADMIN'));
+      await waitFor(() =>
+        expect(mocked.changeMemberRole).toHaveBeenCalledWith('g-1', 'u-mem', 'ADMIN')
+      );
     });
   });
 
@@ -1225,7 +1575,9 @@ describe('GroupDetailPage', () => {
 
     /** The bordered row container for a given member display name. */
     function rowFor(name: string): HTMLElement {
-      return screen.getByText(name).closest('.rounded-md.border.p-3') as HTMLElement;
+      return screen
+        .getByText(name, { selector: 'span.text-sm.font-medium' })
+        .closest('.rounded-md.border.p-3') as HTMLElement;
     }
 
     it('ADMIN: no role selector, Remove, or Ban on own row; Leave stays; other member still manageable', async () => {
@@ -1239,7 +1591,7 @@ describe('GroupDetailPage', () => {
         ],
       });
       renderPage();
-      await screen.findByText('Admin');
+      await screen.findByText('Admin', { selector: 'span.text-sm.font-medium' });
 
       const ownRow = within(rowFor('Admin'));
       expect(ownRow.queryByRole('combobox')).toBeNull();
@@ -1258,13 +1610,10 @@ describe('GroupDetailPage', () => {
       authState.current = { id: 'u-owner', username: 'owner', displayName: 'Owner' };
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.getGroupMembers.mockResolvedValue({
-        data: [
-          memberRow('u-owner', 'Owner', 'OWNER'),
-          memberRow('u-bob', 'Bob', 'MEMBER'),
-        ],
+        data: [memberRow('u-owner', 'Owner', 'OWNER'), memberRow('u-bob', 'Bob', 'MEMBER')],
       });
       renderPage();
-      await screen.findByText('Owner');
+      await screen.findByText('Owner', { selector: 'span.text-sm.font-medium' });
 
       const ownRow = within(rowFor('Owner'));
       expect(ownRow.queryByRole('combobox')).toBeNull();
@@ -1281,10 +1630,7 @@ describe('GroupDetailPage', () => {
       authState.current = null;
       mocked.getGroup.mockResolvedValue({ data: { ...baseGroup, memberRole: 'OWNER' } });
       mocked.getGroupMembers.mockResolvedValue({
-        data: [
-          memberRow('u-owner', 'Owner', 'OWNER'),
-          memberRow('u-bob', 'Bob', 'MEMBER'),
-        ],
+        data: [memberRow('u-owner', 'Owner', 'OWNER'), memberRow('u-bob', 'Bob', 'MEMBER')],
       });
       renderPage();
       await screen.findByText('Bob');

@@ -17,6 +17,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { GameArena } from '@/components/games/game-arena';
 import { wholeNumberRangeError } from '@/components/casino/whole-number-input';
 import './number-challenge.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const endpoint = '/games/number-challenge-practice';
 export const numberPendingKey = (id: string) => `playqube:number-practice:v2:${id}`;
@@ -65,14 +66,18 @@ function conflict(error: unknown) {
   }
 }
 export function NumberChallengePage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { user } = useAuth();
   return user ? (
     <NumberPractice key={user.id} userId={user.id} />
   ) : (
-    <p>Sign in to play Number Challenge.</p>
+    <p>{translateUi('Sign in to play Number Challenge.')}</p>
   );
 }
 function NumberPractice({ userId }: { userId: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const client = useQueryClient();
   const [saved] = useState(() => readPending(userId));
   const [pending, setPending] = useState<NumberTimedEntry | null>(saved.entry);
@@ -205,21 +210,28 @@ function NumberPractice({ userId }: { userId: string }) {
     <div className={`number-game ${reduced ? 'number-game--still' : ''}`}>
       <header className="number-header">
         <div>
-          <Link to="/games">← All games</Link>
-          <p className="number-eyebrow">SALEM BET ORIGINAL · FREE PRACTICE</p>
+          <Link to="/games">{translateUi('← All games')}</Link>
+          <p className="number-eyebrow">{translateUi('SALEM BET ORIGINAL · FREE PRACTICE')}</p>
           <h1>
-            Number <span>Challenge</span>
+            {translateUi('Number') + ' '}
+            <span>{translateUi('Challenge')}</span>
           </h1>
-          <p>One-minute rounds · 30 seconds to choose · one shared target.</p>
+          <p>{translateUi('One-minute rounds · 30 seconds to choose · one shared target.')}</p>
         </div>
         <label className="number-motion">
           <input type="checkbox" checked={reduced} onChange={(e) => setReduced(e.target.checked)} />{' '}
-          Reduced motion
+          {translateUi('Reduced motion')}
         </label>
       </header>
       <GameRoundSummary
         game="Number Challenge"
-        label={target != null ? 'Round result' : accepted ? 'Guess accepted' : 'Choose 1–100'}
+        label={
+          target != null
+            ? translateUi('Round result')
+            : accepted
+              ? translateUi('Guess accepted')
+              : translateUi('Choose 1–100')
+        }
         value={
           target != null
             ? `Target ${target}`
@@ -235,17 +247,19 @@ function NumberPractice({ userId }: { userId: string }) {
         clock={`${clockLabel} ${ready && current ? `00:${String(seconds).padStart(2, '0')}` : ''}`}
       />
       <div className="number-layout">
-        <GameArena title="Number Challenge">
+        <GameArena title={translateUi('Number Challenge')}>
           <div className={`number-stage ${busy ? 'is-revealing' : ''}`}>
             <div className="number-stage-top">
               <span className="number-wordmark">
-                N<span>º</span> / CHALLENGE
+                {'N'}
+                <span>º</span>
+                {' ' + translateUi('/ CHALLENGE')}
               </span>
               <span className="number-badge">1 — 100</span>
             </div>
             <div className={`number-countdown ${open ? '' : 'number-countdown--closed'}`}>
               <span>{clockLabel}</span>
-              <strong aria-label="Round countdown">
+              <strong aria-label={translateUi('Round countdown')}>
                 {ready && current ? `00:${String(seconds).padStart(2, '0')}` : '—'}
               </strong>
               <div className="number-countdown-track" aria-hidden="true">
@@ -254,10 +268,10 @@ function NumberPractice({ userId }: { userId: string }) {
             </div>
             <p className="number-eyebrow">
               {target != null
-                ? 'SHARED ROUND RESULT'
+                ? translateUi('SHARED ROUND RESULT')
                 : open
-                  ? 'ENTRY WINDOW OPEN'
-                  : 'ENTRIES CLOSED'}
+                  ? translateUi('ENTRY WINDOW OPEN')
+                  : translateUi('ENTRIES CLOSED')}
             </p>
             <div key={round?.id ?? 'waiting'} className="number-ball" aria-hidden="true">
               <div className="number-orbit" aria-hidden="true" />
@@ -266,46 +280,61 @@ function NumberPractice({ userId }: { userId: string }) {
             <div className="number-result" role="status" aria-live="polite">
               {busy ? (
                 <>
-                  <h2>Confirming your guess…</h2>
-                  <p>Your guess is saved while we confirm it.</p>
+                  <h2>{translateUi('Confirming your guess…')}</h2>
+                  <p>{translateUi('Your guess is saved while we confirm it.')}</p>
                 </>
               ) : display ? (
                 <>
-                  <h2>{display.away === 0 ? 'Exact match!' : `${display.away} away`}</h2>
+                  <h2>
+                    {display.away === 0
+                      ? translateUi('Exact match!')
+                      : translateUi('{away} away', { away: display.away ?? '' })}
+                  </h2>
                   <p>
-                    Your number <b>{display.guess}</b> · Target <b>{display.target}</b>
+                    {translateUi('Your number') + ' '}
+                    <b>{display.guess}</b>
+                    {' ' + translateUi('· Target') + ' '}
+                    <b>{display.target}</b>
                   </p>
-                  <strong>{display.score} practice score</strong>
+                  <strong>
+                    {translateUi('{score} practice score', { score: display.score ?? '' })}
+                  </strong>
                 </>
               ) : accepted ? (
                 <>
-                  <h2>Guess accepted: {accepted.guess}</h2>
+                  <h2>{translateUi('Guess accepted: {guess}', { guess: accepted.guess })}</h2>
                   <p>
                     {open
-                      ? 'Your number is locked. Result after entries close.'
-                      : 'Waiting for the confirmed result…'}
+                      ? translateUi('Your number is locked. Result after entries close.')
+                      : translateUi('Waiting for the confirmed result…')}
                   </p>
                 </>
               ) : target != null ? (
                 <>
-                  <h2>Target: {target}</h2>
-                  <p>You did not enter this round. Choose a number in the next round.</p>
+                  <h2>{translateUi('Target: {target}', { target: target })}</h2>
+                  <p>
+                    {translateUi(
+                      'You did not enter this round. Choose a number in the next round.'
+                    )}
+                  </p>
                 </>
               ) : (
                 <>
                   <h2>
                     {open
-                      ? 'Place your guess'
+                      ? translateUi('Place your guess')
                       : current
-                        ? 'Waiting for the result'
-                        : 'Syncing the next round'}
+                        ? translateUi('Waiting for the result')
+                        : translateUi('Syncing the next round')}
                   </h2>
-                  <p>One guess per round. The server confirms the closing time.</p>
+                  <p>{translateUi('One guess per round. The server confirms the closing time.')}</p>
                 </>
               )}
             </div>
             <p className="number-stage-note">
-              Independent random targets · previous results cannot predict the next number
+              {translateUi(
+                'Independent random targets · previous results cannot predict the next number'
+              )}
             </p>
           </div>
         </GameArena>
@@ -313,11 +342,11 @@ function NumberPractice({ userId }: { userId: string }) {
           <p className="number-eyebrow">
             {clockLabel} {ready && current ? `00:${String(seconds).padStart(2, '0')}` : ''}
           </p>
-          <h2 id="number-pick-title">Choose your number</h2>
-          <label htmlFor="number-guess">Number from 1 to 100</label>
+          <h2 id="number-pick-title">{translateUi('Choose your number')}</h2>
+          <label htmlFor="number-guess">{translateUi('Number from 1 to 100')}</label>
           <div className="number-stepper">
             <button
-              aria-label="Decrease number"
+              aria-label={translateUi('Decrease number')}
               disabled={controlsLocked || !Number.isInteger(selected) || selected <= 1}
               onClick={() => setGuess(String(selected - 1))}
             >
@@ -337,7 +366,7 @@ function NumberPractice({ userId }: { userId: string }) {
               aria-describedby="number-input-help"
             />
             <button
-              aria-label="Increase number"
+              aria-label={translateUi('Increase number')}
               disabled={controlsLocked || !Number.isInteger(selected) || selected >= 100}
               onClick={() => setGuess(String(selected + 1))}
             >
@@ -345,10 +374,10 @@ function NumberPractice({ userId }: { userId: string }) {
             </button>
           </div>
           <p id="number-input-help">
-            {inputError || 'Every target from 1 to 100 is equally likely.'}
+            {inputError || translateUi('Every target from 1 to 100 is equally likely.')}
           </p>
           <input
-            aria-label="Choose number with slider"
+            aria-label={translateUi('Choose number with slider')}
             type="range"
             min="1"
             max="100"
@@ -369,25 +398,30 @@ function NumberPractice({ userId }: { userId: string }) {
               </button>
             ))}
           </div>
-          {query.isPending && <p role="status">Loading practice…</p>}
+          {query.isPending && <p role="status">{translateUi('Loading practice…')}</p>}
           {query.isError && (
             <div role="alert">
-              <p>Practice is unavailable. Check your connection or sign in again.</p>
-              <button onClick={() => void query.refetch()}>Retry loading</button>
+              <p>
+                {translateUi('Practice is unavailable. Check your connection or sign in again.')}
+              </p>
+              <button onClick={() => void query.refetch()}>{translateUi('Retry loading')}</button>
             </div>
           )}
           {query.data && query.data.rulesId !== NUMBER_TIMED_RULES_ID && (
-            <p role="alert">The game rules have changed. Reload the app before playing.</p>
+            <p role="alert">
+              {translateUi('The game rules have changed. Reload the app before playing.')}
+            </p>
           )}
           {pending && (
             <p className="number-notice">
-              Saved guess: <b>{pending.guess}</b>. Check this saved request before choosing another
-              number.
+              {translateUi('Saved guess:') + ' '}
+              <b>{pending.guess}</b>
+              {translateUi('. Check this saved request before choosing another number.')}
             </p>
           )}
           {error && (
             <p role="alert" className="number-notice">
-              {error}
+              {translateUi(error)}
             </p>
           )}
           <button
@@ -396,35 +430,35 @@ function NumberPractice({ userId }: { userId: string }) {
             onClick={() => void submit()}
           >
             {busy
-              ? 'Confirming…'
+              ? translateUi('Confirming…')
               : pending
-                ? 'Retry saved guess'
+                ? translateUi('Retry saved guess')
                 : accepted
-                  ? 'Guess placed'
+                  ? translateUi('Guess placed')
                   : !open
-                    ? 'Entries closed'
-                    : 'Place guess'}
+                    ? translateUi('Entries closed')
+                    : translateUi('Place guess')}
           </button>
           <p className="number-free">
-            Free to play · no stakes or cash prizes.
+            {translateUi('Free to play · no stakes or cash prizes.')}
             <br />
-            Practice scores cannot be spent or transferred.
+            {translateUi('Practice scores cannot be spent or transferred.')}
           </p>
         </section>
       </div>
       <section className="number-panel" aria-labelledby="number-history-title">
-        <p className="number-eyebrow">YOUR LAST 20 ROUNDS</p>
-        <h2 id="number-history-title">Recent results</h2>
+        <p className="number-eyebrow">{translateUi('YOUR LAST 20 ROUNDS')}</p>
+        <h2 id="number-history-title">{translateUi('Recent results')}</h2>
         {rounds.length ? (
           <div className="number-history">
             <table>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Your number</th>
-                  <th>Target</th>
-                  <th>Distance</th>
-                  <th>Score</th>
+                  <th>{translateUi('Time')}</th>
+                  <th>{translateUi('Your number')}</th>
+                  <th>{translateUi('Target')}</th>
+                  <th>{translateUi('Distance')}</th>
+                  <th>{translateUi('Score')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -443,7 +477,11 @@ function NumberPractice({ userId }: { userId: string }) {
                       <b>{r.target ?? '—'}</b>
                     </td>
                     <td>
-                      {r.away === null ? 'Pending' : r.away === 0 ? 'Exact' : `${r.away} away`}
+                      {r.away === null
+                        ? translateUi('Pending')
+                        : r.away === 0
+                          ? translateUi('Exact')
+                          : translateUi('{away} away', { away: r.away })}
                     </td>
                     <td>{r.score ?? '—'}</td>
                   </tr>
@@ -453,42 +491,41 @@ function NumberPractice({ userId }: { userId: string }) {
           </div>
         ) : (
           <p className="number-empty">
-            Your confirmed results will appear here after your first guess.
+            {translateUi('Your confirmed results will appear here after your first guess.')}
           </p>
         )}
       </section>
       <section className="number-panel number-scoring" aria-labelledby="number-scoring-title">
         <div>
-          <p className="number-eyebrow">KNOW YOUR SCORE</p>
-          <h2 id="number-scoring-title">Closer is better</h2>
+          <p className="number-eyebrow">{translateUi('KNOW YOUR SCORE')}</p>
+          <h2 id="number-scoring-title">{translateUi('Closer is better')}</h2>
         </div>
         <div className="number-bands">
           {NUMBER_BANDS.map((b) => (
             <div key={b.distance}>
               <b>{b.score}</b>
-              <span>{b.label}</span>
+              <span>{translateUi(b.label)}</span>
             </div>
           ))}
         </div>
         <details>
-          <summary>How to play & fairness</summary>
+          <summary>{translateUi('How to play & fairness')}</summary>
           <p>
-            Each round lasts one minute. During the first 30 seconds, choose an integer from 1 to
-            100 and select Place guess. You can place one guess per round and cannot change it after
-            acceptance. Entries close for the final 30 seconds, when everyone sees the same random
-            target. A delayed connection may cause a guess to arrive too late; server time decides
-            acceptance. Your score follows the distance bands above. An exact match has a 1 in 100
-            chance. Numbers near the ends of the range have fewer nearby targets; proximity scores
-            are not equally likely for every guess.
+            {translateUi(
+              'Each round lasts one minute. During the first 30 seconds, choose an integer from 1 to 100 and select Place guess. You can place one guess per round and cannot change it after acceptance. Entries close for the final 30 seconds, when everyone sees the same random target. A delayed connection may cause a guess to arrive too late; server time decides acceptance. Your score follows the distance bands above. An exact match has a 1 in 100 chance. Numbers near the ends of the range have fewer nearby targets; proximity scores are not equally likely for every guess.'
+            )}
           </p>
           <p>
-            The target is selected by the server’s cryptographic random generator after the entry
-            window closes. If the server is delayed, results remain pending until confirmed. This is
-            not a precommitted, independently verifiable draw. The animation only presents the saved
-            result. Retrying a saved guess returns that same result. Scores are for this game only
-            and have no cash value.
+            {translateUi(
+              'The target is selected by the server’s cryptographic random generator after the entry window closes. If the server is delayed, results remain pending until confirmed. This is not a precommitted, independently verifiable draw. The animation only presents the saved result. Retrying a saved guess returns that same result. Scores are for this game only and have no cash value.'
+            )}
           </p>
-          <p>Rules: {NUMBER_TIMED_RULES_ID}. Original Salem Bet game, not affiliated with 1xBet.</p>
+          <p>
+            {translateUi(
+              'Rules: {NUMBER_TIMED_RULES_ID}. Original Salem Bet game, not affiliated with 1xBet.',
+              { NUMBER_TIMED_RULES_ID: NUMBER_TIMED_RULES_ID }
+            )}
+          </p>
         </details>
       </section>
     </div>

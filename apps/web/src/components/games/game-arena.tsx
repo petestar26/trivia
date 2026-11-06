@@ -2,6 +2,7 @@ import { useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode }
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useExpandedArena } from './use-expanded-arena';
 import './game-arena.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 /** Viewport-filling display without native fullscreen or a canvas-remounting portal. */
 export function GameArena({
@@ -15,6 +16,8 @@ export function GameArena({
   className?: string;
   onReturnToControls?: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [expanded, setExpanded] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -34,11 +37,13 @@ export function GameArena({
       className={`game-arena ${className}${expanded ? ' game-arena--expanded' : ''}`}
       role={expanded ? 'dialog' : undefined}
       aria-modal={expanded ? true : undefined}
-      aria-label={expanded ? `${title} expanded view` : undefined}
+      aria-label={
+        expanded ? translateUi('{title} expanded view', { title: translateUi(title) }) : undefined
+      }
       aria-describedby={expanded ? `${id}-help` : undefined}
     >
       <div className="game-arena__toolbar">
-        <span>{title}</span>
+        <span>{translateUi(title)}</span>
         {expanded && onReturnToControls && (
           <button
             type="button"
@@ -48,14 +53,17 @@ export function GameArena({
               close();
             }}
           >
-            Bet controls
+            {translateUi('Bet controls')}
           </button>
         )}
         <button
           ref={toggle}
           type="button"
           className="game-arena__toggle"
-          aria-label={`${expanded ? 'Minimize' : 'Expand'} ${title} view`}
+          aria-label={translateUi('{value} {title} view', {
+            value: expanded ? translateUi('Minimize') : translateUi('Expand'),
+            title: translateUi(title),
+          })}
           aria-expanded={expanded}
           aria-controls={id}
           onClick={() => setExpanded((value) => !value)}
@@ -65,11 +73,13 @@ export function GameArena({
           ) : (
             <Maximize2 size={18} aria-hidden="true" />
           )}
-          {expanded ? 'Minimize view' : 'Expand view'}
+          {expanded ? translateUi('Minimize view') : translateUi('Expand view')}
         </button>
       </div>
       <span id={`${id}-help`} className="sr-only">
-        Expanded viewing display. Minimize the view or press Escape to return to your selections.
+        {translateUi(
+          'Expanded viewing display. Minimize the view or press Escape to return to your selections.'
+        )}
       </span>
       <div className="game-arena__body" id={id}>
         {children}

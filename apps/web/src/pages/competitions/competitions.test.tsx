@@ -25,7 +25,9 @@ vi.mock('@/lib/api', () => ({
   },
   unwrapData: (res: { data?: unknown }) => res.data,
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }),
+}));
 
 import { GroupCompetitionsPage, parseStrictLocalDateTime } from './index';
 
@@ -124,10 +126,16 @@ afterEach(() => {
 /** Marker rendered at the real detail route so a successful create's navigate() is observable. */
 function DetailRouteMarker() {
   const { groupId, competitionId } = useParams<{ groupId: string; competitionId: string }>();
-  return <div data-testid="detail-marker">detail:{groupId}/{competitionId}</div>;
+  return (
+    <div data-testid="detail-marker">
+      detail:{groupId}/{competitionId}
+    </div>
+  );
 }
 
-function renderPage(client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
+function renderPage(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/competitions/g1']}>{children}</MemoryRouter>
@@ -139,10 +147,9 @@ function renderPage(client = new QueryClient({ defaultOptions: { queries: { retr
       <Route path="/competitions/:groupId/:competitionId" element={<DetailRouteMarker />} />
       <Route path="*" element={null} />
     </Routes>,
-    { wrapper },
+    { wrapper }
   );
 }
-
 
 // A native `datetime-local` input's own value setter sanitizes an
 // out-of-range CALENDAR date (e.g. February 30, or February 29 in a
@@ -181,13 +188,23 @@ describe('parseStrictLocalDateTime', () => {
   });
 
   it('accepts ordinary and gap-adjacent valid values and produces the exact expected instant', () => {
-    expect(parseStrictLocalDateTime('2026-06-01T10:00')?.toISOString()).toBe('2026-06-01T14:00:00.000Z');
-    expect(parseStrictLocalDateTime('2026-06-01T12:00')?.toISOString()).toBe('2026-06-01T16:00:00.000Z');
+    expect(parseStrictLocalDateTime('2026-06-01T10:00')?.toISOString()).toBe(
+      '2026-06-01T14:00:00.000Z'
+    );
+    expect(parseStrictLocalDateTime('2026-06-01T12:00')?.toISOString()).toBe(
+      '2026-06-01T16:00:00.000Z'
+    );
     // Immediately before and after the DST gap.
-    expect(parseStrictLocalDateTime('2027-03-14T01:59')?.toISOString()).toBe('2027-03-14T06:59:00.000Z');
-    expect(parseStrictLocalDateTime('2027-03-14T03:00')?.toISOString()).toBe('2027-03-14T07:00:00.000Z');
+    expect(parseStrictLocalDateTime('2027-03-14T01:59')?.toISOString()).toBe(
+      '2027-03-14T06:59:00.000Z'
+    );
+    expect(parseStrictLocalDateTime('2027-03-14T03:00')?.toISOString()).toBe(
+      '2027-03-14T07:00:00.000Z'
+    );
     // Optional seconds component.
-    expect(parseStrictLocalDateTime('2026-06-01T10:00:30')?.toISOString()).toBe('2026-06-01T14:00:30.000Z');
+    expect(parseStrictLocalDateTime('2026-06-01T10:00:30')?.toISOString()).toBe(
+      '2026-06-01T14:00:30.000Z'
+    );
   });
 });
 
@@ -299,13 +316,15 @@ describe('GroupCompetitionsPage lifecycle phases', () => {
   it('refetches on remount even while the lifecycle query is fresh', async () => {
     listCompetitionsForGroup.mockResolvedValue({
       success: true,
-      data: [makeCompetition({
-        id: 'c-remount',
-        phase: 'COMPLETED',
-        status: 'COMPLETED',
-        startsAt: PAST_START,
-        endsAt: PAST_END,
-      })],
+      data: [
+        makeCompetition({
+          id: 'c-remount',
+          phase: 'COMPLETED',
+          status: 'COMPLETED',
+          startsAt: PAST_START,
+          endsAt: PAST_END,
+        }),
+      ],
     });
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } },
@@ -514,7 +533,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
   function mockMembershipWithGames(
     memberRole: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | undefined,
-    games: { key: string; name: string }[] = ACTIVE_GAMES,
+    games: { key: string; name: string }[] = ACTIVE_GAMES
   ) {
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return { success: true, data: { isMember: true, memberRole } };
@@ -548,20 +567,23 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     expect(await screen.findByRole('button', { name: 'Create competition' })).toBeInTheDocument();
   });
 
-  it.each(['MEMBER', 'MODERATOR'] as const)('never shows Create competition to a %s', async (role) => {
-    mockMembershipWithGames(role);
-    listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  it.each(['MEMBER', 'MODERATOR'] as const)(
+    'never shows Create competition to a %s',
+    async (role) => {
+      mockMembershipWithGames(role);
+      listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 
-    renderPage(client);
+      renderPage(client);
 
-    // Wait for the membership query itself to settle (not just for some
-    // other element to appear) before asserting absence, so this can't pass
-    // vacuously by checking before `canCreate` has even been derived.
-    await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.status).toBe('success'));
-    await screen.findByText('No competitions in this group yet.');
-    expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument();
-  });
+      // Wait for the membership query itself to settle (not just for some
+      // other element to appear) before asserting absence, so this can't pass
+      // vacuously by checking before `canCreate` has even been derived.
+      await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.status).toBe('success'));
+      await screen.findByText('No competitions in this group yet.');
+      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument();
+    }
+  );
 
   it('loads the active game catalog from GET /games into the game selector', async () => {
     mockMembershipWithGames('OWNER');
@@ -627,13 +649,19 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     });
 
     await waitFor(() =>
-      expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }))
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['competitions', 'g1'] })
+      )
     );
     // Rewards are escrow-debited from the creator at creation time, so the
     // wallet caches must refresh alongside the competition list.
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
-    expect(toastMock).toHaveBeenCalledWith({ title: 'Competition created' });
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['wallet-transactions'] })
+    );
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    const createdNotice = render(<>{toastMock.mock.calls[0][0].title}</>);
+    expect(createdNotice.container).toHaveTextContent('Competition created');
     expect(await screen.findByTestId('detail-marker')).toHaveTextContent('detail:g1/new-comp-1');
   });
 
@@ -660,7 +688,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
         rewardCoins: 0,
         maxParticipants: undefined,
         description: undefined,
-      }),
+      })
     );
   });
 
@@ -781,11 +809,10 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
       expect.objectContaining({
         startsAt: '2027-03-14T07:00:00.000Z',
         endsAt: '2027-03-14T08:30:00.000Z',
-      }),
+      })
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
-
 
   it('rejects a max participants value below 2', async () => {
     mockMembershipWithGames('OWNER');
@@ -802,7 +829,9 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Max participants must be blank or an integer of 2 or more.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Max participants must be blank or an integer of 2 or more.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -821,7 +850,9 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Entry amount must be a non-negative whole number.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Entry amount must be a non-negative whole number.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -840,7 +871,9 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Game Point reward must be a non-negative whole number.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Game Point reward must be a non-negative whole number.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -848,7 +881,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     mockMembershipWithGames('OWNER');
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
     createCompetition.mockRejectedValue(
-      new Error(JSON.stringify({ status: 400, message: 'This game is currently unavailable' })),
+      new Error(JSON.stringify({ status: 400, message: 'This game is currently unavailable' }))
     );
 
     renderPage();
@@ -872,7 +905,10 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
     let resolveCreate!: (value: { success: true; data: { id: string } }) => void;
     createCompetition.mockImplementation(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        })
     );
 
     renderPage();
@@ -963,7 +999,7 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     // mutation's onSuccess fires asynchronously.
     const warning = await screen.findByRole('alert');
     expect(warning).toHaveTextContent(
-      "We couldn't confirm the competition was created. Check the competition list before trying again.",
+      "We couldn't confirm the competition was created. Check the competition list before trying again."
     );
 
     // Never claims the normal success toast, and never navigates — we can't
@@ -979,9 +1015,13 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     // The competition (and any prize escrow debit) is already committed
     // server-side despite the incomplete response body, so the list and
     // wallet caches are still refreshed rather than left stale.
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['competitions', 'g1'] })
+    );
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['wallet-transactions'] })
+    );
 
     // Nothing left in this render can trigger a second create request: the
     // toggle (freshly reopenable) only starts a blank form, not a resubmit.
@@ -1018,13 +1058,13 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     // Wait for the creation to complete and the warning to appear.
     const warning = await screen.findByRole('alert');
     expect(warning).toHaveTextContent(
-      "We couldn't confirm the competition was created. Check the competition list before trying again.",
+      "We couldn't confirm the competition was created. Check the competition list before trying again."
     );
 
     // The mutation already invalidated the list query; the refetch will use
     // the second (rejected) mock, putting the query into error state.
     await waitFor(() =>
-      expect(screen.getByText(/Could not load competitions/)).toBeInTheDocument(),
+      expect(screen.getByText(/Could not load competitions/)).toBeInTheDocument()
     );
 
     // The missing-ID warning persists alongside the list error — the two
@@ -1047,11 +1087,15 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     await userEvent.type(screen.getByLabelText('Title'), 'Overflow Entry');
     fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
-    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), { target: { value: '3000000000' } });
+    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), {
+      target: { value: '3000000000' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Entry amount must be 2,147,483,647 or less.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Entry amount must be 2,147,483,647 or less.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -1066,11 +1110,15 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     await userEvent.type(screen.getByLabelText('Title'), 'Overflow Max');
     fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
-    fireEvent.change(screen.getByLabelText(/Max participants/), { target: { value: '3000000000' } });
+    fireEvent.change(screen.getByLabelText(/Max participants/), {
+      target: { value: '3000000000' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Max participants must be 2,147,483,647 or fewer.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Max participants must be 2,147,483,647 or fewer.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -1089,7 +1137,9 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-    expect(await screen.findByText('Game Point reward must be 1,000,000 or less.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Game Point reward must be 1,000,000 or less.')
+    ).toBeInTheDocument();
     expect(createCompetition).not.toHaveBeenCalled();
   });
 
@@ -1104,7 +1154,9 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     await userEvent.type(screen.getByLabelText('Title'), 'Overflow Reward Coins');
     fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
-    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), { target: { value: '1000001' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), {
+      target: { value: '1000001' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
@@ -1133,9 +1185,11 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
-      expect(await screen.findByText('Max participants must be blank or an integer of 2 or more.')).toBeInTheDocument();
+      expect(
+        await screen.findByText('Max participants must be blank or an integer of 2 or more.')
+      ).toBeInTheDocument();
       expect(createCompetition).not.toHaveBeenCalled();
-    },
+    }
   );
 
   it('uses type="text" + inputMode="numeric" (not type="number") for max participants', async () => {
@@ -1166,14 +1220,18 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     await userEvent.type(screen.getByLabelText('Title'), 'At The Ceiling');
     fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
-    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), { target: { value: '2147483647' } });
-    fireEvent.change(screen.getByLabelText(/Max participants/), { target: { value: '2147483647' } });
+    fireEvent.change(screen.getByLabelText('Entry amount (GP)'), {
+      target: { value: '2147483647' },
+    });
+    fireEvent.change(screen.getByLabelText(/Max participants/), {
+      target: { value: '2147483647' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
     await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
     expect(createCompetition).toHaveBeenCalledWith(
-      expect.objectContaining({ entryAmount: 2_147_483_647, maxParticipants: 2_147_483_647 }),
+      expect.objectContaining({ entryAmount: 2_147_483_647, maxParticipants: 2_147_483_647 })
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -1191,13 +1249,15 @@ describe('GroupCompetitionsPage — self-service competition creation', () => {
     fireEvent.change(screen.getByLabelText('Starts'), { target: { value: '2026-06-01T10:00' } });
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2026-06-01T12:00' } });
     fireEvent.change(screen.getByLabelText('Winner reward (GP)'), { target: { value: '1000000' } });
-    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), { target: { value: '1000000' } });
+    fireEvent.change(screen.getByLabelText('Winner reward (Coins)'), {
+      target: { value: '1000000' },
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create competition' }));
 
     await waitFor(() => expect(createCompetition).toHaveBeenCalledTimes(1));
     expect(createCompetition).toHaveBeenCalledWith(
-      expect.objectContaining({ rewardGamePoints: 1_000_000, rewardCoins: 1_000_000 }),
+      expect.objectContaining({ rewardGamePoints: 1_000_000, rewardCoins: 1_000_000 })
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -1252,7 +1312,7 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
     // the gate must not derive authorization from it alone while a
     // fetch/refetch is unresolved.
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument()
     );
   });
 
@@ -1364,13 +1424,13 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
     // First refetch fails: controls disappear despite retained cached data.
     client.refetchQueries({ queryKey: ['group', 'g1'] });
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+      expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument()
     );
 
     // Second refetch succeeds (active OWNER again): controls return.
     client.refetchQueries({ queryKey: ['group', 'g1'] });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument()
     );
   });
 
@@ -1411,7 +1471,7 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
 
       // Controls unavailable despite the retained OWNER data.
       await waitFor(() =>
-        expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument(),
+        expect(screen.queryByRole('button', { name: 'Create competition' })).not.toBeInTheDocument()
       );
       // The games query gains no new enablement off the retained role.
       const gamesCallsWhilePaused = apiGet.mock.calls.filter(([u]) => u === '/games').length;
@@ -1426,7 +1486,7 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
     // successfully (still active OWNER), restoring access.
     await waitFor(() => expect(client.getQueryState(['group', 'g1'])?.fetchStatus).toBe('idle'));
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: 'Create competition' })).toBeInTheDocument()
     );
   });
 
@@ -1472,9 +1532,15 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
       expect(createCompetition).not.toHaveBeenCalled();
       expect(toastMock).not.toHaveBeenCalledWith({ title: 'Competition created' });
       expect(screen.queryByTestId('detail-marker')).not.toBeInTheDocument();
-      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['competitions', 'g1'] }));
-      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-      expect(invalidateSpy).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet-transactions'] }));
+      expect(invalidateSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['competitions', 'g1'] })
+      );
+      expect(invalidateSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['wallet'] })
+      );
+      expect(invalidateSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ['wallet-transactions'] })
+      );
       // React Query's mutation observer catches the mutationFn's throw and
       // routes it to `onError` — it must never surface as an unhandled
       // rejection in the page's own promise chain.
@@ -1508,7 +1574,10 @@ describe('GroupCompetitionsPage — membership authorization gate', () => {
 });
 
 describe('GroupCompetitionsPage — active game catalog states', () => {
-  const OWNER_MEMBERSHIP = { success: true, data: { isMember: true, memberRole: 'OWNER' as const } };
+  const OWNER_MEMBERSHIP = {
+    success: true,
+    data: { isMember: true, memberRole: 'OWNER' as const },
+  };
 
   async function openForm() {
     fireEvent.click(await screen.findByRole('button', { name: 'Create competition' }));
@@ -1519,7 +1588,10 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     let resolveGames!: (v: { success: true; data: { key: string; name: string }[] }) => void;
     apiGet.mockImplementation(async (url: string) => {
       if (url === '/groups/g1') return OWNER_MEMBERSHIP;
-      if (url === '/games') return new Promise((resolve) => { resolveGames = resolve; });
+      if (url === '/games')
+        return new Promise((resolve) => {
+          resolveGames = resolve;
+        });
       throw new Error(`unexpected api.get(${url})`);
     });
     listCompetitionsForGroup.mockResolvedValue({ success: true, data: [] });
@@ -1548,7 +1620,9 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
         // Deferred: makes the loading state observable and proves the
         // original Retry button actually unmounts, rather than resolving
         // in the same tick where a stale reference could still "pass".
-        return new Promise((resolve) => { resolveGames = resolve as typeof resolveGames; });
+        return new Promise((resolve) => {
+          resolveGames = resolve as typeof resolveGames;
+        });
       }
       throw new Error(`unexpected api.get(${url})`);
     });
@@ -1672,7 +1746,9 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
     await openForm();
 
     expect(await screen.findByText('No active games are available.')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create competition' })).toBeDisabled()
+    );
     expect(screen.getByLabelText('Title')).toHaveFocus();
   });
 });
@@ -1680,7 +1756,8 @@ describe('GroupCompetitionsPage — active game catalog states', () => {
 describe('GroupCompetitionsPage — create-competition form accessibility', () => {
   function mockMembershipWithGames() {
     apiGet.mockImplementation(async (url: string) => {
-      if (url === '/groups/g1') return { success: true, data: { isMember: true, memberRole: 'OWNER' } };
+      if (url === '/groups/g1')
+        return { success: true, data: { isMember: true, memberRole: 'OWNER' } };
       if (url === '/games') return { success: true, data: [{ key: 'dice', name: 'Dice' }] };
       throw new Error(`unexpected api.get(${url})`);
     });

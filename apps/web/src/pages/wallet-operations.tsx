@@ -1,3 +1,4 @@
+import { interfaceCodeLabel } from '@/lib/i18n/labels';
 import { LatePaymentCases } from './wallet-late-payments';
 import { WalletSetupAdmin } from './wallet-setup-admin';
 import { WalletPricingAdmin } from './wallet-pricing-admin';
@@ -8,6 +9,7 @@ import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useWalletAction } from '@/hooks/use-wallet-action';
 import { ConfirmAction, PaymentCard, PaymentNavigation } from './wallet-payments';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type Row = {
   id: string;
@@ -34,6 +36,8 @@ export function WalletOperationsPage({ workspace }: { workspace?: 'admin' | 'age
   return user ? <Operations key={user.id} userId={user.id} workspace={workspace} /> : null;
 }
 function Operations({ userId, workspace }: { userId: string; workspace?: 'admin' | 'agent' }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const options = useQuery({
     queryKey: ['payments', 'options', userId],
     queryFn: () => get<{ isAgent: boolean; isAdmin: boolean }>('/wallet/payment-options'),
@@ -105,27 +109,28 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
     setChecked(false);
     setPaymentOccurredAt('');
   }
-  if (options.isPending) return <p role="status">Checking processing access…</p>;
+  if (options.isPending) return <p role="status">{translateUi('Checking processing access…')}</p>;
   if (options.isError)
     return (
       <div role="alert">
-        Could not verify access. <button onClick={() => options.refetch()}>Retry</button>
+        {translateUi('Could not verify access.') + ' '}
+        <button onClick={() => options.refetch()}>{translateUi('Retry')}</button>
       </div>
     );
   if (!agent && !admin)
     return (
       <section>
-        <h1>Processing access required</h1>
-        <p>This area is for approved agents and platform administrators.</p>
-        <Link to="/wallet">Return to wallet</Link>
+        <h1>{translateUi('Processing access required')}</h1>
+        <p>{translateUi('This area is for approved agents and platform administrators.')}</p>
+        <Link to="/wallet">{translateUi('Return to wallet')}</Link>
       </section>
     );
   return (
     <div className="payments-page">
       <header>
-        <p className="payment-eyebrow">PAYMENT OPERATIONS</p>
-        <h1>Processing desk</h1>
-        <p>Confirm evidence and the exact request before changing its state.</p>
+        <p className="payment-eyebrow">{translateUi('PAYMENT OPERATIONS')}</p>
+        <h1>{translateUi('Processing desk')}</h1>
+        <p>{translateUi('Confirm evidence and the exact request before changing its state.')}</p>
       </header>
       {!workspace && <PaymentNavigation />}
       {admin && !workspace && (
@@ -136,7 +141,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
       )}
       {action.message && (
         <p role="status" className="payment-disclosure">
-          {action.message}
+          {translateUi(action.message)}
         </p>
       )}
       {action.pending && (
@@ -144,27 +149,28 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
           disabled={action.busy}
           onClick={() => action.run(action.pending!.path, action.pending!.body)}
         >
-          Retry saved request
+          {translateUi('Retry saved request')}
         </button>
       )}
       {agent && (
         <>
           <section className="payment-panel">
-            <h2>Incoming deposits</h2>
+            <h2>{translateUi('Incoming deposits')}</h2>
             {deposits.isPending ? (
-              <p>Loading…</p>
+              <p>{translateUi('Loading…')}</p>
             ) : deposits.isError ? (
               <p role="alert">
-                Could not load deposits. <button onClick={() => deposits.refetch()}>Retry</button>
+                {translateUi('Could not load deposits.') + ' '}
+                <button onClick={() => deposits.refetch()}>{translateUi('Retry')}</button>
               </p>
             ) : !deposits.data?.length ? (
-              <p>No assigned deposit orders.</p>
+              <p>{translateUi('No assigned deposit orders.')}</p>
             ) : (
               deposits.data.map((p) => (
                 <PaymentCard key={p.id} payment={p}>
                   {p.status === 'PAYMENT_SUBMITTED' && (
                     <ConfirmAction
-                      label="Payment verified · release ETB"
+                      label={translateUi('Payment verified · release ETB')}
                       disabled={action.blocked}
                       onConfirm={() => action.run(`/agent-orders/${p.id}/settle`)}
                     />
@@ -174,29 +180,29 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
             )}
           </section>
           <section className="payment-panel">
-            <h2>Assigned withdrawals</h2>
+            <h2>{translateUi('Assigned withdrawals')}</h2>
             {withdrawals.isPending ? (
-              <p>Loading…</p>
+              <p>{translateUi('Loading…')}</p>
             ) : withdrawals.isError ? (
               <p role="alert">
-                Could not load withdrawals.{' '}
-                <button onClick={() => withdrawals.refetch()}>Retry</button>
+                {translateUi('Could not load withdrawals.')}{' '}
+                <button onClick={() => withdrawals.refetch()}>{translateUi('Retry')}</button>
               </p>
             ) : !withdrawals.data?.length ? (
-              <p>No assigned withdrawals.</p>
+              <p>{translateUi('No assigned withdrawals.')}</p>
             ) : (
               withdrawals.data.map((p) => (
                 <PaymentCard key={p.id} payment={p}>
                   {p.status === 'HELD' && (
                     <ConfirmAction
-                      label="Claim payout"
+                      label={translateUi('Claim payout')}
                       disabled={action.blocked}
                       onConfirm={() => action.run(`/withdrawals/${p.id}/claim-payout`)}
                     />
                   )}{' '}
                   {p.status === 'PAYOUT_IN_PROGRESS' && (
                     <button disabled={action.blocked} onClick={() => choose(p.id, 'payout')}>
-                      Record completed transfer
+                      {translateUi('Record completed transfer')}
                     </button>
                   )}
                 </PaymentCard>
@@ -213,28 +219,36 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
           ] as const
         ).map(([kind, query]) => (
           <section className="payment-panel" key={kind}>
-            <h2>{kind === 'deposit' ? 'Deposit' : 'Withdrawal'} disputes</h2>
+            <h2>
+              {translateUi('{value} disputes', {
+                value: kind === 'deposit' ? translateUi('Deposit') : translateUi('Withdrawal'),
+              })}
+            </h2>
             {query.isPending ? (
-              <p>Loading…</p>
+              <p>{translateUi('Loading…')}</p>
             ) : query.isError ? (
               <p role="alert">
-                Could not load disputes. <button onClick={() => query.refetch()}>Retry</button>
+                {translateUi('Could not load disputes.') + ' '}
+                <button onClick={() => query.refetch()}>{translateUi('Retry')}</button>
               </p>
             ) : !query.data?.length ? (
-              <p>No disputes to review.</p>
+              <p>{translateUi('No disputes to review.')}</p>
             ) : (
               query.data.map((d) => (
                 <article className="payment-record" key={d.id}>
                   <strong>{d.id}</strong>
                   <p>
-                    {d.status} · {d.reason}
+                    {interfaceCodeLabel(translateUi, d.status)} ·{' '}
+                    {interfaceCodeLabel(translateUi, d.reason)}
                   </p>
                   <p>{d.description}</p>
-                  <p>Request: {d.orderId ?? d.withdrawalId}</p>
+                  <p>
+                    {translateUi('Request: {value}', { value: d.orderId ?? d.withdrawalId ?? '' })}
+                  </p>
                   {d.status !== 'RESOLVED' && (
                     <div className="payment-actions">
                       <ConfirmAction
-                        label="Claim review"
+                        label={translateUi('Claim review')}
                         disabled={action.blocked}
                         onConfirm={() =>
                           action.run(
@@ -245,7 +259,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                         }
                       />
                       <button disabled={action.blocked} onClick={() => choose(d.id, kind)}>
-                        Review resolution
+                        {translateUi('Review resolution')}
                       </button>
                     </div>
                   )}
@@ -257,14 +271,18 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
       {admin && <LatePaymentCases admin />}
       {selection && (
         <section className="payment-panel">
-          <h2>{selection.kind === 'payout' ? 'Record transfer' : 'Resolve dispute'}</h2>
-          <p>Reference: {selection.id}</p>
+          <h2>
+            {selection.kind === 'payout'
+              ? translateUi('Record transfer')
+              : translateUi('Resolve dispute')}
+          </h2>
+          <p>{translateUi('Reference: {id}', { id: selection.id })}</p>
           {review.isPending ? (
-            <p role="status">Loading request details…</p>
+            <p role="status">{translateUi('Loading request details…')}</p>
           ) : review.isError ? (
             <p role="alert">
-              Request details could not load.{' '}
-              <button onClick={() => review.refetch()}>Retry</button>
+              {translateUi('Request details could not load.')}{' '}
+              <button onClick={() => review.refetch()}>{translateUi('Retry')}</button>
             </p>
           ) : (
             review.data && (
@@ -279,7 +297,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
           )}
           {selection.kind === 'payout' ? (
             <label>
-              Transfer reference
+              {translateUi('Transfer reference')}
               <input
                 maxLength={256}
                 value={reference}
@@ -288,23 +306,23 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
             </label>
           ) : (
             <label>
-              Outcome
+              {translateUi('Outcome')}
               <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-                <option value="">Choose an outcome</option>
+                <option value="">{translateUi('Choose an outcome')}</option>
                 <option value={selection.kind === 'deposit' ? 'RELEASE' : 'COMPLETED'}>
-                  Complete after verifying payment
+                  {translateUi('Complete after verifying payment')}
                 </option>
                 <option value={selection.kind === 'deposit' ? 'CANCEL' : 'CANCELLED'}>
-                  Cancel and release/refund
+                  {translateUi('Cancel and release/refund')}
                 </option>
               </select>
             </label>
           )}
           {needsVerifiedPayment && (
             <fieldset>
-              <legend>Verified transfer evidence</legend>
+              <legend>{translateUi('Verified transfer evidence')}</legend>
               <label>
-                Verified transfer reference
+                {translateUi('Verified transfer reference')}
                 <input
                   maxLength={256}
                   value={reference}
@@ -312,7 +330,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                 />
               </label>
               <label>
-                Payment occurred at (your local time)
+                {translateUi('Payment occurred at (your local time)')}
                 <input
                   type="datetime-local"
                   value={paymentOccurredAt}
@@ -320,18 +338,20 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                 />
               </label>
               <p>
-                Use the actual transfer record. Payment time must be after the request was created
-                and cannot be in the future.
+                {translateUi(
+                  'Use the actual transfer record. Payment time must be after the request was created and cannot be in the future.'
+                )}
               </p>
             </fieldset>
           )}
           <label>
-            Evidence and decision notes
+            {translateUi('Evidence and decision notes')}
             <textarea maxLength={4000} value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
           <p>
-            Completion requires verified payment evidence. A missing payment submission may be
-            rejected by the server and must be investigated; never invent transfer details.
+            {translateUi(
+              'Completion requires verified payment evidence. A missing payment submission may be rejected by the server and must be investigated; never invent transfer details.'
+            )}
           </p>
           <label className="payment-check">
             <input
@@ -339,7 +359,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
               checked={checked}
               onChange={(e) => setChecked(e.target.checked)}
             />
-            I verified the request, payment evidence and selected outcome.
+            {translateUi('I verified the request, payment evidence and selected outcome.')}
           </label>
           <button
             className="payment-primary"
@@ -381,9 +401,9 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
               setSelection(null);
             }}
           >
-            Confirm action
+            {translateUi('Confirm action')}
           </button>
-          <button onClick={() => setSelection(null)}>Back</button>
+          <button onClick={() => setSelection(null)}>{translateUi('Back')}</button>
         </section>
       )}
     </div>

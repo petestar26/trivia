@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import * as Dialog from '@radix-ui/react-dialog';
 import { Download, Smartphone, X } from 'lucide-react';
 import './app-install.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
@@ -82,6 +83,8 @@ type InstallContext = {
 const Context = createContext<InstallContext | null>(null);
 
 export function AppInstallProvider({ children }: { children: ReactNode }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [installed, setInstalled] = useState(standalone);
   const [dismissed, setDismissed] = useState(promoDismissed);
   const [canPrompt, setCanPrompt] = useState(false);
@@ -195,13 +198,13 @@ export function AppInstallProvider({ children }: { children: ReactNode }) {
               width="56"
               height="56"
             />
-            <Dialog.Title>Install Salem Bet</Dialog.Title>
+            <Dialog.Title>{translateUi('Install Salem Bet')}</Dialog.Title>
             <Dialog.Description>
-              Keep Salem Bet one tap away on your home screen or desktop.
+              {translateUi('Keep Salem Bet one tap away on your home screen or desktop.')}
             </Dialog.Description>
             {message && (
               <p className="salem-install-message" role="status">
-                {message}
+                {translateUi(message)}
               </p>
             )}
             {canPrompt && (
@@ -211,18 +214,19 @@ export function AppInstallProvider({ children }: { children: ReactNode }) {
                 onClick={(event) => void install(event.currentTarget)}
               >
                 <Download size={17} aria-hidden="true" />
-                {busy ? 'Opening…' : 'Install now'}
+                {busy ? translateUi('Opening…') : translateUi('Install now')}
               </button>
             )}
-            <p className="salem-install-device">{guide.device}</p>
+            <p className="salem-install-device">{translateUi(guide.device)}</p>
             <ol>
               {guide.steps.map((step) => (
-                <li key={step}>{step}</li>
+                <li key={step}>{translateUi(step)}</li>
               ))}
             </ol>
             <p className="salem-install-note">
-              You can keep using the website without installing. An internet connection is needed to
-              play.
+              {translateUi(
+                'You can keep using the website without installing. An internet connection is needed to play.'
+              )}
             </p>
             <a
               href={guide.help}
@@ -230,9 +234,12 @@ export function AppInstallProvider({ children }: { children: ReactNode }) {
               rel="noopener noreferrer"
               className="salem-install-help"
             >
-              Browser installation help ↗
+              {translateUi('Browser installation help ↗')}
             </a>
-            <Dialog.Close className="salem-install-close" aria-label="Close installation guide">
+            <Dialog.Close
+              className="salem-install-close"
+              aria-label={translateUi('Close installation guide')}
+            >
               <X size={20} />
             </Dialog.Close>
           </Dialog.Content>
@@ -245,6 +252,8 @@ export function AppInstallProvider({ children }: { children: ReactNode }) {
 export function InstallAppButton({
   whenReminderHidden = false,
 }: { whenReminderHidden?: boolean } = {}) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const state = useContext(Context);
   if (!state || state.installed || (whenReminderHidden && !state.dismissed)) return null;
   return (
@@ -255,28 +264,30 @@ export function InstallAppButton({
       onClick={(event) => state.install(event.currentTarget)}
     >
       <Download size={16} aria-hidden="true" />
-      <span>{state.busy ? 'Opening…' : 'Install app'}</span>
+      <span>{state.busy ? translateUi('Opening…') : translateUi('Install app')}</span>
     </button>
   );
 }
 
 export function InstallAppCard() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const state = useContext(Context);
   if (!state || state.installed || state.dismissed) return null;
   return (
-    <aside className="salem-install-card" aria-label="Get the Salem Bet app">
+    <aside className="salem-install-card" aria-label={translateUi('Get the Salem Bet app')}>
       <span className="salem-install-card-icon" aria-hidden="true">
         <Smartphone size={26} />
       </span>
       <div className="salem-install-copy">
-        <strong>Salem Bet, one tap away</strong>
-        <p>Add the app to your home screen for easy access.</p>
+        <strong>{translateUi('Salem Bet, one tap away')}</strong>
+        <p>{translateUi('Add the app to your home screen for easy access.')}</p>
         <button
           type="button"
           className="salem-install-help"
           onClick={(event) => state.help(event.currentTarget)}
         >
-          How to install
+          {translateUi('How to install')}
         </button>
       </div>
       <button
@@ -286,12 +297,12 @@ export function InstallAppCard() {
         onClick={(event) => state.install(event.currentTarget)}
       >
         <Download size={16} aria-hidden="true" />
-        {state.busy ? 'Opening…' : 'Install app'}
+        {state.busy ? translateUi('Opening…') : translateUi('Install app')}
       </button>
       <button
         type="button"
         className="salem-install-dismiss"
-        aria-label="Dismiss install reminder"
+        aria-label={translateUi('Dismiss install reminder')}
         onClick={state.dismiss}
       >
         <X size={17} />

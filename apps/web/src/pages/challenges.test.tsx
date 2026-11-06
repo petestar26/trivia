@@ -22,7 +22,9 @@ vi.mock('@/lib/api', () => ({
     cancelChallenge: (...a: unknown[]) => cancelChallenge(...a),
   },
 }));
-vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }) }));
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: (...a: unknown[]) => toastMock(...a) }),
+}));
 vi.mock('@/providers/auth-provider', () => ({
   useAuth: () => ({ user: { id: 'me-uuid', username: 'me', displayName: 'Me' } }),
 }));
@@ -83,7 +85,12 @@ async function advanceAndFlush(ms: number) {
   await act(async () => {});
 }
 
-const USER_PETE = { id: 'user-pete-uuid', username: 'petestar26', displayName: 'Peter', avatarUrl: null };
+const USER_PETE = {
+  id: 'user-pete-uuid',
+  username: 'petestar26',
+  displayName: 'Peter',
+  avatarUrl: null,
+};
 const USER_ALT = { id: 'user-alt-uuid', username: 'alt_user', displayName: null, avatarUrl: null };
 
 function stubEmptyChallengeList() {
@@ -190,7 +197,12 @@ describe('ChallengesPage — search', () => {
   it('shows "Searching…" while the request is pending', async () => {
     stubEmptyChallengeList();
     let resolveFn: ((v: unknown) => void) | undefined;
-    searchUsers.mockImplementation(() => new Promise((r) => { resolveFn = r; }));
+    searchUsers.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolveFn = r;
+        })
+    );
     await renderReady();
 
     fireEvent.change(getSearchInput(), { target: { value: 'petestar26' } });
@@ -230,7 +242,7 @@ describe('ChallengesPage — search', () => {
   it('shows a friendly rate-limit message on 429 and does not retry automatically', async () => {
     stubEmptyChallengeList();
     searchUsers.mockRejectedValue(
-      new Error(JSON.stringify({ status: 429, code: 'RATE_LIMITED', message: 'Too many requests' })),
+      new Error(JSON.stringify({ status: 429, code: 'RATE_LIMITED', message: 'Too many requests' }))
     );
     await renderReady();
 
@@ -330,7 +342,9 @@ describe('ChallengesPage — selection', () => {
     fireEvent.change(getSearchInput(), { target: { value: 'petestar26x' } });
     await act(async () => {});
 
-    expect(screen.queryByRole('button', { name: 'Remove selected recipient' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove selected recipient' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send Challenge' })).toBeDisabled();
   });
 
@@ -348,7 +362,9 @@ describe('ChallengesPage — selection', () => {
     await act(async () => {});
 
     // Selection is gone and submit is disabled.
-    expect(screen.queryByRole('button', { name: 'Remove selected recipient' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove selected recipient' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send Challenge' })).toBeDisabled();
 
     // The picker must NOT go inert: the search text and the previously
@@ -387,7 +403,9 @@ describe('ChallengesPage — selection', () => {
 
     // Selection cleared, but the still-current result list is visible again
     // rather than the picker going blank.
-    expect(screen.queryByRole('button', { name: 'Remove selected recipient' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove selected recipient' })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('listbox')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Peter/ })).toBeInTheDocument();
     expect(searchUsers).toHaveBeenCalledTimes(1);
@@ -444,12 +462,16 @@ describe('ChallengesPage — submission safety', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('ChallengesPage — stale response protection', () => {
-  it('an older response cannot overwrite a newer query\'s results', async () => {
+  it("an older response cannot overwrite a newer query's results", async () => {
     stubEmptyChallengeList();
     let resolveA: ((v: unknown) => void) | undefined;
     let resolveB: ((v: unknown) => void) | undefined;
-    const pA = new Promise((r) => { resolveA = r; });
-    const pB = new Promise((r) => { resolveB = r; });
+    const pA = new Promise((r) => {
+      resolveA = r;
+    });
+    const pB = new Promise((r) => {
+      resolveB = r;
+    });
     searchUsers.mockImplementationOnce(() => pA).mockImplementationOnce(() => pB);
 
     await renderReady();
@@ -492,7 +514,9 @@ describe('ChallengesPage — challenge creation error handling', () => {
     stubEmptyChallengeList();
     searchUsers.mockResolvedValue({ success: true, data: [USER_PETE] });
     createChallenge.mockRejectedValue(
-      new Error(JSON.stringify({ status: 404, code: 'NOT_FOUND', message: 'Challenged user not found' })),
+      new Error(
+        JSON.stringify({ status: 404, code: 'NOT_FOUND', message: 'Challenged user not found' })
+      )
     );
     await renderReady();
 
@@ -518,7 +542,9 @@ describe('ChallengesPage — challenge creation error handling', () => {
     stubEmptyChallengeList();
     searchUsers.mockResolvedValue({ success: true, data: [USER_PETE] });
     createChallenge.mockRejectedValue(
-      new Error(JSON.stringify({ status: 404, code: 'NOT_FOUND', message: 'Challenged user not found' })),
+      new Error(
+        JSON.stringify({ status: 404, code: 'NOT_FOUND', message: 'Challenged user not found' })
+      )
     );
     await renderReady();
 
@@ -541,7 +567,9 @@ describe('ChallengesPage — challenge creation error handling', () => {
     // No destructive Toast alongside it — the Toast accessibility fix is
     // what would otherwise make this same failure audible twice.
     expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }));
-    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Challenge failed' }));
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Challenge failed' })
+    );
 
     // Form/error recovery is unchanged: selection and field values survive
     // so the user can Remove/retry intentionally rather than starting over.
@@ -584,9 +612,22 @@ describe('ChallengesPage — regression', () => {
     await act(async () => {});
     await act(async () => {});
 
-    expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['challenges'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['challenges'] })
+    );
     expect(invalidateSpy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['wallet'] }));
-    expect(toastMock).toHaveBeenCalledWith({ title: 'Challenge sent', description: 'Your challenge has been sent.' });
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    const notice = toastMock.mock.calls[0][0] as { title: ReactNode; description: ReactNode };
+    render(
+      <section aria-label="sent notice">
+        {notice.title}
+        {notice.description}
+      </section>
+    );
+    expect(screen.getByRole('region', { name: 'sent notice' })).toHaveTextContent('Challenge sent');
+    expect(screen.getByRole('region', { name: 'sent notice' })).toHaveTextContent(
+      'Your challenge has been sent.'
+    );
   });
 
   it('still renders the existing challenge list', async () => {

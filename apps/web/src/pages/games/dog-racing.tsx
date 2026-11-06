@@ -33,6 +33,8 @@ const DERBY_HELP = Object.fromEntries(
 ) as Record<DerbyMarket, string>;
 import type { DogCamera } from '@/components/dog-racing/race-scene';
 import './dog-racing.css';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 type Entry = {
   roundId: string;
   field: DerbyField;
@@ -42,31 +44,33 @@ type Entry = {
 };
 const endpoint = '/games/dog-racing';
 function FinishOrder({ round, previous = false }: { round: DerbyRound; previous?: boolean }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   if (!round.order?.length) return null;
   const winner = DERBY_HORSES[round.order[0] - 1];
   return (
-    <section className="derby-results" aria-label="Official finishing order">
+    <section className="derby-results" aria-label={translateUi('Official finishing order')}>
       <div className="derby-winner">
         <span className="derby-winner-medal" aria-hidden="true">
           1
         </span>
         <div>
           <span className="derby-eyebrow">
-            {previous ? 'LATEST COMPLETED RACE' : 'OFFICIAL RESULT'}
+            {previous ? translateUi('LATEST COMPLETED RACE') : translateUi('OFFICIAL RESULT')}
           </span>
           <h3 role="status">
-            Winner · #{round.order[0]} {winner.name}
+            {translateUi('Winner · #{value} {name}', { value: round.order[0], name: winner.name })}
           </h3>
-          <p>
-            {round.field} runners · {round.id}
-          </p>
+          <p>{translateUi('{field} runners · {id}', { field: round.field, id: round.id })}</p>
         </div>
       </div>
-      <ol className="derby-finish-order" aria-label="First to last">
+      <ol className="derby-finish-order" aria-label={translateUi('First to last')}>
         {round.order.map((number, index) => (
           <li key={number}>
             <span className="derby-place">
-              {index < 3 ? ['1st', '2nd', '3rd'][index] : `${index + 1}th`}
+              {index < 3
+                ? translateUi(['1st', '2nd', '3rd'][index])
+                : translateUi('{value}th', { value: index + 1 })}
             </span>
             <b
               style={{
@@ -88,6 +92,8 @@ export function DogRacingPage() {
   return user ? <DogRacingConnected key={user.id} userId={user.id} /> : null;
 }
 function DogRacingConnected({ userId }: { userId: string }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [field, setField] = useState<DerbyField>(6),
     [pending, setPending] = useState<Entry | null>(null),
     [busy, setBusy] = useState(false),
@@ -150,14 +156,14 @@ function DogRacingConnected({ userId }: { userId: string }) {
   if (!query.data)
     return (
       <main className="derby-page hounds-page">
-        <Link to="/games">← Games</Link>
-        <h1>Dog Racing</h1>
+        <Link to="/games">{translateUi('← Games')}</Link>
+        <h1>{translateUi('Dog Racing')}</h1>
         <p role="status">
           {query.isError
-            ? 'Practice is unavailable. Please try again later.'
-            : 'Preparing the racecourse…'}
+            ? translateUi('Practice is unavailable. Please try again later.')
+            : translateUi('Preparing the racecourse…')}
         </p>
-        <button onClick={() => query.refetch()}>Refresh</button>
+        <button onClick={() => query.refetch()}>{translateUi('Refresh')}</button>
       </main>
     );
   return (
@@ -200,6 +206,8 @@ export function DogRacingView({
   available?: boolean;
   updatedAt?: number;
 }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const [market, setMarket] = useState<DerbyMarket>('WIN'),
     [picks, setPicks] = useState<number[]>([]),
     [stake, setStake] = useState('25'),
@@ -235,8 +243,8 @@ export function DogRacingView({
   if (!round)
     return (
       <main className="derby-page hounds-page">
-        <h1>Dog Racing</h1>
-        <p>Waiting for the next race.</p>
+        <h1>{translateUi('Dog Racing')}</h1>
+        <p>{translateUi('Waiting for the next race.')}</p>
       </main>
     );
   const serverNow = data.serverTime + Math.max(0, now - updatedAt),
@@ -277,25 +285,25 @@ export function DogRacingView({
     <main className="derby-page hounds-page" data-field={field}>
       <header className="derby-header">
         <div>
-          <Link to="/games">← All games</Link>
+          <Link to="/games">{translateUi('← All games')}</Link>
           <h1>
             <span className="derby-crest" aria-hidden="true">
               ◇
             </span>{' '}
-            <em>DOG RACING</em>
-            <small>SALEM OVAL</small>
+            <em>{translateUi('DOG RACING')}</em>
+            <small>{translateUi('SALEM OVAL')}</small>
           </h1>
         </div>
         <div className="derby-credit">
-          <span>Racing practice</span>
+          <span>{translateUi('Racing practice')}</span>
           <strong>
-            {data.balance.toLocaleString()} <small>ETB</small>
+            {data.balance.toLocaleString(interfaceLocale)} <small>{'ETB'}</small>
           </strong>
-          <p>No cash stakes · No cash prizes</p>
+          <p>{translateUi('No cash stakes · No cash prizes')}</p>
         </div>
       </header>
       <div className="derby-toolbar">
-        <div role="group" aria-label="Race field">
+        <div role="group" aria-label={translateUi('Race field')}>
           {([6, 8] as const).map((n) => (
             <button
               key={n}
@@ -303,54 +311,68 @@ export function DogRacingView({
               disabled={busy || !!pending}
               onClick={() => onField(n)}
             >
-              {n} dogs <small>Every {n / 2} min</small>
+              {n}
+              {' ' + translateUi('dogs') + ' '}
+              <small>{translateUi('Every {value} min', { value: n / 2 })}</small>
             </button>
           ))}
         </div>
         <Dialog.Root>
-          <Dialog.Trigger className="derby-help">How to play ↗</Dialog.Trigger>
+          <Dialog.Trigger className="derby-help">{translateUi('How to play ↗')}</Dialog.Trigger>
           <Dialog.Portal>
             <Dialog.Overlay className="derby-overlay" />
             <Dialog.Content className="derby-dialog">
-              <Dialog.Title>Welcome to Dog Racing</Dialog.Title>
+              <Dialog.Title>{translateUi('Welcome to Dog Racing')}</Dialog.Title>
               <Dialog.Description>
-                Original simulated racing with free, non-redeemable practice ETB. Your racing
-                practice balance is shared with Derby; your cash wallet is separate.
+                {translateUi(
+                  'Original simulated racing with free, non-redeemable practice ETB. Your racing practice balance is shared with Derby; your cash wallet is separate.'
+                )}
               </Dialog.Description>
               <ol>
-                <li>Choose a six- or eight-dog race, then a selection type.</li>
-                <li>Pick numbered dogs in the required order. Choose 10–500 ETB.</li>
+                <li>{translateUi('Choose a six- or eight-dog race, then a selection type.')}</li>
                 <li>
-                  Review the total return and confirm before the race starts. One selection per
-                  race; confirmed choices cannot be changed.
+                  {translateUi('Pick numbered dogs in the required order. Choose 10–500 ETB.')}
                 </li>
                 <li>
-                  Watch the 45-second race. Winning returns include your stake and are credited
-                  automatically.
+                  {translateUi(
+                    'Review the total return and confirm before the race starts. One selection per race; confirmed choices cannot be changed.'
+                  )}
+                </li>
+                <li>
+                  {translateUi(
+                    'Watch the 45-second race. Winning returns include your stake and are credited automatically.'
+                  )}
                 </li>
               </ol>
               {DERBY_MARKETS.map((m) => (
                 <p key={m}>
-                  <strong>{DERBY_LABELS[m]}:</strong> {DERBY_HELP[m]}
+                  <strong>{translateUi(DERBY_LABELS[m])}:</strong> {translateUi(DERBY_HELP[m])}
                 </p>
               ))}
               <p>
-                Every finishing order is equally likely. Dog appearance and previous results do not
-                predict the winner. Fixed odds target a 90% average gross return before rounding
-                down to whole ETB. There is no jackpot, bonus round, cash-out or autoplay.
+                {translateUi(
+                  'Every finishing order is equally likely. Dog appearance and previous results do not predict the winner. Fixed odds target a 90% average gross return before rounding down to whole ETB. There is no jackpot, bonus round, cash-out or autoplay.'
+                )}
               </p>
               <p>
-                Connection lost? Your confirmed selection still settles on the server. Reconnect to
-                retrieve its result. Unconfirmed selections are never carried into a later race.
+                {translateUi(
+                  'Connection lost? Your confirmed selection still settles on the server. Reconnect to retrieve its result. Unconfirmed selections are never carried into a later race.'
+                )}
               </p>
-              <Dialog.Close>Close rules</Dialog.Close>
+              <Dialog.Close>{translateUi('Close rules')}</Dialog.Close>
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
       </div>
       <GameRoundSummary
         game="Dog Racing"
-        label={latestFinished ? 'Latest winner' : running ? 'Race running' : 'Race status'}
+        label={
+          latestFinished
+            ? translateUi('Latest winner')
+            : running
+              ? translateUi('Race running')
+              : translateUi('Race status')
+        }
         value={
           latestFinished
             ? `#${latestFinished.order![0]} ${DERBY_HORSES[latestFinished.order![0] - 1].name}`
@@ -360,18 +382,24 @@ export function DogRacingView({
         }
         detail={
           latestFinished
-            ? `Finish: ${latestFinished.order!.map((n) => `#${n}`).join(' → ')}`
+            ? translateUi('Finish: {order}', {
+                order: latestFinished.order!.map((n) => `#${n}`).join(' → '),
+              })
             : 'Free practice · no cash value'
         }
-        clock={`${!fresh ? 'Reconnecting · ' : ''}${open ? 'Closes' : running ? 'Finish' : 'Next race'} ${clock}`}
+        clock={`${!fresh ? translateUi('Reconnecting · ') : ''}${translateUi(open ? 'Closes' : running ? 'Finish' : 'Next race')} ${clock}`}
       />
-      <section className="derby-history" aria-label="Recent results">
-        <span>RECENT FINISHES</span>
+      <section className="derby-history" aria-label={translateUi('Recent results')}>
+        <span>{translateUi('RECENT FINISHES')}</span>
         {data.rounds
           .filter((r) => r.order)
           .slice(0, 8)
           .map((r) => (
-            <button key={r.id} onClick={() => setDetails(r)} aria-label={`Open result ${r.id}`}>
+            <button
+              key={r.id}
+              onClick={() => setDetails(r)}
+              aria-label={translateUi('Open result {id}', { id: r.id })}
+            >
               {r.order!.slice(0, 3).map((n, i) => (
                 <b key={n} style={{ borderColor: DERBY_HORSES[n - 1].color }}>
                   <small>{i + 1}</small>
@@ -380,44 +408,52 @@ export function DogRacingView({
               ))}
             </button>
           ))}
-        {!data.rounds.some((r) => r.order) && <p>Completed races will appear here.</p>}
+        {!data.rounds.some((r) => r.order) && (
+          <p>{translateUi('Completed races will appear here.')}</p>
+        )}
       </section>
       {error && (
         <p role="alert" className="derby-alert">
-          {error}
+          {translateUi(error)}
         </p>
       )}
       {pending && (
         <div className="derby-alert">
-          Unresolved selection: {DERBY_LABELS[pending.market]} · {pending.stake} ETB.{' '}
+          {translateUi('Unresolved selection:') + ' '}
+          {translateUi(DERBY_LABELS[pending.market])} · {pending.stake}
+          {' ' + translateUi('ETB.')}{' '}
           <button disabled={busy} onClick={() => onSubmit(pending)}>
-            Check saved confirmation
+            {translateUi('Check saved confirmation')}
           </button>
         </div>
       )}
       <div className="derby-layout">
-        <GameArena title="Dog Racing" className="derby-display">
-          <section className="derby-arena" aria-label="Racecourse">
+        <GameArena title={translateUi('Dog Racing')} className="derby-display">
+          <section className="derby-arena" aria-label={translateUi('Racecourse')}>
             <div className="derby-race-heading">
               <div>
-                <span className="derby-eyebrow">SALEM OVAL · GREYHOUNDS</span>
+                <span className="derby-eyebrow">{translateUi('SALEM OVAL · GREYHOUNDS')}</span>
                 <h2>
                   {!fresh
-                    ? 'View paused · Reconnecting'
+                    ? translateUi('View paused · Reconnecting')
                     : open
-                      ? 'At the starting gate'
+                      ? translateUi('At the starting gate')
                       : running
-                        ? 'The race is on'
+                        ? translateUi('The race is on')
                         : round.order
-                          ? 'Official finish'
-                          : 'Awaiting official result'}
+                          ? translateUi('Official finish')
+                          : translateUi('Awaiting official result')}
                 </h2>
-                <p>
-                  {round.field} runners · {round.id}
-                </p>
+                <p>{translateUi('{field} runners · {id}', { field: round.field, id: round.id })}</p>
               </div>
               <div className="derby-countdown">
-                <span>{open ? 'Selections close' : running ? 'Race finishes' : 'Next race'}</span>
+                <span>
+                  {open
+                    ? translateUi('Selections close')
+                    : running
+                      ? translateUi('Race finishes')
+                      : translateUi('Next race')}
+                </span>
                 <strong>{clock}</strong>
               </div>
             </div>
@@ -425,12 +461,18 @@ export function DogRacingView({
               <SceneLoadBoundary
                 fallback={
                   <p>
-                    Follow numbered runner progress below and the official finishing order above.
+                    {translateUi(
+                      'Follow numbered runner progress below and the official finishing order above.'
+                    )}
                   </p>
                 }
               >
                 <Suspense
-                  fallback={<div className="derby-scene-fallback">Preparing racecourse…</div>}
+                  fallback={
+                    <div className="derby-scene-fallback">
+                      {translateUi('Preparing racecourse…')}
+                    </div>
+                  }
                 >
                   <RaceScene
                     round={round}
@@ -441,42 +483,48 @@ export function DogRacingView({
                 </Suspense>
               </SceneLoadBoundary>
               <div className="derby-broadcast-label">
-                <span>SALEM BET / SALEM OVAL</span>
+                <span>{translateUi('SALEM BET / SALEM OVAL')}</span>
                 <strong>
                   {!fresh
-                    ? 'VIEW PAUSED · RECONNECTING'
+                    ? translateUi('VIEW PAUSED · RECONNECTING')
                     : round.order
-                      ? 'OFFICIAL FINISH'
+                      ? translateUi('OFFICIAL FINISH')
                       : running
-                        ? 'LIVE PUBLISHED POSITIONS'
-                        : 'AT THE STARTING GATE'}
+                        ? translateUi('LIVE PUBLISHED POSITIONS')
+                        : translateUi('AT THE STARTING GATE')}
                 </strong>
               </div>
             </div>
-            <div className="hounds-cameras" role="group" aria-label="Camera view">
+            <div className="hounds-cameras" role="group" aria-label={translateUi('Camera view')}>
               {(['trackside', 'chase', 'aerial'] as const).map((mode) => (
                 <button
                   key={mode}
                   aria-pressed={cameraMode === mode}
                   onClick={() => setCameraMode(mode)}
                 >
-                  {mode === 'trackside' ? 'Trackside' : mode === 'chase' ? 'Follow race' : 'Aerial'}
+                  {mode === 'trackside'
+                    ? translateUi('Trackside')
+                    : mode === 'chase'
+                      ? translateUi('Follow race')
+                      : translateUi('Aerial')}
                 </button>
               ))}
             </div>
             <div className="derby-race-footer">
-              <span>{fresh ? '● Connected' : '○ Refreshing race status'}</span>
+              <span>
+                {fresh ? translateUi('● Connected') : translateUi('○ Refreshing race status')}
+              </span>
               <label>
                 <input
                   type="checkbox"
                   checked={reduced}
                   onChange={(e) => setReduced(e.target.checked)}
                 />{' '}
-                Reduced motion
+                {translateUi('Reduced motion')}
               </label>
-              <span>Server-set results</span>
+              <span>{translateUi('Server-set results')}</span>
             </div>
-            <div className="derby-progress" aria-label="Runner progress">
+            <div className="derby-progress" aria-label={translateUi('Runner progress')}>
               {DERBY_HORSES.slice(0, field).map((h, i) => (
                 <div key={h.name}>
                   <b style={{ background: h.color, color: h.ink }}>{i + 1}</b>
@@ -485,7 +533,7 @@ export function DogRacingView({
                     min={0}
                     max={1}
                     value={round.positions[i] || 0}
-                    aria-label={`${h.name} race progress`}
+                    aria-label={translateUi('{name} race progress', { name: h.name })}
                   />
                 </div>
               ))}
@@ -493,9 +541,9 @@ export function DogRacingView({
           </section>
         </GameArena>
         <aside className="derby-slip">
-          <span className="derby-eyebrow">YOUR RACE SELECTION</span>
-          <h2>Pick your finish</h2>
-          <div className="derby-markets" role="group" aria-label="Selection type">
+          <span className="derby-eyebrow">{translateUi('YOUR RACE SELECTION')}</span>
+          <h2>{translateUi('Pick your finish')}</h2>
+          <div className="derby-markets" role="group" aria-label={translateUi('Selection type')}>
             {DERBY_MARKETS.map((m) => (
               <button
                 key={m}
@@ -506,15 +554,16 @@ export function DogRacingView({
                   setPicks([]);
                 }}
               >
-                {DERBY_LABELS[m]}
+                {translateUi(DERBY_LABELS[m])}
               </button>
             ))}
           </div>
           <p className="derby-instruction">
-            {DERBY_HELP[market]} {count > 1 && 'Tap dogs in selection order.'}
+            {translateUi(DERBY_HELP[market])}{' '}
+            {count > 1 && translateUi('Tap dogs in selection order.')}
           </p>
           {count > 0 ? (
-            <div className="derby-runners" role="group" aria-label="Choose dogs">
+            <div className="derby-runners" role="group" aria-label={translateUi('Choose dogs')}>
               {DERBY_HORSES.slice(0, field).map((h, i) => (
                 <button
                   key={h.name}
@@ -527,7 +576,7 @@ export function DogRacingView({
                   {picks.includes(i + 1) && (
                     <small>
                       {market === 'PERFECTA' || market === 'TRIFECTA'
-                        ? `${picks.indexOf(i + 1) + 1}${['st', 'nd', 'rd'][picks.indexOf(i + 1)]}`
+                        ? translateUi(['1st', '2nd', '3rd'][picks.indexOf(i + 1)])
                         : '✓'}
                     </small>
                   )}
@@ -536,22 +585,23 @@ export function DogRacingView({
             </div>
           ) : (
             <div className="derby-special">
-              Winning numbers:{' '}
-              {Array.from({ length: field }, (_, i) => i + 1)
-                .filter((n) =>
-                  market === 'ODD'
-                    ? n % 2
-                    : market === 'EVEN'
-                      ? n % 2 === 0
-                      : market === 'UNDER'
-                        ? n <= field / 2
-                        : n > field / 2
-                )
-                .join(' · ')}
+              {translateUi('Winning numbers: {value}', {
+                value: Array.from({ length: field }, (_, i) => i + 1)
+                  .filter((n) =>
+                    market === 'ODD'
+                      ? n % 2
+                      : market === 'EVEN'
+                        ? n % 2 === 0
+                        : market === 'UNDER'
+                          ? n <= field / 2
+                          : n > field / 2
+                  )
+                  .join(' · '),
+              })}
             </div>
           )}
           <label className="derby-stake">
-            Practice ETB
+            {translateUi('Practice ETB')}
             <input
               type="number"
               inputMode="numeric"
@@ -565,15 +615,23 @@ export function DogRacingView({
           </label>
           <dl className="derby-quote">
             <div>
-              <dt>Fixed gross odds</dt>
+              <dt>{translateUi('Fixed gross odds')}</dt>
               <dd>{(odds / 100).toFixed(2)}×</dd>
             </div>
             <div>
-              <dt>Total return if successful</dt>
-              <dd>{valid ? Math.floor((Number(stake) * odds) / 100).toLocaleString() : '—'} ETB</dd>
+              <dt>{translateUi('Total return if successful')}</dt>
+              <dd>
+                {translateUi('{value} ETB', {
+                  value: valid
+                    ? Math.floor((Number(stake) * odds) / 100).toLocaleString(interfaceLocale)
+                    : '—',
+                })}
+              </dd>
             </div>
           </dl>
-          <p className="derby-fine">Includes your stake. A losing selection returns 0.</p>
+          <p className="derby-fine">
+            {translateUi('Includes your stake. A losing selection returns 0.')}
+          </p>
           <button
             className="derby-primary"
             disabled={disabled || !valid || Number(stake) > data.balance}
@@ -585,27 +643,30 @@ export function DogRacingView({
             }
           >
             {round.ticket
-              ? 'Selection confirmed'
+              ? translateUi('Selection confirmed')
               : !open
-                ? 'Selections closed'
-                : 'Review selection'}{' '}
-            <span>Free practice only</span>
+                ? translateUi('Selections closed')
+                : translateUi('Review selection')}{' '}
+            <span>{translateUi('Free practice only')}</span>
           </button>
           {round.ticket && (
             <div className="derby-receipt" role="status">
               <strong>
-                {DERBY_LABELS[round.ticket.market]}{' '}
+                {translateUi(DERBY_LABELS[round.ticket.market])}{' '}
                 {round.ticket.picks
                   .map((n) => `#${n}`)
                   .join(round.ticket.market === 'QUINELLA' ? ' & ' : ' → ')}
               </strong>
               <p>
-                {round.ticket.stake} ETB · {(round.ticket.oddsCents / 100).toFixed(2)}×
+                {translateUi('{stake} ETB · {value}×', {
+                  stake: round.ticket.stake,
+                  value: (round.ticket.oddsCents / 100).toFixed(2),
+                })}
               </p>
               <p>
                 {round.ticket.payout === null
-                  ? 'Awaiting race result'
-                  : `Returned ${round.ticket.payout} practice ETB`}
+                  ? translateUi('Awaiting race result')
+                  : translateUi('Returned {payout} practice ETB', { payout: round.ticket.payout })}
               </p>
             </div>
           )}
@@ -615,8 +676,9 @@ export function DogRacingView({
         <FinishOrder round={latestFinished} previous={latestFinished.id !== round.id} />
       )}
       <p className="derby-disclaimer">
-        A simulated race with equal-chance runners. Previous results do not predict the next finish.
-        Practice ETB have no monetary value.
+        {translateUi(
+          'A simulated race with equal-chance runners. Previous results do not predict the next finish. Practice ETB have no monetary value.'
+        )}
       </p>
       <Dialog.Root
         open={!!confirm}
@@ -627,24 +689,25 @@ export function DogRacingView({
         <Dialog.Portal>
           <Dialog.Overlay className="derby-overlay" />
           <Dialog.Content className="derby-dialog">
-            <Dialog.Title>Confirm your practice selection</Dialog.Title>
+            <Dialog.Title>{translateUi('Confirm your practice selection')}</Dialog.Title>
             <Dialog.Description>
-              This selection cannot be changed after confirmation.
+              {translateUi('This selection cannot be changed after confirmation.')}
             </Dialog.Description>
             {confirm && (
               <>
                 <p>
-                  {DERBY_LABELS[confirm.market]} ·{' '}
+                  {translateUi(DERBY_LABELS[confirm.market])} ·{' '}
                   {confirm.picks
                     .map((n) => `#${n}`)
                     .join(confirm.market === 'QUINELLA' ? ' & ' : ' → ')}
                 </p>
                 <p>
-                  {confirm.stake} ETB · total successful return{' '}
-                  {Math.floor(
-                    (confirm.stake * derbyOddsCents(confirm.field, confirm.market)) / 100
-                  )}{' '}
-                  ETB
+                  {translateUi('{stake} ETB · total successful return {value} ETB', {
+                    stake: confirm.stake,
+                    value: Math.floor(
+                      (confirm.stake * derbyOddsCents(confirm.field, confirm.market)) / 100
+                    ),
+                  })}
                 </p>
                 <button
                   className="derby-primary"
@@ -656,11 +719,11 @@ export function DogRacingView({
                     setConfirm(null);
                   }}
                 >
-                  Confirm practice selection
+                  {translateUi('Confirm practice selection')}
                 </button>
               </>
             )}
-            <Dialog.Close>Back</Dialog.Close>
+            <Dialog.Close>{translateUi('Back')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -673,21 +736,25 @@ export function DogRacingView({
         <Dialog.Portal>
           <Dialog.Overlay className="derby-overlay" />
           <Dialog.Content className="derby-dialog">
-            <Dialog.Title>Official race result</Dialog.Title>
+            <Dialog.Title>{translateUi('Official race result')}</Dialog.Title>
             <Dialog.Description>{details?.id}</Dialog.Description>
             {details && <FinishOrder round={details} />}
             {details?.ticket && (
-              <p>Your selection returned {details.ticket.payout ?? 'pending'} ETB.</p>
+              <p>
+                {translateUi('Your selection returned {value} ETB.', {
+                  value: details.ticket.payout ?? translateUi('pending'),
+                })}
+              </p>
             )}
             <details>
-              <summary>Result verification</summary>
-              <p>Commitment</p>
+              <summary>{translateUi('Result verification')}</summary>
+              <p>{translateUi('Commitment')}</p>
               <code>{details?.commitment}</code>
-              <p>Revealed seed</p>
+              <p>{translateUi('Revealed seed')}</p>
               <code>{details?.seed}</code>
-              <p>Rules: {DERBY_RULES.id}</p>
+              <p>{translateUi('Rules: {id}', { id: DERBY_RULES.id })}</p>
             </details>
-            <Dialog.Close>Close result</Dialog.Close>
+            <Dialog.Close>{translateUi('Close result')}</Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

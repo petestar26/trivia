@@ -1,3 +1,4 @@
+import { LocalizedText } from '@/lib/i18n/text';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { api, unwrapData, Competition, CompetitionPhase } from '@/lib/api';
@@ -8,6 +9,7 @@ import { normalizeCompetitionPhase } from '@/lib/competition-lifecycle';
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 interface LeaderboardEntry {
   userId: string;
@@ -62,13 +64,19 @@ const MAX_TIMER_DELAY = 2_147_483_647;
 const MAX_TIMER_SLICE = MAX_TIMER_DELAY - BOUNDARY_GRACE_MS;
 
 export function CompetitionDetailPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { groupId, competitionId } = useParams<{ groupId: string; competitionId: string }>();
   const { user } = useAuth();
-  const queryClient = useQueryClient();     // ← declared before any conditional
+  const queryClient = useQueryClient(); // ← declared before any conditional
   const { toast } = useToast();
 
   // ── Fetch competition (membership enforced server-side) ─────────────
-  const { data: competition, isLoading: compLoading, isError: compError } = useQuery<Competition>({
+  const {
+    data: competition,
+    isLoading: compLoading,
+    isError: compError,
+  } = useQuery<Competition>({
     queryKey: ['competition', groupId, competitionId],
     queryFn: async () => {
       const res = await api.getCompetitionForGroup(groupId!, competitionId!);
@@ -110,7 +118,7 @@ export function CompetitionDetailPage() {
   useEffect(() => {
     if (!competition?.participants) return;
     const sorted = [...competition.participants].sort(
-      (a, b) => b.score - a.score || b.gamesPlayed - a.gamesPlayed,
+      (a, b) => b.score - a.score || b.gamesPlayed - a.gamesPlayed
     );
     setLeaderboard(sorted);
   }, [competition?.participants]);
@@ -128,7 +136,9 @@ export function CompetitionDetailPage() {
     };
 
     socket.on('competition:ended', refresh);
-    return () => { socket.off('competition:ended', refresh); };
+    return () => {
+      socket.off('competition:ended', refresh);
+    };
   }, [socket, competitionId, groupId, queryClient]);
 
   // ── Boundary refresh ─────────────────────────────────────────────
@@ -185,18 +195,30 @@ export function CompetitionDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Joined competition' });
+      toast({ title: <LocalizedText message="Joined competition" /> });
     },
     onError: (err) => {
       let msg = 'Failed to join';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: <LocalizedText message={msg} />,
+        variant: 'destructive',
+      });
     },
   });
 
   const playMutation = useMutation({
     mutationFn: async (clientData?: Record<string, unknown>) => {
-      const res = await api.playCompetition<PlayCompetitionResult>(groupId!, competitionId!, clientData);
+      const res = await api.playCompetition<PlayCompetitionResult>(
+        groupId!,
+        competitionId!,
+        clientData
+      );
       return unwrapData(res, 'Play competition response');
     },
     onSuccess: (data) => {
@@ -208,22 +230,31 @@ export function CompetitionDetailPage() {
         setSelectedAnswer(null);
         return;
       }
-      
+
       // Phase 2 or normal game: show result
       const score = data.score ?? 0;
       if (data.result?.correct === false) {
-        toast({ title: 'Incorrect', description: `Better luck next round!` });
+        toast({
+          title: <LocalizedText message="Incorrect" />,
+          description: <LocalizedText message="Better luck next round!" />,
+        });
       } else if (data.result?.correct === true) {
-        toast({ title: 'Correct!', description: `+${score} points` });
+        toast({
+          title: <LocalizedText message="Correct!" />,
+          description: <LocalizedText message="+{score} points" values={{ score }} />,
+        });
       } else if (score !== 0) {
-        toast({ title: 'Turn complete', description: `Score this round: ${score}` });
+        toast({
+          title: <LocalizedText message="Turn complete" />,
+          description: <LocalizedText message="Score this round: {score}" values={{ score }} />,
+        });
       }
-      
+
       // Reset trivia state
       setTriviaQuestion(null);
       setShowTriviaQuestion(false);
       setSelectedAnswer(null);
-      
+
       queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
@@ -233,8 +264,16 @@ export function CompetitionDetailPage() {
       // immediately reflects the authoritative gamesPlayed value.
       queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
       let msg = 'Failed to play';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: <LocalizedText message={msg} />,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -243,12 +282,20 @@ export function CompetitionDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['competition', groupId, competitionId] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      toast({ title: 'Competition finalized' });
+      toast({ title: <LocalizedText message="Competition finalized" /> });
     },
     onError: (err) => {
       let msg = 'Failed to finalize';
-      try { msg = JSON.parse((err as Error).message)?.message ?? msg; } catch { /* noop */ }
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      try {
+        msg = JSON.parse((err as Error).message)?.message ?? msg;
+      } catch {
+        /* noop */
+      }
+      toast({
+        title: <LocalizedText message="Error" />,
+        description: <LocalizedText message={msg} />,
+        variant: 'destructive',
+      });
     },
   });
 
@@ -273,7 +320,7 @@ export function CompetitionDetailPage() {
       <div className="max-w-2xl mx-auto p-4">
         <Card>
           <CardContent className="py-8 text-center text-gray-500 dark:text-gray-400">
-            Competition not found, or you are not an active member of this group.
+            {translateUi('Competition not found, or you are not an active member of this group.')}
           </CardContent>
         </Card>
       </div>
@@ -286,19 +333,23 @@ export function CompetitionDetailPage() {
   const iAmParticipant = currentParticipant !== undefined;
   const playLimit = competition.maxPlaysPerParticipant;
   const hasCompletedAllRounds =
-    playLimit != null && currentParticipant !== undefined && currentParticipant.gamesPlayed >= playLimit;
+    playLimit != null &&
+    currentParticipant !== undefined &&
+    currentParticipant.gamesPlayed >= playLimit;
   // Role is for UX display only — backend re-validates on every mutating request.
   const isManager = groupInfo?.memberRole === 'OWNER' || groupInfo?.memberRole === 'ADMIN';
   const canFinalize = isManager;
 
   // `phase` is derived beside the competition query (server phase, with the
   // clock-based compatibility fallback) so the boundary effect can depend on it.
-  const isFull = competition.isFull ??
-    (competition.maxParticipants != null && (competition.participantCount ?? 0) >= competition.maxParticipants);
+  const isFull =
+    competition.isFull ??
+    (competition.maxParticipants != null &&
+      (competition.participantCount ?? 0) >= competition.maxParticipants);
 
   const isUpcoming = phase === 'UPCOMING';
-  const isOpen     = phase === 'OPEN';
-  const isEnded    = phase === 'ENDED';
+  const isOpen = phase === 'OPEN';
+  const isEnded = phase === 'ENDED';
   const isCompleted = phase === 'COMPLETED';
   const isCancelled = phase === 'CANCELLED';
 
@@ -307,31 +358,49 @@ export function CompetitionDetailPage() {
   // ── Finalized / completed view ────────────────────────────────────
   if (isCompleted && competition.finalizedAt) {
     const myEntry = leaderboard.find((p) => p.userId === user?.id);
-    const myRank  = myEntry ? leaderboard.indexOf(myEntry) + 1 : null;
-    const iWon    = myRank === 1;
+    const myRank = myEntry ? leaderboard.indexOf(myEntry) + 1 : null;
+    const iWon = myRank === 1;
 
     return (
       <div className="max-w-2xl mx-auto p-4 space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle>{competition.title} — Final Results</CardTitle>
+            <CardTitle>
+              {translateUi('{title} — Final Results', { title: competition.title })}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Finalized {new Date(competition.finalizedAt!).toLocaleString()}
+              {translateUi('Finalized {value}', {
+                value: new Date(competition.finalizedAt!).toLocaleString(interfaceLocale),
+              })}
             </p>
 
             {myRank && (
-              <p className={`text-lg font-bold ${iWon ? 'text-green-600 dark:text-green-400' : ''}`}>
-                {iWon ? `You won! 🎉` : `Your rank: #${myRank}`}
+              <p
+                className={`text-lg font-bold ${iWon ? 'text-green-600 dark:text-green-400' : ''}`}
+              >
+                {iWon
+                  ? translateUi('You won! 🎉')
+                  : translateUi('Your rank: #{myRank}', { myRank: myRank })}
               </p>
             )}
 
             {(competition.rewardGamePoints > 0 || competition.rewardCoins > 0) && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                <p className="font-medium">Rewards (winner):</p>
-                {competition.rewardGamePoints > 0 && <p>{competition.rewardGamePoints} GP</p>}
-                {competition.rewardCoins > 0 && <p>{competition.rewardCoins} Coins</p>}
+                <p className="font-medium">{translateUi('Rewards (winner):')}</p>
+                {competition.rewardGamePoints > 0 && (
+                  <p>
+                    {translateUi('{rewardGamePoints} GP', {
+                      rewardGamePoints: competition.rewardGamePoints,
+                    })}
+                  </p>
+                )}
+                {competition.rewardCoins > 0 && (
+                  <p>
+                    {translateUi('{rewardCoins} Coins', { rewardCoins: competition.rewardCoins })}
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
@@ -353,61 +422,85 @@ export function CompetitionDetailPage() {
           {/* Competition metadata */}
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Game</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Game')}</p>
               <p className="font-semibold">{gameName}</p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Status</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Status')}</p>
               <p className={`font-semibold ${PHASE_COLOR[phase] ?? 'text-gray-500'}`}>
-                {PHASE_LABEL[phase] ?? phase}
+                {translateUi(PHASE_LABEL[phase] ?? phase)}
               </p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Entry</p>
-              <p className="font-semibold">{competition.entryAmount > 0 ? `${competition.entryAmount} GP` : 'Free'}</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Entry')}</p>
+              <p className="font-semibold">
+                {competition.entryAmount > 0
+                  ? translateUi('{entryAmount} GP', { entryAmount: competition.entryAmount })
+                  : translateUi('Free')}
+              </p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Max players</p>
-              <p className="font-semibold">{competition.maxParticipants ?? 'Unlimited'}</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Max players')}</p>
+              <p className="font-semibold">
+                {competition.maxParticipants ?? translateUi('Unlimited')}
+              </p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Starts</p>
-              <p className="font-semibold">{new Date(competition.startsAt).toLocaleString()}</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Starts')}</p>
+              <p className="font-semibold">
+                {new Date(competition.startsAt).toLocaleString(interfaceLocale)}
+              </p>
             </div>
             <div>
-              <p className="text-gray-500 dark:text-gray-400">Ends</p>
-              <p className="font-semibold">{new Date(competition.endsAt).toLocaleString()}</p>
+              <p className="text-gray-500 dark:text-gray-400">{translateUi('Ends')}</p>
+              <p className="font-semibold">
+                {new Date(competition.endsAt).toLocaleString(interfaceLocale)}
+              </p>
             </div>
           </div>
 
           {/* Rewards */}
           {(competition.rewardGamePoints > 0 || competition.rewardCoins > 0) && (
             <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm">
-              <p className="font-medium text-amber-800 dark:text-amber-300">Winner rewards:</p>
+              <p className="font-medium text-amber-800 dark:text-amber-300">
+                {translateUi('Winner rewards:')}
+              </p>
               {competition.rewardGamePoints > 0 && (
-                <p className="text-amber-700 dark:text-amber-400">{competition.rewardGamePoints} GP</p>
+                <p className="text-amber-700 dark:text-amber-400">
+                  {translateUi('{rewardGamePoints} GP', {
+                    rewardGamePoints: competition.rewardGamePoints,
+                  })}
+                </p>
               )}
               {competition.rewardCoins > 0 && (
-                <p className="text-amber-700 dark:text-amber-400">{competition.rewardCoins} Coins</p>
+                <p className="text-amber-700 dark:text-amber-400">
+                  {translateUi('{rewardCoins} Coins', { rewardCoins: competition.rewardCoins })}
+                </p>
               )}
             </div>
           )}
 
           {/* Join — OPEN only; no pre-start registration, nothing after endsAt */}
           {isOpen && !iAmParticipant && !isFull && (
-            <Button
-              onClick={() => joinMutation.mutate()}
-              disabled={mutBusy}
-              className="w-full"
-            >
-              {joinMutation.isPending ? 'Joining…' : `Join Competition${competition.entryAmount > 0 ? ` (${competition.entryAmount} GP)` : ''}`}
+            <Button onClick={() => joinMutation.mutate()} disabled={mutBusy} className="w-full">
+              {joinMutation.isPending
+                ? translateUi('Joining…')
+                : translateUi('Join Competition{value}', {
+                    value:
+                      competition.entryAmount > 0
+                        ? ' ' +
+                          translateUi('({entryAmount} GP)', {
+                            entryAmount: competition.entryAmount,
+                          })
+                        : '',
+                  })}
             </Button>
           )}
 
           {/* Full — never an apparently-usable Join (backend stays authoritative) */}
           {isOpen && !iAmParticipant && isFull && (
             <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">
-              This competition is full.
+              {translateUi('This competition is full.')}
             </p>
           )}
 
@@ -415,11 +508,13 @@ export function CompetitionDetailPage() {
           {isUpcoming && (
             <div className="space-y-2">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                This competition starts {new Date(competition.startsAt).toLocaleString()}.
+                {translateUi('This competition starts {value}.', {
+                  value: new Date(competition.startsAt).toLocaleString(interfaceLocale),
+                })}
               </p>
               {iAmParticipant && (
                 <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-                  ✓ You are joined — play opens when it starts.
+                  {translateUi('✓ You are joined — play opens when it starts.')}
                 </p>
               )}
             </div>
@@ -440,12 +535,14 @@ export function CompetitionDetailPage() {
                               {triviaQuestion.category}
                             </span>
                           )}
-                          Trivia Question
+                          {translateUi('Trivia Question')}
                         </CardTitle>
                         <CardDescription>
                           {triviaQuestion.difficulty && (
                             <span className="text-xs text-gray-500 dark:text-gray-400">
-                              Difficulty: {triviaQuestion.difficulty}/5
+                              {translateUi('Difficulty: {difficulty}/5', {
+                                difficulty: triviaQuestion.difficulty,
+                              })}
                             </span>
                           )}
                         </CardDescription>
@@ -481,7 +578,9 @@ export function CompetitionDetailPage() {
                           disabled={playMutation.isPending || selectedAnswer === null}
                           className="w-full"
                         >
-                          {playMutation.isPending ? 'Checking…' : 'Submit Answer'}
+                          {playMutation.isPending
+                            ? translateUi('Checking…')
+                            : translateUi('Submit Answer')}
                         </Button>
                       </CardContent>
                     </Card>
@@ -492,7 +591,9 @@ export function CompetitionDetailPage() {
                       disabled={mutBusy}
                       className="w-full"
                     >
-                      {playMutation.isPending ? 'Playing…' : 'Play a round'}
+                      {playMutation.isPending
+                        ? translateUi('Playing…')
+                        : translateUi('Play a round')}
                     </Button>
                   )}
                 </div>
@@ -503,12 +604,14 @@ export function CompetitionDetailPage() {
                   disabled={mutBusy}
                   className="w-full"
                 >
-                  {playMutation.isPending ? 'Playing…' : 'Play a round'}
+                  {playMutation.isPending ? translateUi('Playing…') : translateUi('Play a round')}
                 </Button>
               )}
               {!isTriviaCompetition && hasCompletedAllRounds && (
                 <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-                  You have completed all {playLimit} rounds.
+                  {translateUi('You have completed all {playLimit} rounds.', {
+                    playLimit: playLimit,
+                  })}
                 </p>
               )}
             </div>
@@ -517,7 +620,7 @@ export function CompetitionDetailPage() {
           {/* Cancelled */}
           {isCancelled && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              This competition was cancelled.
+              {translateUi('This competition was cancelled.')}
             </p>
           )}
 
@@ -525,7 +628,7 @@ export function CompetitionDetailPage() {
           {isEnded && (
             <div className="space-y-2">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                This competition has ended.
+                {translateUi('This competition has ended.')}
               </p>
               {canFinalize && (
                 <Button
@@ -533,7 +636,9 @@ export function CompetitionDetailPage() {
                   disabled={mutBusy}
                   className="w-full"
                 >
-                  {finalizeMutation.isPending ? 'Finalizing…' : 'Finalize & distribute rewards'}
+                  {finalizeMutation.isPending
+                    ? translateUi('Finalizing…')
+                    : translateUi('Finalize & distribute rewards')}
                 </Button>
               )}
             </div>
@@ -542,7 +647,7 @@ export function CompetitionDetailPage() {
           {/* COMPLETED — terminal status, no live actions */}
           {isCompleted && !competition.finalizedAt && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              This competition has ended.
+              {translateUi('This competition has ended.')}
             </p>
           )}
         </CardContent>
@@ -562,25 +667,35 @@ function LeaderboardTable({
   entries: LeaderboardEntry[];
   currentUserId?: string;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Leaderboard</CardTitle>
+        <CardTitle className="text-base">{translateUi('Leaderboard')}</CardTitle>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            No participants yet.
+            {translateUi('No participants yet.')}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="py-2 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">Rank</th>
-                  <th className="py-2 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">Player</th>
-                  <th className="py-2 pr-4 text-right font-medium text-gray-500 dark:text-gray-400">Score</th>
-                  <th className="py-2 text-right font-medium text-gray-500 dark:text-gray-400">Rounds</th>
+                  <th className="py-2 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                    {translateUi('Rank')}
+                  </th>
+                  <th className="py-2 pr-4 text-left font-medium text-gray-500 dark:text-gray-400">
+                    {translateUi('Player')}
+                  </th>
+                  <th className="py-2 pr-4 text-right font-medium text-gray-500 dark:text-gray-400">
+                    {translateUi('Score')}
+                  </th>
+                  <th className="py-2 text-right font-medium text-gray-500 dark:text-gray-400">
+                    {translateUi('Rounds')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -601,13 +716,15 @@ function LeaderboardTable({
                         {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : rank}
                       </td>
                       <td className="py-2 pr-4">
-                        <span className={isMe ? 'font-semibold text-primary-600 dark:text-primary-400' : ''}>
-                          {isMe ? 'You' : `${entry.userId.slice(0, 8)}…`}
+                        <span
+                          className={
+                            isMe ? 'font-semibold text-primary-600 dark:text-primary-400' : ''
+                          }
+                        >
+                          {isMe ? translateUi('You') : `${entry.userId.slice(0, 8)}…`}
                         </span>
                       </td>
-                      <td className="py-2 pr-4 text-right font-semibold">
-                        {entry.score}
-                      </td>
+                      <td className="py-2 pr-4 text-right font-semibold">{entry.score}</td>
                       <td className="py-2 text-right text-gray-500 dark:text-gray-400">
                         {entry.gamesPlayed}
                       </td>

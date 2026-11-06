@@ -2,10 +2,26 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Keep every static language available offline without pushing the app entry over
+// Workbox's per-file cache limit. Grouped catalogues contain no runtime requests.
+const catalogueDirectory = path.resolve(__dirname, 'src/lib/i18n/catalogues');
+const translationChunks: Record<string, string[]> = {};
+for (const file of readdirSync(catalogueDirectory).filter((name) => name.endsWith('.ts'))) {
+  const group = /^(legacy|game-)/.test(file)
+    ? 'games'
+    : /^(group)/.test(file)
+      ? 'groups'
+      : /^(staff|social)/.test(file)
+        ? 'staff'
+        : 'member';
+  (translationChunks['translations-' + group] ??= []).push(path.join(catalogueDirectory, file));
+}
 
 export default defineConfig({
   plugins: [
@@ -19,8 +35,8 @@ export default defineConfig({
         name: 'Salem Bet',
         short_name: 'Salem Bet',
         description: 'Games, groups, and your Salem Bet account, one tap away.',
-        theme_color: '#111214',
-        background_color: '#111214',
+        theme_color: '#050b09',
+        background_color: '#050b09',
         display: 'standalone',
         orientation: 'portrait-primary',
         scope: '/',
@@ -125,6 +141,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          ...translationChunks,
           vendor: ['react', 'react-dom', 'react-router-dom'],
           query: ['@tanstack/react-query'],
           ui: [

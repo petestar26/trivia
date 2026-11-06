@@ -65,6 +65,7 @@ import { ProfilePage } from '@/pages/profile';
 import { PasswordResetPage } from '@/pages/password-reset';
 import { AdminAgents } from '@/pages/workspaces/agents';
 import { AdminAccountDetail } from '@/pages/workspaces/account-detail';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 // Keep pairing-verification code out of the normal casino entry bundle.
 const SpinWinVerifyPage = lazy(async () => {
@@ -73,6 +74,8 @@ const SpinWinVerifyPage = lazy(async () => {
 });
 
 export function App() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const { isLoading } = useAuth();
   const location = useLocation();
 
@@ -101,7 +104,7 @@ export function App() {
           <Suspense
             fallback={
               <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
-                Loading round verifier…
+                {translateUi('Loading round verifier…')}
               </main>
             }
           >

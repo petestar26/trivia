@@ -1,3 +1,4 @@
+import { footballSelectionLabel, type InterfaceTranslate } from '@/lib/i18n/game-labels';
 import { clubById } from '@/lib/football/clubs';
 import { useId, useState, type Dispatch } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -11,6 +12,7 @@ import {
   type SlipPreview,
   type SlipState,
 } from '@/lib/football/slip';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const QUICK = [5, 10, 25, 50] as const;
 
@@ -20,14 +22,19 @@ function fixtureTitle(fixture: VfFixtureView | undefined) {
 }
 function pickLabel(
   pick: { selection: string; fixtureId: string },
-  fixture: VfFixtureView | undefined
+  fixture: VfFixtureView | undefined,
+  t: InterfaceTranslate
 ) {
   const selection = parseSelection(pick.selection);
   if (!selection || !fixture) return pick.selection;
-  return selection.label({
-    home: clubById(fixture.homeClub).name,
-    away: clubById(fixture.awayClub).name,
-  });
+  return footballSelectionLabel(
+    selection,
+    {
+      home: clubById(fixture.homeClub).name,
+      away: clubById(fixture.awayClub).name,
+    },
+    t
+  );
 }
 
 function StakeInput({
@@ -41,6 +48,8 @@ function StakeInput({
   onChange: (n: number | null) => void;
   disabled: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const id = useId();
   return (
     <div className="vf-stake">
@@ -61,7 +70,10 @@ function StakeInput({
         aria-describedby={`${id}-hint`}
       />
       <span id={`${id}-hint`} className="sr-only">
-        {VF_LIMITS.minLineStake} to {VF_LIMITS.maxLineStake} practice ETB
+        {translateUi('{minLineStake} to {maxLineStake} practice ETB', {
+          minLineStake: VF_LIMITS.minLineStake,
+          maxLineStake: VF_LIMITS.maxLineStake,
+        })}
       </span>
       <div className="vf-quick">
         {QUICK.map((n) => (
@@ -107,6 +119,8 @@ export function Slip({
   ticketsPlaced: number;
   onReview: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [chosen, setChosen] = useState<string[]>([]);
   const byId = new Map(fixtures.map((f) => [f.id, f]));
   const frozen = !!closedReason || busy || locked;
@@ -137,18 +151,22 @@ export function Slip({
       : stale.length
         ? 'Prices changed. Review the updated prices.'
         : exceeded
-          ? `You have placed ${VF_LIMITS.maxTicketsPerMatchweek} tickets this matchweek.`
+          ? translateUi('You have placed {count} tickets this matchweek.', {
+              count: VF_LIMITS.maxTicketsPerMatchweek,
+            })
           : overLines
-            ? `A ticket holds at most ${VF_LIMITS.maxLines} lines.`
+            ? translateUi('A ticket holds at most {count} lines.', { count: VF_LIMITS.maxLines })
             : insufficient
               ? 'Not enough practice ETB.'
               : preview.error;
 
   return (
-    <aside className="vf-slip" aria-label="Ticket slip">
+    <aside className="vf-slip" aria-label={translateUi('Ticket slip')}>
       <header className="vf-slip-head">
-        <h2>Your ticket</h2>
-        <span aria-label={`${slip.picks.length} selections`}>{slip.picks.length}</span>
+        <h2>{translateUi('Your ticket')}</h2>
+        <span aria-label={translateUi('{length} selections', { length: slip.picks.length })}>
+          {slip.picks.length}
+        </span>
         {slip.picks.length > 0 && (
           <button
             type="button"
@@ -156,33 +174,37 @@ export function Slip({
             disabled={frozen}
             onClick={() => (setChosen([]), dispatch({ type: 'clear' }))}
           >
-            Clear
+            {translateUi('Clear')}
           </button>
         )}
       </header>
 
       {slip.picks.length === 0 ? (
         <p className="vf-slip-empty">
-          Tap a price to add it. Stake each selection as a single, or combine two to five matches
-          into a multiple. One ticket can hold up to {VF_LIMITS.maxLines} lines.
+          {translateUi(
+            'Tap a price to add it. Stake each selection as a single, or combine two to five matches into a multiple. One ticket can hold up to {maxLines} lines.',
+            { maxLines: VF_LIMITS.maxLines }
+          )}
         </p>
       ) : (
         <>
           {stale.length > 0 && (
             <div role="alert" className="vf-stale">
               <p>
-                {stale.length === 1 ? 'A price has' : `${stale.length} prices have`} changed.
-                Nothing can be confirmed until you accept the updated prices.
+                {translateUi(
+                  'Prices changed for {count} selections. Accept the updated prices before confirming.',
+                  { count: stale.length }
+                )}
               </p>
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'acceptPrices', quote: staleQuote(fixtures) })}
               >
-                Accept new prices
+                {translateUi('Accept new prices')}
               </button>
             </div>
           )}
-          <ul className="vf-picks" aria-label="Selections">
+          <ul className="vf-picks" aria-label={translateUi('Selections')}>
             {slip.picks.map((pick, index) => {
               const key = pickKey(pick);
               const fixture = byId.get(pick.fixtureId);
@@ -206,19 +228,23 @@ export function Slip({
                             e.target.checked ? [...c, key] : c.filter((k) => k !== key)
                           )
                         }
-                        aria-label={`Include ${pickLabel(pick, fixture)} in a multiple`}
+                        aria-label={translateUi('Include {value} in a multiple', {
+                          value: pickLabel(pick, fixture, translateUi),
+                        })}
                       />
                     </label>
                     <div className="vf-pick-text">
                       <span className="vf-pick-match">{fixtureTitle(fixture)}</span>
-                      <b>{pickLabel(pick, fixture)}</b>
+                      <b>{pickLabel(pick, fixture, translateUi)}</b>
                     </div>
                     <span className="vf-pick-odds">{formatOdds(pick.quotedCents)}</span>
                     <button
                       type="button"
                       className="vf-x"
                       disabled={frozen}
-                      aria-label={`Remove ${pickLabel(pick, fixture)}`}
+                      aria-label={translateUi('Remove {value}', {
+                        value: pickLabel(pick, fixture, translateUi),
+                      })}
                       onClick={() => (
                         setChosen((c) => c.filter((k) => k !== key)),
                         dispatch({ type: 'remove', key })
@@ -228,7 +254,7 @@ export function Slip({
                     </button>
                   </div>
                   <StakeInput
-                    label={`Single ${index + 1} stake`}
+                    label={translateUi('Single {value} stake', { value: index + 1 })}
                     value={slip.singles[key] ?? null}
                     disabled={frozen}
                     onChange={(stake) => dispatch({ type: 'single', key, stake })}
@@ -251,12 +277,12 @@ export function Slip({
               disabled={frozen || !canMultiple}
               onClick={() => (dispatch({ type: 'addMultiple', keys: chosen }), setChosen([]))}
             >
-              Make a multiple of {chosen.length || '2–5'}
+              {translateUi('Make a multiple of {value}', { value: chosen.length || '2–5' })}
             </button>
             <small>
               {chosen.length > 1 && chosenFixtures.size !== chosen.length
-                ? 'A multiple takes one selection per match.'
-                : 'Tick 2–5 selections from different matches. Every one must win.'}
+                ? translateUi('A multiple takes one selection per match.')
+                : translateUi('Tick 2–5 selections from different matches. Every one must win.')}
             </small>
           </div>
 
@@ -268,14 +294,18 @@ export function Slip({
                 l.line.legs.every((g) => multiple.picks.includes(`${g.fixtureId}#${g.selection}`))
             );
             return (
-              <section key={multiple.id} className="vf-multiple" aria-label={`Multiple ${i + 1}`}>
+              <section
+                key={multiple.id}
+                className="vf-multiple"
+                aria-label={translateUi('Multiple {value}', { value: i + 1 })}
+              >
                 <header>
-                  <h3>Multiple of {multiple.picks.length}</h3>
+                  <h3>{translateUi('Multiple of {length}', { length: multiple.picks.length })}</h3>
                   <button
                     type="button"
                     className="vf-x"
                     disabled={frozen}
-                    aria-label={`Remove multiple ${i + 1}`}
+                    aria-label={translateUi('Remove multiple {value}', { value: i + 1 })}
                     onClick={() => dispatch({ type: 'removeMultiple', id: multiple.id })}
                   >
                     ×
@@ -286,14 +316,14 @@ export function Slip({
                     const pick = slip.picks.find((p) => pickKey(p) === k);
                     return pick ? (
                       <li key={k}>
-                        <span>{pickLabel(pick, byId.get(pick.fixtureId))}</span>
+                        <span>{pickLabel(pick, byId.get(pick.fixtureId), translateUi)}</span>
                         <b>{formatOdds(pick.quotedCents)}</b>
                       </li>
                     ) : null;
                   })}
                 </ul>
                 <StakeInput
-                  label={`Multiple ${i + 1} stake`}
+                  label={translateUi('Multiple {value} stake', { value: i + 1 })}
                   value={multiple.stake}
                   disabled={frozen}
                   onChange={(stake) => dispatch({ type: 'multipleStake', id: multiple.id, stake })}
@@ -314,23 +344,23 @@ export function Slip({
 
       <dl className="vf-totals">
         <div>
-          <dt>Lines</dt>
+          <dt>{translateUi('Lines')}</dt>
           <dd>{lineCount}</dd>
         </div>
         <div>
-          <dt>Total stake</dt>
-          <dd>{formatCredits(preview.totalStake)} ETB</dd>
+          <dt>{translateUi('Total stake')}</dt>
+          <dd>{translateUi('{value} ETB', { value: formatCredits(preview.totalStake) })}</dd>
         </div>
         <div>
-          <dt>Return if every line wins</dt>
+          <dt>{translateUi('Return if every line wins')}</dt>
           <dd>
             {preview.totalMaxReturn === null
               ? '—'
-              : `${formatCredits(preview.totalMaxReturn)} ETB`}
+              : translateUi('{value} ETB', { value: formatCredits(preview.totalMaxReturn) })}
           </dd>
         </div>
         <div>
-          <dt>Practice ETB</dt>
+          <dt>{translateUi('Practice ETB')}</dt>
           <dd>{formatCredits(balance)}</dd>
         </div>
       </dl>
@@ -340,7 +370,8 @@ export function Slip({
         </p>
       )}
       <button type="button" className="vf-primary" disabled={blocked} onClick={onReview}>
-        Review ticket <span>Free practice only</span>
+        {translateUi('Review ticket') + ' '}
+        <span>{translateUi('Free practice only')}</span>
       </button>
     </aside>
   );
@@ -357,17 +388,24 @@ function LineSummary({
   stake: number | null | undefined;
   combined?: number | null;
 }) {
-  if (!stake) return <p className="vf-line-note">Add a stake to include this line.</p>;
+  const { t: translateUi } = useInterfaceLanguage();
+
+  if (!stake)
+    return <p className="vf-line-note">{translateUi('Add a stake to include this line.')}</p>;
   if (error)
     return (
       <p className="vf-line-error" role="status">
-        {error}
+        {translateUi(error)}
       </p>
     );
   return (
     <p className="vf-line-note">
-      {combined ? `Combined ${formatOdds(combined)}× · ` : ''}
-      Returns {formatCredits(maxReturn)} ETB if it wins
+      {translateUi('{value}Returns {value2} ETB if it wins', {
+        value: combined
+          ? translateUi('Combined {value}× ·', { value: formatOdds(combined) }) + ' '
+          : '',
+        value2: formatCredits(maxReturn),
+      })}
     </p>
   );
 }
@@ -405,16 +443,19 @@ export function ReviewDialog({
   closing: boolean;
   onConfirm: () => void;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const byId = new Map(fixtures.map((f) => [f.id, f]));
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="vf-overlay" />
         <Dialog.Content className="vf-dialog" aria-describedby="vf-review-desc">
-          <Dialog.Title>Review your practice ticket</Dialog.Title>
+          <Dialog.Title>{translateUi('Review your practice ticket')}</Dialog.Title>
           <Dialog.Description id="vf-review-desc">
-            Practice ETB only: no cash stakes or prizes. A confirmed ticket cannot be changed or
-            cancelled.
+            {translateUi(
+              'Practice ETB only: no cash stakes or prizes. A confirmed ticket cannot be changed or cancelled.'
+            )}
           </Dialog.Description>
           <ol className="vf-review-lines">
             {lines.map((line, i) => {
@@ -423,22 +464,28 @@ export function ReviewDialog({
               return (
                 <li key={i}>
                   <div>
-                    <b>{line.kind === 'SINGLE' ? 'Single' : `Multiple of ${line.legs.length}`}</b>
-                    <span>{formatCredits(line.stake)} ETB</span>
+                    <b>
+                      {line.kind === 'SINGLE'
+                        ? translateUi('Single')
+                        : translateUi('Multiple of {length}', { length: line.legs.length })}
+                    </b>
+                    <span>{translateUi('{value} ETB', { value: formatCredits(line.stake) })}</span>
                   </div>
                   <ul>
                     {line.legs.map((g) => (
                       <li key={g.fixtureId + g.selection}>
                         <span>
                           {fixtureTitle(byId.get(g.fixtureId))} ·{' '}
-                          {pickLabel(g, byId.get(g.fixtureId))}
+                          {pickLabel(g, byId.get(g.fixtureId), translateUi)}
                         </span>
                         <b>{formatOdds(g.oddsCents)}</b>
                       </li>
                     ))}
                   </ul>
                   <p>
-                    Returns {formatCredits(Number(payout))} ETB if it wins (stake included).
+                    {translateUi('Returns {value} ETB if it wins (stake included).', {
+                      value: formatCredits(Number(payout)),
+                    })}
                   </p>
                 </li>
               );
@@ -446,25 +493,32 @@ export function ReviewDialog({
           </ol>
           <dl className="vf-totals">
             <div>
-              <dt>Total stake</dt>
-              <dd>{formatCredits(totalStake)} ETB</dd>
+              <dt>{translateUi('Total stake')}</dt>
+              <dd>{translateUi('{value} ETB', { value: formatCredits(totalStake) })}</dd>
             </div>
             <div>
-              <dt>Return if every line wins</dt>
-              <dd>{totalReturn === null ? '—' : `${formatCredits(totalReturn)} ETB`}</dd>
+              <dt>{translateUi('Return if every line wins')}</dt>
+              <dd>
+                {totalReturn === null
+                  ? '—'
+                  : translateUi('{value} ETB', { value: formatCredits(totalReturn) })}
+              </dd>
             </div>
             <div>
-              <dt>Balance after confirming</dt>
-              <dd>{formatCredits(balance - totalStake)} ETB</dd>
+              <dt>{translateUi('Balance after confirming')}</dt>
+              <dd>{translateUi('{value} ETB', { value: formatCredits(balance - totalStake) })}</dd>
             </div>
           </dl>
           <p className="vf-fine">
-            Matches settle on their official results at full time. Losing lines return 0. Selections
-            close at kick-off.
+            {translateUi(
+              'Matches settle on their official results at full time. Losing lines return 0. Selections close at kick-off.'
+            )}
           </p>
           {closing && (
             <p role="alert" className="vf-slip-reason">
-              Selections are about to close. A new ticket can no longer be confirmed.
+              {translateUi(
+                'Selections are about to close. A new ticket can no longer be confirmed.'
+              )}
             </p>
           )}
           <div className="vf-dialog-actions">
@@ -474,9 +528,9 @@ export function ReviewDialog({
               disabled={busy || closing || totalStake > balance}
               onClick={onConfirm}
             >
-              Confirm practice ticket
+              {translateUi('Confirm practice ticket')}
             </button>
-            <Dialog.Close className="vf-secondary">Back to slip</Dialog.Close>
+            <Dialog.Close className="vf-secondary">{translateUi('Back to slip')}</Dialog.Close>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

@@ -1,3 +1,4 @@
+import { toastDisplay } from '@/test/toast-display';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import {
@@ -70,7 +71,7 @@ vi.mock('@/lib/api', () => ({
 
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
+  useToast: () => ({ toast: (payload: unknown) => toastMock(toastDisplay(payload)) }),
 }));
 
 import { api } from '@/lib/api';
@@ -123,7 +124,9 @@ describe.each(ACTIONS)('$label', (spec) => {
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.resolve(spec.result ?? { success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title }))
+    );
     await idle(client);
 
     // Still ONE request, and still A's.
@@ -166,13 +169,21 @@ describe.each(ACTIONS)('$label', (spec) => {
     const invalidationsBefore = invalidate.mock.calls.length;
 
     request.reject(refusal('Insufficient permissions'));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Error' }))
+    );
     await idle(client);
 
-    expect(toastMock).toHaveBeenCalledWith({ title: 'Error', description: spec.failure, variant: 'destructive' });
+    expect(toastMock).toHaveBeenCalledWith({
+      title: 'Error',
+      description: spec.failure,
+      variant: 'destructive',
+    });
     expect(JSON.stringify(toastMock.mock.calls)).not.toContain(NAMES.b);
     expect(mocked[spec.api]).toHaveBeenCalledTimes(1);
-    expect(invalidatedSince(invalidate, invalidationsBefore).filter((k) => k.includes('g-b'))).toEqual([]);
+    expect(
+      invalidatedSince(invalidate, invalidationsBefore).filter((k) => k.includes('g-b'))
+    ).toEqual([]);
     expect(snapshotB(client)).toEqual(bBefore);
     expect(fetchesOfB(mocked)).toEqual(bFetches);
     // Focus stays on B's control: the failure did not go looking for a "trigger" or a heading.
@@ -199,10 +210,14 @@ describe.each(ACTIONS)('$label', (spec) => {
     expect(isInert(spec.inert())).toBe(true);
     expect(mocked[spec.api]).toHaveBeenCalledTimes(1);
     // Nothing was offered to confirm a second time.
-    expect(screen.queryByRole('button', { name: /^Confirm (ban|transfer)$/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Confirm (ban|transfer)$/ })
+    ).not.toBeInTheDocument();
 
     request.resolve(spec.result ?? { success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title }))
+    );
     await idle(client);
     expect(mocked[spec.api]).toHaveBeenCalledTimes(1);
   });
@@ -210,66 +225,81 @@ describe.each(ACTIONS)('$label', (spec) => {
 
 const CONFIRMATIONS = ACTIONS.filter((a) => a.open !== undefined);
 
-describe.each(CONFIRMATIONS)('$label: the confirmation is scoped to the group where it was opened', (spec) => {
-  const confirmButton = spec.id === 'ban' ? 'Confirm ban' : 'Confirm transfer';
+describe.each(CONFIRMATIONS)(
+  '$label: the confirmation is scoped to the group where it was opened',
+  (spec) => {
+    const confirmButton = spec.id === 'ban' ? 'Confirm ban' : 'Confirm transfer';
 
-  it('opened in A, it is gone after the move to B — and B receives no request', async () => {
-    const { goTo } = await start(spec);
-    await spec.open!();
+    it('opened in A, it is gone after the move to B — and B receives no request', async () => {
+      const { goTo } = await start(spec);
+      await spec.open!();
 
-    goTo('B');
-    await onGroup(NAMES.b);
-    await waitFor(() => spec.counterpart());
+      goTo('B');
+      await onGroup(NAMES.b);
+      await waitFor(() => spec.counterpart());
 
-    expect(screen.queryByRole('button', { name: confirmButton })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })).not.toBeInTheDocument();
-    expect(mocked[spec.api]).not.toHaveBeenCalled();
-  });
-
-  it("B's own confirmation targets B, and only B", async () => {
-    const { goTo } = await start(spec);
-    await spec.open!();
-    goTo('B');
-    await onGroup(NAMES.b);
-    await waitFor(() => spec.counterpart());
-
-    await spec.start();
-
-    await waitFor(() => expect(mocked[spec.api]).toHaveBeenCalledTimes(1));
-    expect(mocked[spec.api]).toHaveBeenCalledWith(...spec.args.map((arg) => (arg === A ? 'g-b' : arg)));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
-    expect(toastMock).toHaveBeenCalledWith({
-      title: spec.success.title,
-      description: expect.stringContaining(spec.success.mention.replace('Group A', NAMES.b)),
+      expect(screen.queryByRole('button', { name: confirmButton })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { name: /^Confirm (ban|ownership transfer)$/ })
+      ).not.toBeInTheDocument();
+      expect(mocked[spec.api]).not.toHaveBeenCalled();
     });
-  });
 
-  it('rapid A -> B -> A leaves no stale confirmation, and nothing is sent', async () => {
-    const { goTo, client } = await start(spec);
-    await spec.open!();
+    it("B's own confirmation targets B, and only B", async () => {
+      const { goTo } = await start(spec);
+      await spec.open!();
+      goTo('B');
+      await onGroup(NAMES.b);
+      await waitFor(() => spec.counterpart());
 
-    goTo('B');
-    goTo('A');
-    goTo('B');
-    goTo('A');
-    await onGroup(NAMES.a);
-    await idle(client);
-    await waitFor(() => spec.counterpart());
+      await spec.start();
 
-    expect(screen.queryByRole('button', { name: confirmButton })).not.toBeInTheDocument();
-    expect(mocked[spec.api]).not.toHaveBeenCalled();
-    // A fresh confirmation from here sends exactly one request, for A.
-    await spec.start();
-    await waitFor(() => expect(mocked[spec.api]).toHaveBeenCalledTimes(1));
-    expect(mocked[spec.api]).toHaveBeenCalledWith(...spec.args);
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: spec.success.title })));
-  });
-});
+      await waitFor(() => expect(mocked[spec.api]).toHaveBeenCalledTimes(1));
+      expect(mocked[spec.api]).toHaveBeenCalledWith(
+        ...spec.args.map((arg) => (arg === A ? 'g-b' : arg))
+      );
+      await waitFor(() =>
+        expect(toastMock).toHaveBeenCalledWith(
+          expect.objectContaining({ title: spec.success.title })
+        )
+      );
+      expect(toastMock).toHaveBeenCalledWith({
+        title: spec.success.title,
+        description: expect.stringContaining(spec.success.mention.replace('Group A', NAMES.b)),
+      });
+    });
 
-describe('ownership transfer: B\'s ownership and member data cannot change because of A', () => {
+    it('rapid A -> B -> A leaves no stale confirmation, and nothing is sent', async () => {
+      const { goTo, client } = await start(spec);
+      await spec.open!();
+
+      goTo('B');
+      goTo('A');
+      goTo('B');
+      goTo('A');
+      await onGroup(NAMES.a);
+      await idle(client);
+      await waitFor(() => spec.counterpart());
+
+      expect(screen.queryByRole('button', { name: confirmButton })).not.toBeInTheDocument();
+      expect(mocked[spec.api]).not.toHaveBeenCalled();
+      // A fresh confirmation from here sends exactly one request, for A.
+      await spec.start();
+      await waitFor(() => expect(mocked[spec.api]).toHaveBeenCalledTimes(1));
+      expect(mocked[spec.api]).toHaveBeenCalledWith(...spec.args);
+      await waitFor(() =>
+        expect(toastMock).toHaveBeenCalledWith(
+          expect.objectContaining({ title: spec.success.title })
+        )
+      );
+    });
+  }
+);
+
+describe("ownership transfer: B's ownership and member data cannot change because of A", () => {
   const spec = ACTIONS.find((a) => a.id === 'transfer')!;
 
-  it('a late transfer from A leaves B\'s owner, members and controls exactly as they were', async () => {
+  it("a late transfer from A leaves B's owner, members and controls exactly as they were", async () => {
     const { client, goTo } = await start(spec);
     const request = deferred();
     mocked.transferOwnership.mockImplementation(() => request.promise);
@@ -283,7 +313,11 @@ describe('ownership transfer: B\'s ownership and member data cannot change becau
     expect(screen.getByText(/Owned by Viewer/)).toBeInTheDocument();
 
     request.resolve({ success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Ownership transferred' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Ownership transferred' })
+      )
+    );
     await idle(client);
 
     // Same owner on screen, same members, same Transfer control — and no confirmation of anything.
@@ -318,7 +352,10 @@ describe('ownership transfer: B\'s ownership and member data cannot change becau
 
     // The transfer to Shared Member is still running: Transfer is inert for EVERYONE in A,
     // including the member it does not name — and clicking it offers nothing.
-    const otherRow = screen.getAllByText('Other Member').find((el) => el.tagName === 'SPAN')!.closest('.rounded-md') as HTMLElement;
+    const otherRow = screen
+      .getAllByText('Other Member')
+      .find((el) => el.tagName === 'SPAN')!
+      .closest('.rounded-md') as HTMLElement;
     const otherTransfer = within(otherRow).getByRole('button', { name: 'Transfer' });
     expect(isInert(otherTransfer)).toBe(true);
     fireEvent.click(otherTransfer);
@@ -331,10 +368,12 @@ describe('ownership transfer: B\'s ownership and member data cannot change becau
 });
 
 describe('an unsent invitation typed in A is not carried into B', () => {
-  it('B\'s form is empty after the move, and A\'s draft does not come back either', async () => {
+  it("B's form is empty after the move, and A's draft does not come back either", async () => {
     const spec = ACTIONS.find((a) => a.id === 'invite')!;
     const { goTo } = await start(spec);
-    fireEvent.change(await screen.findByPlaceholderText('user@example.com'), { target: { value: 'draft@test.com' } });
+    fireEvent.change(await screen.findByPlaceholderText('user@example.com'), {
+      target: { value: 'draft@test.com' },
+    });
 
     goTo('B');
     await onGroup(NAMES.b);
@@ -343,7 +382,9 @@ describe('an unsent invitation typed in A is not carried into B', () => {
 
     goTo('A');
     await onGroup(NAMES.a);
-    expect(((await screen.findByPlaceholderText('user@example.com')) as HTMLInputElement).value).toBe('');
+    expect(
+      ((await screen.findByPlaceholderText('user@example.com')) as HTMLInputElement).value
+    ).toBe('');
     expect(mocked.createGroupInvite).not.toHaveBeenCalled();
   });
 });
@@ -387,7 +428,9 @@ describe('Request to join / Join: the request carries the group it was made in',
     expect(isInert(bJoin)).toBe(false);
 
     request.resolve({ success: true, data: { message: 'ok' } });
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Joined group' })));
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Joined group' }))
+    );
     expect(toastMock).toHaveBeenCalledWith({ title: 'Joined group', description: NAMES.a });
     expect(mocked.joinGroup).toHaveBeenCalledTimes(1);
     expect(isInert(bJoin)).toBe(false);

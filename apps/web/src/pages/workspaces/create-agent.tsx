@@ -7,6 +7,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { passwordSchema } from '@socialplay/shared';
 import { getErrorMessage, getErrorStatus } from '@/lib/error-message';
 import { ExistingMemberAgentForm } from './existing-member-agent';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
 const requirements =
   '8–72 characters, with uppercase, lowercase, a number and a symbol. Maximum 72 UTF-8 bytes.';
@@ -32,6 +33,8 @@ function usePendingAgentAccounts(userId?: string) {
   });
 }
 export function CreateAgentPage() {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const { user } = useAuth();
   const cache = useQueryClient();
   const [existingMember, setExistingMember] = useState(false);
@@ -83,8 +86,13 @@ export function CreateAgentPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (active.current || refreshRequired || checkingPending) return;
-    if (!passwordSchema.safeParse(form.temporaryPassword).success || new TextEncoder().encode(form.temporaryPassword).length > 72) {
-      setError('Temporary password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.');
+    if (
+      !passwordSchema.safeParse(form.temporaryPassword).success ||
+      new TextEncoder().encode(form.temporaryPassword).length > 72
+    ) {
+      setError(
+        'Temporary password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.'
+      );
       return;
     }
     active.current = true;
@@ -137,149 +145,186 @@ export function CreateAgentPage() {
   return (
     <>
       <div className="workspace-heading">
-        <p>AGENT PROVISIONING</p>
-        <h1>Create agent account</h1>
+        <p>{translateUi('AGENT PROVISIONING')}</p>
+        <h1>{translateUi('Create agent account')}</h1>
         <span>
-          Create individual agent accounts directly. Each agent uses a separate email and private
-          password.
+          {translateUi(
+            'Create individual agent accounts directly. Each agent uses a separate email and private password.'
+          )}
         </span>
       </div>
-      <div className="workspace-tabs" role="group" aria-label="Agent account type">
-        <button type="button" aria-pressed={!existingMember} disabled={busy} onClick={() => setExistingMember(false)}>New account</button>
-        <button type="button" aria-pressed={existingMember} disabled={busy} onClick={() => { setExistingMember(true); setForm(current => ({ ...current, temporaryPassword: '' })); }}>Existing member</button>
-      </div>
-      {existingMember ? <ExistingMemberAgentForm countries={countries.data ?? []} countriesUnavailable={countries.isPending || countries.isError} /> : <>
-      {result && (
-        <section className="workspace-panel" role="status">
-          <h2>Agent account created</h2>
-          <p>
-            {result.username} · {result.email}
-          </p>
-          <p>
-            Give the agent their temporary password through your secure channel and direct them to{' '}
-            <Link to="/agent/activate">Agent activation</Link>. It expires{' '}
-            {new Date(result.expiresAt).toLocaleString()}. The temporary password is not displayed
-            or retrievable here.
-          </p>
-          <p>The form is ready for the next agent. Receiving accounts still require approval.</p>
-        </section>
-      )}
-      <form className="workspace-panel workspace-account-form" onSubmit={submit} autoComplete="off">
-        <h2>Account details</h2>
-        <label>
-          Username
-          <input
-            required
-            minLength={3}
-            maxLength={30}
-            pattern="[A-Za-z0-9_]+"
-            value={form.username}
-            disabled={busy}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-          />
-        </label>
-        <label>
-          Email
-          <input
-            required
-            type="email"
-            maxLength={255}
-            value={form.email}
-            disabled={busy}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-        </label>
-        <label>
-          Display name
-          <input
-            required
-            maxLength={100}
-            value={form.displayName}
-            disabled={busy}
-            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-          />
-        </label>
-        <label>
-          Country
-          <select
-            required
-            value={form.countryId}
-            disabled={busy || countries.isPending}
-            onChange={(e) => setForm({ ...form, countryId: e.target.value })}
-          >
-            <option value="">Choose an active country</option>
-            {countries.data
-              ?.filter((c) => c.isActive)
-              .map((c) => (
-                <option value={c.id} key={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        {countries.isError && (
-          <p role="alert">
-            Countries could not load.{' '}
-            <button type="button" onClick={() => countries.refetch()}>
-              Retry
-            </button>
-          </p>
-        )}
-        <label>
-          Temporary password
-          <input
-            required
-            type="password"
-            autoComplete="new-password"
-            minLength={8}
-            maxLength={72}
-            value={form.temporaryPassword}
-            disabled={busy}
-            onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })}
-          />
-        </label>
-        <p>{requirements}</p>
-        <p>
-          The account cannot sign in until the agent sets a new password. No funds or receiving
-          accounts are added. Share credentials privately; do not put them in chat messages or
-          notes.
-        </p>
-        {error && (
-          <p role="alert">
-            {error} <Link to="/admin/accounts">Check accounts</Link>
-            {refreshRequired && (
-              <button
-                type="button"
-                disabled={busy || checkingPending}
-                onClick={() => void refreshPendingAccounts()}
-              >
-                Refresh pending accounts
-              </button>
-            )}
-          </p>
-        )}
+      <div className="workspace-tabs" role="group" aria-label={translateUi('Agent account type')}>
         <button
-          disabled={
-            busy ||
-            refreshRequired ||
-            checkingPending ||
-            countries.isError ||
-            !countries.data?.some((c) => c.isActive)
-          }
+          type="button"
+          aria-pressed={!existingMember}
+          disabled={busy}
+          onClick={() => setExistingMember(false)}
         >
-          {checkingPending
-            ? 'Checking pending accounts…'
-            : busy
-              ? 'Creating account…'
-              : 'Create agent account'}
+          {translateUi('New account')}
         </button>
-      </form>
-      </>}
+        <button
+          type="button"
+          aria-pressed={existingMember}
+          disabled={busy}
+          onClick={() => {
+            setExistingMember(true);
+            setForm((current) => ({ ...current, temporaryPassword: '' }));
+          }}
+        >
+          {translateUi('Existing member')}
+        </button>
+      </div>
+      {existingMember ? (
+        <ExistingMemberAgentForm
+          countries={countries.data ?? []}
+          countriesUnavailable={countries.isPending || countries.isError}
+        />
+      ) : (
+        <>
+          {result && (
+            <section className="workspace-panel" role="status">
+              <h2>{translateUi('Agent account created')}</h2>
+              <p>
+                {result.username} · {result.email}
+              </p>
+              <p>
+                {translateUi(
+                  'Share the temporary password securely and direct the agent to Agent activation to set a private password. It expires at {expiresAt}. The temporary password is not displayed or retrievable here.',
+                  { expiresAt: new Date(result.expiresAt).toLocaleString(interfaceLocale) }
+                )}
+              </p>
+              <Link to="/agent/activate">{translateUi('Agent activation')}</Link>
+              <p>
+                {translateUi(
+                  'The form is ready for the next agent. Receiving accounts still require approval.'
+                )}
+              </p>
+            </section>
+          )}
+          <form
+            className="workspace-panel workspace-account-form"
+            onSubmit={submit}
+            autoComplete="off"
+          >
+            <h2>{translateUi('Account details')}</h2>
+            <label>
+              {translateUi('Username')}
+              <input
+                required
+                minLength={3}
+                maxLength={30}
+                pattern="[A-Za-z0-9_]+"
+                value={form.username}
+                disabled={busy}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
+              />
+            </label>
+            <label>
+              {translateUi('Email')}
+              <input
+                required
+                type="email"
+                maxLength={255}
+                value={form.email}
+                disabled={busy}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </label>
+            <label>
+              {translateUi('Display name')}
+              <input
+                required
+                maxLength={100}
+                value={form.displayName}
+                disabled={busy}
+                onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+              />
+            </label>
+            <label>
+              {translateUi('Country')}
+              <select
+                required
+                value={form.countryId}
+                disabled={busy || countries.isPending}
+                onChange={(e) => setForm({ ...form, countryId: e.target.value })}
+              >
+                <option value="">{translateUi('Choose an active country')}</option>
+                {countries.data
+                  ?.filter((c) => c.isActive)
+                  .map((c) => (
+                    <option value={c.id} key={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {countries.isError && (
+              <p role="alert">
+                {translateUi('Countries could not load.')}{' '}
+                <button type="button" onClick={() => countries.refetch()}>
+                  {translateUi('Retry')}
+                </button>
+              </p>
+            )}
+            <label>
+              {translateUi('Temporary password')}
+              <input
+                required
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={72}
+                value={form.temporaryPassword}
+                disabled={busy}
+                onChange={(e) => setForm({ ...form, temporaryPassword: e.target.value })}
+              />
+            </label>
+            <p>{translateUi(requirements)}</p>
+            <p>
+              {translateUi(
+                'The account cannot sign in until the agent sets a new password. No funds or receiving accounts are added. Share credentials privately; do not put them in chat messages or notes.'
+              )}
+            </p>
+            {error && (
+              <p role="alert">
+                {translateUi(error)}{' '}
+                <Link to="/admin/accounts">{translateUi('Check accounts')}</Link>
+                {refreshRequired && (
+                  <button
+                    type="button"
+                    disabled={busy || checkingPending}
+                    onClick={() => void refreshPendingAccounts()}
+                  >
+                    {translateUi('Refresh pending accounts')}
+                  </button>
+                )}
+              </p>
+            )}
+            <button
+              disabled={
+                busy ||
+                refreshRequired ||
+                checkingPending ||
+                countries.isError ||
+                !countries.data?.some((c) => c.isActive)
+              }
+            >
+              {checkingPending
+                ? translateUi('Checking pending accounts…')
+                : busy
+                  ? translateUi('Creating account…')
+                  : translateUi('Create agent account')}
+            </button>
+          </form>
+        </>
+      )}
       <PendingAgentAccounts pending={pending} />
     </>
   );
 }
 export function ActivateAgentPage() {
+  const { t: translateUi } = useInterfaceLanguage();
+
   const [form, setForm] = useState({
     email: '',
     temporaryPassword: '',
@@ -301,8 +346,13 @@ export function ActivateAgentPage() {
       setMessage('Choose a different password from your temporary password.');
       return;
     }
-    if (!passwordSchema.safeParse(form.newPassword).success || new TextEncoder().encode(form.newPassword).length > 72) {
-      setMessage('New password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.');
+    if (
+      !passwordSchema.safeParse(form.newPassword).success ||
+      new TextEncoder().encode(form.newPassword).length > 72
+    ) {
+      setMessage(
+        'New password needs 8 or more characters, uppercase, lowercase, a number and a symbol, with a maximum of 72 UTF-8 bytes.'
+      );
       return;
     }
     active.current = true;
@@ -339,23 +389,24 @@ export function ActivateAgentPage() {
   return (
     <div className="workspace-shell workspace-activation">
       <div className="workspace-heading">
-        <p>SALEM BET AGENT ACCESS</p>
-        <h1>Set your agent password</h1>
+        <p>{translateUi('SALEM BET AGENT ACCESS')}</p>
+        <h1>{translateUi('Set your agent password')}</h1>
         <span>
-          Use the account issued by your administrator. Temporary credentials expire after 24 hours
-          and can be used once.
+          {translateUi(
+            'Use the account issued by your administrator. Temporary credentials expire after 24 hours and can be used once.'
+          )}
         </span>
       </div>
       {done ? (
         <section className="workspace-panel" role="status">
-          <h2>Password set successfully</h2>
-          <p>Your temporary password no longer works.</p>
-          <Link to="/agent/login">Sign in to agent workspace →</Link>
+          <h2>{translateUi('Password set successfully')}</h2>
+          <p>{translateUi('Your temporary password no longer works.')}</p>
+          <Link to="/agent/login">{translateUi('Sign in to agent workspace →')}</Link>
         </section>
       ) : (
         <form className="workspace-panel workspace-account-form" onSubmit={submit}>
           <label>
-            Email
+            {translateUi('Email')}
             <input
               required
               type="email"
@@ -366,7 +417,7 @@ export function ActivateAgentPage() {
             />
           </label>
           <label>
-            Temporary password
+            {translateUi('Temporary password')}
             <input
               required
               type="password"
@@ -378,7 +429,7 @@ export function ActivateAgentPage() {
             />
           </label>
           <label>
-            New password
+            {translateUi('New password')}
             <input
               required
               type="password"
@@ -391,7 +442,7 @@ export function ActivateAgentPage() {
             />
           </label>
           <label>
-            Confirm new password
+            {translateUi('Confirm new password')}
             <input
               required
               type="password"
@@ -401,19 +452,21 @@ export function ActivateAgentPage() {
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
             />
           </label>
-          <p>{requirements}</p>
+          <p>{translateUi(requirements)}</p>
           {message && (
             <p role="alert">
-              {message}{' '}
+              {translateUi(message)}{' '}
               {message.startsWith('Activation could not be confirmed.') && (
-                <Link to="/agent/login">Sign in to check activation</Link>
+                <Link to="/agent/login">{translateUi('Sign in to check activation')}</Link>
               )}
             </p>
           )}
-          <button disabled={busy}>{busy ? 'Setting password…' : 'Set private password'}</button>
+          <button disabled={busy}>
+            {busy ? translateUi('Setting password…') : translateUi('Set private password')}
+          </button>
         </form>
       )}
-      <Link to="/agent/login">Back to agent sign in</Link>
+      <Link to="/agent/login">{translateUi('Back to agent sign in')}</Link>
     </div>
   );
 }
@@ -423,12 +476,15 @@ function PendingAgentAccounts({
 }: {
   pending: ReturnType<typeof usePendingAgentAccounts>;
 }) {
+  const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+
   const [selected, setSelected] = useState(''),
     [password, setPassword] = useState(''),
     [message, setMessage] = useState(''),
     [busy, setBusy] = useState(false);
   const [refreshRequired, setRefreshRequired] = useState(false),
     [checkingPending, setCheckingPending] = useState(false);
+  const [replacementExpiry, setReplacementExpiry] = useState<string | null>(null);
   const active = useRef(false);
   const replacementConfirmed = useRef(false);
   const selectedIsPending = pending.data?.some((account) => account.userId === selected);
@@ -479,8 +535,9 @@ function PendingAgentAccounts({
         )
       );
       replacementConfirmed.current = true;
+      setReplacementExpiry(value.expiresAt);
       setMessage(
-        `Temporary password replaced. The previous one no longer works. New expiry: ${new Date(value.expiresAt).toLocaleString()}.`
+        'Temporary password replaced. The previous one no longer works. New expiry: {expiresAt}.'
       );
     } catch {
       setRefreshRequired(true);
@@ -495,39 +552,44 @@ function PendingAgentAccounts({
   }
   return (
     <form className="workspace-panel workspace-account-form" onSubmit={submit}>
-      <h2>Pending activations</h2>
+      <h2>{translateUi('Pending activations')}</h2>
       <p>
-        Latest 100 pending accounts. Replace an unused or expired temporary password here. Activated
-        private passwords cannot be changed here.
+        {translateUi(
+          'Latest 100 pending accounts. Replace an unused or expired temporary password here. Activated private passwords cannot be changed here.'
+        )}
       </p>
-      {pending.isPending && <p>Loading pending accounts…</p>}
+      {pending.isPending && <p>{translateUi('Loading pending accounts…')}</p>}
       {pending.isError && (
         <p role="alert">
-          Could not load accounts.{' '}
+          {translateUi('Could not load accounts.')}{' '}
           <button type="button" onClick={() => pending.refetch()}>
-            Retry
+            {translateUi('Retry')}
           </button>
         </p>
       )}
-      {pending.data?.length === 0 && <p>No pending activations.</p>}
+      {pending.data?.length === 0 && <p>{translateUi('No pending activations.')}</p>}
       <label>
-        Pending agent
+        {translateUi('Pending agent')}
         <select
           required
           value={selected}
           disabled={busy}
           onChange={(e) => setSelected(e.target.value)}
         >
-          <option value="">Choose an account</option>
+          <option value="">{translateUi('Choose an account')}</option>
           {pending.data?.map((a) => (
             <option key={a.userId} value={a.userId}>
-              {a.user.username} · {a.user.email} · expires {new Date(a.expiresAt).toLocaleString()}
+              {translateUi('{username} · {email} · expires {value}', {
+                username: a.user.username,
+                email: a.user.email,
+                value: new Date(a.expiresAt).toLocaleString(interfaceLocale),
+              })}
             </option>
           ))}
         </select>
       </label>
       <label>
-        Replacement temporary password
+        {translateUi('Replacement temporary password')}
         <input
           required
           type="password"
@@ -539,15 +601,23 @@ function PendingAgentAccounts({
           onChange={(e) => setPassword(e.target.value)}
         />
       </label>
-      <p>{requirements}</p>
-      {message && <p role="status">{message}</p>}
+      <p>{translateUi(requirements)}</p>
+      {message && (
+        <p role="status">
+          {translateUi(message, {
+            expiresAt: replacementExpiry
+              ? new Date(replacementExpiry).toLocaleString(interfaceLocale)
+              : '—',
+          })}
+        </p>
+      )}
       {refreshRequired && (
         <button
           type="button"
           disabled={busy || checkingPending}
           onClick={() => void refreshPendingAccounts()}
         >
-          Refresh pending account status
+          {translateUi('Refresh pending account status')}
         </button>
       )}
       <button
@@ -556,10 +626,10 @@ function PendingAgentAccounts({
         }
       >
         {checkingPending
-          ? 'Checking account status…'
+          ? translateUi('Checking account status…')
           : busy
-            ? 'Replacing…'
-            : 'Replace temporary password'}
+            ? translateUi('Replacing…')
+            : translateUi('Replace temporary password')}
       </button>
     </form>
   );

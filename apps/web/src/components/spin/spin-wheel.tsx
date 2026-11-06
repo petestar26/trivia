@@ -1,4 +1,6 @@
 import { SPIN_WHEEL, spinColour } from '@socialplay/shared';
+import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
+
 const SLICE = 360 / 37;
 const PALETTE = { red: '#b91f32', black: '#111918', green: '#04734c' };
 function wedge(start: number, end: number, outer: number, inner = 0) {
@@ -15,12 +17,14 @@ export function SpinWinWheel({
   number?: number | null;
   spinning?: boolean;
 }) {
+  const { t: translateUi } = useInterfaceLanguage();
+
   return (
     <div className="relative mx-auto w-full max-w-[570px] py-3">
       <svg
         viewBox="0 0 500 500"
         role="img"
-        aria-label="Single-zero wheel with numbers 0 to 36"
+        aria-label={translateUi('Single-zero wheel with numbers 0 to 36')}
         className="w-full drop-shadow-[0_20px_32px_rgba(0,0,0,.5)]"
       >
         <defs>
@@ -131,7 +135,7 @@ export function SpinWinWheel({
           fontSize={number === null ? 22 : 72}
           fontWeight="800"
         >
-          {spinning ? '…' : number === null ? 'SPIN WIN' : number}
+          {spinning ? '…' : number === null ? translateUi('SPIN WIN') : number}
         </text>
         <text
           x="250"
@@ -141,7 +145,11 @@ export function SpinWinWheel({
           fontSize="10"
           letterSpacing="2"
         >
-          {spinning ? 'DRAWING' : number === null ? 'SALEM BET' : spinColour(number).toUpperCase()}
+          {spinning
+            ? translateUi('DRAWING')
+            : number === null
+              ? 'SALEM BET'
+              : spinColour(number).toUpperCase()}
         </text>
         <path
           d="M238 12 Q250 3 262 12 L257 38 Q250 49 243 38 Z"
