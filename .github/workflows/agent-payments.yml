@@ -8,6 +8,7 @@ on:
       - 'apps/api/src/withdrawals/**'
       - 'apps/api/src/economy/**'
       - 'apps/api/src/routes/index.ts'
+      - 'apps/api/src/server.ts'
       - 'apps/api/vitest.payments-native.config.ts'
       - 'apps/web/src/pages/wallet*'
       - 'apps/web/src/hooks/use-wallet-action*'
@@ -74,6 +75,8 @@ jobs:
           node apps/web/src/lib/i18n/tools/coverage.mjs --strict
       - name: Production build and gateway
         if: matrix.postgres == '16'
+        env:
+          NODE_ENV: production
         run: |
           pnpm --filter api build
           pnpm --filter web build
