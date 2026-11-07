@@ -1,3 +1,4 @@
+import { NumberBall } from '@/components/number-challenge/number-ball';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -273,10 +274,7 @@ function NumberPractice({ userId }: { userId: string }) {
                   ? translateUi('ENTRY WINDOW OPEN')
                   : translateUi('ENTRIES CLOSED')}
             </p>
-            <div key={round?.id ?? 'waiting'} className="number-ball" aria-hidden="true">
-              <div className="number-orbit" aria-hidden="true" />
-              <span>{target != null ? String(target).padStart(2, '0') : '?'}</span>
-            </div>
+            <NumberBall key={round?.id ?? 'waiting'} target={target ?? null} />
             <div className="number-result" role="status" aria-live="polite">
               {busy ? (
                 <>

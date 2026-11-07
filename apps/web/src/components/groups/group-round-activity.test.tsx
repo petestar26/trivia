@@ -99,3 +99,19 @@ it('hides stale activity when access or connection is lost', async () => {
     '/groups/group/games'
   );
 });
+
+it('keeps a previous completed round compact on chat entry and opens it only on request', async () => {
+  activity = {
+    serverTime: 3000,
+    activeRound: null,
+    latestResult: { ...summary, state: 'REFUNDED' },
+  };
+  mount();
+  const view = await screen.findByRole('button', { name: 'View result' });
+  expect(view).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText('Entries returned')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Watch live' })).not.toBeInTheDocument();
+  fireEvent.click(view);
+  expect(await screen.findByText('Entries returned')).toBeVisible();
+  expect(mocks.post).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { BlackjackTable } from '@/components/blackjack/table';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -188,34 +189,6 @@ type Draft = { seat: number; market: Market | null; text: string };
 const emptyDraft = (): Draft => ({ seat: 1, market: null, text: '10' });
 const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const phases = ['First card', 'Second card', 'Third card', 'Showdown'];
-function Card({ value, index }: { value?: number; index: number }) {
-  const { t: translateUi } = useInterfaceLanguage();
-
-  const c = value === undefined ? null : bjCard(value);
-  return (
-    <span
-      className={`bj-card ${c?.red ? 'bj-red' : ''} ${!c ? 'bj-card-back' : ''}`}
-      style={{ '--card-index': index } as CSSProperties}
-      aria-label={c ? `${c.rank} ${c.suit}` : translateUi('Waiting for card')}
-    >
-      {c ? (
-        <>
-          <span className="bj-card-corner">
-            {c.rank}
-            <i>{c.suit}</i>
-          </span>
-          <span className="bj-card-pip">{c.suit}</span>
-          <span className="bj-card-corner bj-card-bottom">
-            {c.rank}
-            <i>{c.suit}</i>
-          </span>
-        </>
-      ) : (
-        <span>♠</span>
-      )}
-    </span>
-  );
-}
 export function BlackjackView({
   data,
   sentAt = performance.now(),
@@ -375,77 +348,13 @@ export function BlackjackView({
               </div>
             ))}
           </div>
-          <div className="bj-felt">
-            <div className="bj-table-inscription" aria-hidden="true">
-              <span>{translateUi('SALEM')}</span>
-              <strong>{translateUi('BLACKJACK')}</strong>
-              <small>{translateUi('ALL HANDS STAND ON 17')}</small>
-              <div>♦ ───── ♠ ───── ♥</div>
-            </div>
-            <div className="bj-hands">
-              {[0, 1, 2, 3, 4, 5, 6].map((s) => {
-                const cards = table?.hands[s] ?? [],
-                  v = bjTotal(cards),
-                  result = s && complete ? bjResult(cards, table!.hands[0]) : null;
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`bj-hand bj-hand-${s} ${s === seat ? 'selected' : ''} ${result ? `bj-result-${result.toLowerCase()}` : ''}`}
-                    aria-label={`${s === 0 ? translateUi('Dealer') : translateUi('Seat {s}', { s })}, ${cards.length ? translateUi('{amount} points', { amount: v.total }) : translateUi('waiting')}`}
-                    aria-pressed={s === seat}
-                    onClick={() => update({ seat: s, market: null })}
-                    disabled={!!ticket || !!pending || !!history}
-                  >
-                    <span className="bj-seat-name">
-                      {s === 0 ? translateUi('Dealer') : translateUi('Seat {s}', { s: s })}
-                      <b>
-                        {cards.length
-                          ? v.blackjack
-                            ? translateUi('BJ')
-                            : v.bust
-                              ? translateUi('BUST')
-                              : v.total
-                          : '—'}
-                      </b>
-                    </span>
-                    <span
-                      className="bj-card-row"
-                      style={
-                        {
-                          '--cards': Math.max(2, cards.length),
-                          width: cards.length === 1 ? 'var(--cw)' : undefined,
-                        } as CSSProperties
-                      }
-                    >
-                      {(cards.length ? cards : [undefined, undefined]).map((c, i) => (
-                        <Card key={`${s}-${i}-${c}`} value={c} index={i} />
-                      ))}
-                    </span>
-                    <span className={`bj-hand-status ${result ? 'settled' : ''}`}>
-                      {result
-                        ? result === 'WIN'
-                          ? translateUi('Wins')
-                          : result === 'DRAW'
-                            ? translateUi('Draw')
-                            : translateUi('Loses')
-                        : s === 0
-                          ? translateUi('Stand on all 17s')
-                          : v.blackjack
-                            ? translateUi('Natural blackjack')
-                            : v.bust
-                              ? translateUi('Bust')
-                              : v.total >= 17
-                                ? translateUi('Standing')
-                                : cards.length
-                                  ? translateUi('In play')
-                                  : translateUi('Waiting')}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <BlackjackTable
+            hands={table?.hands ?? []}
+            complete={complete}
+            selectedSeat={seat}
+            onSelect={(s) => update({ seat: s, market: null })}
+            disabled={!!ticket || !!pending || !!history}
+          />
           <div className="bj-table-footer">
             <span>
               {translateUi('6-deck shoe') + ' '}

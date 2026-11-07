@@ -2,7 +2,17 @@ import { useTogetherText, useTogetherNotice, groupErrorNotice } from '@/lib/i18n
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, ShieldCheck, Clock3, Trophy, ArrowRight, Wallet, Download } from 'lucide-react';
+import {
+  Users,
+  ShieldCheck,
+  Clock3,
+  Trophy,
+  ArrowRight,
+  Wallet,
+  Download,
+  Pause,
+  Play,
+} from 'lucide-react';
 import {
   TOGETHER_GAMES,
   TOGETHER_GAME_DURATION_MS,
@@ -24,7 +34,11 @@ import { verifyTogetherRound } from '@/lib/together-proof';
 import { useAuth } from '@/providers/auth-provider';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { GameArtwork } from '@/components/member/game-artwork';
+import { GameAmbience, CommunityAmbience } from '@/components/together/game-ambience';
 import { TogetherSelection } from './play-together-selection';
+import { ArenaChat } from '@/components/together/arena-chat';
+import { TogetherLobby as RoundLobby } from '@/components/together/together-lobby';
+import '@/components/together/group-arena.css';
 import { TogetherGameResult } from '@/components/together/together-game-result';
 import { useRoundUpdates } from '@/components/together/use-round-updates';
 import './play-together.css';
@@ -90,11 +104,30 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
 
   const navigate = useNavigate(),
     cache = useQueryClient(),
-    [search] = useSearchParams();
+    [search, setSearch] = useSearchParams();
   const selected = search.get('game');
-  const [game, setGame] = useState<TogetherGame>(
-    () => TOGETHER_GAMES.find((g) => g.key === selected)?.key ?? 'spin_win'
-  );
+  const game = TOGETHER_GAMES.find((g) => g.key === selected)?.key ?? 'spin_win';
+  const introRef = useRef<HTMLElement>(null);
+  const [ambientPaused, setAmbientPaused] = useState(false);
+  const chooseGame = (next: TogetherGame) => {
+    setSearch(
+      (current) => {
+        const params = new URLSearchParams(current);
+        params.set('game', next);
+        return params;
+      },
+      { replace: true }
+    );
+    requestAnimationFrame(() => {
+      introRef.current?.focus({ preventScroll: true });
+      introRef.current?.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+      });
+    });
+  };
   const [currency, setCurrency] = useState<TogetherCurrency>('GAME_POINTS');
   const [amount, setAmount] = useState('1000'),
     [minPlayers, setMinPlayers] = useState('2'),
@@ -397,7 +430,7 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
                   className={'together-game ' + (game === g.key ? 'selected' : '')}
                   disabled={!enabled || busy}
                   aria-pressed={game === g.key}
-                  onClick={() => setGame(g.key)}
+                  onClick={() => chooseGame(g.key)}
                 >
                   <div className="together-art">
                     <GameArtwork kind={g.key} practiceAvailable={enabled} />
@@ -409,27 +442,47 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
             })}
           </div>
         </section>
-        <section className="together-panel">
-          <p className="together-eyebrow">{t('The rules, before you enter')}</p>
-          <h2>{t(togetherGame(game).name)}</h2>
-          <p>{t(togetherGame(game).rules)}</p>
-          <p>{t(togetherGameGuide(game).choiceNote)}</p>
-          <ul>
-            {togetherGameGuide(game).mechanics.map((line) => (
-              <li key={line}>{t(line)}</li>
+        <section
+          ref={introRef}
+          tabIndex={-1}
+          className="together-panel tg-game-intro"
+          data-game={game}
+          aria-labelledby="together-intro-title"
+        >
+          <GameAmbience game={game} paused={ambientPaused} />
+          <button
+            type="button"
+            className="tg-motion-control"
+            onClick={() => setAmbientPaused(!ambientPaused)}
+            aria-pressed={ambientPaused}
+          >
+            {ambientPaused ? <Play size={13} /> : <Pause size={13} />}
+            {t(ambientPaused ? 'Resume animation' : 'Pause animation')}
+          </button>
+          <div className="tg-game-intro-copy">
+            <p className="together-eyebrow">{t('The rules, before you enter')}</p>
+            <h2 id="together-intro-title">{t(togetherGame(game).name)}</h2>
+            <p className="tg-intro-lead">{t(togetherGame(game).rules)}</p>
+            <p>{t(togetherGameGuide(game).choiceNote)}</p>
+            <ul>
+              {togetherGameGuide(game).mechanics.map((line) => (
+                <li key={line}>{t(line)}</li>
+              ))}
+            </ul>
+            {guideNotes(game).map((note) => (
+              <p key={note}>{note}</p>
             ))}
-          </ul>
-          {guideNotes(game).map((note) => (
-            <p key={note}>{note}</p>
-          ))}
-          <p>{t(togetherGameGuide(game).tieRule)}</p>
-          <p>
-            <ShieldCheck size={16} />
-            {t(
-              'The fee is {percent}% of winning profit before fees. No additional entry or winner fee.',
-              { percent: s.settings.feeBps / 100 }
-            )}
-          </p>
+            <p>{t(togetherGameGuide(game).tieRule)}</p>
+            <p className="tg-intro-fee">
+              <ShieldCheck size={16} />
+              <span>
+                {t(
+                  'The fee is {percent}% of winning profit before fees. No additional entry or winner fee.',
+                  { percent: s.settings.feeBps / 100 }
+                )}
+              </span>
+            </p>
+          </div>
         </section>
       </details>
       {groupId ? (
@@ -525,51 +578,59 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
         )
       ) : (
         <section className="together-columns">
-          <div className="together-panel">
-            <h2>{t('Join a shared room')}</h2>
-            <p>{t('Play with other members. Opening the room does not place a bet.')}</p>
-            <p>
-              {t('Entry: {amount} · {min}–{max} players · {minutes}-minute betting window', {
-                amount: money(s.settings.minEntry, currency),
-                min: 2,
-                max: 20,
-                minutes: 2,
-              })}
-            </p>
-            <button
-              className="together-primary"
-              disabled={
-                busy ||
-                !s.workerReady ||
-                !s.settings.publicRoomsEnabled ||
-                (currency === 'ETB' && !s.cashAvailable) ||
-                !s.settings.enabledGames.includes(game)
-              }
-              onClick={() => submit('/play-together/public', { game, currency })}
-            >
-              {t('Open shared room')}
-              <ArrowRight size={17} />
-            </button>
-            {!s.settings.publicRoomsEnabled && (
-              <small>
-                {t('Public rooms are being prepared. Private group rooms are available below.')}
-              </small>
-            )}
-          </div>
-          <div className="together-panel">
-            <h2>{t('Play with your group')}</h2>
-            <p>{t('Invite friends through the group’s Members page. Joining a group is free.')}</p>
-            {s.groups.map((g) => (
-              <Link
-                className="together-group-link"
-                key={g.id}
-                to={'/groups/' + g.id + '/games?game=' + game}
+          <div className="together-panel tg-social-card">
+            <CommunityAmbience variant="room" paused={ambientPaused} />
+            <div className="tg-social-copy">
+              <h2>{t('Join a shared room')}</h2>
+              <p>{t('Play with other members. Opening the room does not place a bet.')}</p>
+              <p>
+                {t('Entry: {amount} · {min}–{max} players · {minutes}-minute betting window', {
+                  amount: money(s.settings.minEntry, currency),
+                  min: 2,
+                  max: 20,
+                  minutes: 2,
+                })}
+              </p>
+              <button
+                className="together-primary"
+                disabled={
+                  busy ||
+                  !s.workerReady ||
+                  !s.settings.publicRoomsEnabled ||
+                  (currency === 'ETB' && !s.cashAvailable) ||
+                  !s.settings.enabledGames.includes(game)
+                }
+                onClick={() => submit('/play-together/public', { game, currency })}
               >
-                {g.name}
-                <ArrowRight size={16} />
-              </Link>
-            ))}
-            <Link to="/groups">{t('Create or join a group →')}</Link>
+                {t('Open shared room')}
+                <ArrowRight size={17} />
+              </button>
+              {!s.settings.publicRoomsEnabled && (
+                <small>
+                  {t('Public rooms are being prepared. Private group rooms are available below.')}
+                </small>
+              )}
+            </div>
+          </div>
+          <div className="together-panel tg-social-card">
+            <CommunityAmbience variant="friends" paused={ambientPaused} />
+            <div className="tg-social-copy">
+              <h2>{t('Play with your group')}</h2>
+              <p>
+                {t('Invite friends through the group’s Members page. Joining a group is free.')}
+              </p>
+              {s.groups.map((g) => (
+                <Link
+                  className="together-group-link"
+                  key={g.id}
+                  to={'/groups/' + g.id + '/games?game=' + game}
+                >
+                  {g.name}
+                  <ArrowRight size={16} />
+                </Link>
+              ))}
+              <Link to="/groups">{t('Create or join a group →')}</Link>
+            </div>
           </div>
         </section>
       )}
@@ -853,13 +914,6 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
       setShareNotice({ message: 'Copy this round link: {url}', values: { url } });
     }
   };
-  const reveal = togetherRevealTimeline(r, visualNow);
-  const roundStep =
-    paid && (reveal.phase === 'complete' || !r.outcome)
-      ? 3
-      : r.state === 'OPEN' && seconds > 0
-        ? 1
-        : 2;
   const download = () => {
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' })
@@ -871,56 +925,21 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
-    <div className="together-page">
-      {r.groupId ? (
-        <GroupSocialNav groupId={r.groupId} showRoundActivity={false} roundOpen />
-      ) : (
-        <Link to="/play-together">{t('← Shared rooms')}</Link>
-      )}
-      <header className="together-hero">
+    <div className="together-page together-round-page">
+      <header className="together-round-header">
         <div>
-          <p className="together-eyebrow">
-            <Users size={16} />
-            {r.groupName ?? t('Public shared room')}
-          </p>
-          <h1>
-            {t(game.name)}
-            <span>.</span>
-          </h1>
-          <p>{t(game.rules)}</p>
+          <Link to={r.groupId ? '/messages/' + r.groupId : '/play-together'}>
+            ← {r.groupName ?? t('Public shared room')}
+          </Link>
+          <h1>{t(game.name)}</h1>
         </div>
-        <div className="together-wallet">
-          <Wallet size={20} />
-          <div>
-            <span>
-              {r.currency === 'ETB' ? t('Available real Birr') : t('Available practice points')}
-            </span>
-            <strong>{money(available, r.currency)}</strong>
-            <small>
-              {r.currency === 'GAME_POINTS' ? t('No cash value') : t('Reward Birr is separate')}
-            </small>
-          </div>
-        </div>
+        <button onClick={() => void copyLink()}>{t('Copy round link')}</button>
       </header>
-      <div className="together-watch-tools">
-        <p>
-          <strong>{t('One round for the whole group.')}</strong>{' '}
-          {t('Watching is free. Choices stay private until betting closes.')}
+      {shareNotice && (
+        <p role="status" className="together-notice">
+          {shareNotice}
         </p>
-        <div>
-          <button onClick={() => void copyLink()}>{t('Copy round link')}</button>
-          <a href="#group-results">{t('Participants & results ↓')}</a>
-        </div>
-        {shareNotice && <p role="status">{shareNotice}</p>}
-      </div>
-      <ol className="together-journey" aria-label={t('Round progress')}>
-        {[t('Confirm entries'), t('Watch together'), t('Results & payouts')].map((label, i) => (
-          <li key={label} aria-current={roundStep === i + 1 ? 'step' : undefined}>
-            <b>{num(i + 1)}</b>
-            <strong>{label}</strong>
-          </li>
-        ))}
-      </ol>
+      )}
       <div className="together-status">
         <span role="timer">
           <Clock3 size={17} />
@@ -994,33 +1013,27 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
           </button>
         </div>
       )}
-      {!r.outcome && !r.presentation && !paid && (
-        <section className="together-panel together-waiting" aria-label={t('Shared game screen')}>
-          <p className="together-eyebrow">{t('Your group’s shared screen')}</p>
-          <h2>
-            {r.state === 'OPEN' && seconds > 0
-              ? t('Everyone gets ready here')
-              : t('Getting the shared result ready')}
-          </h2>
-          <p>
-            {r.state === 'OPEN' && seconds > 0
-              ? t(
-                  'Choose and confirm your own entry, or watch for free. After betting closes, everyone follows one countdown and game. Payment follows the finish.'
-                )
-              : t(
-                  'Entries are closed. Preparing one verified game for everyone. You can return at any time.'
-                )}
-          </p>
-          <small>
-            {t(
-              'Return to this round at any time. Reconnecting catches up to the shared view, and completed results stay available.'
-            )}
-          </small>
-        </section>
-      )}
-      <TogetherGameResult round={r} userId={userId} serverNow={visualNow} />
+      <div className="together-arena-layout">
+        <div className="together-arena-main">
+          {!r.outcome && !r.presentation && !paid && (
+            <RoundLobby round={r} userId={userId} serverNow={visualNow} />
+          )}
+          <TogetherGameResult round={r} userId={userId} serverNow={visualNow} />
+        </div>
+        {r.groupId && <ArenaChat groupId={r.groupId} userId={userId} />}
+      </div>
       <div className="together-columns">
-        <section className="together-panel">
+        <details className="together-panel together-entry-panel" open={open || paid || undefined}>
+          <summary>{confirmed ? t('Your confirmed entry') : t('Your choice')}</summary>
+          <div className="together-wallet">
+            <Wallet size={17} />
+            <div>
+              <span>
+                {r.currency === 'ETB' ? t('Available real Birr') : t('Available practice points')}
+              </span>
+              <strong>{money(available, r.currency)}</strong>
+            </div>
+          </div>
           <p className="together-eyebrow">{t('Your choice')}</p>
           <p className="together-eyebrow" role="status">
             {pending || mutation.isPending
@@ -1154,14 +1167,19 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               {t('Cancel this round and refund everyone')}
             </button>
           )}
-        </section>
-        <section
+        </details>
+        <details
           className="together-panel"
           id="group-results"
+          open={paid || open || undefined}
           aria-label={t('Group participants and results')}
         >
-          <p className="together-eyebrow">{t('Everyone sees the same round')}</p>
-          <h2>{paid ? t('Group result and payouts') : t('Confirmed participants')}</h2>
+          <summary>
+            <h2 className="inline">
+              {paid ? t('Group result and payouts') : t('Confirmed participants')}
+            </h2>{' '}
+            · {num(participants.length)}
+          </summary>
           <div className="together-pool">
             <span>{t('Funded pool')}</span>
             <strong>{money(r.settlement?.funded ?? funded * r.entryAmount, r.currency)}</strong>
@@ -1256,10 +1274,11 @@ function TogetherRound({ userId, roundId }: { userId: string; roundId: string })
               )}
             </div>
           )}
-        </section>
+        </details>
       </div>
       <details className="together-panel">
         <summary>{t('Round rules and interruption policy')}</summary>
+        <p>{t(game.rules)}</p>
         <p>
           {t(
             'Selections are private until betting closes. Everyone pays the same entry. The owner cannot place a bet for you or change accepted round terms.'

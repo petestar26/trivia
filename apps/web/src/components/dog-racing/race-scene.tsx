@@ -12,17 +12,21 @@ export default function DogRaceScene({
   running,
   reduced,
   cameraMode = 'trackside',
+  synchronized = false,
+  quality,
 }: {
-  round: DerbyRound;
+  round: Pick<DerbyRound, 'id' | 'field' | 'positions' | 'order'>;
   running: boolean;
   reduced: boolean;
   cameraMode?: DogCamera;
+  synchronized?: boolean;
+  quality?: 'high' | 'balanced' | 'low';
 }) {
   const { t: translateUi } = useInterfaceLanguage();
 
   const host = useRef<HTMLDivElement>(null),
-    live = useRef({ round, running, reduced, cameraMode });
-  live.current = { round, running, reduced, cameraMode };
+    live = useRef({ round, running, reduced, cameraMode, synchronized });
+  live.current = { round, running, reduced, cameraMode, synchronized };
   const [failed, setFailed] = useState(false),
     [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -37,8 +41,13 @@ export default function DogRaceScene({
     }
     const container = host.current;
     container.appendChild(renderer.domElement);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.innerWidth < 700 ? 1.5 : 2));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(
+      Math.min(
+        window.devicePixelRatio,
+        quality === 'low' ? 1 : quality === 'balanced' ? 1.25 : window.innerWidth < 700 ? 1.5 : 2
+      )
+    );
+    renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
@@ -137,7 +146,9 @@ export default function DogRaceScene({
         prior = [...r.positions];
         initialized = false;
       }
-      const positions = motion(time, r.positions, state.reduced || !!r.order || !state.running);
+      const positions = state.synchronized
+        ? r.positions
+        : motion(time, r.positions, state.reduced || !!r.order || !state.running);
       const lead = Math.max(0, ...positions.slice(0, r.field));
       const center = trackPoint(lead / 1.06);
       for (let i = 0; i < 8; i++) {
@@ -211,7 +222,7 @@ export default function DogRaceScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [revision]);
+  }, [revision, quality]);
   return (
     <div
       ref={host}

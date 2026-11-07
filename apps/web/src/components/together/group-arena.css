@@ -1,0 +1,485 @@
+.together-page.together-round-page {
+  max-width: 1600px !important;
+  margin: auto;
+  padding: 6px 12px;
+}
+.together-round-page .together-round-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+}
+.together-round-page .together-round-header h1 {
+  font-size: clamp(19px, 2.5vw, 28px);
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 5px 0 0;
+  letter-spacing: -0.035em;
+}
+.together-round-page .together-round-header a {
+  font-size: 12px;
+  color: var(--muted-foreground, #a8b8b2);
+}
+.together-round-page .together-round-header button {
+  background: #172b2b;
+  border: 1px solid #647b6a66;
+  color: #e5e5da;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.together-round-page .together-status {
+  font-size: 11px;
+  padding: 8px 0;
+  margin: 0 0 10px;
+  border: 0;
+  background: transparent;
+  gap: 8px;
+}
+.together-arena-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 28%);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.together-arena-main {
+  min-width: 0;
+}
+.together-arena-layout:not(:has(.tg-arena-chat)) {
+  grid-template-columns: 1fr;
+}
+.together-round-page > .together-columns {
+  margin-top: 12px;
+  gap: 14px;
+}
+.together-round-page details.together-panel {
+  padding: 14px 17px;
+  margin: 0 0 14px;
+  border-radius: 12px;
+  background: #101b1b;
+  border: 1px solid #ffffff18;
+}
+.together-round-page details.together-panel > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 3px 0;
+}
+.together-round-page details.together-panel > summary h2 {
+  font-size: inherit;
+}
+.together-round-page details.together-panel[open] > summary {
+  margin-bottom: 14px;
+}
+.together-round-page details.together-panel h2 {
+  font-size: 20px;
+}
+.together-round-page details.together-panel > p {
+  font-size: 12px;
+}
+.together-round-page .together-wallet {
+  padding: 9px 12px;
+  margin: 0 0 14px;
+  width: fit-content;
+  min-width: 0;
+}
+.together-round-page .together-wallet strong {
+  font-size: 16px;
+}
+.together-round-page .together-wallet span {
+  font-size: 11px;
+}
+.together-round-page .together-journey {
+  display: none;
+}
+.tg-arena-chat {
+  background: #111d24;
+  border: 1px solid #ffffff1b;
+  border-radius: 12px;
+  overflow: hidden;
+  position: sticky;
+  top: 88px;
+  min-width: 0;
+}
+.tg-arena-chat-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 14px;
+  width: 100%;
+  background: #15252e;
+  border: 0;
+  color: #dfebe7;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tg-arena-chat-heading span {
+  flex: 1;
+  text-align: start;
+}
+.tg-arena-chat-content {
+  height: clamp(420px, calc(100dvh - 230px), 730px);
+  min-height: 360px;
+}
+.tg-chat-embedded.qube-chat {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.tg-chat-embedded > section {
+  height: 100%;
+}
+.tg-group-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+html.qube-member .tg-chat-embedded .qube-chat-thread {
+  padding: 12px 10px;
+  background: #101c25;
+}
+html.qube-member .tg-chat-embedded footer {
+  padding: 10px;
+  background: #16242d;
+}
+html.qube-member .tg-chat-embedded.qube-chat {
+  background: #111d24 !important;
+}
+html.qube-member .tg-group-arena.qube-chat {
+  background: #0e181f !important;
+}
+html.qube-member .tg-group-arena .qube-chat-thread {
+  background: #101c25;
+}
+.tg-chat-embedded footer textarea {
+  font-size: 12px;
+  min-height: 40px;
+}
+.tg-chat-embedded .qube-chat-thread .space-y-3 {
+  font-size: 12px;
+}
+.tg-chat-embedded .qube-chat-thread [data-message-id] p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tg-mobile-chat-toggle {
+  display: none;
+}
+.tg-group-activity-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  color: #dfe9e5;
+  font-size: 12px;
+}
+.tg-group-activity-bar > div:first-child {
+  min-width: 0;
+}
+.tg-group-activity-bar p {
+  margin: 0;
+}
+.tg-group-activity-bar p.mt-1 {
+  font-size: 10px;
+  margin-top: 3px;
+  color: #aabbbd;
+}
+.tg-group-activity-bar a {
+  font-size: 11px;
+}
+.tg-watch-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  border: 1px solid #688c7b66;
+  border-radius: 6px;
+  background: #18342c;
+  color: #e3eee5;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tg-group-watch > p {
+  font-size: 11px;
+  margin: 0 0 8px;
+  color: #b7c6c7;
+}
+.tg-group-watch {
+  --tg-bg: #fffaf6;
+  --tg-panel: #fff;
+  --tg-ink: #272024;
+  --tg-muted: #73676c;
+  --tg-line: #e4d9dc;
+  --tg-accent: #27634f;
+  --tg-soft: #e6f3ec;
+}
+.dark .tg-group-watch {
+  --tg-bg: #081610;
+  --tg-panel: #10271c;
+  --tg-ink: #f5f7ef;
+  --tg-muted: #c2d2c9;
+  --tg-line: #b6dbaa38;
+  --tg-accent: #8df1bd;
+  --tg-soft: #143e2c;
+}
+.tg-group-watch > a {
+  font-size: 12px;
+  display: inline-block;
+  margin-top: 10px;
+}
+.tg-group-game:empty {
+  display: none;
+}
+.tg-group-game:not(:has(.tg-group-watch)) {
+  padding-inline: 16px;
+}
+.tg-group-arena.qube-chat {
+  position: relative;
+  display: block;
+  max-width: 1600px;
+  border-radius: 14px;
+  height: calc(100dvh - 108px);
+  min-height: 440px;
+  background: #0e181f;
+}
+.tg-group-arena > section {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 34%);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.tg-group-arena > section > header {
+  grid-column: 1/-1;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tg-group-arena > section > header > * {
+  margin: 0;
+}
+.tg-group-arena > section > header .h-11 {
+  display: none;
+}
+.tg-group-arena > section > header h1 {
+  font-size: 16px;
+}
+.tg-group-arena > section > header p {
+  font-size: 10px;
+}
+.tg-group-arena .tg-group-game {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 5px 14px 16px;
+}
+.tg-group-arena .tg-group-conversation {
+  grid-column: 2;
+  grid-row: 2;
+  border-inline-start: 1px solid #ffffff18;
+}
+.tg-group-arena .qube-chat-thread {
+  padding: 16px 12px;
+}
+.tg-group-arena footer {
+  padding: 12px;
+}
+.tg-group-arena .tg-group-activity-bar > div:first-child > p:first-child {
+  display: flex;
+}
+.tg-group-arena .tg-group-activity-bar {
+  padding: 7px 2px;
+}
+.tg-group-arena .tg-live .game-arena__toolbar {
+  padding: 2px 12px;
+}
+.tg-group-arena .tg-live {
+  border-radius: 10px;
+}
+.tg-lobby-stage {
+  position: relative;
+  max-height: 470px;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: inline-size;
+  container-name: stage;
+}
+.tg-lobby-stage > svg {
+  width: 100%;
+  display: block;
+}
+.tg-lobby-stage .tg-result-wheel {
+  max-height: 420px;
+  width: 100%;
+  background: radial-gradient(ellipse at 50% 15%, #754a2a55, #0e2523);
+}
+.tg-lobby-overlay {
+  position: absolute;
+  inset: auto 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border: 1px solid #e4e6d22e;
+  background: #10202be8;
+  backdrop-filter: blur(8px);
+  border-radius: 9px;
+  color: #f0efde;
+  gap: 10px;
+}
+.tg-lobby-overlay h2 {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+.tg-lobby-overlay p {
+  font-size: 11px;
+  margin: 0;
+  color: #bfcfd1;
+}
+.tg-lobby-overlay strong {
+  font-size: 27px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 999px) {
+  .together-arena-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .tg-arena-chat {
+    position: static;
+  }
+  .tg-arena-chat-content {
+    height: 470px;
+  }
+  .together-round-page .together-round-header {
+    margin-bottom: 8px;
+  }
+  .together-round-page .together-status {
+    flex-wrap: wrap;
+  }
+  .tg-group-arena.qube-chat {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .tg-group-arena > section {
+    display: flex;
+    height: auto;
+    overflow: visible;
+  }
+  .tg-group-arena > section > header {
+    display: block;
+    padding: 10px 12px;
+  }
+  .tg-group-arena > section > header > div:first-child {
+    padding-inline-end: 85px;
+  }
+  .tg-group-arena > section > header > div:first-child h1 {
+    font-size: 14px;
+  }
+  .tg-group-arena > section > header > div:last-child {
+    font-size: 10px;
+    gap: 4px;
+  }
+  .tg-group-arena > section > header > div:last-child button {
+    font-size: 10px;
+    padding: 4px 0;
+  }
+  .tg-group-arena .tg-group-activity-bar {
+    padding: 0;
+    height: auto;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .tg-group-arena .tg-group-activity-bar > div:first-child {
+    display: block;
+  }
+  .tg-group-arena .tg-watch-toggle {
+    position: absolute;
+    inset-inline-end: 10px;
+    top: 12px;
+    z-index: 2;
+    max-width: 90px;
+    font-size: 10px;
+    padding: 6px;
+  }
+  .tg-group-arena > section > header > * + * {
+    margin-top: 9px;
+  }
+  .tg-group-arena .tg-group-game {
+    padding: 2px 8px 12px;
+    overflow: visible;
+  }
+  .tg-group-arena .tg-group-conversation {
+    height: 480px;
+    min-height: 480px;
+    border-inline-start: 0;
+    border-top: 1px solid #ffffff20;
+  }
+  .tg-group-arena .tg-group-conversation.is-collapsed-mobile {
+    display: none;
+  }
+  .tg-mobile-chat-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 8px 10px;
+    padding: 13px;
+    border-radius: 8px;
+    border: 1px solid #ffffff24;
+    background: #162b32;
+    color: #dfebe8;
+    font-size: 12px;
+  }
+  .tg-group-arena .tg-group-activity-bar p.mt-1 {
+    max-width: 220px;
+  }
+  .tg-lobby-overlay {
+    inset: auto 9px 9px;
+    padding: 11px;
+  }
+  .tg-lobby-overlay h2 {
+    font-size: 15px;
+  }
+  .tg-lobby-overlay strong {
+    font-size: 23px;
+  }
+}
+@media (max-width: 480px) {
+  .together-round-page {
+    padding: 4px !important;
+  }
+  .together-round-page .together-round-header h1 {
+    font-size: 20px;
+  }
+  .together-round-page .together-round-header button {
+    font-size: 10px;
+    padding: 7px;
+  }
+  .together-round-page .together-round-header a {
+    font-size: 11px;
+  }
+  .tg-arena-chat-heading {
+    padding: 12px;
+  }
+  .together-round-page > .together-columns {
+    grid-template-columns: 1fr;
+  }
+  .tg-lobby-stage {
+    max-height: 430px;
+  }
+}

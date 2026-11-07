@@ -24,7 +24,8 @@ export function Layout() {
   const showSupportShortcut =
     !pathname.startsWith('/support') &&
     !pathname.startsWith('/games/') &&
-    !pathname.startsWith('/play-together/rounds/') &&
+    !pathname.startsWith('/play-together') &&
+    !pathname.startsWith('/messages') &&
     !pathname.startsWith('/casino') &&
     !pathname.startsWith('/sports') &&
     !/^\/groups\/[^/]+/.test(pathname);

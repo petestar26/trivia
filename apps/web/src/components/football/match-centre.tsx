@@ -93,7 +93,7 @@ export function Scoreboard({
   display,
   week,
 }: {
-  fixture: VfFixtureView;
+  fixture: Pick<VfFixtureView, 'homeClub' | 'awayClub'>;
   display: DisplayFixture;
   week: string;
 }) {
@@ -154,7 +154,13 @@ export function Scoreboard({
   );
 }
 
-function GoalLine({ goal, fixture }: { goal: PublicGoal; fixture: VfFixtureView }) {
+function GoalLine({
+  goal,
+  fixture,
+}: {
+  goal: PublicGoal;
+  fixture: Pick<VfFixtureView, 'homeClub' | 'awayClub'>;
+}) {
   const { t: translateUi } = useInterfaceLanguage();
 
   const club = clubById(goal.side === 'H' ? fixture.homeClub : fixture.awayClub);
@@ -173,7 +179,7 @@ export function MatchCentre({
   display,
   week,
 }: {
-  fixture: VfFixtureView;
+  fixture: Pick<VfFixtureView, 'homeClub' | 'awayClub'>;
   display: DisplayFixture;
   week: string;
 }) {
@@ -205,7 +211,7 @@ export function BroadcastCaption({
   fixture,
   display,
 }: {
-  fixture: VfFixtureView;
+  fixture: Pick<VfFixtureView, 'homeClub' | 'awayClub'>;
   display: DisplayFixture;
 }) {
   const { t: translateUi } = useInterfaceLanguage();

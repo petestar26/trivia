@@ -1,0 +1,81 @@
+.qube-chat-bubble {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tg-chat-gift {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+.tg-chat-gift > [aria-hidden] {
+  width: 64px;
+  height: 64px;
+}
+.tg-chat-gift-copy {
+  flex: 1 1 110px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tg-chat-gift-copy h3 {
+  line-height: 1.4;
+}
+.dark .tg-chat-gift {
+  background: #28203e;
+  border: 1px solid #ab91d644;
+}
+.dark .tg-chat-gift-copy > p:first-child {
+  color: #d1b5ff;
+}
+.dark .tg-chat-gift-copy > p:last-child {
+  color: #cfcbdd;
+}
+.qube-chat footer {
+  flex-shrink: 0;
+}
+.qube-chat footer textarea {
+  flex: 1;
+  min-width: 0;
+}
+.tg-chat-error {
+  border: 1px solid #d998343b;
+  border-radius: 12px;
+  background: #fff7e4;
+  color: #754811;
+  padding: 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.tg-chat-error p {
+  line-height: 1.6;
+  margin: 0 0 8px;
+}
+.tg-chat-error button {
+  display: inline-flex;
+  padding: 7px 12px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-weight: 700;
+}
+.tg-chat-error button:disabled {
+  opacity: 0.55;
+}
+.dark .tg-chat-error {
+  color: #f7d7a4;
+  background: #30281b;
+}
+.tg-chat-embedded .qube-chat-bubble,
+.tg-group-arena .qube-chat-bubble {
+  max-width: 94%;
+}
+.tg-group-arena > section > header {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+@media (max-width: 999px) {
+  .tg-group-arena > section > header > * {
+    max-width: 100%;
+  }
+}

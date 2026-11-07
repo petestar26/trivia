@@ -5,6 +5,7 @@ import { type TogetherSnapshot } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useTogetherText } from '@/lib/i18n/together-text';
+import { TogetherLobby } from './together-lobby';
 import { TogetherGameResult } from './together-game-result';
 import { useRoundUpdates } from './use-round-updates';
 
@@ -53,7 +54,7 @@ export function GroupWatchArea({ userId, roundId }: { userId: string; roundId: s
     );
   return (
     <div className="tg-group-watch" data-watch-round={round.id}>
-      <p>
+      <p hidden={!!round.presentation}>
         {t('{count} confirmed', {
           count: round.entries.filter(
             (e) =>
@@ -70,17 +71,7 @@ export function GroupWatchArea({ userId, roundId }: { userId: string; roundId: s
       {round.presentation || round.outcome || round.state === 'REFUNDED' ? (
         <TogetherGameResult round={round} userId={userId} serverNow={serverNow} />
       ) : (
-        <div className="tg-live">
-          <h2>{round.state === 'OPEN' ? t('Entries open') : t('Preparing the round')}</h2>
-          <p>{t('Watching is free. Only confirmed entries participate financially.')}</p>
-          {round.state === 'OPEN' && serverNow !== null && (
-            <p role="timer">
-              {t('Betting closes in {time}', {
-                time: num(Math.max(0, Math.ceil((round.closesAt - serverNow) / 1000))) + 's',
-              })}
-            </p>
-          )}
-        </div>
+        <TogetherLobby round={round} userId={userId} serverNow={serverNow} />
       )}
       <Link to={'/play-together/rounds/' + roundId}>{t('Open full round')}</Link>
     </div>

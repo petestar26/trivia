@@ -6,15 +6,21 @@ import { togetherGame, type TogetherGroupActivity } from '@socialplay/shared';
 import { api, unwrapData } from '@/lib/api';
 import { boundedRequest } from '@/lib/bounded-request';
 import { useAuth } from '@/providers/auth-provider';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GroupWatchArea } from '@/components/together/group-watch-area';
 
 /** A group-wide doorway. Viewing this card never joins or funds a round. */
-export function GroupRoundActivity({ groupId }: { groupId: string }) {
+export function GroupRoundActivity({
+  groupId,
+  onWatchStateChange,
+}: {
+  groupId: string;
+  onWatchStateChange?: (watching: boolean) => void;
+}) {
   const { t } = useTogetherText();
 
   const { user } = useAuth();
-  const [watching, setWatching] = useState(true);
+  const [watchChoice, setWatchChoice] = useState<{ roundId: string; open: boolean } | null>(null);
   const query = useQuery({
     queryKey: ['together-group-activity', user?.id, groupId],
     enabled: !!user,
@@ -35,6 +41,27 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
     refetchOnWindowFocus: 'always',
     retry: false,
   });
+  const { activeRound, latestResult } = query.data ?? {};
+  const displayedRound = activeRound ?? latestResult;
+  const watching =
+    watchChoice?.roundId === displayedRound?.id ? (watchChoice?.open ?? false) : !!activeRound;
+  // Keep a round being watched visible through settlement. An old result on
+  // first opening chat stays compact so it does not displace the conversation.
+  useEffect(() => {
+    if (activeRound && watchChoice?.roundId !== activeRound.id)
+      setWatchChoice({ roundId: activeRound.id, open: true });
+  }, [activeRound?.id, watchChoice?.roundId]);
+  useEffect(() => {
+    onWatchStateChange?.(
+      !!(query.data?.activeRound || query.data?.latestResult) && watching && !query.isError
+    );
+  }, [
+    query.data?.activeRound?.id,
+    query.data?.latestResult?.id,
+    watching,
+    query.isError,
+    onWatchStateChange,
+  ]);
   if (query.isError)
     return (
       <p className="text-sm text-slate-500" role="status">
@@ -44,14 +71,10 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
         </Link>
       </p>
     );
-  const { activeRound, latestResult } = query.data ?? {};
   if (!activeRound && !latestResult) return null;
   return (
-    <div>
-      <aside
-        aria-label={t('Your group’s shared round')}
-        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-slate-800 dark:border-rose-900 dark:bg-slate-900 dark:text-slate-100"
-      >
+    <div className="tg-group-activity">
+      <aside aria-label={t('Your group’s shared round')} className="tg-group-activity-bar">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-semibold">
             {activeRound ? <Radio size={16} /> : <Trophy size={16} />}{' '}
@@ -67,11 +90,11 @@ export function GroupRoundActivity({ groupId }: { groupId: string }) {
           {(activeRound || latestResult) && (
             <button
               type="button"
-              onClick={() => setWatching(!watching)}
+              onClick={() => setWatchChoice({ roundId: displayedRound!.id, open: !watching })}
               aria-expanded={watching}
-              className="inline-flex items-center gap-2 rounded-lg bg-rose-800 px-3 py-2 font-semibold text-white"
+              className="tg-watch-toggle"
             >
-              {watching ? t('Hide game') : t('Watch live')}
+              {watching ? t('Hide game') : activeRound ? t('Watch live') : t('View result')}
               <ArrowRight size={15} />
             </button>
           )}

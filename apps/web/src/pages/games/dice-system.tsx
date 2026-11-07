@@ -1,3 +1,5 @@
+import { DiceFace } from '@/components/dice/dice-face';
+export { DiceFace } from '@/components/dice/dice-face';
 import { formatEtb } from '@/lib/payment-money';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { GameRoundSummary } from '@/components/games/game-round-summary';
@@ -33,31 +35,6 @@ function readPending(userId: string): { entry: Entry | null; error: string } {
         'Your saved ticket could not be read. Restore browser storage and reload before entering.',
     };
   }
-}
-export function DiceFace({ value, hidden = false }: { value: number; hidden?: boolean }) {
-  const { t: translateUi } = useInterfaceLanguage();
-
-  const pips: Record<number, number[]> = {
-    1: [4],
-    2: [0, 8],
-    3: [0, 4, 8],
-    4: [0, 2, 6, 8],
-    5: [0, 2, 4, 6, 8],
-    6: [0, 2, 3, 5, 6, 8],
-  };
-  return (
-    <div
-      className="system-die"
-      role="img"
-      aria-label={
-        hidden ? translateUi('Dice awaiting result') : translateUi('Die {value}', { value: value })
-      }
-    >
-      {Array.from({ length: 9 }, (_, i) => (
-        <span key={i} className={!hidden && pips[value]?.includes(i) ? 'pip' : 'empty'} />
-      ))}
-    </div>
-  );
 }
 export function SystemDicePage() {
   const { user } = useAuth();

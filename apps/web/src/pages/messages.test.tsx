@@ -31,13 +31,25 @@ vi.mock('@/providers/socket-provider', () => ({
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: { id: testUserId } }) }));
 vi.mock('@/components/voice/voice-message-player', () => ({ VoiceMessagePlayer: () => <div>Playable voice message</div> }));
 
-import { MessagesPage } from './messages';
+import { MessagesPage, GroupRoundChat } from './messages';
 
 // jsdom does not implement scrollIntoView (same reason setup.ts stubs
 // matchMedia/localStorage). The page's auto-scroll effect calls it on every
 // message change; without this the effect throws and masks what we're testing.
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
+});
+
+it('loads embedded chat without scrolling the surrounding game or creating a financial action', async () => {
+  vi.mocked(Element.prototype.scrollIntoView).mockClear();
+  getGroupMessages.mockResolvedValue({ data: [{ id:'arena-message',content:'Hello from the group',createdAt:'2026-11-06T00:00:00Z',sender:{id:'friend',username:'Tigist'} }] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><MemoryRouter><GroupRoundChat groupId="group-1" userId="me" /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText('Hello from the group')).toBeVisible();
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
+  expect(screen.queryByText('Watch live')).not.toBeInTheDocument();
+  client.clear();
 });
 
 afterEach(() => {
@@ -122,8 +134,55 @@ describe('MessagesPage', () => {
 
     renderAtGroup();
 
-    expect(await screen.findByText(/Failed to load messages/)).toBeInTheDocument();
+    expect(await screen.findByText(/Messages could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
+});
+
+it('recovers a network failure with Retry without implying lost membership or sending a message', async () => {
+  getGroupMessages.mockRejectedValue(new Error('network offline'));
+  renderAtGroup();
+  await screen.findByText('Messages could not be loaded. Check your connection and try again.');
+  expect(screen.queryByText(/may not be a member/)).not.toBeInTheDocument();
+  getGroupMessages.mockResolvedValue({
+    data: [
+      { id: 'recovered', content: 'Recovered conversation', createdAt: '2026-11-07T00:00:00Z' },
+    ],
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByText('Recovered conversation')).toBeVisible();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+it('hides cached history and disables sending after access is rejected, then restores after a successful retry', async () => {
+  getGroupMessages.mockResolvedValue({
+    data: [
+      {
+        id: 'private',
+        content: 'Group-only message',
+        createdAt: '2026-11-07T00:00:00Z',
+        sender: { id: 'friend' },
+      },
+    ],
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  renderAtGroup('group-1', client);
+  await screen.findByText('Group-only message');
+  fireEvent.click(screen.getByRole('button', { name: 'Reply to message' }));
+  getGroupMessages.mockRejectedValue(new Error(JSON.stringify({ status: 403 })));
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['messages'] });
+  });
+  await screen.findByText('This conversation is unavailable. Check your sign-in and group access.');
+  expect(screen.queryByText('Group-only message')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Cancel reply' })).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeDisabled();
+  getGroupMessages.mockResolvedValue({ data: [] });
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await screen.findByText('No messages yet. Start the conversation!');
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled();
+  expect(post).not.toHaveBeenCalled();
+  client.clear();
 });
 
 describe('MessagesPage — send progression invalidation', () => {
@@ -340,13 +399,13 @@ it('leaves loaded history available when an older-page refresh fails and recover
     return read(...args);
   });
   act(() => socketListeners.get('connect')?.());
-  await screen.findByText(/Failed to load messages/);
+  await screen.findByText(/Connection interrupted. Showing saved messages/);
   expect(screen.getByText('Message 0')).toBeInTheDocument();
   server.remove('history-0');
   getGroupMessages.mockImplementation(read);
   act(() => socketListeners.get('connect')?.());
   await waitFor(() => expect(screen.queryByText('Message 0')).not.toBeInTheDocument());
-  expect(screen.queryByText(/Failed to load messages/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Connection interrupted. Showing saved messages/)).not.toBeInTheDocument();
   expect(screen.getByText('Message 2')).toBeInTheDocument();
 });
 it.each(['success', 'failure'])('cancels an older-page request on account change and ignores its late %s', async outcome => {
