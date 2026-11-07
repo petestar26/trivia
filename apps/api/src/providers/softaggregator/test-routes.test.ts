@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
 import { providerTestRoutes } from './test-routes.js';
+import { TestLaunchFailure, TestProviderFailure } from './test-client.js';
 const launch = vi.hoisted(() =>
   vi.fn(async () => ({ mode: 'virtual-test', url: 'https://games.example.com/x' }))
 );
@@ -12,7 +13,8 @@ vi.mock('../../middleware/auth.js', () => ({
     req.user = { sub: req.headers.authorization };
   },
 }));
-vi.mock('./test-client.js', () => ({
+vi.mock('./test-client.js', async () => ({
+  ...(await vi.importActual<typeof import('./test-client.js')>('./test-client.js')),
   createProviderTest: () => ({
     enabledFor: (id: string) => id === 'tester',
     unavailableReasonFor: (id: string) => (id === 'tester' ? null : 'restricted'),
@@ -25,6 +27,38 @@ vi.mock('./test-client.js', () => ({
     wallet: { snapshot: vi.fn(async () => ({ balanceCents: 100000 })) },
   }),
 }));
+it.each([
+  [new TestLaunchFailure('UNAPPROVED_HOST', 'games.example.com'), 'CASINO_GAME_ADDRESS_PENDING'],
+  [new TestLaunchFailure('INVALID_LAUNCH_RESPONSE'), 'CASINO_PROVIDER_UNAVAILABLE'],
+  [
+    new TestProviderFailure('getGame', 'COUNTRY_RESTRICTED', 200, 403),
+    'CASINO_GAME_REGION_UNAVAILABLE',
+  ],
+  [
+    new TestProviderFailure('getGame', 'CURRENCY_UNSUPPORTED', 200, 400),
+    'CASINO_GAME_CURRENCY_UNAVAILABLE',
+  ],
+  [new TestProviderFailure('getGame', 'TIMEOUT'), 'CASINO_PROVIDER_TIMEOUT'],
+  [new TestProviderFailure('getGame', 'HTTP_ERROR', 429), 'CASINO_PROVIDER_BUSY'],
+])('returns a safe actionable error code: %s', async (failure, code) => {
+  const s = Fastify();
+  await s.register(providerTestRoutes, { prefix: '/provider-test' });
+  try {
+    launch.mockRejectedValueOnce(failure);
+    const result = await s.inject({
+      method: 'POST',
+      url: '/provider-test/launch',
+      headers: { authorization: 'tester' },
+      payload: { gameId: 'slot' },
+    });
+    expect(result.statusCode).toBe(502);
+    expect(result.json().error.code).toBe(code);
+    expect(result.body).not.toContain('games.example.com');
+    expect(result.headers['cache-control']).toContain('no-store');
+  } finally {
+    await s.close();
+  }
+});
 it('requires auth and hides wallet data from non-testers', async () => {
   const s = Fastify();
   await s.register(providerTestRoutes, { prefix: '/provider-test' });
