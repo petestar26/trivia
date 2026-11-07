@@ -59,7 +59,7 @@ async function orderAccess(tx: Tx, userId: string, orderId: string, admin = fals
   if (admin) {
     if (order.userId === userId || order.agent.userId === userId)
       throw ApiError.forbidden('You cannot review your own payment case');
-  } else if (order.userId !== userId)
+  } else if (order.userId !== userId && order.agent.userId !== userId)
     throw ApiError.forbidden('You do not have access to this order');
   return order;
 }
@@ -108,6 +108,7 @@ export async function reportLatePayment(userId: string, raw: unknown) {
     const existing = await tx.latePaymentCase.findUnique({ where: { orderId: order.id } });
     if (existing) {
       if (
+        existing.openedBy === userId &&
         existing.idempotencyKey === args.idempotencyKey &&
         existing.paymentReference === args.paymentReference &&
         existing.paidAmount === args.paidAmount &&
@@ -145,7 +146,7 @@ export async function listLatePayments(userId: string, admin = false, raw: unkno
     const rows = await tx.latePaymentCase.findMany({
       where: admin
         ? (reviewer.role === 'SUPER_ADMIN' ? {} : { OR: [{ status: 'OPEN' }, { assignedAdminId: userId }] })
-        : { openedBy: userId },
+        : { order: { OR: [{ userId }, { agent: { userId } }] } },
       orderBy: admin ? [{ openedAt: 'asc' }, { id: 'asc' }] : [{ openedAt: 'desc' }, { id: 'desc' }],
       take: 50, skip: (page ?? 0) * 50,
       include: { order: { select: { orderNumber: true, fiatCurrency: true, fiatAmount: true } } },

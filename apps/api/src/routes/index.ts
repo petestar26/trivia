@@ -1,3 +1,4 @@
+import { paymentRoomRoutes } from '../agents/payment-room-routes.js';
 import { supportRoutes } from '../support/routes.js';
 import { memberRewardRoutes, memberProfileRoutes } from '../member-rewards/routes.js';
 import { numberPracticeRoutes } from '../games/number-challenge/routes.js';
@@ -90,6 +91,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(adminAgentAccountRoutes, { prefix: '/agents' });
   await server.register(agentRoutes, { prefix: '/agents' });
   await server.register(agentOrderRoutes, { prefix: '/agent-orders' });
+  await server.register(paymentRoomRoutes, { prefix: '/payment-orders' });
   await server.register(latePaymentRoutes, { prefix: '/late-payments' });
   await server.register(agentDisputeRoutes, { prefix: '/agent-disputes' });
   await server.register(agentConversationRoutes, { prefix: '/agent-conversations' });

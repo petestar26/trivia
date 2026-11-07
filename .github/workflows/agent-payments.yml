@@ -1,0 +1,97 @@
+name: Agent payment orders and appeals
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/agent-payments.yml'
+      - 'apps/api/src/agents/**'
+      - 'apps/api/src/withdrawals/**'
+      - 'apps/api/src/economy/**'
+      - 'apps/api/src/routes/index.ts'
+      - 'apps/api/vitest.payments-native.config.ts'
+      - 'apps/web/src/pages/wallet*'
+      - 'apps/web/src/hooks/use-wallet-action*'
+      - 'apps/web/src/components/notifications/**'
+      - 'apps/web/src/lib/payment*'
+      - 'apps/web/src/lib/i18n/**'
+      - 'packages/database/**'
+      - 'scripts/review-payments-preview.mjs'
+permissions:
+  contents: read
+jobs:
+  payments:
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['13', '16', '18']
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-payment-tests
+          POSTGRES_DB: playqube_scheduled_throwaway
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:disposable-payment-tests@127.0.0.1:5432/playqube_scheduled_throwaway
+      TEST_LEDGER_DB_NAME: playqube_scheduled_throwaway
+      SCHEDULED_NATIVE_DB_ACK: throwaway
+      NODE_ENV: test
+      LOG_PRETTY: 'false'
+      LOG_LEVEL: error
+      JWT_ACCESS_SECRET: isolated-payment-access-test-only
+      JWT_REFRESH_SECRET: isolated-payment-refresh-test-only
+      SECURITY_TOTP_ENCRYPTION_KEY: '1313131313131313131313131313131313131313131313131313131313131313'
+      LEDGER_APPROVAL_SIGNING_KEY: '2424242424242424242424242424242424242424242424242424242424242424'
+      LEDGER_APPROVAL_KEY_ID: primary
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install and migrate an empty disposable database
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm build:packages
+          pnpm --filter @socialplay/database exec prisma migrate deploy
+      - name: Actual payment, appeal, receipt and runtime permission checks
+        run: pnpm --filter api exec vitest run --config vitest.payments-native.config.ts
+      - name: Member, agent, notification and retry screens
+        if: matrix.postgres == '16'
+        run: |
+          pnpm --filter api typecheck
+          pnpm --filter web typecheck
+          pnpm --filter web exec vitest run src/pages/wallet-order-room.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-late-payments.test.tsx src/pages/wallet-routes.test.tsx src/hooks/use-wallet-action.test.tsx src/components/notifications --minWorkers=1 --maxWorkers=1
+          node apps/web/src/lib/i18n/tools/coverage.mjs --strict
+      - name: Production build and gateway
+        if: matrix.postgres == '16'
+        run: |
+          pnpm --filter api build
+          pnpm --filter web build
+          pnpm --filter web exec node --test pwa.test.mjs app-recovery.test.mjs server.test.mjs
+      - name: All eight languages, phone layouts and both order parties
+        if: matrix.postgres == '16'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/payments-browser" --no-save --package-lock=false playwright@1.58.2
+          node "$RUNNER_TEMP/payments-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          pnpm --filter web exec vite preview --host 127.0.0.1 --port 4178 --strictPort > "$RUNNER_TEMP/payments-preview.log" 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" || true' EXIT
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4178/ >/dev/null && break; sleep 1; done
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/payments-browser/node_modules/playwright" PAYMENT_REVIEW_BROWSER_CHANNEL=chromium TOGETHER_REVIEW_ORIGIN=http://127.0.0.1:4178 TOGETHER_REVIEW_OUTPUT="$RUNNER_TEMP/payment-evidence" node scripts/review-payments-preview.mjs
+      - name: Synthetic browser evidence
+        if: always() && matrix.postgres == '16'
+        uses: actions/upload-artifact@v4
+        with:
+          name: payment-order-browser-evidence
+          path: ${{ runner.temp }}/payment-evidence
+          if-no-files-found: ignore

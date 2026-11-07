@@ -89,6 +89,13 @@ function summarizeOutcomes(candidateCount: number, outcomes: TimeoutSweepOutcome
   };
 }
 
+
+async function notifyTimeoutAppeal(tx: any, withdrawalId: string) {
+  const order=await tx.withdrawal.findUniqueOrThrow({where:{id:withdrawalId},select:{userId:true,agent:{select:{userId:true}}}});
+  const recipients=[...new Set([order.userId,order.agent?.userId].filter(Boolean))] as string[];
+  await tx.notification.createMany({data:recipients.map(userId=>({userId,type:'SYSTEM',title:'Payment appeal opened',body:'Payment order updated. Open the order to see its status and next step.',data:{withdrawalId,url:`/wallet/orders/withdrawal/${withdrawalId}`}}))});
+}
+
 // ─── T1: PAYOUT_IN_PROGRESS → DISPUTED on paymentSubmissionDeadlineAt ───
 
 async function escalatePayoutInProgressTimeout(tx: any, withdrawalId: string): Promise<TimeoutSweepOutcome> {
@@ -180,6 +187,7 @@ async function escalatePayoutInProgressTimeout(tx: any, withdrawalId: string): P
     },
   });
 
+  await notifyTimeoutAppeal(tx, withdrawalId);
   return { withdrawalId, result: 'ESCALATED', disputeId: dispute.id };
 }
 
@@ -285,6 +293,7 @@ async function escalateConfirmationTimeout(tx: any, withdrawalId: string): Promi
     },
   });
 
+  await notifyTimeoutAppeal(tx, withdrawalId);
   return { withdrawalId, result: 'ESCALATED', disputeId: dispute.id };
 }
 

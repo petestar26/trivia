@@ -1,3 +1,4 @@
+import { WalletOrderRoomPage } from './wallet-order-room';
 import { Route, Routes } from 'react-router-dom';
 import { PRACTICE_ETB } from '@/lib/practice-etb';
 import { PracticeWalletPage } from './practice-wallet';
@@ -14,6 +15,7 @@ export function WalletRoutes() {
       <Route index element={PRACTICE_ETB ? <PracticeWalletPage /> : <WalletPage />} />
       <Route path="agent-setup" element={<WalletAgentSetupPage />} />
       <Route path="crypto" element={<CryptoPaymentsPage />} />
+      <Route path="orders/:kind/:id" element={<WalletOrderRoomPage />} />
       <Route path=":section" element={<WalletPaymentsPage />} />
     </Routes>
   );

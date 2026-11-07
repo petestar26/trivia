@@ -14,6 +14,7 @@ import { useLanguage as useInterfaceLanguage } from '@/providers/language-provid
 type Row = {
   id: string;
   orderNumber?: string;
+  withdrawalNumber?: string;
   status: string;
   coinAmount: number;
   fiatAmount: string | number;
@@ -95,7 +96,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
   const needsVerifiedPayment =
     selection?.kind === 'withdrawal' &&
     outcome === 'COMPLETED' &&
-    review.data?.disputeOpenedFromStatus === 'PAYOUT_IN_PROGRESS';
+    ['HELD', 'PAYOUT_IN_PROGRESS'].includes(review.data?.disputeOpenedFromStatus ?? '');
   const paymentTime = paymentOccurredAt ? new Date(paymentOccurredAt).getTime() : NaN;
   const validPaymentTime =
     Number.isFinite(paymentTime) &&
@@ -171,6 +172,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                   {p.status === 'PAYMENT_SUBMITTED' && (
                     <ConfirmAction
                       label={translateUi('Payment verified · release ETB')}
+                      verificationText={translateUi('I received the full amount in my bank or mobile-money account.')}
                       disabled={action.blocked}
                       onConfirm={() => action.run(`/agent-orders/${p.id}/settle`)}
                     />
@@ -245,9 +247,10 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                   <p>
                     {translateUi('Request: {value}', { value: d.orderId ?? d.withdrawalId ?? '' })}
                   </p>
-                  {d.status !== 'RESOLVED' && (
+                  <Link className="payment-order-link" to={`/wallet/orders/${kind}/${d.orderId ?? d.withdrawalId}`}>{translateUi('Order conversation')}</Link>
+                  {['OPEN','ASSIGNED'].includes(d.status) && (
                     <div className="payment-actions">
-                      <ConfirmAction
+                      {d.status === 'OPEN' && <ConfirmAction
                         label={translateUi('Claim review')}
                         disabled={action.blocked}
                         onConfirm={() =>
@@ -257,8 +260,8 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                               : `/withdrawals/admin/disputes/${d.id}/claim`
                           )
                         }
-                      />
-                      <button disabled={action.blocked} onClick={() => choose(d.id, kind)}>
+                      />}
+                      <button disabled={action.blocked || d.status !== 'ASSIGNED'} onClick={() => choose(d.id, kind)}>
                         {translateUi('Review resolution')}
                       </button>
                     </div>
@@ -269,6 +272,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
           </section>
         ))}
       {admin && <LatePaymentCases admin />}
+      {agent && <LatePaymentCases />}
       {selection && (
         <section className="payment-panel">
           <h2>
@@ -372,7 +376,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
               (needsVerifiedPayment && (!reference.trim() || !validPaymentTime)) ||
               (selection.kind === 'payout' ? !reference.trim() : !outcome)
             }
-            onClick={() => {
+            onClick={async () => {
               const path =
                 selection.kind === 'payout'
                   ? `/withdrawals/${selection.id}/submit-payment`
@@ -397,8 +401,7 @@ function Operations({ userId, workspace }: { userId: string; workspace?: 'admin'
                             }
                           : {}),
                       };
-              void action.run(path, body);
-              setSelection(null);
+              if (await action.run(path, body)) setSelection(null);
             }}
           >
             {translateUi('Confirm action')}

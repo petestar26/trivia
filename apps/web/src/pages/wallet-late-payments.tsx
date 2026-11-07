@@ -87,6 +87,7 @@ export function LatePaymentCases({ admin = false }: { admin?: boolean }) {
             <p>
               {new Date(c.paidAt).toLocaleString(interfaceLocale)} · {c.description}
             </p>
+            <Link to={`/wallet/orders/deposit/${c.orderId}`}>{translateUi('Order conversation')}</Link>
             {c.refundReference && (
               <p>
                 {translateUi('Refund reference: {refundReference}. {resolutionNote}', {

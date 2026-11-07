@@ -3,7 +3,7 @@ import type { NotificationInfo, NotificationListMeta } from '@socialplay/shared'
 import type { ApiResponse } from '@/lib/api';
 
 /** The fields the inbox actually renders — nothing else is retained in the cache. */
-export type NotificationItem = Pick<NotificationInfo, 'id' | 'type' | 'title' | 'body' | 'isRead' | 'createdAt'>;
+export type NotificationItem = Pick<NotificationInfo, 'id' | 'type' | 'title' | 'body' | 'isRead' | 'createdAt'> & { paymentUrl?: string };
 
 /** One fetched page of the inbox, exactly as the query stores it. */
 export interface NotificationPage {
@@ -31,7 +31,12 @@ export function toNotificationPage(
   const rows = Array.isArray(res.data) ? res.data : [];
   const meta = res.meta;
   return {
-    items: rows.map(({ id, type, title, body, isRead, createdAt }) => ({ id, type, title, body, isRead, createdAt })),
+    items: rows.map(({ id, type, title, body, isRead, createdAt, data }) => {
+      const url = data && typeof data === 'object' && 'url' in data ? data.url : null;
+      // Only local payment-order destinations: notification data is not a trusted URL.
+      const paymentUrl = typeof url === 'string' && /^\/wallet\/orders\/(deposit|withdrawal)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(url) ? url : undefined;
+      return { id, type, title, body, isRead, createdAt, ...(paymentUrl ? {paymentUrl} : {}) };
+    }),
     page: requestedPage,
     hasNextPage: meta?.hasNextPage === true,
     unreadCount: typeof meta?.unreadCount === 'number' ? meta.unreadCount : 0,

@@ -172,6 +172,8 @@ export async function createAgentOrder(
         const [buyer] = await tx.$queryRaw<Array<{status:string}>>`
           SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
         if (!buyer || buyer.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
+        const [agentOwner] = await tx.$queryRaw<Array<{status:string}>>`SELECT status::text FROM users WHERE id=${agent.userId} FOR SHARE`;
+        if (agentOwner?.status !== 'ACTIVE') throw ApiError.conflict('This agent is not currently accepting orders');
         const [currentAgent] = await tx.$queryRaw<Array<{status:string;countryId:string;minOrderAmount:number|null;maxOrderAmount:number|null}>>`
           SELECT status::text, "countryId", "minOrderAmount", "maxOrderAmount" FROM agents WHERE id=${agent.id} FOR SHARE`;
         if (!currentAgent || currentAgent.status !== 'ACTIVE' || currentAgent.countryId !== args.countryId ||
@@ -253,9 +255,9 @@ export async function createAgentOrder(
           data: {
             userId: agent.userId,
             type: 'AGENT_ORDER_CREATED',
-            title: 'New Order Received',
-            body: `A customer created an order for ${order.coinAmount} coins.`,
-            data: { orderId: order.id, orderNumber: order.orderNumber, coinAmount: order.coinAmount },
+            title: 'Payment order update',
+            body: 'Payment order updated. Open the order to see its status and next step.',
+            data: { orderId: order.id, orderNumber: order.orderNumber, coinAmount: order.coinAmount, url: `/wallet/orders/deposit/${order.id}` },
           },
         });
 
@@ -368,9 +370,9 @@ export async function submitOrderPayment(
       data: {
         userId: agent!.userId,
         type: 'AGENT_PAYMENT_SUBMITTED',
-        title: 'Payment Submitted',
-        body: `A customer marked order ${before.orderNumber} as paid — please confirm receipt.`,
-        data: { orderId, orderNumber: before.orderNumber },
+        title: 'Payment order update',
+        body: 'Payment order updated. Open the order to see its status and next step.',
+        data: { orderId, orderNumber: before.orderNumber, url: `/wallet/orders/deposit/${orderId}` },
       },
     });
 
@@ -562,9 +564,9 @@ export async function settleAgentOrder(
       data: {
         userId: before.userId,
         type: 'AGENT_COINS_RELEASED',
-        title: 'Coins Released',
-        body: `Your order ${before.orderNumber} is complete — ${before.coinAmount} coins have been added to your wallet.`,
-        data: { orderId, orderNumber: before.orderNumber, coinAmount: before.coinAmount },
+        title: 'Payment order update',
+        body: 'Payment order updated. Open the order to see its status and next step.',
+        data: { orderId, orderNumber: before.orderNumber, coinAmount: before.coinAmount, url: `/wallet/orders/deposit/${orderId}` },
       },
     });
 

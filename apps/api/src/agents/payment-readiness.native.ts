@@ -225,7 +225,7 @@ it('late payment recovery serializes reports/refunds, binds step-up, and leaves 
   const reports = await Promise.all([reportLatePayment(f.buyer.id, report), reportLatePayment(f.buyer.id, report)]);
   expect(reports[0].id).toBe(reports[1].id);
   const id = reports[0].id;
-  await expect(reportLatePayment(f.agentUser.id, report)).rejects.toThrow(/access/);
+  await expect(reportLatePayment(f.agentUser.id, report)).rejects.toMatchObject({ statusCode: 409 });
   await expect(reportLatePayment(f.buyer.id, {...report,paidAmount:501})).rejects.toThrow(/already exists/);
   await claimLatePayment(f.admin.id,id);
   expect((await claimLatePayment(f.admin.id,id)).id).toBe(id);

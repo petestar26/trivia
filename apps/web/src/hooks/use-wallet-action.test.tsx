@@ -19,7 +19,7 @@ it('preserves the exact request and key across an uncertain response and remount
 });
 it('deduplicates rapid clicks while the request is in flight',async()=>{
  let finish!:(v:unknown)=>void;m.post.mockImplementation(()=>new Promise(r=>finish=r));
- const view=renderHook(()=>useWalletAction(),{wrapper});let request!:Promise<void>;
+ const view=renderHook(()=>useWalletAction(),{wrapper});let request!:Promise<boolean | undefined>;
  act(()=>{request=view.result.current.run('/withdrawals',{quoteId:'q'});void view.result.current.run('/withdrawals',{quoteId:'q'});});
  await waitFor(()=>expect(m.post).toHaveBeenCalledTimes(1));await act(async()=>{finish({success:true});await request;});
 });
@@ -40,4 +40,11 @@ it('keeps funding retries separate from customer requests and preserves the exac
  v=renderHook(()=>useWalletAction('funding'),{wrapper});m.post.mockResolvedValueOnce({success:true});await act(()=>v.result.current.run('/agents/agent-1/liquidity/fund',{amountMinor:'99999'}));
  expect(m.post.mock.calls[1].slice(0,2)).toEqual(first);expect(sessionStorage.getItem('playqube.wallet-pending.wallet-test')).toContain('customer-123');
  expect(validWalletAction({path:'/agents/agent-1/reactivate',body:{idempotencyKey:'12345678'}})).toBe(false);
+});
+it('keeps an unconfirmed application response pending rather than clearing the protected request',async()=>{
+ m.post.mockResolvedValueOnce({success:false,error:{message:'Not confirmed'}});
+ const v=renderHook(()=>useWalletAction(),{wrapper});let result:unknown;
+ await act(async()=>{result=await v.result.current.run('/withdrawals',{});});
+ expect(result).toBe(false);expect(v.result.current.pending).not.toBeNull();
+ expect(sessionStorage.getItem('playqube.wallet-pending.wallet-test')).toContain('idempotencyKey');
 });
