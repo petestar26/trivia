@@ -245,10 +245,13 @@ try {
       reducedMotion: language === 'en' ? 'no-preference' : 'reduce',
       serviceWorkers: 'block',
     });
-    await context.addInitScript(({code, quality}) => {
-      localStorage.setItem('salem-language', code);
-      localStorage.setItem('salem-game-quality', quality);
-    }, {code:language, quality:process.env.TOGETHER_REVIEW_QUALITY ?? 'balanced'});
+    await context.addInitScript(
+      ({ code, quality }) => {
+        localStorage.setItem('salem-language', code);
+        localStorage.setItem('salem-game-quality', quality);
+      },
+      { code: language, quality: process.env.TOGETHER_REVIEW_QUALITY ?? 'balanced' }
+    );
     if (context.routeWebSocket) await context.routeWebSocket('**/*', (socket) => socket.close());
     const page = await context.newPage();
     activePage = page;
@@ -275,7 +278,20 @@ try {
       if (path === '/auth/me') return respond({ user: spectator });
       if (path === '/workspaces/access') return respond({ admin: false, agent: false });
       if (path === `/play-together/groups/${group.id}/activity`)
-        return respond({ serverTime:Date.now(), latestResult:null, activeRound:{id:current.id,game:current.game,currency:current.currency,entryAmount:current.entryAmount,state:current.state,closesAt:current.closesAt,participants:current.entries.length,groupName:group.name} });
+        return respond({
+          serverTime: Date.now(),
+          latestResult: null,
+          activeRound: {
+            id: current.id,
+            game: current.game,
+            currency: current.currency,
+            entryAmount: current.entryAmount,
+            state: current.state,
+            closesAt: current.closesAt,
+            participants: current.entries.length,
+            groupName: group.name,
+          },
+        });
       if (path.startsWith('/play-together/rounds/')) {
         const now = Date.now(),
           p = current.presentation;
@@ -356,8 +372,11 @@ try {
       );
       assert.equal(errors.length, 0, JSON.stringify(errors));
       assert.equal(writes.length, 0, JSON.stringify(writes));
-      if (stage === 'live' && !await page.getByRole('alert').count()) {
-        assert.ok(result.arenaTop < 340, `Arena buried below the header: ${JSON.stringify(result)}`);
+      if (stage === 'live' && !(await page.getByRole('alert').count())) {
+        assert.ok(
+          result.arenaTop < 340,
+          `Arena buried below the header: ${JSON.stringify(result)}`
+        );
         assert.ok(result.arenaHeight >= 200, `Arena too small: ${JSON.stringify(result)}`);
         assert.equal(result.scrollY, 0, 'Loading chat must not scroll the surrounding page');
       }
@@ -416,6 +435,15 @@ try {
       await page.goto(origin + '/play-together/rounds/' + current.id);
       await page.locator('.tg-live[data-reveal-phase="revealing"]').waitFor();
       await page.getByText(t(language, 'Watching'), { exact: true }).first().waitFor();
+      if (game === 'virtual_football_3d') {
+        await page.locator('.original-football .vf-board-overlay').waitFor();
+        const matchPicker = await page.locator('.tg-live-scores').boundingBox();
+        const scoreboard = await page.locator('.original-football .vf-board-overlay').boundingBox();
+        assert.ok(
+          matchPicker.y + matchPicker.height <= scoreboard.y,
+          `${language}: match controls must not cover the original stadium scoreboard`
+        );
+      }
       assert.equal(
         await page.getByRole('button', { name: t(language, 'Replay for me'), exact: true }).count(),
         0
@@ -433,27 +461,33 @@ try {
           );
         }
       }
-      await capture(
-        game,
-        'live',
-        language === 'en' || ['am', 'ar'].includes(language)
-      );
+      await capture(game, 'live', language === 'en' || ['am', 'ar'].includes(language));
       if (game === 'spin_win') {
         const chat = page.locator('.tg-arena-chat-heading');
-        assert.equal(await chat.getAttribute('aria-expanded'), language === 'en' ? 'true' : 'false');
+        assert.equal(
+          await chat.getAttribute('aria-expanded'),
+          language === 'en' ? 'true' : 'false'
+        );
         await chat.click();
-        assert.equal(await chat.getAttribute('aria-expanded'), language === 'en' ? 'false' : 'true');
+        assert.equal(
+          await chat.getAttribute('aria-expanded'),
+          language === 'en' ? 'false' : 'true'
+        );
         await chat.click();
-        await page.evaluate(() => scrollTo(0,0));
+        await page.evaluate(() => scrollTo(0, 0));
       }
-      if (language === 'en' && ['thunder_derby_3d','neon_hounds_3d','virtual_football_3d'].includes(game)) {
-        if(game === 'thunder_derby_3d') await page.locator('[data-runners="authored-rigs"]').waitFor({timeout:40000});
-        await page.getByLabel(t(language,'Graphics quality')).selectOption('low');
+      if (
+        language === 'en' &&
+        ['thunder_derby_3d', 'neon_hounds_3d', 'virtual_football_3d'].includes(game)
+      ) {
+        if (game === 'thunder_derby_3d')
+          await page.locator('[data-runners="authored-rigs"]').waitFor({ timeout: 40000 });
+        await page.getByLabel(t(language, 'Graphics quality')).selectOption('low');
         await page.locator('.tg-live[data-quality="low"]').waitFor();
-        assert.equal(await page.locator('.tg-live canvas').count(),0);
-        assert.ok(await page.locator('.tg-live-stage svg').count() > 0);
-        await capture(game, 'designed-light-view', true);
-        await page.getByLabel(t(language,'Graphics quality')).selectOption('balanced');
+        await page.locator('.tg-live canvas').first().waitFor();
+        assert.ok((await page.locator('.tg-live [data-original-scene]').count()) > 0);
+        await capture(game, 'original-low-quality', true);
+        await page.getByLabel(t(language, 'Graphics quality')).selectOption('balanced');
       }
       if (language === 'en') {
         current.presentation.startsAt = Date.now() - duration - 1000;
@@ -482,29 +516,35 @@ try {
         await capture(game, 'personal-replay');
       }
     }
-    if (['en','am','ar'].includes(language) && !process.env.TOGETHER_REVIEW_GAME) {
+    if (['en', 'am', 'ar'].includes(language) && !process.env.TOGETHER_REVIEW_GAME) {
       await page.goto(origin + '/messages/' + group.id);
       await page.locator('.tg-group-arena .tg-live').waitFor();
-      const layout=await page.evaluate(()=>{
-        const game=document.querySelector('.tg-group-game').getBoundingClientRect();
-        const chat=document.querySelector('.tg-group-conversation').getBoundingClientRect();
-        return {gameX:game.x,gameRight:game.right,chatX:chat.x,chatWidth:chat.width};
+      const layout = await page.evaluate(() => {
+        const game = document.querySelector('.tg-group-game').getBoundingClientRect();
+        const chat = document.querySelector('.tg-group-conversation').getBoundingClientRect();
+        return { gameX: game.x, gameRight: game.right, chatX: chat.x, chatWidth: chat.width };
       });
-      if(language==='en') assert.ok(layout.chatX>=layout.gameRight-2,'Desktop chat must sit beside the arena');
+      if (language === 'en')
+        assert.ok(layout.chatX >= layout.gameRight - 2, 'Desktop chat must sit beside the arena');
       else {
-        assert.equal(layout.chatWidth,0,'Mobile chat starts collapsed');
+        assert.equal(layout.chatWidth, 0, 'Mobile chat starts collapsed');
         await page.locator('.tg-mobile-chat-toggle').click();
-        await page.locator('.tg-group-conversation').waitFor({state:'visible'});
+        await page.locator('.tg-group-conversation').waitFor({ state: 'visible' });
         await page.locator('.tg-mobile-chat-toggle').click();
       }
-      await page.evaluate(()=>scrollTo(0,0));
-      await capture(current.game,'group-chat-arena',true);
-      assert.ok(await page.locator('.tg-live-stage').evaluate(el=>el.getBoundingClientRect().top+scrollY) < 360,'Mobile group header must stay compact');
-      await page.getByRole('button',{name:t(language,'Hide game'),exact:true}).click();
-      await page.locator('.tg-group-arena').waitFor({state:'detached'});
-      await page.getByRole('button',{name:t(language,'Watch live'),exact:true}).click();
+      await page.evaluate(() => scrollTo(0, 0));
+      await capture(current.game, 'group-chat-arena', true);
+      assert.ok(
+        (await page
+          .locator('.tg-live-stage')
+          .evaluate((el) => el.getBoundingClientRect().top + scrollY)) < 360,
+        'Mobile group header must stay compact'
+      );
+      await page.getByRole('button', { name: t(language, 'Hide game'), exact: true }).click();
+      await page.locator('.tg-group-arena').waitFor({ state: 'detached' });
+      await page.getByRole('button', { name: t(language, 'Watch live'), exact: true }).click();
       await page.locator('.tg-group-arena .tg-live').waitFor();
-      assert.equal(writes.length,0);
+      assert.equal(writes.length, 0);
     }
     await context.close();
   }

@@ -12,19 +12,32 @@ export function SpinWinWheel({
   rotation,
   number = null,
   spinning = false,
+  segments,
+  label,
+  caption,
+  continuous = false,
 }: {
   rotation: number;
   number?: number | null;
   spinning?: boolean;
+  segments?: readonly { label: string; color: string }[];
+  label?: string;
+  caption?: string;
+  continuous?: boolean;
 }) {
   const { t: translateUi } = useInterfaceLanguage();
+  const slice = segments ? 360 / Math.max(1, segments.length) : SLICE;
+  const offset = segments ? slice / 2 : 0;
+  const pockets =
+    segments ?? SPIN_WHEEL.map((n) => ({ label: String(n), color: PALETTE[spinColour(n)] }));
 
   return (
     <div className="relative mx-auto w-full max-w-[570px] py-3">
       <svg
         viewBox="0 0 500 500"
         role="img"
-        aria-label={translateUi('Single-zero wheel with numbers 0 to 36')}
+        aria-label={label ?? translateUi('Single-zero wheel with numbers 0 to 36')}
+        data-wheel-angle={rotation}
         className="w-full drop-shadow-[0_20px_32px_rgba(0,0,0,.5)]"
       >
         <defs>
@@ -67,13 +80,22 @@ export function SpinWinWheel({
         ))}
         <g
           style={{ transform: `rotate(${rotation}deg)`, transformOrigin: '250px 250px' }}
-          className="transition-transform duration-[1800ms] ease-out motion-reduce:transition-none"
+          className={
+            continuous
+              ? undefined
+              : 'transition-transform duration-[1800ms] ease-out motion-reduce:transition-none'
+          }
         >
-          {SPIN_WHEEL.map((n, i) => (
-            <g key={n}>
+          {pockets.map((pocket, i) => (
+            <g key={i}>
               <path
-                d={wedge(i * SLICE - SLICE / 2 - 90, i * SLICE + SLICE / 2 - 90, 218, 153)}
-                fill={PALETTE[spinColour(n)]}
+                d={wedge(
+                  i * slice + offset - slice / 2 - 90,
+                  i * slice + offset + slice / 2 - 90,
+                  218,
+                  153
+                )}
+                fill={pocket.color}
                 stroke="#dab574"
                 strokeWidth=".8"
               />
@@ -84,9 +106,9 @@ export function SpinWinWheel({
                 fill="#fff7e3"
                 fontSize="17"
                 fontWeight="700"
-                transform={`rotate(${i * SLICE} 250 250)`}
+                transform={`rotate(${i * slice + offset} 250 250)`}
               >
-                {n}
+                {pocket.label}
               </text>
             </g>
           ))}
@@ -118,11 +140,13 @@ export function SpinWinWheel({
           cy="250"
           r="73"
           fill={
-            number === 0
-              ? '#046945'
-              : number !== null && spinColour(number) === 'black'
-                ? 'url(#spin-hub-black)'
-                : 'url(#spin-hub)'
+            segments
+              ? 'url(#spin-hub)'
+              : number === 0
+                ? '#046945'
+                : number !== null && spinColour(number) === 'black'
+                  ? 'url(#spin-hub-black)'
+                  : 'url(#spin-hub)'
           }
           stroke="#682f12"
           strokeWidth="3"
@@ -149,7 +173,7 @@ export function SpinWinWheel({
             ? translateUi('DRAWING')
             : number === null
               ? 'SALEM BET'
-              : spinColour(number).toUpperCase()}
+              : (caption ?? spinColour(number).toUpperCase())}
         </text>
         <path
           d="M238 12 Q250 3 262 12 L257 38 Q250 49 243 38 Z"

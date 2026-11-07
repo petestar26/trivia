@@ -1,3 +1,5 @@
+import { lazy, Suspense } from 'react';
+import { SceneLoadBoundary } from '@/components/games/scene-load-boundary';
 import { togetherGame, type TogetherRoundView } from '@socialplay/shared';
 import { useTogetherText } from '@/lib/i18n/together-text';
 import { GameArena } from '@/components/games/game-arena';
@@ -10,6 +12,9 @@ import { FlightStage } from './flight-stages';
 import './together-live-game.css';
 import './shared-stages.css';
 import './group-arena.css';
+import './original-scenes.css';
+const OriginalRaceScene = lazy(() => import('./shared-race-scene'));
+const OriginalFootballScene = lazy(() => import('./shared-football-scene'));
 
 /** An idle arena preview. It cannot confirm an entry or start a game. */
 export function TogetherLobby({
@@ -30,22 +35,71 @@ export function TogetherLobby({
     seconds =
       serverNow === null ? null : Math.max(0, Math.ceil((round.closesAt - serverNow) / 1000));
   return (
-    <section className="tg-live" data-skin={art.skin} aria-label={t('Shared game screen')}>
+    <section
+      className="tg-live"
+      data-skin={art.skin}
+      data-artwork="original"
+      aria-label={t('Shared game screen')}
+    >
       <GameArena title={togetherGame(round.game).name} className="tg-arena-display">
         <div className="tg-lobby-stage" data-stage={art.stage}>
           {art.stage === 'race' && (
-            <RaceBroadcast2D
-              positions={Array(8).fill(0)}
-              elapsed={0}
-              reduced
-              dogs={round.game === 'neon_hounds_3d'}
-            />
+            <SceneLoadBoundary
+              fallback={
+                <RaceBroadcast2D
+                  positions={Array(8).fill(0)}
+                  elapsed={0}
+                  reduced
+                  dogs={round.game === 'neon_hounds_3d'}
+                />
+              }
+            >
+              <Suspense fallback={null}>
+                <OriginalRaceScene
+                  roundId={round.id}
+                  positions={Array(8).fill(0)}
+                  elapsed={0}
+                  duration={1}
+                  dogs={round.game === 'neon_hounds_3d'}
+                  running={false}
+                  reduced={false}
+                  complete={false}
+                  quality="balanced"
+                  fallback={
+                    <RaceBroadcast2D
+                      positions={Array(8).fill(0)}
+                      elapsed={0}
+                      reduced
+                      dogs={round.game === 'neon_hounds_3d'}
+                    />
+                  }
+                />
+              </Suspense>
+            </SceneLoadBoundary>
           )}
-          {art.stage === 'football' && <PitchBroadcast2D elapsed={0} reduced />}
+          {art.stage === 'football' && (
+            <SceneLoadBoundary fallback={<PitchBroadcast2D elapsed={0} reduced />}>
+              <Suspense fallback={null}>
+                <OriginalFootballScene
+                  roundId={round.id}
+                  events={[]}
+                  match={0}
+                  elapsed={0}
+                  duration={60000}
+                  complete={false}
+                  reduced
+                  quality="balanced"
+                  label={t('Football Predictions')}
+                  fallback={<PitchBroadcast2D elapsed={0} reduced />}
+                />
+              </Suspense>
+            </SceneLoadBoundary>
+          )}
           {art.stage === 'draw' && (
             <DrawStage
               game={round.game}
               balls={[]}
+              running={false}
               picks={mine?.selection ?? []}
               elapsed={0}
               reduced

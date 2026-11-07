@@ -80,6 +80,22 @@ describe('FootballScene lifecycle', () => {
     expect(created.engines[0].engine.setReduced).toHaveBeenLastCalledWith(true);
   });
 
+  it('keeps the match in the original renderer when switching to low graphics quality', () => {
+    const { rerender } = render(<FootballScene {...props} quality="high" />);
+    rerender(<FootballScene {...props} quality="low" />);
+    expect(created.engines[0].engine.dispose).toHaveBeenCalledTimes(1);
+    expect(created.engines).toHaveLength(2);
+    expect(created.engines[1].options).toMatchObject({
+      maxFps: 24,
+      maxPixelRatio: 1,
+      shadows: false,
+    });
+    expect(created.engines[1].engine.setMatch).toHaveBeenCalledWith(match);
+    expect(screen.queryByText('Text match centre')).toBeNull();
+    rerender(<FootballScene {...props} quality="high" />);
+    expect(created.engines[2].options.shadows).toBe(true);
+  });
+
   it('falls back to the text match centre when WebGL is unavailable, with no retry loop', () => {
     created.failNext = new Error('WebGL not supported');
     render(<FootballScene {...props} />);

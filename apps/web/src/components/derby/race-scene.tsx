@@ -24,20 +24,28 @@ export default function RaceScene({
   round,
   running,
   reduced,
+  synchronized = false,
+  quality,
+  fallback,
 }: {
-  round: DerbyRound;
+  round: Pick<DerbyRound, 'id' | 'field' | 'positions'>;
   running: boolean;
   reduced: boolean;
+  synchronized?: boolean;
+  quality?: 'high' | 'balanced' | 'low';
+  fallback?: React.ReactNode;
 }) {
   const { t: translateUi } = useInterfaceLanguage();
 
   const host = useRef<HTMLDivElement>(null);
-  const live = useRef({ round, running, reduced });
-  live.current = { round, running, reduced };
+  const live = useRef({ round, running, reduced, synchronized });
+  live.current = { round, running, reduced, synchronized };
   const [failed, setFailed] = useState(false);
+  const [authored, setAuthored] = useState(false);
   const [contextRevision, setContextRevision] = useState(0);
   useEffect(() => {
     if (!host.current) return;
+    setAuthored(false);
     setFailed(false);
     let renderer: THREE.WebGLRenderer;
     try {
@@ -51,8 +59,10 @@ export default function RaceScene({
       return;
     }
     const container = host.current;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    renderer.shadowMap.enabled = true;
+    renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, quality === 'low' ? 1 : quality === 'balanced' ? 1.25 : 1.5)
+    );
+    renderer.shadowMap.enabled = quality !== 'low';
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
@@ -418,6 +428,7 @@ export default function RaceScene({
           scene.add(horse.root);
           horses[i] = horse;
         });
+        setAuthored(true);
       })
       .catch(() => {
         /* The already-rendered fallback remains usable offline. */
@@ -491,11 +502,13 @@ export default function RaceScene({
           freshFraming = true;
         }
         const previous = displayed;
-        displayed = sampleMotion(
-          time,
-          state.round.positions.map((p) => p * 180),
-          !moving
-        );
+        displayed = state.synchronized
+          ? state.round.positions.map((p) => p * 180)
+          : sampleMotion(
+              time,
+              state.round.positions.map((p) => p * 180),
+              !moving
+            );
         horses.forEach((horse, i) => {
           horse.root.position.x = displayed[i];
           contacts[i].position.x = displayed[i];
@@ -552,26 +565,28 @@ export default function RaceScene({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [round.field, contextRevision]);
+  }, [round.field, contextRevision, quality]);
   return (
     <div
       className="derby-scene"
+      data-runners={authored ? 'authored-rigs' : 'procedural'}
       ref={host}
       aria-label={translateUi(
         'Three-dimensional horse race. Official finishing order appears above.'
       )}
       role="img"
     >
-      {failed && (
-        <div className="derby-scene-fallback">
-          {translateUi(
-            '3D view unavailable on this device. Follow the numbered race progress and official results above.'
-          )}{' '}
-          <button type="button" onClick={() => setContextRevision((r) => r + 1)}>
-            {translateUi('Retry 3D view')}
-          </button>
-        </div>
-      )}
+      {failed &&
+        (fallback ?? (
+          <div className="derby-scene-fallback">
+            {translateUi(
+              '3D view unavailable on this device. Follow the numbered race progress and official results above.'
+            )}{' '}
+            <button type="button" onClick={() => setContextRevision((r) => r + 1)}>
+              {translateUi('Retry 3D view')}
+            </button>
+          </div>
+        ))}
     </div>
   );
 }

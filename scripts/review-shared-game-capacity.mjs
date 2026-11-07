@@ -311,14 +311,16 @@ try {
                 height: r.height,
               };
             };
-            const hands = [...document.querySelectorAll('.tg-table-hand')].map((el) => ({
-              ...box(el),
-              cards: [...el.querySelectorAll('.tg-playing-card')].map((card) => ({
-                ...box(card),
-                label: card.getAttribute('aria-label'),
-              })),
-            }));
-            const lists = ['.tg-wheel-roster', '.tg-dice-tray', '.tg-guesses']
+            const hands = [...document.querySelectorAll('.original-blackjack .bj-hand')].map(
+              (el) => ({
+                ...box(el),
+                cards: [...el.querySelectorAll('.bj-card')].map((card) => ({
+                  ...box(card),
+                  label: card.getAttribute('aria-label'),
+                })),
+              })
+            );
+            const lists = ['.tg-wheel-roster', '.original-dice-roster', '.tg-guesses']
               .map((selector) => {
                 const el = document.querySelector(selector);
                 return el
@@ -341,7 +343,7 @@ try {
               hands,
               lists,
               participants: document.querySelectorAll('.together-participants > div').length,
-              dicePlayers: document.querySelectorAll('.tg-dice-player').length,
+              dicePlayers: document.querySelectorAll('.original-dice-player').length,
               wheelPlayers: document.querySelectorAll('.tg-wheel-roster > div').length,
               guesses: document.querySelectorAll('.tg-guesses > li').length,
             };
@@ -411,9 +413,9 @@ try {
             const covered = await page.evaluate(async () => {
               const failures = [];
               for (const [index, card] of [
-                ...document.querySelectorAll('.tg-table-hand .tg-playing-card'),
+                ...document.querySelectorAll('.original-blackjack .bj-hand .bj-card'),
               ].entries()) {
-                const corner = card.querySelector('.tg-card-corner');
+                const corner = card.querySelector('.bj-card-corner');
                 corner.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
                 await new Promise(requestAnimationFrame);
                 const r = corner.getBoundingClientRect();
@@ -430,7 +432,7 @@ try {
           }
           for (const [container, row] of [
             ['.tg-wheel-roster', '.tg-wheel-roster > div'],
-            ['.tg-dice-tray', '.tg-dice-player'],
+            ['.original-dice-roster', '.original-dice-player'],
             ['.tg-guesses', '.tg-guesses > li'],
           ]) {
             if (!(await page.locator(row).count())) continue;
@@ -457,6 +459,7 @@ try {
           }
         } catch (error) {
           failures.push({ label, error: error.stack });
+          console.error(JSON.stringify({ label, error: error.message }));
           await page
             .screenshot({ path: resolve(output, label + '-error.png'), fullPage: true })
             .catch(() => {});

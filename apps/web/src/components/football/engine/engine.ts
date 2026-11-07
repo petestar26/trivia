@@ -35,6 +35,8 @@ export interface EngineOptions {
   /** Frame cap and pixel ratio cap. */
   maxFps?: number;
   maxPixelRatio?: number;
+  /** Low graphics quality retains the scene while omitting the extra shadow render pass. */
+  shadows?: boolean;
 }
 export interface Engine {
   canvas: HTMLCanvasElement;
@@ -141,7 +143,7 @@ export function createEngine(options: EngineOptions): Engine {
     powerPreference: 'default',
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, options.maxPixelRatio ?? 1.5));
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = options.shadows !== false;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;

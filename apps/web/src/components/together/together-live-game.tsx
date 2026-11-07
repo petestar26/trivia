@@ -16,6 +16,7 @@ import { FlightStage } from './flight-stages';
 import { RaceBroadcast2D, PitchBroadcast2D } from './lightweight-sports';
 import './together-live-game.css';
 import './shared-stages.css';
+import './original-scenes.css';
 
 const RaceScene = lazy(() => import('./shared-race-scene'));
 const FootballScene = lazy(() => import('./shared-football-scene'));
@@ -141,6 +142,7 @@ export function TogetherLiveGame({
     <section
       className="tg-live"
       data-skin={art.skin}
+      data-artwork="original"
       data-quality={tier}
       data-reduced-motion={reduced}
       aria-label={t('Shared game screen')}
@@ -164,19 +166,18 @@ export function TogetherLiveGame({
             <>
               <SceneBoundary key={tier} fallback={raceFallback}>
                 <Suspense fallback={raceFallback}>
-                  {tier === 'low' ? (
-                    raceFallback
-                  ) : (
-                    <RaceScene
-                      positions={positions}
-                      elapsed={elapsed}
-                      duration={duration}
-                      dogs={dogs}
-                      running={running}
-                      quality={tier}
-                      fallback={raceFallback}
-                    />
-                  )}
+                  <RaceScene
+                    roundId={round.id + ':' + replayAt}
+                    positions={positions}
+                    elapsed={elapsed}
+                    duration={duration}
+                    dogs={dogs}
+                    running={running}
+                    reduced={reduced}
+                    complete={complete}
+                    quality={tier}
+                    fallback={raceFallback}
+                  />
                 </Suspense>
               </SceneBoundary>
               <ol className="tg-race-order" aria-label={t('Race progress')}>
@@ -226,21 +227,18 @@ export function TogetherLiveGame({
               </div>
               <SceneBoundary key={match + ':' + tier} fallback={footballFallback}>
                 <Suspense fallback={footballFallback}>
-                  {tier === 'low' ? (
-                    footballFallback
-                  ) : (
-                    <FootballScene
-                      roundId={round.id}
-                      match={match}
-                      events={events}
-                      elapsed={elapsed}
-                      duration={duration}
-                      complete={complete}
-                      quality={tier}
-                      label={t('Football Predictions')}
-                      fallback={footballFallback}
-                    />
-                  )}
+                  <FootballScene
+                    roundId={round.id}
+                    match={match}
+                    events={events}
+                    elapsed={elapsed}
+                    duration={duration}
+                    complete={complete}
+                    quality={tier}
+                    reduced={reduced}
+                    label={t('Match {number}', { number: num(match + 1) })}
+                    fallback={footballFallback}
+                  />
                 </Suspense>
               </SceneBoundary>
             </>
@@ -249,6 +247,7 @@ export function TogetherLiveGame({
             <DrawStage
               game={round.game}
               balls={balls}
+              running={running}
               picks={mine?.selection ?? []}
               elapsed={elapsed}
               reduced={reduced}
@@ -285,7 +284,9 @@ export function TogetherLiveGame({
               reduced={reduced}
             />
           )}
-          {art.stage === 'cards' && <BlackjackStage events={events} elapsed={elapsed} />}
+          {art.stage === 'cards' && (
+            <BlackjackStage events={events} elapsed={elapsed} complete={complete} />
+          )}
           {art.stage === 'number' && (
             <NumberStage target={winner} entries={ordered} elapsed={elapsed} reduced={reduced} />
           )}

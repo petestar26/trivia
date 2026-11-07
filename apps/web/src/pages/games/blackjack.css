@@ -1384,3 +1384,22 @@
     font-size: 9px;
   }
 }
+
+/* Rare long hands retain the original card faces while keeping every corner readable. */
+.bj-card-row[data-long-hand='true'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
+  justify-items: center;
+  gap: 8px 0;
+  padding-inline: calc((var(--cw) - 28px) / 2);
+  height: auto;
+  min-height: var(--ch);
+  max-width: 100%;
+}
+.bj-card-row[data-long-hand='true'] .bj-card {
+  position: relative;
+  left: auto;
+}
+.bj-felt:has(.bj-card-row[data-long-hand='true']) .bj-table-inscription {
+  opacity: 0.22;
+}
