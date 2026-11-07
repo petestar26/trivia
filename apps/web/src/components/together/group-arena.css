@@ -215,6 +215,24 @@ html.qube-member .tg-group-arena .qube-chat-thread {
   margin: 0 0 8px;
   color: #b7c6c7;
 }
+.tg-group-watch {
+  --tg-bg: #fffaf6;
+  --tg-panel: #fff;
+  --tg-ink: #272024;
+  --tg-muted: #73676c;
+  --tg-line: #e4d9dc;
+  --tg-accent: #27634f;
+  --tg-soft: #e6f3ec;
+}
+.dark .tg-group-watch {
+  --tg-bg: #081610;
+  --tg-panel: #10271c;
+  --tg-ink: #f5f7ef;
+  --tg-muted: #c2d2c9;
+  --tg-line: #b6dbaa38;
+  --tg-accent: #8df1bd;
+  --tg-soft: #143e2c;
+}
 .tg-group-watch > a {
   font-size: 12px;
   display: inline-block;
@@ -232,13 +250,13 @@ html.qube-member .tg-group-arena .qube-chat-thread {
   max-width: 1600px;
   border-radius: 14px;
   height: calc(100dvh - 108px);
-  min-height: 600px;
+  min-height: 440px;
   background: #0e181f;
 }
 .tg-group-arena > section {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(270px, 28%);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 34%);
   grid-template-rows: auto minmax(0, 1fr);
 }
 .tg-group-arena > section > header {
@@ -281,7 +299,7 @@ html.qube-member .tg-group-arena .qube-chat-thread {
   padding: 12px;
 }
 .tg-group-arena .tg-group-activity-bar > div:first-child > p:first-child {
-  display: none;
+  display: flex;
 }
 .tg-group-arena .tg-group-activity-bar {
   padding: 7px 2px;
@@ -383,10 +401,12 @@ html.qube-member .tg-group-arena .qube-chat-thread {
   }
   .tg-group-arena .tg-group-activity-bar {
     padding: 0;
-    height: 0;
+    height: auto;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
   }
   .tg-group-arena .tg-group-activity-bar > div:first-child {
-    display: none;
+    display: block;
   }
   .tg-group-arena .tg-watch-toggle {
     position: absolute;

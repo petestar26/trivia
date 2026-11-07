@@ -16,6 +16,7 @@ import { boundedRequest } from '@/lib/bounded-request';
 import { requestStatus } from '@/lib/request-error';
 import { GroupRoundActivity } from '@/components/groups/group-round-activity';
 import '@/components/together/group-arena.css';
+import './messages.css';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { VoiceMessagePlayer } from '@/components/voice/voice-message-player';
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
@@ -189,28 +190,37 @@ function MessagesContent({
     isFetching,
     isFetchingNextPage,
     isFetchNextPageError,
+    error: historyError,
     hasNextPage,
     fetchNextPage,
+    refetch: refetchMessages,
   } = useInfiniteQuery({
     queryKey: ['messages', groupId, userId],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }): Promise<ChatMessage[]> =>
       (
-        await api.getGroupMessages(
-          groupId!,
-          { limit: 50, latest: true, before: pageParam },
-          { signal }
+        await boundedRequest(
+          (active) =>
+            api.getGroupMessages(
+              groupId!,
+              { limit: 50, latest: true, before: pageParam },
+              { signal: active }
+            ),
+          signal
         )
       ).data ?? [],
     getNextPageParam: (lastPage) => (lastPage.length === 50 ? lastPage[0].id : undefined),
     enabled: !!groupId && !!userId,
     refetchOnWindowFocus: true,
     refetchInterval: 10000,
+    retry: false,
   });
-
+  const historyStatus = isError ? requestStatus(historyError) : 0;
+  const accessLost = historyStatus === 401 || historyStatus === 403 || historyStatus === 404;
+  const chatWritable = lifecycle.canWrite && !accessLost;
   const messages = Array.from(
     new Map(
-      [...(history?.pages ?? [])]
+      [...(accessLost ? [] : (history?.pages ?? []))]
         .reverse()
         .flat()
         .map((item) => [item.id, item])
@@ -231,11 +241,15 @@ function MessagesContent({
     captureScrollAnchor();
   }, [history]);
   useEffect(() => {
+    if (accessLost) {
+      setReplyTo(null);
+      return;
+    }
     if (!history) return;
     setReplyTo((current) =>
       current ? (history.pages.flat().find((item) => item.id === current.id) ?? null) : null
     );
-  }, [history]);
+  }, [history, accessLost]);
 
   // Join the Socket.IO group room when groupId changes
   const joinRoom = useCallback(() => {
@@ -365,8 +379,7 @@ function MessagesContent({
     }
   }, [history, userId]);
   const handleSend = () => {
-    if (sendMutation.isPending || pendingRef.current || !message.trim() || !lifecycle.canWrite)
-      return;
+    if (sendMutation.isPending || pendingRef.current || !message.trim() || !chatWritable) return;
     const body = {
       content: message.trim(),
       clientRequestId: crypto.randomUUID(),
@@ -395,7 +408,7 @@ function MessagesContent({
 
   return (
     <div
-      className={`qube-chat mx-auto grid h-[calc(100dvh-8rem)] min-h-[560px] max-w-7xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 ${embedded ? 'tg-chat-embedded' : hasArena ? 'tg-group-arena' : 'lg:grid-cols-[300px_1fr]'}`}
+      className={`qube-chat mx-auto grid h-[calc(100dvh-8rem)] min-h-[360px] max-w-7xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 ${embedded ? 'tg-chat-embedded' : hasArena ? 'tg-group-arena' : 'lg:grid-cols-[300px_1fr]'}`}
     >
       {!embedded && !hasArena && (
         <div className="hidden min-h-0 border-r border-slate-200 dark:border-slate-800 lg:block">
@@ -463,10 +476,28 @@ function MessagesContent({
                 {translateUi('Loading conversation…')}
               </p>
             )}
-            {isError && !isFetchNextPageError && (
-              <p role="alert" className="rounded-2xl bg-white p-5 text-sm text-red-600">
-                {translateUi('Failed to load messages. You may not be a member of this group.')}
-              </p>
+            {isError && (!isFetchNextPageError || accessLost) && (
+              <div role="alert" className="tg-chat-error">
+                <p>
+                  {translateUi(
+                    accessLost
+                      ? 'This conversation is unavailable. Check your sign-in and group access.'
+                      : history
+                        ? 'Connection interrupted. Showing saved messages.'
+                        : 'Messages could not be loaded. Check your connection and try again.'
+                  )}
+                </p>
+                <button
+                  type="button"
+                  disabled={isFetching}
+                  onClick={() => {
+                    void refetchMessages();
+                    void lifecycle.query.refetch();
+                  }}
+                >
+                  {translateUi(isFetching ? 'Loading…' : 'Try again')}
+                </button>
+              </div>
             )}
             {!isLoading && !isError && messages.length === 0 && (
               <div className="py-12 text-center">
@@ -476,10 +507,10 @@ function MessagesContent({
                 </p>
               </div>
             )}
-            {isFetchNextPageError && (
+            {isFetchNextPageError && !accessLost && (
               <p role="alert">{translateUi('Earlier messages could not be loaded. Try again.')}</p>
             )}
-            {hasNextPage && (
+            {hasNextPage && !accessLost && (
               <button
                 disabled={isFetching}
                 onClick={() => {
@@ -541,9 +572,9 @@ function MessagesContent({
                           </div>
                         )}
                         {msg.gift && !msg.isDeleted ? (
-                          <div className="my-2 flex items-center gap-3 rounded-xl bg-violet-50 p-3 dark:bg-violet-950">
+                          <div className="tg-chat-gift my-2 rounded-xl bg-violet-50 p-3 dark:bg-violet-950">
                             <GiftArt emoji={msg.gift.emoji} theme={msg.gift.theme} small />
-                            <div>
+                            <div className="tg-chat-gift-copy">
                               <p className="text-[10px] font-bold uppercase tracking-widest text-violet-600">
                                 {translateUi('Gift delivered')}
                               </p>
@@ -592,10 +623,11 @@ function MessagesContent({
                               userId={userId}
                               reactions={msg.reactions}
                               compact
-                              disabled={!lifecycle.canWrite}
+                              disabled={!chatWritable}
                             />
                             {!lifecycle.query.isError &&
-                              (lifecycle.data?.canModerate || (own && lifecycle.canWrite)) && (
+                              !accessLost &&
+                              (lifecycle.data?.canModerate || (own && chatWritable)) && (
                                 <button
                                   type="button"
                                   aria-label={translateUi('Hide message')}
@@ -608,7 +640,7 @@ function MessagesContent({
                                   <Trash2 size={14} />
                                 </button>
                               )}
-                            {lifecycle.canWrite && (
+                            {chatWritable && (
                               <>
                                 <button
                                   aria-label={translateUi('Reply to message')}
@@ -650,7 +682,11 @@ function MessagesContent({
                 <p className="line-clamp-2">
                   {translateUi('Unconfirmed: {content}', { content: pendingText.content })}
                 </p>
-                <Button size="sm" onClick={() => sendMutation.mutate(pendingText)}>
+                <Button
+                  size="sm"
+                  disabled={accessLost}
+                  onClick={() => sendMutation.mutate(pendingText)}
+                >
                   {translateUi('Retry message')}
                 </Button>
               </div>
@@ -686,7 +722,7 @@ function MessagesContent({
                   <button
                     type="button"
                     aria-label={translateUi('Open gifts')}
-                    disabled={!lifecycle.canWrite}
+                    disabled={!chatWritable}
                     className="rounded-xl p-3 text-violet-500 hover:bg-violet-50 disabled:opacity-40"
                     onClick={() => {
                       setGiftRecipient(undefined);
@@ -702,7 +738,7 @@ function MessagesContent({
                     onChange={(event) => setMessage(event.target.value)}
                     placeholder={translateUi('Type a message…')}
                     maxLength={5000}
-                    disabled={!lifecycle.canWrite}
+                    disabled={!chatWritable}
                     onKeyDown={(event) => {
                       if (
                         event.key === 'Enter' &&
@@ -719,10 +755,7 @@ function MessagesContent({
                     aria-label={translateUi('Send')}
                     onClick={handleSend}
                     disabled={
-                      !message.trim() ||
-                      sendMutation.isPending ||
-                      !!pendingText ||
-                      !lifecycle.canWrite
+                      !message.trim() || sendMutation.isPending || !!pendingText || !chatWritable
                     }
                     className="qube-chat-send h-11 w-11 shrink-0 rounded-2xl bg-emerald-800 hover:bg-emerald-700"
                   >
@@ -749,7 +782,7 @@ function MessagesContent({
                     <button
                       className="inline-flex items-center gap-1.5 rounded-lg py-1 disabled:opacity-40"
                       disabled={
-                        !lifecycle.canWrite ||
+                        !chatWritable ||
                         !recorder.isSupported ||
                         recorder.isStarting ||
                         voiceMutation.isPending ||
@@ -775,7 +808,7 @@ function MessagesContent({
                       </span>
                       <button
                         className="font-semibold text-emerald-700"
-                        disabled={!lifecycle.canWrite || voiceMutation.isPending}
+                        disabled={!chatWritable || voiceMutation.isPending}
                         onClick={() => voiceMutation.mutate()}
                       >
                         {translateUi('Send voice message')}

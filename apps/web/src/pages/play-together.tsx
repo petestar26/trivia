@@ -2,7 +2,17 @@ import { useTogetherText, useTogetherNotice, groupErrorNotice } from '@/lib/i18n
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, ShieldCheck, Clock3, Trophy, ArrowRight, Wallet, Download } from 'lucide-react';
+import {
+  Users,
+  ShieldCheck,
+  Clock3,
+  Trophy,
+  ArrowRight,
+  Wallet,
+  Download,
+  Pause,
+  Play,
+} from 'lucide-react';
 import {
   TOGETHER_GAMES,
   TOGETHER_GAME_DURATION_MS,
@@ -24,6 +34,7 @@ import { verifyTogetherRound } from '@/lib/together-proof';
 import { useAuth } from '@/providers/auth-provider';
 import { GroupSocialNav } from '@/components/groups/group-social-nav';
 import { GameArtwork } from '@/components/member/game-artwork';
+import { GameAmbience, CommunityAmbience } from '@/components/together/game-ambience';
 import { TogetherSelection } from './play-together-selection';
 import { ArenaChat } from '@/components/together/arena-chat';
 import { TogetherLobby as RoundLobby } from '@/components/together/together-lobby';
@@ -93,11 +104,30 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
 
   const navigate = useNavigate(),
     cache = useQueryClient(),
-    [search] = useSearchParams();
+    [search, setSearch] = useSearchParams();
   const selected = search.get('game');
-  const [game, setGame] = useState<TogetherGame>(
-    () => TOGETHER_GAMES.find((g) => g.key === selected)?.key ?? 'spin_win'
-  );
+  const game = TOGETHER_GAMES.find((g) => g.key === selected)?.key ?? 'spin_win';
+  const introRef = useRef<HTMLElement>(null);
+  const [ambientPaused, setAmbientPaused] = useState(false);
+  const chooseGame = (next: TogetherGame) => {
+    setSearch(
+      (current) => {
+        const params = new URLSearchParams(current);
+        params.set('game', next);
+        return params;
+      },
+      { replace: true }
+    );
+    requestAnimationFrame(() => {
+      introRef.current?.focus({ preventScroll: true });
+      introRef.current?.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+      });
+    });
+  };
   const [currency, setCurrency] = useState<TogetherCurrency>('GAME_POINTS');
   const [amount, setAmount] = useState('1000'),
     [minPlayers, setMinPlayers] = useState('2'),
@@ -400,7 +430,7 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
                   className={'together-game ' + (game === g.key ? 'selected' : '')}
                   disabled={!enabled || busy}
                   aria-pressed={game === g.key}
-                  onClick={() => setGame(g.key)}
+                  onClick={() => chooseGame(g.key)}
                 >
                   <div className="together-art">
                     <GameArtwork kind={g.key} practiceAvailable={enabled} />
@@ -412,27 +442,47 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
             })}
           </div>
         </section>
-        <section className="together-panel">
-          <p className="together-eyebrow">{t('The rules, before you enter')}</p>
-          <h2>{t(togetherGame(game).name)}</h2>
-          <p>{t(togetherGame(game).rules)}</p>
-          <p>{t(togetherGameGuide(game).choiceNote)}</p>
-          <ul>
-            {togetherGameGuide(game).mechanics.map((line) => (
-              <li key={line}>{t(line)}</li>
+        <section
+          ref={introRef}
+          tabIndex={-1}
+          className="together-panel tg-game-intro"
+          data-game={game}
+          aria-labelledby="together-intro-title"
+        >
+          <GameAmbience game={game} paused={ambientPaused} />
+          <button
+            type="button"
+            className="tg-motion-control"
+            onClick={() => setAmbientPaused(!ambientPaused)}
+            aria-pressed={ambientPaused}
+          >
+            {ambientPaused ? <Play size={13} /> : <Pause size={13} />}
+            {t(ambientPaused ? 'Resume animation' : 'Pause animation')}
+          </button>
+          <div className="tg-game-intro-copy">
+            <p className="together-eyebrow">{t('The rules, before you enter')}</p>
+            <h2 id="together-intro-title">{t(togetherGame(game).name)}</h2>
+            <p className="tg-intro-lead">{t(togetherGame(game).rules)}</p>
+            <p>{t(togetherGameGuide(game).choiceNote)}</p>
+            <ul>
+              {togetherGameGuide(game).mechanics.map((line) => (
+                <li key={line}>{t(line)}</li>
+              ))}
+            </ul>
+            {guideNotes(game).map((note) => (
+              <p key={note}>{note}</p>
             ))}
-          </ul>
-          {guideNotes(game).map((note) => (
-            <p key={note}>{note}</p>
-          ))}
-          <p>{t(togetherGameGuide(game).tieRule)}</p>
-          <p>
-            <ShieldCheck size={16} />
-            {t(
-              'The fee is {percent}% of winning profit before fees. No additional entry or winner fee.',
-              { percent: s.settings.feeBps / 100 }
-            )}
-          </p>
+            <p>{t(togetherGameGuide(game).tieRule)}</p>
+            <p className="tg-intro-fee">
+              <ShieldCheck size={16} />
+              <span>
+                {t(
+                  'The fee is {percent}% of winning profit before fees. No additional entry or winner fee.',
+                  { percent: s.settings.feeBps / 100 }
+                )}
+              </span>
+            </p>
+          </div>
         </section>
       </details>
       {groupId ? (
@@ -528,51 +578,59 @@ function TogetherLobby({ userId, groupId }: { userId: string; groupId?: string }
         )
       ) : (
         <section className="together-columns">
-          <div className="together-panel">
-            <h2>{t('Join a shared room')}</h2>
-            <p>{t('Play with other members. Opening the room does not place a bet.')}</p>
-            <p>
-              {t('Entry: {amount} · {min}–{max} players · {minutes}-minute betting window', {
-                amount: money(s.settings.minEntry, currency),
-                min: 2,
-                max: 20,
-                minutes: 2,
-              })}
-            </p>
-            <button
-              className="together-primary"
-              disabled={
-                busy ||
-                !s.workerReady ||
-                !s.settings.publicRoomsEnabled ||
-                (currency === 'ETB' && !s.cashAvailable) ||
-                !s.settings.enabledGames.includes(game)
-              }
-              onClick={() => submit('/play-together/public', { game, currency })}
-            >
-              {t('Open shared room')}
-              <ArrowRight size={17} />
-            </button>
-            {!s.settings.publicRoomsEnabled && (
-              <small>
-                {t('Public rooms are being prepared. Private group rooms are available below.')}
-              </small>
-            )}
-          </div>
-          <div className="together-panel">
-            <h2>{t('Play with your group')}</h2>
-            <p>{t('Invite friends through the group’s Members page. Joining a group is free.')}</p>
-            {s.groups.map((g) => (
-              <Link
-                className="together-group-link"
-                key={g.id}
-                to={'/groups/' + g.id + '/games?game=' + game}
+          <div className="together-panel tg-social-card">
+            <CommunityAmbience variant="room" paused={ambientPaused} />
+            <div className="tg-social-copy">
+              <h2>{t('Join a shared room')}</h2>
+              <p>{t('Play with other members. Opening the room does not place a bet.')}</p>
+              <p>
+                {t('Entry: {amount} · {min}–{max} players · {minutes}-minute betting window', {
+                  amount: money(s.settings.minEntry, currency),
+                  min: 2,
+                  max: 20,
+                  minutes: 2,
+                })}
+              </p>
+              <button
+                className="together-primary"
+                disabled={
+                  busy ||
+                  !s.workerReady ||
+                  !s.settings.publicRoomsEnabled ||
+                  (currency === 'ETB' && !s.cashAvailable) ||
+                  !s.settings.enabledGames.includes(game)
+                }
+                onClick={() => submit('/play-together/public', { game, currency })}
               >
-                {g.name}
-                <ArrowRight size={16} />
-              </Link>
-            ))}
-            <Link to="/groups">{t('Create or join a group →')}</Link>
+                {t('Open shared room')}
+                <ArrowRight size={17} />
+              </button>
+              {!s.settings.publicRoomsEnabled && (
+                <small>
+                  {t('Public rooms are being prepared. Private group rooms are available below.')}
+                </small>
+              )}
+            </div>
+          </div>
+          <div className="together-panel tg-social-card">
+            <CommunityAmbience variant="friends" paused={ambientPaused} />
+            <div className="tg-social-copy">
+              <h2>{t('Play with your group')}</h2>
+              <p>
+                {t('Invite friends through the group’s Members page. Joining a group is free.')}
+              </p>
+              {s.groups.map((g) => (
+                <Link
+                  className="together-group-link"
+                  key={g.id}
+                  to={'/groups/' + g.id + '/games?game=' + game}
+                >
+                  {g.name}
+                  <ArrowRight size={16} />
+                </Link>
+              ))}
+              <Link to="/groups">{t('Create or join a group →')}</Link>
+            </div>
           </div>
         </section>
       )}

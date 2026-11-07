@@ -20,7 +20,7 @@ export function GroupRoundActivity({
   const { t } = useTogetherText();
 
   const { user } = useAuth();
-  const [watching, setWatching] = useState(true);
+  const [watchChoice, setWatchChoice] = useState<{ roundId: string; open: boolean } | null>(null);
   const query = useQuery({
     queryKey: ['together-group-activity', user?.id, groupId],
     enabled: !!user,
@@ -41,6 +41,16 @@ export function GroupRoundActivity({
     refetchOnWindowFocus: 'always',
     retry: false,
   });
+  const { activeRound, latestResult } = query.data ?? {};
+  const displayedRound = activeRound ?? latestResult;
+  const watching =
+    watchChoice?.roundId === displayedRound?.id ? (watchChoice?.open ?? false) : !!activeRound;
+  // Keep a round being watched visible through settlement. An old result on
+  // first opening chat stays compact so it does not displace the conversation.
+  useEffect(() => {
+    if (activeRound && watchChoice?.roundId !== activeRound.id)
+      setWatchChoice({ roundId: activeRound.id, open: true });
+  }, [activeRound?.id, watchChoice?.roundId]);
   useEffect(() => {
     onWatchStateChange?.(
       !!(query.data?.activeRound || query.data?.latestResult) && watching && !query.isError
@@ -61,7 +71,6 @@ export function GroupRoundActivity({
         </Link>
       </p>
     );
-  const { activeRound, latestResult } = query.data ?? {};
   if (!activeRound && !latestResult) return null;
   return (
     <div className="tg-group-activity">
@@ -81,11 +90,11 @@ export function GroupRoundActivity({
           {(activeRound || latestResult) && (
             <button
               type="button"
-              onClick={() => setWatching(!watching)}
+              onClick={() => setWatchChoice({ roundId: displayedRound!.id, open: !watching })}
               aria-expanded={watching}
               className="tg-watch-toggle"
             >
-              {watching ? t('Hide game') : t('Watch live')}
+              {watching ? t('Hide game') : activeRound ? t('Watch live') : t('View result')}
               <ArrowRight size={15} />
             </button>
           )}
