@@ -6,6 +6,7 @@ import { redactedRequestSerializer } from '../../middleware/log-redaction.js';
 import { requestLogger } from '../../middleware/request-logger.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { providerTestCallbackRoutes } from './callback-routes.js';
+import { registerMonitorSignals } from '../../monitoring/signals.js';
 const apply = vi.hoisted(() => vi.fn());
 const sportsApply = vi.hoisted(() => vi.fn());
 vi.mock('./sports-wallet.js', () => ({ createSportsWallet: () => ({ apply: sportsApply }) }));
@@ -60,18 +61,24 @@ async function server() {
   vi.stubEnv('SOFTAGGREGATOR_SALT_KEY', salt);
   vi.stubEnv('WEB_GATEWAY_SECRET', gateway);
   const s = Fastify();
+  registerMonitorSignals(s, true);
   await s.register(rateLimit, { global: true, max: 1, timeWindow: '1 minute' });
   await s.register(providerTestCallbackRoutes);
   return s;
 }
 it('routes a signed sports callback only to the real wallet and never to practice', async () => {
-  const s = await server(); vi.stubEnv('SOFTAGGREGATOR_SPORTS_CALLBACK_ENABLED', 'true');
+  const s = await server();
+  vi.stubEnv('SOFTAGGREGATOR_SPORTS_CALLBACK_ENABLED', 'true');
   sportsApply.mockResolvedValue({ error: 0, balance: 0 });
   try {
     const r = await s.inject(request('85.122.129.59', 'sr'));
-    expect(r.statusCode).toBe(200); expect(r.json()).toEqual({ error: 0, balance: 0 });
-    expect(sportsApply).toHaveBeenCalledOnce(); expect(apply).not.toHaveBeenCalled();
-  } finally { await s.close(); }
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ error: 0, balance: 0 });
+    expect(sportsApply).toHaveBeenCalledOnce();
+    expect(apply).not.toHaveBeenCalled();
+  } finally {
+    await s.close();
+  }
 });
 it('accepts authenticated provider GETs repeatedly with HTTP 200 and cents', async () => {
   const s = await server();
@@ -84,6 +91,7 @@ it('accepts authenticated provider GETs repeatedly with HTTP 200 and cents', asy
       expect(r.headers['cache-control']).toContain('no-store');
     }
     expect(apply).toHaveBeenCalledTimes(3);
+    expect(s.salemMonitor!.take().callbacks).toEqual({ accepted: 3 });
   } finally {
     await s.close();
   }
@@ -109,6 +117,10 @@ it('rejects spoofed source headers, missing signatures and wrong provider IP wit
       expect(r.json()).toEqual({ error: 2, balance: 0 });
     }
     expect(apply).not.toHaveBeenCalled();
+    expect(s.salemMonitor!.take().callbacks).toEqual({
+      untrusted_source: 3,
+      invalid_signature_or_payload: 1,
+    });
   } finally {
     await s.close();
   }
@@ -131,6 +143,10 @@ it('returns HTTP 200 JSON errors on database failures, disabled callbacks and un
     });
     expect(post.statusCode).toBe(200);
     expect(post.json()).toEqual({ error: 2, balance: 0 });
+    const metrics = s.salemMonitor!.take();
+    expect(metrics.callbacks).toEqual({ failed: 2, disabled: 1 });
+    expect(metrics.http.casino.serverErrors).toBe(0);
+    expect(JSON.stringify(metrics)).not.toContain('private');
   } finally {
     await s.close();
   }
