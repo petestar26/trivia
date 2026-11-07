@@ -25,7 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         postgres: ['13', '16', '18']
-    runs-on: ubuntu-latest
+    # Keep the pinned browser compatible when GitHub advances ubuntu-latest.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
