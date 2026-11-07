@@ -71,6 +71,7 @@ jobs:
         if: matrix.postgres == '16'
         run: |
           pnpm --filter api typecheck
+          pnpm --filter api exec vitest run --config vitest.review-unit.config.ts
           pnpm --filter web typecheck
           pnpm --filter web exec vitest run src/pages/wallet-order-room.test.tsx src/pages/wallet-payments.test.tsx src/pages/wallet-late-payments.test.tsx src/pages/wallet-routes.test.tsx src/hooks/use-wallet-action.test.tsx src/components/notifications --minWorkers=1 --maxWorkers=1
           node apps/web/src/lib/i18n/tools/coverage.mjs --strict
