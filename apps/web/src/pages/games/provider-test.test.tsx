@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -15,6 +15,8 @@ vi.mock('@/lib/api', async () => ({
 }));
 const game = { id: 'studio/slot', name: 'Test Slot', provider: 'Studio', category: 'slots' };
 const ok = (data: unknown) => ({ success: true, data });
+const favoriteKey = (id = 'tester') => `playqube.favorite-casino-games.v1:${id}`;
+const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
 function mount(
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
@@ -33,6 +35,17 @@ function mount(
   };
 }
 beforeEach(() => {
+  const saved = new Map<string, string>();
+  vi.mocked(window.localStorage.getItem).mockImplementation((key) => saved.get(key) ?? null);
+  vi.mocked(window.localStorage.setItem).mockImplementation((key, value) => {
+    saved.set(key, value);
+  });
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (_key: string, _options: unknown, run: () => unknown) => Promise.resolve().then(run),
+    },
+  });
   mocks.user = { id: 'tester' };
   mocks.get.mockImplementation(async (path: string) =>
     ok(
@@ -52,6 +65,89 @@ afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks);
+  else Reflect.deleteProperty(navigator, 'locks');
+});
+it('places Favorites first and saves/removes a game without launching it', async () => {
+  mount();
+  const heart = await screen.findByRole('button', { name: 'Add Test Slot to favorites' });
+  const tabs = within(screen.getByRole('group', { name: 'Game categories' })).getAllByRole(
+    'button'
+  );
+  expect(tabs[0]).toHaveAccessibleName('Favorites');
+  expect(tabs[1]).toHaveAccessibleName('All games');
+  fireEvent.click(heart);
+  await screen.findByRole('button', { name: 'Remove Test Slot from favorites' });
+  expect(screen.getByRole('button', { name: 'Favorites' })).toHaveTextContent('1');
+  fireEvent.click(tabs[0]);
+  expect(screen.getByRole('button', { name: 'Play Test Slot' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Test Slot from favorites' }));
+  await screen.findByText('No favorites yet');
+  expect(screen.getByRole('button', { name: 'Favorites' })).toHaveFocus();
+  expect(screen.getByText('Tap the heart on a game to save it here.')).toBeVisible();
+  expect(mocks.post).not.toHaveBeenCalled();
+  expect(JSON.parse(window.localStorage.getItem(favoriteKey())!).ids).toEqual([]);
+});
+
+it('restores casino favorites after reopening and isolates the next account', async () => {
+  let v = mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Test Slot to favorites' }));
+  await screen.findByRole('button', { name: 'Remove Test Slot from favorites' });
+  v.unmount();
+  v = mount();
+  await screen.findByRole('button', { name: 'Remove Test Slot from favorites' });
+  v.unmount();
+  mocks.user = { id: 'another-member' };
+  mount();
+  await screen.findByRole('button', { name: 'Add Test Slot to favorites' });
+  fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+  expect(screen.getByText('No favorites yet')).toBeVisible();
+  expect(window.localStorage.getItem(favoriteKey('another-member'))).toBeNull();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+
+it('keeps favorite filters useful and makes Spin overlap with existing categories', async () => {
+  const get = mocks.get.getMockImplementation()!;
+  const wheel = {
+    id: 'wheel',
+    name: 'Mega Wheel',
+    provider: 'Live Studio',
+    category: 'live',
+    categories: ['live', 'spin'],
+  };
+  mocks.get.mockImplementation((path: string) =>
+    path.endsWith('/games') ? Promise.resolve(ok([game, wheel])) : get(path)
+  );
+  window.localStorage.setItem(favoriteKey(), JSON.stringify({ version: 1, ids: [wheel.id] }));
+  mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Spin' }));
+  expect(screen.getByRole('button', { name: 'Play Mega Wheel' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Play Test Slot' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Live casino' }));
+  expect(screen.getByRole('button', { name: 'Play Mega Wheel' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Game provider' }), {
+    target: { value: 'Studio' },
+  });
+  expect(screen.getByText('No games found')).toBeVisible();
+  expect(screen.queryByText('No favorites yet')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+  expect(screen.getByRole('button', { name: 'Favorites' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Play Mega Wheel' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Play Test Slot' })).toBeNull();
+  expect(mocks.post).not.toHaveBeenCalled();
+});
+
+it('shows storage failure without pretending favorites were saved or disabling Play', async () => {
+  vi.mocked(window.localStorage.getItem).mockImplementation(() => {
+    throw new Error('blocked');
+  });
+  mount();
+  expect(await screen.findByRole('button', { name: 'Add Test Slot to favorites' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Play Test Slot' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Favorites' }));
+  expect(screen.getByText('Favorites are unavailable in this browser.')).toBeVisible();
+  expect(screen.queryByText('No favorites yet')).toBeNull();
 });
 it('uses a separate ETB balance and launches an Ethiopia game directly from its tile', async () => {
   mount();

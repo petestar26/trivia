@@ -8,6 +8,7 @@ import {
   CircleDot,
   Dice5,
   Gamepad2,
+  Heart,
   Pause,
   Play,
   Rocket,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import { useFavoriteGames } from '@/lib/use-favorite-games';
 import './provider-lobby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -34,6 +36,7 @@ export interface TestGame {
 
 const PAGE_SIZE = 36;
 const CATEGORIES = [
+  ['spin', 'Spin'],
   ['slots', 'Slots'],
   ['live', 'Live casino'],
   ['table', 'Table games'],
@@ -80,7 +83,7 @@ const categoryIcon = (category: string) =>
       ? Spade
       : ['virtual', 'sportsbook'].includes(category)
         ? Trophy
-        : ['keno', 'bingo'].includes(category)
+        : ['keno', 'bingo', 'spin'].includes(category)
           ? CircleDot
           : Dice5;
 
@@ -154,6 +157,10 @@ export function ProviderTestPage() {
 
 function ProviderTestSession({ userId }: { userId: string }) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
+  const { favoriteIds, toggleFavorite, storageUnavailable, limitReached, maxFavorites } =
+    useFavoriteGames(userId, 'casino');
+  const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+  const favoritesTab = useRef<HTMLButtonElement>(null);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
@@ -263,9 +270,16 @@ function ProviderTestSession({ userId }: { userId: string }) {
     [allGames, provider, search]
   );
   const games = useMemo(
-    () => matchingGames.filter((game) => category === 'all' || belongsTo(game, category)),
-    [matchingGames, category]
+    () =>
+      matchingGames.filter((game) =>
+        category === 'favorites'
+          ? favoriteSet.has(game.id)
+          : category === 'all' || belongsTo(game, category)
+      ),
+    [matchingGames, category, favoriteSet]
   );
+  const favoriteCount = matchingGames.filter((game) => favoriteSet.has(game.id)).length;
+  const hasAvailableFavorites = allGames.some((game) => favoriteSet.has(game.id));
   const categories = useMemo(
     () =>
       CATEGORIES.filter(([key]) => allGames.some((game) => belongsTo(game, key))).map(
@@ -533,6 +547,22 @@ function ProviderTestSession({ userId }: { userId: string }) {
               aria-label={translateUi('Game categories')}
             >
               <button
+                ref={favoritesTab}
+                aria-label={translateUi('Favorites')}
+                aria-describedby="casino-count-favorites"
+                aria-pressed={category === 'favorites'}
+                onClick={() => {
+                  setCategory('favorites');
+                  setVisibleCount(PAGE_SIZE);
+                }}
+              >
+                <Heart size={14} aria-hidden="true" />
+                {translateUi('Favorites')}
+                <span id="casino-count-favorites" className="casino-category-count">
+                  {favoriteCount.toLocaleString(interfaceLocale)}
+                </span>
+              </button>
+              <button
                 aria-label={translateUi('All games')}
                 aria-describedby="casino-count-all"
                 aria-pressed={category === 'all'}
@@ -564,6 +594,30 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 </button>
               ))}
             </div>
+            {category === 'spin' && (
+              <p className="casino-collection-note">
+                {translateUi('Wheel, roulette and spinner games.')}
+              </p>
+            )}
+            {storageUnavailable ? (
+              <p className="casino-collection-note" role="status">
+                {translateUi('Favorites are unavailable in this browser.')}
+              </p>
+            ) : (
+              category === 'favorites' && (
+                <p className="casino-collection-note">
+                  {translateUi('Favorites are saved for this account on this device.')}
+                </p>
+              )
+            )}
+            {!storageUnavailable && limitReached && (
+              <p className="casino-collection-note" role="status">
+                {translateUi(
+                  'You can save up to {count} favorite games. Remove one to add another.',
+                  { count: maxFavorites }
+                )}
+              </p>
+            )}
             {catalogue.isLoading && (
               <>
                 <p className="casino-notice" role="status">
@@ -582,53 +636,101 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 <button onClick={() => void catalogue.refetch()}>{translateUi('Retry')}</button>
               </div>
             )}
-            {catalogue.data && !games.length && (
-              <div className="casino-empty">
-                <Search size={30} />
-                <h3>{translateUi('No games found')}</h3>
-                <p>{translateUi('Try another title, provider, or category.')}</p>
-                {(search || category !== 'all' || provider !== 'all') && (
-                  <button
-                    className="casino-primary-button"
-                    onClick={() => {
-                      setSearch('');
-                      setCategory('all');
-                      setProvider('all');
-                      setVisibleCount(PAGE_SIZE);
-                    }}
-                  >
-                    {translateUi('Clear filters')}
-                  </button>
-                )}
-              </div>
-            )}
+            {catalogue.data &&
+              !catalogue.isError &&
+              !games.length &&
+              !(category === 'favorites' && storageUnavailable) && (
+                <div className="casino-empty">
+                  {category === 'favorites' && !hasAvailableFavorites ? (
+                    <Heart size={30} />
+                  ) : (
+                    <Search size={30} />
+                  )}
+                  <h3>
+                    {translateUi(
+                      category === 'favorites' && !hasAvailableFavorites
+                        ? 'No favorites yet'
+                        : 'No games found'
+                    )}
+                  </h3>
+                  <p>
+                    {translateUi(
+                      category === 'favorites' && !hasAvailableFavorites
+                        ? 'Tap the heart on a game to save it here.'
+                        : 'Try another title, provider, or category.'
+                    )}
+                  </p>
+                  {(search || category !== 'all' || provider !== 'all') && (
+                    <button
+                      className="casino-primary-button"
+                      onClick={() => {
+                        setSearch('');
+                        setCategory(
+                          category === 'favorites' && hasAvailableFavorites ? 'favorites' : 'all'
+                        );
+                        setProvider('all');
+                        setVisibleCount(PAGE_SIZE);
+                      }}
+                    >
+                      {translateUi(
+                        category === 'favorites' && !hasAvailableFavorites
+                          ? 'Browse games'
+                          : 'Clear filters'
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
             <div className="casino-game-grid">
               {games.slice(0, visibleCount).map((game) => (
-                <button
-                  key={game.id}
-                  type="button"
-                  className="casino-game-tile"
-                  aria-label={translateUi('Play {name}', { name: game.name })}
-                  disabled={!canLaunch}
-                  onClick={() => {
-                    launch.reset();
-                    setSelected(game);
-                    launch.mutate(game);
-                  }}
-                >
-                  <GameArtwork
-                    key={`${game.id}:${game.image ?? ''}:${game.imageFallback ?? ''}`}
-                    game={game}
-                    motion={motionEnabled && pageVisible}
-                  />
-                  <div className="casino-tile-caption">
-                    <h3>{game.name}</h3>
-                    <p>
-                      {game.provider}
-                      <ArrowUpRight size={14} aria-hidden="true" />
-                    </p>
-                  </div>
-                </button>
+                <div className="casino-game-card" key={game.id}>
+                  <button
+                    type="button"
+                    className="casino-game-tile"
+                    aria-label={translateUi('Play {name}', { name: game.name })}
+                    disabled={!canLaunch}
+                    onClick={() => {
+                      launch.reset();
+                      setSelected(game);
+                      launch.mutate(game);
+                    }}
+                  >
+                    <GameArtwork
+                      key={`${game.id}:${game.image ?? ''}:${game.imageFallback ?? ''}`}
+                      game={game}
+                      motion={motionEnabled && pageVisible}
+                    />
+                    <div className="casino-tile-caption">
+                      <h3>{game.name}</h3>
+                      <p>
+                        {game.provider}
+                        <ArrowUpRight size={14} aria-hidden="true" />
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="casino-favorite"
+                    disabled={storageUnavailable || (limitReached && !favoriteSet.has(game.id))}
+                    aria-label={translateUi(
+                      favoriteSet.has(game.id)
+                        ? 'Remove {name} from favorites'
+                        : 'Add {name} to favorites',
+                      { name: game.name }
+                    )}
+                    aria-pressed={favoriteSet.has(game.id)}
+                    onClick={() => {
+                      if (category === 'favorites') favoritesTab.current?.focus();
+                      toggleFavorite(game.id);
+                    }}
+                  >
+                    <Heart
+                      size={18}
+                      aria-hidden="true"
+                      fill={favoriteSet.has(game.id) ? 'currentColor' : 'none'}
+                    />
+                  </button>
+                </div>
               ))}
             </div>
             {games.length > 0 && (

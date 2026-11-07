@@ -103,6 +103,25 @@ make the full account catalogue browsable without opening games in the backgroun
 
 ## Catalogue and launch compatibility
 
+The Spin filter is additive: roulette remains under Table/Live, and verified
+standalone wheel/spinner titles remain in their existing genre too. Explicit
+wheel/spinner metadata and exact reviewed titles are accepted; a slot title
+containing Spin or Wheel is insufficient. Reviewed mechanics:
+- Pragmatic Play Mega Wheel: https://www.pragmaticplay.com/en/live-casino/mega-wheel/
+- PopOK Mega Wheel: https://www.popokgaming.com/news/meet-mega-wheel-popok-gamings-new-slot
+- PopOK Lucky Spin (spinning top): https://www.popokgaming.com/id/blog/top-crash-games-in-2026
+- InOut Avia Wheel: https://inout.games/en/game/avia-wheel
+InOut Wheel is an exact standalone title; Wheel Out is a rolling-wheel instant
+game and is excluded, as are reel games with bonus wheels such as Ultra Wheel.
+
+Casino Favorites appears before All games. The heart and Play controls are
+separate buttons. Favorites reuse the existing account-scoped browser storage,
+with a distinct casino namespace, a 100-title limit and provider IDs up to 256
+characters. The UI states that they are saved on the current device. No server
+sync is implied. Blocked storage is shown as unavailable, and saving/removing
+favorites never launches a game or changes wallet state. Cross-tab writes retain
+the existing lock and account-change protections.
+
 The provider returns both a string session address and an object containing gameurl.
 Both pass the same HTTPS, public-host syntax, credential and exact-host allowlist checks.
 HTML, nested URLs, credentials in the authority, IP addresses and alternate ports are

@@ -53,7 +53,7 @@ const bundle = await build({
 const { LANGUAGES, translate, catalogue } = await import(
   'data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64')
 );
-const t = (language, key) => translate(language, key);
+const t = (language, key, params) => translate(language, key, params);
 const errors = [],
   checks = [];
 const games = [
@@ -73,8 +73,15 @@ const games = [
     id: 'live-table',
     name: 'Live Roulette',
     category: 'live',
-    categories: ['live', 'table'],
+    categories: ['live', 'table', 'spin'],
     provider: 'Studio A',
+  },
+  {
+    id: 'wheel',
+    name: 'Mega Wheel',
+    category: 'live',
+    categories: ['live', 'spin'],
+    provider: 'Studio D',
   },
 ];
 const browser = await chromium.launch({
@@ -156,6 +163,12 @@ try {
     for (const width of [1440, 390]) {
       const s = await open(language, width),
         page = s.page;
+      assert.equal(
+        await page.locator('.casino-categories > button').first().getAttribute('aria-label'),
+        t(language, 'Favorites')
+      );
+      await page.getByRole('button', { name: t(language, 'Spin'), exact: true }).click();
+      assert.equal(await page.locator('.casino-game-tile').count(), 2);
       await page.getByRole('button', { name: t(language, 'Keno'), exact: true }).click();
       assert.equal(await page.locator('.casino-game-tile').count(), 36);
       await page.getByRole('button', { name: t(language, 'Show more games'), exact: true }).click();
@@ -172,6 +185,45 @@ try {
           path: resolve(output, `casino-${language}-${width}.png`),
           fullPage: true,
         });
+      await page
+        .getByRole('button', {
+          name: t(language, 'Add {name} to favorites', { name: 'Keno 1' }),
+          exact: true,
+        })
+        .click();
+      await page
+        .getByRole('button', {
+          name: t(language, 'Remove {name} from favorites', { name: 'Keno 1' }),
+          exact: true,
+        })
+        .waitFor();
+      await page.getByRole('button', { name: t(language, 'Favorites'), exact: true }).click();
+      assert.equal(await page.locator('.casino-game-tile').count(), 1);
+      assert.equal(s.launches(), 0);
+      await page.reload();
+      await page.getByRole('button', { name: t(language, 'Favorites'), exact: true }).click();
+      await page.locator('.casino-game-tile h3').waitFor();
+      assert.equal(await page.locator('.casino-game-tile h3').innerText(), 'Keno 1');
+      await layout(page, width);
+      const heartSize = await page.locator('.casino-favorite').boundingBox();
+      assert.ok(heartSize.width >= 44 && heartSize.height >= 44, 'Heart has a usable touch target');
+      if (['en', 'am', 'ar'].includes(language))
+        await page.screenshot({
+          path: resolve(output, `favorites-${language}-${width}.png`),
+          fullPage: true,
+        });
+      await page
+        .getByRole('button', {
+          name: t(language, 'Remove {name} from favorites', { name: 'Keno 1' }),
+          exact: true,
+        })
+        .click();
+      await page.getByText(t(language, 'No favorites yet'), { exact: true }).waitFor();
+      assert.equal(s.launches(), 0);
+      // Keep the existing live-table check scoped to its original provider.
+      await page
+        .getByRole('combobox', { name: t(language, 'Game provider') })
+        .selectOption('Studio A');
       await page.getByRole('button', { name: t(language, 'Table games'), exact: true }).click();
       assert.equal(await page.locator('.casino-game-tile h3').innerText(), 'Live Roulette');
       await page.getByRole('button', { name: t(language, 'Live casino'), exact: true }).click();
@@ -192,6 +244,10 @@ try {
         width,
         passed: [
           'full-category-pagination',
+          'spin-category',
+          'favorites-first-save-reload-remove',
+          'favorite-does-not-launch',
+          'favorite-touch-target',
           'provider-filter',
           'live-table-category',
           'localized-launch-error',

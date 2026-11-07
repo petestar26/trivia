@@ -11,26 +11,30 @@ interface FavoriteState {
   dirty: boolean;
 }
 
-function validId(id: unknown): id is string {
+function validId(id: unknown, maxLength = 200): id is string {
   return (
     typeof id === 'string' &&
     id.length > 0 &&
-    id.length <= 200 &&
+    id.length <= maxLength &&
     id === id.trim() &&
     !/[\u0000-\u001f\u007f]/.test(id)
   );
 }
 
-function storageScope(userId: string | null | undefined): string | null {
+function storageScope(
+  userId: string | null | undefined,
+  collection: 'inhouse' | 'casino'
+): string | null {
   if (!validId(userId)) return null;
   try {
-    return `playqube.favorite-games.v1:${encodeURIComponent(userId)}`;
+    const name = collection === 'casino' ? 'favorite-casino-games' : 'favorite-games';
+    return `playqube.${name}.v1:${encodeURIComponent(userId)}`;
   } catch {
     return null;
   }
 }
 
-function parseFavorites(raw: string | null): readonly string[] {
+function parseFavorites(raw: string | null, maxIdLength: number): readonly string[] {
   if (raw === null) return EMPTY_IDS;
   if (raw.length > MAX_STORAGE_CHARS) throw new Error('Favorites storage is too large');
   const value: unknown = JSON.parse(raw);
@@ -47,7 +51,7 @@ function parseFavorites(raw: string | null): readonly string[] {
     record.version !== 1 ||
     !Array.isArray(record.ids) ||
     record.ids.length > MAX_FAVORITES ||
-    !record.ids.every(validId) ||
+    !record.ids.every((id) => validId(id, maxIdLength)) ||
     new Set(record.ids).size !== record.ids.length
   ) {
     throw new Error('Invalid favorites storage');
@@ -56,8 +60,12 @@ function parseFavorites(raw: string | null): readonly string[] {
 }
 
 /** A device-local preference, isolated by authenticated account; never a play entitlement. */
-export function useFavoriteGames(userId: string | null | undefined) {
-  const scope = storageScope(userId);
+export function useFavoriteGames(
+  userId: string | null | undefined,
+  collection: 'inhouse' | 'casino' = 'inhouse'
+) {
+  const scope = storageScope(userId, collection);
+  const maxIdLength = collection === 'casino' ? 256 : 200;
   const active = useRef<{ scope: string | null; token: object } | null>(null);
   useLayoutEffect(() => {
     const token = {};
@@ -83,7 +91,7 @@ export function useFavoriteGames(userId: string | null | undefined) {
         if (!navigator.locks?.request) throw new Error('Cross-tab serialization unavailable');
         setState({
           scope,
-          ids: parseFavorites(window.localStorage.getItem(scope)),
+          ids: parseFavorites(window.localStorage.getItem(scope), maxIdLength),
           unavailable: false,
           dirty: false,
         });
@@ -97,11 +105,11 @@ export function useFavoriteGames(userId: string | null | undefined) {
     load();
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);
-  }, [scope]);
+  }, [scope, maxIdLength]);
 
   const toggleFavorite = useCallback(
     (id: string) => {
-      if (!scope || !validId(id) || state.scope !== scope || state.unavailable) return;
+      if (!scope || !validId(id, maxIdLength) || state.scope !== scope || state.unavailable) return;
       const identity = active.current;
       if (!identity || identity.scope !== scope) return;
       const currentScope = () => active.current === identity;
@@ -116,7 +124,7 @@ export function useFavoriteGames(userId: string | null | undefined) {
         void navigator.locks
           .request(scope, { mode: 'exclusive' }, () => {
             if (!currentScope()) return;
-            const current = parseFavorites(window.localStorage.getItem(scope));
+            const current = parseFavorites(window.localStorage.getItem(scope), maxIdLength);
             const exists = current.includes(id);
             if (!exists && current.length >= MAX_FAVORITES) return;
             const ids = exists ? current.filter((value) => value !== id) : [...current, id];
@@ -128,7 +136,7 @@ export function useFavoriteGames(userId: string | null | undefined) {
         fail();
       }
     },
-    [scope, state.scope, state.unavailable]
+    [scope, maxIdLength, state.scope, state.unavailable]
   );
 
   // A changed account never sees the previous account's values, even before effects run.
@@ -137,5 +145,7 @@ export function useFavoriteGames(userId: string | null | undefined) {
     favoriteIds: current && scope && !state.unavailable ? state.ids : EMPTY_IDS,
     toggleFavorite,
     storageUnavailable: !!scope && current && state.unavailable,
+    limitReached: current && state.ids.length >= MAX_FAVORITES,
+    maxFavorites: MAX_FAVORITES,
   };
 }

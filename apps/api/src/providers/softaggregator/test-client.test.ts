@@ -161,7 +161,7 @@ it('repairs Keno metadata without discarding games that have missing optional fi
     ['live-table', 'live'],
   ]);
   expect(games[1]?.provider).toBe('pxoriginals');
-  expect(games[3]?.categories).toEqual(['live', 'table']);
+  expect(games[3]?.categories).toEqual(['live', 'table', 'spin']);
 });
 it('denies customers and disables unconfigured tests before creating a player', async () => {
   for (const overrides of [

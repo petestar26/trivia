@@ -9,6 +9,7 @@ on:
       - 'apps/web/src/pages/games/provider*'
       - 'apps/web/src/pages/casino/**'
       - 'apps/web/src/lib/i18n/catalogues/casino-catalogue.ts'
+      - 'apps/web/src/lib/use-favorite-games*'
       - 'scripts/review-casino-preview.mjs'
 permissions:
   contents: read
@@ -34,7 +35,7 @@ jobs:
           pnpm --filter api typecheck
           pnpm --filter api test:provider-demo
           pnpm --filter web typecheck
-          pnpm --filter web exec vitest run src/pages/games/provider-test.test.tsx src/pages/casino/casino.test.tsx src/lib/i18n/style-contract.test.ts --minWorkers=1 --maxWorkers=1
+          pnpm --filter web exec vitest run src/pages/games/provider-test.test.tsx src/pages/casino/casino.test.tsx src/lib/use-favorite-games.test.tsx src/lib/i18n/style-contract.test.ts --minWorkers=1 --maxWorkers=1
           node apps/web/src/lib/i18n/tools/coverage.mjs --strict
       - name: Production builds and gateway
         env:

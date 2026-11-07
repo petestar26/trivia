@@ -30,11 +30,58 @@ it('makes live tables and live bingo discoverable in both applicable categories'
   expect(classifyProviderGame({ name: 'Live Roulette', game_type: 'live' }).categories).toEqual([
     'live',
     'table',
+    'spin',
   ]);
   expect(classifyProviderGame({ name: 'The Bingo Spot', game_type: 'live' }).categories).toEqual([
     'live',
     'bingo',
   ]);
+});
+
+it.each([
+  ['Mega Wheel', 'Pragmatic Play', 'live'],
+  ['Mega Wheel', 'Popok', 'slots'],
+  ['Lucky Spin', 'Popok', 'slots'],
+  ['Wheel', 'InOut Games', 'slots'],
+  ['Avia Wheel', 'InOut Games', 'instant'],
+  ['European Roulette', 'Studio', 'table'],
+])(
+  'adds wheel/spinner discovery without removing %s from its existing genre',
+  (name, provider_name, game_type) => {
+    const result = classifyProviderGame({ name, provider_name, game_type });
+    expect(result.category).toBe(game_type);
+    expect(result.categories).toContain('spin');
+    expect(result.categories).toContain(game_type);
+  }
+);
+
+it.each([
+  'Twin Spin',
+  'Ultra Hold and Spin',
+  'Ultra Wheel',
+  'Zodiac Wheel',
+  'Wheel Out',
+  'Spin Of The Dead',
+])('does not confuse slots or a rolling-wheel crash theme with spin games: %s', (name) =>
+  expect(
+    classifyProviderGame({ name, game_type: 'slots', provider_name: 'Popok' }).categories
+  ).not.toContain('spin')
+);
+
+it('honors explicit wheel metadata and scopes reviewed titles to their studio', () => {
+  expect(classifyProviderGame({ name: 'New Game', game_type: 'wheel_games' }).categories).toEqual([
+    'spin',
+  ]);
+  expect(
+    classifyProviderGame({ name: 'New Game', game_type: 'live', type: 'Money Wheel' }).categories
+  ).toEqual(['live', 'spin']);
+  expect(
+    classifyProviderGame({ name: 'Mega Wheel', game_type: 'slots', provider_name: 'Other Studio' })
+      .categories
+  ).toEqual(['slots']);
+  expect(
+    classifyProviderGame({ name: 'Lucky Spin', game_type: 'slots', provider: 'popok' }).categories
+  ).toContain('spin');
 });
 
 it.each(['Fishin Reels', 'Fishing Frenzy', 'CoyoteCrash', 'Kenozoic Adventure', 'Aviatrix Mines'])(
