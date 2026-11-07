@@ -17,6 +17,8 @@ it.each([
   ['Unknown title', 'VIDEO_SLOTS', undefined, 'slots'],
   ['Unknown title', null, 'Fishing Games', 'fishing'],
   ['Unknown title', 'unrecognized', undefined, 'other'],
+  ['Unknown title', 'constructor', undefined, 'other'],
+  ['Unknown title', null, '__proto__', 'other'],
 ])(
   'classifies %s using catalogue metadata and clear genre names',
   (name, game_type, type, expected) => {

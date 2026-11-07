@@ -38,10 +38,14 @@ const normalize = (value: unknown) =>
   typeof value === 'string'
     ? value.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
     : '';
+const genre = (value: unknown) => {
+  const key = normalize(value);
+  return Object.hasOwn(aliases, key) ? aliases[key] : undefined;
+};
 
 export function classifyProviderGame(row: { name: string; game_type?: unknown; type?: unknown }) {
-  const reported = aliases[normalize(row.game_type)];
-  const rawType = aliases[normalize(row.type)];
+  const reported = genre(row.game_type);
+  const rawType = genre(row.type);
   // Sportsbooks must never enter the virtual casino, even under a bad label.
   if (reported === 'sportsbook' || rawType === 'sportsbook')
     return { category: 'sportsbook', categories: ['sportsbook'] };
