@@ -79,8 +79,85 @@ it('opens a restricted virtual test frame and closes it', async () => {
     'allow-scripts allow-same-origin allow-forms allow-pointer-lock'
   );
   expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+  const external = screen.getByRole('link', { name: 'Open game in a new tab' });
+  expect(external).toHaveAttribute('href', 'https://games.example.com/session');
+  expect(external).toHaveAttribute('rel', 'noopener noreferrer');
+  expect(external).toHaveAttribute('referrerpolicy', 'no-referrer');
   fireEvent.click(screen.getByRole('button', { name: 'Back to casino' }));
   expect(v.container.querySelector('iframe')).toBeNull();
+});
+it.each([
+  [
+    'CASINO_GAME_REGION_UNAVAILABLE',
+    'This provider does not offer this game in Ethiopia. Choose another game.',
+  ],
+  [
+    'CASINO_GAME_CURRENCY_UNAVAILABLE',
+    'This game does not support the ETB practice wallet. Choose another game.',
+  ],
+  [
+    'CASINO_GAME_ADDRESS_PENDING',
+    'This game is awaiting connection. Please choose another game for now.',
+  ],
+  ['CASINO_PROVIDER_TIMEOUT', 'The game provider took too long to respond. Please try again.'],
+  ['CASINO_PROVIDER_BUSY', 'Please wait a moment before opening another game.'],
+  [
+    'CASINO_PROVIDER_UNAVAILABLE',
+    'The game provider is temporarily unavailable. Try again later or choose another game.',
+  ],
+])('explains %s without displaying private provider error text', async (code, message) => {
+  mocks.post.mockRejectedValue(
+    new Error(JSON.stringify({ code, message: 'private provider credentials' }))
+  );
+  const v = mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Play Test Slot' }));
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(screen.queryByText('private provider credentials')).toBeNull();
+  expect(v.container.querySelector('iframe')).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open game in a new tab' })).toBeNull();
+});
+it('shows every Keno result, category counts, provider filters, and overlapping live categories', async () => {
+  const get = mocks.get.getMockImplementation()!;
+  const games = [
+    ...Array.from({ length: 42 }, (_, i) => ({
+      id: `keno-${i}`,
+      name: `Keno ${i}`,
+      provider: i % 2 ? 'Studio B' : 'Studio A',
+      category: 'keno',
+    })),
+    {
+      id: 'live',
+      name: 'Live Roulette',
+      provider: 'Studio A',
+      category: 'live',
+      categories: ['live', 'table'],
+    },
+    { id: 'sports', name: 'Sports', provider: 'Sports', category: 'sportsbook' },
+  ];
+  mocks.get.mockImplementation((path: string) =>
+    path.endsWith('/games') ? Promise.resolve(ok(games)) : get(path)
+  );
+  mount();
+  const keno = await screen.findByRole('button', { name: 'Keno' });
+  expect(keno).toHaveTextContent('42');
+  fireEvent.click(keno);
+  expect(screen.getAllByRole('button', { name: /^Play / })).toHaveLength(36);
+  fireEvent.click(screen.getByRole('button', { name: 'Show more games' }));
+  expect(screen.getAllByRole('button', { name: /^Play / })).toHaveLength(42);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Game provider' }), {
+    target: { value: 'Studio B' },
+  });
+  expect(keno).toHaveTextContent('21');
+  expect(screen.getAllByRole('button', { name: /^Play / })).toHaveLength(21);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Game provider' }), {
+    target: { value: 'all' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Table games' }));
+  expect(screen.getByRole('button', { name: 'Play Live Roulette' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Live casino' }));
+  expect(screen.getByRole('button', { name: 'Play Live Roulette' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Play Sports' })).toBeNull();
+  expect(mocks.post).not.toHaveBeenCalled();
 });
 it.each([
   { mode: 'demo', url: 'https://games.example.com/x' },

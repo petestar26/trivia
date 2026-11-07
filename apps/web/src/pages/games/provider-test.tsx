@@ -27,6 +27,7 @@ export interface TestGame {
   name: string;
   provider: string;
   category: string;
+  categories?: string[];
   image?: string;
   imageFallback?: string;
 }
@@ -46,6 +47,32 @@ const CATEGORIES = [
 ] as const;
 const categoryLabel = (category: string) =>
   CATEGORIES.find(([key]) => key === category)?.[1] ?? 'More games';
+const belongsTo = (game: TestGame, category: string) =>
+  game.category === category || game.categories?.includes(category) === true;
+const casinoFailureMessage = (error: unknown) => {
+  let code = '';
+  try {
+    code = JSON.parse(error instanceof Error ? error.message : '').code;
+  } catch {
+    /* Use safe fallback. */
+  }
+  switch (code) {
+    case 'CASINO_GAME_REGION_UNAVAILABLE':
+      return 'This provider does not offer this game in Ethiopia. Choose another game.';
+    case 'CASINO_GAME_CURRENCY_UNAVAILABLE':
+      return 'This game does not support the ETB practice wallet. Choose another game.';
+    case 'CASINO_GAME_ADDRESS_PENDING':
+      return 'This game is awaiting connection. Please choose another game for now.';
+    case 'CASINO_PROVIDER_TIMEOUT':
+      return 'The game provider took too long to respond. Please try again.';
+    case 'CASINO_PROVIDER_BUSY':
+      return 'Please wait a moment before opening another game.';
+    case 'CASINO_PROVIDER_UNAVAILABLE':
+      return 'The game provider is temporarily unavailable. Try again later or choose another game.';
+    default:
+      return 'Try again or choose another game.';
+  }
+};
 const categoryIcon = (category: string) =>
   category === 'crash'
     ? Rocket
@@ -153,6 +180,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
   }, []);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
+  const [provider, setProvider] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<TestGame | null>(null);
   const status = useQuery({
@@ -217,19 +245,37 @@ function ProviderTestSession({ userId }: { userId: string }) {
       setSelected(null);
     }
   }, [accessGranted, resetLaunch]);
-  const games = useMemo(
+  const allGames = useMemo(
+    () => (catalogue.data ?? []).filter((game) => !belongsTo(game, 'sportsbook')),
+    [catalogue.data]
+  );
+  const providers = useMemo(
+    () => [...new Set(allGames.map((game) => game.provider))].sort((a, b) => a.localeCompare(b)),
+    [allGames]
+  );
+  const matchingGames = useMemo(
     () =>
-      (catalogue.data ?? []).filter(
+      allGames.filter(
         (game) =>
-          game.category !== 'sportsbook' &&
-          (category === 'all' || game.category === category) &&
+          (provider === 'all' || game.provider === provider) &&
           `${game.name} ${game.provider}`.toLowerCase().includes(search.trim().toLowerCase())
       ),
-    [catalogue.data, category, search]
+    [allGames, provider, search]
+  );
+  const games = useMemo(
+    () => matchingGames.filter((game) => category === 'all' || belongsTo(game, category)),
+    [matchingGames, category]
   );
   const categories = useMemo(
-    () => CATEGORIES.filter(([key]) => catalogue.data?.some((game) => game.category === key)),
-    [catalogue.data]
+    () =>
+      CATEGORIES.filter(([key]) => allGames.some((game) => belongsTo(game, key))).map(
+        ([key, label]) => ({
+          key,
+          label,
+          count: matchingGames.filter((game) => belongsTo(game, key)).length,
+        })
+      ),
+    [allGames, matchingGames]
   );
   const canLaunch =
     accessGranted && status.data?.launchReady === true && !wallet.isError && !!wallet.data;
@@ -244,7 +290,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     )
       return;
     attemptedGame.current = requestedGame;
-    const game = catalogue.data.find((item) => item.id === requestedGame);
+    const game = allGames.find((item) => item.id === requestedGame);
     setSearchParams(
       (previous) => {
         const next = new URLSearchParams(previous);
@@ -265,6 +311,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     requestedGame,
     canLaunch,
     catalogue.data,
+    allGames,
     catalogue.isError,
     setSearchParams,
     resetLaunch,
@@ -385,7 +432,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
             <div className="casino-player-placeholder" role="alert">
               <Gamepad2 size={36} />
               <h3>{translateUi('This game could not be opened.')}</h3>
-              <p>{translateUi('Try again or choose another game.')}</p>
+              <p>{translateUi(casinoFailureMessage(launch.error))}</p>
               <button
                 className="casino-primary-button"
                 disabled={!canLaunch}
@@ -396,14 +443,28 @@ function ProviderTestSession({ userId }: { userId: string }) {
             </div>
           )}
           {launch.data && (
-            <iframe
-              title={translateUi('{name} test', { name: selected.name })}
-              src={launch.data.url}
-              referrerPolicy="no-referrer"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-              allow="fullscreen"
-              allowFullScreen
-            />
+            <>
+              <div className="casino-frame-help">
+                <span>{translateUi('Game not loading?')}</span>
+                <a
+                  href={launch.data.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerPolicy="no-referrer"
+                >
+                  {translateUi('Open game in a new tab')}{' '}
+                  <ArrowUpRight size={16} aria-hidden="true" />
+                </a>
+              </div>
+              <iframe
+                title={translateUi('{name} test', { name: selected.name })}
+                src={launch.data.url}
+                referrerPolicy="no-referrer"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+                allow="fullscreen"
+                allowFullScreen
+              />
+            </>
           )}
         </section>
       ) : (
@@ -413,7 +474,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
               <h2>
                 <Gamepad2 size={21} />
                 {' ' + translateUi('The game collection')}{' '}
-                <span>{catalogue.data?.length.toLocaleString(interfaceLocale) ?? '—'}</span>
+                <span>
+                  {catalogue.data ? allGames.length.toLocaleString(interfaceLocale) : '—'}
+                </span>
               </h2>
               <div className="casino-browser-controls">
                 <button
@@ -445,6 +508,23 @@ function ProviderTestSession({ userId }: { userId: string }) {
                     }}
                   />
                 </label>
+                <label className="casino-provider-filter">
+                  <span className="sr-only">{translateUi('Game provider')}</span>
+                  <select
+                    value={provider}
+                    onChange={(event) => {
+                      setProvider(event.target.value);
+                      setVisibleCount(PAGE_SIZE);
+                    }}
+                  >
+                    <option value="all">{translateUi('All providers')}</option>
+                    {providers.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
             <div
@@ -453,6 +533,8 @@ function ProviderTestSession({ userId }: { userId: string }) {
               aria-label={translateUi('Game categories')}
             >
               <button
+                aria-label={translateUi('All games')}
+                aria-describedby="casino-count-all"
                 aria-pressed={category === 'all'}
                 onClick={() => {
                   setCategory('all');
@@ -460,10 +542,15 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 }}
               >
                 {translateUi('All games')}
+                <span id="casino-count-all" className="casino-category-count">
+                  {matchingGames.length.toLocaleString(interfaceLocale)}
+                </span>
               </button>
-              {categories.map(([key, label]) => (
+              {categories.map(({ key, label, count }) => (
                 <button
                   key={key}
+                  aria-label={translateUi(label)}
+                  aria-describedby={`casino-count-${key}`}
                   aria-pressed={category === key}
                   onClick={() => {
                     setCategory(key);
@@ -471,6 +558,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
                   }}
                 >
                   {translateUi(label)}
+                  <span id={`casino-count-${key}`} className="casino-category-count">
+                    {count.toLocaleString(interfaceLocale)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -497,12 +587,13 @@ function ProviderTestSession({ userId }: { userId: string }) {
                 <Search size={30} />
                 <h3>{translateUi('No games found')}</h3>
                 <p>{translateUi('Try another title, provider, or category.')}</p>
-                {(search || category !== 'all') && (
+                {(search || category !== 'all' || provider !== 'all') && (
                   <button
                     className="casino-primary-button"
                     onClick={() => {
                       setSearch('');
                       setCategory('all');
+                      setProvider('all');
                       setVisibleCount(PAGE_SIZE);
                     }}
                   >
