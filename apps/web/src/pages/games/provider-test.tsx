@@ -269,15 +269,19 @@ function ProviderTestSession({ userId }: { userId: string }) {
       ),
     [allGames, provider, search]
   );
-  const games = useMemo(
-    () =>
-      matchingGames.filter((game) =>
-        category === 'favorites'
-          ? favoriteSet.has(game.id)
-          : category === 'all' || belongsTo(game, category)
-      ),
-    [matchingGames, category, favoriteSet]
-  );
+  const games = useMemo(() => {
+    const matches = matchingGames.filter((game) =>
+      category === 'favorites'
+        ? favoriteSet.has(game.id)
+        : category === 'all' || belongsTo(game, category)
+    );
+    // Put standalone wheels/tops first; roulette stays discoverable below them.
+    return category === 'spin'
+      ? matches.sort(
+          (a, b) => Number(/\broulette\b/i.test(a.name)) - Number(/\broulette\b/i.test(b.name))
+        )
+      : matches;
+  }, [matchingGames, category, favoriteSet]);
   const favoriteCount = matchingGames.filter((game) => favoriteSet.has(game.id)).length;
   const hasAvailableFavorites = allGames.some((game) => favoriteSet.has(game.id));
   const categories = useMemo(

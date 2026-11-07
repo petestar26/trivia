@@ -169,6 +169,7 @@ try {
       );
       await page.getByRole('button', { name: t(language, 'Spin'), exact: true }).click();
       assert.equal(await page.locator('.casino-game-tile').count(), 2);
+      assert.equal(await page.locator('.casino-game-tile h3').first().innerText(), 'Mega Wheel');
       await page.getByRole('button', { name: t(language, 'Keno'), exact: true }).click();
       assert.equal(await page.locator('.casino-game-tile').count(), 36);
       await page.getByRole('button', { name: t(language, 'Show more games'), exact: true }).click();
