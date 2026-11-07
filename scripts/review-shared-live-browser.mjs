@@ -437,11 +437,19 @@ try {
       await page.getByText(t(language, 'Watching'), { exact: true }).first().waitFor();
       if (game === 'virtual_football_3d') {
         await page.locator('.original-football .vf-board-overlay').waitFor();
-        const matchPicker = await page.locator('.tg-live-scores').boundingBox();
-        const scoreboard = await page.locator('.original-football .vf-board-overlay').boundingBox();
+        await page.evaluate(() => document.fonts.ready);
+        // Read both rectangles in one frame; translated fonts may settle between
+        // separate browser calls and otherwise produce a false overlap report.
+        const layout = await page.evaluate(() => {
+          const picker = document.querySelector('.tg-live-scores').getBoundingClientRect();
+          const board = document
+            .querySelector('.original-football .vf-board-overlay')
+            .getBoundingClientRect();
+          return { pickerBottom: picker.bottom, scoreboardTop: board.top };
+        });
         assert.ok(
-          matchPicker.y + matchPicker.height <= scoreboard.y,
-          `${language}: match controls must not cover the original stadium scoreboard`
+          layout.pickerBottom <= layout.scoreboardTop,
+          `${language}: match controls must not cover the original stadium scoreboard: ${JSON.stringify(layout)}`
         );
       }
       assert.equal(
