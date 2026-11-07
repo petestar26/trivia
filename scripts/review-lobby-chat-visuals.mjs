@@ -284,12 +284,10 @@ try {
         for (const line of guide.mechanics)
           assert.ok((await intro.innerText()).includes(t(language, line)));
         assert.ok((await intro.innerText()).includes(t(language, guide.tieRule)));
-        const textStyle = await intro
-          .locator('.tg-intro-lead')
-          .evaluate((el) => ({
-            weight: parseInt(getComputedStyle(el).fontWeight),
-            color: getComputedStyle(el).color,
-          }));
+        const textStyle = await intro.locator('.tg-intro-lead').evaluate((el) => ({
+          weight: parseInt(getComputedStyle(el).fontWeight),
+          color: getComputedStyle(el).color,
+        }));
         assert.ok(textStyle.weight >= 700, JSON.stringify(textStyle));
         assert.equal(textStyle.color, 'rgb(241, 245, 239)');
         await layout(game.key, width);
