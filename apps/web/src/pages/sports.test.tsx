@@ -12,6 +12,9 @@ vi.mock('@/lib/api', async () => ({
   api: { get: f.get, post: f.post },
 }));
 vi.mock('@/providers/auth-provider', () => ({ useAuth: () => ({ user: f.user }) }));
+vi.mock('@/components/sports/football-preview', () => ({
+  FootballPreview: () => <div aria-label="Football preview" />,
+}));
 import { SportsPage } from './sports';
 import { LanguageProvider, type Language } from '@/providers/language-provider';
 const baseline = {

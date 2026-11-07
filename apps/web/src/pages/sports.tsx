@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
+import { FootballPreview } from '@/components/sports/football-preview';
 import './sports.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -180,17 +181,7 @@ function SportsSession({ userId }: { userId: string }) {
             </p>
           )}
         </div>
-        <div className="sports-pitch" aria-hidden="true">
-          <div className="sports-pitch-lines">
-            <i />
-            <b />
-            <span />
-          </div>
-          <div className="sports-ball">
-            <CircleDot strokeWidth={1} />
-          </div>
-          <p>{translateUi('ONE WALLET. A WORLD OF SPORT.')}</p>
-        </div>
+        <FootballPreview />
       </section>
       <section className="sports-history" aria-labelledby="sports-history-title">
         <div>

@@ -28,6 +28,7 @@ on:
       - 'scripts/check-together-catalogue-migration.mjs'
       - 'scripts/review-shared-game-capacity.mjs'
       - 'scripts/review-lobby-chat-visuals.mjs'
+      - 'scripts/review-sports-preview.mjs'
       - 'pnpm-lock.yaml'
 
 permissions:
@@ -72,6 +73,10 @@ jobs:
           TOGETHER_REVIEW_OUTPUT="$RUNNER_TEMP/together-lobby-chat" \
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/together-browser/node_modules/playwright" \
           node scripts/review-lobby-chat-visuals.mjs
+          TOGETHER_REVIEW_ORIGIN=http://127.0.0.1:4181 \
+          TOGETHER_REVIEW_OUTPUT="$RUNNER_TEMP/sports-football-preview" \
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/together-browser/node_modules/playwright" \
+          node scripts/review-sports-preview.mjs
       - name: Save browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,6 +85,7 @@ jobs:
           path: |
             ${{ runner.temp }}/together-capacity
             ${{ runner.temp }}/together-lobby-chat
+            ${{ runner.temp }}/sports-football-preview
             ${{ runner.temp }}/together-preview.log
           retention-days: 7
 
@@ -147,6 +153,7 @@ jobs:
           pnpm --filter api test:scheduled-practice
           pnpm --filter web exec vitest run src/lib/together-proof.test.ts src/pages/play-together.test.tsx src/pages/play-together-selection.test.tsx src/components/together src/pages/messages.test.tsx src/components/football/football-scene.test.tsx src/components/groups/group-round-activity.test.tsx src/lib/member-game-catalog.test.ts src/pages/home.test.tsx src/app-game-sections.test.tsx src/pages/group-games.test.tsx --minWorkers=1 --maxWorkers=1
           pnpm --filter web exec vitest run src/lib/sky-crash-catalog.test.ts src/lib/football-catalog.test.ts src/lib/derby-catalog.test.ts src/lib/system-practice-catalog.test.ts src/lib/number-challenge-catalog.test.ts src/components/member/dashboard-highlights.test.tsx src/components/layout/mobile-navigation.test.tsx --minWorkers=1 --maxWorkers=1
+          pnpm --filter web exec vitest run src/components/sports src/pages/sports.test.tsx src/pages/sports-launch.test.tsx --minWorkers=1 --maxWorkers=1
       - name: Production builds
         if: matrix.postgres == 16
         env:
