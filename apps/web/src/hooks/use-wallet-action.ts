@@ -24,7 +24,7 @@ export function validWalletAction(value: unknown): value is WalletAction {
   const v = value as WalletAction;
   return (
     typeof v.path === 'string' &&
-    (/^\/crypto-payments\/(deposits|withdrawals)$/.test(v.path) || /^\/(agent-orders|agent-disputes|withdrawals|late-payments)(\/[a-zA-Z0-9/-]+)?$/.test(v.path) || /^\/agents\/[a-zA-Z0-9-]+\/(inventory|liquidity)\/(fund|adjust)$/.test(v.path)) &&
+    (/^\/crypto-payments\/(deposits|withdrawals)$/.test(v.path) || /^\/(agent-orders|agent-disputes|withdrawals|late-payments|payment-orders)(\/[a-zA-Z0-9/-]+)?$/.test(v.path) || /^\/agents\/[a-zA-Z0-9-]+\/(inventory|liquidity)\/(fund|adjust)$/.test(v.path)) &&
     !!v.body &&
     typeof v.body === 'object' &&
     !Array.isArray(v.body) &&
@@ -77,7 +77,8 @@ export function useWalletAction(scope: 'wallet' | 'funding' | 'crypto' | `recove
       return;
     }
     try {
-      await boundedRequest((signal) => api.post(action.path, action.body, undefined, { signal }));
+      const response = await boundedRequest((signal) => api.post(action.path, action.body, undefined, { signal }));
+      if (response.success !== true) throw new Error(response.error?.message ?? 'Request failed. Please try again.');
       sessionStorage.removeItem(key);
       setPending(null);
       setMessage('Request confirmed. Your records have been updated.');
@@ -86,6 +87,7 @@ export function useWalletAction(scope: 'wallet' | 'funding' | 'crypto' | `recove
         cache.invalidateQueries({ queryKey: ['wallet-transactions'] }),
         cache.invalidateQueries({ queryKey: ['payments'] }),
       ]);
+      return true;
     } catch (error) {
       const status = requestStatus(error);
       // Timeout, 5xx and uncertain transport failures retain the same intent.
@@ -98,6 +100,7 @@ export function useWalletAction(scope: 'wallet' | 'funding' | 'crypto' | `recove
         }
       }
       setMessage(walletError(error));
+      return false;
     } finally {
       active.current = false;
       setBusy(false);

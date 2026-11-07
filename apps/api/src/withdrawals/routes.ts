@@ -28,6 +28,7 @@ import {
   listWithdrawalDisputesForAdmin,
   listWithdrawalEscalationCandidates,
   openUserWithdrawalDispute,
+  openPartyWithdrawalDispute,
   resolveWithdrawalDispute,
 } from './dispute-service.js';
 import type {
@@ -324,6 +325,14 @@ export async function withdrawalRoutes(server: FastifyInstance): Promise<void> {
         .send({ success: true, data: serializeWithdrawal(result.result as Withdrawal), idempotent: result.idempotent });
     }
   );
+
+  server.post<{ Params: { id: string } }>('/:id/appeal', {
+    preHandler: auth, schema: lifecycleIdSchema, config: { rateLimit: { max: 20, timeWindow: '15 minutes' } },
+  }, async (request, reply) => {
+    const body = parse(openDisputeSchema, request.body);
+    const result = await openPartyWithdrawalDispute(request.user!.sub, request.params.id, body, requestContext(request));
+    return reply.status(result.idempotent ? 200 : 201).send({success:true,data:{dispute:result.dispute,withdrawal:serializeWithdrawal(result.withdrawal!)}});
+  });
 
   // ── W-1D2: user settlement/dispute transitions ──────────────
 

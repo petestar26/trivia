@@ -81,6 +81,7 @@ model User {
   finalizedCompetitions     GroupCompetition[]         @relation("CompetitionFinalizer")
   agentProfile              Agent?                     @relation("AgentIdentity")
   agentOrders               AgentOrder[]
+  paymentOrderMessages      PaymentOrderMessage[]
   withdrawals               Withdrawal[]
   withdrawalQuotes          WithdrawalQuote[]
   payoutAccounts            UserPayoutAccount[]
@@ -2038,6 +2039,7 @@ model AgentOrder {
   evidence    PaymentEvidence[]
   disputes    Dispute[]
   latePaymentCase LatePaymentCase?
+  orderMessages PaymentOrderMessage[]
 
   // Phase C correction A: the idempotency key identifies the user's
   // order-creation REQUEST, not the selected agent — a retry of the same
@@ -2325,6 +2327,7 @@ model Withdrawal {
   // W-1D0: model only — no route creates these yet (see WithdrawalPaymentSubmission / WithdrawalOperation below).
   paymentSubmission WithdrawalPaymentSubmission?
   operations        WithdrawalOperation[]
+  orderMessages     PaymentOrderMessage[]
 
   // Request-level idempotency (client retry) — mirrors AgentOrder pattern.
   // requestHash is stored but deliberately NOT unique: W-1B compares it
@@ -3115,4 +3118,28 @@ model SupportMessage {
  @@unique([ticketId,senderId,requestId])
  @@index([ticketId,createdAt,id],map:"support_messages_thread_created")
  @@map("support_messages")
+}
+
+// Private order conversation and receipt evidence. Bytes are stored durably in
+// PostgreSQL and served only through the order-authorized attachment route.
+model PaymentOrderMessage {
+  id String @id @default(uuid())
+  orderId String?
+  withdrawalId String?
+  authorId String
+  authorRole String
+  body String @db.Text
+  idempotencyKey String
+  requestHash String
+  attachmentName String?
+  attachmentMime String?
+  attachmentBytes Bytes?
+  createdAt DateTime @default(now())
+  order AgentOrder? @relation(fields:[orderId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  withdrawal Withdrawal? @relation(fields:[withdrawalId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  author User @relation(fields:[authorId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  @@unique([authorId,idempotencyKey])
+  @@index([orderId,createdAt,id])
+  @@index([withdrawalId,createdAt,id])
+  @@map("payment_order_messages")
 }

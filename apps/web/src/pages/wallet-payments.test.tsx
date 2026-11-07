@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
-  'does not offer an unsupported member dispute in %s',
+  'offers an appeal before or during the agent payout in %s',
   async (status) => {
     const row = {
       id: 'withdrawal',
@@ -60,7 +60,7 @@ it.each(['HELD', 'PAYOUT_IN_PROGRESS'])(
     }));
     mount('activity');
     await screen.findByText('withdrawal');
-    expect(screen.queryByRole('button', { name: 'Report a problem' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Report a problem' })).toBeEnabled();
     if (status === 'HELD')
       expect(screen.getByRole('button', { name: 'Cancel and return held ETB' })).toBeEnabled();
     else expect(screen.getByText(/payment support/i)).toBeInTheDocument();

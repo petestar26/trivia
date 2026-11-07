@@ -1,3 +1,4 @@
+import { startPaymentMaintenance } from './agents/payment-maintenance.js';
 import { prisma } from '@socialplay/database';
 import { createGroupPvpService } from './games/group-pvp/service.js';
 import { startGroupPvpRuntime } from './games/group-pvp/runtime.js';
@@ -170,6 +171,10 @@ async function start(): Promise<void> {
     server.addHook('onClose', async () => {
       stopGroupPvp();
     });
+    const stopPayments = startPaymentMaintenance(() =>
+      server.log.warn('Payment deadline checks need attention; held funds remain protected')
+    );
+    server.addHook('onClose', stopPayments);
     const stopRates = startEtbRateRefresh(() =>
       server.log.warn('ETB reference refresh is unavailable')
     );

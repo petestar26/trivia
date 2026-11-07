@@ -532,9 +532,10 @@ function NotificationInbox({ userId }: { userId: string }) {
                         }`}
                       >
                         <p className="text-sm font-medium text-gray-900 dark:text-white">
-                          {n.title}
+                          {translateUi(n.title)}
                         </p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{n.body}</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{translateUi(n.body)}</p>
+                        {n.paymentUrl && <a className="block mt-2 text-sm font-semibold underline" href={n.paymentUrl}>{translateUi('Open order and appeal')}</a>}
                         {!n.isRead && (
                           <button
                             type="button"

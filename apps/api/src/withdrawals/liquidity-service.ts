@@ -335,18 +335,23 @@ export async function selectEligibleAgentLiquidity(
   // liquidity row. A concurrent status change must finish before we decide
   // whether that agent can be assigned a new withdrawal. Locking afl first
   // and only then checking Agent would reverse the claim/submit lock order.
-  const candidates = await tx.$queryRaw<Array<{ id: string; agentId: string }>>`
-    SELECT afl.id, afl."agentId"
+  const candidates = await tx.$queryRaw<Array<{ id: string; agentId: string; userId: string }>>`
+    SELECT afl.id, afl."agentId", a."userId"
     FROM "agent_fiat_liquidities" afl
     JOIN "agents" a ON a.id = afl."agentId"
+    JOIN "users" u ON u.id = a."userId"
     WHERE a."countryId" = ${countryId}
       AND a.status = 'ACTIVE'
+      AND u.status = 'ACTIVE'
       AND a."userId" != ${withdrawingUserId}
       AND afl."fiatCurrency" = ${fiatCurrency}
       AND (afl."totalBalance" - afl."reservedBalance") >= ${amount}
     ORDER BY (afl."totalBalance" - afl."reservedBalance") DESC, afl.id
   `;
   for (const candidate of candidates) {
+    const [owner] = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text FROM users WHERE id=${candidate.userId} FOR SHARE`;
+    if (owner?.status !== 'ACTIVE') continue;
     const agents = await tx.$queryRaw<Array<{
       id: string; userId: string; countryId: string; status: string;
     }>>`

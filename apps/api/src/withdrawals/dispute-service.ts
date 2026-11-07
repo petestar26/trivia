@@ -1,3 +1,4 @@
+import { notifyWithdrawalUpdate } from './notifications.js';
 import { createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import type { Prisma, WithdrawalDispute, WithdrawalSettlement } from '@socialplay/database';
@@ -447,6 +448,7 @@ async function settleCompleted(
     },
   });
   if (transition.count !== 1) throw ApiError.internal('Withdrawal left its locked state during completion');
+  await notifyWithdrawalUpdate(tx, withdrawal.id);
   return settlement;
 }
 
@@ -505,6 +507,7 @@ async function settleCancelled(
     data: { status: 'CANCELLED', cancelledAt: now },
   });
   if (transition.count !== 1) throw ApiError.internal('Withdrawal left DISPUTED during cancellation');
+  await notifyWithdrawalUpdate(tx, withdrawal.id);
   return settlement;
 }
 
@@ -683,6 +686,48 @@ export async function openUserWithdrawalDispute(
     });
     const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
     return { dispute, withdrawal: fresh, idempotent: false };
+  });
+}
+
+/** Both assigned parties can request review while funds are held. The same
+ * aggregate lock as completion/cancellation makes the winning transition final. */
+export async function openPartyWithdrawalDispute(
+  actorUserId: string, withdrawalId: string, rawArgs: OpenUserWithdrawalDisputeArgs, context?: RequestContext
+) {
+  if (!DISPUTE_REASONS.includes(rawArgs?.reason)) throw ApiError.badRequest('Invalid dispute reason');
+  const description = normalizeRequiredText(rawArgs?.description, 'description', 4000);
+  const idempotencyKey = normalizeIdempotencyKey(rawArgs?.idempotencyKey);
+  const action = 'DISPUTE_OPEN_PARTY';
+  const requestHash = hashOperation(action, { reason: rawArgs.reason, description });
+  return prisma.$transaction(async tx => {
+    await lockUserEconomicScope(tx, `withdrawal:${withdrawalId}`);
+    await lockWithdrawalParticipants(tx, withdrawalId, actorUserId);
+    const withdrawal = await lockWithdrawal(tx, withdrawalId);
+    const agent = await lockAssignedAgent(tx, withdrawal.agentId);
+    if (!agent) throw ApiError.conflict('The assigned agent is unavailable; contact support');
+    if (withdrawal.userId !== actorUserId && agent.userId !== actorUserId)
+      throw ApiError.forbidden('Only the member or assigned agent may appeal this withdrawal');
+    const operation = await findOperation(tx, withdrawalId, action, idempotencyKey, actorUserId, requestHash, 'WithdrawalDispute');
+    if (operation) return replayDispute(tx, operation, withdrawalId);
+    if (!['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED'].includes(withdrawal.status))
+      throw ApiError.conflict(`Cannot open an appeal from status: ${withdrawal.status}`);
+    if (withdrawal.status === 'PAYMENT_SUBMITTED') {
+      const submission = await tx.withdrawalPaymentSubmission.findUnique({ where: { withdrawalId } });
+      if (!withdrawal.paymentSubmittedAt || !submission || submission.agentId !== withdrawal.agentId)
+        throw ApiError.internal('Paid withdrawal has no valid transfer record');
+    }
+    const now = new Date();
+    const dispute = await tx.withdrawalDispute.create({ data: {
+      withdrawalId, openedBy: actorUserId, reason: rawArgs.reason, description, status: 'OPEN',
+      openedFromStatus: withdrawal.status as 'HELD' | 'PAYOUT_IN_PROGRESS' | 'PAYMENT_SUBMITTED', idempotencyKey,
+    }});
+    const transition = await tx.withdrawal.updateMany({ where: { id: withdrawalId, status: withdrawal.status as any }, data: {status:'DISPUTED',disputedAt:now} });
+    if (transition.count !== 1) throw ApiError.conflict('Withdrawal changed while opening the appeal');
+    await tx.withdrawalOperation.create({data:{withdrawalId,actorUserId,action,idempotencyKey,requestHash,resultType:'WithdrawalDispute',resultId:dispute.id}});
+    await tx.auditLog.create({data:{userId:actorUserId,action:'WITHDRAWAL_DISPUTE_OPENED',entity:'WithdrawalDispute',entityId:dispute.id,oldData:{withdrawalStatus:withdrawal.status},newData:{withdrawalId,withdrawalStatus:'DISPUTED',reason:rawArgs.reason},ip:context?.ip,userAgent:context?.userAgent}});
+    const recipient = actorUserId === withdrawal.userId ? agent.userId : withdrawal.userId;
+    await tx.notification.create({data:{userId:recipient,type:'SYSTEM',title:'Payment appeal opened',body:'Payment order updated. Open the order to see its status and next step.',data:{withdrawalId,disputeId:dispute.id,url:`/wallet/orders/withdrawal/${withdrawalId}`}}});
+    return {dispute,withdrawal:await tx.withdrawal.findUniqueOrThrow({where:{id:withdrawalId}}),idempotent:false};
   });
 }
 
@@ -1092,7 +1137,7 @@ export async function resolveWithdrawalDispute(
     if (rawArgs.outcome === 'CANCELLED' && adminVerifiedPayment) {
       throw ApiError.badRequest('adminVerifiedPayment is only valid for a COMPLETED resolution');
     }
-    if (rawArgs.outcome === 'COMPLETED' && dispute.openedFromStatus === 'PAYOUT_IN_PROGRESS' && !adminVerifiedPayment) {
+    if (rawArgs.outcome === 'COMPLETED' && ['HELD', 'PAYOUT_IN_PROGRESS'].includes(dispute.openedFromStatus ?? '') && !adminVerifiedPayment) {
       throw ApiError.badRequest('adminVerifiedPayment is required to complete an escalated in-progress payout');
     }
     if (rawArgs.outcome === 'COMPLETED' && dispute.openedFromStatus === 'PAYMENT_SUBMITTED' && adminVerifiedPayment) {
@@ -1104,7 +1149,7 @@ export async function resolveWithdrawalDispute(
     if (dispute.status !== 'ASSIGNED') {
       throw ApiError.conflict(`Withdrawal dispute cannot be resolved from status: ${dispute.status}`);
     }
-    if (dispute.openedFromStatus !== 'PAYMENT_SUBMITTED' && dispute.openedFromStatus !== 'PAYOUT_IN_PROGRESS') {
+    if (!['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED'].includes(dispute.openedFromStatus ?? '')) {
       throw ApiError.internal('Withdrawal dispute has an invalid or missing origin status');
     }
 

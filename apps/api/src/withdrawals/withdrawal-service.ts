@@ -1,3 +1,4 @@
+import { notifyWithdrawalUpdate } from './notifications.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { prisma } from '@socialplay/database';
 import type { Prisma, Withdrawal } from '@socialplay/database';
@@ -471,10 +472,10 @@ export async function createWithdrawal(
         });
         await writeReserveLedgerEntry(tx, candidate, quote!.fiatAmount, quote!.fiatCurrency, withdrawalId, reservation.id);
 
-        // Step 8: audit log. Agent notification is deliberately deferred
-        // to the payment-submission phase (explicitly out of scope this
-        // turn) — notifying an agent about a withdrawal they have no
-        // route to act on yet would be premature.
+        // Notify the assigned agent only after the held request exists, in the
+        // same transaction. Rolled-back admission never sends a false assignment.
+        const assignedAgent = await tx.agent.findUniqueOrThrow({ where: { id: candidate.agentId }, select: { userId: true } });
+        await tx.notification.create({data:{userId:assignedAgent.userId,type:'SYSTEM',title:'New withdrawal assigned',body:'Payment order updated. Open the order to see its status and next step.',data:{withdrawalId:withdrawal.id,url:`/wallet/orders/withdrawal/${withdrawal.id}`}}});
         await tx.auditLog.create({
           data: {
             userId: actorUserId,
@@ -994,6 +995,7 @@ export async function submitPayment(
     });
 
     const fresh = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    await notifyWithdrawalUpdate(tx, withdrawalId);
     return { result: submission, withdrawal: fresh, idempotent: false };
   });
 }
@@ -1208,6 +1210,7 @@ export async function cancelHeldWithdrawal(
     });
 
     const final = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+    await notifyWithdrawalUpdate(tx, withdrawalId);
     return { result: final, idempotent: false };
   });
 }

@@ -1,3 +1,4 @@
+import { paymentFieldLabel } from '@/lib/payment-field-label';
 import { LatePaymentReport, LatePaymentCases } from './wallet-late-payments';
 import {
   currencyMinorDigits,
@@ -50,6 +51,7 @@ type Options = {
 type Payment = {
   id: string;
   orderNumber?: string;
+  withdrawalNumber?: string;
   status: string;
   coinAmount: number;
   fiatAmount: string | number;
@@ -726,6 +728,7 @@ function Payments({ userId }: { userId: string }) {
                       {quote && (
                         <div className="payment-quote">
                           <h3>{translateUi('Review your withdrawal')}</h3>
+                          <p>{translateUi('An available approved agent is assigned when you confirm.')}</p>
                           {Date.parse(quote.expiresAt) <= now && (
                             <p role="alert">
                               {translateUi(
@@ -873,6 +876,7 @@ function Payments({ userId }: { userId: string }) {
                     />
                     <ConfirmAction
                       label={translateUi('Cancel unpaid order')}
+                      verificationText={translateUi('I have not sent any money.')}
                       disabled={busy}
                       onConfirm={() => action.run(`/agent-orders/${p.id}/cancel`)}
                     />
@@ -881,7 +885,7 @@ function Payments({ userId }: { userId: string }) {
                 {['EXPIRED', 'CANCELLED'].includes(p.status) && (
                   <LatePaymentReport orderId={p.id} currency={p.fiatCurrency} />
                 )}
-                {p.status === 'PAYMENT_SUBMITTED' && (
+                {['CREATED', 'PAYMENT_SUBMITTED'].includes(p.status) && (
                   <button disabled={busy} onClick={() => setDispute({ id: p.id, kind: 'deposit' })}>
                     {translateUi('Report a problem')}
                   </button>
@@ -923,6 +927,7 @@ function Payments({ userId }: { userId: string }) {
                 {p.status === 'PAYMENT_SUBMITTED' && (
                   <ConfirmAction
                     label={translateUi('Confirm money received')}
+                    verificationText={translateUi('I received the full amount in my bank or mobile-money account.')}
                     disabled={busy}
                     onConfirm={() => action.run(`/withdrawals/${p.id}/confirm-receipt`)}
                   />
@@ -934,7 +939,7 @@ function Payments({ userId }: { userId: string }) {
                     )}
                   </p>
                 )}
-                {p.status === 'PAYMENT_SUBMITTED' && (
+                {['HELD', 'PAYOUT_IN_PROGRESS', 'PAYMENT_SUBMITTED'].includes(p.status) && (
                   <button
                     disabled={busy}
                     onClick={() => setDispute({ id: p.id, kind: 'withdrawal' })}
@@ -958,19 +963,18 @@ function Payments({ userId }: { userId: string }) {
           </label>
           <button
             disabled={busy || !reason.trim()}
-            onClick={() => {
-              void action.run(
+            onClick={async () => {
+              const saved = await action.run(
                 dispute.kind === 'deposit'
                   ? '/agent-disputes'
-                  : `/withdrawals/${dispute.id}/dispute`,
+                  : `/withdrawals/${dispute.id}/appeal`,
                 {
                   ...(dispute.kind === 'deposit' ? { orderId: dispute.id } : {}),
                   reason: 'OTHER',
                   description: reason,
                 }
               );
-              setDispute(null);
-              setReason('');
+              if (saved) { setDispute(null); setReason(''); }
             }}
           >
             {translateUi('Submit report')}
@@ -985,19 +989,23 @@ export function ConfirmAction({
   label,
   disabled,
   onConfirm,
+  verificationText,
 }: {
   label: string;
   disabled: boolean;
   onConfirm: () => void;
+  verificationText?: string;
 }) {
   const { t: translateUi } = useInterfaceLanguage();
 
   const [confirm, setConfirm] = useState(false);
+  const [verified, setVerified] = useState(false);
   return confirm ? (
     <span className="payment-actions">
       <span>{translateUi('Confirm: {value}?', { value: label.toLowerCase() })}</span>
+      {verificationText && <label className="payment-check"><input type="checkbox" checked={verified} onChange={e=>setVerified(e.target.checked)}/>{verificationText}</label>}
       <button
-        disabled={disabled}
+        disabled={disabled || (!!verificationText && !verified)}
         onClick={() => {
           setConfirm(false);
           onConfirm();
@@ -1008,7 +1016,7 @@ export function ConfirmAction({
       <button onClick={() => setConfirm(false)}>{translateUi('Back')}</button>
     </span>
   ) : (
-    <button disabled={disabled} onClick={() => setConfirm(true)}>
+    <button disabled={disabled} onClick={() => { setVerified(false); setConfirm(true); }}>
       {label}
     </button>
   );
@@ -1025,7 +1033,7 @@ export function PaymentCard({
   return (
     <article className="payment-record">
       <div>
-        <strong>{p.orderNumber ?? p.id}</strong>
+        <strong>{p.orderNumber ?? p.withdrawalNumber ?? p.id}</strong>
         <span className="payment-status">
           {translateUi(
             (
@@ -1038,6 +1046,7 @@ export function PaymentCard({
                 CANCELLED: 'Cancelled',
                 EXPIRED: 'Expired',
                 DISPUTED: 'Under review',
+                DISPUTE: 'Under review',
               } as Record<string, string>
             )[p.status] ?? p.status.replaceAll('_', ' ')
           )}
@@ -1070,7 +1079,7 @@ export function PaymentCard({
           <dl>
             {Object.entries(p.paymentSnapshot).map(([key, value]) => (
               <div key={key}>
-                <dt>{key.replaceAll('_', ' ')}</dt>
+                <dt>{translateUi(paymentFieldLabel(key))}</dt>
                 <dd>
                   {typeof value === 'string'
                     ? value
@@ -1081,7 +1090,7 @@ export function PaymentCard({
           </dl>
         </details>
       )}
-      <div className="payment-actions">{children}</div>
+      <div className="payment-actions">{children}<Link className="payment-order-link" to={`/wallet/orders/${p.withdrawalNumber ? 'withdrawal' : 'deposit'}/${p.id}`}>{translateUi('Open order and appeal')}</Link></div>
     </article>
   );
 }

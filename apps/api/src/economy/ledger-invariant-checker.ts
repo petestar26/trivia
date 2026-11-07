@@ -65,6 +65,7 @@ const STRICT_SCHEDULED_FUNCTIONS = [
   'rk_guard', 'rk_balance_check', 'ls_guard', 'ls_balance_check',
   'bj_total', 'bj_category', 'bj_guard', 'bj_balance_check',
   'sg_test_guard', 'sg_test_reconcile',
+  'ledger_apply_runtime_grants_pre_payment_rooms', 'payment_order_messages_immutable',
   'sg_sports_identity_guard', 'sg_sports_receipt_proof', 'ledger_apply_runtime_grants_pre_sports',
   'play_together_round_guard', 'play_together_entry_guard', 'play_together_funding_proof',
   'play_together_pool_proof', 'ledger_apply_runtime_grants_pre_together',
@@ -153,6 +154,7 @@ const checks: ReadonlyArray<[string, string]> = [
        COALESCE((array_agg(id ORDER BY id))[1:10],ARRAY[]::text[]) AS sample FROM failures`],
   ['I3 financial history triggers present, guard functions pinned', `
     WITH expected(tab, trigger_name) AS (VALUES
+      ('payment_order_messages','payment_order_messages_immutable'),
       ('countries','country_usd_activation'),
       ('exchange_rate_configs','exchange_rate_usd_terms'),
       ('agent_orders','agent_order_usd_snapshot'),

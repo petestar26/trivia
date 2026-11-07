@@ -27,7 +27,14 @@ it('does not disclose a dispute on an unrelated caller replay with an exact know
   expect(db.$transaction).not.toHaveBeenCalled();
 });
 it.each(['customer', 'agent-user'])('preserves authorized replay for %s', async (actor) => {
-  await expect(openDispute(actor, args)).resolves.toEqual({ dispute, idempotent: true });
+  const ownDispute = { ...dispute, openedBy: actor };
+  db.dispute.findUnique.mockResolvedValue(ownDispute);
+  await expect(openDispute(actor, args)).resolves.toEqual({ dispute: ownDispute, idempotent: true });
+  expect(db.$transaction).not.toHaveBeenCalled();
+});
+it.each(['customer', 'agent-user'])('rejects %s replaying the other party request', async (actor) => {
+  db.dispute.findUnique.mockResolvedValue({ ...dispute, openedBy: actor === 'customer' ? 'agent-user' : 'customer' });
+  await expect(openDispute(actor, args)).rejects.toMatchObject({ statusCode: 409 });
   expect(db.$transaction).not.toHaveBeenCalled();
 });
 it.each(['SUSPENDED', 'BANNED', 'DELETED'])('rejects %s owners before replay or private reads', async (status) => {

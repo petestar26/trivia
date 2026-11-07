@@ -4,14 +4,8 @@ import { creditCoins, lockUserEconomicScope } from '../economy/coin-ledger-servi
 import { assertPlatformAdmin } from './agent-service.js';
 import { releaseReservedInventory, consumeReservedInventory } from './inventory-service.js';
 
-// Phase F scope note: only the manually-initiated dispute path is
-// implemented here (customer or agent opens a dispute; an admin claims and
-// resolves it). The SYSTEM/auto-open-on-timeout path (Dispute.openedBy =
-// "SYSTEM") is NOT implemented — it requires an authoritative timeout
-// duration and scheduled-sweep infrastructure, neither of which exists
-// anywhere in this repository (see the Phase F report). Everything below
-// is reachable only from AgentOrderStatus.PAYMENT_SUBMITTED, entirely
-// independent of that missing piece.
+// Both order parties can appeal before or after marking a deposit paid. An
+// appeal never releases inventory; an independent reviewer resolves it.
 
 export type DisputeReason = 'PAYMENT_NOT_RECEIVED' | 'WRONG_AMOUNT' | 'AGENT_UNRESPONSIVE' | 'OTHER';
 
@@ -55,9 +49,8 @@ async function resolveDisputeParty(actorUserId: string, order: { userId: string;
 }
 
 /**
- * Open a dispute on an order. Legal only from PAYMENT_SUBMITTED (the
- * customer claims to have paid; something is now in disagreement between
- * the two parties). Atomically transitions the order to DISPUTE.
+ * Open an appeal on a reserved order, including payment sent before the
+ * customer could mark it paid. Atomically transitions the order to DISPUTE.
  *
  * Idempotency: [orderId, idempotencyKey] — a replay with matching fields
  * returns the original; a replay with different fields conflicts. A NEW
@@ -84,7 +77,7 @@ export async function openDispute(
     where: { orderId_idempotencyKey: { orderId: args.orderId, idempotencyKey: args.idempotencyKey } },
   });
   if (existing) {
-    if (disputeRequestFieldsMatch(existing, args)) {
+    if (existing.openedBy === actorUserId && disputeRequestFieldsMatch(existing, args)) {
       return { dispute: existing, idempotent: true };
     }
     throw ApiError.conflict('A dispute already exists for this idempotency key with different request data');
@@ -104,7 +97,7 @@ export async function openDispute(
         SELECT status::text FROM users WHERE id=${actorUserId} FOR SHARE`;
       if (actor?.status !== 'ACTIVE') throw ApiError.forbidden('An active account is required');
       const claim = await tx.agentOrder.updateMany({
-        where: { id: args.orderId, status: 'PAYMENT_SUBMITTED' },
+        where: { id: args.orderId, status: { in: ['CREATED', 'PAYMENT_SUBMITTED'] } },
         data: { status: 'DISPUTE' },
       });
       if (claim.count === 0) {
@@ -142,9 +135,9 @@ export async function openDispute(
         data: {
           userId: notifyUserId,
           type: 'AGENT_DISPUTE_OPENED',
-          title: 'Dispute Opened',
-          body: `A dispute was opened on order ${order.orderNumber}.`,
-          data: { orderId: args.orderId, disputeId: dispute.id, reason: args.reason },
+          title: 'Payment appeal opened',
+          body: 'Payment order updated. Open the order to see its status and next step.',
+          data: { orderId: args.orderId, disputeId: dispute.id, reason: args.reason, url: `/wallet/orders/deposit/${args.orderId}` },
         },
       });
 
@@ -161,7 +154,7 @@ export async function openDispute(
     });
     if (winner) {
       await resolveDisputeParty(actorUserId, order);
-      if (disputeRequestFieldsMatch(winner, args)) {
+      if (winner.openedBy === actorUserId && disputeRequestFieldsMatch(winner, args)) {
         return { dispute: winner, idempotent: true };
       }
       throw ApiError.conflict('A dispute already exists for this idempotency key with different request data');
@@ -419,9 +412,9 @@ export async function resolveDispute(
         data: {
           userId,
           type: 'AGENT_DISPUTE_RESOLVED',
-          title: 'Dispute Resolved',
-          body: `The dispute on order ${order.orderNumber} was resolved: ${resolution === 'RELEASE' ? 'coins released to the customer' : 'order cancelled'}.`,
-          data: { orderId: order.id, disputeId, resolution },
+          title: 'Payment order update',
+          body: 'Payment order updated. Open the order to see its status and next step.',
+          data: { orderId: order.id, disputeId, resolution, url: `/wallet/orders/deposit/${order.id}` },
         },
       });
     }

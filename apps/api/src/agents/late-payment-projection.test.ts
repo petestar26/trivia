@@ -55,10 +55,12 @@ it('filters an exact report retry even after staff have resolved the case', asyn
   expect(state.tx.latePaymentCase.create).not.toHaveBeenCalled();
   expect(state.tx.auditLog.create).not.toHaveBeenCalled();
 });
-it('uses the same allowlist for the member queue and its nested order', async () => {
-  const rows = await listLatePayments('member');
+it.each(['member', 'agent'])('uses the private allowlist and assigned-order scope for %s', async (actor) => {
+  const rows = await listLatePayments(actor);
   expectMember(rows[0]);
-  expect(state.tx.latePaymentCase.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { openedBy: 'member' } }));
+  expect(state.tx.latePaymentCase.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    where: { order: { OR: [{ userId: actor }, { agent: { userId: actor } }] } },
+  }));
 });
 it('retains assignment details in the authorized staff queue', async () => {
   const rows = await listLatePayments('super-admin', true);
