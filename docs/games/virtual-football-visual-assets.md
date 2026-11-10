@@ -83,6 +83,15 @@ Base: production website commit `1436fba5ae2bc68a2385258bf8645688428e2058`, whic
 
 All additions are original repository code with generated textures. No model, texture, animation, audio, font, photograph or third-party asset was added, and the existing CC0 assets and hashes above are unchanged. Sponsors remain invented.
 
-Measured in matched lab captures (`football-lab.html?scene=match`, fixture `vf-s1-w01-f05`, clubs 5 and 14, same clock and viewport): live-play triangles fell from about 683k to about 232k at 1280 × 720, with draw calls rising from 105 to 128–137. The lazy engine chunk grew by 21 KB (8 KB gzip), and the main bundle is unchanged. Timings were measured in headless Chromium with SwiftShader software rendering. They compare before and after on one machine and are not phone, GPU or Safari performance.
+Measured with matched lab captures (`football-lab.html?scene=match`, fixture `vf-s1-w01-f05`, clubs 5 and 14, the same clock and viewport, pixel ratio 1). Timings come from headless Chromium 153.0.8010.12 with SwiftShader software rendering on a 4-vCPU cloud Xeon, interleaved A/B over two rounds. Each figure is a mean of 40 consecutive live-play frames, synchronised by reading back from the GPU.
+
+| 1280 × 720 / 390 × 844        | base `1436fba`          | this change             |
+| ----------------------------- | ----------------------- | ----------------------- |
+| Triangles                     | 640k / 559k             | 217k / 111k             |
+| Draw calls                    | 104 / 93                | 127 / 109               |
+| GPU-synchronised frame        | 555–560 ms / 315–319 ms | 469–474 ms / 181–186 ms |
+| Main-thread JavaScript, frame | 8.3–8.6 ms / 7.1–7.5 ms | 8.2–8.4 ms / 7.3–8.7 ms |
+
+A first pass applied the environment light to every material and was 37 % slower per desktop frame. Ablation moved the large matte surfaces to Lambert shading, which removed that cost. Software-renderer figures compare builds on one machine only; they are not phone, GPU or Safari frame rates. The lazy engine chunk grew by 20.9 KB (7.9 KB gzip), and the main bundle is unchanged.
 
 Limits: crowd cards are flat and are designed for this fixed camera distance; a future close-up camera would need 3D or impostor spectators. The goal moment is now wide, as on live television; the former low close-up is gone, and the shipped catalog card still shows it. Player bodies, garments and motion are unchanged and keep the open specialist requirements recorded above. Physical-device performance, thermal behaviour and Safari remain unverified.
