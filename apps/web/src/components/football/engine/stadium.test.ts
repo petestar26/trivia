@@ -123,6 +123,10 @@ describe('turf', () => {
     expect(shader.uniforms.uTurfLineHalf.value).toBeCloseTo(0.06);
     expect(MARKINGS.centreCircle).toBe(9.15);
     expect(MARKINGS.penaltySpot).toBe(11);
+    // Broad variation comes from one non-repeating map over the whole surface, not the tile.
+    expect(shader.uniforms.uTurfMacro.value).toBeInstanceOf(THREE.DataTexture);
+    expect(shader.fragmentShader).toContain('texture2D(uTurfMacro');
+    expect(shader.fragmentShader).not.toContain('vMapUv * 0.071');
     expect(turf.mesh.receiveShadow).toBe(true);
     turf.dispose();
   });

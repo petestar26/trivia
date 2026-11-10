@@ -83,7 +83,7 @@ Base: production website commit `1436fba5ae2bc68a2385258bf8645688428e2058`, whic
 
 All additions are original repository code with generated textures. No model, texture, animation, audio, font, photograph or third-party asset was added, and the existing CC0 assets and hashes above are unchanged. Sponsors remain invented.
 
-Measured with matched lab captures (`football-lab.html?scene=match`, fixture `vf-s1-w01-f05`, clubs 5 and 14, the same clock and viewport, pixel ratio 1). Timings come from headless Chromium 153.0.8010.12 with SwiftShader software rendering on a 4-vCPU cloud Xeon, interleaved A/B over two rounds. Each figure is a mean of 40 consecutive live-play frames, synchronised by reading back from the GPU.
+First-iteration measurements, captured at commit `42e7749` (its docs-only successor `04403e8` has identical application code), with matched lab captures (`football-lab.html?scene=match`, fixture `vf-s1-w01-f05`, clubs 5 and 14, the same clock and viewport, pixel ratio 1). Timings come from headless Chromium 153.0.8010.12 with SwiftShader software rendering on a 4-vCPU cloud Xeon, interleaved A/B over two rounds. Each figure is a mean of 40 consecutive live-play frames, synchronised by reading back from the GPU.
 
 | 1280 × 720 / 390 × 844        | base `1436fba`          | this change             |
 | ----------------------------- | ----------------------- | ----------------------- |
@@ -95,3 +95,20 @@ Measured with matched lab captures (`football-lab.html?scene=match`, fixture `vf
 A first pass applied the environment light to every material and was 37 % slower per desktop frame. Ablation moved the large matte surfaces to Lambert shading, which removed that cost. Software-renderer figures compare builds on one machine only; they are not phone, GPU or Safari frame rates. The lazy engine chunk grew by 20.9 KB (7.9 KB gzip), and the main bundle is unchanged.
 
 Limits: crowd cards are flat and are designed for this fixed camera distance; a future close-up camera would need 3D or impostor spectators. The goal moment is now wide, as on live television; the former low close-up is gone, and the shipped catalog card still shows it. Player bodies, garments and motion are unchanged and keep the open specialist requirements recorded above. Physical-device performance, thermal behaviour and Safari remain unverified.
+
+### Second iteration: stage-aware framing, goal push-in and natural turf
+
+Review feedback found that goals were too distant, especially on phones, and the grass too noisy. In the shipped layout, phones never draw a portrait 3D stage. The 3D view is a 4:3 box of about 390 × 292 CSS px on the match page and its expanded view, about 390 × 222 in the group game and about 362 × 254 on the sports card. A landscape phone gets a wide strip of about 844 × 265. Only the lab produces a truly portrait canvas.
+
+- **Stage-aware framing** (`broadcast-framing.ts`). Desktop framing is unchanged.
+  - Smaller stages zoom until a 1.8 m player is at least 24 CSS px tall in live play, never narrower than 14 m across.
+  - Small and portrait stages tilt so the far boards sit near the top and the stand is mostly cropped.
+  - Portrait stages use a higher position on the same gantry axis. For a given stage the camera never moves; only aim and zoom change.
+- **Goal push-in.** The director's zoom intent rises from 1.3× to 1.9× through the move and eases to 1.55× for the celebration. The director also states what the shot must contain: the ball always, and the goal mouth and goalkeeper once the ball is within about 20–32 m. The framing never zooms tighter than that.
+  - Tests cover the ball, the goalkeeper (from 1 s before the finish) and both posts (from 0.5 s) for every goal variant on eight stage sizes. They pass both for the director's framing and with the live operator's lag.
+  - The operator zooms out quickly and in slowly, so widening for the action never lags.
+- **Cuts.** Entering and leaving a goal remains a cut, because players are restaged when a goal is released and the client may not anticipate it. The overlay is now a 30% dip held for 120 ms that eases out over 420 ms, replacing a 55% flash. The sports preview has no goals and never cuts.
+- **Turf.** The detail tile no longer has large clumps, which repeated every 2.6 m as visible blotches. Blades are low-contrast on a 3.4 m tile. Broad variation comes from one non-repeating 64² noise map over the whole surface. Mowing bands blend over about 0.4 m, and turf colour is partly desaturated toward a warm grey.
+- **Players.** Unchanged. See `virtual-football-player-realism-assessment.md` for the assessment and the exact asset, motion and licence requirements.
+
+The measurements, matched three-way captures (`1436fba`, `04403e8` and this iteration's commit) and device/browser details for this iteration are reported in the pull request, tied to the exact captured commit.

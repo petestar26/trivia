@@ -112,7 +112,8 @@ function SceneCanvas({
       if (live.current.reduced) return;
       setCut(true);
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => setCut(false), 260);
+      // Hold the dip only long enough to cover the restaged frame, then let it ease out.
+      timer = window.setTimeout(() => setCut(false), 120);
     };
     element.addEventListener('football-cut', onCut);
     return () => {

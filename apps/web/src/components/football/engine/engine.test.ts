@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type * as ThreeModule from 'three';
-import { BROADCAST_RIG, PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
+import { PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
 import { createEngine, type Engine, type MatchInput } from './engine';
+import { frameShot } from './broadcast-framing';
 import { statusAt } from '@/lib/football/reveal';
 
 const rosterState = vi.hoisted(() => ({ details: [] as string[] }));
@@ -404,43 +405,54 @@ it('reports the actually selected roster detail counts without changing renderer
   });
 });
 
-describe.each([...viewports, { name: 'phone', width: 390, height: 844 }])(
-  'live broadcast camera at $name',
-  ({ width, height }) => {
-    it.each(scoringGoals)(
-      'stays on the gantry and keeps the ball on screen through the $side goal at $atMs',
-      (goal) => {
-        const { engine } = setup(false, width, height);
-        engine.setMatch({ ...match, goals: [goal] });
-        const start = goal.atMs;
-        let checked = 0;
-        // Live play into the sequence and through the finish, at 30 fps with operator lag.
-        for (
-          let ms = start - 3000;
-          ms <= start + GOAL_SEQUENCE.moment * 1000 + 300;
-          ms += 1000 / 30
-        ) {
-          const frame = engine.renderAt(ms, 1 / 30);
-          const camera = renderedCamera();
-          expect(camera.position.toArray()).toEqual([
-            BROADCAST_RIG.x,
-            BROADCAST_RIG.y,
-            BROADCAST_RIG.z,
-          ]);
-          if (frame.mode === 'GOAL') {
-            inside(
-              camera,
-              new THREE.Vector3(frame.ball.x, frame.ball.y, frame.ball.z),
-              `ball ${ms}`
-            );
-            checked++;
-          }
+const liveStages = [
+  ...viewports,
+  { name: 'phone portrait', width: 390, height: 844 },
+  { name: 'phone game page', width: 390, height: 292 },
+  { name: 'landscape phone strip', width: 844, height: 265 },
+];
+describe.each(liveStages)('live broadcast camera at $name', ({ width, height }) => {
+  it.each(scoringGoals)(
+    'holds one camera position and keeps the ball and keeper on screen through the $side goal at $atMs',
+    (goal) => {
+      const { engine } = setup(false, width, height);
+      engine.setMatch({ ...match, goals: [goal] });
+      const start = goal.atMs;
+      const rig = frameShot(
+        directorFrame({ ...match, goals: [], elapsedMs: 1000, status: 'FIRST_HALF' }).camera,
+        {
+          width,
+          height,
         }
-        expect(checked).toBeGreaterThan(60);
+      );
+      const keeper = goal.side === 'H' ? 11 : 0;
+      let checked = 0;
+      // Live play into the sequence and through the finish, at 30 fps with operator lag.
+      for (
+        let ms = start - 3000;
+        ms <= start + GOAL_SEQUENCE.moment * 1000 + 300;
+        ms += 1000 / 30
+      ) {
+        const frame = engine.renderAt(ms, 1 / 30);
+        const camera = renderedCamera();
+        // The camera never moves on its gantry for a given stage; only aim and zoom change.
+        expect(camera.position.x).toBeCloseTo(rig.x, 9);
+        expect(camera.position.y).toBeCloseTo(rig.y, 9);
+        expect(camera.position.z).toBeCloseTo(rig.z, 9);
+        if (frame.mode === 'GOAL') {
+          inside(camera, new THREE.Vector3(frame.ball.x, frame.ball.y, frame.ball.z), `ball ${ms}`);
+          if (ms >= start + (GOAL_SEQUENCE.moment - 0.8) * 1000) {
+            const k = frame.actors[keeper];
+            inside(camera, new THREE.Vector3(k.x, 1.8, k.z), `keeper head ${ms}`);
+            inside(camera, new THREE.Vector3(k.x, 0, k.z), `keeper feet ${ms}`);
+          }
+          checked++;
+        }
       }
-    );
-  }
-);
+      expect(checked).toBeGreaterThan(60);
+    }
+  );
+});
 
 it('eases between live framings instead of jumping, and cuts only into and out of goals', () => {
   const { engine, host } = setup(false);

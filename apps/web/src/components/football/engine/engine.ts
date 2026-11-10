@@ -16,6 +16,7 @@ import { ballTexture } from './ball';
 import { createContactShadows } from './contact-shadows';
 import { createFloodlitEnvironment, nightSkyTexture } from './environment';
 import { createCameraOperator, OPERATOR_GOAL, OPERATOR_PLAY } from './camera-operator';
+import { frameShot } from './broadcast-framing';
 
 /** Everything the renderer is allowed to know about a match: released facts only. */
 export interface MatchInput {
@@ -322,10 +323,11 @@ export function createEngine(options: EngineOptions): Engine {
       const target = reducedPitchCamera(camera.aspect);
       operator.cut(target);
     } else {
-      const target = {
-        ...frame.camera,
-        fov: broadcastFov(frame.camera.fov, camera.aspect),
-      };
+      // The director's framing intent, fitted to this stage's real CSS size and shape.
+      const target = frameShot(frame.camera, {
+        width: host.clientWidth || 16,
+        height: host.clientHeight || 9,
+      });
       if (cut || lastMode === null) operator.cut(target);
       else operator.follow(target, dt, frame.mode === 'GOAL' ? OPERATOR_GOAL : OPERATOR_PLAY);
     }

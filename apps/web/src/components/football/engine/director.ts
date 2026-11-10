@@ -54,7 +54,19 @@ export type Mode = 'PRE' | 'PLAY' | 'HALFTIME' | 'POST' | 'GOAL';
 export interface Frame {
   actors: ActorState[];
   ball: { x: number; y: number; z: number };
-  camera: { x: number; y: number; z: number; lx: number; ly: number; lz: number; fov: number };
+  camera: {
+    x: number;
+    y: number;
+    z: number;
+    lx: number;
+    ly: number;
+    lz: number;
+    fov: number;
+    /** Operator zoom intent already folded into `fov` (1 = live-play framing). */
+    zoom?: number;
+    /** Metres the shot must cover across at the look-at point (the action that must stay in view). */
+    span?: number;
+  };
   mode: Mode;
   half: 1 | 2;
   /** Present during a goal sequence. */
@@ -846,7 +858,22 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
     x: lerp(play.x, group.x, settle * 0.6),
     z: lerp(play.z, group.z, settle * 0.5),
   };
-  const camera = broadcastCamera(framing, lerp(1.08, 1.22, smooth((t - 0.4) / 2)));
+  // Progressive push-in on the box as the move develops, held through the finish, then eased
+  // back a little for the celebration. The engine keeps a minimum width of view on narrow stages.
+  const zoom =
+    t < M + 0.6
+      ? lerp(1.3, 1.9, smooth((t - 0.2) / 1.5))
+      : lerp(1.9, 1.55, smooth((t - M - 0.6) / 1.4));
+  const camera = broadcastCamera(framing, zoom);
+  // What the shot must keep in view: the ball always; the goal mouth and the goalkeeper once the
+  // ball is within about 20-32 m of the goal line (fading in, so the push-in stays smooth).
+  const keeper = actors.get(D(0))!;
+  const near = clamp(1 - (Math.abs(gx - ball.x) - 20) / 12, 0, 1);
+  const reach = Math.max(
+    Math.abs(ball.x - camera.lx),
+    near * Math.max(Math.abs(gx + a * 0.6 - camera.lx), Math.abs(keeper.x - camera.lx))
+  );
+  camera.span = 2 * reach + 5;
   const crowd = t < M ? 0.4 : clamp(1 - (t - M) / 8, 0.55, 1);
   return { actors, ball, net, camera, scored: t >= M, crowd };
 }
@@ -875,6 +902,7 @@ export function broadcastCamera(target: Vec, zoom = 1): Frame['camera'] {
     ly: 0.9,
     lz,
     fov: (Math.atan(tan) * 360) / Math.PI,
+    zoom,
   };
 }
 

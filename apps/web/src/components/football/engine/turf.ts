@@ -18,7 +18,7 @@ export const TURF = Object.freeze({
   /** Painted line width in metres (Laws of the Game: no wider than 12 cm). */
   lineWidth: 0.12,
   /** Grass detail repeat, metres per tile. */
-  detailTile: 2.6,
+  detailTile: 3.4,
   /** Turf beyond the touch/goal lines up to the perimeter. */
   marginLength: 8,
   marginWidth: 6,
@@ -36,6 +36,11 @@ export const MARKINGS = Object.freeze({
   spotRadius: 0.15,
 });
 
+/**
+ * Fine, low-contrast blade texture. It deliberately has no large features: anything bigger than a
+ * few blades would show as a repeating pattern across the pitch. Broad variation comes from the
+ * separate, non-repeating macro map below.
+ */
 function grassDetailTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -49,44 +54,78 @@ function grassDetailTexture(): THREE.CanvasTexture {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 4294967296;
   };
-  // Soft clumps first, then thousands of short blades in slightly varied greens. Every
-  // stroke wraps across the tile edge so the repeat has no seam.
-  const wrapped = (draw: (ox: number, oy: number) => void) => {
-    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) draw(ox, oy);
-  };
-  for (let i = 0; i < 70; i++) {
+  // Short blades in a narrow tonal range; every stroke wraps so the tile has no seam.
+  const tones = ['#3a8838', '#44933f', '#3d8b3a', '#4a9843', '#378334', '#479541'];
+  for (let i = 0; i < 7000; i++) {
     const x = rand() * size;
     const y = rand() * size;
-    const r = 10 + rand() * 26;
-    const light = rand() < 0.5;
-    wrapped((ox, oy) => {
-      ctx.fillStyle = light ? 'rgba(120,170,80,0.08)' : 'rgba(18,60,24,0.09)';
-      ctx.beginPath();
-      ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }
-  const tones = ['#2f7a31', '#4a9a43', '#3b8638', '#5aa64c', '#2a6d2d', '#6fae55'];
-  for (let i = 0; i < 9000; i++) {
-    const x = rand() * size;
-    const y = rand() * size;
-    const len = 2 + rand() * 4;
-    const lean = (rand() - 0.5) * 1.6;
+    const len = 2 + rand() * 3;
+    const lean = (rand() - 0.5) * 1.2;
     ctx.strokeStyle = tones[Math.floor(rand() * tones.length)];
-    ctx.globalAlpha = 0.25 + rand() * 0.35;
-    ctx.lineWidth = 0.7 + rand() * 0.6;
-    wrapped((ox, oy) => {
-      if (x + ox < -6 || x + ox > size + 6 || y + oy < -6 || y + oy > size + 6) return;
-      ctx.beginPath();
-      ctx.moveTo(x + ox, y + oy);
-      ctx.lineTo(x + ox + lean, y + oy - len);
-      ctx.stroke();
-    });
+    ctx.globalAlpha = 0.24 + rand() * 0.3;
+    ctx.lineWidth = 0.8 + rand() * 0.5;
+    for (const ox of [-size, 0, size])
+      for (const oy of [-size, 0, size]) {
+        if (x + ox < -6 || x + ox > size + 6 || y + oy < -6 || y + oy > size + 6) continue;
+        ctx.beginPath();
+        ctx.moveTo(x + ox, y + oy);
+        ctx.lineTo(x + ox + lean, y + oy - len);
+        ctx.stroke();
+      }
   }
   ctx.globalAlpha = 1;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+/**
+ * One smooth, non-repeating variation map stretched over the whole playing surface: gentle
+ * patches of lusher and drier grass several metres across. Value noise with two octaves.
+ */
+function grassMacroTexture(): THREE.DataTexture {
+  const n = 64;
+  let seed = 51031;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const lattice = (cells: number) => {
+    const g = Array.from({ length: (cells + 1) * (cells + 1) }, rand);
+    return (u: number, v: number) => {
+      const x = u * cells;
+      const y = v * cells;
+      const i = Math.min(cells - 1, Math.floor(x));
+      const j = Math.min(cells - 1, Math.floor(y));
+      const fx = x - i;
+      const fy = y - j;
+      const sx = fx * fx * (3 - 2 * fx);
+      const sy = fy * fy * (3 - 2 * fy);
+      const at = (a: number, b: number) => g[b * (cells + 1) + a];
+      const top = at(i, j) + (at(i + 1, j) - at(i, j)) * sx;
+      const bottom = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * sx;
+      return top + (bottom - top) * sy;
+    };
+  };
+  const coarse = lattice(6);
+  const fine = lattice(17);
+  const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++)
+    for (let x = 0; x < n; x++) {
+      const u = (x + 0.5) / n;
+      const v = (y + 0.5) / n;
+      const value = coarse(u, v) * 0.7 + fine(u, v) * 0.3;
+      const i = (y * n + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = Math.round(value * 255);
+      data[i + 3] = 255;
+    }
+  const texture = new THREE.DataTexture(data, n, n);
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
   return texture;
 }
 
@@ -104,6 +143,8 @@ uniform float uTurfStripe;
 uniform float uTurfLineHalf;
 uniform vec3 uTurfLineColour;
 uniform vec3 uTurfWearColour;
+uniform sampler2D uTurfMacro;
+uniform vec2 uTurfExtent;
 float turfBox(vec2 p, vec2 b) {
   vec2 d = abs(p) - b;
   return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
@@ -167,16 +208,20 @@ const FRAGMENT_BODY = /* glsl */ `
 {
   vec2 p = vTurfWorld.xz;
   // Second, much larger sample of the same detail tile breaks up visible repetition.
-  vec3 macro = texture2D(map, vMapUv * 0.071 + vec2(0.37, 0.11)).rgb;
-  float macroLum = dot(macro, vec3(0.3, 0.59, 0.11));
-  diffuseColor.rgb *= clamp(mix(1.0, macroLum / 0.17, 0.55), 0.82, 1.18);
+  // Broad, non-repeating patches of lusher and drier grass (one lookup in a 64x64 map).
+  float macro = texture2D(uTurfMacro, p / uTurfExtent + 0.5).r;
+  diffuseColor.rgb *= 0.91 + 0.18 * macro;
+  // Real floodlit turf is less saturated than raw grass albedo; keep about three quarters.
+  float turfLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  diffuseColor.rgb = mix(turfLuma * vec3(1.06, 1.0, 0.78), diffuseColor.rgb, 0.74);
   // Mowing bands parallel to the goal lines, antialiased square wave. Their contrast follows
   // the view direction: blades bent toward/away from a side camera read darker/lighter.
   float f = (p.x + uTurfHalf.x) / uTurfStripe;
-  float band = clamp(0.5 + 0.5 * sin(3.14159265 * f) / (3.14159265 * fwidth(f) + 1e-4), 0.0, 1.0);
+  // Edges blend over about 0.4 m like real mown grass, and never sharper than a pixel.
+  float band = clamp(0.5 + 0.5 * sin(3.14159265 * f) / (3.14159265 * max(fwidth(f), 0.075)), 0.0, 1.0);
   vec3 toEye = normalize(cameraPosition - vTurfWorld);
   float sheen = 0.45 + 0.55 * abs(toEye.z);
-  diffuseColor.rgb *= 1.0 + (band - 0.5) * 0.26 * sheen;
+  diffuseColor.rgb *= 1.0 + (band - 0.5) * 0.2 * sheen;
   // Gentle wear: goalmouths, penalty spots and the kick-off area (noise only where worn).
   vec2 q = abs(p);
   float wear = 0.0;
@@ -216,6 +261,7 @@ export function buildTurf(options: { anisotropy?: number } = {}): Turf {
   const detail = grassDetailTexture();
   detail.repeat.set(lengthM / TURF.detailTile, widthM / TURF.detailTile);
   detail.anisotropy = Math.max(1, Math.min(8, options.anisotropy ?? 4));
+  const macro = grassMacroTexture();
   const geometry = new THREE.PlaneGeometry(lengthM, widthM);
   // Grass is a rough diffuse surface: per-pixel Lambert shading matches it and skips the
   // environment-reflection lookups, which are the costliest part of a full-screen material.
@@ -230,6 +276,8 @@ export function buildTurf(options: { anisotropy?: number } = {}): Turf {
     shader.uniforms.uTurfLineHalf = { value: TURF.lineWidth / 2 };
     shader.uniforms.uTurfLineColour = { value: new THREE.Color('#e6ebe2') };
     shader.uniforms.uTurfWearColour = { value: new THREE.Color('#6d7448') };
+    shader.uniforms.uTurfMacro = { value: macro };
+    shader.uniforms.uTurfExtent = { value: new THREE.Vector2(lengthM, widthM) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERTEX_DECL}`)
       .replace('#include <project_vertex>', `#include <project_vertex>\n${VERTEX_BODY}`);
@@ -237,7 +285,7 @@ export function buildTurf(options: { anisotropy?: number } = {}): Turf {
       .replace('#include <common>', `#include <common>\n${FRAGMENT_DECL}`)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${FRAGMENT_BODY}`);
   };
-  material.customProgramCacheKey = () => 'football-turf-v1';
+  material.customProgramCacheKey = () => 'football-turf-v2';
   const mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
   mesh.receiveShadow = true;
@@ -248,6 +296,7 @@ export function buildTurf(options: { anisotropy?: number } = {}): Turf {
       geometry.dispose();
       material.dispose();
       detail.dispose();
+      macro.dispose();
     },
   };
 }

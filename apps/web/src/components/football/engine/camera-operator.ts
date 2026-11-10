@@ -95,7 +95,11 @@ export function createCameraOperator(): CameraOperator {
       const times = [timing.pan, timing.pan, timing.pan, timing.pan, timing.tilt, timing.tilt];
       KEYS.forEach((key, i) => {
         if (key === 'fov') {
-          shot.fov = smoothDamp(shot.fov, target.fov, velocity, i, timing.zoom, dt);
+          // Zoom out quickly and in slowly, as camera operators do: widening to keep the action
+          // in frame must not lag, while a push-in can take its time.
+          const widening = target.fov > shot.fov;
+          const time = widening ? timing.zoom * 0.35 : timing.zoom;
+          shot.fov = smoothDamp(shot.fov, target.fov, velocity, i, time, dt);
           return;
         }
         const speed = key === 'lx' || key === 'x' ? timing.maxPanSpeed : Infinity;

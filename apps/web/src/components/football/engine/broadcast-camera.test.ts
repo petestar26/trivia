@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { broadcastFov } from './broadcast-fov';
+import { frameShot, type Stage } from './broadcast-framing';
 import {
   BROADCAST_RIG,
   GOAL_SEQUENCE,
@@ -38,15 +38,23 @@ const frameAt = (t: number, goals: ReleasedGoal[], key: string) =>
     fullTime: null,
   });
 
-const VIEWPORTS = [
-  { name: 'desktop 16:9', aspect: 16 / 9 },
-  { name: 'phone portrait', aspect: 390 / 844 },
-  { name: 'phone landscape', aspect: 844 / 390 },
+/** Real 3D stage sizes (CSS px) from the page/group/preview styles, plus lab shapes. */
+const STAGES = [
+  { name: 'desktop 1280x720', width: 1280, height: 720 },
+  { name: 'phone game page 390x292 (4:3)', width: 390, height: 292 },
+  { name: 'phone group game 390x222', width: 390, height: 222 },
+  { name: 'phone sports card 362x254', width: 362, height: 254 },
+  { name: 'landscape phone game page 844x265', width: 844, height: 265 },
+  { name: 'landscape phone full 844x390', width: 844, height: 390 },
+  { name: 'portrait expanded 390x844', width: 390, height: 844 },
+  { name: 'tablet portrait 768x1024', width: 768, height: 1024 },
 ];
-function lens(shot: Frame['camera'], aspect: number) {
-  const camera = new THREE.PerspectiveCamera(broadcastFov(shot.fov, aspect), aspect, 0.5, 700);
-  camera.position.set(shot.x, shot.y, shot.z);
-  camera.lookAt(shot.lx, shot.ly, shot.lz);
+function lens(shot: Frame['camera'], stage: Stage) {
+  const framed = frameShot(shot, stage);
+  const aspect = stage.width / stage.height;
+  const camera = new THREE.PerspectiveCamera(framed.fov, aspect, 0.5, 700);
+  camera.position.set(framed.x, framed.y, framed.z);
+  camera.lookAt(framed.lx, framed.ly, framed.lz);
   camera.updateMatrixWorld(true);
   return camera;
 }
@@ -54,6 +62,13 @@ const inFrame = (camera: THREE.PerspectiveCamera, p: THREE.Vector3, margin = 0.9
   const q = p.clone().project(camera);
   return Math.abs(q.x) <= margin && Math.abs(q.y) <= margin && q.z > -1 && q.z < 1;
 };
+/** Projected height of a 1.8 m player at (x, z), in CSS pixels. */
+const playerPx = (camera: THREE.PerspectiveCamera, stage: Stage, x: number, z: number) =>
+  (Math.abs(
+    new THREE.Vector3(x, 1.8, z).project(camera).y - new THREE.Vector3(x, 0, z).project(camera).y
+  ) *
+    stage.height) /
+  2;
 
 // Both halves, both sides and several fixtures cover the cross and through-ball variants.
 const CASES: Array<{ key: string; goal: ReleasedGoal }> = [];
@@ -82,7 +97,7 @@ describe('fixed broadcast framing', () => {
 
   it('zooms with distance so players keep a steady on-screen size', () => {
     const height = (shot: Frame['camera'], x: number) => {
-      const camera = lens(shot, 16 / 9);
+      const camera = lens(shot, { width: 1280, height: 720 });
       const a = new THREE.Vector3(x, 0, 0).project(camera);
       const b = new THREE.Vector3(x, 1.8, 0).project(camera);
       return Math.abs(b.y - a.y);
@@ -93,19 +108,25 @@ describe('fixed broadcast framing', () => {
     expect(end / centre).toBeLessThan(1.07);
   });
 
-  describe.each(VIEWPORTS)('goal sequences at $name', ({ aspect }) => {
-    it('keeps the ball, then both posts, inside the director framing', () => {
+  describe.each(STAGES)('goal sequences at $name', (stage) => {
+    it('keeps the ball, the goalkeeper and both posts inside the framing', () => {
       let checked = 0;
       for (const { key, goal } of CASES) {
         const start = goal.atMs / 1000;
         const gx =
           Math.sign(frameAt(start + GOAL_SEQUENCE.moment + 0.2, [goal], key).ball.x) *
           PITCH.halfLength;
+        const keeper = goal.side === 'H' ? 11 : 0;
         for (let t = start; t <= start + GOAL_SEQUENCE.moment + 0.3; t += 0.05) {
           const f = frameAt(t, [goal], key);
           expect(f.mode).toBe('GOAL');
-          const camera = lens(f.camera, aspect);
+          const camera = lens(f.camera, stage);
           expect(inFrame(camera, new THREE.Vector3(f.ball.x, f.ball.y, f.ball.z))).toBe(true);
+          if (t >= start + GOAL_SEQUENCE.moment - 1) {
+            const k = f.actors[keeper];
+            for (const y of [0, 1.8])
+              expect(inFrame(camera, new THREE.Vector3(k.x, y, k.z), 0.98)).toBe(true);
+          }
           if (t >= start + GOAL_SEQUENCE.moment - 0.5)
             for (const z of [-PITCH.goalHalfWidth, PITCH.goalHalfWidth])
               for (const y of [0, PITCH.goalHeight])
@@ -115,6 +136,45 @@ describe('fixed broadcast framing', () => {
       }
       expect(checked).toBeGreaterThan(500);
     });
+  });
+
+  it('keeps desktop framing unchanged and makes players readable on small stages', () => {
+    const play = directorFrame({
+      matchKey: 'vf-s1-w01-f05',
+      elapsedMs: 16000,
+      status: 'FIRST_HALF',
+      goals: [],
+      fullTime: null,
+    });
+    const desktop = frameShot(play.camera, { width: 1280, height: 720 });
+    expect(desktop.fov).toBeCloseTo(play.camera.fov, 6);
+    for (const k of ['x', 'y', 'z', 'lx', 'ly', 'lz'] as const)
+      expect(desktop[k]).toBeCloseTo(play.camera[k], 6);
+    for (const stage of STAGES) {
+      const camera = lens(play.camera, stage);
+      const px = playerPx(camera, stage, play.ball.x, play.ball.z);
+      // Live play: at least ~22 CSS px tall on every stage (desktop is far larger).
+      expect(px, stage.name).toBeGreaterThan(21);
+    }
+    // Goal moment: the push-in roughly doubles player size on the phone page.
+    const goal = frameAt(6 + GOAL_SEQUENCE.moment, CASES[0] ? [CASES[0].goal] : [], CASES[0].key);
+    const phone = { width: 390, height: 292 };
+    expect(playerPx(lens(goal.camera, phone), phone, goal.ball.x, goal.ball.z)).toBeGreaterThan(36);
+  });
+
+  it('fills small and portrait stages with pitch rather than stand', () => {
+    for (const t of [3.2, 16, 37]) {
+      const play = frameAt(t, [], 'vf-s1-w01-f05');
+      for (const stage of STAGES.filter((s) => s.height < 300 || s.width < s.height)) {
+        const camera = lens(play.camera, stage);
+        // The far advertising boards (top of the far touchline) sit in the top 18 % of the frame.
+        const boards = new THREE.Vector3(play.camera.lx, 0.9, -(PITCH.halfWidth + 3.2)).project(
+          camera
+        );
+        expect(boards.y, `${stage.name} t=${t}`).toBeGreaterThan(0.64);
+        expect(inFrame(camera, new THREE.Vector3(play.ball.x, 0.11, play.ball.z))).toBe(true);
+      }
+    }
   });
 });
 
@@ -160,6 +220,20 @@ describe('camera operator', () => {
     expect(run(30)).toBe(run(30));
     // 24, 30 and 60 fps reach practically the same framing after the same time.
     expect(Math.abs(run(24) - run(60))).toBeLessThan(0.15);
+  });
+
+  it('zooms out faster than it zooms in, so widening for the action never lags', () => {
+    const settle = (from: number, to: number) => {
+      const op = createCameraOperator();
+      op.cut(shot(10, from));
+      let frames = 0;
+      while (Math.abs(op.shot.fov - to) > 0.05 * Math.abs(to - from) && frames < 300) {
+        op.follow(shot(10, to), 1 / 30, OPERATOR_GOAL);
+        frames++;
+      }
+      return frames;
+    };
+    expect(settle(14, 24)).toBeLessThan(settle(24, 14) * 0.5);
   });
 
   it('cuts immediately and clears motion', () => {
