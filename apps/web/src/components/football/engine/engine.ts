@@ -146,7 +146,8 @@ export function createEngine(options: EngineOptions): Engine {
   const SIDE_OFFSET = new THREE.Vector3(-60, 28, 4);
   const sun = new THREE.DirectionalLight('#f4f6ff', 2.35);
   sun.castShadow = shadowMapped;
-  const shadowSize = pixelRatioCap >= 1.5 ? 2048 : 1024;
+  // 2048² only for the explicit high setting; the default/phone path keeps the previous 1024².
+  const shadowSize = pixelRatioCap >= 1.75 ? 2048 : 1024;
   const shadowHalf = 38;
   sun.shadow.mapSize.set(shadowSize, shadowSize);
   sun.shadow.camera.left = -shadowHalf;
@@ -157,7 +158,6 @@ export function createEngine(options: EngineOptions): Engine {
   sun.shadow.camera.far = 160;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
-  sun.shadow.radius = 3;
   scene.add(sun, sun.target);
   // Opposite-roof rim light and an end-stand side light give players shape and separation.
   const fill = new THREE.DirectionalLight('#e3e9f7', 1.05);

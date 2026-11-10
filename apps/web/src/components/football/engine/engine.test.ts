@@ -462,3 +462,22 @@ it('eases between live framings instead of jumping, and cuts only into and out o
   engine.renderAt(6100, 1 / 30);
   expect(cuts).toHaveBeenCalledTimes(1);
 });
+
+it('keeps the shadow map at 1024² unless the high graphics setting is chosen', () => {
+  const sizes: number[] = [];
+  for (const maxPixelRatio of [undefined, 1, 1.15, 1.5, 1.75]) {
+    const host = document.createElement('div');
+    const e = createEngine({ host, getElapsed: () => 1000, maxPixelRatio });
+    e.setMatch(match);
+    e.renderAt(1000);
+    const scene = rendererState.render.mock.calls.at(-1)![0] as ThreeModule.Scene;
+    const key = scene.children.find(
+      (o): o is ThreeModule.DirectionalLight =>
+        (o as ThreeModule.DirectionalLight).isDirectionalLight === true &&
+        (o as ThreeModule.DirectionalLight).castShadow
+    )!;
+    sizes.push(key.shadow.mapSize.x);
+    e.dispose();
+  }
+  expect(sizes).toEqual([1024, 1024, 1024, 1024, 2048]);
+});

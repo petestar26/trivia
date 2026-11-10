@@ -408,7 +408,7 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   group.add(turf.mesh);
   const apron = new THREE.Mesh(
     track(new THREE.PlaneGeometry(420, 320)),
-    mat(new THREE.MeshStandardMaterial({ color: '#1d2126', roughness: 1 }))
+    mat(new THREE.MeshLambertMaterial({ color: '#1d2126' }))
   );
   apron.rotation.x = -Math.PI / 2;
   apron.position.y = -0.02;
@@ -424,14 +424,13 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   );
   const netMap = tex(netTexture());
   const netMaterial = mat(
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshLambertMaterial({
       color: '#f4f6f2',
       alphaMap: netMap,
       transparent: true,
       opacity: 0.95,
       depthWrite: false,
       side: THREE.DoubleSide,
-      roughness: 0.85,
     })
   );
   const nets = {} as Record<'-1' | '1', NetImpl>;
@@ -478,9 +477,7 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   // Corner flags
   const flagPole = track(new THREE.CylinderGeometry(0.02, 0.02, 1.6, 6));
   const flagCloth = track(new THREE.PlaneGeometry(0.4, 0.28));
-  const clothMat = mat(
-    new THREE.MeshStandardMaterial({ color: '#ffd23f', side: THREE.DoubleSide, roughness: 0.8 })
-  );
+  const clothMat = mat(new THREE.MeshLambertMaterial({ color: '#ffd23f', side: THREE.DoubleSide }));
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
       const pole = new THREE.Mesh(flagPole, post);
@@ -499,7 +496,7 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   const screen = mat(
     new THREE.MeshBasicMaterial({ map: boardTexture, color: new THREE.Color(1.25, 1.25, 1.25) })
   );
-  const body = mat(new THREE.MeshStandardMaterial({ color: '#16181c', roughness: 0.7 }));
+  const body = mat(new THREE.MeshLambertMaterial({ color: '#16181c' }));
   const boardLong = track(new THREE.BoxGeometry(PITCH.halfLength * 2 + 6, 0.9, 0.18));
   const boardEnd = track(new THREE.BoxGeometry(0.18, 0.9, PITCH.halfWidth * 2 + 6));
   for (const sz of [-1, 1]) {
@@ -541,10 +538,9 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   const structure = new THREE.Mesh(
     track(mergeGeometries(stands.map((s) => s.geometry))!),
     mat(
-      new THREE.MeshStandardMaterial({
+      // Large matte surfaces use per-pixel Lambert: no environment-reflection cost.
+      new THREE.MeshLambertMaterial({
         vertexColors: true,
-        roughness: 0.92,
-        metalness: 0,
         side: THREE.DoubleSide,
       })
     )
@@ -620,11 +616,10 @@ export function buildStadium(options: StadiumOptions = {}): Stadium {
   const skyline = new THREE.Mesh(
     track(mergeGeometries(skylineParts)!),
     mat(
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshLambertMaterial({
         color: '#0d1422',
         emissive: '#1d2a44',
         emissiveIntensity: 0.55,
-        roughness: 1,
       })
     )
   );

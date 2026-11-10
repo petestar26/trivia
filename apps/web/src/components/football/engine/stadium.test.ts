@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 /** Runs a material's shader hook against three's real program source. */
-function injected(material: THREE.Material, lib: 'physical' | 'basic') {
+function injected(material: THREE.Material, lib: 'lambert' | 'basic') {
   const shader = {
     uniforms: {} as Record<string, THREE.IUniform>,
     vertexShader: THREE.ShaderLib[lib].vertexShader,
@@ -110,9 +110,9 @@ describe('stadium', () => {
 });
 
 describe('turf', () => {
-  it('injects analytic markings into the standard material program', () => {
+  it('injects analytic markings into the Lambert material program', () => {
     const turf = buildTurf();
-    const shader = injected(turf.mesh.material as THREE.Material, 'physical');
+    const shader = injected(turf.mesh.material as THREE.Material, 'lambert');
     expect(shader.vertexShader).toContain('vTurfWorld = (modelMatrix');
     expect(shader.fragmentShader).toContain('vec3 nearest = turfLines(p);');
     expect(shader.fragmentShader).toContain('uniform float uTurfLineHalf;');

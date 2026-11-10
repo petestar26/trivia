@@ -177,15 +177,17 @@ const FRAGMENT_BODY = /* glsl */ `
   vec3 toEye = normalize(cameraPosition - vTurfWorld);
   float sheen = 0.45 + 0.55 * abs(toEye.z);
   diffuseColor.rgb *= 1.0 + (band - 0.5) * 0.26 * sheen;
-  // Gentle wear: goalmouths, penalty spots and the kick-off area.
+  // Gentle wear: goalmouths, penalty spots and the kick-off area (noise only where worn).
   vec2 q = abs(p);
-  float n = turfNoise(p * 0.9) * 0.6 + turfNoise(p * 3.1) * 0.4;
   float wear = 0.0;
   wear = max(wear, (1.0 - smoothstep(0.0, 1.0, length((q - vec2(uTurfHalf.x - 2.8, 0.0)) / vec2(3.4, 4.6)))) * 0.62);
   wear = max(wear, (1.0 - smoothstep(0.0, 1.0, length(q - vec2(uTurfHalf.x - ${MARKINGS.penaltySpot.toFixed(2)}, 0.0)) / 1.6)) * 0.45);
   wear = max(wear, (1.0 - smoothstep(0.0, 1.0, length(q) / 2.4)) * 0.3);
-  wear *= smoothstep(0.25, 0.75, n);
-  diffuseColor.rgb = mix(diffuseColor.rgb, uTurfWearColour * (0.75 + 0.5 * n), wear);
+  if (wear > 0.001) {
+    float n = turfNoise(p * 0.9) * 0.6 + turfNoise(p * 3.1) * 0.4;
+    wear *= smoothstep(0.25, 0.75, n);
+    diffuseColor.rgb = mix(diffuseColor.rgb, uTurfWearColour * (0.75 + 0.5 * n), wear);
+  }
   // Painted markings: exact box-filtered coverage of the pixel footprint measured across the
   // nearest line (from smooth world-position derivatives, so it never collapses at the line
   // centre), with a perceptual floor that keeps a sub-pixel far touchline continuous.
@@ -215,11 +217,12 @@ export function buildTurf(options: { anisotropy?: number } = {}): Turf {
   detail.repeat.set(lengthM / TURF.detailTile, widthM / TURF.detailTile);
   detail.anisotropy = Math.max(1, Math.min(8, options.anisotropy ?? 4));
   const geometry = new THREE.PlaneGeometry(lengthM, widthM);
-  const material = new THREE.MeshStandardMaterial({
+  // Grass is a rough diffuse surface: per-pixel Lambert shading matches it and skips the
+  // environment-reflection lookups, which are the costliest part of a full-screen material.
+  const material = new THREE.MeshLambertMaterial({
     map: detail,
-    color: '#c9e0bd',
-    roughness: 0.93,
-    metalness: 0,
+    // A faint neutral lift stands in for bounce light from the lit stands and night haze.
+    emissive: '#0d110c',
   });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTurfHalf = { value: new THREE.Vector2(PITCH.halfLength, PITCH.halfWidth) };
