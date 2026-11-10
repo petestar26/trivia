@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type * as ThreeModule from 'three';
-import { PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
+import { BROADCAST_RIG, PITCH, GOAL_SEQUENCE, directorFrame, type ReleasedGoal } from './director';
 import { createEngine, type Engine, type MatchInput } from './engine';
 import { statusAt } from '@/lib/football/reveal';
 
@@ -402,4 +402,63 @@ it('reports the actually selected roster detail counts without changing renderer
     reviewPlayers: 0,
     playerDetails: { high: 2, mid: 1, low: 2 },
   });
+});
+
+describe.each([...viewports, { name: 'phone', width: 390, height: 844 }])(
+  'live broadcast camera at $name',
+  ({ width, height }) => {
+    it.each(scoringGoals)(
+      'stays on the gantry and keeps the ball on screen through the $side goal at $atMs',
+      (goal) => {
+        const { engine } = setup(false, width, height);
+        engine.setMatch({ ...match, goals: [goal] });
+        const start = goal.atMs;
+        let checked = 0;
+        // Live play into the sequence and through the finish, at 30 fps with operator lag.
+        for (
+          let ms = start - 3000;
+          ms <= start + GOAL_SEQUENCE.moment * 1000 + 300;
+          ms += 1000 / 30
+        ) {
+          const frame = engine.renderAt(ms, 1 / 30);
+          const camera = renderedCamera();
+          expect(camera.position.toArray()).toEqual([
+            BROADCAST_RIG.x,
+            BROADCAST_RIG.y,
+            BROADCAST_RIG.z,
+          ]);
+          if (frame.mode === 'GOAL') {
+            inside(
+              camera,
+              new THREE.Vector3(frame.ball.x, frame.ball.y, frame.ball.z),
+              `ball ${ms}`
+            );
+            checked++;
+          }
+        }
+        expect(checked).toBeGreaterThan(60);
+      }
+    );
+  }
+);
+
+it('eases between live framings instead of jumping, and cuts only into and out of goals', () => {
+  const { engine, host } = setup(false);
+  const cuts = vi.fn();
+  host.addEventListener('football-cut', cuts);
+  engine.setMatch({ ...match, goals: [{ n: 1, side: 'H', atMs: 6000 }] });
+  let previous: THREE.Vector3 | null = null;
+  let largest = 0;
+  for (let ms = 1000; ms < 5900; ms += 1000 / 30) {
+    engine.renderAt(ms, 1 / 30);
+    const camera = renderedCamera();
+    const aim = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    if (previous) largest = Math.max(largest, aim.angleTo(previous));
+    previous = aim;
+  }
+  // Under about 0.7 degrees of pan per 30 fps frame during live play.
+  expect(largest).toBeLessThan(0.012);
+  expect(cuts).not.toHaveBeenCalled();
+  engine.renderAt(6100, 1 / 30);
+  expect(cuts).toHaveBeenCalledTimes(1);
 });

@@ -11,7 +11,11 @@ import {
   type ReleasedGoal,
 } from './director';
 import { createPlayerPool, type PlayerPool } from './players';
-import { buildStadium, skyTexture, type Stadium } from './stadium';
+import { buildStadium, type Stadium } from './stadium';
+import { ballTexture } from './ball';
+import { createContactShadows } from './contact-shadows';
+import { createFloodlitEnvironment, nightSkyTexture } from './environment';
+import { createCameraOperator, OPERATOR_GOAL, OPERATOR_PLAY } from './camera-operator';
 
 /** Everything the renderer is allowed to know about a match: released facts only. */
 export interface MatchInput {
@@ -56,39 +60,6 @@ export interface Engine {
     reviewPlayers?: number;
   };
   dispose(): void;
-}
-
-function ballTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#f6f6f2';
-  ctx.fillRect(0, 0, 128, 64);
-  ctx.fillStyle = '#1b1d22';
-  for (const [x, y] of [
-    [16, 20],
-    [48, 44],
-    [80, 18],
-    [112, 42],
-    [64, 8],
-    [32, 58],
-    [100, 62],
-  ] as const) {
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      const px = x + Math.cos(a) * 9;
-      const py = y + Math.sin(a) * 9;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fill();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
 }
 
 /** A fixed view fitted to the pitch, nets and decorative aerial play, never to released events. */
@@ -142,48 +113,95 @@ export function createEngine(options: EngineOptions): Engine {
     alpha: false,
     powerPreference: 'default',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, options.maxPixelRatio ?? 1.5));
-  renderer.shadowMap.enabled = options.shadows !== false;
+  const pixelRatioCap = options.maxPixelRatio ?? 1.5;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelRatioCap));
+  const shadowMapped = options.shadows !== false;
+  renderer.shadowMap.enabled = shadowMapped;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.0;
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
   renderer.domElement.style.height = '100%';
   host.appendChild(renderer.domElement);
+  const anisotropy =
+    (renderer as Partial<THREE.WebGLRenderer>).capabilities?.getMaxAnisotropy?.() ?? 4;
 
+  // --- floodlit night: sky, haze, image-based reflections and the floodlight banks -----------
   const scene = new THREE.Scene();
-  const sky = skyTexture();
+  const sky = nightSkyTexture();
   scene.background = sky;
-  scene.fog = new THREE.Fog('#243a5e', 140, 420);
-  scene.add(new THREE.HemisphereLight('#e0ebf7', '#657455', 1.45));
-  // Broad skylight fill preserves skin/kit detail behind the warm key light.
-  // It adds no shadow pass or geometry to the mobile rendering budget.
-  const fill = new THREE.DirectionalLight('#dce7f6', 0.75);
-  fill.position.set(-22, 20, 28);
-  scene.add(fill, fill.target);
-  const sun = new THREE.DirectionalLight('#fff3d9', 2.4);
-  sun.position.set(24, 52, 36);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -34;
-  sun.shadow.camera.right = 34;
-  sun.shadow.camera.top = 34;
-  sun.shadow.camera.bottom = -34;
+  scene.fog = new THREE.Fog('#141a24', 150, 520);
+  const environment = createFloodlitEnvironment(renderer);
+  if (environment.texture) {
+    scene.environment = environment.texture;
+    scene.environmentIntensity = 0.55;
+  }
+  scene.add(new THREE.HemisphereLight('#aebbd6', '#2d4a2c', environment.texture ? 0.55 : 1.1));
+  // Key: the main-stand roof bank behind the broadcast camera. It is the only light with a
+  // shadow map; the shadow frustum follows the camera's framing and is snapped to whole shadow
+  // texels, so shadows do not shimmer while the camera pans.
+  const KEY_OFFSET = new THREE.Vector3(10, 36, 62);
+  const RIM_OFFSET = new THREE.Vector3(-6, 30, -55);
+  const SIDE_OFFSET = new THREE.Vector3(-60, 28, 4);
+  const sun = new THREE.DirectionalLight('#f4f6ff', 2.35);
+  sun.castShadow = shadowMapped;
+  const shadowSize = pixelRatioCap >= 1.5 ? 2048 : 1024;
+  const shadowHalf = 38;
+  sun.shadow.mapSize.set(shadowSize, shadowSize);
+  sun.shadow.camera.left = -shadowHalf;
+  sun.shadow.camera.right = shadowHalf;
+  sun.shadow.camera.top = shadowHalf;
+  sun.shadow.camera.bottom = -shadowHalf;
   sun.shadow.camera.near = 10;
-  sun.shadow.camera.far = 140;
+  sun.shadow.camera.far = 160;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
+  sun.shadow.radius = 3;
   scene.add(sun, sun.target);
+  // Opposite-roof rim light and an end-stand side light give players shape and separation.
+  const fill = new THREE.DirectionalLight('#e3e9f7', 1.05);
+  scene.add(fill, fill.target);
+  const side = new THREE.DirectionalLight('#eef1fb', 0.6);
+  scene.add(side, side.target);
+  const keyDir = KEY_OFFSET.clone().normalize();
+  const shadowRight = new THREE.Vector3()
+    .crossVectors(new THREE.Vector3(0, 1, 0), keyDir)
+    .normalize();
+  const shadowUp = new THREE.Vector3().crossVectors(keyDir, shadowRight).normalize();
+  const shadowTexel = (shadowHalf * 2) / shadowSize;
+  const focus = new THREE.Vector3();
+  const placeLights = (look: THREE.Vector3) => {
+    focus.set(look.x, 0, look.z);
+    const r = focus.dot(shadowRight);
+    const u = focus.dot(shadowUp);
+    focus
+      .addScaledVector(shadowRight, Math.round(r / shadowTexel) * shadowTexel - r)
+      .addScaledVector(shadowUp, Math.round(u / shadowTexel) * shadowTexel - u);
+    sun.target.position.copy(focus);
+    sun.position.copy(focus).add(KEY_OFFSET);
+    fill.target.position.set(look.x, 0.8, look.z);
+    fill.position.copy(fill.target.position).add(RIM_OFFSET);
+    side.target.position.set(look.x, 0.8, look.z);
+    side.position.copy(side.target.position).add(SIDE_OFFSET);
+  };
 
-  const stadium: Stadium = buildStadium();
+  const stadium: Stadium = buildStadium({ anisotropy });
   scene.add(stadium.group);
   const pool: PlayerPool = createPlayerPool();
   scene.add(pool.group);
+  // Floodlight "star" shadows and contact patches for every actor and the ball.
+  const decals = createContactShadows(ACTOR_COUNT, { toLight: KEY_OFFSET, strength: 0.34 }, [
+    { toLight: RIM_OFFSET, strength: 0.16 },
+    { toLight: SIDE_OFFSET, strength: 0.12 },
+    { toLight: new THREE.Vector3(60, 28, 4), strength: 0.12 },
+  ]);
+  decals.setKeyShadowMapped(shadowMapped);
+  scene.add(decals.group);
 
   const ballTex = ballTexture();
-  const ballGeo = new THREE.SphereGeometry(0.11, 20, 14);
-  const ballMat = new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.45 });
+  const ballGeo = new THREE.SphereGeometry(0.11, 28, 18);
+  const ballMat = new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.38 });
   const ball = new THREE.Mesh(ballGeo, ballMat);
   // Keep the drawn surface at the same 0.11 m radius used by contact fitting.
   // Enlarging it for broadcast legibility made a physically clear boot look embedded.
@@ -195,6 +213,7 @@ export function createEngine(options: EngineOptions): Engine {
   const camLook = new THREE.Vector3(0, 0.9, 3);
   let camFov = 30;
   camera.position.copy(camPos);
+  const operator = createCameraOperator();
 
   let match: MatchInput | null = null;
   let reduced = options.reduced ?? false;
@@ -293,23 +312,27 @@ export function createEngine(options: EngineOptions): Engine {
     }
     stadium.update(dt, reduced ? 0.2 : frame.crowd);
 
-    // Camera: restrained tracking, with a hard cut when the director changes shot.
-    const target = reduced ? reducedPitchCamera(camera.aspect) : frame.camera;
+    // Camera: the operator eases the fixed broadcast camera toward the director's framing.
+    // Entering or leaving a goal sequence is a cut (the dissolve covers the restaged players).
     const cut =
       lastMode !== null &&
       lastMode !== frame.mode &&
       (frame.mode === 'GOAL' || lastMode === 'GOAL');
-    const k =
-      reduced || cut || lastMode === null
-        ? 1
-        : 1 - Math.exp(-dt * (frame.mode === 'GOAL' ? 4 : 1.8));
-    camPos.x += (target.x - camPos.x) * k;
-    camPos.y += (target.y - camPos.y) * k;
-    camPos.z += (target.z - camPos.z) * k;
-    camLook.x += (target.lx - camLook.x) * k;
-    camLook.y += (target.ly - camLook.y) * k;
-    camLook.z += (target.lz - camLook.z) * k;
-    camFov += ((reduced ? target.fov : broadcastFov(target.fov, camera.aspect)) - camFov) * k;
+    if (reduced) {
+      const target = reducedPitchCamera(camera.aspect);
+      operator.cut(target);
+    } else {
+      const target = {
+        ...frame.camera,
+        fov: broadcastFov(frame.camera.fov, camera.aspect),
+      };
+      if (cut || lastMode === null) operator.cut(target);
+      else operator.follow(target, dt, frame.mode === 'GOAL' ? OPERATOR_GOAL : OPERATOR_PLAY);
+    }
+    const shot = operator.shot;
+    camPos.set(shot.x, shot.y, shot.z);
+    camLook.set(shot.lx, shot.ly, shot.lz);
+    camFov = shot.fov;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     if (Math.abs(camera.fov - camFov) > 0.01) {
@@ -318,10 +341,8 @@ export function createEngine(options: EngineOptions): Engine {
     }
     if (cut) host.dispatchEvent(new CustomEvent('football-cut'));
     lastMode = frame.mode;
-    sun.position.set(camLook.x + 24, 52, camLook.z + 36);
-    sun.target.position.set(camLook.x, 0, camLook.z);
-    fill.position.set(camLook.x - 22, 20, camLook.z + 28);
-    fill.target.position.set(camLook.x, 0.8, camLook.z);
+    placeLights(camLook);
+    decals.update(frame.actors, ball.position);
     camera.updateMatrixWorld(true);
     pool.setDetail?.(camera, host.clientHeight);
     renderer.render(scene, camera);
@@ -435,6 +456,8 @@ export function createEngine(options: EngineOptions): Engine {
       renderer.domElement.removeEventListener('webglcontextrestored', restored);
       pool.dispose();
       stadium.dispose();
+      decals.dispose();
+      environment.dispose();
       ballGeo.dispose();
       ballMat.dispose();
       ballTex.dispose();

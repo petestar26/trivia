@@ -834,17 +834,19 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
     }
   put(REFEREE, { x: gx - a * 22, z: 6 }, { kind: 'idle' }, { x: a, z: 0 });
 
-  // --- camera: behind-quarter, outside the touchline, aimed at the goal mouth, slow push-in ----------
-  const push = smooth((t - 0.8) / 2.4);
-  const camera = {
-    x: lerp(gx - a * 19, gx - a * 13, push),
-    y: lerp(4.4, 2.6, push),
-    z: lerp(17, 12, push),
-    lx: gx - a * 2.5,
-    ly: 1.2,
-    lz: -0.4,
-    fov: 38,
+  // --- camera: the same fixed broadcast position pans with the move and tightens on the goal.
+  // The look-at point leans toward the goal mouth so both the ball and the posts stay in frame
+  // (also on portrait phones), then drifts with the celebration once the ball is in the net.
+  const mouth: Vec = { x: gx - a * 4.5, z: 0 };
+  // Follow the ball while the move builds; lean toward the goal as the ball approaches it.
+  const lean = clamp(0.95 - Math.abs(gx - ball.x) / 26, 0.12, 0.62);
+  const play: Vec = { x: lerp(ball.x, mouth.x, lean), z: lerp(ball.z, mouth.z, lean) };
+  const settle = smooth((t - M - 0.5) / 1.6);
+  const framing: Vec = {
+    x: lerp(play.x, group.x, settle * 0.6),
+    z: lerp(play.z, group.z, settle * 0.5),
   };
+  const camera = broadcastCamera(framing, lerp(1.08, 1.22, smooth((t - 0.4) / 2)));
   const crowd = t < M ? 0.4 : clamp(1 - (t - M) / 8, 0.55, 1);
   return { actors, ball, net, camera, scored: t >= M, crowd };
 }
@@ -852,11 +854,28 @@ function goalSequence(matchKey: string, goal: ReleasedGoal, half: 1 | 2, t: numb
 /* ------------------------------------------------------------------------------------- *
  * Frame
  * ------------------------------------------------------------------------------------- */
-const BROADCAST_Y = 15;
-const BROADCAST_Z = 47;
-function broadcastCamera(bx: number): Frame['camera'] {
-  const x = clamp(bx * 0.9, -PITCH.halfLength + 17, PITCH.halfLength - 17);
-  return { x, y: BROADCAST_Y, z: BROADCAST_Z, lx: x * 0.97, ly: 0.9, lz: 2, fov: 31 };
+/**
+ * Main broadcast camera ("camera 1"): a fixed position on the halfway line, high in the main
+ * stand, as on a television gantry. It only pans, tilts and zooms to follow play; it never
+ * moves along the touchline. Zoom compensates for distance so players keep a steady size on
+ * screen as the operator pans toward either goal.
+ */
+export const BROADCAST_RIG = Object.freeze({ x: 0, y: 21, z: 62, fov: 23 });
+const RIG_REFERENCE = Math.hypot(BROADCAST_RIG.y - 0.9, BROADCAST_RIG.z - 1.5);
+export function broadcastCamera(target: Vec, zoom = 1): Frame['camera'] {
+  const lx = clamp(target.x, -PITCH.halfLength + 4, PITCH.halfLength - 4);
+  const lz = clamp(1.5 + target.z * 0.32, -8, 9);
+  const distance = Math.hypot(lx - BROADCAST_RIG.x, BROADCAST_RIG.y - 0.9, BROADCAST_RIG.z - lz);
+  const tan = (Math.tan((BROADCAST_RIG.fov * Math.PI) / 360) * (RIG_REFERENCE / distance)) / zoom;
+  return {
+    x: BROADCAST_RIG.x,
+    y: BROADCAST_RIG.y,
+    z: BROADCAST_RIG.z,
+    lx,
+    ly: 0.9,
+    lz,
+    fov: (Math.atan(tan) * 360) / Math.PI,
+  };
 }
 
 function epochKey(matchKey: string, start: number, half: 1 | 2, team: TeamId) {
@@ -894,7 +913,7 @@ export function directorFrame(input: DirectorInput): Frame {
     return {
       actors,
       ball: { x: anchor.x, y: 0.11, z: anchor.z },
-      camera: broadcastCamera(0),
+      camera: broadcastCamera({ x: 0, z: 0 }),
       mode,
       half,
       goal: null,
@@ -985,10 +1004,18 @@ export function directorFrame(input: DirectorInput): Frame {
     speed: 2.5,
     anim: { kind: 'run' },
   };
+  // The operator frames the ball with a little lead in the direction it is travelling.
+  const ahead = ballInEpoch(e, local + 0.2);
+  const behind = ballInEpoch(e, Math.max(0, local - 0.2));
+  const span = local + 0.2 - Math.max(0, local - 0.2);
+  const lead = {
+    x: clamp(((ahead.x - behind.x) / span) * 0.45, -5, 5),
+    z: clamp(((ahead.z - behind.z) / span) * 0.3, -3, 3),
+  };
   return {
     actors,
     ball,
-    camera: broadcastCamera(ball.x),
+    camera: broadcastCamera({ x: ball.x * 0.9 + lead.x, z: ball.z + lead.z }),
     mode: 'PLAY',
     half,
     goal: null,
