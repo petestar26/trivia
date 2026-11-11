@@ -48,7 +48,7 @@ const sections = [
 export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { t: translateUi } = useInterfaceLanguage();
 
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const { pathname } = location;
@@ -131,7 +131,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               {t('Sign out')}
             </button>
           </>
-        ) : (
+        ) : isLoading ? null : (
           <div className="salem-guest-account">
             <span className="salem-eyebrow">{t('YOUR SPACE AWAITS')}</span>
             <strong>{t('Make yourself at home.')}</strong>

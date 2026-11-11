@@ -2,7 +2,7 @@ import { Headphones } from 'lucide-react';
 import { useLanguage } from '@/providers/language-provider';
 import '@/pages/lounge.css';
 import { Link, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Sidebar } from './sidebar';
 import { MobileNavigation } from './mobile-navigation';
@@ -34,7 +34,7 @@ export function Layout() {
     );
   if (safeGuestLocation) return <Navigate to={safeGuestLocation} replace />;
   return (
-    <GuestAuthProvider>
+    <GuestAuthProvider signedIn={isAuthenticated}>
       <LayoutContent />
     </GuestAuthProvider>
   );
@@ -57,6 +57,14 @@ function LayoutContent() {
     !pathname.startsWith('/sports') &&
     !/^\/groups\/[^/]+/.test(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // The menu button lives in the header, not in a Dialog.Trigger, so Radix cannot
+  // return focus to it on close. Remember it and restore focus there ourselves.
+  const menuOpener = useRef<HTMLElement | null>(null);
+  const openMobileNav = useCallback(() => {
+    menuOpener.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setMobileNavOpen(true);
+  }, []);
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   useEffect(closeMobileNav, [pathname, closeMobileNav]);
   return (
@@ -76,6 +84,10 @@ function LayoutContent() {
           <Dialog.Content
             className="fixed inset-y-0 left-0 z-50 w-64 lg:hidden"
             aria-describedby={undefined}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (menuOpener.current?.isConnected) menuOpener.current.focus();
+            }}
           >
             <Dialog.Title className="sr-only">{translateUi('Main navigation')}</Dialog.Title>
             <Sidebar onNavigate={closeMobileNav} />
@@ -89,7 +101,7 @@ function LayoutContent() {
         </Dialog.Portal>
       </Dialog.Root>
       <div className="lg:pl-64">
-        <Header onMenuClick={() => setMobileNavOpen(true)} />
+        <Header onMenuClick={openMobileNav} />
         <main id="main-content" className="qube-main p-4 lg:p-8">
           {pathname === '/dashboard' ? <InstallAppCard /> : null}
           {['/dashboard', '/games', '/play-together', '/profile', '/support'].includes(

@@ -12,6 +12,7 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { FootballPreview } from '@/components/sports/football-preview';
+import { createLaunchIntent } from '@/lib/launch-intent';
 import './sports.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -162,6 +163,11 @@ function SportsSession({ userId }: { userId: string }) {
               to="/sports/open"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(event) => {
+                // This click is the member's intent; the new tab may launch once with it.
+                const intent = createLaunchIntent('sports', userId);
+                if (intent) event.currentTarget.href = `/sports/open?intent=${intent}`;
+              }}
             >
               {translateUi('Browse sports') + ' '}
               <ArrowUpRight size={19} />

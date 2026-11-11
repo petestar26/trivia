@@ -21,6 +21,7 @@ import {
 import { api, unwrapData } from '@/lib/api';
 import { useAuth } from '@/providers/auth-provider';
 import { useFavoriteGames } from '@/lib/use-favorite-games';
+import { consumeLaunchIntent } from '@/lib/launch-intent';
 import './provider-lobby.css';
 import { useLanguage as useInterfaceLanguage } from '@/providers/language-provider';
 
@@ -165,6 +166,29 @@ function ProviderTestSession({ userId }: { userId: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedGame = searchParams.get('game');
   const attemptedGame = useRef<string | null>(null);
+  // A ?game= link launches on arrival only with a fresh one-time intent from the
+  // in-app click that made it. A pasted link, bookmark, reload or Back selects the
+  // game and waits for Play. The intent is consumed and removed immediately, before
+  // the catalogue loads, so returning to this entry later can never reuse it.
+  const launchOnArrival = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (launchOnArrival.current !== null) return;
+    launchOnArrival.current = consumeLaunchIntent(
+      'casino',
+      userId,
+      searchParams.get('intent'),
+      searchParams.get('game') ?? ''
+    );
+    if (searchParams.has('intent'))
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.delete('intent');
+          return next;
+        },
+        { replace: true }
+      );
+  }, [searchParams, setSearchParams, userId]);
   const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>
@@ -324,7 +348,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     setSelectionError(false);
     setSelected(game);
     resetLaunch();
-    launchGame(game);
+    if (launchOnArrival.current) launchGame(game);
   }, [
     requestedGame,
     canLaunch,
@@ -439,6 +463,20 @@ function ProviderTestSession({ userId }: { userId: string }) {
             </div>
             <span className="casino-player-mode">{translateUi('Virtual play')}</span>
           </div>
+          {launch.isIdle && (
+            <div className="casino-player-placeholder">
+              <Gamepad2 size={36} aria-hidden="true" />
+              <h3>{selected.name}</h3>
+              <p>{translateUi('Nothing starts until you choose Play.')}</p>
+              <button
+                className="casino-primary-button"
+                disabled={!canLaunch}
+                onClick={() => launch.mutate(selected)}
+              >
+                {translateUi('Play')}
+              </button>
+            </div>
+          )}
           {launch.isPending && (
             <div className="casino-player-placeholder" role="status">
               <span className="casino-loading-ring" />

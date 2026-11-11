@@ -1,5 +1,5 @@
 import type * as ApiModule from '@/lib/api';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -179,6 +179,39 @@ describe('guest member shell', () => {
     expect(get).not.toHaveBeenCalled();
     expect(post).not.toHaveBeenCalled();
     expect(listGroups).not.toHaveBeenCalled();
+  });
+  it('returns keyboard focus to the menu button when the mobile navigation closes', async () => {
+    setup('/dashboard');
+    const opener = screen.getByRole('button', { name: 'Open navigation menu' });
+    opener.focus();
+    fireEvent.click(opener);
+    const drawer = await screen.findByRole('dialog', { name: 'Main navigation' });
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(get).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+  });
+  it('shows neither guest sign-in nor member controls while the session probe is pending', () => {
+    auth.isLoading = true;
+    setup('/dashboard');
+    const header = screen.getByRole('banner');
+    expect(within(header).queryByRole('link', { name: 'Sign in' })).toBeNull();
+    expect(within(header).queryByRole('link', { name: 'Create account' })).toBeNull();
+    expect(within(header).queryByRole('link', { name: 'Open your wallet' })).toBeNull();
+    expect(screen.queryByText('Make yourself at home.')).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+  });
+  it('closes a sign-in prompt opened during the probe once the session confirms a member', async () => {
+    auth.isLoading = true;
+    const { refresh } = setup('/wallet');
+    fireEvent.click(screen.getByRole('button', { name: 'Open wallet' }));
+    await screen.findByRole('dialog');
+    auth.isLoading = false;
+    auth.isAuthenticated = true;
+    auth.user = { id: 'member', username: 'member' };
+    act(() => refresh());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
   it('keeps browsing available during a slow session probe', () => {
     auth.isLoading = true;

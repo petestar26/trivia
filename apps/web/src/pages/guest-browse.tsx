@@ -19,6 +19,7 @@ import { HomePage } from './home';
 import { GameArtwork } from '@/components/member/game-artwork';
 import { GUEST_GAMES, GuestGameCollection } from '@/components/member/guest-game-collection';
 import { PRACTICE_ROUTES } from '@/lib/member-game-catalog';
+import { invitePath } from '@/lib/guest-browse-location';
 import { useGuestAuth } from '@/components/auth/guest-auth-prompt';
 import { useLanguage } from '@/providers/language-provider';
 import './sports.css';
@@ -161,6 +162,18 @@ export function GuestBrowsePage() {
   const { t } = useLanguage();
   const section = pathname.split('/')[1];
   if (['/', '/dashboard', '/explore'].includes(pathname)) return <HomePage />;
+  // The invitation itself is fetched only after sign-in; the link is kept for that.
+  if (invitePath(pathname))
+    return (
+      <FeatureOverview
+        feature={{
+          ...features.groups,
+          title: 'Group invitation',
+          copy: 'Sign in or create an account to use this feature.',
+          action: 'Accept invite',
+        }}
+      />
+    );
   if (section === 'casino' || pathname === '/games/provider-demos') return <GuestCasino />;
   if (section === 'sports') return <GuestSports />;
   if (section === 'play-together' || section === 'games') {

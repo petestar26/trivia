@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProviderTestPage } from './provider-test';
+import { createLaunchIntent } from '@/lib/launch-intent';
+import { installMemoryStorage } from '@/test/memory-storage';
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -461,12 +463,41 @@ it('browses the full catalogue in batches and combines category and provider sea
 });
 
 it('opens a selected Home game once after access and wallet checks', async () => {
-  const v = mount(undefined, '/casino?game=studio%2Fslot');
+  // The member's plain click on the Home tile created this one-time intent.
+  const storage = installMemoryStorage();
+  const intent = createLaunchIntent('casino', 'tester', 'studio/slot');
+  const v = mount(undefined, `/casino?game=studio%2Fslot&intent=${intent}`);
   await waitFor(() => expect(v.container.querySelector('iframe')).not.toBeNull());
   expect(mocks.post).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Back to casino' }));
   await screen.findByRole('button', { name: 'Play Test Slot' });
   expect(mocks.post).toHaveBeenCalledTimes(1);
+  storage.restore();
+});
+it.each([
+  ['a pasted or bookmarked link', '/casino?game=studio%2Fslot'],
+  [
+    'a reused or unknown intent',
+    '/casino?game=studio%2Fslot&intent=0f8b1c2e-3d4a-4b5c-8d9e-112233445566',
+  ],
+])('selects the game from %s but waits for Play before launching', async (_label, entry) => {
+  const v = mount(undefined, entry);
+  const play = await screen.findByRole('button', { name: 'Play' });
+  expect(screen.getByText('Nothing starts until you choose Play.')).toBeVisible();
+  await waitFor(() => expect(play).toBeEnabled());
+  expect(mocks.post).not.toHaveBeenCalled();
+  expect(v.container.querySelector('iframe')).toBeNull();
+  fireEvent.click(play);
+  await waitFor(() => expect(v.container.querySelector('iframe')).not.toBeNull());
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+});
+it('does not launch from another member’s click intent', async () => {
+  const storage = installMemoryStorage();
+  const intent = createLaunchIntent('casino', 'another-member', 'studio/slot');
+  mount(undefined, `/casino?game=studio%2Fslot&intent=${intent}`);
+  expect(await screen.findByRole('button', { name: 'Play' })).toBeVisible();
+  expect(mocks.post).not.toHaveBeenCalled();
+  storage.restore();
 });
 it('rejects an unknown Home game id without a launch', async () => {
   mount(undefined, '/casino?game=unknown');

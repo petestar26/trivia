@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type * as ApiModule from '@/lib/api';
 import { AuthProvider } from '@/providers/auth-provider';
 import { App } from './App';
+import { createLaunchIntent } from '@/lib/launch-intent';
+import { installMemoryStorage } from '@/test/memory-storage';
 const { get, post, launch, leave } = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
@@ -26,6 +28,9 @@ vi.mock('@/pages/groups', () => ({ GroupsPage: () => <h1>Member groups</h1> }));
 vi.mock('@/pages/messages', () => ({ MessagesPage: () => <h1>Member messages</h1> }));
 vi.mock('@/pages/play-together', () => ({ PlayTogetherPage: () => <h1>Member game lobby</h1> }));
 vi.mock('@/pages/wallet-routes', () => ({ WalletRoutes: () => <h1>Member wallet</h1> }));
+vi.mock('@/pages/group-invite-accept', () => ({
+  GroupInviteAcceptPage: () => <h1>Member invitation</h1>,
+}));
 vi.mock('@/components/notifications/notification-bell', () => ({
   NotificationBell: () => <span>Member notifications</span>,
 }));
@@ -91,8 +96,11 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it.each(['/sports/open', '/Sports/open', '/%73ports/open'])(
-  'preserves %s for an existing member and launches only after the probe resolves',
-  async (path) => {
+  'preserves %s for an existing member and launches the clicked new tab only after the probe resolves',
+  async (base) => {
+    // "Browse sports" created this one-time intent in the member's original tab.
+    const storage = installMemoryStorage();
+    const path = `${base}?intent=${createLaunchIntent('sports', member.id)}`;
     let resolveProbe!: (data: unknown) => void;
     get.mockReturnValue(
       new Promise((resolve) => {
@@ -110,9 +118,26 @@ it.each(['/sports/open', '/Sports/open', '/%73ports/open'])(
     await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
     expect(leave).toHaveBeenCalledTimes(1);
     expect(leave).toHaveBeenCalledWith('https://sportsbook.example.test/synthetic-launch');
-    expect(screen.getByTestId('path').textContent).toBe(path);
+    expect(screen.getByTestId('path').textContent).toBe(base);
+    storage.restore();
   }
 );
+it('keeps a bare /sports/open link for a restored member but waits for a click', async () => {
+  let resolveProbe!: (data: unknown) => void;
+  get.mockReturnValue(
+    new Promise((resolve) => {
+      resolveProbe = resolve;
+    })
+  );
+  setup('/sports/open');
+  await act(async () => {
+    resolveProbe({ success: true, data: { user: member } });
+  });
+  expect(await screen.findByRole('button', { name: 'Browse sports' })).toBeVisible();
+  expect(screen.getByTestId('path').textContent).toBe('/sports/open');
+  expect(launch).not.toHaveBeenCalled();
+  expect(leave).not.toHaveBeenCalled();
+});
 it.each([
   ['/groups/member-group?tab=members#chat', 'Member group detail'],
   ['/messages/member-thread', 'Member messages'],
@@ -265,3 +290,52 @@ it.each([
     expect(get).toHaveBeenCalledWith('/workspaces/access');
   }
 );
+
+const INVITE = '/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566';
+// Signing in, and the member layout's existing automatic activity reward once a
+// member is signed in, are the only expected writes: no acceptance or entry.
+const writesOtherThanSignIn = () =>
+  post.mock.calls
+    .map(([path]) => path)
+    .filter((path) => path !== '/auth/login' && path !== '/member-rewards/activity');
+async function asConfirmedGuest(path: string) {
+  let rejectProbe!: (error: unknown) => void;
+  get.mockReturnValue(
+    new Promise((_, reject) => {
+      rejectProbe = reject;
+    })
+  );
+  setup(path);
+  await act(async () => {
+    rejectProbe(new Error(JSON.stringify({ status: 401, message: 'Unauthorized' })));
+  });
+}
+it('keeps a visitor’s invitation through sign-in and accepts nothing until clicked', async () => {
+  await asConfirmedGuest(`${INVITE}?accept=1#join`);
+  await waitFor(() => expect(screen.getByTestId('path').textContent).toBe(INVITE));
+  expect(screen.getByRole('heading', { level: 1, name: 'Group invitation' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Member invitation' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Accept invite/ }));
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Sign in' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Simulate successful sign-in' }));
+  expect(await screen.findByRole('heading', { name: 'Member invitation' })).toBeInTheDocument();
+  expect(screen.getByTestId('path').textContent).toBe(INVITE);
+  expect(writesOtherThanSignIn()).toEqual([]);
+});
+it('returns a visitor to their chosen Play Together game, shown but not entered', async () => {
+  await asConfirmedGuest('/games/dice');
+  await waitFor(() =>
+    expect(screen.getByTestId('path').textContent).toBe('/play-together?game=dice')
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Find a room/ }));
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Sign in' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Simulate successful sign-in' }));
+  expect(await screen.findByRole('heading', { name: 'Member game lobby' })).toBeInTheDocument();
+  expect(screen.getByTestId('path').textContent).toBe('/play-together?game=dice');
+  await act(async () => {
+    back();
+  });
+  expect(screen.getByTestId('path').textContent).toBe('/play-together?game=dice');
+  expect(writesOtherThanSignIn()).toEqual([]);
+  expect(launch).not.toHaveBeenCalled();
+});

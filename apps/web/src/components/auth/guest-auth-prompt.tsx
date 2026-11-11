@@ -10,7 +10,13 @@ export function useGuestAuth() {
   return useContext(GuestAuthContext);
 }
 
-export function GuestAuthProvider({ children }: { children: React.ReactNode }) {
+export function GuestAuthProvider({
+  children,
+  signedIn = false,
+}: {
+  children: React.ReactNode;
+  signedIn?: boolean;
+}) {
   const location = useLocation();
   const { t } = useLanguage();
   const currentLocation = useRef(location);
@@ -37,8 +43,12 @@ export function GuestAuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setPrompt(null);
   }, [location]);
+  // A prompt opened while a slow session probe was pending is moot once it confirms a member.
+  useEffect(() => {
+    if (signedIn) setPrompt(null);
+  }, [signedIn]);
   const open = prompt !== null && prompt.location === location;
-  const from = getGuestReturnTo(location.pathname);
+  const from = getGuestReturnTo(location.pathname, location.search);
 
   return (
     <GuestAuthContext.Provider value={{ requestSignIn }}>

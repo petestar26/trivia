@@ -11,7 +11,7 @@ import { useLanguage as useInterfaceLanguage } from '@/providers/language-provid
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t: translateUi } = useInterfaceLanguage();
 
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
   const { pathname } = location;
@@ -74,6 +74,10 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
               {(user?.displayName || user?.username || 'U')[0].toUpperCase()}
             </Link>
           </>
+        ) : isLoading ? (
+          // Until the session probe settles, show neither the guest sign-in buttons
+          // nor member controls, so a returning member never sees "Sign in" flash.
+          <LanguageSelect />
         ) : (
           <>
             <LanguageSelect />

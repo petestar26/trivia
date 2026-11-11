@@ -46,6 +46,24 @@ it.each(['/', '/explore', '/dashboard', '/groups'])(
     );
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+    // Until the probe settles, show neither guest sign-in nor member controls, so a
+    // returning member never sees "Sign in" flash before their own header appears.
+    expect(screen.queryByRole('link', { name: 'Sign in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open your wallet' })).not.toBeInTheDocument();
+  }
+);
+it.each(['/', '/explore', '/dashboard', '/groups'])(
+  'actual app route %s offers sign-in once the probe confirms a guest',
+  (path) => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Sign in' })[0]).toHaveAttribute('href', '/login');
   }
 );
