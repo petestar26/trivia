@@ -411,6 +411,32 @@ async function legacyFingerprint(client: PrismaClient, columns?: Record<string, 
   return { columns: cols, digests };
 }
 
+/** Snapshot all application tables, including post-master economic history.
+ * Prisma records a failed attempt separately in _prisma_migrations. */
+async function applicationFingerprint(client: PrismaClient) {
+  const tables = await client.$queryRaw<{ name: string }[]>`
+    SELECT tablename AS name FROM pg_tables
+    WHERE schemaname = 'public' AND tablename <> '_prisma_migrations' ORDER BY tablename`;
+  const data: Record<string, unknown> = {};
+  for (const { name } of tables) {
+    const quoted = '"' + name.replaceAll('"', '""') + '"';
+    data[name] = await client.$queryRawUnsafe(
+      `SELECT count(*)::int AS n, md5(string_agg(row_to_json(t)::text, E'\\n' ORDER BY row_to_json(t)::text)) AS digest FROM public.${quoted} t`);
+  }
+  const columns = await client.$queryRaw`
+    SELECT table_name, column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'
+    ORDER BY table_name, ordinal_position`;
+  const constraints = await client.$queryRaw`
+    SELECT conrelid::regclass::text AS relation, conname, pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint WHERE connamespace = 'public'::regnamespace ORDER BY relation, conname`;
+  const triggers = await client.$queryRaw`
+    SELECT tgrelid::regclass::text AS relation, tgname, pg_get_triggerdef(oid) AS definition
+    FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN
+      (SELECT oid FROM pg_class WHERE relnamespace = 'public'::regnamespace) ORDER BY relation, tgname`;
+  return { data, columns, constraints, triggers };
+}
+
 beforeAll(() => {
   expect(ALL).toContain(PRE_GATE);
   expect(ALL).toContain(FINAL_GATE);
@@ -1165,6 +1191,26 @@ describe('ledger upgrade migrations', () => {
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
+  it('an empty master-era database upgrades through ETB and every later migration to HEAD', async () => {
+    const db = await scratchDatabase('empty-master-etb');
+    try {
+      const master = deploy(db.url, migrationSubset(MASTER));
+      expect(master.status, master.output).toBe(0);
+      const upgrade = deploy(db.url);
+      expect(upgrade.status, upgrade.output).toBe(0);
+      expect((await migrationRows(db.client)).map(row => row.migration_name)).toEqual(ALL);
+      expect((await migrationRows(db.client)).every(row => row.finished && !row.rolled_back)).toBe(true);
+      expect(await db.client.$queryRaw`SELECT currency, "minorDigits" FROM public.wallet_denomination`)
+        .toEqual([{ currency: 'ETB', minorDigits: 2 }]);
+      expect(await anomalies(db.client)).toEqual([]);
+      const before = await applicationFingerprint(db.client);
+      const replay = deploy(db.url);
+      expect(replay.status, replay.output).toBe(0);
+      expect(replay.output).toContain('No pending migrations to apply');
+      expect(await applicationFingerprint(db.client)).toEqual(before);
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
   it('native ETB initialization refuses a funded master-era database and changes nothing', async () => {
     const db = await scratchDatabase('funded-etb');
     try {
@@ -1172,15 +1218,23 @@ describe('ledger upgrade migrations', () => {
       execute(db.url, masterEraSeed(masterIds()));
       const upgraded = fundedUpgrade(db.url);
       expect(upgraded.status, upgraded.output).toBe(0);
-      const before = await legacyFingerprint(db.client);
+      const before = await applicationFingerprint(db.client);
+      // Prisma can mask a transactional migration's original exception while
+      // recording failure. Assert the exact shipped guard directly as well.
+      const etbSql = readFileSync(join(MIGRATIONS, NATIVE_ETB_WALLET, 'migration.sql'), 'utf8');
+      const guard = etbSql.match(/DO \$\$ BEGIN[\s\S]*?END \$\$;/)?.[0];
+      expect(guard).toBeDefined();
+      await expect(db.client.$executeRawUnsafe(guard!))
+        .rejects.toThrow('ETB initialization refused: existing financial records require an explicit migration');
 
       const stopped = deploy(db.url);
       expect(stopped.status).not.toBe(0);
       expect(stopped.output).toContain(NATIVE_ETB_WALLET);
+
       expect((await migrationRows(db.client)).filter((row) => row.migration_name >= NATIVE_ETB_WALLET))
         .toEqual([{ migration_name: NATIVE_ETB_WALLET, finished: false, rolled_back: false, steps: 0 }]);
       expect(await relationExists(db.client, 'public.wallet_denomination')).toBe(false);
-      expect((await legacyFingerprint(db.client, before.columns)).digests).toEqual(before.digests);
+      expect(await applicationFingerprint(db.client)).toEqual(before);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
@@ -1602,7 +1656,7 @@ INSERT INTO game_sessions (id, "userId", "gameId", status, "betAmount", result, 
     return { db, ids };
   }
 
-  it('the same data, unchanged, upgrades completely', async () => {
+  it('the same funded data, unchanged, upgrades through the pre-ETB boundary', async () => {
     const { db } = await snapshotted('windowbase');
     try {
       const result = fundedUpgrade(db.url);

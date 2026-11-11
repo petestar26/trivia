@@ -124,7 +124,7 @@ async function purgeFixtureExchangeRates(where: unknown): Promise<{ count: numbe
   if (!countryIds.length) throw new Error('Unscoped ExchangeRateConfig fixture purge refused');
   await assertThrowawayDatabase();
   const rows = await prisma.exchangeRateConfig.findMany({
-    where: { countryId: { in: countryIds } }, select: { id: true },
+    where: where as Prisma.ExchangeRateConfigWhereInput, select: { id: true },
   });
   if (!rows.length) return { count: 0 };
   const rateIds = Prisma.join(rows.map((row) => row.id));

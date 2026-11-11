@@ -343,6 +343,25 @@ describeIf('Agent config — ExchangeRateConfig', () => {
     expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
   });
 
+  it('fixture rate cleanup preserves the full selector and other countries', async () => {
+    const own = await rateCountry('cleanup'), other = await rateCountry('cleanup-other');
+    const selected = await historicalRate(admin.id, { countryId: own.id });
+    const retained = await historicalRate(admin.id, { countryId: own.id });
+    const unrelated = await historicalRate(admin.id, { countryId: other.id });
+    expect(await prisma.exchangeRateConfig.deleteMany({
+      where: { countryId: own.id, id: selected.id },
+    })).toEqual({ count: 1 });
+    expect(await prisma.exchangeRateConfig.findUnique({ where: { id: selected.id } })).toBeNull();
+    for (const rate of [retained, unrelated]) {
+      expect(await prisma.exchangeRateConfig.findUnique({ where: { id: rate.id } })).toEqual(rate);
+    }
+    // An additional predicate matching nothing must not widen to the country.
+    expect(await prisma.exchangeRateConfig.deleteMany({
+      where: { countryId: own.id, id: 'nonexistent-fixture-rate' },
+    })).toEqual({ count: 0 });
+    expect(await prisma.exchangeRateConfig.findUnique({ where: { id: retained.id } })).toEqual(retained);
+  });
+
   it('a newer rate is selected over an older one — matches the exact documented selection query', async () => {
     const own = await rateCountry('newer');
     await historicalRate(admin.id, { countryId: own.id, effectiveAt: new Date(Date.now() - 60_000) });
