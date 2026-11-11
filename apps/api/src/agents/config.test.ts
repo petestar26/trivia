@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@socialplay/database';
+import { randomUUID } from 'node:crypto';
+import { fixtureEtbPolicy, fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
 import {
   createCountry,
   setCountryFlags,
@@ -316,48 +318,83 @@ describeIf('Agent config — ExchangeRateConfig', () => {
   });
 
   // Historical records remain readable/deactivatable; new API creation is closed.
-  const historicalRate = (actorId: string, args: { countryId: string; fiatCurrency: string; coinsPerUnit: number; effectiveAt?: Date }) =>
-    prisma.exchangeRateConfig.create({ data: { ...args, setBy: actorId } });
+  // The native ETB wallet (etb_rate_terms) admits only ETB_V1 rows at one unit
+  // per santim, so cases that used to differ by currency each own a country.
+  const historicalRate = (actorId: string, args: { countryId: string; effectiveAt?: Date }) =>
+    prisma.exchangeRateConfig.create({ data: {
+      ...args, fiatCurrency: 'ETB', coinsPerUnit: 1, pricingPolicy: fixtureEtbPolicy(), setBy: actorId,
+    } });
+  async function rateCountry(tag: string) {
+    for (;;) {
+      const code = `R${randomUUID().replaceAll('-', '').slice(0, 2)}`.toUpperCase();
+      if (await prisma.country.findUnique({ where: { code } })) continue;
+      return prisma.country.create({ data: { code, name: `Config Test Country rate-${tag}`, currencyCode: 'ETB' } });
+    }
+  }
+
+  it('legacy non-ETB rate rows are refused by the native ETB wallet', async () => {
+    const refused = /Native ETB wallet requires ETB pricing terms/;
+    await expect(prisma.exchangeRateConfig.create({ data: {
+      countryId: country.id, fiatCurrency: 'EUR', coinsPerUnit: 5, setBy: admin.id,
+    } })).rejects.toThrow(refused);
+    await expect(prisma.exchangeRateConfig.create({ data: {
+      countryId: country.id, fiatCurrency: 'ETB', coinsPerUnit: 2, setBy: admin.id, pricingPolicy: fixtureUsdPolicy(2),
+    } })).rejects.toThrow(refused);
+    expect(await prisma.exchangeRateConfig.count({ where: { countryId: country.id } })).toBe(0);
+  });
+
+  it('fixture rate cleanup preserves the full selector and other countries', async () => {
+    const own = await rateCountry('cleanup'), other = await rateCountry('cleanup-other');
+    const selected = await historicalRate(admin.id, { countryId: own.id });
+    const retained = await historicalRate(admin.id, { countryId: own.id });
+    const unrelated = await historicalRate(admin.id, { countryId: other.id });
+    expect(await prisma.exchangeRateConfig.deleteMany({
+      where: { countryId: own.id, id: selected.id },
+    })).toEqual({ count: 1 });
+    expect(await prisma.exchangeRateConfig.findUnique({ where: { id: selected.id } })).toBeNull();
+    for (const rate of [retained, unrelated]) {
+      expect(await prisma.exchangeRateConfig.findUnique({ where: { id: rate.id } })).toEqual(rate);
+    }
+    // An additional predicate matching nothing must not widen to the country.
+    expect(await prisma.exchangeRateConfig.deleteMany({
+      where: { countryId: own.id, id: 'nonexistent-fixture-rate' },
+    })).toEqual({ count: 0 });
+    expect(await prisma.exchangeRateConfig.findUnique({ where: { id: retained.id } })).toEqual(retained);
+  });
 
   it('a newer rate is selected over an older one — matches the exact documented selection query', async () => {
-    await historicalRate(admin.id, {
-      countryId: country.id,
-      fiatCurrency: 'EUR',
-      coinsPerUnit: 5,
-      effectiveAt: new Date(Date.now() - 60_000),
-    });
-    await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'EUR', coinsPerUnit: 8 });
+    const own = await rateCountry('newer');
+    await historicalRate(admin.id, { countryId: own.id, effectiveAt: new Date(Date.now() - 60_000) });
+    const newer = await historicalRate(admin.id, { countryId: own.id });
 
-    const active = await getActiveExchangeRate(country.id, 'EUR');
-    expect(Number(active!.coinsPerUnit)).toBe(8);
+    // Every ETB rate is one unit per santim, so identify the winner by row.
+    const active = await getActiveExchangeRate(own.id, 'ETB');
+    expect(active!.id).toBe(newer.id);
   });
 
   it('a future-dated rate is not yet selected', async () => {
-    await historicalRate(admin.id, {
-      countryId: country.id,
-      fiatCurrency: 'GBP',
-      coinsPerUnit: 20,
-      effectiveAt: new Date(Date.now() + 3_600_000),
-    });
-    const active = await getActiveExchangeRate(country.id, 'GBP');
+    const own = await rateCountry('future');
+    await historicalRate(admin.id, { countryId: own.id, effectiveAt: new Date(Date.now() + 3_600_000) });
+    const active = await getActiveExchangeRate(own.id, 'ETB');
     expect(active).toBeNull();
   });
 
   it('deactivating a rate removes it from selection; creating never edits an existing row', async () => {
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'JPY', coinsPerUnit: 3 });
+    const own = await rateCountry('deactivate');
+    const rate = await historicalRate(admin.id, { countryId: own.id });
     await deactivateExchangeRate(admin.id, rate.id);
 
-    const active = await getActiveExchangeRate(country.id, 'JPY');
+    const active = await getActiveExchangeRate(own.id, 'ETB');
     expect(active).toBeNull();
 
-    const history = await listExchangeRates(country.id);
+    const history = await listExchangeRates(own.id);
     const stillThere = history.find((r) => r.id === rate.id);
     expect(stillThere).toBeTruthy(); // historical row preserved, never deleted or rewritten
     expect(stillThere!.isActive).toBe(false);
   });
 
   it('deactivating an already-inactive rate is rejected', async () => {
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'CAD', coinsPerUnit: 4 });
+    const rate = await historicalRate(admin.id, { countryId: country.id });
     await deactivateExchangeRate(admin.id, rate.id);
     await expect(deactivateExchangeRate(admin.id, rate.id)).rejects.toThrow(/already inactive/i);
   });
@@ -368,7 +405,7 @@ describeIf('Agent config — ExchangeRateConfig', () => {
       createExchangeRate(plainUser.id, { countryId: country.id, fiatCurrency: 'USD', coinsPerUnit: 1 })
     ).rejects.toThrow(/admin privileges required/i);
 
-    const rate = await historicalRate(admin.id, { countryId: country.id, fiatCurrency: 'AUD', coinsPerUnit: 6 });
+    const rate = await historicalRate(admin.id, { countryId: country.id });
     await expect(deactivateExchangeRate(plainUser.id, rate.id)).rejects.toThrow(/admin privileges required/i);
   });
 });

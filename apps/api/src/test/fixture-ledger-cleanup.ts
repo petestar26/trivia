@@ -116,7 +116,32 @@ async function purgeFixtureChallengeSessions(where: unknown): Promise<void> {
   });
 }
 
+/** Native ETB rate history is append-only (etb_rate_history). Fixture
+ * countries own their synthetic rate rows, so teardown may remove exactly
+ * those rows; a rate a crypto payment still cites keeps its RESTRICT. */
+async function purgeFixtureExchangeRates(where: unknown): Promise<{ count: number }> {
+  const countryIds = idsFromUserFilter((where as { countryId?: unknown } | undefined)?.countryId);
+  if (!countryIds.length) throw new Error('Unscoped ExchangeRateConfig fixture purge refused');
+  await assertThrowawayDatabase();
+  const rows = await prisma.exchangeRateConfig.findMany({
+    where: where as Prisma.ExchangeRateConfigWhereInput, select: { id: true },
+  });
+  if (!rows.length) return { count: 0 };
+  const rateIds = Prisma.join(rows.map((row) => row.id));
+  return prisma.$transaction(async (tx) => {
+    const [cited] = await tx.$queryRaw<{ n: bigint }[]>`
+      SELECT (SELECT count(*) FROM "crypto_deposits" WHERE "etbRateId" IN (${rateIds}))
+           + (SELECT count(*) FROM "crypto_withdrawals" WHERE "etbRateId" IN (${rateIds})) AS n`;
+    if (cited.n > 0n) throw new Error('Fixture rate is still cited by a crypto payment');
+    await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+    return { count: await tx.$executeRaw`DELETE FROM "exchange_rate_configs" WHERE "id" IN (${rateIds})` };
+  });
+}
+
 prisma.$use(async (params, next) => {
+  if (params.model === 'ExchangeRateConfig' && params.action === 'deleteMany') {
+    return purgeFixtureExchangeRates(params.args?.where);
+  }
   if (params.model === 'AgentOrderSettlement' && params.action === 'deleteMany') {
     const where = params.args?.where as Record<string, unknown> | undefined;
     if (!where || (!where.orderId && !where.order)) {
