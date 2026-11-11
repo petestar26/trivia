@@ -52,7 +52,7 @@ function setup(path: string) {
     </QueryClientProvider>
   );
   const rendered = render(view());
-  return { cache, refresh: () => rendered.rerender(view()) };
+  return { cache, container: rendered.container, refresh: () => rendered.rerender(view()) };
 }
 beforeEach(() => {
   auth.user = null;
@@ -66,6 +66,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('guest member shell', () => {
+  it.each([
+    '/groups',
+    '/messages',
+    '/gifts',
+    '/rewards',
+    '/wallet',
+    '/support',
+    '/profile',
+    '/casino',
+  ])('keeps decorative motion separate from actions and private data at %s', (path) => {
+    const { container } = setup(path);
+    const artwork = container.querySelectorAll('.salem-guest-motion-art');
+    expect(artwork).toHaveLength(path === '/casino' ? 4 : 1);
+    artwork.forEach((element) => {
+      expect(element).toHaveAttribute('aria-hidden', 'true');
+      expect(element.querySelector('button, a, input, [tabindex], [role="status"]')).toBeNull();
+    });
+    expect(post).not.toHaveBeenCalled();
+    expect(listGroups).not.toHaveBeenCalled();
+  });
   it.each([
     ['/sports/open?launch=1#session', 'Private sports launch'],
     ['/Sports/open', 'Private sports launch'],

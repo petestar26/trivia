@@ -215,6 +215,83 @@
   width: 100%;
   padding-inline: 10px;
 }
+/* Decorative only: no activity indicators, result simulation, or moving targets.
+   Motion settles within two seconds and uses only compositor-friendly properties. */
+.salem-guest-motion-art {
+  position: relative;
+  isolation: isolate;
+  pointer-events: none;
+}
+.salem-guest-motion-art::before,
+.salem-guest-motion-art::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  width: 88px;
+  height: 88px;
+  border: 1px solid currentColor;
+  border-radius: 28px;
+  opacity: 0.14;
+  transform: rotate(-12deg);
+}
+.salem-guest-motion-art::after {
+  width: 112px;
+  height: 112px;
+  border-radius: 38px;
+  opacity: 0.07;
+  transform: rotate(12deg);
+}
+.salem-guest-feature-art::before,
+.salem-guest-feature-art::after {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+}
+.salem-guest-feature-art::after {
+  width: 88%;
+  height: 88%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .salem-guest-motion-art > svg {
+    animation: salem-art-welcome 1800ms ease-in-out 1;
+    transition: transform 240ms ease-out;
+  }
+  .salem-guest-motion-art::before,
+  .salem-guest-motion-art::after {
+    animation: salem-art-frame 1600ms ease-out 1;
+  }
+  .salem-guest-category:nth-child(even) .salem-guest-motion-art > svg {
+    animation-delay: 120ms;
+  }
+  .salem-guest-category:focus-within .salem-guest-motion-art > svg,
+  .salem-guest-feature:focus-within .salem-guest-motion-art > svg {
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .salem-guest-category:hover .salem-guest-motion-art > svg,
+  .salem-guest-feature:hover .salem-guest-motion-art > svg {
+    transform: translateY(-3px);
+  }
+}
+@keyframes salem-art-welcome {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  35% {
+    transform: translateY(-7px) rotate(-4deg);
+  }
+  65% {
+    transform: translateY(-2px) rotate(3deg);
+  }
+}
+@keyframes salem-art-frame {
+  from {
+    opacity: 0;
+    scale: 0.86;
+  }
+}
 .salem-guest-status {
   display: flex;
   gap: 8px;
@@ -324,7 +401,29 @@
     min-height: 0;
   }
   .salem-guest-feature-art {
+    /* Keep the illustration on phones, without a large empty hero panel. */
+    width: 104px;
+    height: 104px;
+    justify-self: center;
+    gap: 0;
+    box-shadow: none;
+  }
+  .salem-guest-feature-art > svg {
+    width: 46px;
+    height: 46px;
+  }
+  .salem-guest-feature-art > span {
     display: none;
+  }
+  .salem-guest-category .salem-guest-motion-art::before {
+    width: 68px;
+    height: 68px;
+    border-radius: 22px;
+  }
+  .salem-guest-category .salem-guest-motion-art::after {
+    width: 88px;
+    height: 88px;
+    border-radius: 28px;
   }
   .salem-guest-benefits,
   .salem-guest-steps {
@@ -401,6 +500,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .salem-guest-browse *,
+  .salem-guest-browse *::before,
+  .salem-guest-browse *::after,
   .salem-guest-dialog {
     animation: none !important;
     transition: none !important;

@@ -271,7 +271,11 @@ function FeatureOverview({ feature }: { feature: (typeof features)[string] }) {
             {t(feature.action)}
           </GuestAction>
         </div>
-        <div className="salem-guest-feature-art" aria-hidden="true">
+        <div
+          key={feature.kicker}
+          className="salem-guest-feature-art salem-guest-motion-art"
+          aria-hidden="true"
+        >
           <Icon size={96} strokeWidth={1} />
           <span>SALEM BET</span>
         </div>
@@ -343,7 +347,7 @@ function GuestCasino() {
       <div className="salem-guest-category-grid">
         {categories.map(([name, Icon, copy]) => (
           <article className="salem-guest-category" key={name}>
-            <div aria-hidden="true">
+            <div className="salem-guest-motion-art" aria-hidden="true">
               <Icon size={54} strokeWidth={1.1} />
             </div>
             <span className="salem-eyebrow">{t('CASINO')}</span>
