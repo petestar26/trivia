@@ -61,6 +61,31 @@ const FOOTBALL_CATALOG = '20261010010200_virtual_football_catalog';
 const FOOTBALL_SETTLEMENT_ATOMIC = '20261010010300_virtual_football_settlement_atomic';
 const NUMBER_TIMED_PRACTICE = '20261012020000_number_timed_practice';
 const NUMBER_CHALLENGE_PRACTICE = '20261012010000_number_challenge_practice';
+const NATIVE_ETB_WALLET = '20261104150000_native_etb_wallet';
+// Native ETB wallet, practice catalogue, member and shared-play releases
+// (2026-11-04 to 2026-11-07), in order. Each forward migration is named here
+// deliberately rather than matched by date.
+const NOVEMBER_RELEASES = [
+  '20261104120000_practice_etb_gifts',
+  '20261104140000_keno_practice_multi_ticket',
+  NATIVE_ETB_WALLET,
+  '20261104160000_roulette_keno_practice',
+  '20261105013000_member_support',
+  '20261105140000_lucky_six_practice',
+  '20261105150000_spin_practice_multi_ticket',
+  '20261105180000_blackjack_practice',
+  '20261105200000_softaggregator_test_wallet',
+  '20261105210000_member_rewards',
+  '20261105220000_automatic_member_rewards',
+  '20261106000000_sports_wallet_types',
+  '20261106000100_sports_real_wallet',
+  '20261106010000_together_operation_types',
+  '20261106010100_play_together',
+  '20261106020000_together_practice_catalogue',
+  '20261106030000_together_live_timeline',
+  '20261106031000_together_practice_worker',
+  '20261107040000_payment_order_rooms',
+];
 const AGENT_ACTIVATION_UTC = '20261007040000_agent_activation_utc';
 const RECOVERY_RUNTIME_HARDENING = '20261007032000_recovery_runtime_hardening';
 const AGENT_ACTIVATION_RUNTIME_GRANT = '20261007010000_agent_activation_runtime_grant';
@@ -82,6 +107,12 @@ const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url
 const RUNTIME_ACCESS = fileURLToPath(new URL('../scripts/ledger-runtime-access.ts', import.meta.url));
 const ALL = readdirSync(MIGRATIONS).filter((name) => /^\d{14}_/.test(name)).sort();
 const MASTER = ALL.filter((name) => name < PRE_GATE);
+// Native ETB initialization converts nothing: it refuses any database that
+// already holds financial records ("A funded deployment must use a separate
+// migration"). A funded master-era database therefore upgrades through every
+// migration before it; that refusal is asserted on its own below.
+const BEFORE_NATIVE_ETB = ALL.filter((name) => name < NATIVE_ETB_WALLET);
+const fundedUpgrade = (url: string) => deploy(url, migrationSubset(BEFORE_NATIVE_ETB));
 // The migrations added after the parent release (bfe2263). Every other one is
 // the parent's, byte for byte: a migration a database has applied is never
 // edited, so what corrects it comes forward.
@@ -440,6 +471,7 @@ beforeAll(() => {
     FOOTBALL_SETTLEMENT_ATOMIC,
     NUMBER_CHALLENGE_PRACTICE,
     NUMBER_TIMED_PRACTICE,
+    ...NOVEMBER_RELEASES,
   ]);
   expect(MASTER.at(-1)).toBe('20260917000000_group_invites_hardening');
   expect(ALL).toEqual(expect.arrayContaining(ADDED_AFTER_PARENT));
@@ -720,10 +752,10 @@ describe('ledger upgrade migrations', () => {
         : game);
       expect(await anomalies(db.client)).toEqual([]);
 
-      const upgrade = deploy(db.url);
+      const upgrade = fundedUpgrade(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       const applied = [...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map((match) => match[1]);
-      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE]);
+      expect(applied).toEqual([FUTURE_BEACON, PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE, ...NOVEMBER_RELEASES.filter((name) => name < NATIVE_ETB_WALLET)]);
       expect(await relationExists(db.client, 'public.house_round_beacon_pins')).toBe(true);
       expect(await db.client.$queryRaw`SELECT round_id FROM public.house_round_beacon_pins`).toEqual([]);
       expect(await historicalProofs()).toEqual(proofsBefore);
@@ -774,10 +806,10 @@ describe('ledger upgrade migrations', () => {
       expect(setup.status, setup.output).toBe(0);
       expect(setup.output).toContain('Verified');
       expect(setup.beaconAccess).toEqual({ readable: true, writable: false, archived_setup: false });
-      const replay = deploy(db.url);
+      const replay = fundedUpgrade(db.url);
       expect(replay.status, replay.output).toBe(0);
       expect(replay.output).toContain('No pending migrations to apply');
-      expect((await migrationRows(db.client)).map((row) => row.migration_name).sort()).toEqual(ALL);
+      expect((await migrationRows(db.client)).map((row) => row.migration_name).sort()).toEqual(BEFORE_NATIVE_ETB);
       expect(await historicalProofs()).toEqual(proofsBefore);
       expect((await legacyFingerprint(db.client, customersBefore.columns)).digests).toEqual(customersBefore.digests);
       expect(await economicFingerprint()).toEqual(economicsBefore);
@@ -824,7 +856,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLIC_PROOFS, PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE, ...NOVEMBER_RELEASES]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       const [projection] = await db.client.$queryRaw<Array<{ proof: { stage: string; reveal: unknown; commitment: { roundId: string } } }>>`
@@ -877,7 +909,7 @@ describe('ledger upgrade migrations', () => {
       const before = await privateState(), customers = await legacyFingerprint(db.client);
       const upgrade = deploy(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
-      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE]);
+      expect([...upgrade.output.matchAll(/Applying migration `([^`]+)`/g)].map(match => match[1])).toEqual([PUBLICATION_STORAGE, PRACTICE_PROOF_SCOPE, PRACTICE_TICKET_READ_SCOPE, GROUP_PVP_POINTS, SYSTEM_KENO_PRACTICE, COLLECTIBLE_GIFTS, SYSTEM_DICE_PRACTICE, SOCIAL_GROUP_LIFECYCLE, REWARD_COIN_NET_WINNINGS, PRACTICE_REVIEW_GUARDS, KENO_INVARIANT_PATH, CLOSED_GROUP_MODERATION, USD_PAYMENT_PRICING, USD_PRICING_GUARD_PATHS, USD_ACTIVATION_GUARD_PATH, ADMIN_AGENT_ONBOARDING, CRASH_POINT_PRACTICE, CRASH_POINT_CATALOG, CRASH_POINT_DUAL, CRASH_POINT_SLOT_PATH, CRASH_POINT_INVOKER_PATH, AGENT_ACTIVATION_RUNTIME_GRANT, LATE_PAYMENT_CASES, LATE_PAYMENT_GUARD_PATHS, LATE_PAYMENT_SUPERVISION, RECOVERY_REFERENCE_BOUNDARY, RECOVERY_RUNTIME_HARDENING, AGENT_ACTIVATION_UTC, USDT_TRON_PAYMENTS, SKY_CRASH_PRACTICE, SKY_CRASH_DUAL, SKY_CRASH_CATALOG, THUNDER_DERBY_PRACTICE, FOOTBALL_GAME_TYPE, FOOTBALL_PRACTICE, FOOTBALL_CATALOG, FOOTBALL_SETTLEMENT_ATOMIC, NUMBER_CHALLENGE_PRACTICE, NUMBER_TIMED_PRACTICE, ...NOVEMBER_RELEASES]);
       expect(await privateState()).toEqual(before);
       expect((await legacyFingerprint(db.client, customers.columns)).digests).toEqual(customers.digests);
       expect(await db.client.$queryRaw`SELECT
@@ -1089,7 +1121,7 @@ describe('ledger upgrade migrations', () => {
       const preflight = await runLedgerUpgradePreflight(db.client);
       expect({ mode: preflight.mode, anomalies: preflight.anomalies }).toEqual({ mode: 'PRE_UPGRADE', anomalies: [] });
 
-      const upgrade = deploy(db.url);
+      const upgrade = fundedUpgrade(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       expect((await legacyFingerprint(db.client, before.columns)).digests).toEqual(before.digests);
 
@@ -1130,6 +1162,25 @@ describe('ledger upgrade migrations', () => {
       expect(setup.status, setup.output).toBe(0);
       expect(setup.output).toContain('Verified');
       expect({ runtime: setup.runtimeCanCreate, public: setup.publicCanCreate }).toEqual({ runtime: false, public: false });
+    } finally { await db.client.$disconnect(); }
+  }, 300_000);
+
+  it('native ETB initialization refuses a funded master-era database and changes nothing', async () => {
+    const db = await scratchDatabase('funded-etb');
+    try {
+      expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
+      execute(db.url, masterEraSeed(masterIds()));
+      const upgraded = fundedUpgrade(db.url);
+      expect(upgraded.status, upgraded.output).toBe(0);
+      const before = await legacyFingerprint(db.client);
+
+      const stopped = deploy(db.url);
+      expect(stopped.status).not.toBe(0);
+      expect(stopped.output).toContain(NATIVE_ETB_WALLET);
+      expect((await migrationRows(db.client)).filter((row) => row.migration_name >= NATIVE_ETB_WALLET))
+        .toEqual([{ migration_name: NATIVE_ETB_WALLET, finished: false, rolled_back: false, steps: 0 }]);
+      expect(await relationExists(db.client, 'public.wallet_denomination')).toBe(false);
+      expect((await legacyFingerprint(db.client, before.columns)).digests).toEqual(before.digests);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
 
@@ -1204,7 +1255,7 @@ INSERT INTO withdrawal_holds (id, "withdrawalId", "coinAmount", status, "debitWa
       expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
       const resolved = prismaCli(db.url, ['migrate', 'resolve', '--rolled-back', PRE_GATE, '--schema', SCHEMA]);
       expect(resolved.status, resolved.output).toBe(0);
-      const retried = deploy(db.url);
+      const retried = fundedUpgrade(db.url);
       expect(retried.status, retried.output).toBe(0);
       expect(await anomalies(db.client)).toEqual([]);
       const erinLots = await db.client.$queryRawUnsafe<{ reserved: number; status: string }[]>(
@@ -1419,7 +1470,7 @@ describe('legacy game rules on a master database whose catalog the pre-casino AP
       expect(deploy(db.url, migrationSubset(MASTER)).status).toBe(0);
       execute(db.url, masterEraSeed(masterIds(), masterRuntimeCatalogSql()));
       expect((await runLedgerUpgradePreflight(db.client)).anomalies).toEqual([]);
-      const upgrade = deploy(db.url);
+      const upgrade = fundedUpgrade(db.url);
       expect(upgrade.status, upgrade.output).toBe(0);
       expect(await legacyRules(db.client)).toEqual(fresh);
       expect(await anomalies(db.client)).toEqual([]);
@@ -1554,7 +1605,7 @@ INSERT INTO game_sessions (id, "userId", "gameId", status, "betAmount", result, 
   it('the same data, unchanged, upgrades completely', async () => {
     const { db } = await snapshotted('windowbase');
     try {
-      const result = deploy(db.url);
+      const result = fundedUpgrade(db.url);
       expect(result.status, result.output).toBe(0);
     } finally { await db.client.$disconnect(); }
   }, 300_000);
@@ -1741,7 +1792,7 @@ describe('ledger upgrade with a concurrent writer', () => {
     const { db, ids } = await beforeFinalGate('racerollback');
     try {
       const writer = await openWriter(db.url, orphanStatements(`orphan-${ids.tag}`));
-      const migration = deployInBackground(db.url);
+      const migration = deployInBackground(db.url, migrationSubset(BEFORE_NATIVE_ETB));
       await waitForLockWaitIn(db.name);
       expect(migration.hasExited()).toBe(false);
       expect(await writer.rollback()).toBe('rolled back');
@@ -1824,7 +1875,7 @@ INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", c
       // waits for the catalog; the writer then needs a wallet: a cycle.
       const writer = stepWriter(db.url);
       expect(await writer.run(`UPDATE game_definitions SET "updatedAt" = "updatedAt" WHERE key = 'dice'`)).toBe('ok');
-      const migration = deployInBackground(db.url);
+      const migration = deployInBackground(db.url, migrationSubset(BEFORE_NATIVE_ETB));
       await waitForLockWaitIn(db.name);
       const walletStep = writer.run('UPDATE wallets SET "coinsBalance" = "coinsBalance" WHERE "userId" = $1', ids.alice);
       const [step, result] = await Promise.all([walletStep, migration.done.then(async (done) => {
@@ -1845,7 +1896,7 @@ INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", c
         expect(await legacyFingerprint(db.client)).toEqual(before);
         // Once the writer is gone, the documented recovery completes the upgrade.
         expect(prismaCli(db.url, ['migrate', 'resolve', '--rolled-back', PRE_GATE, '--schema', SCHEMA]).status).toBe(0);
-        const retried = deploy(db.url);
+        const retried = fundedUpgrade(db.url);
         expect(retried.status, retried.output).toBe(0);
       } else {
         expect(step).toMatch(/deadlock detected/);
@@ -2048,7 +2099,7 @@ INSERT INTO wallet_transactions (id, "walletId", "userId", type, "ledgerType", c
       execute(db.url, masterEraSeed(masterIds()));
       expect(deploy(db.url, migrationSubset(ALL.filter((name) => name < AUTHORIZATION))).status).toBe(0);
       const writer = await openWriter(db.url, [['UPDATE "coin_provenance" SET "updatedAt" = "updatedAt" WHERE false']]);
-      const background = deployInBackground(db.url);
+      const background = deployInBackground(db.url, migrationSubset(BEFORE_NATIVE_ETB));
       await waitForLockWaitIn(db.name);
       expect(await runningMigrations(db.client)).toEqual([AUTHORIZATION]);
       expect(await writer.rollback()).toBe('rolled back');
