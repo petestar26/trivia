@@ -18,9 +18,8 @@ import {
 import { WalletSetupAdmin } from '@/pages/wallet-setup-admin';
 import { WalletPricingAdmin } from '@/pages/wallet-pricing-admin';
 import { WalletAgentSetupPage } from '@/pages/wallet-agent-setup';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { useAuth } from '@/providers/auth-provider';
 import { Layout } from '@/components/layout/layout';
 import { HomePage } from '@/pages/home';
 import { LoginPage } from '@/pages/login';
@@ -73,25 +72,6 @@ const SpinWinVerifyPage = lazy(async () => {
 
 export function App() {
   const { t: translateUi } = useInterfaceLanguage();
-
-  const { isLoading } = useAuth();
-  const location = useLocation();
-
-  // All member-shell routes can render safe guest previews while the session
-  // resolves. Staff workspaces still wait for the session before their role gate.
-  if (
-    isLoading &&
-    /^\/(?:admin|agent)(?:\/|$)/.test(location.pathname) &&
-    !/^\/(?:explore\/?|login\/?|register\/?|reset-password\/?|(?:admin\/login|agent\/(?:login|activate))\/?|games\/spin-win\/verify\/?)?$/.test(
-      location.pathname
-    )
-  ) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-500 border-t-transparent"></div>
-      </div>
-    );
-  }
 
   return (
     <Routes>

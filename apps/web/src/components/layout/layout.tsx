@@ -19,9 +19,19 @@ import { GuestBrowsePage } from '@/pages/guest-browse';
 import '@/pages/guest-browse.css';
 
 export function Layout() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  const { t } = useLanguage();
   const location = useLocation();
   const safeGuestLocation = !isAuthenticated ? guestBrowseLocation(location) : null;
+  // An unresolved session is not an anonymous session. Preserve member deep
+  // links (including the sportsbook's explicit new-tab launch) until the probe
+  // decides. Do not mount private effects or expose a guest action at that URL.
+  if (isLoading && safeGuestLocation)
+    return (
+      <div className="min-h-screen flex items-center justify-center" role="status">
+        <span>{t('Loading…')}</span>
+      </div>
+    );
   if (safeGuestLocation) return <Navigate to={safeGuestLocation} replace />;
   return (
     <GuestAuthProvider>

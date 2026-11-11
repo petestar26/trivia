@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -20,6 +20,12 @@ vi.mock('@/lib/sports-launch', () => ({
   navigateToSportsbook: leave,
 }));
 vi.mock('@/pages/sports', () => ({ SportsPage: () => <h1>Member sports lobby</h1> }));
+vi.mock('@/pages/casino', () => ({ CasinoPage: () => <h1>Member casino lobby</h1> }));
+vi.mock('@/pages/group-detail', () => ({ GroupDetailPage: () => <h1>Member group detail</h1> }));
+vi.mock('@/pages/groups', () => ({ GroupsPage: () => <h1>Member groups</h1> }));
+vi.mock('@/pages/messages', () => ({ MessagesPage: () => <h1>Member messages</h1> }));
+vi.mock('@/pages/play-together', () => ({ PlayTogetherPage: () => <h1>Member game lobby</h1> }));
+vi.mock('@/pages/wallet-routes', () => ({ WalletRoutes: () => <h1>Member wallet</h1> }));
 vi.mock('@/components/notifications/notification-bell', () => ({
   NotificationBell: () => <span>Member notifications</span>,
 }));
@@ -47,15 +53,18 @@ vi.mock('@/pages/login', async () => {
   };
 });
 let back: () => void;
+let visit: ReturnType<typeof useNavigate>;
 function Address() {
   const location = useLocation();
   const navigate = useNavigate();
+  visit = navigate;
   back = () => navigate(-1);
   return (
-    <output data-testid="path">
+    <div data-testid="path">
       {location.pathname}
       {location.search}
-    </output>
+      {location.hash}
+    </div>
   );
 }
 function setup(path: string) {
@@ -74,6 +83,7 @@ function setup(path: string) {
 const member = { id: 'synthetic-member', username: 'Member' };
 beforeEach(() => {
   vi.clearAllMocks();
+  launch.mockResolvedValue('https://sportsbook.example.test/synthetic-launch');
   post.mockImplementation(async (path: string) => ({
     success: true,
     data: path === '/auth/login' ? { user: member } : {},
@@ -81,7 +91,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 it.each(['/sports/open', '/Sports/open', '/%73ports/open'])(
-  'replaces %s before the real AuthProvider restores a session',
+  'preserves %s for an existing member and launches only after the probe resolves',
   async (path) => {
     let resolveProbe!: (data: unknown) => void;
     get.mockReturnValue(
@@ -90,26 +100,168 @@ it.each(['/sports/open', '/Sports/open', '/%73ports/open'])(
       })
     );
     setup(path);
-    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent(/^\/sports$/));
+    expect(screen.getByTestId('path').textContent).toBe(path);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+    expect(launch).not.toHaveBeenCalled();
+    expect(leave).not.toHaveBeenCalled();
     await act(async () => {
       resolveProbe({ success: true, data: { user: member } });
     });
-    expect(await screen.findByRole('heading', { name: 'Member sports lobby' })).toBeInTheDocument();
+    await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(leave).toHaveBeenCalledWith('https://sportsbook.example.test/synthetic-launch');
+    expect(screen.getByTestId('path').textContent).toBe(path);
+  }
+);
+it.each([
+  ['/groups/member-group?tab=members#chat', 'Member group detail'],
+  ['/messages/member-thread', 'Member messages'],
+  ['/play-together/rounds/member-round', 'Member game lobby'],
+  ['/wallet/withdraw', 'Member wallet'],
+  ['/casino?game=provider-selection', 'Member casino lobby'],
+])('preserves member deep link %s after a successful initial probe', async (path, heading) => {
+  let resolveProbe!: (data: unknown) => void;
+  get.mockReturnValue(
+    new Promise((resolve) => {
+      resolveProbe = resolve;
+    })
+  );
+  setup(path);
+  expect(screen.getByTestId('path').textContent).toBe(path);
+  expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+  expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  await act(async () => {
+    resolveProbe({ success: true, data: { user: member } });
+  });
+  expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+  expect(screen.getByTestId('path').textContent).toBe(path);
+  expect(launch).not.toHaveBeenCalled();
+});
+it.each([
+  ['/sports/open', '/sports', 'Member sports lobby'],
+  ['/Sports/open', '/sports', 'Member sports lobby'],
+  ['/%73ports/open', '/sports', 'Member sports lobby'],
+  ['/casino?game=provider-selection', '/casino', 'Member casino lobby'],
+  ['/groups/member-group', '/groups', 'Member groups'],
+  ['/messages/member-thread', '/messages', 'Member messages'],
+  ['/play-together/rounds/member-round', '/play-together', 'Member game lobby'],
+  ['/wallet/withdraw', '/wallet', 'Member wallet'],
+])(
+  'sanitizes confirmed guest %s and keeps Back safe after explicit sign-in',
+  async (path, safePath, heading) => {
+    let rejectProbe!: (error: unknown) => void;
+    get.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectProbe = reject;
+      })
+    );
+    setup(path);
+    expect(screen.getByTestId('path').textContent).toBe(path);
+    await act(async () => {
+      rejectProbe(new Error(JSON.stringify({ status: 401, message: 'Unauthorized' })));
+    });
+    await waitFor(() => expect(screen.getByTestId('path').textContent).toBe(safePath));
+    fireEvent.click(document.querySelector('.salem-guest-signin')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate successful sign-in' }));
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+    await act(async () => {
+      back();
+    });
+    expect(screen.getByTestId('path').textContent).toBe(safePath);
     expect(launch).not.toHaveBeenCalled();
     expect(leave).not.toHaveBeenCalled();
   }
 );
-it('keeps Back safe across the real sign-in identity remount', async () => {
-  get.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
+it.each(['restore-session', 'explicit-sign-in'])(
+  'does not queue a guest action during a pending probe: %s',
+  async (mode) => {
+    let resolveProbe!: (data: unknown) => void;
+    get.mockReturnValue(
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      })
+    );
+    setup('/sports');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to open sports' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('path').textContent).toBe('/sports');
+    if (mode === 'explicit-sign-in') {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('link', { name: 'Sign in' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Simulate successful sign-in' }));
+      expect(
+        await screen.findByRole('heading', { name: 'Member sports lobby' })
+      ).toBeInTheDocument();
+    }
+    await act(async () => {
+      resolveProbe({ success: true, data: { user: member } });
+    });
+    expect(await screen.findByRole('heading', { name: 'Member sports lobby' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('path').textContent).toBe('/sports');
+    await act(async () => {
+      back();
+    });
+    expect(screen.getByTestId('path').textContent).toBe('/sports');
+    expect(launch).not.toHaveBeenCalled();
+    expect(leave).not.toHaveBeenCalled();
+  }
+);
+it('respects newer navigation instead of restoring a stale action URL', async () => {
+  let resolveProbe!: (data: unknown) => void;
+  get.mockReturnValue(
+    new Promise((resolve) => {
+      resolveProbe = resolve;
+    })
+  );
   setup('/sports/open');
-  await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent(/^\/sports$/));
-  fireEvent.click(document.querySelector('.salem-guest-signin')!);
-  fireEvent.click(screen.getByRole('button', { name: 'Simulate successful sign-in' }));
-  expect(await screen.findByRole('heading', { name: 'Member sports lobby' })).toBeInTheDocument();
   await act(async () => {
-    back();
+    visit('/sports', { replace: true });
   });
-  expect(screen.getByTestId('path')).toHaveTextContent(/^\/sports$/);
+  await act(async () => {
+    resolveProbe({ success: true, data: { user: member } });
+  });
+  expect(await screen.findByRole('heading', { name: 'Member sports lobby' })).toBeInTheDocument();
+  expect(screen.getByTestId('path').textContent).toBe('/sports');
   expect(launch).not.toHaveBeenCalled();
-  expect(leave).not.toHaveBeenCalled();
 });
+it('does not erase a deep link or mount private effects when the session check fails', async () => {
+  get.mockRejectedValue(new Error(JSON.stringify({ status: 503, message: 'Unavailable' })));
+  setup('/sports/open');
+  expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t check your session.');
+  expect(screen.getByTestId('path').textContent).toBe('/sports/open');
+  expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+  expect(launch).not.toHaveBeenCalled();
+});
+it.each([
+  ['/admin/accounts', 'Administrator access required'],
+  ['/Admin/accounts', 'Administrator access required'],
+  ['/%61dmin/accounts', 'Administrator access required'],
+  ['/agent/accounts', 'Approved agent access required'],
+  ['/Agent/accounts', 'Approved agent access required'],
+  ['/%61gent/accounts', 'Approved agent access required'],
+])(
+  'preserves unresolved staff path %s before applying server role checks',
+  async (path, heading) => {
+    let resolveProbe!: (data: unknown) => void;
+    get.mockImplementation((url: string) =>
+      url === '/auth/me'
+        ? new Promise((resolve) => {
+            resolveProbe = resolve;
+          })
+        : Promise.resolve({
+            success: true,
+            data: { admin: false, agent: false, role: 'USER', agentStatus: null },
+          })
+    );
+    setup(path);
+    expect(screen.getByTestId('path').textContent).toBe(path);
+    expect(screen.getByRole('status')).toHaveTextContent('Checking workspace access…');
+    expect(get).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveProbe({ success: true, data: { user: member } });
+    });
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+    expect(screen.getByTestId('path').textContent).toBe(path);
+    expect(get).toHaveBeenCalledWith('/workspaces/access');
+  }
+);

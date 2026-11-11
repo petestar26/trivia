@@ -17,9 +17,11 @@ const sections = new Set([
 ]);
 
 /**
- * Replace action-bearing guest URLs before rendering any browsing UI. Sanitizing
+ * Replace confirmed guests' action-bearing URLs before rendering browsing UI. Sanitizing
  * only the login return value would leave the old action URL in browser history,
- * where Back (or a late session probe) could mount an automatic member launch.
+ * where Back (or a later identity change) could mount an automatic member launch.
+ * An initial unresolved session must be held, not redirected: an existing
+ * authenticated member's deep link must survive the session probe.
  * No token, action query or private resource ID survives this boundary.
  * Only the known Home catalogue anchor is retained.
  */

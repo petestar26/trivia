@@ -39,7 +39,7 @@ let navigate: ReturnType<typeof useNavigate>;
 function Address() {
   const location = useLocation();
   navigate = useNavigate();
-  return <output data-testid="address">{JSON.stringify(location)}</output>;
+  return <div data-testid="address">{JSON.stringify(location)}</div>;
 }
 function setup(path: string) {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -67,29 +67,30 @@ afterEach(cleanup);
 
 describe('guest member shell', () => {
   it.each([
-    ['/sports/open?launch=1#session', '/sports', 'Private sports lobby'],
-    ['/Sports/open', '/sports', 'Private sports lobby'],
-    ['/%73ports/open', '/sports', 'Private sports lobby'],
-    ['/CASINO?game=provider-secret', '/casino', 'Private casino lobby'],
-    ['/%63asino?game=provider-secret', '/casino', 'Private casino lobby'],
-    ['/casino?game=provider-secret', '/casino', 'Private casino lobby'],
-    ['/games/provider-demos?game=provider-secret', '/casino', 'Private casino lobby'],
-  ])(
-    'replaces %s before a late session restoration can mount an action',
-    (path, destination, label) => {
-      auth.isLoading = true;
-      const mounted = setup(path);
-      expect(JSON.parse(screen.getByTestId('address').textContent!).pathname).toBe(destination);
-      expect(JSON.parse(screen.getByTestId('address').textContent!).search).toBe('');
-      auth.isAuthenticated = true;
-      auth.isLoading = false;
-      auth.user = { id: 'member', username: 'Member' };
-      mounted.refresh();
-      expect(screen.getByText(label)).toBeInTheDocument();
-      expect(screen.queryByText('Private sports launch')).not.toBeInTheDocument();
-      expect(post.mock.calls.every(([path]) => path === '/member-rewards/activity')).toBe(true);
-    }
-  );
+    ['/sports/open?launch=1#session', 'Private sports launch'],
+    ['/Sports/open', 'Private sports launch'],
+    ['/%73ports/open', 'Private sports launch'],
+    ['/CASINO?game=provider-secret', 'Private casino lobby'],
+    ['/%63asino?game=provider-secret', 'Private casino lobby'],
+    ['/casino?game=provider-secret', 'Private casino lobby'],
+  ])('preserves %s while resolving an existing member session', (path, label) => {
+    auth.isLoading = true;
+    const mounted = setup(path);
+    const address = JSON.parse(screen.getByTestId('address').textContent!);
+    expect(address.pathname + address.search + address.hash).toBe(path);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.queryByText(label)).not.toBeInTheDocument();
+    expect(get).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+    auth.isAuthenticated = true;
+    auth.isLoading = false;
+    auth.user = { id: 'member', username: 'Member' };
+    mounted.refresh();
+    expect(screen.getByText(label)).toBeInTheDocument();
+    const restoredAddress = JSON.parse(screen.getByTestId('address').textContent!);
+    expect(restoredAddress.pathname + restoredAddress.search + restoredAddress.hash).toBe(path);
+  });
   it.each([
     ['/sports/open?launch=1', '/sports', 'Private sports lobby'],
     ['/Sports/open', '/sports', 'Private sports lobby'],

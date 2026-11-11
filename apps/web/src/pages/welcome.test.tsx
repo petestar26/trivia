@@ -69,20 +69,26 @@ it.each([
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
   }
 );
-it.each(['/admin', '/agent'])(
-  'does not expose protected %s while the session probe is loading',
-  (path) => {
-    auth.isLoading = true;
-    render(
+it.each([
+  '/admin',
+  '/Admin/accounts',
+  '/%61dmin/accounts',
+  '/agent',
+  '/Agent/accounts',
+  '/%61gent/accounts',
+])('does not expose protected %s while the session probe is loading', (path) => {
+  auth.isLoading = true;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[path]}>
         <App />
       </MemoryRouter>
-    );
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
-    expect(document.querySelector('.animate-spin')).toBeInTheDocument();
-  }
-);
+    </QueryClientProvider>
+  );
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('navigation', { name: 'Account' })).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Checking workspace access…');
+});
 it('opens with a welcome scene, not a credential form, and lets guests browse', () => {
   mount();
   expect(screen.getByRole('heading', { name: /A world of play/ })).toBeInTheDocument();
