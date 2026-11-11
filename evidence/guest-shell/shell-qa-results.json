@@ -1,0 +1,1419 @@
+{
+  "source": "0bf9531e78f6e7e8575f6414bde3284d06acc4e5",
+  "generatedAt": "2026-11-11T18:26:06.537Z",
+  "viewport": "Playwright Chromium (simulated)",
+  "anonymousRequests": [
+    "GET /api/v1/auth/me",
+    "POST /api/v1/auth/refresh"
+  ],
+  "results": {
+    "guest-matrix": {
+      "ok": true,
+      "summary": [
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/dashboard",
+          "prompts": 13
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/casino",
+          "prompts": 17
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/sports",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/play-together",
+          "prompts": 14
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/wallet",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/groups",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/messages",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/rewards",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/dashboard"
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/casino"
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/sports"
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/wallet"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/dashboard"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/casino"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/sports"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/play-together"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/wallet"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/groups"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/messages"
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/rewards"
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/dashboard",
+          "prompts": 13
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/casino",
+          "prompts": 17
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/sports",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/play-together",
+          "prompts": 14
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/wallet",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/groups",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/messages",
+          "prompts": 1
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/rewards",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/dashboard"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/casino"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/sports"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/play-together"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/wallet"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/groups"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/messages"
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/rewards"
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/dashboard",
+          "prompts": 13
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/casino",
+          "prompts": 17
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/sports",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/play-together",
+          "prompts": 14
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/wallet",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/groups",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/messages",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/rewards",
+          "prompts": 1
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/dashboard"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/casino"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/sports"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/play-together"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/wallet"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/groups"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/messages"
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/rewards"
+        }
+      ],
+      "ms": 98917
+    },
+    "member-matrix": {
+      "ok": true,
+      "summary": [
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/groups",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/notifications",
+            "GET /api/v1/play-together/"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 1440,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/groups",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 768,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/groups",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/play-together/",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/groups",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/play-together/",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/groups",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/play-together/",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 1440,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/groups",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/play-together/"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "GET /api/v1/wallet/transactions",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/dashboard",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/games",
+            "GET /api/v1/provider-test/status",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/groups",
+            "GET /api/v1/provider-test/games"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/casino",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/provider-test/status",
+            "GET /api/v1/provider-test/games",
+            "GET /api/v1/provider-test/wallet"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/sports",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/sportsbook/status",
+            "GET /api/v1/sportsbook/activity",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/play-together",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/notifications",
+            "GET /api/v1/play-together/"
+          ]
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "path": "/wallet",
+          "requests": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/wallet",
+            "POST /api/v1/member-rewards/activity",
+            "GET /api/v1/wallet/transactions"
+          ]
+        }
+      ],
+      "ms": 57511
+    },
+    "mobile-drawer": {
+      "ok": true,
+      "out": [
+        {
+          "language": "en",
+          "width": 390,
+          "signedIn": false,
+          "drawerX": 0,
+          "drawerWidth": 256,
+          "links": 12
+        },
+        {
+          "language": "en",
+          "width": 320,
+          "signedIn": false,
+          "drawerX": 0,
+          "drawerWidth": 256,
+          "links": 12
+        },
+        {
+          "language": "ar",
+          "width": 390,
+          "signedIn": false,
+          "drawerX": 134,
+          "drawerWidth": 256,
+          "links": 12
+        },
+        {
+          "language": "en",
+          "width": 390,
+          "signedIn": true,
+          "drawerX": 0,
+          "drawerWidth": 256,
+          "links": 12
+        },
+        {
+          "language": "ar",
+          "width": 320,
+          "signedIn": true,
+          "drawerX": 64,
+          "drawerWidth": 256,
+          "links": 12
+        }
+      ],
+      "ms": 9426
+    },
+    "keyboard-home": {
+      "ok": true,
+      "stops": [
+        {
+          "tag": "a",
+          "text": "Skip to content",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Salem Bet\n\u2022",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Home",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Play together",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Casino",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Sports",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Groups",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Messages",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Wallet",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Gifts",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Rewards",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Support",
+          "outline": true
+        },
+        {
+          "tag": "summary",
+          "text": "More",
+          "outline": true
+        },
+        {
+          "tag": "a",
+          "text": "Sign in",
+          "outline": true
+        }
+      ],
+      "ms": 3663
+    },
+    "prompt-sign-in-return": {
+      "ok": true,
+      "out": [
+        {
+          "path": "/casino",
+          "landed": "/casino",
+          "afterBack": "/casino"
+        },
+        {
+          "path": "/sports",
+          "landed": "/sports",
+          "afterBack": "/sports"
+        },
+        {
+          "path": "/wallet",
+          "landed": "/wallet",
+          "afterBack": "/wallet"
+        },
+        {
+          "path": "/play-together?game=dice",
+          "landed": "/play-together?game=dice",
+          "afterBack": "/play-together?game=dice"
+        }
+      ],
+      "ms": 20414
+    },
+    "guest-deep-links": {
+      "ok": true,
+      "out": [
+        {
+          "link": "/sports/open",
+          "guestPath": "/sports",
+          "afterSignIn": "/sports",
+          "afterBack": "/sports",
+          "memberHeading": "Every match.\nYour moment."
+        },
+        {
+          "link": "/sports/open?intent=0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "guestPath": "/sports",
+          "afterSignIn": "/sports",
+          "afterBack": "/sports",
+          "memberHeading": "Every match.\nYour moment."
+        },
+        {
+          "link": "/casino?game=synthetic-1",
+          "guestPath": "/casino",
+          "afterSignIn": "/casino",
+          "afterBack": "/casino",
+          "memberHeading": "Casino."
+        },
+        {
+          "link": "/CASINO?game=synthetic-1",
+          "guestPath": "/casino",
+          "afterSignIn": "/casino",
+          "afterBack": "/casino",
+          "memberHeading": "Casino."
+        },
+        {
+          "link": "/games/dice",
+          "guestPath": "/play-together?game=dice",
+          "afterSignIn": "/play-together?game=dice",
+          "afterBack": "/play-together?game=dice",
+          "memberHeading": "Play together."
+        },
+        {
+          "link": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566?utm=1",
+          "guestPath": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "afterSignIn": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "afterBack": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "memberHeading": ""
+        },
+        {
+          "link": "/wallet/withdraw",
+          "guestPath": "/wallet",
+          "afterSignIn": "/wallet",
+          "afterBack": "/wallet",
+          "memberHeading": "Wallet"
+        },
+        {
+          "link": "/messages/synthetic-group",
+          "guestPath": "/messages",
+          "afterSignIn": "/messages",
+          "afterBack": "/messages",
+          "memberHeading": "Chats"
+        },
+        {
+          "link": "/games/provider-demos",
+          "guestPath": "/casino",
+          "afterSignIn": "/casino",
+          "afterBack": "/casino",
+          "memberHeading": "Casino."
+        }
+      ],
+      "ms": 69382
+    },
+    "member-deep-links": {
+      "ok": true,
+      "ms": 10746
+    },
+    "sportsbook-new-tab": {
+      "ok": true,
+      "href": "/sports/open?intent=a8e26eff-3c3b-4c4a-bd62-c872173dec10",
+      "originalTab": "/sports",
+      "ms": 4178
+    },
+    "casino-tile-history": {
+      "ok": true,
+      "ms": 6802
+    },
+    "staff-routes": {
+      "ok": true,
+      "out": [
+        {
+          "signedIn": false,
+          "path": "/admin",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/ADMIN",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/%61dmin",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/Admin/",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/admin/accounts",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/admin//accounts",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/agent",
+          "landed": "/agent/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/AGENT/wallet",
+          "landed": "/agent/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/wallet/operations",
+          "landed": "/wallet",
+          "heading": "Your wallet. In your control.",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin",
+          "landed": "/admin",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/ADMIN",
+          "landed": "/ADMIN",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/%61dmin",
+          "landed": "/%61dmin",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/Admin/",
+          "landed": "/Admin/",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin/accounts",
+          "landed": "/admin/accounts",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin//accounts",
+          "landed": "/admin//accounts",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/agent",
+          "landed": "/agent",
+          "heading": "Approved agent access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/AGENT/wallet",
+          "landed": "/AGENT/wallet",
+          "heading": "Approved agent access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/wallet/operations",
+          "landed": "/wallet/operations",
+          "heading": "Staff access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/workspaces/access",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        }
+      ],
+      "ms": 260579
+    },
+    "logout-account-switch": {
+      "ok": true,
+      "afterLogout": "/wallet",
+      "ms": 9446
+    },
+    "slow-probe": {
+      "ok": true,
+      "member": {
+        "during": {
+          "headerSignIn": false,
+          "heading": "A little play.\nA shared moment."
+        },
+        "after": {
+          "headerSignIn": false,
+          "heading": "A little play.\nA shared moment."
+        }
+      },
+      "guest": {
+        "during": {
+          "headerSignIn": false,
+          "heading": "A little play.\nA shared moment."
+        },
+        "after": {
+          "headerSignIn": true,
+          "heading": "A little play.\nA shared moment."
+        }
+      },
+      "sportsOpenDuring": "Loading\u2026",
+      "ms": 12255
+    },
+    "session-restore": {
+      "ok": true,
+      "out": [
+        {
+          "link": "/casino?game=synthetic-2",
+          "landed": "/casino",
+          "sequence": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh",
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me"
+          ]
+        },
+        {
+          "link": "/sports/open",
+          "landed": "/sports/open",
+          "sequence": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh",
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me"
+          ]
+        },
+        {
+          "link": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "landed": "/groups/invite/0f8b1c2e-3d4a-4b5c-8d9e-112233445566",
+          "sequence": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh",
+            "GET /api/v1/auth/me",
+            "GET /api/v1/auth/me"
+          ]
+        }
+      ],
+      "ms": 7045
+    },
+    "session-expiry": {
+      "ok": true,
+      "landed": "/rewards",
+      "guestHeader": false,
+      "shows": "balance not shown",
+      "requests": [
+        "GET /api/v1/member-rewards",
+        "GET /api/v1/auth/me",
+        "POST /api/v1/auth/refresh"
+      ],
+      "ms": 3028
+    },
+    "staff-routes-rerun": {
+      "ok": true,
+      "out": [
+        {
+          "signedIn": false,
+          "path": "/admin",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/ADMIN",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/%61dmin",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/Admin/",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/admin/accounts",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/admin//accounts",
+          "landed": "/admin/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/agent",
+          "landed": "/agent/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/AGENT/wallet",
+          "landed": "/agent/login",
+          "heading": "",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": false,
+          "path": "/wallet/operations",
+          "landed": "/wallet",
+          "heading": "Your wallet. In your control.",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "POST /api/v1/auth/refresh"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin",
+          "landed": "/admin",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/ADMIN",
+          "landed": "/ADMIN",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/%61dmin",
+          "landed": "/%61dmin",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/Admin/",
+          "landed": "/Admin/",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin/accounts",
+          "landed": "/admin/accounts",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/admin//accounts",
+          "landed": "/admin//accounts",
+          "heading": "Administrator access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/agent",
+          "landed": "/agent",
+          "heading": "Approved agent access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/AGENT/wallet",
+          "landed": "/AGENT/wallet",
+          "heading": "Approved agent access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/workspaces/access"
+          ]
+        },
+        {
+          "signedIn": true,
+          "path": "/wallet/operations",
+          "landed": "/wallet/operations",
+          "heading": "Staff access required",
+          "calls": [
+            "GET /api/v1/auth/me",
+            "GET /api/v1/notifications",
+            "GET /api/v1/workspaces/access",
+            "POST /api/v1/member-rewards/activity"
+          ]
+        }
+      ],
+      "ms": 260839,
+      "note": "Re-run of staff-routes only, same pinned app, after moving its screenshot to /admin."
+    }
+  }
+}
