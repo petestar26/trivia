@@ -1,4 +1,4 @@
-import { fixtureUsdPolicy } from '../test/payment-policy-fixture.js';
+import { fixtureEtbPolicy } from '../test/payment-policy-fixture.js';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma, Prisma } from '@socialplay/database';
 import { randomUUID } from 'node:crypto';
@@ -86,15 +86,15 @@ async function createPaymentMethod(countryId: string, tag: string) {
   });
 }
 
-async function createExchangeRate(countryId: string, fiatCurrency: string, coinsPerUnit: number, adminId: string) {
+async function createExchangeRate(countryId: string, fiatCurrency: string, adminId: string) {
   return prisma.exchangeRateConfig.create({ data: {
       countryId,
       fiatCurrency,
-      coinsPerUnit,
+      coinsPerUnit: 1,
       isActive: true,
       setBy: adminId,
       effectiveAt: new Date(Date.now() - 1_000),
-      pricingPolicy: fixtureUsdPolicy(coinsPerUnit)} });
+      pricingPolicy: fixtureEtbPolicy() } });
 }
 
 async function createFundedAgent(tag: string, countryId: string, admin: { id: string }, superAdmin: { id: string }, liquidityUsd: bigint) {
@@ -134,7 +134,7 @@ async function createHeldWithdrawal(tag: string, opts: { coins?: number; coinAmo
   const country = await createCountry(tag);
   await activateTestWithdrawalPolicy(country.id, superAdmin.id);
   const method = await createPaymentMethod(country.id, tag);
-  await createExchangeRate(country.id, 'ETB', 2, admin.id);
+  await createExchangeRate(country.id, 'ETB', admin.id);
   const { agentUser, agent } = await createFundedAgent(tag, country.id, admin, superAdmin, opts.liquidityUsd ?? 500_000n);
   const user = await createFundedUser(tag, opts.coins ?? 50_000);
   const payoutAccount = await createActivePayoutAccount(user.id, country.id, method.id);
@@ -277,7 +277,7 @@ describeIf('W-1D2A follow-up: createWithdrawal idempotency under the one-live ru
     const country = await createCountry(tag);
     await activateTestWithdrawalPolicy(country.id, superAdmin.id);
     const method = await createPaymentMethod(country.id, tag);
-    await createExchangeRate(country.id, 'ETB', 2, admin.id);
+    await createExchangeRate(country.id, 'ETB', admin.id);
     // W-1D2A follow-up fix: both concurrency tests below race two
     // createWithdrawal calls against the SAME agent's liquidity row. The
     // different-key test is only meant to prove the one-live-withdrawal

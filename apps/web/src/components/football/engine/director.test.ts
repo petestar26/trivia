@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   ACTOR_COUNT,
+  BROADCAST_RIG,
   GOAL_SEQUENCE,
   PITCH,
   REFEREE,
+  broadcastCamera,
   directorFrame,
   type DirectorInput,
   type Frame,
@@ -258,17 +260,29 @@ describe('actors', () => {
 });
 
 describe('camera and crowd', () => {
-  it('follows the ball in the broadcast view and cuts to the goal during a sequence', () => {
+  it('keeps one fixed broadcast position that pans with the ball and tightens on goals', () => {
     const play = directorFrame(input(5, []));
     expect(play.camera.y).toBeGreaterThan(10);
-    expect(Math.abs(play.camera.x - play.ball.x)).toBeLessThan(PITCH.halfLength * 0.4);
+    expect(Math.abs(play.camera.lx - play.ball.x)).toBeLessThan(8);
     const goal = directorFrame(input(7, GOALS));
     expect(goal.mode).toBe('GOAL');
-    expect(goal.camera.y).toBeLessThan(10);
+    // Same gantry, aimed toward the scoring end and zoomed tighter than live play would be
+    // for that look-at point (the operator zooms; the camera never drops to the turf).
+    const goalX = Math.sign(goal.camera.lx) * PITCH.halfLength;
+    expect(Math.sign(goal.ball.x)).toBe(Math.sign(goalX));
+    // The aim leans from the ball toward the goal being attacked.
+    expect(Math.abs(goal.camera.lx - goalX)).toBeLessThan(Math.abs(goal.ball.x - goalX));
+    const sameAim = broadcastCamera({ x: goal.camera.lx, z: (goal.camera.lz - 1.5) / 0.32 });
+    expect(goal.camera.fov).toBeLessThan(sameAim.fov);
     for (const { f } of frames(GOALS, undefined, 0.5)) {
       expect(f.crowd).toBeGreaterThanOrEqual(0);
       expect(f.crowd).toBeLessThanOrEqual(1);
-      expect(Math.abs(f.camera.x)).toBeLessThanOrEqual(PITCH.halfLength + 30);
+      expect([f.camera.x, f.camera.y, f.camera.z]).toEqual([
+        BROADCAST_RIG.x,
+        BROADCAST_RIG.y,
+        BROADCAST_RIG.z,
+      ]);
+      expect(Math.abs(f.camera.lx)).toBeLessThanOrEqual(PITCH.halfLength);
     }
   });
 });

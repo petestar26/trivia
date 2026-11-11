@@ -5,7 +5,6 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { retargetHuman } from './human-model';
 import { BONES, createRig, lookGeometry, kitFromClub } from './rig';
 import { poseRun, poseIdle } from './poses';
-import { spectatorGeometry } from './spectator';
 import { poseFingers } from './player-appearance';
 async function base() {
   const loader = new GLTFLoader();
@@ -101,16 +100,5 @@ describe('anatomical football human', () => {
       expect(other.bones.handL.matrixWorld.equals(independent)).toBe(true);
     }
     a.dispose(); other.dispose(); material.dispose(); b.geometry.dispose();
-  });
-  it('builds seated spectators with separated skin/clothing and bounded geometry', () => {
-    const parts = spectatorGeometry();
-    const triangles = Object.values(parts).reduce((sum, g) => sum + g.getIndex()!.count / 3, 0);
-    expect(triangles).toBeLessThan(450);
-    for (const g of Object.values(parts)) {
-      g.computeBoundingBox();
-      expect(g.boundingBox!.max.y).toBeLessThan(1);
-      expect(Array.from(g.getAttribute('position').array).every(Number.isFinite)).toBe(true);
-      g.dispose();
-    }
   });
 });

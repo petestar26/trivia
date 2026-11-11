@@ -363,6 +363,9 @@ jobs:
         run: pnpm --filter api exec vitest run --config vitest.session.config.ts
       - name: Build web and typecheck
         env:
+          # The PWA and gateway contracts inspect the release build; the job's
+          # NODE_ENV=test would emit a development bundle instead.
+          NODE_ENV: production
           VITE_API_PROXY: 'true'
         run: pnpm --filter web build
       - name: Generated PWA navigation contracts
