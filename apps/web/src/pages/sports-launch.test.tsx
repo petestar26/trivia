@@ -207,3 +207,43 @@ it('does not redirect a pending response after navigation within the same launch
   expect(f.navigate).not.toHaveBeenCalled();
   expect(f.post).toHaveBeenCalledTimes(1);
 });
+
+it('returns to a fresh-click sports page after BFCache restoration', async () => {
+  render(tree());
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const browse = await screen.findByRole('button', { name: 'Browse sports' });
+  expect(f.post).toHaveBeenCalledTimes(1);
+  expect(f.navigate).toHaveBeenCalledTimes(1);
+  fireEvent.click(browse);
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(2));
+});
+
+it('discards a pending sports launch across BFCache while permitting a fresh click', async () => {
+  let finishOld!: (value: unknown) => void;
+  f.post.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      })
+  );
+  render(tree());
+  await waitFor(() => expect(f.post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const browse = await screen.findByRole('button', { name: 'Browse sports' });
+  expect(f.navigate).not.toHaveBeenCalled();
+  expect(f.post).toHaveBeenCalledTimes(1);
+  fireEvent.click(browse);
+  await waitFor(() => expect(f.navigate).toHaveBeenCalledTimes(1));
+  expect(f.post).toHaveBeenCalledTimes(2);
+  await act(async () => finishOld(ready('https://sports.example.com/stale')));
+  expect(f.navigate).toHaveBeenCalledTimes(1);
+  expect(f.navigate).toHaveBeenCalledWith('https://sports.example.com/session');
+});

@@ -583,3 +583,61 @@ it('requires fresh Play when catalogue readiness outlives the original intent TT
     storage.restore();
   }
 });
+
+it('allows a fresh Play after BFCache restoration without reviving the spent arrival intent', async () => {
+  const storage = installMemoryStorage();
+  try {
+    const intent = createLaunchIntent('casino', 'tester', game.id);
+    const view = mount(undefined, `/casino?game=${encodeURIComponent(game.id)}&intent=${intent}`);
+    await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    });
+    const play = await screen.findByRole('button', { name: 'Play' });
+    expect(view.container.querySelector('iframe')).toBeNull();
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    fireEvent.click(play);
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(view.container.querySelector('iframe')).not.toBeNull());
+  } finally {
+    storage.restore();
+  }
+});
+
+it('never publishes a pre-BFCache launch response after a fresh restored Play', async () => {
+  let finishOld!: (value: unknown) => void;
+  mocks.post.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      })
+  );
+  const view = mount();
+  fireEvent.click(await screen.findByRole('button', { name: 'Play Test Slot' }));
+  await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  const play = await screen.findByRole('button', { name: 'Play Test Slot' });
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  expect(view.container.querySelector('iframe')).toBeNull();
+  fireEvent.click(play);
+  await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(view.container.querySelector('iframe')).toHaveAttribute(
+      'src',
+      'https://games.example.com/session'
+    )
+  );
+  await act(async () =>
+    finishOld(ok({ mode: 'virtual-test', url: 'https://games.example.com/stale' }))
+  );
+  expect(view.container.querySelector('iframe')).toHaveAttribute(
+    'src',
+    'https://games.example.com/session'
+  );
+  expect(mocks.post).toHaveBeenCalledTimes(2);
+});

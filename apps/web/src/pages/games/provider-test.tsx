@@ -151,14 +151,28 @@ export function ProviderTestPage() {
 
   const { user } = useAuth();
   const location = useLocation();
+  const [restoration, setRestoration] = useState(0);
+  useEffect(() => {
+    // BFCache preserves effects and refs. Replace the old launch session rather
+    // than reactivating a pagehide guard that still owns pending responses.
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setRestoration((value) => value + 1);
+    };
+    window.addEventListener('pageshow', restore);
+    return () => window.removeEventListener('pageshow', restore);
+  }, []);
   return user ? (
-    <ProviderTestSession key={`${user.id}:${sessionRevision()}:${location.key}`} userId={user.id} />
+    <ProviderTestSession
+      key={`${user.id}:${sessionRevision()}:${location.key}:${restoration}`}
+      userId={user.id}
+      allowArrival={restoration === 0}
+    />
   ) : (
     <p>{translateUi('Sign in to browse the casino.')}</p>
   );
 }
 
-function ProviderTestSession({ userId }: { userId: string }) {
+function ProviderTestSession({ userId, allowArrival }: { userId: string; allowArrival: boolean }) {
   const { t: translateUi, locale: interfaceLocale } = useInterfaceLanguage();
   const { favoriteIds, toggleFavorite, storageUnavailable, limitReached, maxFavorites } =
     useFavoriteGames(userId, 'casino');
@@ -189,12 +203,9 @@ function ProviderTestSession({ userId }: { userId: string }) {
   }, []);
   useEffect(() => {
     let active = true;
-    arrival.current ??= consumeLaunchPermit(
-      'casino',
-      userId,
-      searchParams.get('intent'),
-      requestedGame ?? ''
-    );
+    arrival.current ??= allowArrival
+      ? consumeLaunchPermit('casino', userId, searchParams.get('intent'), requestedGame ?? '')
+      : Promise.resolve(null);
     void arrival.current.then((permit) => {
       if (active && activePage.current) {
         arrivalDeadline.current = permit?.expiresAt ?? 0;
@@ -204,7 +215,7 @@ function ProviderTestSession({ userId }: { userId: string }) {
     return () => {
       active = false;
     };
-  }, [searchParams, userId, requestedGame]);
+  }, [searchParams, userId, requestedGame, allowArrival]);
   const [selectionError, setSelectionError] = useState(false);
   const [motionEnabled, setMotionEnabled] = useState(
     () =>

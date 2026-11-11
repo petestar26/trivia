@@ -13,14 +13,28 @@ export function SportsLaunchPage() {
 
   const { user } = useAuth();
   const location = useLocation();
+  const [restoration, setRestoration] = useState(0);
+  useEffect(() => {
+    // A restored document keeps React mounted. Give it a fresh click-only
+    // session; never revive the previous launch promise or arrival permission.
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) setRestoration((value) => value + 1);
+    };
+    window.addEventListener('pageshow', restore);
+    return () => window.removeEventListener('pageshow', restore);
+  }, []);
   return user ? (
-    <SportsLaunch key={`${user.id}:${sessionRevision()}:${location.key}`} userId={user.id} />
+    <SportsLaunch
+      key={`${user.id}:${sessionRevision()}:${location.key}:${restoration}`}
+      userId={user.id}
+      allowArrival={restoration === 0}
+    />
   ) : (
     <p>{translateUi('Sign in to browse sports.')}</p>
   );
 }
 
-function SportsLaunch({ userId }: { userId: string }) {
+function SportsLaunch({ userId, allowArrival }: { userId: string; allowArrival: boolean }) {
   const { t: translateUi } = useInterfaceLanguage();
 
   const [params] = useSearchParams();
@@ -33,7 +47,9 @@ function SportsLaunch({ userId }: { userId: string }) {
       active = false;
     };
     window.addEventListener('pagehide', leave);
-    arrival.current ??= consumeLaunchIntent('sports', userId, params.get('intent'));
+    arrival.current ??= allowArrival
+      ? consumeLaunchIntent('sports', userId, params.get('intent'))
+      : Promise.resolve(false);
     void arrival.current.then((value) => {
       if (active) setAllowed(value && revision.current === sessionRevision());
     });
@@ -41,7 +57,7 @@ function SportsLaunch({ userId }: { userId: string }) {
       leave();
       window.removeEventListener('pagehide', leave);
     };
-  }, [params, userId]);
+  }, [params, userId, allowArrival]);
 
   const request = useRef<Promise<string> | null>(null);
   const [attempt, setAttempt] = useState(0);
