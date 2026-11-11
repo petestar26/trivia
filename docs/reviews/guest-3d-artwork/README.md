@@ -16,7 +16,7 @@ outline illustrations in guest casino categories and feature pages. These are
 - Decorative images have empty alt text and aria-hidden parents.
 - Local lazy-loaded WebP images preserve alpha; longest dimension 640px.
 - All nine assets total 344,402 bytes. Only page-relevant images are requested.
-- Artwork moves gently once for 2.6 seconds, then rests. Hover/focus gives a
+- Artwork moves gently once for 1.8 seconds, then rests. Hover/focus gives a
   small lift; text and controls remain stationary. Reduced motion disables both.
 - The existing isolated preview server denies every API and non-GET request,
   blocks frames/external connections/workers, and serves no service worker.
@@ -48,3 +48,7 @@ Full web suite: 196 files, 2,971 tests passed. Final guest-shell rerun after
 image-load animation gating: 46/46 passed. Production build passes with the
 existing large engine chunk/PWA precache warnings. Rendered desktop/mobile
 review is a separate check; this document does not claim deployment or live testing.
+
+Mobile QA correction: pictures are absolutely bounded inside their artwork panel
+with a 12px inset, preventing intrinsic image sizing from overflowing the 130px
+phone casino panel. The inset also leaves room for the finite decorative motion.
